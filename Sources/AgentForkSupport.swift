@@ -54,6 +54,7 @@ enum AgentForkSupport {
         private var killTimer: DispatchSourceTimer?
         private var continuation: CheckedContinuation<String?, Never>?
         private var completed = false
+        private var waitingForOutputDrain = false
         private var timedOut = false
         private var didLaunch = false
         private var terminationRequested = false
@@ -165,8 +166,13 @@ enum AgentForkSupport {
             guard !completed else { return }
             timedOut = true
             terminationRequested = true
+            if waitingForOutputDrain {
+                complete(returning: nil)
+                return
+            }
             guard didLaunch, let process else { return }
             guard process.isRunning else {
+                complete(returning: nil)
                 return
             }
             process.terminate()
@@ -197,22 +203,51 @@ enum AgentForkSupport {
         }
 
         private func finish(exitStatus: Int32? = nil) {
+            let process: Process?
+            let killTimer: DispatchSourceTimer?
+            let timedOut: Bool
+
+            guard !completed else { return }
+            process = self.process
+            self.process = nil
+            killTimer = self.killTimer
+            self.killTimer = nil
+            timedOut = self.timedOut
+
+            killTimer?.cancel()
+            process?.terminationHandler = nil
+
+            guard !timedOut, exitStatus == 0, let outputDrainTask else {
+                complete(returning: nil)
+                return
+            }
+            waitingForOutputDrain = true
+            Task {
+                let output = await outputDrainTask.value
+                await self.finishDrainedOutput(output)
+            }
+        }
+
+        private func finishDrainedOutput(_ output: Data) {
+            guard !completed else { return }
+            complete(returning: String(data: output, encoding: .utf8))
+        }
+
+        private func complete(returning result: String?) {
             let continuation: CheckedContinuation<String?, Never>?
             let pipe: Pipe?
             let outputDrainTask: Task<Data, Never>?
             let process: Process?
             let timeoutTimer: DispatchSourceTimer?
             let killTimer: DispatchSourceTimer?
-            let timedOut: Bool
 
             guard !completed else { return }
             completed = true
+            waitingForOutputDrain = false
             continuation = self.continuation
             self.continuation = nil
             pipe = self.pipe
             self.pipe = nil
-            // Safety: this actor is the only owner that clears and later touches
-            // the process reference during cleanup.
             outputDrainTask = self.outputDrainTask
             self.outputDrainTask = nil
             process = self.process
@@ -221,28 +256,23 @@ enum AgentForkSupport {
             self.timeoutTimer = nil
             killTimer = self.killTimer
             self.killTimer = nil
-            timedOut = self.timedOut
 
             timeoutTimer?.cancel()
             killTimer?.cancel()
             process?.terminationHandler = nil
-            if outputDrainTask == nil {
-                try? pipe?.fileHandleForReading.close()
-                try? pipe?.fileHandleForWriting.close()
-            }
-            guard !timedOut, exitStatus == 0, let outputDrainTask else {
-                continuation?.resume(returning: nil)
-                return
-            }
-            Task {
-                let output = await outputDrainTask.value
-                continuation?.resume(returning: String(data: output, encoding: .utf8))
-            }
+            outputDrainTask?.cancel()
+            try? pipe?.fileHandleForWriting.close()
+            try? pipe?.fileHandleForReading.close()
+            continuation?.resume(returning: result)
         }
     }
 
-    /// `@unchecked Sendable` is safe because the read handle is consumed by one
-    /// detached drain task after initialization and is never accessed elsewhere.
+    /// Safety: `@unchecked Sendable` is scoped to the probe runner: one detached task
+    /// consumes the read handle, and the actor may close that same handle only
+    /// to break a blocked pipe read after the probe deadline. The handle never
+    /// escapes to app state, and a timeout/close race only completes the probe
+    /// as unsupported.
+    // Safety: single detached reader; actor closes the pipe only to end a timed-out probe.
     private final class CommandOutputDrain: @unchecked Sendable {
         private let readHandle: FileHandle
         private let maximumBytes: Int
@@ -420,7 +450,7 @@ enum AgentForkSupport {
     }
 
     static func piFamilyVersionSupportsFork(_ output: String, agentID: String) -> Bool {
-        guard let version = SemanticVersion.first(in: output) else { return false }
+        guard let version = piFamilyProbeVersion(in: output, agentID: agentID) else { return false }
         switch agentID {
         case "pi":
             return version >= minimumPiForkVersion
@@ -429,6 +459,33 @@ enum AgentForkSupport {
         default:
             return false
         }
+    }
+
+    private static func piFamilyProbeVersion(in output: String, agentID: String) -> SemanticVersion? {
+        let normalizedAgentID = agentID
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard normalizedAgentID == "pi" || normalizedAgentID == "omp" else { return nil }
+
+        var candidates: [SemanticVersion] = []
+        for rawLine in output.split(whereSeparator: \.isNewline) {
+            let line = String(rawLine).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let version = SemanticVersion.first(in: line) else { continue }
+            let lowercasedLine = line.lowercased()
+            if lowercasedLine.range(
+                of: #"^v?\d+\.\d+(?:\.\d+)?$"#,
+                options: .regularExpression
+            ) != nil || piFamilyVersionLineMentionsAgent(lowercasedLine, agentID: normalizedAgentID) {
+                candidates.append(version)
+            }
+        }
+        return candidates.count == 1 ? candidates[0] : nil
+    }
+
+    private static func piFamilyVersionLineMentionsAgent(_ line: String, agentID: String) -> Bool {
+        line
+            .split { !$0.isLetter && !$0.isNumber }
+            .contains { $0 == agentID }
     }
 
     static func openCodeVersionSupportsFork(_ output: String) -> Bool {

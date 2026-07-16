@@ -450,6 +450,8 @@ struct WorkspaceForkConversationContextMenuTests {
         #expect(!AgentForkSupport.piFamilyVersionSupportsFork("0.59.9", agentID: "pi"))
         #expect(AgentForkSupport.piFamilyVersionSupportsFork("omp/13.15.0", agentID: "omp"))
         #expect(!AgentForkSupport.piFamilyVersionSupportsFork("omp/13.14.2", agentID: "omp"))
+        #expect(!AgentForkSupport.piFamilyVersionSupportsFork("node v22.1.0\npi 0.59.9", agentID: "pi"))
+        #expect(!AgentForkSupport.piFamilyVersionSupportsFork("node v22.1.0\nomp/13.14.2", agentID: "omp"))
         #expect(!AgentForkSupport.piFamilyVersionSupportsFork("16.5.2", agentID: "unknown"))
     }
 
@@ -804,6 +806,42 @@ struct WorkspaceForkConversationContextMenuTests {
         var unsupportedEnvironmentSnapshot = supportedEnvironmentSnapshot
         unsupportedEnvironmentSnapshot.launchCommand?.environment = ["PI_CONFIG_DIR": "unsupported"]
         #expect(!(await AgentForkSupport.supportsFork(snapshot: unsupportedEnvironmentSnapshot)))
+    }
+
+    @Test
+    func forkCapabilityProbeTimesOutWhenWrapperLeavesOutputPipeOpen() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-pi-leaky-probe-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let executable = root.appendingPathComponent("pi", isDirectory: false)
+        try """
+        #!/bin/sh
+        (sleep 6) &
+        printf '%s\\n' '0.80.6'
+        """
+            .write(to: executable, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .pi,
+            sessionId: "leaky-pipe-session",
+            workingDirectory: root.path,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "pi",
+                executablePath: executable.path,
+                arguments: [executable.path, "--session", "leaky-pipe-session"],
+                workingDirectory: root.path,
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        let start = Date()
+        #expect(!(await AgentForkSupport.supportsFork(snapshot: snapshot)))
+        #expect(Date().timeIntervalSince(start) < 5)
     }
 
     @Test
