@@ -8,6 +8,29 @@ import Testing
 @testable import cmux
 #endif
 
+private actor AsyncTestBarrier {
+    private let expectedCount: Int
+    private var waitingContinuations: [CheckedContinuation<Void, Never>] = []
+
+    init(expectedCount: Int) {
+        self.expectedCount = expectedCount
+    }
+
+    func wait() async {
+        if waitingContinuations.count + 1 == expectedCount {
+            let continuations = waitingContinuations
+            waitingContinuations.removeAll(keepingCapacity: false)
+            for continuation in continuations {
+                continuation.resume()
+            }
+            return
+        }
+        await withCheckedContinuation { continuation in
+            waitingContinuations.append(continuation)
+        }
+    }
+}
+
 @MainActor
 @Suite(.serialized)
 struct WorkspaceForkConversationContextMenuTests {
@@ -2199,6 +2222,103 @@ struct WorkspaceForkConversationContextMenuTests {
         }
 
         #expect(probeCount.withLock { $0 } == 130)
+    }
+
+    @Test
+    func sharedForkProbeMergesConcurrentExecutableWatchOpenForSameExecutable() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-fork-concurrent-shared-watch-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        try fm.createDirectory(at: root.appendingPathComponent(".cmuxterm", isDirectory: true), withIntermediateDirectories: true)
+
+        let executable = root.appendingPathComponent("pi", isDirectory: false)
+        try writeExecutableFixture(at: executable, output: "pi 0.80.6")
+        let barrier = AsyncTestBarrier(expectedCount: 2)
+        let sharedIndex = SharedLiveAgentIndex(
+            forkSupportProvider: { _, _ in true },
+            hookStoreDirectoryProvider: {
+                root.appendingPathComponent(".cmuxterm", isDirectory: true).path
+            },
+            forkExecutableWatchOpenSuspensionForTesting: {
+                await barrier.wait()
+            }
+        )
+        let firstWorkspaceId = UUID()
+        let firstPanelId = UUID()
+        let secondWorkspaceId = UUID()
+        let secondPanelId = UUID()
+        let firstSnapshot = makePiFamilySnapshot(
+            launcher: "pi",
+            workspaceRoot: root.path,
+            executablePath: executable.path
+        )
+        let secondSnapshot = makePiFamilySnapshot(
+            launcher: "pi",
+            workspaceRoot: root.path,
+            executablePath: executable.path
+        )
+
+        async let firstRefresh: Void = sharedIndex.refreshForkAvailabilityNow(
+            workspaceId: firstWorkspaceId,
+            panelId: firstPanelId,
+            fallbackSnapshot: firstSnapshot
+        )
+        async let secondRefresh: Void = sharedIndex.refreshForkAvailabilityNow(
+            workspaceId: secondWorkspaceId,
+            panelId: secondPanelId,
+            fallbackSnapshot: secondSnapshot
+        )
+        _ = await (firstRefresh, secondRefresh)
+
+        #expect(
+            sharedIndex.forkSupportProbeAccepted(
+                workspaceId: firstWorkspaceId,
+                panelId: firstPanelId,
+                fallbackSnapshot: firstSnapshot
+            )
+        )
+        #expect(
+            sharedIndex.forkSupportProbeAccepted(
+                workspaceId: secondWorkspaceId,
+                panelId: secondPanelId,
+                fallbackSnapshot: secondSnapshot
+            )
+        )
+
+        try writeExecutableFixture(at: executable, output: "pi 0.59.0")
+        for _ in 0..<20 {
+            if !sharedIndex.forkSupportProbeAccepted(
+                workspaceId: firstWorkspaceId,
+                panelId: firstPanelId,
+                fallbackSnapshot: firstSnapshot
+            ),
+               !sharedIndex.forkSupportProbeAccepted(
+                workspaceId: secondWorkspaceId,
+                panelId: secondPanelId,
+                fallbackSnapshot: secondSnapshot
+               ) {
+                break
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+
+        #expect(
+            !sharedIndex.forkSupportProbeAccepted(
+                workspaceId: firstWorkspaceId,
+                panelId: firstPanelId,
+                fallbackSnapshot: firstSnapshot
+            ),
+            "A concurrent shared executable watch install should keep the first panel attached to invalidation."
+        )
+        #expect(
+            !sharedIndex.forkSupportProbeAccepted(
+                workspaceId: secondWorkspaceId,
+                panelId: secondPanelId,
+                fallbackSnapshot: secondSnapshot
+            ),
+            "A concurrent shared executable watch install should keep the second panel attached to invalidation."
+        )
     }
 
     @Test

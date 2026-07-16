@@ -73,6 +73,7 @@ final class SharedLiveAgentIndex {
     private let forkSupportProvider: @Sendable (SessionRestorableAgentSnapshot, Bool) async -> Bool
     private let hookStoreDirectoryProvider: @MainActor () -> String
     private let dateProvider: @MainActor () -> Date
+    private let forkExecutableWatchOpenSuspensionForTesting: @MainActor @Sendable () async -> Void
 
     init(
         indexLoader: @escaping @Sendable () -> SharedLiveAgentIndexLoader.LoadResult = {
@@ -91,7 +92,8 @@ final class SharedLiveAgentIndex {
         },
         dateProvider: @escaping @MainActor () -> Date = {
             Date()
-        }
+        },
+        forkExecutableWatchOpenSuspensionForTesting: @escaping @MainActor @Sendable () async -> Void = {}
     ) {
         self.indexLoader = indexLoader
         self.forkSupportProvider = { snapshot, isRemoteContext in
@@ -106,6 +108,7 @@ final class SharedLiveAgentIndex {
         }
         self.hookStoreDirectoryProvider = hookStoreDirectoryProvider
         self.dateProvider = dateProvider
+        self.forkExecutableWatchOpenSuspensionForTesting = forkExecutableWatchOpenSuspensionForTesting
     }
 
     deinit {
@@ -1018,6 +1021,7 @@ final class SharedLiveAgentIndex {
             return record.generation
         }
 
+        await forkExecutableWatchOpenSuspensionForTesting()
         let generation = UUID()
         let openedFileDescriptors = await Task.detached(priority: .utility) {
             Self.openForkExecutableWatchFileDescriptors(watchPaths: watchPaths)
@@ -1026,6 +1030,14 @@ final class SharedLiveAgentIndex {
             return nil
         }
         pruneExpiredForkSupportValidations(now: dateProvider())
+        if var record = forkExecutableWatchRecords[watchKey] {
+            openedFileDescriptors.forEach { Darwin.close($0) }
+            record.probeKeys.insert(probeKey)
+            forkExecutableWatchRecords[watchKey] = record
+            forkExecutableWatchKeysByProbeKey[probeKey] = watchKey
+            forkExecutableWatchGenerations[probeKey] = record.generation
+            return record.generation
+        }
         let activeWatchCount = forkExecutableWatchRecords.values.reduce(0) { partial, record in
             partial + record.sources.count
         }
