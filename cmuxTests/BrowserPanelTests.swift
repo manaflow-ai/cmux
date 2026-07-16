@@ -703,6 +703,25 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         XCTAssertNotNil(config.urlSchemeHandler(forURLScheme: CmuxDiffViewerURLSchemeHandler.scheme))
     }
 
+    func testDiffViewerSchemeLifecycleDropsCallbacksAfterSynchronousStop() {
+        let lifecycle = DiffViewerSchemeTaskLifecycle()
+        let taskID = ObjectIdentifier(NSObject())
+        var callbackCount = 0
+
+        lifecycle.register(taskID)
+        XCTAssertTrue(lifecycle.deliver(taskID) {
+            XCTAssertTrue(Thread.isMainThread)
+            callbackCount += 1
+        })
+
+        lifecycle.stop(taskID)
+
+        XCTAssertFalse(lifecycle.deliver(taskID) {
+            callbackCount += 1
+        })
+        XCTAssertEqual(callbackCount, 1)
+    }
+
     func testDiffViewerSchemeLoadsSameOriginModuleFromAllowlist() throws {
         let token = UUID().uuidString.lowercased()
         let rootURL = trustedDiffViewerTestRoot()
