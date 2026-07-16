@@ -7196,15 +7196,35 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
+        makeContextMenu(for: event, sendsTerminalPointerEvent: true)
+    }
+
+    /// Builds the terminal's cmux context menu for pane chrome outside the
+    /// terminal viewport without sending an out-of-bounds mouse event to Ghostty.
+    func paneContextMenu(for event: NSEvent) -> NSMenu? {
+        makeContextMenu(for: event, sendsTerminalPointerEvent: false)
+    }
+
+    private func makeContextMenu(
+        for event: NSEvent,
+        sendsTerminalPointerEvent: Bool
+    ) -> NSMenu? {
         guard let surface = surface else { return nil }
-        if ghostty_surface_mouse_captured(surface) {
+        if sendsTerminalPointerEvent, ghostty_surface_mouse_captured(surface) {
             return nil
         }
 
         window?.makeFirstResponder(self)
-        let point = convert(event.locationInWindow, from: nil)
-        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, mouseModsFromEvent(event))
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, mouseModsFromEvent(event))
+        if sendsTerminalPointerEvent {
+            let point = convert(event.locationInWindow, from: nil)
+            ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, mouseModsFromEvent(event))
+            _ = ghostty_surface_mouse_button(
+                surface,
+                GHOSTTY_MOUSE_PRESS,
+                GHOSTTY_MOUSE_RIGHT,
+                mouseModsFromEvent(event)
+            )
+        }
 
         let menu = NSMenu()
         if onTriggerFlash != nil {
@@ -7856,19 +7876,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 }
 
-private final class TerminalPaneBackgroundView: NSView {
-    var onPointerDown: (() -> Void)?
-    var onScrollWheel: ((NSEvent) -> Void)?
-
-    override func mouseDown(with event: NSEvent) {
-        onPointerDown?()
-    }
-
-    override func scrollWheel(with event: NSEvent) {
-        onScrollWheel?(event)
-    }
-}
-
 private extension NSScreen {
     var displayID: UInt32? {
         let key = NSDeviceDescriptionKey("NSScreenNumber")
@@ -8423,12 +8430,8 @@ final class GhosttySurfaceScrollView: NSView {
         backgroundView.wantsLayer = true
         backgroundView.layer?.backgroundColor = NSColor.clear.cgColor
         backgroundView.layer?.isOpaque = false
-        backgroundView.onPointerDown = { [weak surfaceView] in
-            surfaceView?.focusFromPointerDown()
-        }
-        backgroundView.onScrollWheel = { [weak scrollView] event in
-            scrollView?.scrollWheel(with: event)
-        }
+        backgroundView.terminalSurfaceView = surfaceView
+        backgroundView.terminalScrollView = scrollView
         addSubview(backgroundView)
         addSubview(scrollView)
         mobileViewportBorderOverlayView.isHidden = true
