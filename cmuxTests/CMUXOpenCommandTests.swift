@@ -1101,7 +1101,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(large.patch.contains("+new line 4999"), large.patch)
     }
 
-    func testTypedDiffCommandOpensFinalSessionPageWithoutDeferredNavigation() throws {
+    func testTypedDiffCommandOpensLoadingPageBeforePreparingSession() throws {
         let cliPath = try bundledCLIPath()
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -1155,24 +1155,39 @@ final class CMUXOpenCommandTests: XCTestCase {
         let state = MockSocketServerState()
         let openedURLBox = AsyncValueBox<String?>(nil)
         let openedHTMLURLBox = AsyncValueBox<URL?>(nil)
+        let openedHTMLBox = AsyncValueBox<String?>(nil)
+        let openedFilesBox = AsyncValueBox<[[String: Any]]?>(nil)
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
         }
 
-        let serverClosed = startMockServer(listenerFD: listenerFD, state: state) { line in
+        let serverClosed = startMockServer(listenerFD: listenerFD, state: state, connectionCount: 2) { line in
             guard let payload = Self.v2Payload(from: line),
                   let id = payload["id"] as? String,
-                  let method = payload["method"] as? String,
-                  method == "browser.open_split",
-                  let params = payload["params"] as? [String: Any],
-                  let rawURL = params["url"] as? String else {
+                  let method = payload["method"] as? String else {
                 return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
             }
-            openedURLBox.set(rawURL)
-            if let htmlURL = Self.diffViewerHTMLFileURLFromHTTPManifest(for: rawURL) {
-                openedHTMLURLBox.set(htmlURL)
+            let params = payload["params"] as? [String: Any] ?? [:]
+            if method == "browser.navigate" {
+                return Self.v2Response(id: id, ok: true, result: ["url": params["url"] as? String ?? ""])
             }
+            guard method == "browser.open_split",
+                  let rawURL = params["url"] as? String,
+                  let viewerURL = URL(string: rawURL),
+                  let files = params["diff_viewer_files"] as? [[String: Any]],
+                  let file = files.first(where: {
+                      $0["request_path"] as? String == viewerURL.path &&
+                          $0["mime_type"] as? String == "text/html"
+                  }),
+                  let filePath = file["file_path"] as? String else {
+                return Self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": method])
+            }
+            let htmlURL = URL(fileURLWithPath: filePath)
+            openedURLBox.set(rawURL)
+            openedHTMLURLBox.set(htmlURL)
+            openedHTMLBox.set(try? String(contentsOf: htmlURL, encoding: .utf8))
+            openedFilesBox.set(files)
             return Self.v2Response(
                 id: id,
                 ok: true,
@@ -1198,16 +1213,25 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(result.stdout.contains("OK surface=surface-id pane=pane-id"), result.stdout)
         XCTAssertEqual(
             state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String },
-            ["browser.open_split"]
+            ["browser.open_split", "browser.navigate"]
         )
         XCTAssertFalse(FileManager.default.fileExists(atPath: diffStartedURL.path))
 
         let openedURL = try XCTUnwrap(openedURLBox.get())
         let htmlURL = try XCTUnwrap(openedHTMLURLBox.get())
-        XCTAssertTrue(htmlURL.lastPathComponent.hasSuffix("-viewer.html"), htmlURL.path)
-        XCTAssertFalse(htmlURL.lastPathComponent.hasSuffix("-opening.html"), htmlURL.path)
-        let html = try String(contentsOf: htmlURL, encoding: .utf8)
-        let patch = try String(contentsOf: htmlURL.deletingPathExtension().appendingPathExtension("patch"), encoding: .utf8)
+        let openingHTML = try XCTUnwrap(openedHTMLBox.get())
+        XCTAssertTrue(htmlURL.lastPathComponent.hasSuffix("-opening.html"), htmlURL.path)
+        XCTAssertTrue(openingHTML.contains("data-cmux-diff-pending=\"true\""), openingHTML)
+        XCTAssertTrue(openingHTML.contains("Loading diff: Unstaged"), openingHTML)
+        XCTAssertFalse(openingHTML.contains("cmux-diff-viewer-config"), openingHTML)
+
+        let redirectHTML = try String(contentsOf: htmlURL, encoding: .utf8)
+        let redirectURL = try XCTUnwrap(Self.diffViewerRedirectURL(from: redirectHTML))
+        let finalHTMLURL = try diffViewerHTMLFileURL(for: redirectURL, from: [
+            "diff_viewer_files": try XCTUnwrap(openedFilesBox.get())
+        ])
+        let html = try String(contentsOf: finalHTMLURL, encoding: .utf8)
+        let patch = try String(contentsOf: finalHTMLURL.deletingPathExtension().appendingPathExtension("patch"), encoding: .utf8)
         let payload = try diffViewerPayload(from: html)
         XCTAssertTrue(html.contains("data-cmux-diff-pending=\"true\""), html)
         XCTAssertFalse(html.contains("data-cmux-diff-redirect="), html)
@@ -1738,12 +1762,31 @@ final class CMUXOpenCommandTests: XCTestCase {
             return URL(fileURLWithPath: filePath, isDirectory: false)
         }
 
-        let files = try XCTUnwrap(params["diff_viewer_files"] as? [[String: Any]])
+        let suppliedFiles = params["diff_viewer_files"] as? [[String: Any]] ?? []
         let rawRequestPath = URLComponents(url: viewerURL, resolvingAgainstBaseURL: false)?.percentEncodedPath ?? viewerURL.path
         let requestPath = rawRequestPath.isEmpty ? "/" : rawRequestPath
-        let entry = try XCTUnwrap(files.first { file in
+        if let entry = suppliedFiles.first(where: { file in
             file["request_path"] as? String == requestPath &&
             file["mime_type"] as? String == "text/html"
+        }) {
+            let filePath = try XCTUnwrap(entry["file_path"] as? String)
+            return URL(fileURLWithPath: filePath, isDirectory: false)
+        }
+
+        // Deferred diff setup rewrites the per-token manifest before navigating
+        // the already-open surface. The initial open request only contains the
+        // lightweight loading page, so resolve the final page from that manifest.
+        let token = try XCTUnwrap(viewerURL.host)
+        let manifestURL = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-diff-viewer-\(Darwin.getuid())", isDirectory: true)
+            .appendingPathComponent(".manifest-\(token).json", isDirectory: false)
+        let manifest = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as? [String: Any]
+        )
+        let files = try XCTUnwrap(manifest["files"] as? [[String: Any]])
+        let entry = try XCTUnwrap(files.first { file in
+            file["request_path"] as? String == requestPath &&
+                file["mime_type"] as? String == "text/html"
         })
         let filePath = try XCTUnwrap(entry["file_path"] as? String)
         return URL(fileURLWithPath: filePath, isDirectory: false)
@@ -2093,45 +2136,52 @@ final class CMUXOpenCommandTests: XCTestCase {
     private func startMockServer(
         listenerFD: Int32,
         state: MockSocketServerState,
+        connectionCount: Int = 1,
         handler: @escaping @Sendable (String) -> String
     ) -> XCTestExpectation {
         let handled = expectation(description: "cli open mock socket handled")
-        DispatchQueue.global(qos: .userInitiated).async {
-            var clientAddr = sockaddr_un()
-            var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
-            let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
-                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                    Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+        for connectionIndex in 0..<max(1, connectionCount) {
+            DispatchQueue.global(qos: .userInitiated).async {
+                var clientAddr = sockaddr_un()
+                var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
+                let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+                    ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                        Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+                    }
                 }
-            }
-            guard clientFD >= 0 else {
-                handled.fulfill()
-                return
-            }
-            defer {
-                Darwin.close(clientFD)
-                handled.fulfill()
-            }
-
-            var pending = Data()
-            var buffer = [UInt8](repeating: 0, count: 4096)
-            while true {
-                let count = Darwin.read(clientFD, &buffer, buffer.count)
-                if count < 0 {
-                    if errno == EINTR { continue }
+                guard clientFD >= 0 else {
+                    if connectionIndex == 0 {
+                        handled.fulfill()
+                    }
                     return
                 }
-                if count == 0 { return }
-                pending.append(buffer, count: count)
+                defer {
+                    Darwin.close(clientFD)
+                    if connectionIndex == 0 {
+                        handled.fulfill()
+                    }
+                }
 
-                while let newlineRange = pending.firstRange(of: Data([0x0A])) {
-                    let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
-                    pending.removeSubrange(0...newlineRange.lowerBound)
-                    guard let line = String(data: lineData, encoding: .utf8) else { continue }
-                    state.append(line)
-                    let response = handler(line) + "\n"
-                    _ = response.withCString { ptr in
-                        Darwin.write(clientFD, ptr, strlen(ptr))
+                var pending = Data()
+                var buffer = [UInt8](repeating: 0, count: 4096)
+                while true {
+                    let count = Darwin.read(clientFD, &buffer, buffer.count)
+                    if count < 0 {
+                        if errno == EINTR { continue }
+                        return
+                    }
+                    if count == 0 { return }
+                    pending.append(buffer, count: count)
+
+                    while let newlineRange = pending.firstRange(of: Data([0x0A])) {
+                        let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
+                        pending.removeSubrange(0...newlineRange.lowerBound)
+                        guard let line = String(data: lineData, encoding: .utf8) else { continue }
+                        state.append(line)
+                        let response = handler(line) + "\n"
+                        _ = response.withCString { ptr in
+                            Darwin.write(clientFD, ptr, strlen(ptr))
+                        }
                     }
                 }
             }
