@@ -19,6 +19,7 @@ extension MobileWorkspacePreview {
                 MobileTerminalPreview(remote: terminal)
             }
         )
+        paneLayout = remote.layout.map { MobileWorkspacePaneLayout(remote: $0) }
     }
 }
 

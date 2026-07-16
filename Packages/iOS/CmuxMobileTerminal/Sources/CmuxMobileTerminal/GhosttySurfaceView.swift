@@ -338,6 +338,20 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     var surface: ghostty_surface_t?
     var surfaceGeneration: UInt64 = 0
+    /// Whether this surface may report its natural grid to the Mac. A report
+    /// becomes a viewport grant that RESIZES the shared PTY, so preview mounts
+    /// (a pager neighbor peeked mid-swipe, a map miniature) disable this: the
+    /// surface still streams and renders, but never grants. Flipping it on
+    /// re-arms the last computed grid so the surface negotiates its fit
+    /// exactly once, when it actually becomes the viewed surface.
+    public var viewportReportingEnabled = true {
+        didSet {
+            guard viewportReportingEnabled, !oldValue else { return }
+            guard let grid = lastReportedSize else { return }
+            pendingViewportReport = grid
+            viewportReportSettleFrames = 0
+        }
+    }
     private var lastReportedSize: TerminalGridSize?
     /// Latest natural grid awaiting a debounced report to the Mac. The display
     /// link sends it only after the grid has held steady for
@@ -2209,6 +2223,18 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         activeInputSurface?.resignInput()
     }
 
+    /// The `hostSurfaceID` of the terminal whose hidden input currently holds
+    /// first responder, or `nil` when no terminal owns the keyboard. The
+    /// surface pager reads this at page-settle to hand the keyboard to the
+    /// incoming surface instead of leaving keystrokes routed to the page the
+    /// user just swiped away from.
+    public static var activeInputHostSurfaceID: String? {
+        guard let surface = activeInputSurface,
+              surface.inputProxy.isFirstResponder,
+              !surface.isDismantled else { return nil }
+        return surface.hostSurfaceID
+    }
+
     /// Resigns this surface's hidden text input and clears keyboard geometry.
     public func resignInput() {
         inputProxy.resignFirstResponder()
@@ -2656,7 +2682,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // "bad intermediate state". Zoom is a LOCAL font change; the shared
         // grid should renegotiate exactly once, after the user settles.
         if let pending = pendingViewportReport {
-            if zoomSettleFrames != nil {
+            if !viewportReportingEnabled {
+                // Preview mount: hold the report armed (not sent, not cleared)
+                // so enabling reporting later sends exactly one settled grant.
+                viewportReportSettleFrames = 0
+            } else if zoomSettleFrames != nil {
                 viewportReportSettleFrames = 0
             } else {
                 viewportReportSettleFrames += 1
@@ -2935,7 +2965,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// display-link driven (the existing settle machinery re-fires it); a
     /// confirmed `applyViewSize` resets the counter. No-op once the cap is hit.
     public func retryViewportReport() {
-        guard viewportReportRetries < Self.maxViewportReportRetries,
+        guard viewportReportingEnabled,
+              viewportReportRetries < Self.maxViewportReportRetries,
               let pending = lastReportedSize, pending.columns > 0, pending.rows > 0 else { return }
         viewportReportRetries += 1
         MobileDebugLog.anchormux(

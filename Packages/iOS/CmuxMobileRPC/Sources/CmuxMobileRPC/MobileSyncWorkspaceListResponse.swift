@@ -1,3 +1,4 @@
+public import CMUXMobileCore
 public import Foundation
 
 /// Typed decoder for the `workspace.list` / `mobile.workspace.list` RPC result.
@@ -41,6 +42,11 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         public let hasUnread: Bool?
         /// Terminals belonging to this workspace.
         public let terminals: [Terminal]
+        /// The workspace's pane/tab split structure. `nil` on Macs old enough
+        /// not to emit `layout`, and on any malformed payload (a bad layout
+        /// degrades to the flat-terminals fallback instead of failing the
+        /// whole list).
+        public let layout: MobileWorkspaceLayoutNode?
 
         private enum CodingKeys: String, CodingKey {
             case id
@@ -55,6 +61,27 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case lastActivityAt = "last_activity_at"
             case hasUnread = "has_unread"
             case terminals
+            case layout
+        }
+
+        /// Decodes a workspace entry, tolerating an absent or malformed
+        /// `layout` (both decode as `nil`).
+        /// - Parameter decoder: The decoder for one workspace entry.
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try container.decode(String.self, forKey: .id)
+            windowID = try container.decodeIfPresent(String.self, forKey: .windowID)
+            title = try container.decode(String.self, forKey: .title)
+            currentDirectory = try container.decodeIfPresent(String.self, forKey: .currentDirectory)
+            isSelected = try container.decodeIfPresent(Bool.self, forKey: .isSelected) ?? false
+            isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned)
+            groupID = try container.decodeIfPresent(String.self, forKey: .groupID)
+            preview = try container.decodeIfPresent(String.self, forKey: .preview)
+            previewAt = try container.decodeIfPresent(Double.self, forKey: .previewAt)
+            lastActivityAt = try container.decodeIfPresent(Double.self, forKey: .lastActivityAt)
+            hasUnread = try container.decodeIfPresent(Bool.self, forKey: .hasUnread)
+            terminals = try container.decode([Terminal].self, forKey: .terminals)
+            layout = try? container.decodeIfPresent(MobileWorkspaceLayoutNode.self, forKey: .layout)
         }
     }
 
