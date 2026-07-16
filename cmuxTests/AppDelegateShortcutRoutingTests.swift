@@ -1059,7 +1059,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(window.receivedEvents.first === prefixEvent)
     }
 
-    func testChordedShortcutTimeoutReplaysPrefixToOriginalWindow() {
+    func testExpiredChordReplaysPrefixBeforeRoutingNextEvent() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -1079,14 +1079,24 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             key: "k",
             modifiers: [.command],
             keyCode: 40,
-            windowNumber: window.windowNumber
+            windowNumber: window.windowNumber,
+            timestamp: 100
+        ),
+        let expiredSuffixEvent = makeKeyDownEvent(
+            key: "z",
+            modifiers: [],
+            keyCode: 6,
+            windowNumber: window.windowNumber,
+            timestamp: 102
         ) else {
-            XCTFail("Failed to construct chord prefix event")
+            XCTFail("Failed to construct chord events")
             return
         }
 
         XCTAssertTrue(appDelegate.armConfiguredShortcutChordIfNeeded(event: prefixEvent, actions: [.toggleZenMode]))
-        waitFor(timeout: 1.5) { window.receivedEvents.count == 1 }
+#if DEBUG
+        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: expiredSuffixEvent))
+#endif
         XCTAssertEqual(window.receivedEvents.count, 1)
         XCTAssertTrue(window.receivedEvents.first === prefixEvent)
     }

@@ -811,15 +811,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var splitButtonTooltipRefreshScheduled = false
     private var didScheduleGhosttyCrashBreadcrumbCheck = false
     private var ghosttyCrashBreadcrumbTask: Task<Void, Never>?
+    private static let configuredShortcutChordTimeout: TimeInterval = 1
     private struct PendingConfiguredShortcutChord {
-        let id: UUID
         let firstStroke: ShortcutStroke
         let secondStrokes: [ShortcutStroke]
+        let expiresAt: TimeInterval
         let windowNumber: Int?
         let fallbackEvent: NSEvent
     }
     private var pendingConfiguredShortcutChord: PendingConfiguredShortcutChord?
-    private var configuredShortcutChordTimeoutTask: Task<Void, Never>?
     var activeConfiguredShortcutChordPrefixForCurrentEvent: ShortcutStroke?
     var shortcutEventFocusContextCache: ShortcutEventFocusContextCache?
     private var ghosttyConfigObserver: NSObjectProtocol?
@@ -1860,6 +1860,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func prepareForConfirmedAppTermination() {
+        restoreZenModeForTermination()
         isTerminatingApp = true
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
@@ -1982,9 +1983,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationWillTerminate(_ notification: Notification) {
         StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
-        if let session = zenModeController.restoreForTermination() {
-            restoreZenModeWindowState(session)
-        }
+        restoreZenModeForTermination()
         // Backstop for any terminate path that did not route through
         // prepareForConfirmedAppTermination() (idempotent with the primary arm).
         // Apple's promised-pasteboard observer can fire before this delegate
@@ -2018,6 +2017,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         enableSuddenTerminationIfNeeded()
     }
 
+    private func restoreZenModeForTermination() {
+        if let session = zenModeController.restoreForTermination() {
+            restoreZenModeWindowState(session)
+        }
+    }
+
     func applicationWillResignActive(_ notification: Notification) {
         guard !isTerminatingApp else { return }
         PortScanner.shared.setTrackedAgentScanningPaused(true)
@@ -2028,6 +2033,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func persistSessionForUpdateRelaunch() {
+        restoreZenModeForTermination()
         isTerminatingApp = true
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
@@ -12581,8 +12587,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func clearConfiguredShortcutChordState() {
-        configuredShortcutChordTimeoutTask?.cancel()
-        configuredShortcutChordTimeoutTask = nil
         pendingConfiguredShortcutChord = nil
         activeConfiguredShortcutChordPrefixForCurrentEvent = nil
     }
@@ -15238,47 +15242,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         guard let firstStroke else { return false }
 
-        configuredShortcutChordTimeoutTask?.cancel()
         let pending = PendingConfiguredShortcutChord(
-            id: UUID(),
             firstStroke: firstStroke,
             secondStrokes: secondStrokes,
+            expiresAt: event.timestamp + Self.configuredShortcutChordTimeout,
             windowNumber: configuredShortcutChordWindowNumber(for: event),
             fallbackEvent: event
         )
         pendingConfiguredShortcutChord = pending
-        configuredShortcutChordTimeoutTask = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(for: .seconds(1))
-            } catch {
-                return
-            }
-            self?.expireConfiguredShortcutChord(id: pending.id)
-        }
         return true
     }
 
     private func resolvePendingConfiguredShortcutChord(for event: NSEvent) -> ShortcutStroke? {
         guard let pending = pendingConfiguredShortcutChord else { return nil }
-        configuredShortcutChordTimeoutTask?.cancel()
-        configuredShortcutChordTimeoutTask = nil
         pendingConfiguredShortcutChord = nil
 
         let sameWindow = pending.windowNumber == configuredShortcutChordWindowNumber(for: event)
-        if sameWindow,
+        if event.timestamp <= pending.expiresAt,
+           sameWindow,
            pending.secondStrokes.contains(where: { matchShortcutStroke(event: event, stroke: $0) }) {
             return pending.firstStroke
         }
 
         deliverConfiguredShortcutChordFallback(pending)
         return nil
-    }
-
-    private func expireConfiguredShortcutChord(id: UUID) {
-        guard let pending = pendingConfiguredShortcutChord, pending.id == id else { return }
-        pendingConfiguredShortcutChord = nil
-        configuredShortcutChordTimeoutTask = nil
-        deliverConfiguredShortcutChordFallback(pending)
     }
 
     private func deliverConfiguredShortcutChordFallback(_ pending: PendingConfiguredShortcutChord) {
