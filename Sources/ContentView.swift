@@ -6120,21 +6120,23 @@ struct ContentView: View {
             var indexSnapshot = indexEntry?.snapshot
             let snapshot = indexSnapshot ?? fallbackSnapshot
             let validationFallbackSnapshot = indexSnapshot == nil ? fallbackSnapshot : nil
-            let executableFingerprintBefore = if let snapshot {
-                await Self.commandPaletteForkProbeExecutableFingerprint(
+            let executableFingerprintBefore: String?
+            if let snapshot {
+                executableFingerprintBefore = await Self.commandPaletteForkProbeExecutableFingerprint(
                     snapshot,
                     isRemoteTerminal: isRemoteTerminal
                 )
             } else {
-                nil
+                executableFingerprintBefore = nil
             }
-            let executableFingerprintAfter = if let snapshot {
-                await Self.commandPaletteForkProbeExecutableFingerprint(
+            let executableFingerprintAfter: String?
+            if let snapshot {
+                executableFingerprintAfter = await Self.commandPaletteForkProbeExecutableFingerprint(
                     snapshot,
                     isRemoteTerminal: isRemoteTerminal
                 )
             } else {
-                nil
+                executableFingerprintAfter = nil
             }
             let executableFingerprint = executableFingerprintBefore == executableFingerprintAfter
                 ? executableFingerprintAfter
