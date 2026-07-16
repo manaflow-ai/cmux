@@ -32,9 +32,14 @@ use futures_util::StreamExt;
 #[cfg(feature = "http-server")]
 use notify::{RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+#[cfg(test)]
+use tokio::io::AsyncRead;
+use tokio::io::{
+    AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader,
+};
 use tokio::process::Command;
-use tokio::sync::{RwLock, Semaphore};
+use tokio::sync::{RwLock, Semaphore, mpsc};
+use tokio::task::JoinSet;
 #[cfg(feature = "http-server")]
 use tokio_util::io::ReaderStream;
 
@@ -202,9 +207,10 @@ fn app_state(config: ServerConfig, port: u16) -> AppState {
     }
 }
 
-/// Handles one typed request from standard input and writes one response to
-/// standard output. This is the native `WebKit` transport boundary: it performs
-/// no bind, connect, or listen operation.
+/// Handles typed newline-delimited requests over standard input until EOF and
+/// writes one matching response per request to standard output. This is the
+/// native `WebKit` transport boundary: it performs no bind, connect, or listen
+/// operation.
 ///
 /// # Errors
 ///
@@ -224,40 +230,100 @@ pub async fn run_rpc(config: ServerConfig) -> Result<(), String> {
         .map_err(|error| error.to_string())?;
     #[cfg(unix)]
     tokio::select! {
-        result = run_rpc_request(config) => result,
+        result = run_rpc_session(config) => result,
         _ = terminate.recv() => Err("RPC request was cancelled".to_owned()),
     }
     #[cfg(not(unix))]
-    run_rpc_request(config).await
+    run_rpc_session(config).await
 }
 
-async fn run_rpc_request(config: ServerConfig) -> Result<(), String> {
-    let response = match read_rpc_request(tokio::io::stdin(), RPC_STDIN_READ_TIMEOUT).await? {
-        RpcRequestRead::Request(request) => {
-            #[cfg(feature = "http-server")]
-            let state = app_state(config, 0)?;
-            #[cfg(not(feature = "http-server"))]
-            let state = app_state(config, 0);
-            handle_protocol_request(request, Some(&state)).await
+async fn run_rpc_session(config: ServerConfig) -> Result<(), String> {
+    #[cfg(feature = "http-server")]
+    let state = app_state(config, 0)?;
+    #[cfg(not(feature = "http-server"))]
+    let state = app_state(config, 0);
+    let mut input = BufReader::new(tokio::io::stdin());
+    let (response_sender, response_receiver) = mpsc::channel(MAX_CONCURRENT_CHILD_PROCESSES * 2);
+    let output_task = tokio::spawn(write_rpc_responses(response_receiver));
+    let mut requests = JoinSet::new();
+    let mut abort_handles: HashMap<String, tokio::task::AbortHandle> = HashMap::new();
+    let mut accepting_requests = true;
+
+    while accepting_requests || !requests.is_empty() {
+        tokio::select! {
+            frame = read_rpc_frame(&mut input, RPC_STDIN_READ_TIMEOUT), if accepting_requests => {
+                match frame? {
+                    RpcRequestRead::EndOfStream => accepting_requests = false,
+                    RpcRequestRead::Cancel(request_id) => {
+                        if let Some(abort_handle) = abort_handles.remove(&request_id) {
+                            abort_handle.abort();
+                        }
+                    }
+                    RpcRequestRead::Rejected(response) => {
+                        response_sender.send(response).await.map_err(|_| "RPC output closed".to_owned())?;
+                    }
+                    RpcRequestRead::Request(request) => {
+                        let request_id = request.id.clone();
+                        if abort_handles.contains_key(&request_id) {
+                            response_sender.send(DiffResponse::failure(
+                                request_id,
+                                "duplicateRequest",
+                                "An RPC request with this ID is already running",
+                            )).await.map_err(|_| "RPC output closed".to_owned())?;
+                            continue;
+                        }
+                        let request_state = state.clone();
+                        let request_sender = response_sender.clone();
+                        let completed_id = request_id.clone();
+                        let abort_handle = requests.spawn(async move {
+                            let response = handle_protocol_request(request, Some(&request_state)).await;
+                            let _ = request_sender.send(response).await;
+                            completed_id
+                        });
+                        abort_handles.insert(request_id, abort_handle);
+                    }
+                }
+            }
+            completed = requests.join_next(), if !requests.is_empty() => {
+                if let Some(Ok(request_id)) = completed {
+                    abort_handles.remove(&request_id);
+                }
+            }
         }
-        RpcRequestRead::Rejected(response) => response,
-    };
-    write_rpc_response(&response).await
+    }
+
+    drop(response_sender);
+    output_task.await.map_err(|error| error.to_string())?
 }
 
 enum RpcRequestRead {
+    EndOfStream,
+    Cancel(String),
     Request(DiffRequest),
     Rejected(DiffResponse),
 }
 
+#[cfg(test)]
 async fn read_rpc_request<R>(reader: R, timeout: Duration) -> Result<RpcRequestRead, String>
 where
-    R: tokio::io::AsyncRead + Unpin,
+    R: AsyncRead + Unpin,
 {
-    let mut input = Vec::new();
-    let mut limited_reader = reader.take((MAX_RPC_REQUEST_BYTES + 1) as u64);
-    let read = limited_reader.read_to_end(&mut input);
-    match tokio::time::timeout(timeout, read).await {
+    read_rpc_frame(&mut BufReader::new(reader), timeout).await
+}
+
+async fn read_rpc_frame<R>(reader: &mut R, timeout: Duration) -> Result<RpcRequestRead, String>
+where
+    R: AsyncBufRead + Unpin,
+{
+    if reader
+        .fill_buf()
+        .await
+        .map_err(|error| error.to_string())?
+        .is_empty()
+    {
+        return Ok(RpcRequestRead::EndOfStream);
+    }
+    let input = match tokio::time::timeout(timeout, read_rpc_frame_bytes(reader)).await {
         Err(_) => {
             return Ok(RpcRequestRead::Rejected(DiffResponse::failure(
                 UNTRUSTED_RPC_REQUEST_ID.to_owned(),
@@ -265,17 +331,35 @@ where
                 "Timed out waiting for a complete RPC request",
             )));
         }
-        Ok(Err(error)) => return Err(error.to_string()),
-        Ok(Ok(_)) => {}
-    }
-    if input.len() > MAX_RPC_REQUEST_BYTES {
+        Ok(result) => result?,
+    };
+    let Some(input) = input else {
         return Ok(RpcRequestRead::Rejected(DiffResponse::failure(
             UNTRUSTED_RPC_REQUEST_ID.to_owned(),
             "requestTooLarge",
             "RPC request exceeds 1 MiB",
         )));
+    };
+    let input = input.strip_suffix(b"\n").unwrap_or(&input);
+    let value: serde_json::Value = match serde_json::from_slice(input) {
+        Ok(value) => value,
+        Err(error) => {
+            return Ok(RpcRequestRead::Rejected(DiffResponse::failure(
+                UNTRUSTED_RPC_REQUEST_ID.to_owned(),
+                "invalidRequest",
+                &format!("Invalid RPC request: {error}"),
+            )));
+        }
+    };
+    if value.get("control").and_then(serde_json::Value::as_str) == Some("cancel") {
+        let request_id = value
+            .get("requestId")
+            .and_then(serde_json::Value::as_str)
+            .filter(|request_id| !request_id.is_empty())
+            .ok_or_else(|| "cancel control frame requires requestId".to_owned())?;
+        return Ok(RpcRequestRead::Cancel(request_id.to_owned()));
     }
-    match serde_json::from_slice(&input) {
+    match serde_json::from_value(value) {
         Ok(request) => Ok(RpcRequestRead::Request(request)),
         Err(error) => Ok(RpcRequestRead::Rejected(DiffResponse::failure(
             UNTRUSTED_RPC_REQUEST_ID.to_owned(),
@@ -285,21 +369,60 @@ where
     }
 }
 
-async fn write_rpc_response(response: &DiffResponse) -> Result<(), String> {
+async fn read_rpc_frame_bytes<R>(reader: &mut R) -> Result<Option<Vec<u8>>, String>
+where
+    R: AsyncBufRead + Unpin,
+{
+    let mut input = Vec::new();
+    let mut too_large = false;
+    loop {
+        let available = reader.fill_buf().await.map_err(|error| error.to_string())?;
+        if available.is_empty() {
+            return Ok((!too_large).then_some(input));
+        }
+        let frame_end = available.iter().position(|byte| *byte == b'\n');
+        let consumed = frame_end.map_or(available.len(), |index| index + 1);
+        if !too_large {
+            let maximum_frame_bytes = MAX_RPC_REQUEST_BYTES + usize::from(frame_end.is_some());
+            if input.len() + consumed > maximum_frame_bytes {
+                too_large = true;
+                input.clear();
+            } else {
+                input.extend_from_slice(&available[..consumed]);
+            }
+        }
+        reader.consume(consumed);
+        if frame_end.is_some() {
+            return Ok((!too_large).then_some(input));
+        }
+    }
+}
+
+async fn write_rpc_responses(mut responses: mpsc::Receiver<DiffResponse>) -> Result<(), String> {
+    let mut stdout = tokio::io::stdout();
+    while let Some(response) = responses.recv().await {
+        write_rpc_response_to(&mut stdout, &response).await?;
+    }
+    Ok(())
+}
+
+async fn write_rpc_response_to<W>(writer: &mut W, response: &DiffResponse) -> Result<(), String>
+where
+    W: AsyncWrite + Unpin,
+{
     let bytes = serde_json::to_vec(&response).map_err(|error| error.to_string())?;
     if bytes.len() > MAX_RPC_RESPONSE_BYTES {
         return Err("response exceeds 32 MiB".to_owned());
     }
-    let mut stdout = tokio::io::stdout();
-    stdout
+    writer
         .write_all(&bytes)
         .await
         .map_err(|error| error.to_string())?;
-    stdout
+    writer
         .write_all(b"\n")
         .await
         .map_err(|error| error.to_string())?;
-    stdout.flush().await.map_err(|error| error.to_string())
+    writer.flush().await.map_err(|error| error.to_string())
 }
 
 #[cfg(feature = "http-server")]

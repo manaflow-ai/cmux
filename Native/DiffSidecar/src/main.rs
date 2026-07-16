@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use cmux_diff_sidecar::benchmark;
 use cmux_diff_sidecar::server::{self, ServerConfig};
 
-#[tokio::main]
+#[tokio::main(worker_threads = 2)]
 async fn main() {
     if let Err(message) = run().await {
         eprintln!("cmux-diff-sidecar: {message}");

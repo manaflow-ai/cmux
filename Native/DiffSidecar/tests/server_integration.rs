@@ -71,8 +71,7 @@ fn rpc_keeps_one_process_alive_for_multiple_requests() {
             let _ = std::fs::remove_dir_all(&root);
             panic!("sidecar did not reply before stdin closed: {response:?}");
         };
-        let response: serde_json::Value =
-            serde_json::from_str(&response).expect("decode response");
+        let response: serde_json::Value = serde_json::from_str(&response).expect("decode response");
         assert_eq!(response["id"], id);
         assert_eq!(response["result"]["type"], "handshake");
         assert!(child.try_wait().expect("inspect sidecar").is_none());
@@ -156,7 +155,7 @@ fn cancelling_rpc_terminates_its_process_group_and_removes_partial_patch() {
         .stdin
         .take()
         .expect("sidecar stdin")
-        .write_all(&request)
+        .write_all(&[request.as_slice(), b"\n"].concat())
         .expect("write request");
 
     let sidecar_pid =
@@ -172,6 +171,99 @@ fn cancelling_rpc_terminates_its_process_group_and_removes_partial_patch() {
     let _ = child.wait().expect("reap sidecar");
     let _ = rustix::process::kill_process_group(sidecar_pid, rustix::process::Signal::KILL);
     assert_process_stopped(git_pid);
+    assert!(
+        std::fs::read_dir(&root)
+            .expect("read sidecar root")
+            .flatten()
+            .all(|entry| {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                !(name.contains("diff-session-") && name.ends_with(".patch"))
+            })
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[cfg(unix)]
+#[test]
+fn rpc_cancel_frame_stops_only_the_matching_request() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-diff-sidecar-request-cancel-test-{}-{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    let repo = create_large_changed_repo(&root);
+    std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700))
+        .expect("secure root permissions");
+    let token = "0123456789abcdef";
+    write_cancellation_test_authorization(&root, &repo, token);
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_cmux-diff-sidecar"))
+        .arg("rpc")
+        .arg("--root")
+        .arg(&root)
+        .arg("--cmux")
+        .arg(env!("CARGO_BIN_EXE_diff-sidecar-test-host"))
+        .arg("--process-group-ready")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("start cancellable sidecar");
+    let mut ready = String::new();
+    BufReader::new(child.stderr.take().expect("sidecar stderr"))
+        .read_line(&mut ready)
+        .expect("read process-group readiness");
+    assert_eq!(ready, "cmux-diff-sidecar-process-group-ready\n");
+
+    let mut input = child.stdin.take().expect("sidecar stdin");
+    writeln!(
+        input,
+        "{}",
+        serde_json::json!({
+            "id": "cancel-session",
+            "version": 1,
+            "method": "sessionOpen",
+            "params": {
+                "source": {"kind": "unstaged", "repoRoot": repo},
+                "capabilityToken": token
+            }
+        })
+    )
+    .expect("write cancellable request");
+    input.flush().expect("flush cancellable request");
+    let git_pid = wait_for_direct_child(child.id());
+
+    writeln!(
+        input,
+        "{}",
+        serde_json::json!({"control": "cancel", "requestId": "cancel-session"})
+    )
+    .expect("write cancel frame");
+    writeln!(
+        input,
+        "{}",
+        serde_json::json!({
+            "id": "still-alive",
+            "version": 1,
+            "method": "protocolHandshake"
+        })
+    )
+    .expect("write follow-up request");
+    input.flush().expect("flush control frames");
+
+    let mut response = String::new();
+    BufReader::new(child.stdout.take().expect("sidecar stdout"))
+        .read_line(&mut response)
+        .expect("read follow-up response");
+    let response: serde_json::Value = serde_json::from_str(&response).expect("decode response");
+    assert_eq!(response["id"], "still-alive");
+    assert_eq!(response["result"]["type"], "handshake");
+    assert_process_stopped(git_pid);
+    assert!(child.try_wait().expect("inspect sidecar").is_none());
+
+    drop(input);
+    assert!(child.wait().expect("wait for sidecar").success());
     assert!(
         std::fs::read_dir(&root)
             .expect("read sidecar root")
