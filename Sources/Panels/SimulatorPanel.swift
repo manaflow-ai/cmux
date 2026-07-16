@@ -21,7 +21,7 @@ final class SimulatorPanel: Panel {
     private var preferredDeviceID: String?
     private var preferredRuntimeIdentifier: String?
     private var preferredDeviceTypeIdentifier: String?
-    private let requiresExplicitDeviceSelection: Bool
+    private var requiresExplicitDeviceSelection: Bool
     @ObservationIgnored private var featureFlagsObserver: (any NSObjectProtocol)?
     @ObservationIgnored private var startupTask: Task<Void, Never>?
     @ObservationIgnored private var shutdownTask: Task<Void, Never>?
@@ -233,9 +233,13 @@ final class SimulatorPanel: Panel {
     }
 
     private func rememberSelection() {
+        let selectedDeviceID = selectedDeviceID
         preferredDeviceID = selectedDeviceID
         preferredRuntimeIdentifier = selectedRuntimeIdentifier
         preferredDeviceTypeIdentifier = selectedDeviceTypeIdentifier
+        if selectedDeviceID != nil {
+            requiresExplicitDeviceSelection = false
+        }
     }
 
     private func startCoordinator() {

@@ -192,6 +192,25 @@ struct SimulatorPaneCoordinatorTests {
         #expect(coordinator.status == .streaming)
     }
 
+    @Test("Restoration selects the exact persisted UDID ahead of a booted device")
+    func restorationHonorsAvailableIdentity() async {
+        let client = SimulatorPaneClientSpy(devices: [
+            Self.device(id: "saved", family: .iPhone, state: .shutdown),
+            Self.device(id: "other", family: .iPhone, state: .booted),
+        ])
+        let coordinator = SimulatorPaneCoordinator(
+            client: client,
+            preferredDeviceID: "saved",
+            preferredRuntimeIdentifier: "runtime",
+            preferredDeviceTypeIdentifier: "type"
+        )
+
+        await coordinator.reloadDevices()
+
+        #expect(coordinator.selectedDeviceID == "saved")
+        #expect(await client.activations().isEmpty)
+    }
+
     @Test("Explicit device selection waits for the requested iPad")
     func explicitDeviceSelection() async throws {
         let client = SimulatorPaneClientSpy(devices: [

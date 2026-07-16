@@ -161,6 +161,13 @@ extension SimulatorPaneCoordinator {
                devices.contains(where: { $0.id == selectedDeviceID }) {
                 return
             }
+            if previousDeviceID == nil,
+               let preferredDeviceID,
+               devices.contains(where: { $0.id == preferredDeviceID }) {
+                selectActionHistory(deviceID: preferredDeviceID)
+                selectedDeviceID = preferredDeviceID
+                return
+            }
             if requiresExplicitDeviceSelection, previousDeviceID == nil {
                 selectActionHistory(deviceID: nil)
                 selectedDeviceID = nil
