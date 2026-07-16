@@ -101,6 +101,32 @@ struct SimulatorWebInspectorServiceFailureTests {
         #expect(service.refreshContinuation == nil)
     }
 
+    @Test("Target publications coalesce and suppress duplicate snapshots")
+    func targetPublicationCoalescing() async {
+        let sleeper = ManualWebInspectorSleeper()
+        let service = SimulatorWebInspectorService(
+            subprocessRunner: SimulatorSubprocessRunner(),
+            sleeper: sleeper
+        )
+        Self.seedTarget(into: service)
+        var snapshots: [[SimulatorWebInspectorTarget]] = []
+        service.eventHandler = { event in
+            guard case let .targets(targets) = event else { return }
+            snapshots.append(targets)
+        }
+
+        for _ in 0..<100 { service.scheduleTargetPublication() }
+        await eventually { await sleeper.pendingCount == 1 }
+        await sleeper.resumeAll()
+        await eventually { snapshots.count == 1 }
+
+        service.scheduleTargetPublication()
+        await eventually { await sleeper.pendingCount == 1 }
+        await sleeper.resumeAll()
+        await eventually { service.targetPublicationTask == nil }
+        #expect(snapshots.count == 1)
+    }
+
     private static func service() -> SimulatorWebInspectorService {
         SimulatorWebInspectorService(subprocessRunner: SimulatorSubprocessRunner())
     }
@@ -132,4 +158,33 @@ struct SimulatorWebInspectorServiceFailureTests {
             ],
         ], ownConnectionIdentifier: "OURS")
     }
+}
+
+private actor ManualWebInspectorSleeper: SimulatorWebInspectorSleeping {
+    private var continuations: [CheckedContinuation<Void, Error>] = []
+
+    var pendingCount: Int { continuations.count }
+
+    func sleep(for duration: Duration) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            continuations.append(continuation)
+        }
+    }
+
+    func resumeAll() {
+        let pending = continuations
+        continuations.removeAll()
+        for continuation in pending { continuation.resume() }
+    }
+}
+
+@MainActor
+private func eventually(
+    _ predicate: @escaping @MainActor () async -> Bool
+) async {
+    for _ in 0..<10_000 {
+        if await predicate() { return }
+        await Task.yield()
+    }
+    Issue.record("Condition did not become true")
 }

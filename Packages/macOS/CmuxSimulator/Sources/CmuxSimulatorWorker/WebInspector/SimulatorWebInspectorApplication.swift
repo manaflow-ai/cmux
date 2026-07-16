@@ -1,4 +1,4 @@
-struct SimulatorWebInspectorApplication {
+struct SimulatorWebInspectorApplication: Equatable {
     let identifier: String
     let bundleIdentifier: String?
     let name: String

@@ -20,6 +20,9 @@ final class SimulatorWebInspectorService {
     var currentDeviceIdentifier: String?
     var connectionIdentifier = UUID().uuidString
     var catalog = SimulatorWebInspectorTargetCatalog()
+    var targetPublicationTask: Task<Void, Never>?
+    var targetPublicationGeneration: UInt64 = 0
+    var lastPublishedTargets: [SimulatorWebInspectorTarget] = []
     var subscribedApplicationIdentifiers: Set<String> = []
     var pendingListingIdentifiers: Set<String> = []
     var refreshContinuation: RefreshContinuation?
@@ -236,6 +239,10 @@ final class SimulatorWebInspectorService {
         socket?.close()
         socket = nil
         currentDeviceIdentifier = nil
+        targetPublicationGeneration &+= 1
+        targetPublicationTask?.cancel()
+        targetPublicationTask = nil
+        lastPublishedTargets = []
         catalog.reset()
         subscribedApplicationIdentifiers.removeAll()
         pendingListingIdentifiers.removeAll()

@@ -1,3 +1,5 @@
+import CmuxSimulator
+import Foundation
 import Testing
 @testable import CmuxSimulatorWorker
 
@@ -42,6 +44,56 @@ struct SimulatorWebInspectorTargetCatalogTests {
             "__argument": ["WIRApplicationIdentifierKey": "APP"],
         ], ownConnectionIdentifier: "OURS")
         #expect(catalog.targets.isEmpty)
+    }
+
+    @Test("Identical listings are semantic no-ops")
+    func duplicateListing() {
+        var catalog = SimulatorWebInspectorTargetCatalog()
+        let appliedApplications = catalog.apply(
+            Self.applicationList(),
+            ownConnectionIdentifier: "OURS"
+        )
+        let appliedListing = catalog.apply(
+            Self.pageListing(connectionIdentifier: nil),
+            ownConnectionIdentifier: "OURS"
+        )
+        let appliedDuplicate = catalog.apply(
+            Self.pageListing(connectionIdentifier: nil),
+            ownConnectionIdentifier: "OURS"
+        )
+        #expect(appliedApplications)
+        #expect(appliedListing)
+        #expect(!appliedDuplicate)
+    }
+
+    @Test("Target count and retained strings stay within worker frame budgets")
+    func boundedListing() throws {
+        var catalog = SimulatorWebInspectorTargetCatalog()
+        catalog.apply(Self.applicationList(), ownConnectionIdentifier: "OURS")
+        let oversized = String(repeating: "x", count: 32 * 1_024)
+        let pages = Dictionary(uniqueKeysWithValues: (0..<2_000).map { index in
+            (String(index), [
+                "WIRPageIdentifierKey": index,
+                "WIRTitleKey": oversized,
+                "WIRURLKey": oversized,
+                "WIRTypeKey": oversized,
+            ] as [String: Any])
+        })
+
+        catalog.apply(
+            Self.pageListing(connectionIdentifier: nil, pages: pages),
+            ownConnectionIdentifier: "OURS"
+        )
+
+        #expect(catalog.targets.count <= SimulatorWebInspectorTargetCatalog.maximumTargetCount)
+        let target = try #require(catalog.targets.first)
+        #expect(target.title.utf8.count <= SimulatorWebInspectorTargetCatalog.maximumFieldBytes + 2)
+        #expect(target.url.utf8.count <= SimulatorWebInspectorTargetCatalog.maximumFieldBytes + 2)
+        #expect(target.type.utf8.count <= SimulatorWebInspectorTargetCatalog.maximumFieldBytes + 2)
+        let encoded = try JSONEncoder().encode(
+            SimulatorWorkerOutbound.webInspectorTargets(requestID: UUID(), catalog.targets)
+        )
+        #expect(encoded.count < SimulatorLengthPrefixedMessageChannel.maximumFrameLength)
     }
 
     private static func applicationList() -> [String: Any] {

@@ -14,7 +14,7 @@ extension SimulatorWebInspectorService {
 
         if catalog.apply(message, ownConnectionIdentifier: connectionIdentifier) {
             handleCatalogChange(selector: selector, message: message)
-            eventHandler?(.targets(catalog.targets))
+            scheduleTargetPublication()
             validateAttachedTarget()
         }
         if selector == "_rpc_applicationSentData:" {
@@ -186,10 +186,37 @@ extension SimulatorWebInspectorService {
         cancelRefresh(with: error)
         releaseSessionWithoutMutationGate(emit: true)
         catalog.reset()
+        targetPublicationGeneration &+= 1
+        targetPublicationTask?.cancel()
+        targetPublicationTask = nil
+        lastPublishedTargets = []
         subscribedApplicationIdentifiers.removeAll()
         pendingListingIdentifiers.removeAll()
         eventHandler?(.targets([]))
         eventHandler?(.failure(error as? SimulatorWebInspectorError ?? .transportClosed))
+    }
+
+    func scheduleTargetPublication() {
+        guard targetPublicationTask == nil else { return }
+        targetPublicationGeneration &+= 1
+        let generation = targetPublicationGeneration
+        let sleeper = sleeper
+        targetPublicationTask = Task { @MainActor [weak self] in
+            do {
+                try await sleeper.sleep(for: .milliseconds(50))
+            } catch {
+                guard let self, targetPublicationGeneration == generation else { return }
+                targetPublicationTask = nil
+                return
+            }
+            guard !Task.isCancelled, let self,
+                  targetPublicationGeneration == generation else { return }
+            targetPublicationTask = nil
+            let targets = catalog.targets
+            guard targets != lastPublishedTargets else { return }
+            lastPublishedTargets = targets
+            eventHandler?(.targets(targets))
+        }
     }
 
     func failInternalRequests(with error: Error) {
