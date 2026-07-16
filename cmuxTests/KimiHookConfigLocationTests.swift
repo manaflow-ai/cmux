@@ -36,6 +36,9 @@ struct KimiHookConfigLocationTests {
         #expect(!FileManager.default.fileExists(atPath: legacyConfig.path), Comment(rawValue: result.output))
         let installed = try String(contentsOf: currentConfig, encoding: .utf8)
         #expect(installed.contains("cmux hooks kimi stop"))
+        #expect(installed.contains(#"event = "Notification""#))
+        #expect(!installed.contains(#"event = "PermissionRequest""#))
+        #expect(!installed.contains(#"event = "Interrupt""#))
     }
 
     @Test("Setup honors KIMI_SHARE_DIR and cleans the legacy cmux block")
