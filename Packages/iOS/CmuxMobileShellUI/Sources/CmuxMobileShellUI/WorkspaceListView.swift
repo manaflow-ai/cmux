@@ -496,7 +496,7 @@ struct WorkspaceListView: View {
     /// Prefer the classified migration/reconnect failure over the generic
     /// unavailable description. Guidance stays attached to its headline so a
     /// saved legacy pairing never looks like an account or QR failure.
-    var disconnectedConnectionFailureDescription: String? {
+    private var disconnectedConnectionFailureDescription: String? {
         guard connectionStatus == .unavailable else { return nil }
         return MobileDisconnectedFailureCopy(
             error: store?.connectionError,

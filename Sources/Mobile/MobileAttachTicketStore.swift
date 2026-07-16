@@ -163,7 +163,10 @@ final class MobileAttachTicketStore {
         // never changes the EndpointID-only Iroh representation.
         if routeDisclosureMode == .legacyPrivateNetworkCompatibility,
            ticket.routes.contains(where: { $0.kind == .tailscale }) {
-            return try legacyPrivateNetworkAttachURL(for: ticket)
+            guard let url = try CmxLegacyPrivateNetworkPairingCode().encode(ticket) else {
+                throw MobileAttachTicketStoreError.invalidAttachURL
+            }
+            return url
         }
 
         if let pairingURL = CmxPairingQRCode().encode(
@@ -186,46 +189,6 @@ final class MobileAttachTicketStore {
         // ``CmxPairingQRCode/encode(_:)``, so a dev Mac never hands a release
         // phone a code the system camera routes to a dev build (or vice versa).
         guard let url = URL(string: "\(CmxPairingURLScheme.current)://attach?v=\(ticket.version)&payload=\(payload)") else {
-            throw MobileAttachTicketStoreError.invalidAttachURL
-        }
-        return url
-    }
-
-    private func legacyPrivateNetworkAttachURL(for ticket: CmxAttachTicket) throws -> URL {
-        let tailscaleRoutes = ticket.routes.filter { $0.kind == .tailscale }
-        guard !tailscaleRoutes.isEmpty else {
-            throw MobileAttachTicketStoreError.invalidAttachURL
-        }
-
-        // Historical clients require an expiry field and the oldest supported
-        // decoder rejects the whole QR after that date. Give this tokenless
-        // compatibility payload a synthetic far-future expiry so the displayed
-        // QR follows the current never-expiring pairing contract. Authorization
-        // still comes exclusively from the old client's Stack bearer.
-        let legacyTicket = try CmxAttachTicket(
-            version: ticket.version,
-            workspaceID: ticket.workspaceID,
-            terminalID: ticket.terminalID,
-            macDeviceID: ticket.macDeviceID,
-            macDisplayName: ticket.macDisplayName,
-            // A public QR does not need a human-readable account identifier.
-            // Newer legacy clients can preflight with the opaque user id, while
-            // every supported version is authorized by the host after connect.
-            macUserEmail: nil,
-            macUserID: ticket.macUserID,
-            macPairingCompatibilityVersion: ticket.macPairingCompatibilityVersion,
-            macAppVersion: ticket.macAppVersion,
-            macAppBuild: ticket.macAppBuild,
-            routes: tailscaleRoutes,
-            expiresAt: Date(timeIntervalSince1970: 4_102_444_800),
-            authToken: nil
-        )
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        let payload = Self.base64URLEncode(try encoder.encode(legacyTicket))
-        guard let url = URL(
-            string: "\(CmxPairingURLScheme.current)://attach?v=\(legacyTicket.version)&payload=\(payload)"
-        ) else {
             throw MobileAttachTicketStoreError.invalidAttachURL
         }
         return url
