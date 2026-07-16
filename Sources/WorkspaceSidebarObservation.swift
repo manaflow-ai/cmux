@@ -1,5 +1,6 @@
 import Combine
 import CmuxCore
+import CmuxWorkspaces
 import Foundation
 import CmuxSidebar
 import SwiftUI
@@ -13,6 +14,46 @@ private struct SidebarPanelObservationState: Equatable {
 }
 
 extension View {
+    /// Observes row-affecting workspace publishers above the lazy-list boundary.
+    ///
+    /// Each task retains the workspace identity that produced a change, so a
+    /// status/metadata/title update rebuilds one immutable row projection
+    /// instead of walking every workspace. The initial CombineLatest value is
+    /// intentionally delivered: it closes the gap between the owner's first
+    /// snapshot and subscription setup, while the snapshot equality guard makes
+    /// an unchanged initial value a no-op.
+    func sidebarWorkspaceObservations(
+        ids: [UUID],
+        workspaces: [Workspace],
+        debouncedInterval: RunLoop.SchedulerTimeType.Stride,
+        onChange: @MainActor @escaping (UUID) -> Void
+    ) -> some View {
+        task(id: ids) { @MainActor in
+            await withTaskGroup(of: Void.self) { group in
+                for (id, workspace) in zip(ids, workspaces) {
+                    let immediateChanges = workspace.sidebarImmediateObservationPublisher
+                        .values
+                    let debouncedChanges = workspace.sidebarObservationPublisher
+                        .receive(on: RunLoop.main)
+                        .debounce(for: debouncedInterval, scheduler: RunLoop.main)
+                        .values
+                    group.addTask { @MainActor in
+                        for await _ in immediateChanges {
+                            if Task.isCancelled { break }
+                            onChange(id)
+                        }
+                    }
+                    group.addTask { @MainActor in
+                        for await _ in debouncedChanges {
+                            if Task.isCancelled { break }
+                            onChange(id)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     func sidebarAgentRuntimeObservation(
         id: UUID,
         model: WorkspaceSidebarAgentRuntimeObservationModel,
@@ -68,6 +109,50 @@ extension View {
             }
         }
     }
+
+    /// Observes every default-sidebar workspace above the lazy row boundary.
+    /// The callback identifies the changed workspace so the owner can rebuild
+    /// its immutable projection without mounting an observation task per row.
+    func sidebarProcessTitleObservations(
+        ids: [UUID],
+        models: [WorkspaceSidebarProcessTitleObservationModel],
+        onChange: @MainActor @escaping (UUID) -> Void
+    ) -> some View {
+        task(id: ids) { @MainActor in
+            await withTaskGroup(of: Void.self) { group in
+                for (id, model) in zip(ids, models) {
+                    let changes = model.changes()
+                    group.addTask { @MainActor in
+                        for await _ in changes {
+                            if Task.isCancelled { break }
+                            onChange(id)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Agent-runtime counterpart to ``sidebarProcessTitleObservations(ids:models:onChange:)``.
+    func sidebarAgentRuntimeObservations(
+        ids: [UUID],
+        models: [WorkspaceSidebarAgentRuntimeObservationModel],
+        onChange: @MainActor @escaping (UUID) -> Void
+    ) -> some View {
+        task(id: ids) { @MainActor in
+            await withTaskGroup(of: Void.self) { group in
+                for (id, model) in zip(ids, models) {
+                    let changes = model.changes()
+                    group.addTask { @MainActor in
+                        for await _ in changes {
+                            if Task.isCancelled { break }
+                            onChange(id)
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 private struct SidebarImmediateObservationState: Equatable {
@@ -78,6 +163,9 @@ private struct SidebarImmediateObservationState: Equatable {
     let latestConversationMessage: String?
     let latestSubmittedMessage: String?
     let latestSubmittedAt: Date?
+    let taskStatusOverride: WorkspaceTaskStatusOverride?
+    let statusHidden: Bool
+    let checklist: [WorkspaceChecklistItem]
 }
 
 private struct SidebarObservationState: Equatable {
@@ -125,10 +213,18 @@ extension Workspace {
             $latestSubmittedMessage,
             $latestSubmittedAt
         )
+        // Todo state is row-affecting (status pill, checklist progress) but
+        // lives in its own sub-model, so fold its publishers in here the same
+        // way the workspace's own @Published fields are.
+        let todoFields = Publishers.CombineLatest3(
+            todoState.$statusOverride,
+            todoState.$statusHidden,
+            todoState.$checklist
+        )
 
         let immediateFields = workspaceFields
-            .combineLatest(conversationFields)
-            .map { workspaceFields, conversationFields in
+            .combineLatest(conversationFields, todoFields)
+            .map { workspaceFields, conversationFields, todoFields in
                 SidebarImmediateObservationState(
                     customTitle: workspaceFields.0,
                     customDescription: workspaceFields.1,
@@ -136,7 +232,10 @@ extension Workspace {
                     customColor: workspaceFields.3,
                     latestConversationMessage: conversationFields.0,
                     latestSubmittedMessage: conversationFields.1,
-                    latestSubmittedAt: conversationFields.2
+                    latestSubmittedAt: conversationFields.2,
+                    taskStatusOverride: todoFields.0,
+                    statusHidden: todoFields.1,
+                    checklist: todoFields.2
                 )
             }
             .removeDuplicates()

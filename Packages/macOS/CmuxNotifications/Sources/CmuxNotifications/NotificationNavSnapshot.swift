@@ -31,6 +31,8 @@ public struct NotificationNavSnapshot: Sendable, Equatable, Identifiable {
     public let scrollRow: Int?
     /// Total terminal scrollback rows visible to Ghostty when `scrollRow` was captured.
     public let scrollTotalRows: Int?
+    /// Ghostty row-space identity captured with the scroll position.
+    public let scrollRowSpaceRevision: UInt64?
 
     /// Creates a navigation snapshot of a notification.
     ///
@@ -55,7 +57,8 @@ public struct NotificationNavSnapshot: Sendable, Equatable, Identifiable {
         isRead: Bool,
         clickAction: NotificationNavClickAction?,
         scrollRow: Int? = nil,
-        scrollTotalRows: Int? = nil
+        scrollTotalRows: Int? = nil,
+        scrollRowSpaceRevision: UInt64? = nil
     ) {
         self.id = id
         self.tabId = tabId
@@ -66,6 +69,7 @@ public struct NotificationNavSnapshot: Sendable, Equatable, Identifiable {
         self.clickAction = clickAction
         self.scrollRow = scrollRow
         self.scrollTotalRows = scrollTotalRows
+        self.scrollRowSpaceRevision = scrollRowSpaceRevision
     }
 
     /// Whether the notification carries a click action.

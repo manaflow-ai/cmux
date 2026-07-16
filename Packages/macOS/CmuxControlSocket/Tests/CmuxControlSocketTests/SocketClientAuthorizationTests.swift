@@ -1,4 +1,5 @@
 @testable import CmuxControlSocket
+import CmuxSettings
 import Foundation
 import Testing
 
@@ -80,5 +81,57 @@ struct SocketClientAuthorizationTests {
             capabilityAuthority: authority,
             isDescendant: { _ in false }
         ) == nil)
+    }
+
+    @Test func ownerOnlyAutomationModesRejectDifferentUser() {
+        let authority = SocketClientCapabilityAuthority(
+            secret: Data(repeating: 0xA5, count: SocketClientCapabilityAuthority.secureByteCount),
+            audience: "com.cmuxterm.test"
+        )
+
+        for mode in [SocketControlMode.automation, .password] {
+            #expect(authorization.authorizedCommand(
+                "ping",
+                accessMode: mode,
+                peerProcessID: nil,
+                peerHasSameUID: false,
+                capabilityAuthority: authority,
+                isDescendant: { _ in false }
+            ) == nil)
+        }
+    }
+
+    @Test func ownerOnlyAutomationModesAllowSameUser() {
+        let authority = SocketClientCapabilityAuthority(
+            secret: Data(repeating: 0xA5, count: SocketClientCapabilityAuthority.secureByteCount),
+            audience: "com.cmuxterm.test"
+        )
+
+        for mode in [SocketControlMode.automation, .password] {
+            #expect(authorization.authorizedCommand(
+                "ping",
+                accessMode: mode,
+                peerProcessID: nil,
+                peerHasSameUID: true,
+                capabilityAuthority: authority,
+                isDescendant: { _ in false }
+            ) == "ping")
+        }
+    }
+
+    @Test func allowAllDoesNotRequireSameUser() {
+        let authority = SocketClientCapabilityAuthority(
+            secret: Data(repeating: 0xA5, count: SocketClientCapabilityAuthority.secureByteCount),
+            audience: "com.cmuxterm.test"
+        )
+
+        #expect(authorization.authorizedCommand(
+            "ping",
+            accessMode: .allowAll,
+            peerProcessID: nil,
+            peerHasSameUID: false,
+            capabilityAuthority: authority,
+            isDescendant: { _ in false }
+        ) == "ping")
     }
 }
