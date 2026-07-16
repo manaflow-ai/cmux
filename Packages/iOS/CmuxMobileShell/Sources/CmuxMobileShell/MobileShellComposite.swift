@@ -1210,6 +1210,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// lists" behavior).
     public func currentTeamDidChange() {
         secondaryAggregationScopeGeneration &+= 1
+        let teamScopeGeneration = secondaryAggregationScopeGeneration
         // Presence: cancel + re-subscribe so the online dots reflect the new team
         // (the subscribe reads the team live). Cheap live socket; the only eager bit.
         presenceTask?.cancel()
@@ -1228,10 +1229,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Invalidate the shared boundary synchronously first; actor cleanup is
         // fire-and-forget (this method is sync) and does not wipe the local store.
         clearMacSwitchAttemptState(invalidateUnderlyingConnectionAttempt: true)
+        // A reconnect that captured the previous team must not finish against the
+        // new scope. The recovery task below starts one fresh pass after backup
+        // restore cancellation has crossed the same team boundary.
+        storedMacReconnectGeneration &+= 1
+        isReconnectingStoredMac = false
+        didFinishStoredMacReconnectAttempt = false
         pairedMacRestoreBoundary?.invalidate()
-        if let refresher = pairedMacStore as? any PairedMacBackupRefreshing {
-            Task { await refresher.cancelInFlightRestores() }
-        }
+        let refresher = pairedMacStore as? any PairedMacBackupRefreshing
         // Lazy display: clear the stale old-team lists; the next loadPairedMacs() /
         // loadRegistryDevices() (DeviceTreeView `.task`) repopulate scoped to the
         // new team. The foreground workspace list (derived from the kept entry) is
@@ -1241,6 +1246,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairedMacs = []
         forgottenMacDeviceIDsByScope = [:]
         registryDevices = []
+        Task { @MainActor [weak self] in
+            guard let self,
+                  self.secondaryAggregationScopeGeneration == teamScopeGeneration else { return }
+            if let refresher {
+                await refresher.cancelInFlightRestores()
+            }
+            guard !Task.isCancelled,
+                  self.secondaryAggregationScopeGeneration == teamScopeGeneration,
+                  self.isSignedIn,
+                  self.connectionState != .connected else { return }
+            _ = await self.reconnectActiveMacIfAvailable(
+                stackUserID: self.identityProvider?.currentUserID
+            )
+        }
     }
 
     /// Forward a tap to the Mac's real surface as a left click at the given grid
