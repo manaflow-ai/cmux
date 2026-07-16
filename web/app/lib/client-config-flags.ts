@@ -122,4 +122,5 @@ export const clientConfigFlags = {
   cmuxForAndroid: booleanClientConfigFlag("cmux-for-android"),
   proUpgradeUIEnabledRelease: booleanClientConfigFlag("pro-upgrade-ui-enabled-release"),
   mobileConnectButtonEnabledRelease: booleanClientConfigFlag("mobile-connect-button-enabled-release"),
+  iosArtifactChipEnabledRelease: booleanClientConfigFlag("ios-artifact-chip-enabled-release", false),
 } as const;
