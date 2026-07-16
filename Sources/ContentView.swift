@@ -6109,8 +6109,12 @@ struct ContentView: View {
                     isRemoteContext: isRemoteTerminal
                 )
             }
-            var index = sharedIndex.index
-                ?? await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
+            let index: RestorableAgentSessionIndex
+            if let sharedIndexSnapshot = sharedIndex.index {
+                index = sharedIndexSnapshot
+            } else {
+                index = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
+            }
             guard !Task.isCancelled else { return }
             var indexEntry = index.entry(workspaceId: workspaceId, panelId: panelId)
             var indexSnapshot = indexEntry?.snapshot
