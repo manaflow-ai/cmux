@@ -1111,10 +1111,10 @@ struct WorkspaceForkConversationContextMenuTests {
     }
 
     @Test
-    func cancelledSharedForkProbeRefreshPreservesSurvivingFallbackSnapshot() async throws {
+    func sharedForkProbeFallbackWaitsForActiveSamePanelValidation() async throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
-            .appendingPathComponent("cmux-pending-fallback-cancel-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cmux-pending-fallback-wait-\(UUID().uuidString)", isDirectory: true)
         defer { try? fm.removeItem(at: root) }
         try fm.createDirectory(at: root.appendingPathComponent(".cmuxterm", isDirectory: true), withIntermediateDirectories: true)
         let executable = root.appendingPathComponent("opencode", isDirectory: false)
@@ -1136,6 +1136,7 @@ struct WorkspaceForkConversationContextMenuTests {
         let providerStartedCount = OSAllocatedUnfairLock(initialState: 0)
         let firstProviderRelease = OSAllocatedUnfairLock(initialState: false)
         let secondProviderRelease = OSAllocatedUnfairLock(initialState: false)
+        let secondRefreshFinished = OSAllocatedUnfairLock(initialState: false)
         let probedSessionIds = OSAllocatedUnfairLock(initialState: [String]())
         let sharedIndex = SharedLiveAgentIndex(
             indexLoader: {
@@ -1169,7 +1170,7 @@ struct WorkspaceForkConversationContextMenuTests {
                     }
                     await Task.yield()
                 }
-                return snapshot.sessionId == "first-fallback"
+                return true
             },
             hookStoreDirectoryProvider: {
                 root.appendingPathComponent(".cmuxterm", isDirectory: true).path
@@ -1194,20 +1195,128 @@ struct WorkspaceForkConversationContextMenuTests {
                 panelId: panelId,
                 fallbackSnapshot: secondFallback
             )
+            secondRefreshFinished.withLock { $0 = true }
         }
+        for _ in 0..<1000 where providerStartedCount.withLock({ $0 }) < 2
+            && !secondRefreshFinished.withLock({ $0 }) {
+            await Task.yield()
+        }
+        #expect(providerStartedCount.withLock { $0 } == 1)
+        #expect(
+            !secondRefreshFinished.withLock { $0 },
+            "A same-panel fallback refresh must wait for the active validation instead of returning before its queued request runs."
+        )
+
+        firstProviderRelease.withLock { $0 = true }
         for _ in 0..<1000 where providerStartedCount.withLock({ $0 }) < 2 {
             await Task.yield()
         }
-        #expect(providerStartedCount.withLock { $0 } >= 2)
-
-        secondRefresh.cancel()
+        #expect(providerStartedCount.withLock { $0 } == 2)
+        #expect(!secondRefreshFinished.withLock { $0 })
         secondProviderRelease.withLock { $0 = true }
-        await secondRefresh.value
-        firstProviderRelease.withLock { $0 = true }
         await firstRefresh.value
+        await secondRefresh.value
 
         #expect(loaderCallCount.withLock { $0 } == 0)
         #expect(probedSessionIds.withLock { $0 } == ["first-fallback", "second-fallback"])
+        #expect(
+            sharedIndex.forkSupportProbeAccepted(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                fallbackSnapshot: secondFallback
+            ),
+            "The queued same-panel fallback request must be validated before refreshForkAvailabilityNow returns."
+        )
+    }
+
+    @Test
+    func cancelledSharedForkProbeRefreshPreservesSurvivingFallbackSnapshot() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-pending-fallback-cancel-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        try fm.createDirectory(at: root.appendingPathComponent(".cmuxterm", isDirectory: true), withIntermediateDirectories: true)
+        let executable = root.appendingPathComponent("opencode", isDirectory: false)
+        try writeExecutableFixture(at: executable)
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let firstFallback = makeProbeRequiredOpenCodeSnapshot(
+            sessionId: "first-fallback",
+            workingDirectory: root.path,
+            executablePath: executable.path
+        )
+        let secondFallback = makeProbeRequiredOpenCodeSnapshot(
+            sessionId: "second-fallback",
+            workingDirectory: root.path,
+            executablePath: executable.path
+        )
+        let loaderCallCount = OSAllocatedUnfairLock(initialState: 0)
+        let providerStartedCount = OSAllocatedUnfairLock(initialState: 0)
+        let firstProviderRelease = OSAllocatedUnfairLock(initialState: false)
+        let secondRefreshFinished = OSAllocatedUnfairLock(initialState: false)
+        let probedSessionIds = OSAllocatedUnfairLock(initialState: [String]())
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                loaderCallCount.withLock { $0 += 1 }
+                return (
+                    index: RestorableAgentSessionIndex.load(
+                        homeDirectory: root.path,
+                        fileManager: fm,
+                        registry: CmuxVaultAgentRegistry(registrations: []),
+                        detectedSnapshots: [:]
+                    ),
+                    liveAgentProcessFingerprint: [],
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: []
+                )
+            },
+            forkSupportProvider: { snapshot, _ in
+                providerStartedCount.withLock { $0 += 1 }
+                probedSessionIds.withLock { $0.append(snapshot.sessionId) }
+                while !Task.isCancelled && !firstProviderRelease.withLock({ $0 }) {
+                    await Task.yield()
+                }
+                return snapshot.sessionId == "first-fallback"
+            },
+            hookStoreDirectoryProvider: {
+                root.appendingPathComponent(".cmuxterm", isDirectory: true).path
+            }
+        )
+
+        let firstRefresh = Task {
+            await sharedIndex.refreshForkAvailabilityNow(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                fallbackSnapshot: firstFallback
+            )
+        }
+        for _ in 0..<1000 where providerStartedCount.withLock({ $0 }) < 1 {
+            await Task.yield()
+        }
+        #expect(providerStartedCount.withLock { $0 } == 1)
+
+        let secondRefresh = Task {
+            await sharedIndex.refreshForkAvailabilityNow(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                fallbackSnapshot: secondFallback
+            )
+            secondRefreshFinished.withLock { $0 = true }
+        }
+        for _ in 0..<1000 where !secondRefreshFinished.withLock({ $0 }) {
+            await Task.yield()
+        }
+        #expect(!secondRefreshFinished.withLock { $0 })
+
+        secondRefresh.cancel()
+        firstProviderRelease.withLock { $0 = true }
+        await firstRefresh.value
+        await secondRefresh.value
+
+        #expect(loaderCallCount.withLock { $0 } == 0)
+        #expect(probedSessionIds.withLock { $0 } == ["first-fallback"])
+        #expect(forkValidationCancellationTombstoneCount(in: sharedIndex) == 0)
         #expect(
             sharedIndex.forkSupportProbeAccepted(
                 workspaceId: workspaceId,
@@ -1223,6 +1332,154 @@ struct WorkspaceForkConversationContextMenuTests {
                 fallbackSnapshot: secondFallback
             )
         )
+    }
+
+    @Test
+    func cancelledSharedForkProbeRefreshDoesNotReplayCompletedValidation() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-pending-probe-replay-cancel-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        try fm.createDirectory(at: root.appendingPathComponent(".cmuxterm", isDirectory: true), withIntermediateDirectories: true)
+        let executable = root.appendingPathComponent("opencode", isDirectory: false)
+        try writeExecutableFixture(at: executable)
+
+        let firstWorkspaceId = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000001"))
+        let firstPanelId = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000011"))
+        let firstPanelKey = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: firstWorkspaceId,
+            panelId: firstPanelId
+        )
+        let secondWorkspaceId = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000002"))
+        let secondPanelId = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000012"))
+        let secondPanelKey = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: secondWorkspaceId,
+            panelId: secondPanelId
+        )
+        let firstSnapshot = makeProbeRequiredOpenCodeSnapshot(
+            sessionId: "first-replay",
+            workingDirectory: root.path,
+            executablePath: executable.path
+        )
+        let secondSnapshot = makeProbeRequiredOpenCodeSnapshot(
+            sessionId: "second-replay",
+            workingDirectory: root.path,
+            executablePath: executable.path
+        )
+        let loaderCallCount = OSAllocatedUnfairLock(initialState: 0)
+        let loaderStartedCount = OSAllocatedUnfairLock(initialState: 0)
+        let firstLoaderRelease = DispatchSemaphore(value: 0)
+        let secondProviderRelease = OSAllocatedUnfairLock(initialState: false)
+        let probedSessionIds = OSAllocatedUnfairLock(initialState: [String]())
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                let call = loaderCallCount.withLock { count in
+                    count += 1
+                    return count
+                }
+                loaderStartedCount.withLock { count in
+                    count = max(count, call)
+                }
+                if call == 1 {
+                    firstLoaderRelease.wait()
+                }
+                let index = RestorableAgentSessionIndex.load(
+                    homeDirectory: root.path,
+                    fileManager: fm,
+                    registry: CmuxVaultAgentRegistry(registrations: []),
+                    detectedSnapshots: [
+                        firstPanelKey: (
+                            snapshot: firstSnapshot,
+                            updatedAt: 0,
+                            processIDs: [],
+                            agentProcessIDs: [],
+                            sessionIDSource: .explicit
+                        ),
+                        secondPanelKey: (
+                            snapshot: secondSnapshot,
+                            updatedAt: 0,
+                            processIDs: [],
+                            agentProcessIDs: [],
+                            sessionIDSource: .explicit
+                        ),
+                    ]
+                )
+                return (
+                    index: index,
+                    liveAgentProcessFingerprint: [],
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: [firstPanelKey, secondPanelKey]
+                )
+            },
+            forkSupportProvider: { snapshot, _ in
+                probedSessionIds.withLock { $0.append(snapshot.sessionId) }
+                if snapshot.sessionId == "second-replay" {
+                    while !Task.isCancelled && !secondProviderRelease.withLock({ $0 }) {
+                        await Task.yield()
+                    }
+                }
+                return true
+            },
+            hookStoreDirectoryProvider: {
+                root.appendingPathComponent(".cmuxterm", isDirectory: true).path
+            }
+        )
+
+        let firstRefresh = Task {
+            await sharedIndex.refreshForkAvailabilityNow(
+                workspaceId: firstWorkspaceId,
+                panelId: firstPanelId
+            )
+        }
+        for _ in 0..<1000 where loaderStartedCount.withLock({ $0 }) < 1 {
+            await Task.yield()
+        }
+        #expect(loaderStartedCount.withLock { $0 } == 1)
+
+        let secondRefresh = Task {
+            await sharedIndex.refreshForkAvailabilityNow(
+                workspaceId: secondWorkspaceId,
+                panelId: secondPanelId
+            )
+        }
+        for _ in 0..<1000 where !probedSessionIds.withLock({ $0.contains("second-replay") }) {
+            await Task.yield()
+        }
+        #expect(probedSessionIds.withLock { $0 } == ["first-replay", "second-replay"])
+
+        secondRefresh.cancel()
+        secondProviderRelease.withLock { $0 = true }
+        await secondRefresh.value
+        firstLoaderRelease.signal()
+        await firstRefresh.value
+
+        #expect(probedSessionIds.withLock { $0 } == ["first-replay", "second-replay"])
+        #expect(forkValidationCancellationTombstoneCount(in: sharedIndex) == 0)
+        #expect(
+            sharedIndex.snapshotForForkAvailability(
+                workspaceId: firstWorkspaceId,
+                panelId: firstPanelId
+            )?.sessionId == "first-replay",
+            "Cancelling during a later validation must not restore and replay an already-completed earlier validation."
+        )
+    }
+
+    private func forkValidationCancellationTombstoneCount(in sharedIndex: SharedLiveAgentIndex) -> Int {
+        let indexMirror = Mirror(reflecting: sharedIndex)
+        guard let tombstones = indexMirror.children.first(where: {
+            $0.label == "cancelledForkValidationRequestIDs"
+        })?.value else {
+            return 0
+        }
+        return Mirror(reflecting: tombstones).children.reduce(0) { partial, entry in
+            let entryMirror = Mirror(reflecting: entry.value)
+            guard let cancelledRequestIDs = entryMirror.children.first(where: {
+                $0.label == "value"
+            })?.value else {
+                return partial
+            }
+            return partial + Mirror(reflecting: cancelledRequestIDs).children.count
+        }
     }
 
     @Test

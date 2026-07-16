@@ -19,6 +19,16 @@ final class SharedLiveAgentIndex {
         let requiresLiveIndexPanel: Bool
     }
 
+    private typealias ForkValidationRequest = (
+        id: UUID,
+        fallbackSnapshot: SessionRestorableAgentSnapshot?
+    )
+    private typealias ForkValidationRequestsByProbeKey = [ForkProbeKey: [ForkValidationRequest]]
+    private typealias ForkValidationRequestBatch = (
+        probeKey: ForkProbeKey,
+        requests: [ForkValidationRequest]
+    )
+
     private(set) var index: RestorableAgentSessionIndex?
     private var loadedAt: Date?
     private var liveAgentProcessFingerprint: Set<String> = []
@@ -30,10 +40,10 @@ final class SharedLiveAgentIndex {
     private var validatedForkPanels = Set<RestorableAgentSessionIndex.PanelKey>()
     private var validatedMissingForkPanels: [RestorableAgentSessionIndex.PanelKey: Date] = [:]
     private var activeForkSupportValidationKeys = Set<ForkProbeKey>()
+    private var activeForkSupportValidationWaiters: [ForkProbeKey: [CheckedContinuation<Void, Never>]] = [:]
     private var deferredForkAvailabilityRefreshAfterActiveValidation = false
-    private var pendingForkValidationRequests: [
-        ForkProbeKey: [(id: UUID, fallbackSnapshot: SessionRestorableAgentSnapshot?)]
-    ] = [:]
+    private var pendingForkValidationRequests: ForkValidationRequestsByProbeKey = [:]
+    private var processingForkValidationRequestIDs: [ForkProbeKey: Set<UUID>] = [:]
     private var cancelledForkValidationRequestIDs: [ForkProbeKey: Set<UUID>] = [:]
     private var processScopeFingerprint: Set<String> = []
     private var changePending = false
@@ -98,6 +108,11 @@ final class SharedLiveAgentIndex {
         for sources in forkExecutableWatchSources.values {
             for source in sources {
                 source.cancel()
+            }
+        }
+        for waiters in activeForkSupportValidationWaiters.values {
+            for waiter in waiters {
+                waiter.resume()
             }
         }
     }
@@ -370,6 +385,30 @@ final class SharedLiveAgentIndex {
         }
     }
 
+    private func markProcessingForkValidationRequests(_ requestsByProbeKey: ForkValidationRequestsByProbeKey) {
+        for (probeKey, requests) in requestsByProbeKey {
+            let requestIDs = Set(requests.map(\.id))
+            guard !requestIDs.isEmpty else { continue }
+            processingForkValidationRequestIDs[probeKey, default: []].formUnion(requestIDs)
+        }
+    }
+
+    private func retireProcessingForkValidationRequests(
+        probeKey: ForkProbeKey,
+        requestIDs: Set<UUID>
+    ) {
+        guard !requestIDs.isEmpty,
+              var processingRequestIDs = processingForkValidationRequestIDs[probeKey] else {
+            return
+        }
+        processingRequestIDs.subtract(requestIDs)
+        if processingRequestIDs.isEmpty {
+            processingForkValidationRequestIDs.removeValue(forKey: probeKey)
+        } else {
+            processingForkValidationRequestIDs[probeKey] = processingRequestIDs
+        }
+    }
+
     private func removeOrMarkCancelledForkValidationRequests(
         _ requestIDsByProbeKey: [ForkProbeKey: Set<UUID>]
     ) {
@@ -377,7 +416,10 @@ final class SharedLiveAgentIndex {
         for (probeKey, requestIDs) in requestIDsByProbeKey {
             for requestID in requestIDs {
                 if !removePendingForkValidation(probeKey: probeKey, requestID: requestID) {
-                    requestIDsToMark[probeKey, default: []].insert(requestID)
+                    let isStillProcessing = processingForkValidationRequestIDs[probeKey]?.contains(requestID) == true
+                    if isStillProcessing {
+                        requestIDsToMark[probeKey, default: []].insert(requestID)
+                    }
                 }
             }
         }
@@ -389,10 +431,11 @@ final class SharedLiveAgentIndex {
     }
 
     private func restorePendingForkValidationsAfterCancellation(
-        _ pendingRequestsByProbeKey: [ForkProbeKey: [(id: UUID, fallbackSnapshot: SessionRestorableAgentSnapshot?)]],
+        _ pendingRequestsByProbeKey: ForkValidationRequestsByProbeKey,
         dropping requestIDsByProbeKey: [ForkProbeKey: Set<UUID>]
     ) {
         for (probeKey, requests) in pendingRequestsByProbeKey {
+            let requestIDs = Set(requests.map(\.id))
             let requestIDsToDrop = (requestIDsByProbeKey[probeKey] ?? [])
                 .union(cancelledForkValidationRequestIDs[probeKey] ?? [])
             pruneCancelledForkValidationRequestIDs(
@@ -400,6 +443,7 @@ final class SharedLiveAgentIndex {
                 retiredRequestIDs: requestIDsToDrop
             )
             let requestsToRestore = requests.filter { !requestIDsToDrop.contains($0.id) }
+            retireProcessingForkValidationRequests(probeKey: probeKey, requestIDs: requestIDs)
             guard !requestsToRestore.isEmpty else { continue }
             pendingForkValidationRequests[probeKey, default: []].append(contentsOf: requestsToRestore)
         }
@@ -422,6 +466,23 @@ final class SharedLiveAgentIndex {
                 self.handleHookStoreChange()
             }
         }
+    }
+
+    private func waitForActiveForkSupportValidation(_ probeKey: ForkProbeKey) async {
+        await withCheckedContinuation { continuation in
+            activeForkSupportValidationWaiters[probeKey, default: []].append(continuation)
+        }
+    }
+
+    @discardableResult
+    private func resumeForkSupportValidationWaiters(for probeKey: ForkProbeKey) -> Bool {
+        guard let waiters = activeForkSupportValidationWaiters.removeValue(forKey: probeKey) else {
+            return false
+        }
+        for waiter in waiters {
+            waiter.resume()
+        }
+        return !waiters.isEmpty
     }
 
     private var pendingForkValidationPanels: Set<ForkProbeKey> {
@@ -497,6 +558,8 @@ final class SharedLiveAgentIndex {
         pendingRequestIDsToRemoveOnCancellation: [ForkProbeKey: Set<UUID>] = [:]
     ) async {
         let pendingRequestsByProbeKey = pendingForkValidationRequests
+        let pendingRequestBatches = Self.forkValidationRequestBatches(from: pendingRequestsByProbeKey)
+        markProcessingForkValidationRequests(pendingRequestsByProbeKey)
         clearPendingForkValidations()
         guard !Task.isCancelled else {
             markCancelledForkValidationRequests(pendingRequestIDsToRemoveOnCancellation)
@@ -506,11 +569,20 @@ final class SharedLiveAgentIndex {
             )
             return
         }
-        for (probeKey, pendingRequests) in pendingRequestsByProbeKey {
+        for batchIndex in pendingRequestBatches.indices {
+            let probeKey = pendingRequestBatches[batchIndex].probeKey
+            let pendingRequests = pendingRequestBatches[batchIndex].requests
+            let unprocessedRequestsByProbeKey = Self.forkValidationRequestDictionary(
+                from: pendingRequestBatches[batchIndex...]
+            )
             let pendingRequestIDsForProbe = Set(pendingRequests.map { $0.id })
             var requeuedPendingRequests = false
             defer {
                 if !requeuedPendingRequests {
+                    retireProcessingForkValidationRequests(
+                        probeKey: probeKey,
+                        requestIDs: pendingRequestIDsForProbe
+                    )
                     pruneCancelledForkValidationRequestIDs(
                         probeKey: probeKey,
                         retiredRequestIDs: pendingRequestIDsForProbe
@@ -520,7 +592,7 @@ final class SharedLiveAgentIndex {
             guard !Task.isCancelled else {
                 markCancelledForkValidationRequests(pendingRequestIDsToRemoveOnCancellation)
                 restorePendingForkValidationsAfterCancellation(
-                    pendingRequestsByProbeKey,
+                    unprocessedRequestsByProbeKey,
                     dropping: pendingRequestIDsToRemoveOnCancellation
                 )
                 return
@@ -538,6 +610,10 @@ final class SharedLiveAgentIndex {
             let fallbackSnapshot = Self.pendingForkValidationFallbackSnapshot(activeRequests)
             if fallbackSnapshot == nil, index == nil {
                 pendingForkValidationRequests[probeKey, default: []].append(contentsOf: activeRequests)
+                retireProcessingForkValidationRequests(
+                    probeKey: probeKey,
+                    requestIDs: Set(activeRequests.map(\.id))
+                )
                 requeuedPendingRequests = true
                 continue
             }
@@ -557,15 +633,34 @@ final class SharedLiveAgentIndex {
                 )
                 guard !activeForkSupportValidationKeys.contains(resolvedProbeKey) else {
                     pendingForkValidationRequests[probeKey, default: []].append(contentsOf: activeRequests)
+                    retireProcessingForkValidationRequests(
+                        probeKey: probeKey,
+                        requestIDs: Set(activeRequests.map(\.id))
+                    )
                     requeuedPendingRequests = true
                     deferredForkAvailabilityRefreshAfterActiveValidation = true
-                    continue
+                    await waitForActiveForkSupportValidation(resolvedProbeKey)
+                    guard !Task.isCancelled else {
+                        removeOrMarkCancelledForkValidationRequests(pendingRequestIDsToRemoveOnCancellation)
+                        restorePendingForkValidationsAfterCancellation(
+                            Self.forkValidationRequestDictionary(from: pendingRequestBatches[(batchIndex + 1)...]),
+                            dropping: pendingRequestIDsToRemoveOnCancellation
+                        )
+                        return
+                    }
+                    deferredForkAvailabilityRefreshAfterActiveValidation = false
+                    await applyPendingForkValidations(
+                        pendingRequestIDsToRemoveOnCancellation: pendingRequestIDsToRemoveOnCancellation
+                    )
+                    return
                 }
                 activeForkSupportValidationKeys.insert(resolvedProbeKey)
                 defer {
                     activeForkSupportValidationKeys.remove(resolvedProbeKey)
+                    let resumedWaiters = resumeForkSupportValidationWaiters(for: resolvedProbeKey)
                     if activeForkSupportValidationKeys.isEmpty,
-                       deferredForkAvailabilityRefreshAfterActiveValidation {
+                       deferredForkAvailabilityRefreshAfterActiveValidation,
+                       !resumedWaiters {
                         deferredForkAvailabilityRefreshAfterActiveValidation = false
                         restartForkAvailabilityRefreshIfPending()
                     }
@@ -596,7 +691,7 @@ final class SharedLiveAgentIndex {
                             markCancelledForkValidationRequests(pendingRequestIDsToRemoveOnCancellation)
                             removeForkSupportValidation(for: resolvedProbeKey)
                             restorePendingForkValidationsAfterCancellation(
-                                pendingRequestsByProbeKey,
+                                unprocessedRequestsByProbeKey,
                                 dropping: pendingRequestIDsToRemoveOnCancellation
                             )
                             return
@@ -641,7 +736,7 @@ final class SharedLiveAgentIndex {
                             markCancelledForkValidationRequests(pendingRequestIDsToRemoveOnCancellation)
                             removeForkSupportValidation(for: resolvedProbeKey)
                             restorePendingForkValidationsAfterCancellation(
-                                pendingRequestsByProbeKey,
+                                unprocessedRequestsByProbeKey,
                                 dropping: pendingRequestIDsToRemoveOnCancellation
                             )
                             return
@@ -662,7 +757,7 @@ final class SharedLiveAgentIndex {
                         markCancelledForkValidationRequests(pendingRequestIDsToRemoveOnCancellation)
                         removeForkSupportValidation(for: resolvedProbeKey)
                         restorePendingForkValidationsAfterCancellation(
-                            pendingRequestsByProbeKey,
+                            unprocessedRequestsByProbeKey,
                             dropping: pendingRequestIDsToRemoveOnCancellation
                         )
                         return
@@ -678,7 +773,7 @@ final class SharedLiveAgentIndex {
                             markCancelledForkValidationRequests(pendingRequestIDsToRemoveOnCancellation)
                             removeForkSupportValidation(for: resolvedProbeKey)
                             restorePendingForkValidationsAfterCancellation(
-                                pendingRequestsByProbeKey,
+                                unprocessedRequestsByProbeKey,
                                 dropping: pendingRequestIDsToRemoveOnCancellation
                             )
                             return
@@ -715,7 +810,7 @@ final class SharedLiveAgentIndex {
     }
 
     private static func pendingForkValidationFallbackSnapshot(
-        _ requests: [(id: UUID, fallbackSnapshot: SessionRestorableAgentSnapshot?)]
+        _ requests: [ForkValidationRequest]
     ) -> SessionRestorableAgentSnapshot? {
         for request in requests.reversed() {
             if let fallbackSnapshot = request.fallbackSnapshot {
@@ -723,6 +818,34 @@ final class SharedLiveAgentIndex {
             }
         }
         return nil
+    }
+
+    private static func forkValidationRequestBatches(
+        from requestsByProbeKey: ForkValidationRequestsByProbeKey
+    ) -> [ForkValidationRequestBatch] {
+        requestsByProbeKey.map { probeKey, requests in
+            (probeKey: probeKey, requests: requests)
+        }.sorted { lhs, rhs in
+            forkValidationRequestSortKey(lhs.probeKey) < forkValidationRequestSortKey(rhs.probeKey)
+        }
+    }
+
+    private static func forkValidationRequestSortKey(_ probeKey: ForkProbeKey) -> String {
+        [
+            probeKey.panelKey.workspaceId.uuidString,
+            probeKey.panelKey.panelId.uuidString,
+            String(probeKey.isRemoteContext),
+        ].joined(separator: "|")
+    }
+
+    private static func forkValidationRequestDictionary(
+        from batches: ArraySlice<ForkValidationRequestBatch>
+    ) -> ForkValidationRequestsByProbeKey {
+        var requestsByProbeKey: ForkValidationRequestsByProbeKey = [:]
+        for batch in batches {
+            requestsByProbeKey[batch.probeKey, default: []].append(contentsOf: batch.requests)
+        }
+        return requestsByProbeKey
     }
 
     private func hasFreshForkAvailabilityProbe(
