@@ -330,16 +330,19 @@ check_screen_oracle() {
     app_panes=$(printf '%s' "$PANE_SURFACES_JSON" | jq -r --arg w "$window" '
       .panes[]? | select(.window_id == $w and .on_screen == true) | .pane_id
     ' 2>/dev/null | sort)
+    # BOTH directions. Panes tmux draws that the app lacks drop coverage; panes the
+    # app shows that tmux does not draw are overdraw — and the zoom gate narrows the
+    # expected set precisely in that direction, so checking only the first half turns
+    # "the app kept painting a zoomed pane's siblings" into a silent pass. Same fault
+    # the one-sided census had, just pointed the other way.
     missing=$(comm -23 <(printf '%s\n' "$tmux_panes") <(printf '%s\n' "$app_panes") | tr '\n' ' ')
-    if [ -n "${missing// /}" ]; then
-      # Report both sides and the zoom flag, not just the difference. Whether a
-      # pane is EXPECTED on screen turns entirely on zoom — a sibling of a zoomed
-      # pane is absent by design — so naming the missing pane alone accuses the
-      # app in a sentence that reads identically when the harness is the one that
-      # is wrong.
-      zoom_state=off
-      printf '%s\n' "$window_panes" | grep -q '^1 ' && zoom_state=on
-      note_fail "$iter" "visible $window: tmux panes [$missing] are not on screen in the app (coverage would silently drop them) zoom=$zoom_state expected=[$(printf '%s' "$tmux_panes" | tr '\n' ' ')] app_on_screen=[$(printf '%s' "$app_panes" | tr '\n' ' ')]"
+    unexpected=$(comm -13 <(printf '%s\n' "$tmux_panes") <(printf '%s\n' "$app_panes") | tr '\n' ' ')
+    if [ -n "${missing// /}${unexpected// /}" ]; then
+      # Both sides and the zoom flag, not just the difference: whether a pane is
+      # expected on screen turns entirely on zoom, so naming the odd pane alone
+      # accuses the app in a sentence that reads identically when the harness is the
+      # one that is wrong. `zoom_state` is already set by the branch above.
+      note_fail "$iter" "visible $window: pane census differs missing=[$missing] unexpected=[$unexpected] zoom=$zoom_state expected=[$(printf '%s' "$tmux_panes" | tr '\n' ' ')] app_on_screen=[$(printf '%s' "$app_panes" | tr '\n' ' ')]"
     fi
   done
   checked=0
