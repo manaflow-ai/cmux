@@ -17,6 +17,7 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
     private struct ViewerInvocationKey: Hashable {
         let webView: ObjectIdentifier
         let token: String
+        let viewerInstanceID: String
     }
     private var invocations: [UUID: Task<Void, Never>] = [:]
     private var sessionInvocationByViewer: [ViewerInvocationKey: UUID] = [:]
@@ -83,8 +84,16 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
             return
         }
         let viewerToken = DiffCommentsBridge.diffViewerToken(from: message.frameInfo.request.url)
-        let viewerKey = message.webView.flatMap { webView in
-            viewerToken.map { ViewerInvocationKey(webView: ObjectIdentifier(webView), token: $0) }
+        let viewerInstanceID = Self.viewerInstanceID(from: body)
+        let viewerKey: ViewerInvocationKey?
+        if let webView = message.webView, let viewerToken, let viewerInstanceID {
+            viewerKey = ViewerInvocationKey(
+                webView: ObjectIdentifier(webView),
+                token: viewerToken,
+                viewerInstanceID: viewerInstanceID
+            )
+        } else {
+            viewerKey = nil
         }
         let closeSessionID = ((message.body as? [String: Any])?["params"] as? [String: Any])?["sessionId"] as? String
         if method == "sessionClose",
@@ -144,6 +153,15 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
         if let viewerKey, sessionInvocationByViewer[viewerKey] == invocationID {
             sessionInvocationByViewer.removeValue(forKey: viewerKey)
         }
+    }
+
+    nonisolated static func viewerInstanceID(from body: [String: Any]) -> String? {
+        guard let params = body["params"] as? [String: Any],
+              let rawValue = params["viewerInstanceId"] as? String,
+              let value = UUID(uuidString: rawValue) else {
+            return nil
+        }
+        return value.uuidString.lowercased()
     }
 
     nonisolated private static func sessionCloseRequest(

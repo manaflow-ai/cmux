@@ -33,6 +33,9 @@ pub struct OpenSessionRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub viewer_instance_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, TS)]
@@ -79,6 +82,9 @@ pub enum AgentProvider {
 pub struct SessionRequest {
     pub session_id: String,
     pub capability_token: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub viewer_instance_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, TS)]

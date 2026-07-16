@@ -63,6 +63,7 @@ type ConfigProps = {
 type ActiveDiffSession = {
   capabilityToken: string;
   sessionId: string;
+  viewerInstanceId?: string;
 };
 
 const registeredCustomThemeNames = new Set<string>();
@@ -275,6 +276,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   );
   const appearance = resolveDiffViewerAppearance(payload.appearance);
   const transport = useDiffTransport(payload.transport);
+  const viewerInstanceID = useRef(makeViewerInstanceID()).current;
   const [activeSessionSource, setActiveSessionSource] = useState<DiffSource | null>(
     validDiffSource(payload.sessionSource) ? payload.sessionSource : null,
   );
@@ -318,6 +320,7 @@ export function App({ config, initialStatus }: ConfigProps) {
       return closeDiffSession(transport, {
         sessionId: pendingSessionID,
         capabilityToken: payload.capabilityToken,
+        viewerInstanceId: viewerInstanceID,
       });
     }
     activeSessionRef.current = null;
@@ -331,7 +334,7 @@ export function App({ config, initialStatus }: ConfigProps) {
           activeSessionRef.current = activeSession;
         }
       });
-  }, [payload.capabilityToken, transport]);
+  }, [payload.capabilityToken, transport, viewerInstanceID]);
   const rememberResolvedSessionSource = useCallback((source: DiffSource) => {
     if (source.kind === "branch") {
       branchSourceByRepoRef.current.set(source.repoRoot, source);
@@ -351,6 +354,7 @@ export function App({ config, initialStatus }: ConfigProps) {
     activeSessionRef,
     closeActiveSession,
     activeSessionSource,
+    viewerInstanceID,
     rememberResolvedSessionSource,
   );
   useCommentsBootstrap(bridgeAvailable ? commentRepoRoot : null, comments.onLoaded);
@@ -1627,6 +1631,7 @@ function useRenderDiff(
   activeSessionRef: React.MutableRefObject<ActiveDiffSession | null>,
   closeActiveSession: () => Promise<void>,
   sessionSource: DiffSource | null,
+  viewerInstanceID: string,
   onResolvedSessionSource: (source: DiffSource) => void,
 ) {
   useEffect(() => {
@@ -1650,7 +1655,7 @@ function useRenderDiff(
     void (async () => {
       try {
         let patchURL = payload.patchURL as string | undefined;
-        const session = diffSessionRequest(payload, transport, sessionSource);
+        const session = diffSessionRequest(payload, transport, sessionSource, viewerInstanceID);
         if (session) {
           const result = await transport!.request({ method: "sessionOpen", params: session });
           if (result.type !== "sessionOpened") {
@@ -1659,6 +1664,7 @@ function useRenderDiff(
           const openedSession = {
             sessionId: result.value.sessionId,
             capabilityToken: String(payload.capabilityToken ?? ""),
+            viewerInstanceId: viewerInstanceID,
           };
           if (cancelled) {
             await closeDiffSession(transport!, openedSession);
@@ -1739,16 +1745,17 @@ function useRenderDiff(
       window.removeEventListener("pagehide", handlePageHide);
       void closeActiveSession();
     };
-  }, [activeSessionRef, closeActiveSession, config, dispatch, label, latestState, onPatchURL, onResolvedSessionSource, sessionSource, transport]);
+  }, [activeSessionRef, closeActiveSession, config, dispatch, label, latestState, onPatchURL, onResolvedSessionSource, sessionSource, transport, viewerInstanceID]);
 }
 
 function closeDiffSession(transport: DiffTransport, session: ActiveDiffSession): Promise<void> {
   return transport.request({ method: "sessionClose", params: session }).then(() => {}, () => {});
 }
 
-function diffSessionRequest(payload: any, transport: DiffTransport | null, overrideSource?: DiffSource | null): {
+function diffSessionRequest(payload: any, transport: DiffTransport | null, overrideSource?: DiffSource | null, viewerInstanceID?: string): {
   source: DiffSource;
   capabilityToken: string;
+  viewerInstanceId?: string;
 } | null {
   if (!transport || typeof payload?.capabilityToken !== "string") {
     return null;
@@ -1757,7 +1764,22 @@ function diffSessionRequest(payload: any, transport: DiffTransport | null, overr
   if (!validDiffSource(source)) {
     return null;
   }
-  return { source, capabilityToken: payload.capabilityToken };
+  return {
+    source,
+    capabilityToken: payload.capabilityToken,
+    ...(viewerInstanceID ? { viewerInstanceId: viewerInstanceID } : {}),
+  };
+}
+
+function makeViewerInstanceID(): string {
+  if (typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (character) => {
+    const random = Math.floor(Math.random() * 16);
+    const value = character === "x" ? random : (random & 0x3) | 0x8;
+    return value.toString(16);
+  });
 }
 
 function validDiffSource(value: unknown): value is DiffSource {

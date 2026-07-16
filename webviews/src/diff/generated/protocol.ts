@@ -38,8 +38,8 @@ export type HandshakeResult = { protocolVersion: number, capabilities: Array<str
 
 export type NavigationResult = { url: string, };
 
-export type OpenSessionRequest = { source: DiffSource, capabilityToken: string, sessionId?: string, };
+export type OpenSessionRequest = { source: DiffSource, capabilityToken: string, sessionId?: string, viewerInstanceId?: string, };
 
 export type SessionOpened = { sessionId: string, patch: DiffResourceRef, source: DiffSource, };
 
-export type SessionRequest = { sessionId: string, capabilityToken: string, };
+export type SessionRequest = { sessionId: string, capabilityToken: string, viewerInstanceId?: string, };

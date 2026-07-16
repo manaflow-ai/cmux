@@ -145,6 +145,17 @@ struct ViewerNavigationTests {
     }
 
     @Test
+    func sidecarBridgeNormalizesViewerInstanceIdentity() {
+        let identifier = UUID()
+        let body: [String: Any] = [
+            "params": ["viewerInstanceId": identifier.uuidString.uppercased()]
+        ]
+
+        #expect(DiffSidecarBridge.viewerInstanceID(from: body) == identifier.uuidString.lowercased())
+        #expect(DiffSidecarBridge.viewerInstanceID(from: ["params": ["viewerInstanceId": "invalid"]]) == nil)
+    }
+
+    @Test
     func registeredLiveHTTPViewerTrustRenewsWhileSessionRemainsActive() throws {
         let liveToken = UUID().uuidString.lowercased()
         let url = try #require(URL(
