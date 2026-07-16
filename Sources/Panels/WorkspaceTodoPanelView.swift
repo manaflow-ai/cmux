@@ -80,6 +80,12 @@ enum WorkspaceTodoPaneItemRowClickPolicy {
     }
 }
 
+enum WorkspaceTodoPaneKeyboardNavigationPolicy {
+    nonisolated static func shouldMoveHighlight(isEditing: Bool, hasItems: Bool) -> Bool {
+        !isEditing && hasItems
+    }
+}
+
 private struct WorkspaceTodoPanelOpaqueBackground: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         WorkspaceTodoPanelOpaqueBackgroundView()
@@ -347,7 +353,10 @@ private struct WorkspaceTodoPaneContent: View {
     /// Moves the highlight up/down through the visible (display-ordered)
     /// items, clamping at the ends.
     private func moveHighlight(_ delta: Int, in ordered: [WorkspaceChecklistItem]) -> KeyPress.Result {
-        guard !ordered.isEmpty else { return .ignored }
+        guard WorkspaceTodoPaneKeyboardNavigationPolicy.shouldMoveHighlight(
+            isEditing: editingItemId != nil,
+            hasItems: !ordered.isEmpty
+        ) else { return .ignored }
         let currentIndex = ordered.firstIndex(where: { $0.id == highlightedItemId })
             ?? (delta > 0 ? -1 : ordered.count)
         let next = min(max(currentIndex + delta, 0), ordered.count - 1)

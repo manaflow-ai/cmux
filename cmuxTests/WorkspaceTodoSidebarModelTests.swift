@@ -251,6 +251,22 @@ struct WorkspaceTodoSidebarModelTests {
     }
 
     @Test
+    func todoPaneArrowNavigationDoesNotStealKeysWhileEditing() {
+        #expect(WorkspaceTodoPaneKeyboardNavigationPolicy.shouldMoveHighlight(
+            isEditing: false,
+            hasItems: true
+        ))
+        #expect(!WorkspaceTodoPaneKeyboardNavigationPolicy.shouldMoveHighlight(
+            isEditing: true,
+            hasItems: true
+        ))
+        #expect(!WorkspaceTodoPaneKeyboardNavigationPolicy.shouldMoveHighlight(
+            isEditing: false,
+            hasItems: false
+        ))
+    }
+
+    @Test
     func todoPaneEditFieldUsesVerticalTextEntry() throws {
         let source = try Self.sourceText("Sources/Panels/WorkspaceTodoPanelView.swift")
 
