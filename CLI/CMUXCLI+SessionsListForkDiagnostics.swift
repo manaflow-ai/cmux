@@ -183,15 +183,14 @@ extension CMUXCLI {
             forkCommandAvailable: forkCommandAvailable
         )
         let forkSupported = support.supported
-        let piFamilyAgent = sessionsListPiFamilyAgent(agent: agent, launchCommand: trustedLaunchCommand)
-        let forkStartupInputAvailable = piFamilyAgent == nil && (forkArguments.map {
+        let forkStartupInputAvailable = forkArguments.map {
             sessionsListForkStartupInputAvailable(
                 arguments: $0,
                 agent: agent,
                 record: diagnosticRecord,
                 launchCommand: trustedLaunchCommand
             )
-        } ?? false)
+        } ?? false
         let unavailableReason: String
         if forkSupported {
             unavailableReason = "available"

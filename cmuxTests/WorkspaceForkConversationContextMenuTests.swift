@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import os
 import Testing
@@ -35,7 +36,7 @@ private actor AsyncTestBarrier {
 @Suite(.serialized)
 struct WorkspaceForkConversationContextMenuTests {
     @Test
-    func panelContextMenuActionUsesClickedPanel() throws {
+    func panelContextMenuActionUsesClickedPanel() async throws {
         let workspace = Workspace()
         let sourcePanelId = try #require(workspace.focusedPanelId)
         let sourcePaneId = try #require(workspace.paneId(forPanelId: sourcePanelId))
@@ -43,12 +44,11 @@ struct WorkspaceForkConversationContextMenuTests {
         let otherPanel = try #require(workspace.newTerminalSurfaceInFocusedPane(focus: true))
         #expect(workspace.focusedPanelId == otherPanel.id)
 
-        #expect(
-            workspace.forkAgentConversationFromContextMenu(
-                fromPanelId: sourcePanelId,
-                destination: .newTab
-            )
+        let didForkFromClickedPanel = await workspace.forkAgentConversationFromContextMenu(
+            fromPanelId: sourcePanelId,
+            destination: .newTab
         )
+        #expect(didForkFromClickedPanel)
 
         #expect(
             workspace.bonsplitController.tabs(inPane: sourcePaneId).count == 3,
@@ -475,6 +475,9 @@ struct WorkspaceForkConversationContextMenuTests {
         #expect(AgentForkSupport.piFamilyVersionSupportsFork("pi 0.60.0", agentID: "pi"))
         #expect(AgentForkSupport.piFamilyVersionSupportsFork("pi:v0.60.0", agentID: "pi"))
         #expect(AgentForkSupport.piFamilyVersionSupportsFork("omp/13.15.0", agentID: "omp"))
+        #expect(!AgentForkSupport.piFamilyVersionSupportsFork("0.60.0-beta.1", agentID: "pi", acceptsBareVersionOutput: true))
+        #expect(!AgentForkSupport.piFamilyVersionSupportsFork("pi 0.60.0-beta.1", agentID: "pi"))
+        #expect(!AgentForkSupport.piFamilyVersionSupportsFork("omp/13.15.0-rc.1", agentID: "omp"))
         #expect(!AgentForkSupport.piFamilyVersionSupportsFork("omp/13.14.2", agentID: "omp"))
         #expect(!AgentForkSupport.piFamilyVersionSupportsFork("v22.1.0", agentID: "pi"))
         #expect(!AgentForkSupport.piFamilyVersionSupportsFork("warning: pi requires node v22.1.0\n0.59.9", agentID: "pi"))
@@ -485,6 +488,18 @@ struct WorkspaceForkConversationContextMenuTests {
         #expect(AgentForkSupport.piFamilyVersionSupportsFork("node v22.1.0; omp/13.15.0", agentID: "omp"))
         #expect(!AgentForkSupport.piFamilyVersionSupportsFork("node v22.1.0\nomp/13.14.2", agentID: "omp"))
         #expect(!AgentForkSupport.piFamilyVersionSupportsFork("16.5.2", agentID: "unknown"))
+    }
+
+    @Test
+    func forkTimeoutResumeGateResumesOnlyFirstClaim() async {
+        let value = await withCheckedContinuation { continuation in
+            let gate = AgentForkTimeoutResumeGate(continuation)
+
+            #expect(gate.resume(returning: "timeout"))
+            #expect(!gate.resume(returning: "task"))
+        }
+
+        #expect(value == "timeout")
     }
 
     @Test
@@ -511,6 +526,193 @@ struct WorkspaceForkConversationContextMenuTests {
             ContentView.commandPaletteForkSnapshotFingerprint(first)
                 != ContentView.commandPaletteForkSnapshotFingerprint(second)
         )
+    }
+
+    @Test
+    func commandPaletteForkAvailabilitySnapshotSourcePrefersLiveIndexOverRestoredFallback() throws {
+        let liveSnapshot = makePiFamilySnapshot(
+            launcher: "pi",
+            workspaceRoot: "/tmp/live-pi-repo",
+            executablePath: "/usr/local/bin/pi"
+        )
+        let staleFallback = makeProbeRequiredOpenCodeSnapshot(
+            sessionId: "stale-opencode-session",
+            workingDirectory: "/tmp/stale-opencode-repo",
+            executablePath: "/usr/local/bin/opencode"
+        )
+        let liveFingerprint = ContentView.commandPaletteForkSnapshotFingerprint(liveSnapshot)
+        let fallbackFingerprint = ContentView.commandPaletteForkSnapshotFingerprint(staleFallback)
+        #expect(liveFingerprint != fallbackFingerprint)
+
+        let liveSource = try #require(
+            ContentView.commandPaletteForkAvailabilitySnapshotSource(
+                liveIndexSnapshot: liveSnapshot,
+                fallbackSnapshot: staleFallback
+            )
+        )
+        #expect(liveSource.snapshot.sessionId == liveSnapshot.sessionId)
+        #expect(liveSource.snapshot.launchCommand?.launcher == "pi")
+        #expect(liveSource.snapshotFingerprint == liveFingerprint)
+        #expect(liveSource.validationFallbackSnapshot == nil)
+        #expect(liveSource.validationFallbackFingerprint == nil)
+        #expect(!liveSource.resultHadFallback)
+
+        let fallbackSource = try #require(
+            ContentView.commandPaletteForkAvailabilitySnapshotSource(
+                liveIndexSnapshot: nil,
+                fallbackSnapshot: staleFallback
+            )
+        )
+        #expect(fallbackSource.snapshot.sessionId == staleFallback.sessionId)
+        #expect(fallbackSource.snapshot.launchCommand?.launcher == "opencode")
+        #expect(fallbackSource.snapshotFingerprint == fallbackFingerprint)
+        #expect(fallbackSource.validationFallbackSnapshot?.sessionId == staleFallback.sessionId)
+        #expect(fallbackSource.validationFallbackFingerprint == fallbackFingerprint)
+        #expect(fallbackSource.resultHadFallback)
+    }
+
+    @Test
+    func commandPaletteImmediateForkExecutionPrefersLiveIndexOverRestoredFallback() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let panelKey = ContentView.commandPaletteForkableAgentPanelKey(workspaceId: workspaceId, panelId: panelId)
+        let liveSnapshot = makePiFamilySnapshot(
+            launcher: "pi",
+            workspaceRoot: "/tmp/live-pi-repo",
+            executablePath: "/usr/local/bin/pi"
+        )
+        let staleFallback = makeProbeRequiredOpenCodeSnapshot(
+            sessionId: "stale-opencode-session",
+            workingDirectory: "/tmp/stale-opencode-repo",
+            executablePath: "/usr/local/bin/opencode"
+        )
+        let liveFingerprint = ContentView.commandPaletteForkSnapshotFingerprint(liveSnapshot)
+        #expect(
+            ContentView.commandPalettePanelHasForkableAgent(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                supportedPanelKeys: [panelKey],
+                supportedRemoteContextsByPanelKey: [panelKey: false],
+                liveIndexSnapshot: liveSnapshot,
+                fallbackSnapshot: staleFallback,
+                cachedSnapshot: liveSnapshot,
+                allowsAgentContinuation: true
+            )
+        )
+
+        let selection = ContentView.commandPaletteImmediateForkExecutionSnapshotSelection(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            isRemoteTerminal: false,
+            supportedPanelKeys: [panelKey],
+            supportedRemoteContextsByPanelKey: [panelKey: false],
+            snapshotFingerprintsByPanelKey: [panelKey: liveFingerprint],
+            liveIndexSnapshot: liveSnapshot,
+            fallbackSnapshot: staleFallback,
+            cachedSnapshot: liveSnapshot,
+            allowsAgentContinuation: true
+        )
+
+        #expect(selection?.snapshot.sessionId == liveSnapshot.sessionId)
+        #expect(selection?.snapshot.launchCommand?.launcher == "pi")
+        #expect(selection?.usedFallbackSnapshot == false)
+    }
+
+    @Test
+    func commandPaletteImmediateForkExecutionDoesNotPreferUnvalidatedLiveIndexOverRestoredFallback() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-palette-unvalidated-live-restored-fallback-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        try fm.createDirectory(at: root.appendingPathComponent(".cmuxterm", isDirectory: true), withIntermediateDirectories: true)
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let panelKey = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
+        let palettePanelKey = ContentView.commandPaletteForkableAgentPanelKey(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let staleLiveSnapshot = makeForkableClaudeSnapshot(
+            sessionId: "stale-live-claude-session",
+            workingDirectory: root.appendingPathComponent("stale", isDirectory: true).path
+        )
+        let restoredSnapshot = makeForkableClaudeSnapshot(
+            sessionId: "restored-current-claude-session",
+            workingDirectory: root.appendingPathComponent("restored", isDirectory: true).path
+        )
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                let index = RestorableAgentSessionIndex.load(
+                    homeDirectory: root.path,
+                    fileManager: fm,
+                    registry: CmuxVaultAgentRegistry(registrations: []),
+                    detectedSnapshots: [
+                        panelKey: (
+                            snapshot: staleLiveSnapshot,
+                            updatedAt: 42,
+                            processIDs: [],
+                            agentProcessIDs: [],
+                            sessionIDSource: .explicit
+                        ),
+                    ]
+                )
+                return (
+                    index: index,
+                    liveAgentProcessFingerprint: [],
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: []
+                )
+            },
+            forkSupportProvider: { _, _ in true },
+            hookStoreDirectoryProvider: {
+                root.appendingPathComponent(".cmuxterm", isDirectory: true).path
+            },
+            dateProvider: { Date(timeIntervalSince1970: 42) }
+        )
+        await sharedIndex.refreshForkAvailabilityNow()
+
+        #expect(sharedIndex.index?.snapshot(workspaceId: workspaceId, panelId: panelId)?.sessionId == staleLiveSnapshot.sessionId)
+        let validatedLiveSnapshot = sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId)
+        #expect(validatedLiveSnapshot == nil)
+        let fallbackFingerprint = ContentView.commandPaletteForkSnapshotFingerprint(restoredSnapshot)
+        let source = try #require(
+            ContentView.commandPaletteForkAvailabilitySnapshotSource(
+                liveIndexSnapshot: validatedLiveSnapshot,
+                fallbackSnapshot: restoredSnapshot
+            )
+        )
+        #expect(source.snapshot.sessionId == restoredSnapshot.sessionId)
+        #expect(source.resultHadFallback)
+        #expect(
+            ContentView.commandPalettePanelHasForkableAgent(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                supportedPanelKeys: [palettePanelKey],
+                supportedRemoteContextsByPanelKey: [palettePanelKey: false],
+                liveIndexSnapshot: validatedLiveSnapshot,
+                fallbackSnapshot: restoredSnapshot,
+                cachedSnapshot: restoredSnapshot,
+                allowsAgentContinuation: true
+            )
+        )
+
+        let selection = ContentView.commandPaletteImmediateForkExecutionSnapshotSelection(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            isRemoteTerminal: false,
+            supportedPanelKeys: [palettePanelKey],
+            supportedRemoteContextsByPanelKey: [palettePanelKey: false],
+            snapshotFingerprintsByPanelKey: [palettePanelKey: fallbackFingerprint],
+            resultHadFallbackByPanelKey: [palettePanelKey: true],
+            liveIndexSnapshot: validatedLiveSnapshot,
+            fallbackSnapshot: restoredSnapshot,
+            cachedSnapshot: restoredSnapshot,
+            allowsAgentContinuation: true
+        )
+        #expect(selection?.snapshot.sessionId == restoredSnapshot.sessionId)
+        #expect(selection?.snapshot.sessionId != staleLiveSnapshot.sessionId)
+        #expect(selection?.usedFallbackSnapshot == true)
     }
 
     @Test
@@ -567,6 +769,53 @@ struct WorkspaceForkConversationContextMenuTests {
 
         #expect(snapshotFingerprint == ContentView.commandPaletteForkSnapshotFingerprint(snapshot))
         #expect(first != (await ContentView.commandPaletteForkProbeExecutableFingerprint(snapshot)))
+    }
+
+    @Test
+    func sharedForkProbeExposesExecutableFingerprintValidatedBeforePaletteCaching() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-shared-validated-executable-fingerprint-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        try fm.createDirectory(at: root.appendingPathComponent(".cmuxterm", isDirectory: true), withIntermediateDirectories: true)
+        let executable = root.appendingPathComponent("pi", isDirectory: false)
+        try writeExecutableFixture(at: executable, output: "pi 0.80.6")
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let snapshot = makePiFamilySnapshot(
+            launcher: "pi",
+            workspaceRoot: root.path,
+            executablePath: executable.path
+        )
+        let sharedIndex = SharedLiveAgentIndex(
+            forkSupportProvider: { _, _ in true },
+            hookStoreDirectoryProvider: {
+                root.appendingPathComponent(".cmuxterm", isDirectory: true).path
+            }
+        )
+
+        await sharedIndex.refreshForkAvailabilityNow(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            fallbackSnapshot: snapshot
+        )
+
+        let validatedFingerprint = try #require(
+            sharedIndex.forkSupportProbeExecutableFingerprint(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                fallbackSnapshot: snapshot
+            )
+        )
+        #expect(sharedIndex.forkSupportProbeAccepted(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            fallbackSnapshot: snapshot
+        ))
+
+        try writeExecutableFixture(at: executable, output: "pi 0.59.0-downgraded")
+
+        #expect(validatedFingerprint != ContentView.commandPaletteForkProbeExecutableFingerprintValue(snapshot))
     }
 
     @Test
@@ -813,7 +1062,7 @@ struct WorkspaceForkConversationContextMenuTests {
         )
         #expect(missingExecutableIdentitySelection == nil)
 
-        let mismatchedCachedExecutableFingerprintSelection = ContentView.commandPaletteImmediateForkExecutionSnapshotSelection(
+        let staleButFreshCachedExecutableFingerprintSelection = ContentView.commandPaletteImmediateForkExecutionSnapshotSelection(
             workspaceId: workspaceId,
             panelId: panelId,
             isRemoteTerminal: false,
@@ -828,8 +1077,8 @@ struct WorkspaceForkConversationContextMenuTests {
             allowsAgentContinuation: true
         )
         #expect(
-            mismatchedCachedExecutableFingerprintSelection?.usedFallbackSnapshot == true,
-            "Immediate palette selection must not synchronously touch the filesystem to compare executable identities; the async probe owns that check."
+            staleButFreshCachedExecutableFingerprintSelection != nil,
+            "The pure selection helper only checks probe TTL and metadata; action execution revalidates current executable identity off the main actor."
         )
 
         let expiredSelection = ContentView.commandPaletteImmediateForkExecutionSnapshotSelection(
@@ -1004,6 +1253,437 @@ struct WorkspaceForkConversationContextMenuTests {
         await sharedIndex.refreshForkAvailabilityNow(workspaceId: workspaceId, panelId: panelId)
         #expect(probedLaunchers.withLock { $0 } == ["pi", "omp"])
         #expect(sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId) == nil)
+    }
+
+    @Test
+    func sharedForkProbeKeepsUnresolvedExecutableRejectionFreshUntilTTL() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-unresolved-fork-probe-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        try fm.createDirectory(at: root.appendingPathComponent(".cmuxterm", isDirectory: true), withIntermediateDirectories: true)
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let panelKey = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
+        let missingExecutable = root.appendingPathComponent("missing-pi", isDirectory: false)
+        let snapshot = makePiFamilySnapshot(
+            launcher: "pi",
+            workspaceRoot: root.path,
+            executablePath: missingExecutable.path
+        )
+        let now = OSAllocatedUnfairLock(initialState: Date(timeIntervalSince1970: 0))
+        let loaderCallCount = OSAllocatedUnfairLock(initialState: 0)
+        let providerCallCount = OSAllocatedUnfairLock(initialState: 0)
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                loaderCallCount.withLock { $0 += 1 }
+                let index = RestorableAgentSessionIndex.load(
+                    homeDirectory: root.path,
+                    fileManager: fm,
+                    registry: CmuxVaultAgentRegistry(registrations: []),
+                    detectedSnapshots: [
+                        panelKey: (
+                            snapshot: snapshot,
+                            updatedAt: now.withLock { $0.timeIntervalSince1970 },
+                            processIDs: [],
+                            agentProcessIDs: [],
+                            sessionIDSource: .explicit
+                        ),
+                    ]
+                )
+                return (
+                    index: index,
+                    liveAgentProcessFingerprint: [],
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: [panelKey]
+                )
+            },
+            forkSupportProvider: { _, _ in
+                providerCallCount.withLock { $0 += 1 }
+                return true
+            },
+            hookStoreDirectoryProvider: {
+                root.appendingPathComponent(".cmuxterm", isDirectory: true).path
+            },
+            dateProvider: {
+                now.withLock { $0 }
+            }
+        )
+
+        await sharedIndex.refreshForkAvailabilityNow(workspaceId: workspaceId, panelId: panelId)
+        #expect(sharedIndex.forkSupportProbeRejected(workspaceId: workspaceId, panelId: panelId))
+        #expect(providerCallCount.withLock { $0 } == 0)
+        let loaderCallsAfterProbe = loaderCallCount.withLock { $0 }
+
+        #expect(
+            sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId),
+            "An unresolved executable rejection should be fresh until the probe TTL instead of requeueing immediately."
+        )
+        #expect(loaderCallCount.withLock { $0 } == loaderCallsAfterProbe)
+    }
+
+    @Test
+    func sharedForkProbeCoalescesDuplicateRequestsWhileValidationIsActive() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-active-probe-coalesce-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        try fm.createDirectory(at: root.appendingPathComponent(".cmuxterm", isDirectory: true), withIntermediateDirectories: true)
+        let executable = root.appendingPathComponent("pi", isDirectory: false)
+        try writeExecutableFixture(at: executable, output: "pi 0.80.6")
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let panelKey = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
+        let snapshot = makePiFamilySnapshot(
+            launcher: "pi",
+            workspaceRoot: root.path,
+            executablePath: executable.path
+        )
+        let probeCount = OSAllocatedUnfairLock(initialState: 0)
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                let index = RestorableAgentSessionIndex.load(
+                    homeDirectory: root.path,
+                    fileManager: fm,
+                    registry: CmuxVaultAgentRegistry(registrations: [.builtInPi]),
+                    detectedSnapshots: [
+                        panelKey: (
+                            snapshot: snapshot,
+                            updatedAt: 42,
+                            processIDs: [],
+                            agentProcessIDs: [],
+                            sessionIDSource: .explicit
+                        ),
+                    ]
+                )
+                return (
+                    index: index,
+                    liveAgentProcessFingerprint: [],
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: [panelKey]
+                )
+            },
+            forkSupportProvider: { _, _ in
+                probeCount.withLock { $0 += 1 }
+                try? await Task.sleep(nanoseconds: 150_000_000)
+                return true
+            },
+            hookStoreDirectoryProvider: {
+                root.appendingPathComponent(".cmuxterm", isDirectory: true).path
+            },
+            dateProvider: { Date(timeIntervalSince1970: 42) }
+        )
+
+        async let refresh: Void = sharedIndex.refreshForkAvailabilityNow(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            fallbackSnapshot: snapshot
+        )
+        while probeCount.withLock({ $0 }) == 0 {
+            await Task.yield()
+        }
+        let duplicateReturned = OSAllocatedUnfairLock(initialState: false)
+        async let duplicateRefresh: Void = {
+            await sharedIndex.refreshForkAvailabilityNow(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                fallbackSnapshot: snapshot
+            )
+            duplicateReturned.withLock { $0 = true }
+        }()
+        await Task.yield()
+        #expect(!duplicateReturned.withLock { $0 })
+        #expect(!sharedIndex.prepareForkAvailabilityProbe(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            fallbackSnapshot: snapshot
+        ))
+        #expect(!sharedIndex.prepareForkAvailabilityProbe(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            fallbackSnapshot: snapshot
+        ))
+        _ = await refresh
+        _ = await duplicateRefresh
+        try await Task.sleep(nanoseconds: 250_000_000)
+
+        #expect(sharedIndex.forkSupportProbeAccepted(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            fallbackSnapshot: snapshot
+        ))
+        #expect(probeCount.withLock { $0 } == 1)
+    }
+
+    @Test
+    func sharedForkProbeWaitsForDuplicatePendingValidation() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-pending-probe-coalesce-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        try fm.createDirectory(at: root.appendingPathComponent(".cmuxterm", isDirectory: true), withIntermediateDirectories: true)
+        let executable = root.appendingPathComponent("pi", isDirectory: false)
+        try writeExecutableFixture(at: executable, output: "pi 0.80.6")
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let panelKey = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
+        let snapshot = makePiFamilySnapshot(
+            launcher: "pi",
+            workspaceRoot: root.path,
+            executablePath: executable.path
+        )
+        let loaderStarted = OSAllocatedUnfairLock(initialState: false)
+        let releaseLoader = OSAllocatedUnfairLock(initialState: false)
+        let probeCount = OSAllocatedUnfairLock(initialState: 0)
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                loaderStarted.withLock { $0 = true }
+                while !releaseLoader.withLock({ $0 }) {
+                    Thread.sleep(forTimeInterval: 0.005)
+                }
+                let index = RestorableAgentSessionIndex.load(
+                    homeDirectory: root.path,
+                    fileManager: fm,
+                    registry: CmuxVaultAgentRegistry(registrations: [.builtInPi]),
+                    detectedSnapshots: [
+                        panelKey: (
+                            snapshot: snapshot,
+                            updatedAt: 42,
+                            processIDs: [],
+                            agentProcessIDs: [],
+                            sessionIDSource: .explicit
+                        ),
+                    ]
+                )
+                return (
+                    index: index,
+                    liveAgentProcessFingerprint: [],
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: [panelKey]
+                )
+            },
+            forkSupportProvider: { _, _ in
+                probeCount.withLock { $0 += 1 }
+                return true
+            },
+            hookStoreDirectoryProvider: {
+                root.appendingPathComponent(".cmuxterm", isDirectory: true).path
+            },
+            dateProvider: { Date(timeIntervalSince1970: 42) }
+        )
+
+        sharedIndex.scheduleRefreshIfStale(validating: panelKey)
+        while !loaderStarted.withLock({ $0 }) {
+            await Task.yield()
+        }
+        let duplicateReturned = OSAllocatedUnfairLock(initialState: false)
+        async let duplicateRefresh: Void = {
+            await sharedIndex.refreshForkAvailabilityNow(workspaceId: workspaceId, panelId: panelId)
+            duplicateReturned.withLock { $0 = true }
+        }()
+        await Task.yield()
+        #expect(!duplicateReturned.withLock { $0 })
+
+        releaseLoader.withLock { $0 = true }
+        _ = await duplicateRefresh
+
+        #expect(sharedIndex.forkSupportProbeAccepted(workspaceId: workspaceId, panelId: panelId))
+        #expect(probeCount.withLock { $0 } == 1)
+    }
+
+    @Test
+    func sharedForkProbeSeparatesLiveAndFallbackRequestsForSamePanel() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-live-fallback-probe-batches-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        try fm.createDirectory(at: root.appendingPathComponent(".cmuxterm", isDirectory: true), withIntermediateDirectories: true)
+        let executable = root.appendingPathComponent("opencode", isDirectory: false)
+        try writeExecutableFixture(at: executable)
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let panelKey = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
+        let liveSnapshot = makeProbeRequiredOpenCodeSnapshot(
+            sessionId: "live-index-request",
+            workingDirectory: root.path,
+            executablePath: executable.path
+        )
+        let fallbackSnapshot = makeProbeRequiredOpenCodeSnapshot(
+            sessionId: "restored-fallback-request",
+            workingDirectory: root.path,
+            executablePath: executable.path
+        )
+        let loaderStarted = OSAllocatedUnfairLock(initialState: false)
+        let releaseLoader = OSAllocatedUnfairLock(initialState: false)
+        let probedSessionIds = OSAllocatedUnfairLock(initialState: [String]())
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                loaderStarted.withLock { $0 = true }
+                while !releaseLoader.withLock({ $0 }) {
+                    Thread.sleep(forTimeInterval: 0.005)
+                }
+                let index = RestorableAgentSessionIndex.load(
+                    homeDirectory: root.path,
+                    fileManager: fm,
+                    registry: CmuxVaultAgentRegistry(registrations: []),
+                    detectedSnapshots: [
+                        panelKey: (
+                            snapshot: liveSnapshot,
+                            updatedAt: 42,
+                            processIDs: [],
+                            agentProcessIDs: [],
+                            sessionIDSource: .explicit
+                        ),
+                    ]
+                )
+                return (
+                    index: index,
+                    liveAgentProcessFingerprint: [],
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: [panelKey]
+                )
+            },
+            forkSupportProvider: { snapshot, _ in
+                probedSessionIds.withLock { $0.append(snapshot.sessionId) }
+                return true
+            },
+            hookStoreDirectoryProvider: {
+                root.appendingPathComponent(".cmuxterm", isDirectory: true).path
+            },
+            dateProvider: { Date(timeIntervalSince1970: 42) }
+        )
+
+        sharedIndex.scheduleRefreshIfStale(validating: panelKey)
+        for _ in 0..<1000 where !loaderStarted.withLock({ $0 }) {
+            await Task.yield()
+        }
+        #expect(loaderStarted.withLock { $0 })
+
+        await sharedIndex.refreshForkAvailabilityNow(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            fallbackSnapshot: fallbackSnapshot
+        )
+        #expect(probedSessionIds.withLock { $0 } == ["restored-fallback-request"])
+        #expect(sharedIndex.forkSupportProbeAccepted(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            fallbackSnapshot: fallbackSnapshot
+        ))
+
+        releaseLoader.withLock { $0 = true }
+        for _ in 0..<10_000 where !probedSessionIds.withLock({ $0.contains("live-index-request") }) {
+            await Task.yield()
+        }
+
+        #expect(probedSessionIds.withLock { $0 } == [
+            "restored-fallback-request",
+            "live-index-request",
+        ])
+        #expect(sharedIndex.forkSupportProbeAccepted(workspaceId: workspaceId, panelId: panelId))
+    }
+
+    @Test
+    func sharedForkProbeDoesNotCoalesceMatchingIdentityAcrossPanels() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-cross-panel-probe-coalesce-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        try fm.createDirectory(at: root.appendingPathComponent(".cmuxterm", isDirectory: true), withIntermediateDirectories: true)
+        let executable = root.appendingPathComponent("pi", isDirectory: false)
+        try writeExecutableFixture(at: executable, output: "pi 0.80.6")
+
+        let firstWorkspaceId = UUID()
+        let firstPanelId = UUID()
+        let secondWorkspaceId = UUID()
+        let secondPanelId = UUID()
+        let firstPanelKey = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: firstWorkspaceId,
+            panelId: firstPanelId
+        )
+        let secondPanelKey = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: secondWorkspaceId,
+            panelId: secondPanelId
+        )
+        let snapshot = makePiFamilySnapshot(
+            launcher: "pi",
+            workspaceRoot: root.path,
+            executablePath: executable.path
+        )
+        let probeCount = OSAllocatedUnfairLock(initialState: 0)
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                let index = RestorableAgentSessionIndex.load(
+                    homeDirectory: root.path,
+                    fileManager: fm,
+                    registry: CmuxVaultAgentRegistry(registrations: [.builtInPi]),
+                    detectedSnapshots: [
+                        firstPanelKey: (
+                            snapshot: snapshot,
+                            updatedAt: 42,
+                            processIDs: [],
+                            agentProcessIDs: [],
+                            sessionIDSource: .explicit
+                        ),
+                        secondPanelKey: (
+                            snapshot: snapshot,
+                            updatedAt: 42,
+                            processIDs: [],
+                            agentProcessIDs: [],
+                            sessionIDSource: .explicit
+                        ),
+                    ]
+                )
+                return (
+                    index: index,
+                    liveAgentProcessFingerprint: [],
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: [firstPanelKey, secondPanelKey]
+                )
+            },
+            forkSupportProvider: { _, _ in
+                probeCount.withLock { $0 += 1 }
+                try? await Task.sleep(nanoseconds: 150_000_000)
+                return true
+            },
+            hookStoreDirectoryProvider: {
+                root.appendingPathComponent(".cmuxterm", isDirectory: true).path
+            },
+            dateProvider: { Date(timeIntervalSince1970: 42) }
+        )
+
+        async let firstRefresh: Void = sharedIndex.refreshForkAvailabilityNow(
+            workspaceId: firstWorkspaceId,
+            panelId: firstPanelId,
+            fallbackSnapshot: snapshot
+        )
+        while probeCount.withLock({ $0 }) == 0 {
+            await Task.yield()
+        }
+        async let secondRefresh: Void = sharedIndex.refreshForkAvailabilityNow(
+            workspaceId: secondWorkspaceId,
+            panelId: secondPanelId,
+            fallbackSnapshot: snapshot
+        )
+
+        _ = await firstRefresh
+        _ = await secondRefresh
+
+        #expect(sharedIndex.forkSupportProbeAccepted(
+            workspaceId: firstWorkspaceId,
+            panelId: firstPanelId,
+            fallbackSnapshot: snapshot
+        ))
+        #expect(sharedIndex.forkSupportProbeAccepted(
+            workspaceId: secondWorkspaceId,
+            panelId: secondPanelId,
+            fallbackSnapshot: snapshot
+        ))
+        #expect(probeCount.withLock { $0 } == 2)
     }
 
     @Test
@@ -1250,6 +1930,155 @@ struct WorkspaceForkConversationContextMenuTests {
             ),
             "The queued same-panel fallback request must be validated before refreshForkAvailabilityNow returns."
         )
+    }
+
+    @Test
+    func sharedForkProbeActiveWaitPreservesLaterQueuedValidationBatches() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-pending-active-wait-batches-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        try fm.createDirectory(at: root.appendingPathComponent(".cmuxterm", isDirectory: true), withIntermediateDirectories: true)
+        let executable = root.appendingPathComponent("opencode", isDirectory: false)
+        try writeExecutableFixture(at: executable)
+
+        let firstWorkspaceId = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000041"))
+        let firstPanelId = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000051"))
+        let firstPanelKey = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: firstWorkspaceId,
+            panelId: firstPanelId
+        )
+        let secondWorkspaceId = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000042"))
+        let secondPanelId = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000052"))
+        let secondPanelKey = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: secondWorkspaceId,
+            panelId: secondPanelId
+        )
+        let firstSnapshot = makeProbeRequiredOpenCodeSnapshot(
+            sessionId: "first-active-wait-batch",
+            workingDirectory: root.path,
+            executablePath: executable.path
+        )
+        let secondSnapshot = makeProbeRequiredOpenCodeSnapshot(
+            sessionId: "second-active-wait-batch",
+            workingDirectory: root.path,
+            executablePath: executable.path
+        )
+        let loaderCallCount = OSAllocatedUnfairLock(initialState: 0)
+        let blockedLoaderCount = OSAllocatedUnfairLock(initialState: 0)
+        let releaseBlockedLoaders = DispatchSemaphore(value: 0)
+        let activeProviderRelease = OSAllocatedUnfairLock(initialState: false)
+        let firstProviderBlockCount = OSAllocatedUnfairLock(initialState: 0)
+        let probedSessionIds = OSAllocatedUnfairLock(initialState: [String]())
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                let call = loaderCallCount.withLock { count in
+                    count += 1
+                    return count
+                }
+                if call > 1 {
+                    blockedLoaderCount.withLock { $0 += 1 }
+                    releaseBlockedLoaders.wait()
+                }
+                let index = RestorableAgentSessionIndex.load(
+                    homeDirectory: root.path,
+                    fileManager: fm,
+                    registry: CmuxVaultAgentRegistry(registrations: []),
+                    detectedSnapshots: [
+                        firstPanelKey: (
+                            snapshot: firstSnapshot,
+                            updatedAt: 0,
+                            processIDs: [],
+                            agentProcessIDs: [],
+                            sessionIDSource: .explicit
+                        ),
+                        secondPanelKey: (
+                            snapshot: secondSnapshot,
+                            updatedAt: 0,
+                            processIDs: [],
+                            agentProcessIDs: [],
+                            sessionIDSource: .explicit
+                        ),
+                    ]
+                )
+                return (
+                    index: index,
+                    liveAgentProcessFingerprint: [],
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: [firstPanelKey, secondPanelKey]
+                )
+            },
+            forkSupportProvider: { snapshot, _ in
+                probedSessionIds.withLock { $0.append(snapshot.sessionId) }
+                if snapshot.sessionId == "first-active-wait-batch" {
+                    let blockCount = firstProviderBlockCount.withLock { count in
+                        count += 1
+                        return count
+                    }
+                    if blockCount == 1 {
+                        while !Task.isCancelled && !activeProviderRelease.withLock({ $0 }) {
+                            await Task.yield()
+                        }
+                    }
+                }
+                return true
+            },
+            hookStoreDirectoryProvider: {
+                root.appendingPathComponent(".cmuxterm", isDirectory: true).path
+            }
+        )
+
+        let activeRefresh = Task {
+            await sharedIndex.refreshForkAvailabilityNow(
+                workspaceId: firstWorkspaceId,
+                panelId: firstPanelId
+            )
+        }
+        for _ in 0..<1000 where probedSessionIds.withLock({ $0 }) != ["first-active-wait-batch"] {
+            await Task.yield()
+        }
+        #expect(probedSessionIds.withLock { $0 } == ["first-active-wait-batch"])
+
+        let collidingRefresh = Task {
+            await sharedIndex.refreshForkAvailabilityNow(
+                workspaceId: firstWorkspaceId,
+                panelId: firstPanelId
+            )
+        }
+        for _ in 0..<1000 where blockedLoaderCount.withLock({ $0 }) < 1 {
+            await Task.yield()
+        }
+        let laterRefresh = Task {
+            await sharedIndex.refreshForkAvailabilityNow(
+                workspaceId: secondWorkspaceId,
+                panelId: secondPanelId
+            )
+        }
+        for _ in 0..<1000 where blockedLoaderCount.withLock({ $0 }) < 2 {
+            await Task.yield()
+        }
+        releaseBlockedLoaders.signal()
+        releaseBlockedLoaders.signal()
+
+        for _ in 0..<1000 where firstProviderBlockCount.withLock({ $0 }) < 1 {
+            await Task.yield()
+        }
+        #expect(probedSessionIds.withLock { $0 } == ["first-active-wait-batch"])
+
+        activeProviderRelease.withLock { $0 = true }
+        await activeRefresh.value
+        await collidingRefresh.value
+        await laterRefresh.value
+
+        #expect(probedSessionIds.withLock { $0 }.contains("second-active-wait-batch"))
+        #expect(
+            sharedIndex.snapshotForForkAvailability(
+                workspaceId: secondWorkspaceId,
+                panelId: secondPanelId
+            )?.sessionId == "second-active-wait-batch",
+            "Waiting on an active first batch must not drop later queued validation batches."
+        )
+        #expect(forkValidationCancellationTombstoneCount(in: sharedIndex) == 0)
     }
 
     @Test
@@ -1709,7 +2538,7 @@ struct WorkspaceForkConversationContextMenuTests {
     }
 
     @Test
-    func sharedForkProbeRevalidatesUnresolvedExecutableBeforeReusingRejection() async throws {
+    func sharedForkProbeRevalidatesUnresolvedExecutableAfterTTL() async throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
             .appendingPathComponent("cmux-unresolved-fork-validation-\(UUID().uuidString)", isDirectory: true)
@@ -1764,10 +2593,10 @@ struct WorkspaceForkConversationContextMenuTests {
         await sharedIndex.refreshForkAvailabilityNow(workspaceId: workspaceId, panelId: panelId)
 
         #expect(providerCallCount.withLock { $0 } == 0)
-        #expect(!sharedIndex.forkSupportProbeRejected(workspaceId: workspaceId, panelId: panelId))
+        #expect(sharedIndex.forkSupportProbeRejected(workspaceId: workspaceId, panelId: panelId))
         #expect(
-            !sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId),
-            "An unresolved executable rejection must not be treated as fresh; the next availability check should queue a new off-main validation."
+            sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId),
+            "An unresolved executable rejection should stay fresh until the probe TTL expires."
         )
         #expect(sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId) == nil)
 
@@ -1781,6 +2610,7 @@ struct WorkspaceForkConversationContextMenuTests {
             ofItemAtPath: root.appendingPathComponent("missing-pi", isDirectory: false).path
         )
 
+        now.withLock { $0 = Date(timeIntervalSince1970: 16) }
         await sharedIndex.refreshForkAvailabilityNow(workspaceId: workspaceId, panelId: panelId)
         #expect(providerCallCount.withLock { $0 } == 1)
         #expect(sharedIndex.forkSupportProbeAccepted(workspaceId: workspaceId, panelId: panelId))
@@ -2075,7 +2905,43 @@ struct WorkspaceForkConversationContextMenuTests {
     }
 
     @Test
-    func sharedForkProbeValidationFailsClosedWhenWatchPathBudgetIsExceeded() async throws {
+    func sharedForkProbeExecutableWatchResourcePolicyReservesFileDescriptors() {
+        #expect((SharedLiveAgentIndex.forkExecutableWatchOpenFlags & O_CLOEXEC) == O_CLOEXEC)
+        #expect(
+            SharedLiveAgentIndex.forkExecutableWatchSourceCountBudget(
+                softFileDescriptorLimit: 128,
+                openFileDescriptorCount: 0
+            ) == 0
+        )
+        #expect(
+            SharedLiveAgentIndex.forkExecutableWatchSourceCountBudget(
+                softFileDescriptorLimit: 256,
+                openFileDescriptorCount: 0
+            ) == 32
+        )
+        #expect(
+            SharedLiveAgentIndex.forkExecutableWatchSourceCountBudget(
+                softFileDescriptorLimit: 1024,
+                openFileDescriptorCount: 0
+            ) == 64
+        )
+        #expect(
+            SharedLiveAgentIndex.forkExecutableWatchSourceCountBudget(
+                softFileDescriptorLimit: 256,
+                openFileDescriptorCount: 220
+            ) == 0
+        )
+        #expect(
+            SharedLiveAgentIndex.forkExecutableWatchSourceCountBudget(
+                softFileDescriptorLimit: 256,
+                openFileDescriptorCount: 100,
+                pendingReservationCount: 20
+            ) == 2
+        )
+    }
+
+    @Test
+    func sharedForkProbeValidationRefreshesBeforeReuseWhenWatchPathBudgetIsExceeded() async throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
             .appendingPathComponent("cmux-fork-watch-budget-\(UUID().uuidString)", isDirectory: true)
@@ -2161,19 +3027,29 @@ struct WorkspaceForkConversationContextMenuTests {
         )
 
         await sharedIndex.refreshForkAvailabilityNow(workspaceId: workspaceId, panelId: panelId)
-        #expect(probeCount.withLock { $0 } == 0)
-        #expect(!sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId))
-        #expect(!sharedIndex.forkSupportProbeAccepted(workspaceId: workspaceId, panelId: panelId))
+        #expect(probeCount.withLock { $0 } == 1)
+        #expect(sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId))
+        #expect(sharedIndex.forkSupportProbeAccepted(workspaceId: workspaceId, panelId: panelId))
         #expect(!sharedIndex.forkSupportProbeRejected(workspaceId: workspaceId, panelId: panelId))
         #expect(
-            sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId) == nil,
-            "Watch budget exhaustion should fail closed because executable identity cannot be monitored after validation."
+            sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId) != nil,
+            "Watch budget exhaustion should not reject a supported agent; the result should instead refresh before reuse."
+        )
+        for _ in 0..<50 {
+            if probeCount.withLock({ $0 }) >= 2 {
+                break
+            }
+            await Task.yield()
+        }
+        #expect(
+            probeCount.withLock { $0 } == 2,
+            "Preparing a refresh-before-reuse validation should schedule a replacement probe."
         )
 
         try writePiProbe(output: "pi 0.59.0-downgraded", modifiedAt: 2_000)
         await sharedIndex.refreshForkAvailabilityNow(workspaceId: workspaceId, panelId: panelId)
-        #expect(probeCount.withLock { $0 } == 0)
-        #expect(!sharedIndex.forkSupportProbeRejected(workspaceId: workspaceId, panelId: panelId))
+        #expect(probeCount.withLock { $0 } == 3)
+        #expect(sharedIndex.forkSupportProbeAccepted(workspaceId: workspaceId, panelId: panelId))
     }
 
     @Test
@@ -2185,13 +3061,15 @@ struct WorkspaceForkConversationContextMenuTests {
         try fm.createDirectory(at: root.appendingPathComponent(".cmuxterm", isDirectory: true), withIntermediateDirectories: true)
 
         let executable = root.appendingPathComponent("pi", isDirectory: false)
-        try writeExecutableFixture(at: executable, output: "pi 0.80.6")
-        let probeCount = OSAllocatedUnfairLock(initialState: 0)
+        let counter = root.appendingPathComponent("probe-count.txt", isDirectory: false)
+        try """
+        #!/bin/sh
+        printf '%s\\n' hit >> '\(counter.path)'
+        printf '%s\\n' 'pi 0.80.6'
+        """
+            .write(to: executable, atomically: true, encoding: .utf8)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
         let sharedIndex = SharedLiveAgentIndex(
-            forkSupportProvider: { _, _ in
-                probeCount.withLock { $0 += 1 }
-                return true
-            },
             hookStoreDirectoryProvider: {
                 root.appendingPathComponent(".cmuxterm", isDirectory: true).path
             }
@@ -2221,11 +3099,12 @@ struct WorkspaceForkConversationContextMenuTests {
             )
         }
 
-        #expect(probeCount.withLock { $0 } == 130)
+        let probeOutput = (try? String(contentsOf: counter, encoding: .utf8)) ?? ""
+        #expect(probeOutput.split(separator: "\n").count == 1)
     }
 
     @Test
-    func sharedForkProbeMergesConcurrentExecutableWatchOpenForSameExecutable() async throws {
+    func sharedForkProbeMergesExecutableWatchForSameExecutable() async throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
             .appendingPathComponent("cmux-fork-concurrent-shared-watch-\(UUID().uuidString)", isDirectory: true)
@@ -2234,14 +3113,10 @@ struct WorkspaceForkConversationContextMenuTests {
 
         let executable = root.appendingPathComponent("pi", isDirectory: false)
         try writeExecutableFixture(at: executable, output: "pi 0.80.6")
-        let barrier = AsyncTestBarrier(expectedCount: 2)
         let sharedIndex = SharedLiveAgentIndex(
             forkSupportProvider: { _, _ in true },
             hookStoreDirectoryProvider: {
                 root.appendingPathComponent(".cmuxterm", isDirectory: true).path
-            },
-            forkExecutableWatchOpenSuspensionForTesting: {
-                await barrier.wait()
             }
         )
         let firstWorkspaceId = UUID()
@@ -2265,7 +3140,15 @@ struct WorkspaceForkConversationContextMenuTests {
             object: sharedIndex,
             queue: nil
         ) { notification in
-            if let workspaceId = notification.userInfo?["workspaceId"] as? UUID,
+            if let panelIdsByWorkspaceId = notification.userInfo?["panelIdsByWorkspaceId"] as? [UUID: Set<UUID>] {
+                notifiedPanelKeys.withLock {
+                    for (workspaceId, panelIds) in panelIdsByWorkspaceId {
+                        for panelId in panelIds {
+                            $0.insert("\(workspaceId.uuidString)|\(panelId.uuidString)")
+                        }
+                    }
+                }
+            } else if let workspaceId = notification.userInfo?["workspaceId"] as? UUID,
                let panelId = notification.userInfo?["panelId"] as? UUID {
                 notifiedPanelKeys.withLock {
                     $0.insert("\(workspaceId.uuidString)|\(panelId.uuidString)")
@@ -2326,7 +3209,7 @@ struct WorkspaceForkConversationContextMenuTests {
                 panelId: firstPanelId,
                 fallbackSnapshot: firstSnapshot
             ),
-            "A concurrent shared executable watch install should keep the first panel attached to invalidation."
+            "A shared executable watch install should keep the first panel attached to invalidation."
         )
         #expect(
             !sharedIndex.forkSupportProbeAccepted(
@@ -2334,7 +3217,7 @@ struct WorkspaceForkConversationContextMenuTests {
                 panelId: secondPanelId,
                 fallbackSnapshot: secondSnapshot
             ),
-            "A concurrent shared executable watch install should keep the second panel attached to invalidation."
+            "A shared executable watch install should keep the second panel attached to invalidation."
         )
         #expect(unscopedNotificationCount.withLock { $0 } == 0)
         #expect(
@@ -2343,6 +3226,187 @@ struct WorkspaceForkConversationContextMenuTests {
                 "\(secondWorkspaceId.uuidString)|\(secondPanelId.uuidString)",
             ]),
             "Shared executable watch invalidation should notify exactly the affected panel keys."
+        )
+    }
+
+    @Test
+    func sharedForkProbeRechecksExecutableWatchBudgetAfterConcurrentOpen() async throws {
+        let fm = FileManager.default
+        let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .resolvingSymlinksInPath()
+            .appendingPathComponent("cmux-fork-concurrent-watch-budget-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        try fm.createDirectory(at: root.appendingPathComponent(".cmuxterm", isDirectory: true), withIntermediateDirectories: true)
+
+        let probeCount = OSAllocatedUnfairLock(initialState: 0)
+        let sharedIndex = SharedLiveAgentIndex(
+            forkSupportProvider: { _, _ in
+                probeCount.withLock { $0 += 1 }
+                return true
+            },
+            hookStoreDirectoryProvider: {
+                root.appendingPathComponent(".cmuxterm", isDirectory: true).path
+            },
+            forkExecutableWatchSourceBudgetProvider: { _ in 3 }
+        )
+
+        let firstExecutableDirectory = root.appendingPathComponent("first-bin", isDirectory: true)
+        let secondExecutableDirectory = root.appendingPathComponent("second-bin", isDirectory: true)
+        try fm.createDirectory(at: firstExecutableDirectory, withIntermediateDirectories: true)
+        try fm.createDirectory(at: secondExecutableDirectory, withIntermediateDirectories: true)
+        let firstExecutable = firstExecutableDirectory.appendingPathComponent("pi", isDirectory: false)
+        let secondExecutable = secondExecutableDirectory.appendingPathComponent("pi", isDirectory: false)
+        try writeExecutableFixture(at: firstExecutable, output: "pi 0.80.6")
+        try writeExecutableFixture(at: secondExecutable, output: "pi 0.80.6")
+
+        let firstWorkspaceId = UUID()
+        let firstPanelId = UUID()
+        let secondWorkspaceId = UUID()
+        let secondPanelId = UUID()
+        let firstSnapshot = makePiFamilySnapshot(
+            launcher: "pi",
+            workspaceRoot: root.path,
+            executablePath: firstExecutable.path
+        )
+        let secondSnapshot = makePiFamilySnapshot(
+            launcher: "pi",
+            workspaceRoot: root.path,
+            executablePath: secondExecutable.path
+        )
+
+        async let firstRefresh: Void = sharedIndex.refreshForkAvailabilityNow(
+            workspaceId: firstWorkspaceId,
+            panelId: firstPanelId,
+            fallbackSnapshot: firstSnapshot
+        )
+        async let secondRefresh: Void = sharedIndex.refreshForkAvailabilityNow(
+            workspaceId: secondWorkspaceId,
+            panelId: secondPanelId,
+            fallbackSnapshot: secondSnapshot
+        )
+        _ = await (firstRefresh, secondRefresh)
+
+        let acceptedResults = [
+            sharedIndex.forkSupportProbeAccepted(
+                workspaceId: firstWorkspaceId,
+                panelId: firstPanelId,
+                fallbackSnapshot: firstSnapshot
+            ),
+            sharedIndex.forkSupportProbeAccepted(
+                workspaceId: secondWorkspaceId,
+                panelId: secondPanelId,
+                fallbackSnapshot: secondSnapshot
+            ),
+        ]
+        #expect(
+            acceptedResults.filter { $0 }.count == 2,
+            "Only one concurrent watch install should consume a three-source budget; the loser should fall back to a refresh-before-reuse validation."
+        )
+        #expect(
+            probeCount.withLock { $0 } == 2,
+            "A validation that loses the post-open budget race should still run the capability probe."
+        )
+    }
+
+    @Test
+    func sharedForkProbeExecutableWatchInvalidationNotifiesRequestingPanelAlias() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-fork-watch-panel-alias-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        try fm.createDirectory(at: root.appendingPathComponent(".cmuxterm", isDirectory: true), withIntermediateDirectories: true)
+
+        let executable = root.appendingPathComponent("pi", isDirectory: false)
+        try writeExecutableFixture(at: executable, output: "pi 0.80.6")
+        let currentWorkspaceId = UUID()
+        let staleWorkspaceId = UUID()
+        let panelId = UUID()
+        let currentPanelKey = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: currentWorkspaceId,
+            panelId: panelId
+        )
+        let stalePanelKey = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: staleWorkspaceId,
+            panelId: panelId
+        )
+        let snapshot = makePiFamilySnapshot(
+            launcher: "pi",
+            workspaceRoot: root.path,
+            executablePath: executable.path
+        )
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                let index = RestorableAgentSessionIndex.load(
+                    homeDirectory: root.path,
+                    fileManager: fm,
+                    registry: CmuxVaultAgentRegistry(registrations: []),
+                    detectedSnapshots: [
+                        currentPanelKey: (
+                            snapshot: snapshot,
+                            updatedAt: 0,
+                            processIDs: [],
+                            agentProcessIDs: [],
+                            sessionIDSource: .explicit
+                        ),
+                    ]
+                )
+                return (
+                    index: index,
+                    liveAgentProcessFingerprint: [],
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: [stalePanelKey]
+                )
+            },
+            forkSupportProvider: { _, _ in true },
+            hookStoreDirectoryProvider: {
+                root.appendingPathComponent(".cmuxterm", isDirectory: true).path
+            }
+        )
+        let notifiedPanelKeys = OSAllocatedUnfairLock(initialState: Set<String>())
+        let observer = NotificationCenter.default.addObserver(
+            forName: .sharedLiveAgentIndexDidChange,
+            object: sharedIndex,
+            queue: nil
+        ) { notification in
+            if let panelIdsByWorkspaceId = notification.userInfo?["panelIdsByWorkspaceId"] as? [UUID: Set<UUID>] {
+                notifiedPanelKeys.withLock {
+                    for (workspaceId, panelIds) in panelIdsByWorkspaceId {
+                        for panelId in panelIds {
+                            $0.insert("\(workspaceId.uuidString)|\(panelId.uuidString)")
+                        }
+                    }
+                }
+                return
+            }
+            if let workspaceId = notification.userInfo?["workspaceId"] as? UUID,
+               let panelId = notification.userInfo?["panelId"] as? UUID {
+                notifiedPanelKeys.withLock {
+                    $0.insert("\(workspaceId.uuidString)|\(panelId.uuidString)")
+                }
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        await sharedIndex.refreshForkAvailabilityNow(workspaceId: currentWorkspaceId, panelId: panelId)
+        #expect(
+            sharedIndex.forkSupportProbeAccepted(workspaceId: currentWorkspaceId, panelId: panelId),
+            "A restored workspace should be able to reuse a validation key matched by panel ID."
+        )
+
+        try writeExecutableFixture(at: executable, output: "pi 0.59.0")
+        for _ in 0..<20 {
+            if !sharedIndex.forkSupportProbeAccepted(workspaceId: currentWorkspaceId, panelId: panelId) {
+                break
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+
+        #expect(!sharedIndex.forkSupportProbeAccepted(workspaceId: currentWorkspaceId, panelId: panelId))
+        #expect(
+            notifiedPanelKeys.withLock { $0 }.contains(
+                "\(currentWorkspaceId.uuidString)|\(panelId.uuidString)"
+            ),
+            "Executable watch invalidation must notify the requesting workspace key, not only the stale resolved validation key."
         )
     }
 
@@ -2369,7 +3433,13 @@ struct WorkspaceForkConversationContextMenuTests {
             }
         )
 
-        for index in 0..<128 {
+        let watchSourceBudget = SharedLiveAgentIndex.forkExecutableWatchSourceCountBudget()
+        try #require(
+            watchSourceBudget >= 2,
+            "This regression needs enough file-descriptor budget to install at least one executable watch."
+        )
+        let expiredValidationCount = max(1, watchSourceBudget / 2)
+        for index in 0..<expiredValidationCount {
             let executableDirectory = root.appendingPathComponent("expired-\(index)", isDirectory: true)
             try fm.createDirectory(at: executableDirectory, withIntermediateDirectories: true)
             let executable = executableDirectory.appendingPathComponent("pi", isDirectory: false)
@@ -2395,7 +3465,7 @@ struct WorkspaceForkConversationContextMenuTests {
                 )
             )
         }
-        #expect(probeCount.withLock { $0 } == 128)
+        #expect(probeCount.withLock { $0 } == expiredValidationCount)
 
         now.withLock { $0 = Date(timeIntervalSince1970: 20) }
         let executableDirectory = root.appendingPathComponent("current", isDirectory: true)
@@ -2416,7 +3486,7 @@ struct WorkspaceForkConversationContextMenuTests {
             fallbackSnapshot: snapshot
         )
 
-        #expect(probeCount.withLock { $0 } == 129)
+        #expect(probeCount.withLock { $0 } == expiredValidationCount + 1)
         #expect(
             sharedIndex.forkSupportProbeAccepted(
                 workspaceId: workspaceId,
@@ -2950,19 +4020,120 @@ struct WorkspaceForkConversationContextMenuTests {
             )
         )
 
+        let executableIdentityResolver = AgentForkExecutableIdentityResolver()
+        let capabilityProbeCache = ForkCapabilityProbeResultCache()
+        func supportsFork(_ snapshot: SessionRestorableAgentSnapshot) async -> Bool {
+            await AgentForkSupport.supportsFork(
+                snapshot: snapshot,
+                executableIdentityResolver: executableIdentityResolver,
+                forkCapabilityProbeCache: capabilityProbeCache
+            )
+        }
+
         try writePiProbe(output: "pi 0.80.6", modifiedAt: 10)
-        #expect(await AgentForkSupport.supportsFork(snapshot: snapshot))
+        #expect(await supportsFork(snapshot))
 
         try writePiProbe(output: "pi 0.59.0", modifiedAt: 20)
         #expect(
-            !(await AgentForkSupport.supportsFork(snapshot: snapshot)),
+            !(await supportsFork(snapshot)),
             "A Pi downgrade at the same executable path must not reuse the prior positive probe cache entry."
         )
 
         try writePiProbe(output: "pi 0.80.6", modifiedAt: 30)
         #expect(
-            await AgentForkSupport.supportsFork(snapshot: snapshot),
+            await supportsFork(snapshot),
             "A Pi upgrade at the same executable path must not reuse the prior negative probe cache entry."
+        )
+    }
+
+    @Test
+    func piFamilyCapabilityProbeCacheSharesExecutableIdentityAcrossSnapshots() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-pi-executable-cache-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let executable = root.appendingPathComponent("agent-wrapper", isDirectory: false)
+        let counter = root.appendingPathComponent("probe-count.txt", isDirectory: false)
+        try """
+        #!/bin/sh
+        printf '%s\\n' hit >> '\(counter.path)'
+        printf '%s\\n' 'pi 0.80.6'
+        """
+            .write(to: executable, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+
+        func snapshot(launcher: String, sessionId: String) -> SessionRestorableAgentSnapshot {
+            var snapshot = makePiFamilySnapshot(
+                launcher: launcher,
+                workspaceRoot: root.path,
+                executablePath: executable.path
+            )
+            snapshot.sessionId = sessionId
+            snapshot.launchCommand?.arguments = [executable.path, "--session", sessionId]
+            return snapshot
+        }
+
+        func probeCount() -> Int {
+            let output = (try? String(contentsOf: counter, encoding: .utf8)) ?? ""
+            return output.split(separator: "\n").count
+        }
+
+        let executableIdentityResolver = AgentForkExecutableIdentityResolver()
+        let capabilityProbeCache = ForkCapabilityProbeResultCache()
+        func supportsFork(_ snapshot: SessionRestorableAgentSnapshot) async -> Bool {
+            await AgentForkSupport.supportsFork(
+                snapshot: snapshot,
+                executableIdentityResolver: executableIdentityResolver,
+                forkCapabilityProbeCache: capabilityProbeCache
+            )
+        }
+
+        #expect(await supportsFork(snapshot(launcher: "pi", sessionId: "pi-one")))
+        #expect(await supportsFork(snapshot(launcher: "pi", sessionId: "pi-two")))
+        #expect(probeCount() == 1)
+
+        #expect(!(await supportsFork(snapshot(launcher: "omp", sessionId: "omp-one"))))
+        #expect(probeCount() == 2)
+    }
+
+    @Test
+    func piFamilyValidationExecutableResolutionWorkIdentityIgnoresSessionAndLauncher() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-pi-resolution-work-key-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let executable = root.appendingPathComponent("agent-wrapper", isDirectory: false)
+        try writeExecutableFixture(at: executable)
+
+        func snapshot(launcher: String, sessionId: String) -> SessionRestorableAgentSnapshot {
+            var snapshot = makePiFamilySnapshot(
+                launcher: launcher,
+                workspaceRoot: root.path,
+                executablePath: executable.path
+            )
+            snapshot.sessionId = sessionId
+            snapshot.launchCommand?.arguments = [executable.path, "--session", sessionId]
+            return snapshot
+        }
+
+        let piOneIdentity = try #require(AgentForkSupport.forkValidationExecutableResolutionWorkIdentity(
+            snapshot: snapshot(launcher: "pi", sessionId: "pi-one")
+        ))
+        let piTwoIdentity = try #require(AgentForkSupport.forkValidationExecutableResolutionWorkIdentity(
+            snapshot: snapshot(launcher: "pi", sessionId: "pi-two")
+        ))
+        let ompIdentity = try #require(AgentForkSupport.forkValidationExecutableResolutionWorkIdentity(
+            snapshot: snapshot(launcher: "omp", sessionId: "omp-one")
+        ))
+
+        #expect(piOneIdentity == piTwoIdentity)
+        #expect(
+            piOneIdentity == ompIdentity,
+            "Executable resolution work should key only the wrapper lookup inputs; capability results use a launcher-specific cache key separately."
         )
     }
 
@@ -3046,6 +4217,51 @@ struct WorkspaceForkConversationContextMenuTests {
         #expect(Date().timeIntervalSince(start) < 5)
         try await Task.sleep(nanoseconds: 4_500_000_000)
         #expect(!fileManager.fileExists(atPath: leakedChildMarker.path))
+    }
+
+    @Test
+    func forkCapabilityProbeHardKillsSigtermIgnoringSetsidDescendantAfterTimedOutLeaderExits() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-pi-setsid-sigterm-ignore-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let executable = root.appendingPathComponent("pi", isDirectory: false)
+        let leakedChildMarker = root.appendingPathComponent("setsid-sigterm-ignored-child", isDirectory: false)
+        let escapedLeakedChildMarker = leakedChildMarker.path
+            .replacingOccurrences(of: "'", with: "'\\''")
+        try """
+        #!/bin/sh
+        /usr/bin/python3 -c 'import os, pathlib, signal, time; os.setsid(); signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(4); pathlib.Path('\''\(escapedLeakedChildMarker)'\'').touch()' &
+        trap 'exit 0' TERM
+        sleep 10
+        """
+            .write(to: executable, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .pi,
+            sessionId: "setsid-sigterm-ignore-pipe-session",
+            workingDirectory: root.path,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "pi",
+                executablePath: executable.path,
+                arguments: [executable.path, "--session", "setsid-sigterm-ignore-pipe-session"],
+                workingDirectory: root.path,
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        let start = Date()
+        #expect(!(await AgentForkSupport.supportsFork(snapshot: snapshot)))
+        #expect(Date().timeIntervalSince(start) < 5)
+        try await Task.sleep(nanoseconds: 4_500_000_000)
+        #expect(
+            !fileManager.fileExists(atPath: leakedChildMarker.path),
+            "A timed-out probe must retain pipe-holder ownership long enough to hard-kill a daemonized child that ignored SIGTERM."
+        )
     }
 
     @Test
@@ -3346,6 +4562,197 @@ struct WorkspaceForkConversationContextMenuTests {
                 liveAgentIndex: liveAgentIndex
             ) == .available
         )
+    }
+
+    @Test
+    func contextMenuOpenSelectionPrefersLiveIndexOverRestoredFallback() async throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-live-pi-restored-opencode-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        try fm.createDirectory(at: root.appendingPathComponent(".cmuxterm", isDirectory: true), withIntermediateDirectories: true)
+        let executable = root.appendingPathComponent("pi", isDirectory: false)
+        try writeExecutableFixture(at: executable, output: "pi 0.80.6")
+        let liveSnapshot = makePiFamilySnapshot(
+            launcher: "pi",
+            workspaceRoot: root.path,
+            executablePath: executable.path
+        )
+        let staleFallback = makeProbeRequiredOpenCodeSnapshot(
+            sessionId: "stale-opencode-session",
+            workingDirectory: root.appendingPathComponent("stale", isDirectory: true).path,
+            executablePath: root.appendingPathComponent("opencode", isDirectory: false).path
+        )
+        workspace.setRestoredAgentSnapshotForTesting(staleFallback, panelId: panelId)
+        let panelKey = RestorableAgentSessionIndex.PanelKey(workspaceId: workspace.id, panelId: panelId)
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                let index = RestorableAgentSessionIndex.load(
+                    homeDirectory: root.path,
+                    fileManager: fm,
+                    registry: CmuxVaultAgentRegistry(registrations: [.builtInPi]),
+                    detectedSnapshots: [
+                        panelKey: (
+                            snapshot: liveSnapshot,
+                            updatedAt: 42,
+                            processIDs: [],
+                            agentProcessIDs: [],
+                            sessionIDSource: .explicit
+                        ),
+                    ]
+                )
+                return (
+                    index: index,
+                    liveAgentProcessFingerprint: [],
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: [panelKey]
+                )
+            },
+            forkSupportProvider: { _, _ in true },
+            hookStoreDirectoryProvider: {
+                root.appendingPathComponent(".cmuxterm", isDirectory: true).path
+            },
+            dateProvider: { Date(timeIntervalSince1970: 42) }
+        )
+
+        await sharedIndex.refreshForkAvailabilityNow(workspaceId: workspace.id, panelId: panelId)
+        let selection = workspace.forkAgentConversationContextMenuOpenSelection(
+            forPanelId: panelId,
+            liveAgentIndex: sharedIndex
+        )
+
+        #expect(selection.availability == .available)
+        #expect(selection.snapshot?.sessionId == liveSnapshot.sessionId)
+        #expect(selection.snapshot?.launchCommand?.launcher == "pi")
+    }
+
+    @Test
+    func contextMenuOpenSelectionDoesNotPreferUnvalidatedLiveIndexOverRestoredFallback() async throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-unvalidated-live-restored-fallback-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        try fm.createDirectory(at: root.appendingPathComponent(".cmuxterm", isDirectory: true), withIntermediateDirectories: true)
+        let staleLiveSnapshot = makeForkableClaudeSnapshot(
+            sessionId: "stale-live-claude-session",
+            workingDirectory: root.appendingPathComponent("stale", isDirectory: true).path
+        )
+        let restoredSnapshot = makeForkableClaudeSnapshot(
+            sessionId: "restored-current-claude-session",
+            workingDirectory: root.appendingPathComponent("restored", isDirectory: true).path
+        )
+        workspace.setRestoredAgentSnapshotForTesting(restoredSnapshot, panelId: panelId)
+        let panelKey = RestorableAgentSessionIndex.PanelKey(workspaceId: workspace.id, panelId: panelId)
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                let index = RestorableAgentSessionIndex.load(
+                    homeDirectory: root.path,
+                    fileManager: fm,
+                    registry: CmuxVaultAgentRegistry(registrations: []),
+                    detectedSnapshots: [
+                        panelKey: (
+                            snapshot: staleLiveSnapshot,
+                            updatedAt: 42,
+                            processIDs: [],
+                            agentProcessIDs: [],
+                            sessionIDSource: .explicit
+                        ),
+                    ]
+                )
+                return (
+                    index: index,
+                    liveAgentProcessFingerprint: [],
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: []
+                )
+            },
+            forkSupportProvider: { _, _ in true },
+            hookStoreDirectoryProvider: {
+                root.appendingPathComponent(".cmuxterm", isDirectory: true).path
+            },
+            dateProvider: { Date(timeIntervalSince1970: 42) }
+        )
+
+        await sharedIndex.refreshForkAvailabilityNow()
+        let selection = workspace.forkAgentConversationContextMenuOpenSelection(
+            forPanelId: panelId,
+            liveAgentIndex: sharedIndex
+        )
+
+        #expect(selection.availability == .available)
+        #expect(selection.snapshot?.sessionId == restoredSnapshot.sessionId)
+        #expect(selection.snapshot?.sessionId != staleLiveSnapshot.sessionId)
+    }
+
+    @Test
+    func contextMenuOpenSelectionDoesNotFallbackWhenValidatedLiveProbeIsRejected() async throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-rejected-live-restored-fallback-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        try fm.createDirectory(at: root.appendingPathComponent(".cmuxterm", isDirectory: true), withIntermediateDirectories: true)
+        let executable = root.appendingPathComponent("pi", isDirectory: false)
+        try writeExecutableFixture(at: executable, output: "pi 0.1.0")
+        let rejectedLiveSnapshot = makePiFamilySnapshot(
+            launcher: "pi",
+            workspaceRoot: root.path,
+            executablePath: executable.path
+        )
+        let restoredSnapshot = makeForkableClaudeSnapshot(
+            sessionId: "restored-current-claude-session",
+            workingDirectory: root.appendingPathComponent("restored", isDirectory: true).path
+        )
+        workspace.setRestoredAgentSnapshotForTesting(restoredSnapshot, panelId: panelId)
+        let panelKey = RestorableAgentSessionIndex.PanelKey(workspaceId: workspace.id, panelId: panelId)
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                let index = RestorableAgentSessionIndex.load(
+                    homeDirectory: root.path,
+                    fileManager: fm,
+                    registry: CmuxVaultAgentRegistry(registrations: [.builtInPi]),
+                    detectedSnapshots: [
+                        panelKey: (
+                            snapshot: rejectedLiveSnapshot,
+                            updatedAt: 42,
+                            processIDs: [],
+                            agentProcessIDs: [],
+                            sessionIDSource: .explicit
+                        ),
+                    ]
+                )
+                return (
+                    index: index,
+                    liveAgentProcessFingerprint: [],
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: [panelKey]
+                )
+            },
+            forkSupportProvider: { _, _ in false },
+            hookStoreDirectoryProvider: {
+                root.appendingPathComponent(".cmuxterm", isDirectory: true).path
+            },
+            dateProvider: { Date(timeIntervalSince1970: 42) }
+        )
+
+        await sharedIndex.refreshForkAvailabilityNow(workspaceId: workspace.id, panelId: panelId)
+        let selection = workspace.forkAgentConversationContextMenuOpenSelection(
+            forPanelId: panelId,
+            liveAgentIndex: sharedIndex
+        )
+
+        #expect(sharedIndex.snapshotForForkConversationCandidate(workspaceId: workspace.id, panelId: panelId) != nil)
+        #expect(sharedIndex.forkSupportProbeRejected(workspaceId: workspace.id, panelId: panelId))
+        #expect(selection.availability == .unsupported)
+        #expect(selection.snapshot == nil)
     }
 
     @Test

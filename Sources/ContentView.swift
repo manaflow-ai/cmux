@@ -5601,31 +5601,20 @@ struct ContentView: View {
         _ snapshot: SessionRestorableAgentSnapshot,
         isRemoteTerminal: Bool = false
     ) async -> String {
-        let executableResolution = await Task.detached(priority: .utility) {
-            commandPaletteForkProbeExecutableFingerprintValue(
-                snapshot,
-                isRemoteTerminal: isRemoteTerminal
-            )
-        }.value
-        return executableResolution
+        await SharedLiveAgentIndex.shared.forkValidationExecutableFingerprint(
+            snapshot: snapshot,
+            isRemoteContext: isRemoteTerminal
+        )
     }
 
     static func commandPaletteForkProbeExecutableFingerprintValue(
         _ snapshot: SessionRestorableAgentSnapshot,
         isRemoteTerminal: Bool = false
     ) -> String {
-        let executableResolution = AgentForkSupport.forkValidationExecutableResolution(
+        AgentForkSupport.forkValidationExecutableFingerprint(
             snapshot: snapshot,
             isRemoteContext: isRemoteTerminal
         )
-        let parts: [String] = [
-            executableResolution.status,
-            executableResolution.lookupPath ?? "",
-            executableResolution.realPath ?? "",
-            executableResolution.cachePart ?? "",
-            executableResolution.watchDirectories.joined(separator: "\u{1f}")
-        ]
-        return parts.joined(separator: "\u{1e}")
     }
 
     static func commandPaletteForkCacheFingerprint(
@@ -5636,6 +5625,34 @@ struct ContentView: View {
         fallbackFingerprint ?? commandPaletteForkSnapshotFingerprint(
             snapshot,
             isRemoteTerminal: isRemoteTerminal
+        )
+    }
+
+    static func commandPaletteForkAvailabilitySnapshotSource(
+        liveIndexSnapshot: SessionRestorableAgentSnapshot?,
+        fallbackSnapshot: SessionRestorableAgentSnapshot?,
+        isRemoteTerminal: Bool = false
+    ) -> (
+        snapshot: SessionRestorableAgentSnapshot,
+        snapshotFingerprint: String,
+        validationFallbackSnapshot: SessionRestorableAgentSnapshot?,
+        validationFallbackFingerprint: String?,
+        resultHadFallback: Bool
+    )? {
+        guard let snapshot = liveIndexSnapshot ?? fallbackSnapshot else {
+            return nil
+        }
+        let usesFallback = liveIndexSnapshot == nil
+        let snapshotFingerprint = commandPaletteForkSnapshotFingerprint(
+            snapshot,
+            isRemoteTerminal: isRemoteTerminal
+        )
+        return (
+            snapshot: snapshot,
+            snapshotFingerprint: snapshotFingerprint,
+            validationFallbackSnapshot: usesFallback ? fallbackSnapshot : nil,
+            validationFallbackFingerprint: usesFallback ? snapshotFingerprint : nil,
+            resultHadFallback: usesFallback && fallbackSnapshot != nil
         )
     }
 
@@ -5811,7 +5828,20 @@ struct ContentView: View {
               Self.commandPaletteListScope(for: commandPaletteQuery) == .commands else {
             return
         }
-        if let workspaceId = notification.userInfo?["workspaceId"] as? UUID,
+        if let panelIdsByWorkspaceId = notification.userInfo?["panelIdsByWorkspaceId"] as? [UUID: Set<UUID>] {
+            let changedPanelKeys = panelIdsByWorkspaceId.flatMap { workspaceId, panelIds in
+                panelIds.map { panelId in
+                    Self.commandPaletteForkableAgentPanelKey(
+                        workspaceId: workspaceId,
+                        panelId: panelId
+                    )
+                }
+            }
+            guard let activePanelKey = commandPaletteForkableAgentActivePanelKey,
+                  changedPanelKeys.contains(activePanelKey) else {
+                return
+            }
+        } else if let workspaceId = notification.userInfo?["workspaceId"] as? UUID,
            let panelId = notification.userInfo?["panelId"] as? UUID {
             let changedPanelKey = Self.commandPaletteForkableAgentPanelKey(
                 workspaceId: workspaceId,
@@ -5855,19 +5885,77 @@ struct ContentView: View {
         let fallbackSnapshot = allowsAgentContinuation
             ? panelContext.workspace.restoredAgentSnapshotForContinuation(panelId: panelId)
             : nil
-
-        if let fallbackSnapshot {
-            let fallbackFingerprint = Self.commandPaletteForkSnapshotFingerprint(
-                fallbackSnapshot,
+        let liveIndexSnapshot = SharedLiveAgentIndex.shared.snapshotForForkAvailability(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            isRemoteContext: isRemoteTerminal
+        )
+        let liveCandidateSnapshot = SharedLiveAgentIndex.shared.snapshotForForkConversationCandidate(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let liveProbeRejected = liveIndexSnapshot == nil
+            && liveCandidateSnapshot != nil
+            && SharedLiveAgentIndex.shared.forkSupportProbeRejected(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                isRemoteContext: isRemoteTerminal
+            )
+        if liveProbeRejected, let liveCandidateSnapshot {
+            let liveFingerprint = Self.commandPaletteForkSnapshotFingerprint(
+                liveCandidateSnapshot,
                 isRemoteTerminal: isRemoteTerminal
             )
             if let cachedFingerprint = commandPaletteForkableAgentSnapshotFingerprintsByPanelKey[panelKey],
-               cachedFingerprint != fallbackFingerprint {
+               cachedFingerprint != liveFingerprint {
+                cancelCommandPaletteForkableAgentAvailabilityProbe(for: panelKey)
+                clearCommandPaletteForkableAgentProbeResult(for: panelKey)
+            }
+            commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
+            commandPaletteForkableAgentRejectedPanelKeys.insert(panelKey)
+            commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
+            commandPaletteForkableAgentSnapshotFingerprintsByPanelKey[panelKey] = liveFingerprint
+            commandPaletteForkableAgentExecutableFingerprintsByPanelKey.removeValue(forKey: panelKey)
+            commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] = isRemoteTerminal
+            commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey] = false
+            commandPaletteForkableAgentValidatedAtByPanelKey[panelKey] =
+                SharedLiveAgentIndex.shared.forkSupportProbeCompletedAt(
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    isRemoteContext: isRemoteTerminal
+                ) ?? Date()
+            return
+        }
+        if liveIndexSnapshot == nil, let liveCandidateSnapshot {
+            let liveFingerprint = Self.commandPaletteForkSnapshotFingerprint(
+                liveCandidateSnapshot,
+                isRemoteTerminal: isRemoteTerminal
+            )
+            startCommandPaletteForkableAgentAvailabilityProbe(
+                panelKey: panelKey,
+                workspaceId: workspaceId,
+                panelId: panelId,
+                fallbackSnapshot: nil,
+                fallbackFingerprint: nil,
+                snapshotFingerprint: liveFingerprint,
+                isRemoteTerminal: isRemoteTerminal
+            )
+            return
+        }
+
+        if let fallbackSnapshot,
+           let snapshotSource = Self.commandPaletteForkAvailabilitySnapshotSource(
+            liveIndexSnapshot: liveIndexSnapshot,
+            fallbackSnapshot: fallbackSnapshot,
+            isRemoteTerminal: isRemoteTerminal
+           ) {
+            if let cachedFingerprint = commandPaletteForkableAgentSnapshotFingerprintsByPanelKey[panelKey],
+               cachedFingerprint != snapshotSource.snapshotFingerprint {
                 cancelCommandPaletteForkableAgentAvailabilityProbe(for: panelKey)
                 clearCommandPaletteForkableAgentProbeResult(for: panelKey)
             }
             switch Self.commandPaletteSnapshotForkAvailability(
-                fallbackSnapshot,
+                snapshotSource.snapshot,
                 isRemoteTerminal: isRemoteTerminal
             ) {
             case .supportedWithoutProbe:
@@ -5876,29 +5964,34 @@ struct ContentView: View {
                     supportedPanelKeys: commandPaletteForkableAgentSupportedPanelKeys,
                     supportedRemoteContextsByPanelKey: commandPaletteForkableAgentRemoteContextsByPanelKey,
                     snapshotFingerprintsByPanelKey: commandPaletteForkableAgentSnapshotFingerprintsByPanelKey,
-                    expectedSnapshotFingerprint: fallbackFingerprint,
+                    expectedSnapshotFingerprint: snapshotSource.snapshotFingerprint,
                     isRemoteTerminal: isRemoteTerminal
                 )
                 if probeResultMatches {
                     commandPaletteForkableAgentSupportedPanelKeys.insert(panelKey)
                     commandPaletteForkableAgentRejectedPanelKeys.remove(panelKey)
                     commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] = isRemoteTerminal
-                    commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey] =
-                        Self.commandPaletteForkMatchedFallbackProbeResultHadFallback(
-                            cachedResultHadFallback: commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey]
-                        )
+                    if snapshotSource.resultHadFallback {
+                        commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey] =
+                            Self.commandPaletteForkMatchedFallbackProbeResultHadFallback(
+                                cachedResultHadFallback: commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey]
+                            )
+                    } else {
+                        commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey] = false
+                    }
                 } else {
                     clearCommandPaletteForkableAgentProbeResult(for: panelKey)
                 }
                 if panelChanged || !probeResultMatches {
-                    startCommandPaletteForkableAgentAvailabilityProbe(
-                        panelKey: panelKey,
-                        workspaceId: workspaceId,
-                        panelId: panelId,
-                        fallbackSnapshot: fallbackSnapshot,
-                        fallbackFingerprint: fallbackFingerprint,
-                        isRemoteTerminal: isRemoteTerminal
-                    )
+                startCommandPaletteForkableAgentAvailabilityProbe(
+                    panelKey: panelKey,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    fallbackSnapshot: snapshotSource.validationFallbackSnapshot,
+                    fallbackFingerprint: snapshotSource.validationFallbackFingerprint,
+                    snapshotFingerprint: snapshotSource.snapshotFingerprint,
+                    isRemoteTerminal: isRemoteTerminal
+                )
                 }
                 return
             case .unsupported:
@@ -5911,7 +6004,7 @@ struct ContentView: View {
                     supportedPanelKeys: commandPaletteForkableAgentSupportedPanelKeys,
                     supportedRemoteContextsByPanelKey: commandPaletteForkableAgentRemoteContextsByPanelKey,
                     snapshotFingerprintsByPanelKey: commandPaletteForkableAgentSnapshotFingerprintsByPanelKey,
-                    expectedSnapshotFingerprint: fallbackFingerprint,
+                    expectedSnapshotFingerprint: snapshotSource.snapshotFingerprint,
                     isRemoteTerminal: isRemoteTerminal
                 )
                 let probeRejectionMatches = Self.commandPaletteForkableAgentProbeRejectionMatches(
@@ -5919,7 +6012,7 @@ struct ContentView: View {
                     rejectedPanelKeys: commandPaletteForkableAgentRejectedPanelKeys,
                     supportedRemoteContextsByPanelKey: commandPaletteForkableAgentRemoteContextsByPanelKey,
                     snapshotFingerprintsByPanelKey: commandPaletteForkableAgentSnapshotFingerprintsByPanelKey,
-                    expectedSnapshotFingerprint: fallbackFingerprint,
+                    expectedSnapshotFingerprint: snapshotSource.snapshotFingerprint,
                     isRemoteTerminal: isRemoteTerminal
                 )
                 let cachedResultHadFallback = commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey] == true
@@ -5930,30 +6023,34 @@ struct ContentView: View {
                     workspaceId: workspaceId,
                     panelId: panelId,
                     isRemoteContext: isRemoteTerminal,
-                    fallbackSnapshot: fallbackSnapshot
+                    fallbackSnapshot: snapshotSource.validationFallbackSnapshot
                 )
                 let sharedProbeRejected = SharedLiveAgentIndex.shared.forkSupportProbeRejected(
                     workspaceId: workspaceId,
                     panelId: panelId,
                     isRemoteContext: isRemoteTerminal,
-                    fallbackSnapshot: fallbackSnapshot
+                    fallbackSnapshot: snapshotSource.validationFallbackSnapshot
                 )
                 let shouldClearBeforeProbe = probeResultMatches && Self.commandPaletteShouldClearForkableAgentProbeResultBeforeProbe(
                     panelKey: panelKey,
                     supportedPanelKeys: commandPaletteForkableAgentSupportedPanelKeys,
                     supportedRemoteContextsByPanelKey: commandPaletteForkableAgentRemoteContextsByPanelKey,
                     snapshotFingerprintsByPanelKey: commandPaletteForkableAgentSnapshotFingerprintsByPanelKey,
-                    expectedSnapshotFingerprint: fallbackFingerprint,
+                    expectedSnapshotFingerprint: snapshotSource.snapshotFingerprint,
                     isRemoteTerminal: isRemoteTerminal,
                     cachedResultHadFallback: cachedResultHadFallback,
                     panelChanged: panelChanged,
                     cachedResultIsFresh: cachedResultIsFresh
                 )
                 if probeResultMatches && !shouldClearBeforeProbe {
-                    commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey] =
-                        Self.commandPaletteForkMatchedFallbackProbeResultHadFallback(
-                            cachedResultHadFallback: commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey]
-                        )
+                    if snapshotSource.resultHadFallback {
+                        commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey] =
+                            Self.commandPaletteForkMatchedFallbackProbeResultHadFallback(
+                                cachedResultHadFallback: commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey]
+                            )
+                    } else {
+                        commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey] = false
+                    }
                 }
                 if probeResultMatches && cachedResultIsFresh && !panelChanged && sharedProbeAccepted {
                     return
@@ -5966,14 +6063,15 @@ struct ContentView: View {
                     || (probeRejectionMatches && !sharedProbeRejected) {
                     clearCommandPaletteForkableAgentProbeResult(for: panelKey)
                 }
-                startCommandPaletteForkableAgentAvailabilityProbe(
-                    panelKey: panelKey,
-                    workspaceId: workspaceId,
-                    panelId: panelId,
-                    fallbackSnapshot: fallbackSnapshot,
-                    fallbackFingerprint: fallbackFingerprint,
-                    isRemoteTerminal: isRemoteTerminal
-                )
+                    startCommandPaletteForkableAgentAvailabilityProbe(
+                        panelKey: panelKey,
+                        workspaceId: workspaceId,
+                        panelId: panelId,
+                        fallbackSnapshot: snapshotSource.validationFallbackSnapshot,
+                        fallbackFingerprint: snapshotSource.validationFallbackFingerprint,
+                        snapshotFingerprint: snapshotSource.snapshotFingerprint,
+                        isRemoteTerminal: isRemoteTerminal
+                    )
                 return
             }
         }
@@ -6045,6 +6143,7 @@ struct ContentView: View {
             panelId: panelId,
             fallbackSnapshot: nil,
             fallbackFingerprint: nil,
+            snapshotFingerprint: nil,
             isRemoteTerminal: isRemoteTerminal
         )
     }
@@ -6055,9 +6154,10 @@ struct ContentView: View {
         panelId: UUID,
         fallbackSnapshot: SessionRestorableAgentSnapshot?,
         fallbackFingerprint: String?,
+        snapshotFingerprint: String?,
         isRemoteTerminal: Bool
     ) {
-        let probeFingerprint = "\(fallbackFingerprint ?? "")\u{1f}\(isRemoteTerminal ? "remote" : "local")"
+        let probeFingerprint = "\(snapshotFingerprint ?? fallbackFingerprint ?? "")\u{1f}\(isRemoteTerminal ? "remote" : "local")"
         if let task = commandPaletteForkableAgentAvailabilityTasksByPanelKey[panelKey] {
             guard commandPaletteForkableAgentProbeFingerprintsByPanelKey[panelKey] != probeFingerprint else { return }
             task.cancel()
@@ -6072,36 +6172,28 @@ struct ContentView: View {
         commandPaletteForkableAgentAvailabilityTasksByPanelKey[panelKey] = Task {
             let sharedIndex = SharedLiveAgentIndex.shared
             if let fallbackSnapshot {
-                if let currentIndex = sharedIndex.index {
-                    if currentIndex.entry(workspaceId: workspaceId, panelId: panelId)?.snapshot != nil {
-                        await sharedIndex.refreshForkAvailabilityNow(
-                            workspaceId: workspaceId,
-                            panelId: panelId,
-                            isRemoteContext: isRemoteTerminal
-                        )
-                    } else {
-                        await sharedIndex.refreshForkAvailabilityNow(
-                            workspaceId: workspaceId,
-                            panelId: panelId,
-                            isRemoteContext: isRemoteTerminal,
-                            fallbackSnapshot: fallbackSnapshot
-                        )
-                    }
-                } else {
+                await sharedIndex.refreshForkAvailabilityNow(
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    isRemoteContext: isRemoteTerminal
+                )
+                guard !Task.isCancelled else { return }
+                let liveAcceptedSnapshot = sharedIndex.snapshotForForkAvailability(
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    isRemoteContext: isRemoteTerminal
+                )
+                let liveCandidateSnapshot = sharedIndex.snapshotForForkConversationCandidate(
+                    workspaceId: workspaceId,
+                    panelId: panelId
+                )
+                if liveAcceptedSnapshot == nil, liveCandidateSnapshot == nil {
                     await sharedIndex.refreshForkAvailabilityNow(
                         workspaceId: workspaceId,
                         panelId: panelId,
-                        isRemoteContext: isRemoteTerminal
+                        isRemoteContext: isRemoteTerminal,
+                        fallbackSnapshot: fallbackSnapshot
                     )
-                    guard !Task.isCancelled else { return }
-                    if sharedIndex.index?.entry(workspaceId: workspaceId, panelId: panelId)?.snapshot == nil {
-                        await sharedIndex.refreshForkAvailabilityNow(
-                            workspaceId: workspaceId,
-                            panelId: panelId,
-                            isRemoteContext: isRemoteTerminal,
-                            fallbackSnapshot: fallbackSnapshot
-                        )
-                    }
                 }
             } else {
                 await sharedIndex.refreshForkAvailabilityNow(
@@ -6110,17 +6202,31 @@ struct ContentView: View {
                     isRemoteContext: isRemoteTerminal
                 )
             }
-            let index: RestorableAgentSessionIndex
-            if let sharedIndexSnapshot = sharedIndex.index {
-                index = sharedIndexSnapshot
-            } else {
-                index = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
-            }
             guard !Task.isCancelled else { return }
-            var indexEntry = index.entry(workspaceId: workspaceId, panelId: panelId)
-            var indexSnapshot = indexEntry?.snapshot
-            let snapshot = indexSnapshot ?? fallbackSnapshot
-            let validationFallbackSnapshot = indexSnapshot == nil ? fallbackSnapshot : nil
+            let indexEntry = sharedIndex.index?.entry(workspaceId: workspaceId, panelId: panelId)
+            let indexSnapshot = sharedIndex.snapshotForForkAvailability(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                isRemoteContext: isRemoteTerminal
+            )
+            let liveCandidateSnapshot = sharedIndex.snapshotForForkConversationCandidate(
+                workspaceId: workspaceId,
+                panelId: panelId
+            )
+            let rejectedIndexSnapshot = indexSnapshot == nil
+                && liveCandidateSnapshot != nil
+                && sharedIndex.forkSupportProbeRejected(
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    isRemoteContext: isRemoteTerminal
+                )
+                ? liveCandidateSnapshot
+                : nil
+            let snapshot = indexSnapshot ?? rejectedIndexSnapshot ?? fallbackSnapshot
+            let validationFallbackSnapshot = indexSnapshot == nil && rejectedIndexSnapshot == nil
+                ? fallbackSnapshot
+                : nil
+            let cacheFallbackFingerprint = validationFallbackSnapshot == nil ? nil : fallbackFingerprint
             let snapshotAvailability: CommandPaletteForkSnapshotAvailability
             if let snapshot {
                 snapshotAvailability = Self.commandPaletteSnapshotForkAvailability(
@@ -6131,40 +6237,49 @@ struct ContentView: View {
                 snapshotAvailability = .unsupported
             }
             let requiresCapabilityProbe = snapshotAvailability == .requiresProbe
-            let executableFingerprintBefore: String?
-            if requiresCapabilityProbe, let snapshot {
-                executableFingerprintBefore = await Self.commandPaletteForkProbeExecutableFingerprint(
-                    snapshot,
-                    isRemoteTerminal: isRemoteTerminal
-                )
-            } else {
-                executableFingerprintBefore = nil
-            }
-            let executableFingerprintAfter: String?
-            if requiresCapabilityProbe, let snapshot {
-                executableFingerprintAfter = await Self.commandPaletteForkProbeExecutableFingerprint(
-                    snapshot,
-                    isRemoteTerminal: isRemoteTerminal
-                )
-            } else {
-                executableFingerprintAfter = nil
-            }
-            let executableFingerprint = executableFingerprintBefore == executableFingerprintAfter
-                ? executableFingerprintAfter
-                : nil
             let sharedProbeAccepted: Bool
-            switch snapshotAvailability {
-            case .supportedWithoutProbe:
-                sharedProbeAccepted = true
-            case .requiresProbe:
-                sharedProbeAccepted = SharedLiveAgentIndex.shared.forkSupportProbeAccepted(
+            let sharedProbeCompletedAt: Date?
+            let executableFingerprint: String?
+            if rejectedIndexSnapshot != nil {
+                sharedProbeAccepted = false
+                sharedProbeCompletedAt = sharedIndex.forkSupportProbeCompletedAt(
                     workspaceId: workspaceId,
                     panelId: panelId,
-                    isRemoteContext: isRemoteTerminal,
-                    fallbackSnapshot: validationFallbackSnapshot
+                    isRemoteContext: isRemoteTerminal
                 )
-            case .unsupported:
-                sharedProbeAccepted = false
+                executableFingerprint = nil
+            } else {
+                switch snapshotAvailability {
+                case .supportedWithoutProbe:
+                    sharedProbeAccepted = true
+                    sharedProbeCompletedAt = nil
+                    executableFingerprint = nil
+                case .requiresProbe:
+                    let probeAccepted = sharedIndex.forkSupportProbeAccepted(
+                        workspaceId: workspaceId,
+                        panelId: panelId,
+                        isRemoteContext: isRemoteTerminal,
+                        fallbackSnapshot: validationFallbackSnapshot
+                    )
+                    let validationExecutableFingerprint = sharedIndex.forkSupportProbeExecutableFingerprint(
+                        workspaceId: workspaceId,
+                        panelId: panelId,
+                        isRemoteContext: isRemoteTerminal,
+                        fallbackSnapshot: validationFallbackSnapshot
+                    )
+                    sharedProbeAccepted = probeAccepted && validationExecutableFingerprint != nil
+                    sharedProbeCompletedAt = sharedIndex.forkSupportProbeCompletedAt(
+                        workspaceId: workspaceId,
+                        panelId: panelId,
+                        isRemoteContext: isRemoteTerminal,
+                        fallbackSnapshot: validationFallbackSnapshot
+                    )
+                    executableFingerprint = validationExecutableFingerprint
+                case .unsupported:
+                    sharedProbeAccepted = false
+                    sharedProbeCompletedAt = nil
+                    executableFingerprint = nil
+                }
             }
             let supportsFork = sharedProbeAccepted
 #if DEBUG
@@ -6221,13 +6336,9 @@ struct ContentView: View {
                     ) == .requiresProbe
                 } ?? false
                 let wasSupported = commandPaletteForkableAgentSupportedPanelKeys.contains(panelKey)
-                let wasRejected = commandPaletteForkableAgentRejectedPanelKeys.contains(panelKey)
                 let hadCachedSnapshot = commandPaletteForkableAgentSnapshotsByPanelKey[panelKey] != nil
                 let shouldRefreshResults: Bool
-                if executableFingerprintBefore != executableFingerprintAfter {
-                    shouldRefreshResults = wasSupported || wasRejected || hadCachedSnapshot
-                    clearCommandPaletteForkableAgentProbeResult(for: panelKey)
-                } else if supportsFork && sharedProbeAccepted, let acceptedSnapshot {
+                if supportsFork && sharedProbeAccepted, let acceptedSnapshot {
                     shouldRefreshResults = !wasSupported
                     commandPaletteForkableAgentSupportedPanelKeys.insert(panelKey)
                     commandPaletteForkableAgentRejectedPanelKeys.remove(panelKey)
@@ -6235,7 +6346,7 @@ struct ContentView: View {
                     commandPaletteForkableAgentSnapshotsByPanelKey[panelKey] = acceptedSnapshot
                     commandPaletteForkableAgentSnapshotFingerprintsByPanelKey[panelKey] = Self.commandPaletteForkCacheFingerprint(
                         snapshot: acceptedSnapshot,
-                        fallbackFingerprint: fallbackFingerprint,
+                        fallbackFingerprint: acceptedIndexSnapshot == nil ? cacheFallbackFingerprint : nil,
                         isRemoteTerminal: isRemoteTerminal
                     )
                     if let executableFingerprint {
@@ -6244,9 +6355,10 @@ struct ContentView: View {
                         commandPaletteForkableAgentExecutableFingerprintsByPanelKey.removeValue(forKey: panelKey)
                     }
                     commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey] =
-                        acceptedIndexSnapshot == nil && fallbackSnapshot != nil
+                        acceptedIndexSnapshot == nil && cacheFallbackFingerprint != nil
                     if acceptedSnapshotRequiresProbe {
-                        commandPaletteForkableAgentValidatedAtByPanelKey[panelKey] = Date()
+                        commandPaletteForkableAgentValidatedAtByPanelKey[panelKey] =
+                            sharedProbeCompletedAt ?? Date()
                     } else {
                         commandPaletteForkableAgentValidatedAtByPanelKey.removeValue(forKey: panelKey)
                     }
@@ -6258,11 +6370,11 @@ struct ContentView: View {
                     commandPaletteForkableAgentSnapshotFingerprintsByPanelKey[panelKey] = if let acceptedSnapshot {
                         Self.commandPaletteForkCacheFingerprint(
                             snapshot: acceptedSnapshot,
-                            fallbackFingerprint: fallbackFingerprint,
+                            fallbackFingerprint: acceptedIndexSnapshot == nil ? cacheFallbackFingerprint : nil,
                             isRemoteTerminal: isRemoteTerminal
                         )
                     } else {
-                        fallbackFingerprint ?? ""
+                        cacheFallbackFingerprint ?? ""
                     }
                     if let executableFingerprint {
                         commandPaletteForkableAgentExecutableFingerprintsByPanelKey[panelKey] = executableFingerprint
@@ -6271,9 +6383,10 @@ struct ContentView: View {
                     }
                     commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] = isRemoteTerminal
                     commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey] =
-                        acceptedIndexSnapshot == nil && fallbackSnapshot != nil
+                        acceptedIndexSnapshot == nil && cacheFallbackFingerprint != nil
                     if requiresCapabilityProbe {
-                        commandPaletteForkableAgentValidatedAtByPanelKey[panelKey] = Date()
+                        commandPaletteForkableAgentValidatedAtByPanelKey[panelKey] =
+                            sharedProbeCompletedAt ?? Date()
                     } else {
                         commandPaletteForkableAgentValidatedAtByPanelKey.removeValue(forKey: panelKey)
                     }
@@ -6532,6 +6645,10 @@ struct ContentView: View {
             snapshot.setBool(CommandPaletteContextKeys.panelHasPane, workspace.paneId(forPanelId: panelId) != nil)
             let allowsAgentContinuation = workspace.allowsAgentContinuation(forPanelId: panelId)
             let fallbackForkableSnapshot = workspace.restoredAgentSnapshotForContinuation(panelId: panelId)
+            let forkablePanelKey = Self.commandPaletteForkableAgentPanelKey(
+                workspaceId: workspace.id,
+                panelId: panelId
+            )
             snapshot.setBool(
                 CommandPaletteContextKeys.panelHasForkableAgent,
                 Self.commandPalettePanelHasForkableAgent(
@@ -6539,7 +6656,13 @@ struct ContentView: View {
                     panelId: panelId,
                     supportedPanelKeys: commandPaletteForkableAgentSupportedPanelKeys,
                     supportedRemoteContextsByPanelKey: commandPaletteForkableAgentRemoteContextsByPanelKey,
+                    liveIndexSnapshot: SharedLiveAgentIndex.shared.snapshotForForkAvailability(
+                        workspaceId: workspace.id,
+                        panelId: panelId,
+                        isRemoteContext: panelIsRemoteTerminal
+                    ),
                     fallbackSnapshot: fallbackForkableSnapshot,
+                    cachedSnapshot: commandPaletteForkableAgentSnapshotsByPanelKey[forkablePanelKey],
                     isRemoteTerminal: panelIsRemoteTerminal,
                     allowsAgentContinuation: allowsAgentContinuation
                 )

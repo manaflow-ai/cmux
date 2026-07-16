@@ -29,528 +29,74 @@ struct ProcessTerminationGate: Sendable {
     }
 }
 
-private func withPOSIXCStringArray<T>(
-    _ strings: [String],
-    _ body: (UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>) -> T
-) -> T {
-    var cStrings: [UnsafeMutablePointer<CChar>?] = strings.map { strdup($0) }
-    cStrings.append(nil)
-    defer { cStrings.forEach { free($0) } }
-    return cStrings.withUnsafeMutableBufferPointer { body($0.baseAddress!) }
-}
-
-private func probeProcessExitCode(processIdentifier: pid_t) -> Int32? {
-    var status: Int32 = 0
-    while true {
-        let result = waitpid(processIdentifier, &status, 0)
-        if result == processIdentifier { break }
-        if result == -1 && errno == EINTR { continue }
-        if result == -1 && errno == ECHILD { return 0 }
-        return nil
-    }
-    if status & 0x7f == 0 {
-        return (status >> 8) & 0xff
-    }
-    return 128 + (status & 0x7f)
-}
-
 enum AgentForkSupport {
+    typealias ForkValidationExecutableResolution = (
+        status: String,
+        lookupPath: String?,
+        realPath: String?,
+        cachePart: String?,
+        watchDirectories: [String]
+    )
+    typealias ForkProbeExecutableIdentity = (
+        lookupPath: String,
+        realPath: String,
+        cachePart: String,
+        watchDirectories: [String]
+    )
+    enum ForkValidationExecutableResolutionPlan {
+        case notRequired
+        case skipRemoteLikeContext
+        case unresolved
+        case run(
+            probe: (executable: String, arguments: [String]),
+            processEnvironment: [String: String],
+            workingDirectory: String?,
+            probeFromDefaultDirectoryWhenWorkingDirectoryIsMissing: Bool
+        )
+    }
+
     static let minimumOpenCodeForkVersion = SemanticVersion(major: 1, minor: 14, patch: 50)
     // Pi v0.60.0 and OMP v13.15.0 are the first releases containing the
     // upstream CLI `--fork <path|id>` implementation.
     static let minimumPiForkVersion = SemanticVersion(major: 0, minor: 60, patch: 0)
     static let minimumOmpForkVersion = SemanticVersion(major: 13, minor: 15, patch: 0)
-    private static let commandOutputTimeoutNanoseconds: Int64 = 3_000_000_000
-    private static let commandTerminateTimeoutNanoseconds: Int64 = 500_000_000
-    private static let commandOutputMaximumBytes = 64 * 1024
-    private static let openCodeVersionProbeCache = OpenCodeVersionProbeCache()
-
-    private actor CommandOutputRunner {
-        private let executable: String
-        private let arguments: [String]
-        private let environment: [String: String]?
-        private let workingDirectory: String?
-        private var processIdentifier: pid_t?
-        private var outputPipeHandles: Set<UInt64> = []
-        private var processExitSource: DispatchSourceProcess?
-        private var outputDrain: CommandOutputDrain?
-        private var outputDrainTask: Task<Data, Never>?
-        private var timeoutTimer: DispatchSourceTimer?
-        private var killTimer: DispatchSourceTimer?
-        private var continuation: CheckedContinuation<String?, Never>?
-        private var completed = false
-        private var waitingForOutputDrain = false
-        private var timedOut = false
-        private var didLaunch = false
-        private var terminationRequested = false
-
-        init(
-            executable: String,
-            arguments: [String],
-            environment: [String: String]?,
-            workingDirectory: String?
-        ) {
-            self.executable = executable
-            self.arguments = arguments
-            self.environment = environment
-            self.workingDirectory = workingDirectory
+    private static let piFamilyBareVersionExpression = try! NSRegularExpression(
+        pattern: #"^v?\d+\.\d+(?:\.\d+)?$"#
+    )
+    private static let piFamilyVersionBoundExpressions: [String: NSRegularExpression] = {
+        var expressions: [String: NSRegularExpression] = [:]
+        for agentID in ["pi", "omp"] {
+            let escapedAgentID = NSRegularExpression.escapedPattern(for: agentID)
+            let pattern = #"(^|[^a-z0-9])"# + escapedAgentID
+                + #"([/\s:_-]+)v?(\d+)\.(\d+)(?:\.(\d+))?($|[\s,;:)\]}])"#
+            expressions[agentID] = try! NSRegularExpression(pattern: pattern)
         }
-
-        func start() async -> String? {
-            await withCheckedContinuation { continuation in
-                start(continuation: continuation)
-            }
-        }
-
-        func start(continuation: CheckedContinuation<String?, Never>) {
-            if completed || timedOut {
-                completed = true
-                continuation.resume(returning: nil)
-                return
-            }
-            self.continuation = continuation
-
-            startTimeoutTimer()
-
-            guard let spawned = spawnProcessGroup() else {
-                markFailedBeforeLaunch()
-                return
-            }
-
-            if completed {
-                return
-            }
-            processIdentifier = spawned.processIdentifier
-            outputPipeHandles = spawned.outputPipeHandles
-            guard let drain = CommandOutputDrain(
-                readFileDescriptor: spawned.readFileDescriptor,
-                maximumBytes: AgentForkSupport.commandOutputMaximumBytes
-            ) else {
-                close(spawned.readFileDescriptor)
-                signalProcessGroup(SIGKILL)
-                _ = probeProcessExitCode(processIdentifier: spawned.processIdentifier)
-                processIdentifier = nil
-                markFailedBeforeLaunch()
-                return
-            }
-            outputDrain = drain
-            outputDrainTask = Task.detached(priority: .utility) {
-                await drain.run()
-            }
-            let processExitSource = DispatchSource.makeProcessSource(
-                identifier: spawned.processIdentifier,
-                eventMask: .exit,
-                queue: .global(qos: .utility)
-            )
-            processExitSource.setEventHandler { [weak self] in
-                Task {
-                    await self?.processDidExit()
-                }
-            }
-            self.processExitSource = processExitSource
-            processExitSource.resume()
-            guard Darwin.kill(spawned.processIdentifier, SIGCONT) == 0 else {
-                signalProcessGroup(SIGKILL)
-                _ = probeProcessExitCode(processIdentifier: spawned.processIdentifier)
-                processIdentifier = nil
-                processExitSource.cancel()
-                self.processExitSource = nil
-                markFailedBeforeLaunch()
-                return
-            }
-            didLaunch = true
-
-            if terminationRequested {
-                signalProcessGroup(SIGTERM)
-                startKillTimer(processIdentifier: spawned.processIdentifier)
-            }
-        }
-
-        private func spawnProcessGroup() -> (
-            processIdentifier: pid_t,
-            readFileDescriptor: Int32,
-            outputPipeHandles: Set<UInt64>
-        )? {
-            var outputFDs: [Int32] = [-1, -1]
-            defer {
-                for fileDescriptor in outputFDs where fileDescriptor >= 0 {
-                    close(fileDescriptor)
-                }
-            }
-            guard Darwin.pipe(&outputFDs) == 0 else { return nil }
-            guard outputFDs.allSatisfy({ $0 > 2 }) else { return nil }
-            for fileDescriptor in outputFDs {
-                guard fcntl(fileDescriptor, F_SETFD, FD_CLOEXEC) == 0 else {
-                    return nil
-                }
-            }
-            let outputPipeHandles = AgentForkSupport.probeOutputPipeHandles(
-                readFileDescriptor: outputFDs[0],
-                writeFileDescriptor: outputFDs[1]
-            )
-            guard !outputPipeHandles.isEmpty else { return nil }
-
-            var fileActions: posix_spawn_file_actions_t?
-            guard posix_spawn_file_actions_init(&fileActions) == 0 else { return nil }
-            defer { posix_spawn_file_actions_destroy(&fileActions) }
-
-            var setupOK = "/dev/null".withCString {
-                posix_spawn_file_actions_addopen(&fileActions, STDIN_FILENO, $0, O_RDONLY, 0) == 0
-            }
-            if let workingDirectoryURL = AgentForkSupport.localDirectoryURL(path: workingDirectory) {
-                setupOK = setupOK && workingDirectoryURL.path.withCString {
-                    posix_spawn_file_actions_addchdir_np(&fileActions, $0) == 0
-                }
-            }
-            setupOK = setupOK && posix_spawn_file_actions_adddup2(
-                &fileActions,
-                outputFDs[1],
-                STDOUT_FILENO
-            ) == 0
-            setupOK = setupOK && posix_spawn_file_actions_adddup2(
-                &fileActions,
-                outputFDs[1],
-                STDERR_FILENO
-            ) == 0
-            for fileDescriptor in outputFDs {
-                setupOK = setupOK && posix_spawn_file_actions_addclose(&fileActions, fileDescriptor) == 0
-            }
-            guard setupOK else { return nil }
-
-            var attributes: posix_spawnattr_t?
-            guard posix_spawnattr_init(&attributes) == 0 else { return nil }
-            defer { posix_spawnattr_destroy(&attributes) }
-            // Probes run suspended in a child-led process group. The parent
-            // attaches the exit watcher before SIGCONT, so fast `--version`
-            // commands cannot exit before cleanup owns their pgid.
-            let flags = Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_START_SUSPENDED | POSIX_SPAWN_CLOEXEC_DEFAULT)
-            guard posix_spawnattr_setflags(&attributes, flags) == 0,
-                  posix_spawnattr_setpgroup(&attributes, 0) == 0 else {
-                return nil
-            }
-
-            let argv = ["/usr/bin/env", executable] + arguments
-            let envp = AgentForkSupport.processEnvironmentForOpenCodeProbe(environment: environment)
-                .map { "\($0.key)=\($0.value)" }
-            var processIdentifier: pid_t = 0
-            let spawnStatus = withPOSIXCStringArray(argv) { argvPointer in
-                withPOSIXCStringArray(envp) { envpPointer in
-                    "/usr/bin/env".withCString { path in
-                        posix_spawn(
-                            &processIdentifier,
-                            path,
-                            &fileActions,
-                            &attributes,
-                            argvPointer,
-                            envpPointer
-                        )
-                    }
-                }
-            }
-            guard spawnStatus == 0 else { return nil }
-
-            close(outputFDs[1])
-            outputFDs[1] = -1
-            let readFD = outputFDs[0]
-            outputFDs[0] = -1
-            return (processIdentifier, readFD, outputPipeHandles)
-        }
-
-        private func processDidExit() {
-            guard let processIdentifier else { return }
-            // The process source fires before `waitpid` reaps the group leader.
-            // Signal the whole group while that zombie still pins the pgid, so
-            // descendants cannot leak and the pgid cannot be reused first.
-            signalProcessGroup(SIGTERM)
-            signalProcessGroup(SIGKILL)
-            let exitStatus = probeProcessExitCode(processIdentifier: processIdentifier)
-            self.processIdentifier = nil
-            processExitSource?.cancel()
-            processExitSource = nil
-            finish(exitStatus: exitStatus)
-        }
-
-        nonisolated func cancel() {
-            Task {
-                await markTimedOutAndTerminate()
-            }
-        }
-
-        private func startTimeoutTimer() {
-            let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
-            timer.schedule(deadline: .now() + .nanoseconds(Int(AgentForkSupport.commandOutputTimeoutNanoseconds)))
-            timer.setEventHandler { [weak self] in
-                self?.cancel()
-            }
-            if completed {
-                timer.resume()
-                timer.cancel()
-                return
-            }
-            timeoutTimer = timer
-            timer.resume()
-        }
-
-        private func markFailedBeforeLaunch() {
-            timedOut = true
-            finish()
-        }
-
-        private func markTimedOutAndTerminate() {
-            guard !completed else { return }
-            timedOut = true
-            terminationRequested = true
-            terminateProcessesHoldingOutputPipe(signal: SIGTERM)
-            if waitingForOutputDrain {
-                terminateProcessesHoldingOutputPipe(signal: SIGKILL)
-                complete(returning: nil)
-                return
-            }
-            guard didLaunch, let processIdentifier else { return }
-            signalProcessGroup(SIGTERM)
-            startKillTimer(processIdentifier: processIdentifier)
-        }
-
-        private func startKillTimer(processIdentifier: pid_t) {
-            let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
-            timer.schedule(deadline: .now() + .nanoseconds(Int(AgentForkSupport.commandTerminateTimeoutNanoseconds)))
-            timer.setEventHandler { [weak self] in
-                Task {
-                    await self?.killProcessIfStillRunning(processIdentifier: processIdentifier)
-                }
-            }
-            if completed {
-                timer.resume()
-                timer.cancel()
-                return
-            }
-            killTimer?.cancel()
-            killTimer = timer
-            timer.resume()
-        }
-
-        private func killProcessIfStillRunning(processIdentifier: pid_t) {
-            guard !completed else { return }
-            kill(-processIdentifier, SIGKILL)
-            terminateProcessesHoldingOutputPipe(signal: SIGKILL)
-        }
-
-        private func signalProcessGroup(_ signal: Int32) {
-            guard let processIdentifier else { return }
-            kill(-processIdentifier, signal)
-        }
-
-        private func terminateProcessesHoldingOutputPipe(signal: Int32) {
-            guard !outputPipeHandles.isEmpty else { return }
-            for processIdentifier in AgentForkSupport.processIdentifiersHoldingProbeOutputPipe(
-                outputPipeHandles,
-                excluding: [Darwin.getpid()]
-            ) {
-                Darwin.kill(processIdentifier, signal)
-            }
-        }
-
-        private func finish(exitStatus: Int32? = nil) {
-            let killTimer: DispatchSourceTimer?
-            let timedOut: Bool
-
-            guard !completed else { return }
-            killTimer = self.killTimer
-            self.killTimer = nil
-            timedOut = self.timedOut
-
-            killTimer?.cancel()
-
-            guard !timedOut, exitStatus == 0, let outputDrainTask else {
-                complete(returning: nil)
-                return
-            }
-            waitingForOutputDrain = true
-            Task {
-                let output = await outputDrainTask.value
-                self.finishDrainedOutput(output)
-            }
-        }
-
-        private func finishDrainedOutput(_ output: Data) {
-            guard !completed else { return }
-            complete(returning: String(data: output, encoding: .utf8))
-        }
-
-        private func complete(returning result: String?) {
-            let continuation: CheckedContinuation<String?, Never>?
-            let outputDrain: CommandOutputDrain?
-            let outputDrainTask: Task<Data, Never>?
-            let processExitSource: DispatchSourceProcess?
-            let timeoutTimer: DispatchSourceTimer?
-            let killTimer: DispatchSourceTimer?
-
-            guard !completed else { return }
-            completed = true
-            waitingForOutputDrain = false
-            continuation = self.continuation
-            self.continuation = nil
-            outputDrain = self.outputDrain
-            self.outputDrain = nil
-            outputDrainTask = self.outputDrainTask
-            self.outputDrainTask = nil
-            processExitSource = self.processExitSource
-            self.processExitSource = nil
-            self.processIdentifier = nil
-            self.outputPipeHandles.removeAll(keepingCapacity: false)
-            timeoutTimer = self.timeoutTimer
-            self.timeoutTimer = nil
-            killTimer = self.killTimer
-            self.killTimer = nil
-
-            timeoutTimer?.cancel()
-            killTimer?.cancel()
-            processExitSource?.cancel()
-            outputDrain?.cancel()
-            outputDrainTask?.cancel()
-            continuation?.resume(returning: result)
-        }
-    }
-
-    /// Drains one probe process output pipe off Swift's cooperative executor.
-    /// The actor owns descriptor close state, while the blocking `poll/read`
-    /// loop runs on a GCD queue so the actor remains available for cancellation.
-    private actor CommandOutputDrain {
-        private static let queue = DispatchQueue(
-            label: "com.cmux.agent-fork-support.output-drain",
-            qos: .utility,
-            attributes: .concurrent
-        )
-        private let readFileDescriptor: Int32
-        private let wakeReadFileDescriptor: Int32
-        private let wakeWriteFileDescriptor: Int32
-        private let maximumBytes: Int
-        private var didCloseFileDescriptors = false
-
-        init?(readFileDescriptor: Int32, maximumBytes: Int) {
-            var wakeFDs: [Int32] = [-1, -1]
-            guard Darwin.pipe(&wakeFDs) == 0 else { return nil }
-            guard wakeFDs.allSatisfy({ $0 > 2 }) else {
-                for fileDescriptor in wakeFDs where fileDescriptor >= 0 {
-                    close(fileDescriptor)
-                }
-                return nil
-            }
-            for fileDescriptor in wakeFDs {
-                _ = fcntl(fileDescriptor, F_SETFD, FD_CLOEXEC)
-            }
-            self.readFileDescriptor = readFileDescriptor
-            self.wakeReadFileDescriptor = wakeFDs[0]
-            self.wakeWriteFileDescriptor = wakeFDs[1]
-            self.maximumBytes = maximumBytes
-        }
-
-        func run() async -> Data {
-            let readFileDescriptor = self.readFileDescriptor
-            let wakeReadFileDescriptor = self.wakeReadFileDescriptor
-            let maximumBytes = self.maximumBytes
-            let output = await withCheckedContinuation { continuation in
-                Self.queue.async {
-                    continuation.resume(
-                        returning: Self.drainOutput(
-                            readFileDescriptor: readFileDescriptor,
-                            wakeReadFileDescriptor: wakeReadFileDescriptor,
-                            maximumBytes: maximumBytes
-                        )
-                    )
-                }
-            }
-            closeFileDescriptors()
-            return output
-        }
-
-        nonisolated func cancel() {
-            Task {
-                await requestCancel()
-            }
-        }
-
-        private func requestCancel() {
-            guard !didCloseFileDescriptors else { return }
-            var byte: UInt8 = 1
-            _ = withUnsafePointer(to: &byte) { pointer in
-                Darwin.write(wakeWriteFileDescriptor, pointer, 1)
-            }
-        }
-
-        private static func drainOutput(
-            readFileDescriptor: Int32,
-            wakeReadFileDescriptor: Int32,
-            maximumBytes: Int
-        ) -> Data {
-            var output = Data()
-            var pollDescriptors = [
-                pollfd(
-                    fd: readFileDescriptor,
-                    events: Int16(POLLIN | POLLHUP | POLLERR),
-                    revents: 0
-                ),
-                pollfd(
-                    fd: wakeReadFileDescriptor,
-                    events: Int16(POLLIN | POLLHUP | POLLERR),
-                    revents: 0
-                ),
-            ]
-            var buffer = [UInt8](repeating: 0, count: 4096)
-            while true {
-                let pollResult = Darwin.poll(&pollDescriptors, 2, -1)
-                if pollResult < 0 {
-                    if errno == EINTR {
-                        continue
-                    }
-                    output.removeAll(keepingCapacity: false)
-                    break
-                }
-                if pollDescriptors[1].revents != 0 {
-                    break
-                }
-                if pollDescriptors[0].revents & Int16(POLLIN | POLLHUP | POLLERR) == 0 {
-                    continue
-                }
-                let bufferCapacity = buffer.count
-                let bytesRead = buffer.withUnsafeMutableBytes { rawBuffer in
-                    Darwin.read(readFileDescriptor, rawBuffer.baseAddress, bufferCapacity)
-                }
-                if bytesRead > 0 {
-                    let remaining = maximumBytes - output.count
-                    if remaining > 0 {
-                        output.append(contentsOf: buffer.prefix(min(Int(bytesRead), remaining)))
-                    }
-                } else if bytesRead == 0 {
-                    break
-                } else if errno != EINTR {
-                    output.removeAll(keepingCapacity: false)
-                    break
-                }
-            }
-            return output
-        }
-
-        private func closeFileDescriptors() {
-            guard !didCloseFileDescriptors else { return }
-            didCloseFileDescriptors = true
-            close(readFileDescriptor)
-            close(wakeReadFileDescriptor)
-            close(wakeWriteFileDescriptor)
-        }
-
-        deinit {
-            if !didCloseFileDescriptors {
-                close(readFileDescriptor)
-                close(wakeReadFileDescriptor)
-                close(wakeWriteFileDescriptor)
-            }
-        }
-    }
+        return expressions
+    }()
+    static let commandOutputTimeoutNanoseconds: Int64 = 3_000_000_000
+    static let commandTerminateTimeoutNanoseconds: Int64 = 500_000_000
+    static let executableIdentityResolutionTimeoutNanoseconds: UInt64 = 3_000_000_000
+    static let commandOutputMaximumBytes = 64 * 1024
 
     static func supportsFork(
         snapshot: SessionRestorableAgentSnapshot,
         isRemoteContext: Bool = false
+    ) async -> Bool {
+        let executableIdentityResolver = AgentForkExecutableIdentityResolver()
+        let forkCapabilityProbeCache = ForkCapabilityProbeResultCache()
+        return await supportsFork(
+            snapshot: snapshot,
+            isRemoteContext: isRemoteContext,
+            executableIdentityResolver: executableIdentityResolver,
+            forkCapabilityProbeCache: forkCapabilityProbeCache
+        )
+    }
+
+    static func supportsFork(
+        snapshot: SessionRestorableAgentSnapshot,
+        isRemoteContext: Bool = false,
+        executableIdentityResolver: AgentForkExecutableIdentityResolver,
+        forkCapabilityProbeCache: ForkCapabilityProbeResultCache
     ) async -> Bool {
         guard forkCommandIdentityParts(snapshot: snapshot) != nil else { return false }
         if isRemoteContext,
@@ -575,8 +121,9 @@ enum AgentForkSupport {
                 probe: probe,
                 snapshot: snapshot,
                 cacheDiscriminator: "pi-family-version:\(agentID)",
+                executableIdentityResolver: executableIdentityResolver,
+                forkCapabilityProbeCache: forkCapabilityProbeCache,
                 probeFromDefaultDirectoryWhenWorkingDirectoryIsMissing: true,
-                usesOpenCodeVersionProbeCache: false,
                 outputSupportsFork: { output in
                     piFamilyVersionSupportsFork(
                         output,
@@ -602,6 +149,8 @@ enum AgentForkSupport {
             probe: probe,
             snapshot: snapshot,
             cacheDiscriminator: "opencode-version",
+            executableIdentityResolver: executableIdentityResolver,
+            forkCapabilityProbeCache: forkCapabilityProbeCache,
             outputSupportsFork: { output in
                 openCodeVersionSupportsFork(output)
             }
@@ -910,14 +459,16 @@ enum AgentForkSupport {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
         guard normalizedAgentID == "pi" || normalizedAgentID == "omp" else { return nil }
+        guard let boundExpression = piFamilyVersionBoundExpressions[normalizedAgentID] else { return nil }
 
         var candidates: [SemanticVersion] = []
         for rawLine in output.split(whereSeparator: \.isNewline) {
             let line = String(rawLine).trimmingCharacters(in: .whitespacesAndNewlines)
             let lowercasedLine = line.lowercased()
-            let isBareVersionLine = lowercasedLine.range(
-                of: #"^v?\d+\.\d+(?:\.\d+)?$"#,
-                options: .regularExpression
+            let lineRange = NSRange(lowercasedLine.startIndex..<lowercasedLine.endIndex, in: lowercasedLine)
+            let isBareVersionLine = piFamilyBareVersionExpression.firstMatch(
+                in: lowercasedLine,
+                range: lineRange
             ) != nil
             if acceptsBareVersionOutput && isBareVersionLine,
                let version = SemanticVersion.first(in: lowercasedLine) {
@@ -926,7 +477,8 @@ enum AgentForkSupport {
             }
             if let version = piFamilyVersionBoundToAgent(
                 lowercasedLine,
-                agentID: normalizedAgentID
+                expression: boundExpression,
+                range: lineRange
             ) {
                 candidates.append(version)
             }
@@ -934,12 +486,11 @@ enum AgentForkSupport {
         return candidates.count == 1 ? candidates[0] : nil
     }
 
-    private static func piFamilyVersionBoundToAgent(_ line: String, agentID: String) -> SemanticVersion? {
-        let escapedAgentID = NSRegularExpression.escapedPattern(for: agentID)
-        let pattern = #"(^|[^a-z0-9])"# + escapedAgentID
-            + #"([/\s:_-]+)v?(\d+)\.(\d+)(?:\.(\d+))?($|[^a-z0-9])"#
-        guard let expression = try? NSRegularExpression(pattern: pattern) else { return nil }
-        let range = NSRange(line.startIndex..<line.endIndex, in: line)
+    private static func piFamilyVersionBoundToAgent(
+        _ line: String,
+        expression: NSRegularExpression,
+        range: NSRange
+    ) -> SemanticVersion? {
         guard let match = expression.firstMatch(in: line, range: range) else { return nil }
 
         func integer(at captureIndex: Int, fallback defaultValue: Int? = nil) -> Int? {
@@ -969,44 +520,31 @@ enum AgentForkSupport {
         probe: (executable: String, arguments: [String]),
         snapshot: SessionRestorableAgentSnapshot,
         cacheDiscriminator: String,
+        executableIdentityResolver: AgentForkExecutableIdentityResolver,
+        forkCapabilityProbeCache: ForkCapabilityProbeResultCache,
         probeFromDefaultDirectoryWhenWorkingDirectoryIsMissing: Bool = false,
-        usesOpenCodeVersionProbeCache: Bool = true,
         outputSupportsFork: @Sendable (String) -> Bool
     ) async -> Bool {
         let requestedWorkingDirectory = probeWorkingDirectory(snapshot: snapshot)
         let processEnvironment = processEnvironmentForOpenCodeProbe(environment: snapshot.launchCommand?.environment)
-        let usesDefaultDirectoryForMissingWorkingDirectory = probeFromDefaultDirectoryWhenWorkingDirectoryIsMissing
-            && requestedWorkingDirectory.flatMap({ localDirectoryURL(path: $0) }) == nil
-        if usesDefaultDirectoryForMissingWorkingDirectory {
-            return false
-        }
         let workingDirectory = requestedWorkingDirectory
-        switch localForkProbeDecision(probe: probe, workingDirectory: workingDirectory) {
-        case .run:
-            break
-        case .skipRemoteLikeContext:
-            return true
-        case .rejectMissingWorkingDirectory:
-            return false
-        case .rejectMissingExecutable:
+        guard let executableIdentity = await executableIdentityResolver.identityIfRunnable(
+            probe: probe,
+            processEnvironment: processEnvironment,
+            workingDirectory: workingDirectory,
+            probeFromDefaultDirectoryWhenWorkingDirectoryIsMissing: probeFromDefaultDirectoryWhenWorkingDirectoryIsMissing
+        ) else {
             return false
         }
-        let executableIdentity = forkProbeExecutableIdentity(
-            executable: probe.executable,
-            processEnvironment: processEnvironment,
-            workingDirectory: workingDirectory
-        )
         let cacheKey = forkProbeCacheKey(
             probe: probe,
             processEnvironment: processEnvironment,
-            executableIdentity: executableIdentity?.cachePart,
+            executableIdentity: executableIdentity.cachePart,
             workingDirectory: workingDirectory,
             discriminator: cacheDiscriminator
         )
         let probeStartedAt = Date().timeIntervalSinceReferenceDate
-        if usesOpenCodeVersionProbeCache,
-           executableIdentity != nil,
-           let cached = await openCodeVersionProbeCache.value(for: cacheKey, now: probeStartedAt) {
+        if let cached = await forkCapabilityProbeCache.value(for: cacheKey, now: probeStartedAt) {
             return cached
         }
         guard let output = await commandOutput(
@@ -1018,19 +556,16 @@ enum AgentForkSupport {
             return false
         }
         let supportsFork = outputSupportsFork(output)
-        if executableIdentity != nil {
-            let executableIdentityAfterProbe = forkProbeExecutableIdentity(
-                executable: probe.executable,
-                processEnvironment: processEnvironment,
-                workingDirectory: workingDirectory
-            )
-            guard executableIdentityAfterProbe?.cachePart == executableIdentity?.cachePart else {
-                return supportsFork
-            }
+        let executableIdentityAfterProbe = await executableIdentityResolver.identityIfRunnable(
+            probe: probe,
+            processEnvironment: processEnvironment,
+            workingDirectory: workingDirectory,
+            probeFromDefaultDirectoryWhenWorkingDirectoryIsMissing: probeFromDefaultDirectoryWhenWorkingDirectoryIsMissing
+        )
+        guard executableIdentityAfterProbe?.cachePart == executableIdentity.cachePart else {
+            return supportsFork
         }
-        if usesOpenCodeVersionProbeCache, executableIdentity != nil {
-            await openCodeVersionProbeCache.store(supportsFork, for: cacheKey, now: probeStartedAt)
-        }
+        await forkCapabilityProbeCache.store(supportsFork, for: cacheKey, now: probeStartedAt)
         return supportsFork
     }
 
@@ -1075,11 +610,39 @@ enum AgentForkSupport {
             .joined(separator: "\u{1f}")
     }
 
-    private static func forkProbeExecutableIdentity(
+    static func forkProbeExecutableIdentityIfRunnable(
+        probe: (executable: String, arguments: [String]),
+        processEnvironment: [String: String],
+        workingDirectory: String?,
+        probeFromDefaultDirectoryWhenWorkingDirectoryIsMissing: Bool
+    ) -> ForkProbeExecutableIdentity? {
+        let usesDefaultDirectoryForMissingWorkingDirectory = probeFromDefaultDirectoryWhenWorkingDirectoryIsMissing
+            && workingDirectory.flatMap({ localDirectoryURL(path: $0) }) == nil
+        if usesDefaultDirectoryForMissingWorkingDirectory {
+            return nil
+        }
+        switch localForkProbeDecision(probe: probe, workingDirectory: workingDirectory) {
+        case .run:
+            break
+        case .skipRemoteLikeContext:
+            return nil
+        case .rejectMissingWorkingDirectory:
+            return nil
+        case .rejectMissingExecutable:
+            return nil
+        }
+        return forkProbeExecutableIdentity(
+            executable: probe.executable,
+            processEnvironment: processEnvironment,
+            workingDirectory: workingDirectory
+        )
+    }
+
+    static func forkProbeExecutableIdentity(
         executable: String,
         processEnvironment: [String: String],
         workingDirectory: String?
-    ) -> (lookupPath: String, realPath: String, cachePart: String, watchDirectories: [String])? {
+    ) -> ForkProbeExecutableIdentity? {
         guard let executableResolution = resolvedProbeExecutable(
             executable: executable,
             processEnvironment: processEnvironment,
@@ -1129,11 +692,59 @@ enum AgentForkSupport {
     static func forkValidationExecutableResolution(
         snapshot: SessionRestorableAgentSnapshot,
         isRemoteContext: Bool = false
-    ) -> (status: String, lookupPath: String?, realPath: String?, cachePart: String?, watchDirectories: [String]) {
+    ) -> ForkValidationExecutableResolution {
+        switch forkValidationExecutableResolutionPlan(
+            snapshot: snapshot,
+            isRemoteContext: isRemoteContext
+        ) {
+        case .notRequired:
+            return ("notRequired", nil, nil, nil, [])
+        case .skipRemoteLikeContext:
+            return ("skipRemoteLikeContext", nil, nil, nil, [])
+        case .unresolved:
+            return ("unresolved", nil, nil, nil, [])
+        case .run(let probe, let processEnvironment, let workingDirectory, _):
+            guard let identity = forkProbeExecutableIdentity(
+                executable: probe.executable,
+                processEnvironment: processEnvironment,
+                workingDirectory: workingDirectory
+            ) else {
+                return ("unresolved", nil, nil, nil, [])
+            }
+            return ("resolved", identity.lookupPath, identity.realPath, identity.cachePart, identity.watchDirectories)
+        }
+    }
+
+    static func forkValidationExecutableResolutionWorkIdentity(
+        snapshot: SessionRestorableAgentSnapshot,
+        isRemoteContext: Bool = false
+    ) -> String? {
+        switch forkValidationExecutableResolutionPlan(
+            snapshot: snapshot,
+            isRemoteContext: isRemoteContext
+        ) {
+        case .run(let probe, let processEnvironment, let workingDirectory, let probeFromDefaultDirectoryWhenWorkingDirectoryIsMissing):
+            return ([
+                "remote=\(isRemoteContext)",
+                "defaultOnMissingCwd=\(probeFromDefaultDirectoryWhenWorkingDirectoryIsMissing)",
+                probe.executable,
+                "cwd=\(workingDirectory ?? "")",
+            ] + probe.arguments + processEnvironment.keys.sorted().compactMap { key in
+                processEnvironment[key].map { "\(key)=\($0)" }
+            }).joined(separator: "\u{1f}")
+        case .notRequired, .skipRemoteLikeContext, .unresolved:
+            return nil
+        }
+    }
+
+    static func forkValidationExecutableResolutionPlan(
+        snapshot: SessionRestorableAgentSnapshot,
+        isRemoteContext: Bool = false
+    ) -> ForkValidationExecutableResolutionPlan {
         guard requiresForkValidationExecutableIdentity(
             snapshot: snapshot,
             isRemoteContext: isRemoteContext
-        ) else { return ("notRequired", nil, nil, nil, []) }
+        ) else { return .notRequired }
         let fallbackExecutable: String
         let probe: (executable: String, arguments: [String])
         let useDefaultDirectoryWhenWorkingDirectoryIsMissing: Bool
@@ -1152,7 +763,7 @@ enum AgentForkSupport {
             probe = openCodeProbe
             useDefaultDirectoryWhenWorkingDirectoryIsMissing = false
         } else {
-            return ("notRequired", nil, nil, nil, [])
+            return .notRequired
         }
 
         let requestedWorkingDirectory = probeWorkingDirectory(snapshot: snapshot)
@@ -1160,27 +771,50 @@ enum AgentForkSupport {
         let usesDefaultDirectoryForMissingWorkingDirectory = useDefaultDirectoryWhenWorkingDirectoryIsMissing
             && requestedWorkingDirectory.flatMap({ localDirectoryURL(path: $0) }) == nil
         if usesDefaultDirectoryForMissingWorkingDirectory {
-            return ("unresolved", nil, nil, nil, [])
+            return .unresolved
         }
         let workingDirectory = requestedWorkingDirectory
         switch localForkProbeDecision(probe: probe, workingDirectory: workingDirectory) {
         case .run:
             break
         case .skipRemoteLikeContext:
-            return ("skipRemoteLikeContext", nil, nil, nil, [])
+            return .skipRemoteLikeContext
         case .rejectMissingWorkingDirectory:
-            return ("unresolved", nil, nil, nil, [])
+            return .unresolved
         case .rejectMissingExecutable:
-            return ("unresolved", nil, nil, nil, [])
+            return .unresolved
         }
-        guard let identity = forkProbeExecutableIdentity(
-            executable: probe.executable,
+        return .run(
+            probe: probe,
             processEnvironment: processEnvironment,
-            workingDirectory: workingDirectory
-        ) else {
-            return ("unresolved", nil, nil, nil, [])
-        }
-        return ("resolved", identity.lookupPath, identity.realPath, identity.cachePart, identity.watchDirectories)
+            workingDirectory: workingDirectory,
+            probeFromDefaultDirectoryWhenWorkingDirectoryIsMissing: useDefaultDirectoryWhenWorkingDirectoryIsMissing
+        )
+    }
+
+    static func forkValidationExecutableFingerprint(
+        snapshot: SessionRestorableAgentSnapshot,
+        isRemoteContext: Bool = false
+    ) -> String {
+        forkValidationExecutableFingerprint(
+            forkValidationExecutableResolution(
+                snapshot: snapshot,
+                isRemoteContext: isRemoteContext
+            )
+        )
+    }
+
+    static func forkValidationExecutableFingerprint(
+        _ executableResolution: ForkValidationExecutableResolution
+    ) -> String {
+        let parts: [String] = [
+            executableResolution.status,
+            executableResolution.lookupPath ?? "",
+            executableResolution.realPath ?? "",
+            executableResolution.cachePart ?? "",
+            executableResolution.watchDirectories.joined(separator: "\u{1f}")
+        ]
+        return parts.joined(separator: "\u{1e}")
     }
 
     static func forkValidationExecutableIdentity(
@@ -1242,7 +876,7 @@ enum AgentForkSupport {
         return access(path, X_OK) == 0
     }
 
-    private static func probeOutputPipeHandles(
+    static func probeOutputPipeHandles(
         readFileDescriptor: Int32,
         writeFileDescriptor: Int32
     ) -> Set<UInt64> {
@@ -1252,7 +886,7 @@ enum AgentForkSupport {
         return handles
     }
 
-    private static func probeOutputPipeHandles(
+    static func probeOutputPipeHandles(
         fileDescriptor: Int32,
         processIdentifier: pid_t = Darwin.getpid()
     ) -> Set<UInt64> {
@@ -1273,7 +907,7 @@ enum AgentForkSupport {
         ].filter { $0 != 0 })
     }
 
-    private static func processIdentifiersHoldingProbeOutputPipe(
+    static func processIdentifiersHoldingProbeOutputPipe(
         _ outputPipeHandles: Set<UInt64>,
         excluding excludedProcessIdentifiers: Set<pid_t>
     ) -> [pid_t] {
@@ -1299,6 +933,113 @@ enum AgentForkSupport {
             matches.append(processIdentifier)
         }
         return matches
+    }
+
+    private typealias ProbeProcessTreeEntry = (
+        parentProcessIdentifier: pid_t,
+        startMicroseconds: Int64
+    )
+
+    static func probeRelatedPipeHolderProcessIdentifiers(
+        _ holdingProcessIdentifiers: [pid_t],
+        probeRootProcessIdentifier: pid_t,
+        probeRootStartMicroseconds: Int64,
+        verifiedStartMicrosecondsByProcessIdentifier: [pid_t: Int64]
+    ) -> (
+        processIdentifiers: [pid_t],
+        verifiedStartMicrosecondsByProcessIdentifier: [pid_t: Int64]
+    ) {
+        guard !holdingProcessIdentifiers.isEmpty else {
+            return ([], verifiedStartMicrosecondsByProcessIdentifier)
+        }
+        let processTree = probeProcessTreeEntriesByProcessIdentifier()
+        var verified = verifiedStartMicrosecondsByProcessIdentifier
+        var related: [pid_t] = []
+        for processIdentifier in holdingProcessIdentifiers {
+            guard let entry = processTree[processIdentifier] else { continue }
+            if let verifiedStartMicroseconds = verified[processIdentifier],
+               verifiedStartMicroseconds != entry.startMicroseconds {
+                continue
+            }
+            if processIdentifier == probeRootProcessIdentifier {
+                guard entry.startMicroseconds == probeRootStartMicroseconds else { continue }
+            }
+            verified[processIdentifier] = entry.startMicroseconds
+            related.append(processIdentifier)
+        }
+        return (related, verified)
+    }
+
+    private static func probeProcessTreeEntriesByProcessIdentifier() -> [pid_t: ProbeProcessTreeEntry] {
+        let pidStride = MemoryLayout<pid_t>.stride
+        let initialProcessIdentifierCount = Int(proc_listallpids(nil, 0))
+        guard initialProcessIdentifierCount > 0 else { return [:] }
+        var capacity = max(1, initialProcessIdentifierCount + 32)
+        var lastProcessIdentifiers: [pid_t] = []
+        var lastProcessIdentifierCount = 0
+        for _ in 0..<3 {
+            var processIdentifiers = [pid_t](repeating: 0, count: capacity)
+            let returnedProcessIdentifierCount = processIdentifiers.withUnsafeMutableBufferPointer { buffer in
+                proc_listallpids(buffer.baseAddress, Int32(buffer.count * pidStride))
+            }
+            guard returnedProcessIdentifierCount >= 0 else {
+                break
+            }
+            let count = min(processIdentifiers.count, Int(returnedProcessIdentifierCount))
+            if count > 0 {
+                lastProcessIdentifiers = processIdentifiers
+                lastProcessIdentifierCount = count
+            }
+            if returnedProcessIdentifierCount < processIdentifiers.count {
+                break
+            }
+            capacity = max(processIdentifiers.count * 2, Int(returnedProcessIdentifierCount) + 32)
+        }
+        guard lastProcessIdentifierCount > 0 else { return [:] }
+
+        var processTree: [pid_t: ProbeProcessTreeEntry] = [:]
+        for processIdentifier in lastProcessIdentifiers.prefix(lastProcessIdentifierCount)
+        where processIdentifier > 0 {
+            guard let bsdInfo = processBSDInfo(processIdentifier: processIdentifier) else {
+                continue
+            }
+            processTree[processIdentifier] = (
+                parentProcessIdentifier: pid_t(bsdInfo.pbi_ppid),
+                startMicroseconds: Int64(bsdInfo.pbi_start_tvsec) * 1_000_000
+                    + Int64(bsdInfo.pbi_start_tvusec)
+            )
+        }
+        return processTree
+    }
+
+    private static func processBSDInfo(processIdentifier: pid_t) -> proc_bsdinfo? {
+        var info = proc_bsdinfo()
+        let expectedSize = MemoryLayout<proc_bsdinfo>.stride
+        let size = proc_pidinfo(processIdentifier, PROC_PIDTBSDINFO, 0, &info, Int32(expectedSize))
+        guard size == expectedSize else { return nil }
+        return info
+    }
+
+    static func processStartMicroseconds(processIdentifier: pid_t) -> Int64? {
+        guard let bsdInfo = processBSDInfo(processIdentifier: processIdentifier) else {
+            return nil
+        }
+        return Int64(bsdInfo.pbi_start_tvsec) * 1_000_000
+            + Int64(bsdInfo.pbi_start_tvusec)
+    }
+
+    static func processStillHoldsProbeOutputPipe(
+        _ processIdentifier: pid_t,
+        outputPipeHandles: Set<UInt64>,
+        expectedStartMicroseconds: Int64
+    ) -> Bool {
+        guard processStartMicroseconds(processIdentifier: processIdentifier) == expectedStartMicroseconds else {
+            return false
+        }
+        return processHoldsProbeOutputPipe(
+            processIdentifier,
+            outputPipeHandles: outputPipeHandles
+        )
     }
 
     private static func processHoldsProbeOutputPipe(
@@ -1339,7 +1080,7 @@ enum AgentForkSupport {
         environment: [String: String]?,
         workingDirectory: String?
     ) async -> String? {
-        let runner = CommandOutputRunner(
+        let runner = AgentForkCommandOutputRunner(
             executable: executable,
             arguments: arguments,
             environment: environment,
@@ -1483,7 +1224,7 @@ enum AgentForkSupport {
         return .run
     }
 
-    private static func localDirectoryURL(path: String?) -> URL? {
+    static func localDirectoryURL(path: String?) -> URL? {
         guard let path = normalized(path) else { return nil }
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
@@ -1502,7 +1243,7 @@ enum AgentForkSupport {
     }
 }
 
-private actor OpenCodeVersionProbeCache {
+actor ForkCapabilityProbeResultCache {
     private let cache: AgentForkCapabilityProbeCache
     private let ttl: TimeInterval
 

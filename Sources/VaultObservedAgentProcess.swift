@@ -6,6 +6,18 @@ struct VaultObservedAgentProcess: Sendable {
     let arguments: [String]
     let environment: [String: String]
 
+    init(
+        processName: String,
+        processPath: String?,
+        arguments: [String],
+        environment: [String: String]
+    ) {
+        self.processName = processName
+        self.processPath = processPath
+        self.arguments = arguments
+        self.environment = environment
+    }
+
     var executableBasenames: [String] {
         var names: [String] = []
         if !processName.isEmpty { names.append(processName) }
@@ -206,7 +218,7 @@ extension Array where Element == String {
         guard startIndex < endIndex else { return nil }
         for index in indices where index >= startIndex {
             let argument = self[index]
-            if argument == "--session" || argument == "--resume" || argument == "--fork" || argument == "-r" {
+            if argument == "--session" || argument == "--resume" || argument == "-r" {
                 let nextIndex = self.index(after: index)
                 guard nextIndex < endIndex else { continue }
                 if let value = normalizedNonOptionValue(self[nextIndex]) {
@@ -220,10 +232,6 @@ extension Array where Element == String {
             }
             if argument.hasPrefix("--resume="),
                let value = normalizedNonOptionValue(String(argument.dropFirst("--resume=".count))) {
-                return value
-            }
-            if argument.hasPrefix("--fork="),
-               let value = normalizedNonOptionValue(String(argument.dropFirst("--fork=".count))) {
                 return value
             }
             if argument.hasPrefix("-r="),

@@ -300,7 +300,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             #expect(session["fork_command_available"] as? Bool == true)
             #expect(session["fork_supported"] as? Bool == false)
             #expect(session["fork_unavailable_reason"] as? String == "\(agent)_version_unverified")
-            #expect(session["fork_startup_input_available"] as? Bool == false)
+            #expect(session["fork_startup_input_available"] as? Bool == true)
         }
     }
 
