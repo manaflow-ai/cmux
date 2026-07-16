@@ -256,7 +256,7 @@ final class BrowserWebNotificationNativeAdapter {
         persistentClicks[notificationID] = PersistentClickRegistration(
             dataStore: dataStore,
             dictionary: dictionary,
-            origin: origin
+            origin: Self.displayOrigin(for: origin)
         )
     }
 
