@@ -12,6 +12,7 @@ mod browser;
 mod event_bus;
 mod model;
 mod mux;
+mod pairing;
 mod short_id;
 mod surface;
 
@@ -32,6 +33,7 @@ pub use mux::{
     NotificationEvent, NotificationLevel, RunPlacement, SidebarPluginOptions, SidebarPluginStatus,
     SurfaceNotification, SurfaceResizeReporter, TreeDelta, TreeDeltaKind, ZoomMode, ZoomState,
 };
+pub use pairing::{PairingChallenge, PairingDecision, PairingError};
 pub use short_id::assign_short_ids;
 pub use surface::{
     AttachFrame, AttachFrameReceiver, AttachStream, BrowserAttachState, BrowserFrame,

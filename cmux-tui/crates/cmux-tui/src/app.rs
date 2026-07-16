@@ -16,8 +16,8 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use cmux_tui_core::{
-    BrowserSource, BrowserStatus, MuxEvent, PaneId, Rect, SplitDir, SplitEdge, SurfaceId,
-    SurfaceKind, WorkspaceId, layout_screen, split_for_pane_edge, split_sides,
+    BrowserSource, BrowserStatus, MuxEvent, PairingChallenge, PaneId, Rect, SplitDir, SplitEdge,
+    SurfaceId, SurfaceKind, WorkspaceId, layout_screen, split_for_pane_edge, split_sides,
 };
 use crossterm::ExecutableCommand;
 use crossterm::event::{
@@ -683,6 +683,10 @@ impl OrderedSession {
 
     fn tree(&self) -> TreeView {
         self.inner.tree()
+    }
+
+    fn respond_pairing(&self, request: u64, approve: bool) -> anyhow::Result<()> {
+        self.inner.respond_pairing(request, approve)
     }
 
     pub(crate) fn surface(&self, id: SurfaceId) -> Option<SurfaceHandle> {
@@ -1804,6 +1808,19 @@ pub struct Prompt {
     pub cancel: Rect,
 }
 
+pub struct PairingDialog {
+    pub challenge: PairingChallenge,
+    pub rect: Rect,
+    pub approve: Rect,
+    pub deny: Rect,
+}
+
+impl PairingDialog {
+    fn new(challenge: PairingChallenge) -> Self {
+        Self { challenge, rect: Rect::default(), approve: Rect::default(), deny: Rect::default() }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct OmnibarState {
     pub pane: PaneId,
@@ -1994,6 +2011,8 @@ pub struct App {
     pub hover: Option<(u16, u16)>,
     pub menu: Option<ContextMenu>,
     pub prompt: Option<Prompt>,
+    pub pairing_dialog: Option<PairingDialog>,
+    pairing_queue: VecDeque<PairingChallenge>,
     pub omnibar: Option<OmnibarState>,
     pub toast: Option<Toast>,
     pub(crate) shake_frames: u8,
@@ -2305,6 +2324,8 @@ pub fn run(
         hover: None,
         menu: None,
         prompt: None,
+        pairing_dialog: None,
+        pairing_queue: VecDeque::new(),
         omnibar: None,
         toast: None,
         shake_frames: 0,
@@ -3317,6 +3338,29 @@ impl App {
                     Ok(RenderAction::Paint)
                 }
             }
+            AppEvent::Mux(MuxEvent::PairingRequested(challenge)) => {
+                let duplicate = self
+                    .pairing_dialog
+                    .as_ref()
+                    .is_some_and(|dialog| dialog.challenge.id == challenge.id)
+                    || self.pairing_queue.iter().any(|queued| queued.id == challenge.id);
+                if !duplicate {
+                    if self.pairing_dialog.is_none() {
+                        self.pairing_dialog = Some(PairingDialog::new(challenge));
+                    } else {
+                        self.pairing_queue.push_back(challenge);
+                    }
+                }
+                Ok(RenderAction::Draw)
+            }
+            AppEvent::Mux(MuxEvent::PairingResolved { request }) => {
+                self.pairing_queue.retain(|challenge| challenge.id != request);
+                if self.pairing_dialog.as_ref().is_some_and(|dialog| dialog.challenge.id == request)
+                {
+                    self.pairing_dialog = self.pairing_queue.pop_front().map(PairingDialog::new);
+                }
+                Ok(RenderAction::Draw)
+            }
             AppEvent::Mux(_) => Ok(RenderAction::Draw),
             AppEvent::BrowserResizeFailed(failure) => {
                 self.status_message = Some(format!(
@@ -3499,7 +3543,9 @@ impl App {
             AppEvent::Input(Event::Paste(text)) => {
                 self.status_message = None;
                 self.reassert_visible_surface_sizes();
-                if let Some(prompt) = self.prompt.as_mut() {
+                if self.pairing_dialog.is_some() {
+                    Ok(RenderAction::Draw)
+                } else if let Some(prompt) = self.prompt.as_mut() {
                     prompt.input.insert_str(&text);
                     Ok(RenderAction::Draw)
                 } else if let Some(state) = self.omnibar.as_mut() {
@@ -3967,6 +4013,9 @@ impl App {
             return Ok(RenderAction::None);
         }
         self.status_message = None;
+        if self.pairing_dialog.is_some() {
+            return self.handle_pairing_key(key);
+        }
         if self.prompt.is_some() {
             return self.handle_prompt_key(key);
         }
@@ -4137,6 +4186,33 @@ impl App {
             InputEvent::Commit => self.commit_prompt(),
             InputEvent::Cancel => self.close_prompt(),
             InputEvent::Changed | InputEvent::None => {}
+        }
+        Ok(RenderAction::Draw)
+    }
+
+    fn resolve_pairing(&mut self, approve: bool) {
+        let Some(dialog) = self.pairing_dialog.take() else { return };
+        if let Err(error) = self.session.respond_pairing(dialog.challenge.id, approve) {
+            self.status_message = Some(error.to_string());
+        }
+        self.pairing_dialog = self.pairing_queue.pop_front().map(PairingDialog::new);
+    }
+
+    fn handle_pairing_key(&mut self, key: KeyEvent) -> anyhow::Result<RenderAction> {
+        match key.code {
+            KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => self.resolve_pairing(true),
+            KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => self.resolve_pairing(false),
+            _ => {}
+        }
+        Ok(RenderAction::Draw)
+    }
+
+    fn handle_pairing_click(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
+        let Some(dialog) = self.pairing_dialog.as_ref() else { return Ok(RenderAction::None) };
+        if dialog.approve.contains(x, y) {
+            self.resolve_pairing(true);
+        } else if dialog.deny.contains(x, y) || !dialog.rect.contains(x, y) {
+            self.resolve_pairing(false);
         }
         Ok(RenderAction::Draw)
     }
@@ -5681,6 +5757,9 @@ impl App {
     /// Whether the cell is over something clickable (any hit, a menu row,
     /// or a dialog button): these render the hand pointer.
     fn is_clickable(&self, x: u16, y: u16) -> bool {
+        if let Some(dialog) = &self.pairing_dialog {
+            return dialog.approve.contains(x, y) || dialog.deny.contains(x, y);
+        }
         if let Some(prompt) = &self.prompt {
             return prompt.ok.contains(x, y)
                 || prompt.cancel.contains(x, y)
@@ -5837,6 +5916,9 @@ impl App {
         self.selection = None;
         self.drag = None;
 
+        if self.pairing_dialog.is_some() {
+            return self.handle_pairing_click(x, y);
+        }
         // An open rename dialog captures the click.
         if self.prompt.is_some() {
             return self.handle_prompt_click(x, y);
@@ -6168,7 +6250,7 @@ impl App {
         if text.is_empty() {
             return;
         }
-        if let SurfaceHandle::Local(local) = &surface {
+        if let SurfaceHandle::Local(local, _) = &surface {
             local.set_selection_text(Some(text.clone()));
         }
         self.copy_text_to_clipboard(&text);
@@ -9558,6 +9640,8 @@ mod tests {
             hover: None,
             menu: None,
             prompt: None,
+            pairing_dialog: None,
+            pairing_queue: VecDeque::new(),
             omnibar: None,
             toast: None,
             shake_frames: 0,

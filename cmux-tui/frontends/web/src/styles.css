@@ -24,7 +24,7 @@
   --status-active-bg: #585858;
   --status-active-fg: #eeeeee;
   --sidebar-dim: #6c6c6c;
-  --terminal-background: #0c0c0c;
+  --terminal-background: #272822;
   --terminal-foreground: #d0d0d0;
   --terminal-cursor: #87afd7;
   --ansi-black: #000000;
@@ -75,6 +75,9 @@ button { color: inherit; touch-action: manipulation; }
 .connect-card > button { width: 100%; margin-top: 24px; padding: 10px; border: 1px solid var(--border-active); background: var(--sidebar-active-bg); font-weight: 700; cursor: pointer; }
 .connect-card > button:disabled { cursor: wait; opacity: .65; }
 .inline-error { margin-top: 16px; padding: 10px 12px; border: 1px solid var(--notification-error); color: #ffd7d7; background: #3a1f1f; font-size: 12px; }
+.pairing-code { display: grid; gap: 8px; margin-top: 20px; padding: 14px; border: 1px solid var(--border-active); text-align: center; background: var(--terminal-background); }
+.pairing-code span, .pairing-code small { color: var(--status-dim); font-size: 12px; }
+.pairing-code strong { color: var(--border-active); font-size: 28px; letter-spacing: .12em; }
 
 .app-shell { display: grid; grid-template: minmax(0, 1fr) var(--tui-cell-height) / var(--tui-sidebar-width) minmax(0, 1fr); width: 100%; height: 100%; background: var(--terminal-background); }
 .mobile-toolbar, .drawer-backdrop, .extra-keys { display: none; }

@@ -14,8 +14,8 @@ use std::time::{Duration, Instant};
 use base64::Engine;
 use cmux_tui_core::{
     BrowserFrame, BrowserSource, BrowserStatus, DefaultColors, MuxEvent, MuxEventBroadcaster,
-    MuxEventReceiver, NotificationEvent, NotificationLevel, Rgb, SurfaceId, SurfaceKind,
-    platform::transport,
+    MuxEventReceiver, NotificationEvent, NotificationLevel, PairingChallenge, Rgb, SurfaceId,
+    SurfaceKind, platform::transport,
 };
 use ghostty_vt::{Callbacks, MouseEncoders, MouseInput, RenderState, Terminal};
 use serde_json::{Value, json};
@@ -715,6 +715,22 @@ impl RemoteSession {
                     value.get("at_bottom").and_then(|v| v.as_bool()),
                 ) {
                     self.emit(MuxEvent::ScrollChanged { surface, offset, at_bottom });
+                }
+            }
+            Some("pairing-requested") => {
+                let challenge = PairingChallenge {
+                    id: value.get("request").and_then(Value::as_u64).unwrap_or_default(),
+                    code: value.get("code").and_then(Value::as_str).unwrap_or_default().to_string(),
+                    peer: value.get("peer").and_then(Value::as_str).unwrap_or_default().to_string(),
+                    expires_in: value.get("expires_in").and_then(Value::as_u64).unwrap_or_default(),
+                };
+                if challenge.id != 0 && !challenge.code.is_empty() {
+                    self.emit(MuxEvent::PairingRequested(challenge));
+                }
+            }
+            Some("pairing-resolved") => {
+                if let Some(request) = value.get("request").and_then(Value::as_u64) {
+                    self.emit(MuxEvent::PairingResolved { request });
                 }
             }
             Some("empty") => self.emit(MuxEvent::Empty),

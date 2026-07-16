@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -12,8 +13,12 @@ use crate::browser::{self, BrowserBootstrap, BrowserRuntime};
 use crate::event_bus::{MuxEventBroadcaster, MuxEventReceiver};
 use crate::layout::{Rect, layout_screen};
 use crate::model::{Node, Pane, Screen, State, Workspace};
+use crate::pairing::PairingBroker;
 use crate::surface::{DefaultColors, Surface, SurfaceOptions};
-use crate::{PaneId, ScreenId, SplitDir, SurfaceId, WorkspaceId};
+use crate::{
+    PairingChallenge, PairingDecision, PairingError, PaneId, ScreenId, SplitDir, SurfaceId,
+    WorkspaceId,
+};
 
 pub type SurfaceResizeReporter = Arc<dyn Fn(SurfaceId, (u16, u16), Option<u64>) + Send + Sync>;
 
@@ -93,6 +98,12 @@ pub enum MuxEvent {
     },
     /// A control connection ended.
     ClientDetached(u64),
+    /// An unauthenticated browser is waiting for a trusted TUI decision.
+    PairingRequested(PairingChallenge),
+    /// A pairing request was approved, denied, disconnected, or expired.
+    PairingResolved {
+        request: u64,
+    },
     /// Every workspace is gone.
     Empty,
 }
@@ -322,6 +333,7 @@ pub struct Mux {
     next_active_at: AtomicU64,
     surface_options: Mutex<SurfaceOptions>,
     latest_client_size: Mutex<Option<(u16, u16)>>,
+    client_surface_sizes: Mutex<HashMap<SurfaceId, HashMap<u64, (u16, u16)>>>,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     cell_pixels: Mutex<(u16, u16)>,
     default_colors: Mutex<DefaultColors>,
@@ -329,6 +341,7 @@ pub struct Mux {
     agent_records: Mutex<HashMap<SurfaceId, AgentRecord>>,
     surface_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
     pub(crate) control_clients: crate::server::ClientRegistry,
+    pairing: PairingBroker,
     #[cfg(test)]
     test_surface_runtime: bool,
     pub session: String,
@@ -360,6 +373,7 @@ impl Mux {
             next_active_at: AtomicU64::new(1),
             surface_options: Mutex::new(surface_options),
             latest_client_size: Mutex::new(None),
+            client_surface_sizes: Mutex::new(HashMap::new()),
             browser_runtime: Mutex::new(None),
             cell_pixels: Mutex::new((8, 16)),
             default_colors: Mutex::new(DefaultColors::default()),
@@ -367,6 +381,7 @@ impl Mux {
             agent_records: Mutex::new(HashMap::new()),
             surface_notifications: Mutex::new(HashMap::new()),
             control_clients: crate::server::ClientRegistry::new(),
+            pairing: PairingBroker::new(),
             #[cfg(test)]
             test_surface_runtime,
             session,
@@ -403,6 +418,37 @@ impl Mux {
 
     pub fn emit(&self, event: MuxEvent) {
         self.subscribers.emit(event);
+    }
+
+    pub fn begin_pairing(
+        &self,
+        peer: std::net::IpAddr,
+    ) -> Result<(PairingChallenge, Receiver<PairingDecision>), PairingError> {
+        let result = self.pairing.begin(peer)?;
+        self.emit(MuxEvent::PairingRequested(result.0.clone()));
+        Ok(result)
+    }
+
+    pub fn respond_pairing(&self, id: u64, approve: bool) -> bool {
+        let responded = self.pairing.respond(id, approve);
+        if responded {
+            self.emit(MuxEvent::PairingResolved { request: id });
+        }
+        responded
+    }
+
+    pub fn cancel_pairing(&self, id: u64) {
+        if self.pairing.cancel(id) {
+            self.emit(MuxEvent::PairingResolved { request: id });
+        }
+    }
+
+    pub fn authenticate_pairing_credential(&self, credential: &str) -> bool {
+        self.pairing.authenticate(credential)
+    }
+
+    pub fn pending_pairings(&self) -> Vec<PairingChallenge> {
+        self.pairing.pending()
     }
 
     fn spawn_surface_with_command(
@@ -518,6 +564,84 @@ impl Mux {
         let size = (cols.max(1), rows.max(1));
         *self.latest_client_size.lock().unwrap() = Some(size);
         size
+    }
+
+    /// Record one viewer's available grid and resize the shared surface to
+    /// the smallest rows and columns reported by all current viewers.
+    pub fn resize_surface_for_client(
+        &self,
+        id: SurfaceId,
+        client: u64,
+        cols: u16,
+        rows: u16,
+    ) -> anyhow::Result<bool> {
+        self.resize_surface_for_client_with_reservation(id, client, cols, rows)
+            .map(|(accepted, _)| accepted)
+    }
+
+    pub fn resize_surface_for_client_with_reservation(
+        &self,
+        id: SurfaceId,
+        client: u64,
+        cols: u16,
+        rows: u16,
+    ) -> anyhow::Result<(bool, Option<u64>)> {
+        let requested = (cols.max(1), rows.max(1));
+        let effective = {
+            let mut sizes = self.client_surface_sizes.lock().unwrap();
+            let viewers = sizes.entry(id).or_default();
+            viewers.insert(client, requested);
+            viewers
+                .values()
+                .copied()
+                .fold(requested, |smallest, size| (smallest.0.min(size.0), smallest.1.min(size.1)))
+        };
+        self.record_client_size(effective.0, effective.1);
+        match self.resize_surface_with_reservation(id, effective.0, effective.1) {
+            Ok(changed) => Ok(changed),
+            Err(error) => {
+                let mut sizes = self.client_surface_sizes.lock().unwrap();
+                if let Some(viewers) = sizes.get_mut(&id) {
+                    viewers.remove(&client);
+                    if viewers.is_empty() {
+                        sizes.remove(&id);
+                    }
+                }
+                Err(error)
+            }
+        }
+    }
+
+    pub fn remove_surface_size_client(&self, id: SurfaceId, client: u64) {
+        let effective = {
+            let mut sizes = self.client_surface_sizes.lock().unwrap();
+            let Some(viewers) = sizes.get_mut(&id) else { return };
+            viewers.remove(&client);
+            let effective = viewers
+                .values()
+                .copied()
+                .reduce(|smallest, size| (smallest.0.min(size.0), smallest.1.min(size.1)));
+            if viewers.is_empty() {
+                sizes.remove(&id);
+            }
+            effective
+        };
+        if let Some((cols, rows)) = effective {
+            let _ = self.resize_surface(id, cols, rows);
+        }
+    }
+
+    pub fn remove_size_client(&self, client: u64) {
+        let surface_ids = self
+            .client_surface_sizes
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|(surface, viewers)| viewers.contains_key(&client).then_some(*surface))
+            .collect::<Vec<_>>();
+        for surface in surface_ids {
+            self.remove_surface_size_client(surface, client);
+        }
     }
 
     fn browser_runtime(&self) -> anyhow::Result<Arc<BrowserRuntime>> {
@@ -672,14 +796,14 @@ impl Mux {
         record
     }
 
-    /// Drop the per-surface side tables (`agent_records`,
-    /// `surface_notifications`) for a surface that has left the tree.
+    /// Drop per-surface metadata for a surface that has left the tree.
     /// `SurfaceId` is monotonic, so without this every closed tab would
     /// leak an entry forever and `list-agents` would keep reporting dead
     /// surfaces as live agents.
     fn purge_surface_side_tables(&self, surface: SurfaceId) {
         self.agent_records.lock().unwrap().remove(&surface);
         self.surface_notifications.lock().unwrap().remove(&surface);
+        self.client_surface_sizes.lock().unwrap().remove(&surface);
     }
 
     pub fn list_agents(

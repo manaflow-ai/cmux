@@ -35,18 +35,19 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tungstenite::protocol::CloseFrame;
-use tungstenite::protocol::Role;
 use tungstenite::protocol::frame::coding::CloseCode;
-use tungstenite::{Message, accept};
+use tungstenite::protocol::{Role, WebSocketConfig};
+use tungstenite::{Message, WebSocket, accept_with_config};
 
 use crate::model::{Screen, State};
 use crate::platform::{self, transport};
 use crate::surface::AttachLifecycle;
 use crate::{
     AgentRecord, AgentSource, AgentState, AttachFrame, DefaultColors, Direction, LayoutLeafSpec,
-    LayoutSpec, Mux, MuxEvent, Node, NotificationLevel, PaneId, RenderAttachFrame, Rgb, ScreenId,
-    SidebarPluginStatus, SplitDir, SurfaceId, SurfaceKind, SurfaceNotification, SurfaceRenderFrame,
-    TerminalColors, TreeDelta, TreeDeltaKind, WorkspaceId, ZoomMode, assign_short_ids,
+    LayoutSpec, Mux, MuxEvent, Node, NotificationLevel, PairingDecision, PaneId, RenderAttachFrame,
+    Rgb, ScreenId, SidebarPluginStatus, SplitDir, SurfaceId, SurfaceKind, SurfaceNotification,
+    SurfaceRenderFrame, TerminalColors, TreeDelta, TreeDeltaKind, WorkspaceId, ZoomMode,
+    assign_short_ids,
 };
 
 pub const PROTOCOL_VERSION: u32 = 7;
@@ -75,6 +76,10 @@ enum Command {
         kind: Option<String>,
     },
     ListClients,
+    PairingResponse {
+        request: u64,
+        approve: bool,
+    },
     DetachClient {
         client: u64,
     },
@@ -451,7 +456,8 @@ const STREAM_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 const WEBSOCKET_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 #[cfg(test)]
 const WEBSOCKET_HANDSHAKE_TIMEOUT: Duration = Duration::from_millis(100);
-const MAX_SERVER_CONNECTIONS: usize = 256;
+const MAX_SERVER_CONNECTIONS: usize = 64;
+const MAX_WEBSOCKET_MESSAGE_SIZE: usize = 4 * 1024 * 1024;
 const OUTBOUND_CAPACITY: usize = 256;
 const OUTBOUND_CONTROL_RESERVE: usize = 256;
 const OUTBOUND_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
@@ -981,6 +987,14 @@ impl ClientRegistry {
         client
     }
 
+    fn is_unix(&self, client: u64) -> bool {
+        self.clients
+            .lock()
+            .unwrap()
+            .get(&client)
+            .is_some_and(|record| matches!(record.transport, ClientTransport::Unix))
+    }
+
     fn set_info(
         &self,
         client: u64,
@@ -1050,22 +1064,27 @@ impl ClientRegistry {
         Ok(Some((record.transport.as_str().to_string(), record.name.clone(), record.kind.clone())))
     }
 
-    fn detach_surface(&self, client: u64, surface: SurfaceId, stream: u64) {
+    fn detach_surface(&self, client: u64, surface: SurfaceId, stream: u64) -> bool {
         let mut clients = self.clients.lock().unwrap();
-        let Some(record) = clients.get_mut(&client) else { return };
-        let Some(attached) = record.attached.get_mut(&surface) else { return };
+        let Some(record) = clients.get_mut(&client) else { return false };
+        let Some(attached) = record.attached.get_mut(&surface) else { return false };
         attached.streams.remove(&stream);
         if attached.streams.is_empty() {
             record.attached.remove(&surface);
+            return true;
         }
+        false
     }
 
-    fn record_size(&self, client: u64, surface: SurfaceId, cols: u16, rows: u16) {
+    fn record_size(&self, client: u64, surface: SurfaceId, cols: u16, rows: u16) -> bool {
         let mut clients = self.clients.lock().unwrap();
         if let Some(attached) =
             clients.get_mut(&client).and_then(|record| record.attached.get_mut(&surface))
         {
             attached.size = Some((cols, rows));
+            true
+        } else {
+            false
         }
     }
 
@@ -1168,8 +1187,8 @@ pub fn serve_websocket(
     let thread_connections = connections.clone();
     let thread = std::thread::Builder::new().name("mux-ws-server".into()).spawn(move || {
         while !thread_shutdown.load(Ordering::Acquire) {
-            let stream = match listener.accept() {
-                Ok((stream, _)) => stream,
+            let (stream, peer) = match listener.accept() {
+                Ok(connection) => connection,
                 Err(_) => {
                     if thread_shutdown.load(Ordering::Acquire) {
                         break;
@@ -1199,7 +1218,7 @@ pub fn serve_websocket(
                 .name("mux-ws-conn".into())
                 .spawn(move || {
                     let _permit = permit;
-                    handle_websocket_connection(mux, stream, token.as_deref());
+                    handle_websocket_connection(mux, stream, peer, token.as_deref());
                     connections.lock().unwrap().remove(&id);
                 })
                 .is_err()
@@ -1270,27 +1289,28 @@ fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
     let _ = writer_thread.join();
 }
 
-fn handle_websocket_connection(mux: Arc<Mux>, stream: TcpStream, token: Option<&str>) {
+fn handle_websocket_connection(
+    mux: Arc<Mux>,
+    stream: TcpStream,
+    peer: SocketAddr,
+    token: Option<&str>,
+) {
     let stream = SynchronizedTcpStream::new(stream);
     if stream.set_read_timeout(Some(WEBSOCKET_HANDSHAKE_TIMEOUT)).is_err()
         || stream.set_write_timeout(Some(WEBSOCKET_HANDSHAKE_TIMEOUT)).is_err()
     {
         return;
     }
-    let Ok(mut websocket) = accept(stream) else { return };
+    let config = WebSocketConfig::default()
+        .read_buffer_size(4 * 1024)
+        .max_message_size(Some(MAX_WEBSOCKET_MESSAGE_SIZE))
+        .max_frame_size(Some(MAX_WEBSOCKET_MESSAGE_SIZE));
+    let Ok(mut websocket) = accept_with_config(stream, Some(config)) else { return };
 
-    if let Some(expected) = token {
-        let authenticated = match websocket.read() {
-            Ok(Message::Text(text)) => auth_token(&text)
-                .is_some_and(|provided| constant_time_eq(provided.as_bytes(), expected.as_bytes())),
-            _ => false,
-        };
-        if !authenticated {
-            let frame =
-                CloseFrame { code: CloseCode::Policy, reason: "authentication failed".into() };
-            let _ = websocket.close(Some(frame));
-            return;
-        }
+    if !authenticate_websocket(&mux, &mut websocket, peer, token) {
+        let frame = CloseFrame { code: CloseCode::Policy, reason: "authentication failed".into() };
+        let _ = websocket.close(Some(frame));
+        return;
     }
     let _ = websocket.get_mut().set_read_timeout(None);
     let _ = websocket.get_mut().set_write_timeout(Some(STREAM_WRITE_TIMEOUT));
@@ -1349,6 +1369,61 @@ fn handle_websocket_connection(mux: Arc<Mux>, stream: TcpStream, token: Option<&
     let _ = websocket.close(None);
 }
 
+fn authenticate_websocket(
+    mux: &Arc<Mux>,
+    websocket: &mut WebSocket<SynchronizedTcpStream>,
+    peer: SocketAddr,
+    configured_token: Option<&str>,
+) -> bool {
+    let Ok(Message::Text(text)) = websocket.read() else { return false };
+    if let Some(provided) = auth_token(&text) {
+        return configured_token
+            .is_some_and(|expected| constant_time_eq(provided.as_bytes(), expected.as_bytes()))
+            || mux.authenticate_pairing_credential(&provided);
+    }
+    if !pairing_request(&text) {
+        return false;
+    }
+
+    let (challenge, decision) = match mux.begin_pairing(peer.ip()) {
+        Ok(pairing) => pairing,
+        Err(error) => {
+            let _ = websocket.send(Message::Text(
+                json!({"pairing_error": {"code": error.code(), "message": error.to_string()}})
+                    .to_string()
+                    .into(),
+            ));
+            return false;
+        }
+    };
+    if websocket
+        .send(Message::Text(
+            json!({"pairing": {
+                "id": challenge.id,
+                "code": challenge.code,
+                "peer": challenge.peer,
+                "expires_in": challenge.expires_in,
+            }})
+            .to_string()
+            .into(),
+        ))
+        .is_err()
+    {
+        mux.cancel_pairing(challenge.id);
+        return false;
+    }
+
+    match decision.recv_timeout(Duration::from_secs(challenge.expires_in)) {
+        Ok(PairingDecision::Approved { credential }) => websocket
+            .send(Message::Text(json!({"paired": {"credential": credential}}).to_string().into()))
+            .is_ok(),
+        Ok(PairingDecision::Denied) | Err(_) => {
+            mux.cancel_pairing(challenge.id);
+            false
+        }
+    }
+}
+
 fn disconnect_client(mux: &Mux, client: u64, send_detached: bool) -> bool {
     let Some(record) = mux.control_clients.remove(client) else { return false };
     if send_detached {
@@ -1362,6 +1437,7 @@ fn disconnect_client(mux: &Mux, client: u64, send_detached: bool) -> bool {
         }
     }
     record.writer.close();
+    mux.remove_size_client(client);
     mux.emit(MuxEvent::ClientDetached(client));
     true
 }
@@ -1403,6 +1479,16 @@ fn auth_token(message: &str) -> Option<String> {
         return None;
     }
     auth.get("token")?.as_str().map(str::to_string)
+}
+
+fn pairing_request(message: &str) -> bool {
+    let Ok(value) = serde_json::from_str::<Value>(message) else { return false };
+    let Some(object) = value.as_object() else { return false };
+    if object.len() != 1 {
+        return false;
+    }
+    let Some(pair) = object.get("pair").and_then(Value::as_object) else { return false };
+    pair.len() == 1 && pair.get("request").and_then(Value::as_bool) == Some(true)
 }
 
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
@@ -2079,6 +2165,15 @@ fn handle_command(
             Ok(json!({}))
         }
         Command::ListClients => Ok(mux.control_clients.list_json(client)),
+        Command::PairingResponse { request, approve } => {
+            if !mux.control_clients.is_unix(client) {
+                anyhow::bail!("pairing decisions require a trusted local connection");
+            }
+            if !mux.respond_pairing(request, approve) {
+                anyhow::bail!("unknown or expired pairing request {request}");
+            }
+            Ok(json!({}))
+        }
         Command::DetachClient { client: target } => {
             if target == client {
                 if !mux.control_clients.contains(target) {
@@ -2600,10 +2695,15 @@ fn handle_command(
             Ok(json!({}))
         }
         Command::ResizeSurface { surface, cols, rows } => {
-            let (accepted, reservation_id) =
-                mux.resize_surface_with_reservation(surface, cols, rows)?;
-            mux.record_client_size(cols, rows);
-            mux.control_clients.record_size(client, surface, cols.max(1), rows.max(1));
+            let attached =
+                mux.control_clients.record_size(client, surface, cols.max(1), rows.max(1));
+            let (accepted, reservation_id) = if attached {
+                mux.resize_surface_for_client_with_reservation(surface, client, cols, rows)?
+            } else {
+                let result = mux.resize_surface_with_reservation(surface, cols, rows)?;
+                mux.record_client_size(cols, rows);
+                result
+            };
             Ok(json!({"accepted": accepted, "reservation_id": reservation_id}))
         }
         Command::FocusPane { pane } => {
@@ -2637,10 +2737,26 @@ fn handle_command(
                 other => anyhow::bail!("bad request: unsupported tree_events {other:?}"),
             };
             let events = mux.subscribe();
+            let trusted_pairing_client = mux.control_clients.is_unix(client);
+            let pending_pairings =
+                if trusted_pairing_client { mux.pending_pairings() } else { Vec::new() };
             let writer = writer.clone();
             let outbound_stream = writer.start_stream(&subscription_overflow_json())?;
             std::thread::Builder::new().name("mux-events-out".into()).spawn(move || {
                 let mut transport_overflow = false;
+                for challenge in pending_pairings {
+                    let value = json!({
+                        "event": "pairing-requested",
+                        "request": challenge.id,
+                        "code": challenge.code,
+                        "peer": challenge.peer,
+                        "expires_in": challenge.expires_in,
+                    });
+                    if let Err(error) = writer.send_stream(&value, &outbound_stream) {
+                        transport_overflow = error.kind() == std::io::ErrorKind::WouldBlock;
+                        break;
+                    }
+                }
                 while writer.is_open() && outbound_stream.is_open() {
                     let event = match events.recv_timeout(STREAM_DISCONNECT_POLL) {
                         Ok(event) => event,
@@ -2648,6 +2764,22 @@ fn handle_command(
                         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
                     };
                     let value = match &event {
+                        MuxEvent::PairingRequested(_) | MuxEvent::PairingResolved { .. }
+                            if !trusted_pairing_client =>
+                        {
+                            continue;
+                        }
+                        MuxEvent::PairingRequested(challenge) => json!({
+                            "event": "pairing-requested",
+                            "request": challenge.id,
+                            "code": challenge.code,
+                            "peer": challenge.peer,
+                            "expires_in": challenge.expires_in,
+                        }),
+                        MuxEvent::PairingResolved { request } => json!({
+                            "event": "pairing-resolved",
+                            "request": request,
+                        }),
                         MuxEvent::TreeDelta(delta) if tree_deltas => tree_delta_json(delta),
                         MuxEvent::TreeDelta(_) => json!({"event": "tree-changed"}),
                         _ => subscribed_event_json(&event),
@@ -2718,7 +2850,13 @@ fn handle_command(
                             );
                         }
                         report_attach_overflow(&writer, surface_id, &lifecycle, &outbound_stream);
-                        mux.control_clients.detach_surface(client, surface_id, outbound_stream.id);
+                        if mux.control_clients.detach_surface(
+                            client,
+                            surface_id,
+                            outbound_stream.id,
+                        ) {
+                            mux.remove_surface_size_client(surface_id, client);
+                        }
                     },
                 )?;
                 return Ok(json!({}));
@@ -2788,7 +2926,9 @@ fn handle_command(
                         }
                     }
                     report_attach_overflow(&writer, surface_id, &lifecycle, &outbound_stream);
-                    mux.control_clients.detach_surface(client, surface_id, outbound_stream.id);
+                    if mux.control_clients.detach_surface(client, surface_id, outbound_stream.id) {
+                        mux.remove_surface_size_client(surface_id, client);
+                    }
                 })?;
                 return Ok(json!({}));
             }
@@ -2868,7 +3008,9 @@ fn handle_command(
                     }
                 }
                 report_attach_overflow(&writer, surface_id, &attach.lifecycle, &outbound_stream);
-                mux.control_clients.detach_surface(client, surface_id, outbound_stream.id);
+                if mux.control_clients.detach_surface(client, surface_id, outbound_stream.id) {
+                    mux.remove_surface_size_client(surface_id, client);
+                }
             })?;
             Ok(json!({}))
         }
@@ -2943,6 +3085,16 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
         }),
         MuxEvent::ClientDetached(client) => {
             json!({"event": "client-detached", "client": client})
+        }
+        MuxEvent::PairingRequested(challenge) => json!({
+            "event": "pairing-requested",
+            "request": challenge.id,
+            "code": challenge.code,
+            "peer": challenge.peer,
+            "expires_in": challenge.expires_in,
+        }),
+        MuxEvent::PairingResolved { request } => {
+            json!({"event": "pairing-resolved", "request": request})
         }
         MuxEvent::Empty => json!({"event": "empty"}),
     }
@@ -3403,4 +3555,3 @@ mod tests {
         assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
     }
 }
-

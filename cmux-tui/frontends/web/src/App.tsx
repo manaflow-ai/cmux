@@ -22,6 +22,7 @@ export default function App() {
       <ConnectScreen
         connecting={connection.status === "connecting"}
         error={connection.error}
+        pairing={connection.pairing}
         onConnect={connection.connect}
       />
     );

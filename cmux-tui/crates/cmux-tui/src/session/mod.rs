@@ -96,7 +96,7 @@ pub(crate) fn resize_action(
 
 #[derive(Clone)]
 pub enum SurfaceHandle {
-    Local(Arc<Surface>),
+    Local(Arc<Surface>, Arc<Mux>),
     Remote(Arc<RemoteSurface>, Arc<RemoteSession>),
     RemoteBrowserUnsupported,
 }
@@ -162,6 +162,25 @@ impl Session {
         match self {
             Session::Local(mux) => mux.subscribe(),
             Session::Remote(remote) => remote.subscribe(),
+        }
+    }
+
+    pub fn respond_pairing(&self, request: u64, approve: bool) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => {
+                if mux.respond_pairing(request, approve) {
+                    Ok(())
+                } else {
+                    anyhow::bail!("unknown or expired pairing request {request}")
+                }
+            }
+            Session::Remote(remote) => remote
+                .request(json!({
+                    "cmd": "pairing-response",
+                    "request": request,
+                    "approve": approve,
+                }))
+                .map(|_| ()),
         }
     }
 
@@ -255,7 +274,9 @@ impl Session {
 
     pub fn cached_surface(&self, id: SurfaceId) -> Option<SurfaceHandle> {
         match self {
-            Session::Local(mux) => mux.surface(id).map(SurfaceHandle::Local),
+            Session::Local(mux) => {
+                mux.surface(id).map(|surface| SurfaceHandle::Local(surface, mux.clone()))
+            }
             Session::Remote(remote) => {
                 if remote.surface_kind(id) == SurfaceKind::Browser
                     && !remote.supports_browser_attach()
@@ -302,10 +323,9 @@ impl Session {
                 .surface(id)
                 .map(|surface| {
                     if let Some((cols, rows)) = size {
-                        mux.record_client_size(cols, rows);
-                        mux.resize_surface(id, cols, rows)?;
+                        mux.resize_surface_for_client(id, 0, cols, rows)?;
                     }
-                    Ok(SurfaceHandle::Local(surface))
+                    Ok(SurfaceHandle::Local(surface, mux.clone()))
                 })
                 .transpose(),
             Session::Remote(remote) => {
@@ -716,7 +736,7 @@ impl SurfaceHandle {
 
     pub fn kind(&self) -> SurfaceKind {
         match self {
-            SurfaceHandle::Local(surface) => surface.kind(),
+            SurfaceHandle::Local(surface, _) => surface.kind(),
             SurfaceHandle::Remote(surface, _) => surface.kind,
             SurfaceHandle::RemoteBrowserUnsupported => SurfaceKind::Browser,
         }
@@ -724,7 +744,7 @@ impl SurfaceHandle {
 
     pub fn write_bytes(&self, bytes: &[u8]) -> anyhow::Result<()> {
         match self {
-            SurfaceHandle::Local(surface) => surface.write_bytes(bytes).map_err(Into::into),
+            SurfaceHandle::Local(surface, _) => surface.write_bytes(bytes).map_err(Into::into),
             SurfaceHandle::Remote(surface, session) => session.send_bytes(surface.id, bytes),
             SurfaceHandle::RemoteBrowserUnsupported => {
                 anyhow::bail!("browser surface does not accept PTY input")
@@ -745,10 +765,12 @@ impl SurfaceHandle {
     ) -> anyhow::Result<bool> {
         let desired = (cols.max(1), rows.max(1));
         let reservation_id = match self {
-            SurfaceHandle::Local(surface) => {
-                return surface
-                    .resize_reporting_acceptance(desired.0, desired.1, report)
-                    .map(|reservation_id| reservation_id.is_some());
+            SurfaceHandle::Local(surface, mux) => {
+                let (accepted, reservation_id) = mux.resize_surface_for_client_with_reservation(
+                    surface.id, 0, desired.0, desired.1,
+                )?;
+                report(reservation_id);
+                return Ok(accepted);
             }
             SurfaceHandle::Remote(surface, session) => {
                 if !resize_action(desired, surface.asserted_size(), surface.server_size(), reassert)
@@ -789,7 +811,7 @@ impl SurfaceHandle {
     pub fn resize_needed(&self, cols: u16, rows: u16, user_interaction: bool) -> bool {
         let desired = (cols.max(1), rows.max(1));
         match self {
-            SurfaceHandle::Local(surface) => surface.resize_needed(desired.0, desired.1),
+            SurfaceHandle::Local(surface, _) => surface.resize_needed(desired.0, desired.1),
             SurfaceHandle::Remote(surface, _) => resize_action(
                 desired,
                 surface.asserted_size(),
@@ -803,10 +825,9 @@ impl SurfaceHandle {
     pub fn reassert_size(&self, cols: u16, rows: u16) -> anyhow::Result<bool> {
         self.resize_reporting_acceptance(cols, rows, true, Box::new(|_| {}))
     }
-
     pub fn take_dirty(&self) -> bool {
         match self {
-            SurfaceHandle::Local(surface) => surface.take_dirty(),
+            SurfaceHandle::Local(surface, _) => surface.take_dirty(),
             SurfaceHandle::Remote(surface, _) => surface.dirty.swap(false, Ordering::AcqRel),
             SurfaceHandle::RemoteBrowserUnsupported => false,
         }
@@ -817,7 +838,7 @@ impl SurfaceHandle {
         rs: &mut RenderState,
     ) -> ghostty_vt::Result<Arc<SurfaceRenderFrame>> {
         match self {
-            SurfaceHandle::Local(surface) => surface.render_frame(),
+            SurfaceHandle::Local(surface, _) => surface.render_frame(),
             SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
                 let mut term = surface.term.lock().unwrap();
                 rs.update(&mut term)?;
@@ -841,7 +862,7 @@ impl SurfaceHandle {
     /// remote surfaces — modes and keyboard state replay there too).
     pub fn with_terminal<R>(&self, f: impl FnOnce(&mut Terminal) -> R) -> Option<R> {
         match self {
-            SurfaceHandle::Local(surface) => surface.with_terminal(f),
+            SurfaceHandle::Local(surface, _) => surface.with_terminal(f),
             SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
                 let mut terminal = surface.term.lock().unwrap();
                 let result = f(&mut terminal);
@@ -858,7 +879,7 @@ impl SurfaceHandle {
         output: &mut Vec<u8>,
     ) -> Option<ghostty_vt::Result<()>> {
         match self {
-            SurfaceHandle::Local(surface) => surface.encode_mouse(input, output),
+            SurfaceHandle::Local(surface, _) => surface.encode_mouse(input, output),
             SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
                 surface.encode_mouse(input, output)
             }
@@ -872,7 +893,7 @@ impl SurfaceHandle {
         output: &mut Vec<u8>,
     ) -> Option<ghostty_vt::Result<()>> {
         match self {
-            SurfaceHandle::Local(surface) => surface.encode_mouse_release(input, output),
+            SurfaceHandle::Local(surface, _) => surface.encode_mouse_release(input, output),
             SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
                 surface.encode_mouse_release(input, output)
             }
@@ -888,7 +909,7 @@ impl SurfaceHandle {
         release_output: &mut Vec<u8>,
     ) -> Option<ghostty_vt::Result<()>> {
         match self {
-            SurfaceHandle::Local(surface) => {
+            SurfaceHandle::Local(surface, _) => {
                 surface.encode_mouse_press_pair(press, release, press_output, release_output)
             }
             SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
@@ -900,7 +921,7 @@ impl SurfaceHandle {
 
     pub fn reset_mouse_motion_dedupe(&self) {
         match self {
-            SurfaceHandle::Local(surface) => surface.reset_mouse_motion_dedupe(),
+            SurfaceHandle::Local(surface, _) => surface.reset_mouse_motion_dedupe(),
             SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
                 surface.reset_mouse_motion_dedupe();
             }
@@ -910,7 +931,7 @@ impl SurfaceHandle {
 
     pub fn scroll_delta(&self, delta: isize) -> Option<bool> {
         match self {
-            SurfaceHandle::Local(surface) => {
+            SurfaceHandle::Local(surface, _) => {
                 let before = surface
                     .with_terminal(|term| term.scrollbar().map(|sb| sb.offset))
                     .flatten()
@@ -935,7 +956,7 @@ impl SurfaceHandle {
 
     pub fn scroll_to_bottom(&self) -> Option<bool> {
         match self {
-            SurfaceHandle::Local(surface) => {
+            SurfaceHandle::Local(surface, _) => {
                 let before = surface
                     .with_terminal(|term| term.scrollbar().map(|sb| sb.offset))
                     .flatten()
@@ -960,7 +981,7 @@ impl SurfaceHandle {
 
     pub fn browser_frame(&self) -> Option<BrowserFrame> {
         match self {
-            SurfaceHandle::Local(surface) => surface.browser_frame(),
+            SurfaceHandle::Local(surface, _) => surface.browser_frame(),
             SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Browser => {
                 surface.browser_frame()
             }
@@ -970,7 +991,7 @@ impl SurfaceHandle {
 
     pub fn browser_url(&self) -> Option<String> {
         match self {
-            SurfaceHandle::Local(surface) => surface.browser_url(),
+            SurfaceHandle::Local(surface, _) => surface.browser_url(),
             SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Browser => {
                 surface.browser_url()
             }
@@ -980,7 +1001,7 @@ impl SurfaceHandle {
 
     pub fn browser_status(&self) -> Option<BrowserStatus> {
         match self {
-            SurfaceHandle::Local(surface) => surface.browser_status(),
+            SurfaceHandle::Local(surface, _) => surface.browser_status(),
             SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Browser => {
                 Some(surface.browser_status())
             }
@@ -990,7 +1011,7 @@ impl SurfaceHandle {
 
     pub fn browser_frames_stalled(&self) -> bool {
         match self {
-            SurfaceHandle::Local(surface) => surface.browser_frames_stalled().unwrap_or(false),
+            SurfaceHandle::Local(surface, _) => surface.browser_frames_stalled().unwrap_or(false),
             SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Browser => {
                 surface.browser_frames_stalled()
             }
@@ -1000,7 +1021,7 @@ impl SurfaceHandle {
 
     pub fn browser_insert_text(&self, text: &str) -> anyhow::Result<()> {
         match self {
-            SurfaceHandle::Local(surface) => surface.browser_insert_text(text),
+            SurfaceHandle::Local(surface, _) => surface.browser_insert_text(text),
             SurfaceHandle::Remote(surface, session) if surface.kind == SurfaceKind::Browser => {
                 session
                     .request(
@@ -1025,7 +1046,7 @@ impl SurfaceHandle {
         text: Option<&str>,
     ) -> anyhow::Result<()> {
         match self {
-            SurfaceHandle::Local(surface) => surface.browser_key_event(
+            SurfaceHandle::Local(surface, _) => surface.browser_key_event(
                 event_type,
                 key,
                 code,
@@ -1068,7 +1089,7 @@ impl SurfaceHandle {
         click_count: Option<u32>,
     ) -> anyhow::Result<()> {
         match self {
-            SurfaceHandle::Local(surface) => {
+            SurfaceHandle::Local(surface, _) => {
                 surface.browser_mouse_event(event_type, x, y, button, click_count)
             }
             SurfaceHandle::Remote(surface, session) if surface.kind == SurfaceKind::Browser => {
@@ -1099,7 +1120,7 @@ impl SurfaceHandle {
 
     pub fn browser_wheel(&self, x: f64, y: f64, delta_y: f64) -> anyhow::Result<()> {
         match self {
-            SurfaceHandle::Local(surface) => surface.browser_wheel(x, y, delta_y),
+            SurfaceHandle::Local(surface, _) => surface.browser_wheel(x, y, delta_y),
             SurfaceHandle::Remote(surface, session) if surface.kind == SurfaceKind::Browser => {
                 session
                     .request(json!({
@@ -1120,7 +1141,7 @@ impl SurfaceHandle {
 
     pub fn browser_navigate(&self, url: &str) -> anyhow::Result<()> {
         match self {
-            SurfaceHandle::Local(surface) => surface.browser_navigate(url),
+            SurfaceHandle::Local(surface, _) => surface.browser_navigate(url),
             SurfaceHandle::Remote(surface, session) if surface.kind == SurfaceKind::Browser => {
                 session
                     .request(json!({"cmd": "browser-navigate", "surface": surface.id, "url": url}))
@@ -1151,7 +1172,7 @@ impl SurfaceHandle {
 
     fn browser_nav_command(&self, cmd: &str) -> anyhow::Result<()> {
         match self {
-            SurfaceHandle::Local(surface) => match cmd {
+            SurfaceHandle::Local(surface, _) => match cmd {
                 "browser-back" => surface.browser_back(),
                 "browser-forward" => surface.browser_forward(),
                 "browser-reload" => surface.browser_reload(),

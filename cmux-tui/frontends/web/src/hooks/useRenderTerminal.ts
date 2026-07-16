@@ -132,7 +132,6 @@ export function useRenderTerminal({ client, surface, active, onError }: RenderTe
     let cacheGeneration = 0;
     let historyActive = false;
     let historyLoading = false;
-    let sizeClaimed = true;
     let pendingFit: TerminalSize | null = null;
     let composing = false;
     let committedComposition: string | null = null;
@@ -207,8 +206,6 @@ export function useRenderTerminal({ client, surface, active, onError }: RenderTe
     };
     const applyFit = () => {
       if (cancelled || currentModel === null) return;
-      sizeClaimed = true;
-      publishForeignSize(null);
       const next = nextFitSize(currentModel.size, proposedSize());
       if (next === null) return;
       if (pendingFit?.cols === next.cols && pendingFit.rows === next.rows) return;
@@ -239,17 +236,16 @@ export function useRenderTerminal({ client, surface, active, onError }: RenderTe
         if (scroller !== null) scroller.scrollTop = scroller.scrollHeight;
       });
     };
-    const claimForInput = () => {
+    const prepareInput = () => {
       returnToLive();
-      if (!sizeClaimed) applyFit();
     };
     const sendText = (text: string, paste = false) => {
       if (text.length === 0) return;
-      claimForInput();
+      prepareInput();
       void client.send(surface, { text, ...(paste ? { paste: true } : {}) }).catch(onError);
     };
     const sendNamedKey = (key: string) => {
-      claimForInput();
+      prepareInput();
       void client.sendKey(surface, [key]).catch(onError);
     };
     const resetHistoryCache = (total: number, publish = true) => {
@@ -498,7 +494,6 @@ export function useRenderTerminal({ client, surface, active, onError }: RenderTe
             updateForeignSize();
             if (renderDelta.size !== undefined) {
               pendingFit = null;
-              sizeClaimed = false;
             }
             if (!historyActive) {
               scheduleAfterRender(() => {

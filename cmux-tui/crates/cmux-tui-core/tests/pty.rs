@@ -215,6 +215,24 @@ fn headless_creation_uses_legacy_default_then_latest_client_size() {
 }
 
 #[test]
+fn shared_surface_uses_smallest_viewer_size_until_that_viewer_detaches() {
+    let mux = Mux::new("minimum-viewer-size", SurfaceOptions::default());
+    let surface = mux
+        .run_command_surface(vec!["/bin/cat".to_string()], None, true, None, None, Some((80, 24)))
+        .unwrap()
+        .surface;
+
+    mux.resize_surface_for_client(surface, 1, 120, 40).unwrap();
+    mux.resize_surface_for_client(surface, 2, 80, 50).unwrap();
+    assert_eq!(mux.surface(surface).unwrap().size(), (80, 40));
+
+    mux.remove_surface_size_client(surface, 2);
+    assert_eq!(mux.surface(surface).unwrap().size(), (120, 40));
+
+    mux.shutdown();
+}
+
+#[test]
 fn surface_exit_reaps_tree_and_emits_event() {
     let opts =
         SurfaceOptions { command: Some(vec!["/usr/bin/true".to_string()]), ..Default::default() };
