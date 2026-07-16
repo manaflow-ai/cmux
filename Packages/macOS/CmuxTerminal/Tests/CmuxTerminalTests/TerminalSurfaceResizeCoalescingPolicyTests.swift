@@ -6,25 +6,25 @@ struct TerminalSurfaceResizeCoalescingPolicyTests {
     @Test
     func interactivePaneResizeUsesPixelOnlyCoalescing() {
         #expect(
-            TerminalSurface.shouldCoalesceSurfacePixelResize(
+            TerminalSurfaceResizeCoalescingPolicy(
                 windowLiveResizeActive: false,
                 interactiveGeometryResizeActive: true,
                 bypass: false
-            )
+            ).shouldCoalescePixelOnlyResize
         )
         #expect(
-            TerminalSurface.shouldCoalesceSurfacePixelResize(
+            TerminalSurfaceResizeCoalescingPolicy(
                 windowLiveResizeActive: true,
                 interactiveGeometryResizeActive: false,
                 bypass: false
-            )
+            ).shouldCoalescePixelOnlyResize
         )
         #expect(
-            !TerminalSurface.shouldCoalesceSurfacePixelResize(
+            !TerminalSurfaceResizeCoalescingPolicy(
                 windowLiveResizeActive: false,
                 interactiveGeometryResizeActive: true,
                 bypass: true
-            )
+            ).shouldCoalescePixelOnlyResize
         )
     }
 }

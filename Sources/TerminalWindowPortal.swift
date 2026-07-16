@@ -2243,10 +2243,6 @@ final class WindowTerminalPortal: NSObject {
 
 @MainActor
 enum TerminalWindowPortalRegistry {
-    private struct InteractiveGeometryResizeOwnerState {
-        let windowId: ObjectIdentifier?
-    }
-
 #if DEBUG
     static var isPointerDragActiveForTesting = false
 #endif
@@ -2256,7 +2252,8 @@ enum TerminalWindowPortalRegistry {
     private static var externalGeometrySyncForAllWindowsGeneration: UInt64 = 0
     private static var interactiveGeometryResizeCountsByWindowId: [ObjectIdentifier: Int] = [:]
     private static var unscopedInteractiveGeometryResizeCount = 0
-    private static var interactiveGeometryResizeOwners: [ObjectIdentifier: InteractiveGeometryResizeOwnerState] = [:]
+    private static var interactiveGeometryResizeOwnerWindowIds: [ObjectIdentifier: ObjectIdentifier] = [:]
+    private static var unscopedInteractiveGeometryResizeOwnerIds: Set<ObjectIdentifier> = []
     private static var activeSplitDividerDragWindowId: ObjectIdentifier?
     private static var activeSplitDividerDragEventNumber: Int?
 #if DEBUG
@@ -2419,7 +2416,7 @@ enum TerminalWindowPortalRegistry {
         }
         hostedToWindowId = hostedToWindowId.filter { $0.value != windowId }
         interactiveGeometryResizeCountsByWindowId.removeValue(forKey: windowId)
-        interactiveGeometryResizeOwners = interactiveGeometryResizeOwners.filter { $0.value.windowId != windowId }
+        interactiveGeometryResizeOwnerWindowIds = interactiveGeometryResizeOwnerWindowIds.filter { $0.value != windowId }
 
         guard let window else { return }
         if let observer = objc_getAssociatedObject(window, &cmuxWindowTerminalPortalCloseObserverKey) {
@@ -2543,16 +2540,24 @@ enum TerminalWindowPortalRegistry {
 
     static func beginInteractiveGeometryResize(owner: AnyObject, in window: NSWindow?) {
         let ownerId = ObjectIdentifier(owner)
-        guard interactiveGeometryResizeOwners[ownerId] == nil else { return }
-        let windowId = window.map(ObjectIdentifier.init)
-        interactiveGeometryResizeOwners[ownerId] = InteractiveGeometryResizeOwnerState(windowId: windowId)
-        beginInteractiveGeometryResize(windowId: windowId)
+        guard interactiveGeometryResizeOwnerWindowIds[ownerId] == nil,
+              !unscopedInteractiveGeometryResizeOwnerIds.contains(ownerId) else { return }
+        if let windowId = window.map(ObjectIdentifier.init) {
+            interactiveGeometryResizeOwnerWindowIds[ownerId] = windowId
+            beginInteractiveGeometryResize(windowId: windowId)
+        } else {
+            unscopedInteractiveGeometryResizeOwnerIds.insert(ownerId)
+            beginInteractiveGeometryResize(windowId: nil)
+        }
     }
 
     static func endInteractiveGeometryResize(owner: AnyObject) {
         let ownerId = ObjectIdentifier(owner)
-        guard let state = interactiveGeometryResizeOwners.removeValue(forKey: ownerId) else { return }
-        endInteractiveGeometryResize(windowId: state.windowId)
+        if let windowId = interactiveGeometryResizeOwnerWindowIds.removeValue(forKey: ownerId) {
+            endInteractiveGeometryResize(windowId: windowId)
+        } else if unscopedInteractiveGeometryResizeOwnerIds.remove(ownerId) != nil {
+            endInteractiveGeometryResize(windowId: nil)
+        }
     }
 
     private static func beginInteractiveGeometryResize(windowId: ObjectIdentifier?) {
@@ -2595,7 +2600,8 @@ enum TerminalWindowPortalRegistry {
     static func resetInteractiveGeometryStateForTesting() {
         interactiveGeometryResizeCountsByWindowId.removeAll()
         unscopedInteractiveGeometryResizeCount = 0
-        interactiveGeometryResizeOwners.removeAll()
+        interactiveGeometryResizeOwnerWindowIds.removeAll()
+        unscopedInteractiveGeometryResizeOwnerIds.removeAll()
         clearActiveSplitDividerDrag()
         isPointerDragActiveForTesting = false
     }
