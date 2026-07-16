@@ -908,10 +908,10 @@ mod tests {
     }
 
     #[test]
-    fn remote_resize_followed_by_user_interaction_sends() {
+    fn remote_resize_followed_by_user_interaction_does_not_send() {
         let desired = (123, 65);
         let server = (341, 92);
-        assert!(resize_action(desired, Some(desired), server, true));
+        assert!(!resize_action(desired, Some(desired), server, true));
     }
 
     #[test]
