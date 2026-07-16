@@ -20,6 +20,20 @@ XCODE_PACKAGE_RESOLVED = (
     "cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
 )
 XCODE_PROJECT_FILE = "cmux.xcodeproj/project.pbxproj"
+IOS_WORKSPACE_PACKAGE_RESOLVED = (
+    "ios/cmux.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+)
+IOS_WORKSPACE_FILE = "ios/cmux.xcworkspace/contents.xcworkspacedata"
+IOS_XCODE_PROJECT_FILE = "ios/cmux-ios.xcodeproj/project.pbxproj"
+IOS_WORKSPACE_PACKAGE_ROOTS = (
+    "ios/cmuxPackage",
+    "Packages/iOS/CmuxMobileShellUI",
+    "Packages/iOS/CmuxMobileTerminal",
+)
+EXPECTED_XCODE_LOCKFILES = {
+    XCODE_PACKAGE_RESOLVED,
+    IOS_WORKSPACE_PACKAGE_RESOLVED,
+}
 XCODE_PACKAGE_REFERENCE_TOKENS = (
     "XCRemoteSwiftPackageReference",
     "repositoryURL",
@@ -231,17 +245,18 @@ def file_text_at(ref: str, path: str) -> str:
 
 
 def xcode_package_reference_changed(
+    project_file: str,
     merge_base: str | None,
     changed_files: set[str],
 ) -> bool:
-    if merge_base is None or XCODE_PROJECT_FILE not in changed_files:
+    if merge_base is None or project_file not in changed_files:
         return False
     diff = git_stdout(
         "diff",
         "--unified=0",
         f"{merge_base}..HEAD",
         "--",
-        XCODE_PROJECT_FILE,
+        project_file,
     )
     for line in diff.splitlines():
         if not line.startswith(("+", "-")) or line.startswith(("+++", "---")):
@@ -252,16 +267,11 @@ def xcode_package_reference_changed(
 
 
 def is_expected_lockfile_path(lockfile: str, roots: set[str]) -> bool:
-    path = Path(lockfile)
-    if (
-        path.parent.name == "swiftpm"
-        and path.parent.parent.name == "xcshareddata"
-        and path.parent.parent.parent.suffix == ".xcworkspace"
-    ):
+    if lockfile in EXPECTED_XCODE_LOCKFILES:
         return True
     if has_skipped_part(lockfile):
         return False
-    return path.parent.as_posix() in roots
+    return Path(lockfile).parent.as_posix() in roots
 
 
 def ignores_package_resolved(gitignore: Path) -> bool:
@@ -334,12 +344,39 @@ def main() -> int:
                 changed_dependency_roots.add(root)
 
     if (
-        xcode_package_reference_changed(merge_base, changed_files)
+        xcode_package_reference_changed(
+            XCODE_PROJECT_FILE,
+            merge_base,
+            changed_files,
+        )
         and XCODE_PACKAGE_RESOLVED not in changed_files
     ):
         errors.append(
             f"{XCODE_PROJECT_FILE} changed SwiftPM package references without "
             f"matching Xcode Package.resolved diff: {XCODE_PACKAGE_RESOLVED}"
+        )
+
+    ios_workspace_dependency_roots: set[str] = set()
+    for root in IOS_WORKSPACE_PACKAGE_ROOTS:
+        if root in graph:
+            ios_workspace_dependency_roots.update(
+                package_dependency_closure(root, graph)
+            )
+    ios_workspace_dependencies_changed = bool(
+        ios_workspace_dependency_roots & changed_dependency_roots
+    )
+    if (
+        IOS_WORKSPACE_FILE in changed_files
+        or ios_workspace_dependencies_changed
+        or xcode_package_reference_changed(
+            IOS_XCODE_PROJECT_FILE,
+            merge_base,
+            changed_files,
+        )
+    ) and IOS_WORKSPACE_PACKAGE_RESOLVED not in changed_files:
+        errors.append(
+            "iOS workspace SwiftPM dependencies changed without matching "
+            f"Package.resolved diff: {IOS_WORKSPACE_PACKAGE_RESOLVED}"
         )
 
     for gitignore in sorted(Path(".").rglob(".gitignore")):
