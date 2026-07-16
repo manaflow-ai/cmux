@@ -8,6 +8,8 @@ public enum SimulatorCapability: String, Codable, CaseIterable, Hashable, Sendab
     case multiTouch
     /// USB HID keyboard injection.
     case keyboard
+    /// Native macOS pointer and keyboard capture for iPadOS.
+    case hostInputCapture
     /// Hardware-button injection.
     case hardwareButtons
     /// Device orientation injection.

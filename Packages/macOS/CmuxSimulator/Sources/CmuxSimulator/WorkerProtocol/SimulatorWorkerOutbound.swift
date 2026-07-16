@@ -12,6 +12,8 @@ public enum SimulatorWorkerOutbound: Codable, Equatable, Sendable {
     case capabilities(Set<SimulatorCapability>)
     /// Reports current framebuffer dimensions and orientation.
     case display(SimulatorDisplayMetadata)
+    /// Reports native host-input capture, including Escape-driven release.
+    case hidCapture(SimulatorHIDCaptureMode)
     /// Delivers a requested accessibility tree.
     case accessibility(requestID: UUID, SimulatorAccessibilitySnapshot)
     /// Delivers requested foreground-application metadata.

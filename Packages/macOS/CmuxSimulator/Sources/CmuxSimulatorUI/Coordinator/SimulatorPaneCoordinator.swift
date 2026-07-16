@@ -81,6 +81,8 @@ public final class SimulatorPaneCoordinator {
     }
     /// A monotonically increasing request observed by the AppKit input surface.
     public internal(set) var focusRequestGeneration: UInt64 = 0
+    /// Input currently captured by SimulatorKit inside the worker.
+    public internal(set) var hidCaptureMode: SimulatorHIDCaptureMode = .none
 
     /// The selected device snapshot used by panel persistence.
     public var selectedDevice: SimulatorDevice? {

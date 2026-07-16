@@ -4,6 +4,7 @@ struct SimulatorWorkerCapabilityProbe: Equatable, Sendable {
     var hasFramebuffer = false
     var hasTouch = false
     var hasKeyboard = false
+    var hasHostInputCapture = false
     var hasLegacyButtons = false
     var hasArbitraryButtons = false
     var hasRotation = false
@@ -24,6 +25,7 @@ struct SimulatorWorkerCapabilityProbe: Equatable, Sendable {
             result.insert(.multiTouch)
         }
         if hasKeyboard { result.insert(.keyboard) }
+        if hasHostInputCapture { result.insert(.hostInputCapture) }
         if hasLegacyButtons || hasArbitraryButtons {
             result.insert(.hardwareButtons)
         }

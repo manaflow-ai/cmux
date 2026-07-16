@@ -6,6 +6,34 @@ import Testing
 @Suite("Simulator pane coordinator")
 @MainActor
 struct SimulatorPaneCoordinatorTests {
+    @Test("Native input capture follows worker state and toggles cleanly")
+    func nativeInputCapture() async {
+        let client = SimulatorPaneClientSpy(devices: [
+            Self.device(id: "pad", family: .iPad, state: .booted),
+        ])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        await coordinator.start()
+
+        coordinator.togglePointerCapture()
+        await eventually {
+            await client.messages().contains(.setHIDCapture(.pointerAndKeyboard))
+        }
+        await client.emit(.message(.hidCapture(.pointerAndKeyboard)))
+        await eventually { coordinator.hidCaptureMode == .pointerAndKeyboard }
+
+        coordinator.togglePointerCapture()
+        await eventually {
+            await client.messages().contains(.setHIDCapture(.none))
+        }
+
+        await client.emit(.message(.hidCapture(.none)))
+        await eventually { coordinator.hidCaptureMode == .none }
+        coordinator.toggleKeyboardCapture()
+        await eventually {
+            await client.messages().contains(.setHIDCapture(.keyboard))
+        }
+    }
+
     @Test("Discovery filters unavailable and non-mobile devices")
     func discoveryFiltering() async {
         let client = SimulatorPaneClientSpy(devices: [

@@ -12,6 +12,7 @@ extension SimulatorWorkerCoordinator {
     }
 
     func prepareForProcessExit() {
+        hidCapture.stop()
         cancelForegroundApplicationRequests()
         cancelAccessibilitySnapshotRequests()
         cancelToolOperationsWithoutWaiting()
@@ -35,6 +36,7 @@ extension SimulatorWorkerCoordinator {
     }
 
     func shutdown() async {
+        hidCapture.stop()
         cancelForegroundApplicationRequests()
         cancelAccessibilitySnapshotRequests()
         await cancelToolOperations()
@@ -140,6 +142,7 @@ extension SimulatorWorkerCoordinator {
             }
             probe.hasExtendedPermissions = privacy.isAvailable
             probe.hasWebInspector = webInspectorAvailable
+            probe.hasHostInputCapture = hidCapture.isAvailable
             send(.capabilities(probe.capabilities))
             if let hidFailure {
                 report(hidFailure)

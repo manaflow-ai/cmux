@@ -75,6 +75,18 @@ struct SimulatorStrings {
         bundle: .main,
         comment: "Toolbar button that performs the Simulator Home action."
     )
+    let capturePointer = LocalizedStringResource(
+        "simulator.action.capturePointer",
+        defaultValue: "Capture Pointer and Keyboard (Escape to Release)",
+        bundle: .main,
+        comment: "Button that routes the Mac pointer and keyboard to an iPad Simulator."
+    )
+    let captureKeyboard = LocalizedStringResource(
+        "simulator.action.captureKeyboard",
+        defaultValue: "Capture Keyboard (Escape to Release)",
+        bundle: .main,
+        comment: "Button that routes the Mac keyboard to an iPad Simulator."
+    )
     let appSwitcher = LocalizedStringResource(
         "simulator.action.appSwitcher",
         defaultValue: "App Switcher",

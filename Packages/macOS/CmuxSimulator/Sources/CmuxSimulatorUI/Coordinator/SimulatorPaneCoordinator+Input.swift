@@ -80,6 +80,20 @@ extension SimulatorPaneCoordinator {
         enqueue(.toggleSoftwareKeyboard)
     }
 
+    /// Toggles native pointer and keyboard capture. Escape releases capture.
+    public func togglePointerCapture() {
+        let mode: SimulatorHIDCaptureMode = hidCaptureMode == .pointerAndKeyboard
+            ? .none
+            : .pointerAndKeyboard
+        enqueue(.setHIDCapture(mode))
+    }
+
+    /// Toggles keyboard-only capture for iPadOS shortcuts.
+    public func toggleKeyboardCapture() {
+        let mode: SimulatorHIDCaptureMode = hidCaptureMode == .keyboard ? .none : .keyboard
+        enqueue(.setHIDCapture(mode))
+    }
+
     /// Sends one hardware or system button press.
     /// - Parameter button: The button to press.
     public func press(_ button: SimulatorHardwareButton) {

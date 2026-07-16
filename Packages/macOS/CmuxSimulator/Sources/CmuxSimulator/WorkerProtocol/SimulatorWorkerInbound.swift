@@ -32,6 +32,8 @@ public enum SimulatorWorkerInbound: Codable, Equatable, Sendable {
     case digitalCrown(Double)
     /// Toggle the simulated software keyboard.
     case toggleSoftwareKeyboard
+    /// Capture or release the Mac's physical input devices for iPadOS.
+    case setHIDCapture(SimulatorHIDCaptureMode)
     /// Simulate a memory warning.
     case memoryWarning
     /// Toggle a Core Animation diagnostic.

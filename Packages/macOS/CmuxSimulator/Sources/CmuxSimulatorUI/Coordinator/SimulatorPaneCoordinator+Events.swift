@@ -69,6 +69,7 @@ extension SimulatorPaneCoordinator {
         case .workerStopped:
             failPendingTextInputCompletions()
             frameTransport = nil
+            hidCaptureMode = .none
             status = .workerCrashed
             clearWebInspectorState()
             beginLocationRouteTeardown()
@@ -95,6 +96,7 @@ extension SimulatorPaneCoordinator {
             if sessionEnded {
                 frameTransport = nil
                 display = nil
+                hidCaptureMode = .none
                 capabilities = [.userInterfaceSettings]
                 if chromeProfile != nil { capabilities.insert(.deviceChrome) }
                 clearWebInspectorState()
@@ -108,6 +110,8 @@ extension SimulatorPaneCoordinator {
             updateLiveStatusWatcher()
         case let .display(display):
             self.display = display
+        case let .hidCapture(mode):
+            hidCaptureMode = mode
         case let .accessibility(_, snapshot):
             applyAccessibilitySnapshot(snapshot)
         case let .foregroundApplication(_, application):

@@ -20,6 +20,7 @@ final class SimulatorWorkerCoordinator {
     let toolOperationSleeper: any SimulatorHIDSleeping
     let toolOperationContainment: SimulatorToolOperationContainment
     let mutationGate: SimulatorMutationGate
+    let hidCapture = SimulatorHIDCaptureAdapter()
 
     var resolver: SimulatorDeviceResolver?
     var framebuffer: SimulatorFramebuffer?
@@ -87,6 +88,9 @@ final class SimulatorWorkerCoordinator {
         )
         webInspector.eventHandler = { [weak self] event in
             self?.receiveWebInspectorEvent(event)
+        }
+        hidCapture.onModeChange = { [weak self] mode in
+            self?.send(.hidCapture(mode))
         }
     }
 
@@ -225,6 +229,15 @@ final class SimulatorWorkerCoordinator {
                 break
             }
             emitAction("software_keyboard", summary: "toggle", succeeded: true)
+        case .setHIDCapture(let mode):
+            let succeeded = hidCapture.setMode(mode, device: attachedDevice)
+            if !succeeded {
+                reportUnavailable(
+                    action: "hid_capture",
+                    detail: "Native pointer and keyboard capture is unavailable."
+                )
+            }
+            emitAction("hid_capture", summary: mode.rawValue, succeeded: succeeded)
         case .memoryWarning:
             guard hid?.simulateMemoryWarning() == true else {
                 reportUnavailable(action: "memory_warning", detail: "Memory warnings are unavailable.")

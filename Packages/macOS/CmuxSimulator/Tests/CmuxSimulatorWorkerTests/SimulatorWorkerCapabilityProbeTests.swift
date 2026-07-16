@@ -4,6 +4,13 @@ import Testing
 
 @Suite("Simulator worker capability probe")
 struct SimulatorWorkerCapabilityProbeTests {
+    @Test("Host input capture is independently negotiated")
+    func hostInputCapture() {
+        var probe = SimulatorWorkerCapabilityProbe()
+        #expect(!probe.capabilities.contains(.hostInputCapture))
+        probe.hasHostInputCapture = true
+        #expect(probe.capabilities.contains(.hostInputCapture))
+    }
     @Test("Touch advertises single and multi-touch together")
     func touchCapabilitySet() {
         let capabilities = SimulatorWorkerCapabilityProbe(hasTouch: true).capabilities
