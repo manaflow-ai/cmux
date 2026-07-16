@@ -7,9 +7,9 @@ import os
 /// fixture (`CMUX_UITEST_WORKSPACE_LIST_PREVIEW=1`).
 ///
 /// The scroll indicator of a self-sizing `List` stutters exactly when the
-/// backing `UICollectionView.contentSize` is corrected mid-scroll (an
+/// backing list scroll view's `contentSize` is corrected mid-scroll (an
 /// estimated row height was replaced by the realized height). This probe
-/// makes that churn measurable: it locates the list's collection view,
+/// makes that churn measurable: it locates the list's table/collection view,
 /// observes `contentSize` height corrections, optionally drives a
 /// top-to-bottom sweep (`CMUX_UITEST_SCROLL_SWEEP=1`), and writes
 /// `Documents/scroll-metrics.json` so the host can pull quantitative
@@ -33,7 +33,7 @@ final class WorkspaceListScrollMetricsProbeView: UIView {
     var runsSweep = false
 
     private enum Phase {
-        /// Waiting for the list's `UICollectionView` to exist in the window.
+        /// Waiting for the list's UIKit scroll view to exist in the window.
         case searching(framesLeft: Int)
         /// Attached; letting initial layout settle before baselining.
         case settling(framesLeft: Int)
@@ -71,7 +71,7 @@ final class WorkspaceListScrollMetricsProbeView: UIView {
     /// outrun cell materialization the way a user's flick does.
     private static let sweepStepPoints: CGFloat = 70
 
-    private weak var listCollectionView: UICollectionView?
+    private weak var listScrollView: UIScrollView?
     private var contentSizeObservation: NSKeyValueObservation?
     private var displayLink: CADisplayLink?
     private var phase: Phase = .searching(framesLeft: 600)
@@ -100,11 +100,11 @@ final class WorkspaceListScrollMetricsProbeView: UIView {
     @objc private func tick() {
         switch phase {
         case .searching(let framesLeft):
-            if let collectionView = Self.findCollectionView(in: window) {
-                attach(to: collectionView)
+            if let scrollView = Self.findListScrollView(in: window) {
+                attach(to: scrollView)
                 phase = .settling(framesLeft: 90)
             } else if framesLeft <= 0 {
-                Self.logger.error("scroll-metrics: no UICollectionView found; giving up")
+                Self.logger.error("scroll-metrics: no UITableView/UICollectionView found; giving up")
                 stopTicking()
             } else {
                 phase = .searching(framesLeft: framesLeft - 1)
@@ -116,7 +116,7 @@ final class WorkspaceListScrollMetricsProbeView: UIView {
             }
             baselineAfterSettle()
         case .sweeping:
-            sampledDrawHeights.append(Double(listCollectionView?.contentSize.height ?? 0))
+            sampledDrawHeights.append(Double(listScrollView?.contentSize.height ?? 0))
             stepSweep()
         case .finished:
             // KVO stays live so manual scrolling keeps appending corrections;
@@ -129,16 +129,16 @@ final class WorkspaceListScrollMetricsProbeView: UIView {
     /// counts only scroll-driven estimate corrections, then start the sweep
     /// (or hand over to manual scrolling in observation-only mode).
     private func baselineAfterSettle() {
-        guard let collectionView = listCollectionView else {
+        guard let scrollView = listScrollView else {
             stopTicking()
             return
         }
-        initialContentHeight = collectionView.contentSize.height
+        initialContentHeight = scrollView.contentSize.height
         corrections = []
         if runsSweep {
-            var top = collectionView.contentOffset
-            top.y = -collectionView.adjustedContentInset.top
-            collectionView.contentOffset = top
+            var top = scrollView.contentOffset
+            top.y = -scrollView.adjustedContentInset.top
+            scrollView.contentOffset = top
             phase = .sweeping
         } else {
             phase = .finished
@@ -147,32 +147,32 @@ final class WorkspaceListScrollMetricsProbeView: UIView {
     }
 
     private func stepSweep() {
-        guard let collectionView = listCollectionView else {
+        guard let scrollView = listScrollView else {
             stopTicking()
             return
         }
         let maxOffsetY = max(
-            -collectionView.adjustedContentInset.top,
-            collectionView.contentSize.height + collectionView.adjustedContentInset.bottom
-                - collectionView.bounds.height
+            -scrollView.adjustedContentInset.top,
+            scrollView.contentSize.height + scrollView.adjustedContentInset.bottom
+                - scrollView.bounds.height
         )
-        var next = collectionView.contentOffset
+        var next = scrollView.contentOffset
         next.y = min(next.y + Self.sweepStepPoints, maxOffsetY)
-        collectionView.contentOffset = next
+        scrollView.contentOffset = next
         if next.y >= maxOffsetY {
             sweepFinished = true
             phase = .finished
             writeReport()
             Self.logger.notice(
-                "scroll-metrics: sweep done corrections=\(self.corrections.count) totalAbsCorrection=\(self.totalAbsCorrection, format: .fixed(precision: 1)) initial=\(self.initialContentHeight, format: .fixed(precision: 1)) final=\(Double(self.listCollectionView?.contentSize.height ?? 0), format: .fixed(precision: 1))"
+                "scroll-metrics: sweep done corrections=\(self.corrections.count) totalAbsCorrection=\(self.totalAbsCorrection, format: .fixed(precision: 1)) initial=\(self.initialContentHeight, format: .fixed(precision: 1)) final=\(Double(self.listScrollView?.contentSize.height ?? 0), format: .fixed(precision: 1))"
             )
         }
     }
 
-    private func attach(to collectionView: UICollectionView) {
-        listCollectionView = collectionView
-        initialContentHeight = collectionView.contentSize.height
-        contentSizeObservation = collectionView.observe(
+    private func attach(to scrollView: UIScrollView) {
+        listScrollView = scrollView
+        initialContentHeight = scrollView.contentSize.height
+        contentSizeObservation = scrollView.observe(
             \.contentSize, options: [.old, .new]
         ) { [weak self] _, change in
             guard
@@ -188,12 +188,12 @@ final class WorkspaceListScrollMetricsProbeView: UIView {
     }
 
     private func recordCorrection(oldHeight: CGFloat, newHeight: CGFloat) {
-        guard let collectionView = listCollectionView else { return }
+        guard let scrollView = listScrollView else { return }
         if case .searching = phase { return }
         if case .settling = phase { return }
         corrections.append(
             Correction(
-                offsetY: collectionView.contentOffset.y,
+                offsetY: scrollView.contentOffset.y,
                 oldHeight: oldHeight,
                 newHeight: newHeight
             )
@@ -215,7 +215,7 @@ final class WorkspaceListScrollMetricsProbeView: UIView {
         let report = Report(
             finished: finished,
             initialContentHeight: initialContentHeight,
-            finalContentHeight: Double(listCollectionView?.contentSize.height ?? 0),
+            finalContentHeight: Double(listScrollView?.contentSize.height ?? 0),
             correctionCount: corrections.count,
             totalAbsCorrection: totalAbsCorrection,
             distinctDrawHeights: Array(Set(sampledDrawHeights.map { ($0 * 2).rounded() / 2 })).sorted(),
@@ -238,14 +238,23 @@ final class WorkspaceListScrollMetricsProbeView: UIView {
     /// 0.5pt. After a full sweep every item is realized, so this is the true
     /// height distribution the estimates should match.
     private func realizedHeightCounts() -> [String: Int] {
-        guard let collectionView = listCollectionView else { return [:] }
-        let attributes = collectionView.collectionViewLayout.layoutAttributesForElements(
-            in: CGRect(origin: .zero, size: collectionView.contentSize)
-        ) ?? []
         var counts: [String: Int] = [:]
-        for attribute in attributes where attribute.representedElementCategory == .cell {
-            let rounded = (attribute.frame.height * 2).rounded() / 2
-            counts[String(format: "%.1f", rounded), default: 0] += 1
+        if let tableView = listScrollView as? UITableView {
+            for section in 0..<tableView.numberOfSections {
+                for row in 0..<tableView.numberOfRows(inSection: section) {
+                    let height = tableView.rectForRow(at: IndexPath(row: row, section: section)).height
+                    let rounded = (height * 2).rounded() / 2
+                    counts[String(format: "%.1f", rounded), default: 0] += 1
+                }
+            }
+        } else if let collectionView = listScrollView as? UICollectionView {
+            let attributes = collectionView.collectionViewLayout.layoutAttributesForElements(
+                in: CGRect(origin: .zero, size: collectionView.contentSize)
+            ) ?? []
+            for attribute in attributes where attribute.representedElementCategory == .cell {
+                let rounded = (attribute.frame.height * 2).rounded() / 2
+                counts[String(format: "%.1f", rounded), default: 0] += 1
+            }
         }
         return counts
     }
@@ -255,11 +264,14 @@ final class WorkspaceListScrollMetricsProbeView: UIView {
         displayLink = nil
     }
 
-    private static func findCollectionView(in window: UIWindow?) -> UICollectionView? {
+    private static func findListScrollView(in window: UIWindow?) -> UIScrollView? {
         guard let window else { return nil }
         var queue: [UIView] = [window]
         while !queue.isEmpty {
             let view = queue.removeFirst()
+            if let tableView = view as? UITableView {
+                return tableView
+            }
             if let collectionView = view as? UICollectionView {
                 return collectionView
             }
