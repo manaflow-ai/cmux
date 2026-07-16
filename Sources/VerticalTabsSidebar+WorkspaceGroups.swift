@@ -60,8 +60,9 @@ extension VerticalTabsSidebar {
         )
         let modifierSymbol = renderContext.workspaceNumberShortcut.numberedDigitHintPrefix
         let showsHintForAnchor = showModifierHoldHints && modifierKeyMonitor.isModifierPressed
-        let rowId = SidebarWorkspaceRenderItemID.group(group.id)
-        let isPointerHovering = pointerInteractionMonitor.hoveredRowId == rowId
+        // Hover is owned by the AppKit table (single pointer owner); the
+        // snapshot field stays false and cells receive hover at configure time.
+        let isPointerHovering = false
         let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate().topVisible(
             forTabId: group.anchorWorkspaceId,
             draggedTabId: dragState.draggedTabId,
@@ -109,51 +110,14 @@ extension VerticalTabsSidebar {
         )
     }
 
-    /// Assembles one group row from immutable values when the lazy stack asks
-    /// for it. Model references appear only inside user-invoked action
-    /// closures; row realization performs no observable reads or mutations.
-    func sidebarWorkspaceGroupRow(
+    /// Closure bundle for the AppKit group-header cell and its menus. Model
+    /// references appear only inside user-invoked action closures; drag start
+    /// is handled by the table's native drag source instead of an
+    /// `onDragStart` closure.
+    func sidebarWorkspaceGroupHeaderActions(
         snapshot: SidebarWorkspaceGroupRowSnapshot
-    ) -> SidebarWorkspaceGroupRowView {
-        let rowId = SidebarWorkspaceRenderItemID.group(snapshot.groupId)
-        let onDragStart: () -> NSItemProvider = { [anchorId = snapshot.anchorWorkspaceId] in
-#if DEBUG
-            cmuxDebugLog("sidebar.onDrag groupAnchor=\(anchorId.uuidString.prefix(5))")
-#endif
-            dragState.beginDragging(tabId: anchorId)
-            return SidebarTabDragPayload(tabId: anchorId).provider()
-        }
-        let header = SidebarWorkspaceGroupHeaderView(
-            groupId: snapshot.groupId,
-            anchorWorkspaceId: snapshot.anchorWorkspaceId,
-            name: snapshot.name,
-            iconSymbol: snapshot.iconSymbol,
-            tintHex: snapshot.tintHex,
-            isCollapsed: snapshot.isCollapsed,
-            isPinned: snapshot.isPinned,
-            isAnchorActive: snapshot.isAnchorActive,
-            memberCount: snapshot.memberCount,
-            anchorUnreadCount: snapshot.anchorUnreadCount,
-            canMarkRead: snapshot.canMarkRead,
-            canMarkUnread: snapshot.canMarkUnread,
-            hasLatestNotifications: snapshot.hasLatestNotifications,
-            canMarkAllRead: snapshot.canMarkAllRead,
-            canMarkAllUnread: snapshot.canMarkAllUnread,
-            shortcutDigit: snapshot.shortcutDigit,
-            shortcutModifierSymbol: snapshot.shortcutModifierSymbol,
-            showsShortcutHint: snapshot.showsShortcutHint,
-            isPointerHovering: snapshot.isPointerHovering,
-            shortcutHintXOffset: snapshot.shortcutHintXOffset,
-            shortcutHintYOffset: snapshot.shortcutHintYOffset,
-            fontScale: snapshot.fontScale,
-            cwdContextMenuItems: snapshot.cwdContextMenuItems,
-            newWorkspacePlacement: snapshot.newWorkspacePlacement,
-            rowSpacing: snapshot.rowSpacing,
-            isFirstRow: snapshot.isFirstRow,
-            isBeingDragged: snapshot.isBeingDragged,
-            topDropIndicatorVisible: snapshot.topDropIndicatorVisible,
-            bottomDropIndicatorVisible: snapshot.bottomDropIndicatorVisible,
-            onDragStart: onDragStart,
+    ) -> SidebarWorkspaceGroupHeaderActions {
+        SidebarWorkspaceGroupHeaderActions(
             onToggleCollapsed: { [weak tabManager, groupId = snapshot.groupId] in
                 tabManager?.toggleWorkspaceGroupCollapsed(groupId: groupId)
             },
@@ -212,9 +176,9 @@ extension VerticalTabsSidebar {
             },
             onMarkAllRead: { [weak tabManager, weak notificationStore, groupId = snapshot.groupId, anchorId = snapshot.anchorWorkspaceId] in
                 guard let tabManager, let notificationStore else { return }
-                // Resolve members live at action time: the header is .equatable()
-                // and closures are excluded from ==, so a captured ID list could
-                // go stale across a same-count membership swap.
+                // Resolve members live at action time so a same-count
+                // membership swap between snapshot build and click can't
+                // target stale ids.
                 let ids = tabManager.tabs.compactMap { $0.groupId == groupId && $0.id != anchorId ? $0.id : nil }
                 // Only touch members that are actually unread, so we never run
                 // notification teardown on already-read workspaces.
@@ -256,19 +220,6 @@ extension VerticalTabsSidebar {
             },
             onOpenDocs: {
                 SidebarWorkspaceGroupConfigOpener.openWorkspaceGroupsDocs()
-            }
-        )
-
-        return SidebarWorkspaceGroupRowView(
-            header: header,
-            groupId: snapshot.groupId,
-            anchorWorkspaceId: snapshot.anchorWorkspaceId,
-            shouldCollectWorkspaceDropTargets: snapshot.shouldCollectWorkspaceDropTargets,
-            onPointerFrameChange: { [pointerInteractionMonitor, workspaceId = snapshot.anchorWorkspaceId] frame in
-                pointerInteractionMonitor.updateFrame(frame, for: rowId, workspaceId: workspaceId)
-            },
-            onPointerFrameDisappear: { [pointerInteractionMonitor] in
-                pointerInteractionMonitor.removeFrame(for: rowId)
             }
         )
     }

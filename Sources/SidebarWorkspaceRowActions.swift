@@ -54,8 +54,6 @@ struct SidebarWorkspaceRowActions {
     let onChecklistPopoverPresentedChange: (Bool) -> Void
     let onContextMenuAppear: () -> Void
     let onContextMenuDisappear: () -> Void
-    let onPointerFrameChange: (CGRect) -> Void
-    let onPointerFrameDisappear: () -> Void
 }
 
 /// Binds parent-owned action capabilities to one lazily realized row input.
