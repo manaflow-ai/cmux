@@ -47,6 +47,14 @@ extension CmuxTaskManagerCodingAgentDefinition {
               launchKinds: ["factory"], directBasenames: ["droid", "factory"], argumentNeedles: ["factory"]),
         .init(id: "qoder", displayName: "Qoder", assetName: nil,
               launchKinds: ["qoder"], directBasenames: ["qoder", "qodercli"], argumentNeedles: ["qoder", "qodercli"]),
+        // Code Puppy: Python TUI agent. Entry points: code-puppy, pup (console
+        // scripts from pyproject.toml), and python -m code_puppy. The native
+        // hook engine reads ~/.code_puppy/hooks.json (Claude-Code JSON format),
+        // so no PATH-shim is needed — the SessionStart hook is the reliable signal.
+        .init(id: "code-puppy", displayName: "Code Puppy", assetName: "AgentIcons/CodePuppy",
+              launchKinds: ["code-puppy"],
+              directBasenames: ["code-puppy", "code_puppy", "pup"],
+              argumentNeedles: ["code_puppy"]),
         .init(
             id: "ollama",
             displayName: String(localized: "agent.ollama.displayName", defaultValue: "Ollama"),
