@@ -26,7 +26,9 @@ struct SidebarWorkspaceGroupRowSnapshot {
     let shortcutDigit: Int?
     let shortcutModifierSymbol: String?
     let showsShortcutHint: Bool
-    let isPointerHovering: Bool
+    // `var`: the AppKit table's content factory overlays the controller-owned
+    // hover state per cell configure.
+    var isPointerHovering: Bool
     let shortcutHintXOffset: Double
     let shortcutHintYOffset: Double
     let fontScale: CGFloat

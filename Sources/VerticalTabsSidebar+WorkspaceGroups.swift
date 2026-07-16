@@ -60,8 +60,9 @@ extension VerticalTabsSidebar {
         )
         let modifierSymbol = renderContext.workspaceNumberShortcut.numberedDigitHintPrefix
         let showsHintForAnchor = showModifierHoldHints && modifierKeyMonitor.isModifierPressed
-        let rowId = SidebarWorkspaceRenderItemID.group(group.id)
-        let isPointerHovering = pointerInteractionMonitor.hoveredRowId == rowId
+        // Hover is AppKit-owned: the table controller overlays it per cell
+        // configure, so the base snapshot always carries false here.
+        let isPointerHovering = false
         let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate().topVisible(
             forTabId: group.anchorWorkspaceId,
             draggedTabId: dragState.draggedTabId,
@@ -109,13 +110,56 @@ extension VerticalTabsSidebar {
         )
     }
 
-    /// Assembles one group row from immutable values when the lazy stack asks
-    /// for it. Model references appear only inside user-invoked action
-    /// closures; row realization performs no observable reads or mutations.
-    func sidebarWorkspaceGroupRow(
-        snapshot: SidebarWorkspaceGroupRowSnapshot
-    ) -> SidebarWorkspaceGroupRowView {
-        let rowId = SidebarWorkspaceRenderItemID.group(snapshot.groupId)
+    /// Builds one group-header table row configuration. Hover is AppKit-owned
+    /// (table tracking areas); the content factory overlays it on the
+    /// immutable snapshot, and context-menu open/close freezes hover in the
+    /// table controller.
+    func sidebarWorkspaceGroupTableConfiguration(
+        snapshot: SidebarWorkspaceGroupRowSnapshot,
+        renderContext: WorkspaceListRenderContext
+    ) -> SidebarWorkspaceTableRowConfiguration {
+        let makeHeader: (Bool, SidebarWorkspaceTableContextMenuActions) -> SidebarWorkspaceGroupHeaderView = { isPointerHovering, contextMenuActions in
+            var headerSnapshot = snapshot
+            headerSnapshot.isPointerHovering = isPointerHovering
+            return sidebarWorkspaceGroupHeader(
+                snapshot: headerSnapshot,
+                onContextMenuAppear: contextMenuActions.didOpen,
+                onContextMenuDisappear: contextMenuActions.didClose
+            )
+        }
+        let equivalenceValue = makeHeader(
+            false,
+            SidebarWorkspaceTableContextMenuActions(didOpen: {}, didClose: {})
+        )
+        return SidebarWorkspaceTableRowConfiguration(
+            id: .group(snapshot.groupId),
+            workspaceId: snapshot.anchorWorkspaceId,
+            groupId: snapshot.groupId,
+            isGroupHeader: true,
+            isPinned: snapshot.isPinned,
+            environment: renderContext.environment,
+            equivalenceValue: equivalenceValue
+        ) { isPointerHovering, contextMenuActions in
+            AnyView(
+                renderContext.environment.apply(
+                    to: makeHeader(isPointerHovering, contextMenuActions)
+                        .equatable()
+                        .id(snapshot.anchorWorkspaceId)
+                        .accessibilityIdentifier("sidebarWorkspaceGroup.\(snapshot.groupId.uuidString)")
+                )
+            )
+        }
+    }
+
+    /// Assembles one group header from immutable values when the table's
+    /// content factory asks for it. Model references appear only inside
+    /// user-invoked action closures; row realization performs no observable
+    /// reads or mutations.
+    func sidebarWorkspaceGroupHeader(
+        snapshot: SidebarWorkspaceGroupRowSnapshot,
+        onContextMenuAppear: @escaping () -> Void,
+        onContextMenuDisappear: @escaping () -> Void
+    ) -> SidebarWorkspaceGroupHeaderView {
         let onDragStart: () -> NSItemProvider = { [anchorId = snapshot.anchorWorkspaceId] in
 #if DEBUG
             cmuxDebugLog("sidebar.onDrag groupAnchor=\(anchorId.uuidString.prefix(5))")
@@ -123,7 +167,7 @@ extension VerticalTabsSidebar {
             dragState.beginDragging(tabId: anchorId)
             return SidebarTabDragPayload(tabId: anchorId).provider()
         }
-        let header = SidebarWorkspaceGroupHeaderView(
+        return SidebarWorkspaceGroupHeaderView(
             groupId: snapshot.groupId,
             anchorWorkspaceId: snapshot.anchorWorkspaceId,
             name: snapshot.name,
@@ -256,20 +300,9 @@ extension VerticalTabsSidebar {
             },
             onOpenDocs: {
                 SidebarWorkspaceGroupConfigOpener.openWorkspaceGroupsDocs()
-            }
-        )
-
-        return SidebarWorkspaceGroupRowView(
-            header: header,
-            groupId: snapshot.groupId,
-            anchorWorkspaceId: snapshot.anchorWorkspaceId,
-            shouldCollectWorkspaceDropTargets: snapshot.shouldCollectWorkspaceDropTargets,
-            onPointerFrameChange: { [pointerInteractionMonitor, workspaceId = snapshot.anchorWorkspaceId] frame in
-                pointerInteractionMonitor.updateFrame(frame, for: rowId, workspaceId: workspaceId)
             },
-            onPointerFrameDisappear: { [pointerInteractionMonitor] in
-                pointerInteractionMonitor.removeFrame(for: rowId)
-            }
+            onContextMenuAppear: onContextMenuAppear,
+            onContextMenuDisappear: onContextMenuDisappear
         )
     }
 }
