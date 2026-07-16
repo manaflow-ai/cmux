@@ -9,6 +9,7 @@ final class AgentSessionWebHostView: NSView {
     private var lastReportedAgentSessionWebHostGeometryState: AgentSessionWebHostGeometryState?
     private var hasPendingGeometryNotification = false
     private weak var hostedWebView: WKWebView?
+    private var sessionContentWidthPresentation = SessionContentWidthPresentation.disabled
 
     override var isOpaque: Bool { false }
 
@@ -26,9 +27,23 @@ final class AgentSessionWebHostView: NSView {
     override func layout() {
         super.layout()
         if let hostedWebView, hostedWebView.superview === self {
-            hostedWebView.frame = bounds
+            hostedWebView.frame = sessionContentWidthPresentation.contentFrame(in: bounds)
         }
         notifyGeometryChangedIfNeeded()
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        hostedWebView?.acceptsFirstMouse(for: event) ?? false
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let webView = hostedWebView as? AgentSessionWebView else { return }
+        webView.onPointerDown?()
+        window?.makeFirstResponder(webView)
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        hostedWebView?.scrollWheel(with: event)
     }
 
     override func setFrameOrigin(_ newOrigin: NSPoint) {
@@ -76,8 +91,15 @@ final class AgentSessionWebHostView: NSView {
         }
         hostedWebView = webView
         webView.translatesAutoresizingMaskIntoConstraints = true
-        webView.autoresizingMask = [.width, .height]
-        webView.frame = bounds
+        webView.autoresizingMask = []
+        webView.frame = sessionContentWidthPresentation.contentFrame(in: bounds)
+        needsLayout = true
+        layoutSubtreeIfNeeded()
+    }
+
+    func setSessionContentWidthPresentation(_ presentation: SessionContentWidthPresentation) {
+        guard sessionContentWidthPresentation != presentation else { return }
+        sessionContentWidthPresentation = presentation
         needsLayout = true
         layoutSubtreeIfNeeded()
     }
