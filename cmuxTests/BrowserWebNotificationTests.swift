@@ -287,7 +287,7 @@ struct BrowserWebNotificationTests {
         )
         _ = try await webView.evaluateJavaScript(BrowserPanel.webNotificationBridgeScriptSource(
             token: token,
-            allowedOrigins: ["http://localhost:3000"]
+            allowedOrigins: ["http://cmux-loopback.localtest.me:3000"]
         ))
         #expect(try await webView.evaluateJavaScript("Notification.permission") as? String == "granted")
 
@@ -295,18 +295,22 @@ struct BrowserWebNotificationTests {
         let defaults = UserDefaults.standard
         let previousSetting = defaults.object(forKey: setting.userDefaultsKey)
         let profileID = BrowserProfileRepository.builtInDefaultProfileID
-        let logicalOrigin = try #require(URL(string: "http://localhost:3000"))
+        let securityOrigin = try #require(URL(string: "http://cmux-loopback.localtest.me:3000"))
+        let legacyDisplayOrigin = try #require(URL(string: "http://localhost:3000"))
         let repository = BrowserProfileStore.shared.notificationPermissions
-        let previousDecision = repository.decision(for: logicalOrigin, profileID: profileID)
+        let previousSecurityDecision = repository.decision(for: securityOrigin, profileID: profileID)
+        let previousLegacyDecision = repository.decision(for: legacyDisplayOrigin, profileID: profileID)
         BrowserWebNotificationNativeAdapter.shared.forceForegroundFallbackForTesting = true
         defer {
             BrowserWebNotificationNativeAdapter.shared.forceForegroundFallbackForTesting = false
-            repository.setDecision(previousDecision, for: logicalOrigin, profileID: profileID)
+            repository.setDecision(previousSecurityDecision, for: securityOrigin, profileID: profileID)
+            repository.setDecision(previousLegacyDecision, for: legacyDisplayOrigin, profileID: profileID)
             if let previousSetting { defaults.set(previousSetting, forKey: setting.userDefaultsKey) }
             else { defaults.removeObject(forKey: setting.userDefaultsKey) }
         }
         setting.set(true, in: defaults)
-        repository.setDecision(.allowed, for: logicalOrigin, profileID: profileID)
+        repository.setDecision(.prompt, for: securityOrigin, profileID: profileID)
+        repository.setDecision(.allowed, for: legacyDisplayOrigin, profileID: profileID)
         let panel = BrowserPanel(workspaceId: UUID(), profileID: profileID, renderInitialNavigation: false)
         defer { panel.close() }
         panel.replaceWebViewPreservingState(
@@ -335,6 +339,8 @@ struct BrowserWebNotificationTests {
             contentWorld: .page
         ) as? String
         #expect(liveStatus == "granted")
+        #expect(repository.decision(for: securityOrigin, profileID: profileID) == .allowed)
+        #expect(repository.decision(for: legacyDisplayOrigin, profileID: profileID) == .prompt)
     }
 
     @Test func permissionRequestsRespectLiveSettingAndCoalesceByOrigin() throws {
