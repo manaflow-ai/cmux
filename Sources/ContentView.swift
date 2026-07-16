@@ -13290,10 +13290,11 @@ struct VerticalTabsSidebar: View {
                 actions: actions
             )
         }
-        let equivalenceValue = makeRow(
-            false,
-            SidebarWorkspaceTableContextMenuActions(didOpen: {}, didClose: {})
-        )
+        // Equivalence compares the immutable row snapshot directly. Building a
+        // TabItemView here would also build its ~45-closure actions bundle per
+        // row per body pass; destroying the previous pass's bundles dominated
+        // idle main-thread time at 128 workspaces.
+        let equivalenceValue = baseInput.rowSnapshot(list: listSnapshot)
         return SidebarWorkspaceTableRowConfiguration(
             id: .workspace(workspaceId),
             workspaceId: workspaceId,

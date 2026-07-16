@@ -24,14 +24,14 @@ struct SidebarWorkspaceTableRowConfiguration {
     private let equivalenceValue: Any
     private let isEquivalentValue: (Any) -> Bool
 
-    init<Content: View & Equatable>(
+    init<Value: Equatable>(
         id: SidebarWorkspaceRenderItemID,
         workspaceId: UUID,
         groupId: UUID?,
         isGroupHeader: Bool,
         isPinned: Bool,
         environment: SidebarWorkspaceTableEnvironmentSnapshot,
-        equivalenceValue: Content,
+        equivalenceValue: Value,
         makeContent: @escaping ContentFactory
     ) {
         self.id = id
@@ -43,7 +43,7 @@ struct SidebarWorkspaceTableRowConfiguration {
         self.makeContent = makeContent
         self.equivalenceValue = equivalenceValue
         self.isEquivalentValue = { value in
-            guard let value = value as? Content else { return false }
+            guard let value = value as? Value else { return false }
             return value == equivalenceValue
         }
     }

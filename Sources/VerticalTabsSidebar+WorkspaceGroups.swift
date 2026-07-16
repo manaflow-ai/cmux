@@ -126,10 +126,11 @@ extension VerticalTabsSidebar {
                 onContextMenuDisappear: contextMenuActions.didClose
             )
         }
-        let equivalenceValue = makeHeader(
-            false,
-            SidebarWorkspaceTableContextMenuActions(didOpen: {}, didClose: {})
-        )
+        // Equivalence compares the immutable group snapshot directly (see the
+        // workspace-row configuration for why views are not built per pass).
+        var equivalenceSnapshot = snapshot
+        equivalenceSnapshot.isPointerHovering = false
+        let equivalenceValue = equivalenceSnapshot
         return SidebarWorkspaceTableRowConfiguration(
             id: .group(snapshot.groupId),
             workspaceId: snapshot.anchorWorkspaceId,
