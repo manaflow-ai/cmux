@@ -16,7 +16,7 @@ struct BrowserDesignModePopover: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if let selections = controller.snapshot?.selections, !selections.isEmpty {
-                HStack(alignment: .center, spacing: 10) {
+                HStack(alignment: .bottom, spacing: 10) {
                     modeToggle
                     BrowserDesignModeTokenField(
                         controller: controller,
@@ -25,7 +25,10 @@ struct BrowserDesignModePopover: View {
                             if abs(height - tokenFieldHeight) > 0.5 { tokenFieldHeight = height }
                         }
                     )
-                    .frame(height: min(max(tokenFieldHeight, 22), 110))
+                    // The card grows downward with the prompt, Cursor-style;
+                    // the inner scroll view only engages past this generous
+                    // ceiling so long prompts never become unreachable.
+                    .frame(height: min(max(tokenFieldHeight, 22), 340))
                     copyButton
                 }
                 errorMessage
