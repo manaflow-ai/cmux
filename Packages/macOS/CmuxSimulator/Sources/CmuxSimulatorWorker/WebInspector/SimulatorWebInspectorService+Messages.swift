@@ -96,7 +96,7 @@ extension SimulatorWebInspectorService {
         guard session != nil else { throw SimulatorWebInspectorError.sessionUnavailable }
         let identifier = nextInternalRequestIdentifier
         nextInternalRequestIdentifier = identifier == Int64.min
-            ? -9_000_000_000_000_000
+            ? Self.firstReservedInternalRequestIdentifier
             : identifier - 1
         let request = try JSONSerialization.data(withJSONObject: [
             "id": identifier,
@@ -125,7 +125,8 @@ extension SimulatorWebInspectorService {
                         try sendToTarget(request)
                     } else {
                         try sendMessageWithoutMutationGate(
-                            String(decoding: request, as: UTF8.self)
+                            String(decoding: request, as: UTF8.self),
+                            allowingReservedInternalIdentifier: true
                         )
                     }
                 } catch {

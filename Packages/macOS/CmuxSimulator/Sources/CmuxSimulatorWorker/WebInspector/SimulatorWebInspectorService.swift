@@ -26,6 +26,7 @@ final class SimulatorWebInspectorService {
     var refreshTimeoutTask: Task<Void, Never>?
     var session: Session?
     var nextInternalRequestIdentifier: Int64 = -9_000_000_000_000_000
+    static let firstReservedInternalRequestIdentifier: Int64 = -9_000_000_000_000_000
     var pendingInternalRequests: [Int64: CheckedContinuation<Data, Error>] = [:]
     var internalRequestTimeoutTasks: [Int64: Task<Void, Never>] = [:]
     var routingContinuation: CheckedContinuation<Void, Error>?
@@ -174,9 +175,18 @@ final class SimulatorWebInspectorService {
         }
     }
 
-    func sendMessageWithoutMutationGate(_ rawJSON: String) throws {
+    func sendMessageWithoutMutationGate(
+        _ rawJSON: String,
+        allowingReservedInternalIdentifier: Bool = false
+    ) throws {
         guard var session else { throw SimulatorWebInspectorError.sessionUnavailable }
         let payload = Data(rawJSON.utf8)
+        if !allowingReservedInternalIdentifier,
+           let object = try JSONSerialization.jsonObject(with: payload) as? [String: Any],
+           let identifier = simulatorWebInspectorInteger(object["id"]),
+           identifier <= Self.firstReservedInternalRequestIdentifier {
+            throw SimulatorWebInspectorError.reservedIdentifier
+        }
         let outgoing = try session.router.routeOutgoing(payload)
         self.session = session
         for message in outgoing { try sendToTarget(message) }

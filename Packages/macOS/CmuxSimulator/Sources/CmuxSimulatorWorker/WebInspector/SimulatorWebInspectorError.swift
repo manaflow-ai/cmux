@@ -14,6 +14,7 @@ enum SimulatorWebInspectorError: Error, Equatable, Sendable {
     case commandTooLarge(Int)
     case wrapperAcknowledgementBacklog(Int)
     case wrapperIdentifierCollision
+    case reservedIdentifier
     case timedOut(String)
     case remoteCommand(String)
     case transportClosed
@@ -37,6 +38,8 @@ extension SimulatorWebInspectorError: LocalizedError {
             "Web Inspector has \(count) unacknowledged target wrappers."
         case .wrapperIdentifierCollision:
             "A Web Inspector Target command reused an outstanding internal wrapper identifier."
+        case .reservedIdentifier:
+            "The Web Inspector command used an identifier reserved for cmux internal requests."
         case let .timedOut(operation): "Web Inspector timed out while waiting for \(operation)."
         case let .remoteCommand(message): "Web Inspector rejected a command: \(message)"
         case .transportClosed: "The Web Inspector socket closed."

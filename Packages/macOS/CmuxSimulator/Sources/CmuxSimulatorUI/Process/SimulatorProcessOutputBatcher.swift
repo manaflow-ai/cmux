@@ -16,14 +16,18 @@ struct SimulatorProcessOutputBatcher {
         }
 
         var batches: [[String]] = []
-        while let newlineIndex = pending.firstIndex(of: Self.newline) {
-            let lineData = pending[..<newlineIndex]
-            pending.removeSubrange(...newlineIndex)
+        var lineStart = pending.startIndex
+        while let newlineIndex = pending[lineStart...].firstIndex(of: Self.newline) {
+            let lineData = pending[lineStart..<newlineIndex]
             lines.append(String(decoding: lineData, as: UTF8.self) + "\n")
+            lineStart = pending.index(after: newlineIndex)
             if lines.count == Self.maximumLinesPerBatch {
                 batches.append(lines)
                 lines.removeAll(keepingCapacity: true)
             }
+        }
+        if lineStart != pending.startIndex {
+            pending.removeSubrange(pending.startIndex..<lineStart)
         }
         if !lines.isEmpty {
             batches.append(lines)

@@ -1,4 +1,5 @@
 import Darwin
+import CmuxSimulator
 import Foundation
 import Testing
 @testable import CmuxSimulatorWorker
@@ -6,6 +7,32 @@ import Testing
 @Suite("Web Inspector transport failure containment")
 @MainActor
 struct SimulatorWebInspectorServiceFailureTests {
+    @Test("Raw commands cannot collide with internal request identifiers")
+    func reservedRequestIdentifier() throws {
+        let service = Self.service()
+        service.session = SimulatorWebInspectorSession(
+            identifier: UUID(),
+            target: SimulatorWebInspectorTarget(
+                id: "APP|7",
+                applicationIdentifier: "APP",
+                pageIdentifier: 7,
+                title: "Fixture",
+                url: "https://example.test",
+                type: "WIRTypeWebPage",
+                applicationName: "Fixture",
+                bundleIdentifier: "com.example.fixture",
+                isInUse: false
+            ),
+            senderIdentifier: "SENDER"
+        )
+
+        #expect(throws: SimulatorWebInspectorError.reservedIdentifier) {
+            try service.sendMessageWithoutMutationGate(
+                #"{"id":-9000000000000000,"method":"Runtime.enable"}"#
+            )
+        }
+    }
+
     @Test("Refresh observes the first RPC send failure immediately")
     func refreshSendFailure() async {
         let service = Self.service()

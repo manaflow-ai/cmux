@@ -76,6 +76,14 @@ extension SimulatorWorkerCoordinator {
         } catch {
             guard toolOperationIsCurrent(operationGeneration) else { return }
             reportWebInspector(error)
+            send(.requestFailure(
+                requestID: requestIdentifier,
+                SimulatorFailure(
+                    code: "web_inspector_release_failed",
+                    message: error.localizedDescription,
+                    isRecoverable: true
+                )
+            ))
             emitAction(
                 "web_inspector_release",
                 summary: error.localizedDescription,
