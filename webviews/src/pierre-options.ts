@@ -19,6 +19,8 @@ export function codeViewOptions(
 ): CodeViewOptions<any> {
   return {
     layout: { paddingTop: 0, gap: 1, paddingBottom: 0 },
+    // Matches the 30px [data-diffs-header] min-height in codeViewUnsafeCSS.
+    itemMetrics: { diffHeaderHeight: 30 },
     diffStyle: options.layout,
     diffIndicators: options.diffIndicators,
     overflow: options.wordWrap ? "wrap" : "scroll",
