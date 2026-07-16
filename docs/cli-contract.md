@@ -85,6 +85,7 @@ Environment:
 | `auth` | Manage auth status, login, and logout through the app. |
 | `vm`, `cloud` | Manage cloud VMs. `cloud` is an alias for `vm`. |
 | `remotes`, `remote` | Manage remote Macs in the team device registry so they appear in the iOS app's device list. `remote` is an alias for `remotes`. |
+| `subrouter` | Inspect and switch the local subrouter daemon's AI-agent accounts through the app (`status`, `accounts`, `usage`, `switch <codex\|claude> <account>`, `sessions`, `reload`). Requires `subrouter.enabled`; all verbs support `--json`. |
 | `rpc` | Call a raw v2 socket method with optional JSON params. |
 | `identify` | Print server identity and caller context. |
 | `list-windows` | List windows. |
