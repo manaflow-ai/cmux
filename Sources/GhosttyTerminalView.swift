@@ -6441,14 +6441,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         onFocus?()
     }
 
-    override func mouseDown(with event: NSEvent) {
+    /// Applies terminal focus intent for pointer-downs that land outside the
+    /// capped terminal content but remain inside its pane.
+    func focusFromPointerDown() {
         terminalSurface?.didReceiveExplicitInput()
-        #if DEBUG
-        let debugPoint = convert(event.locationInWindow, from: nil)
-        cmuxDebugLog("terminal.mouseDown surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))] clickCount=\(event.clickCount) point=(\(String(format: "%.0f", debugPoint.x)),\(String(format: "%.0f", debugPoint.y)))")
-        #endif
-        let shouldForwardTerminalActivation = terminalPointerShouldForwardActivation()
-        // Treat pointer-down as explicit focus intent before forwarding any terminal activation.
         if let terminalSurface {
             if terminalSurface.focusPlacement == .rightSidebarDock {
                 AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: window)
@@ -6469,6 +6465,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 surfaceId: terminalSurface.id
             )
         }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        #if DEBUG
+        let debugPoint = convert(event.locationInWindow, from: nil)
+        cmuxDebugLog("terminal.mouseDown surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))] clickCount=\(event.clickCount) point=(\(String(format: "%.0f", debugPoint.x)),\(String(format: "%.0f", debugPoint.y)))")
+        #endif
+        let shouldForwardTerminalActivation = terminalPointerShouldForwardActivation()
+        // Treat pointer-down as explicit focus intent before forwarding any terminal activation.
+        focusFromPointerDown()
         guard shouldForwardTerminalActivation else { return }
         guard let surface = surface else { return }
         let eventPoint = convert(event.locationInWindow, from: nil)
@@ -7850,6 +7856,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 }
 
+private final class TerminalPaneBackgroundView: NSView {
+    var onPointerDown: (() -> Void)?
+    var onScrollWheel: ((NSEvent) -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        onPointerDown?()
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        onScrollWheel?(event)
+    }
+}
+
 private extension NSScreen {
     var displayID: UInt32? {
         let key = NSDeviceDescriptionKey("NSScreenNumber")
@@ -8105,7 +8124,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private var sharedBackdropCutoutView: NSView?
-    private let backgroundView: NSView
+    private let backgroundView: TerminalPaneBackgroundView
     private let scrollView: GhosttyScrollView
     private let documentView: NSView
     let surfaceView: GhosttyNSView
@@ -8364,7 +8383,7 @@ final class GhosttySurfaceScrollView: NSView {
         #endif
 
         self.surfaceView = surfaceView
-        backgroundView = NSView(frame: .zero)
+        backgroundView = TerminalPaneBackgroundView(frame: .zero)
         scrollView = GhosttyScrollView()
         inactiveOverlayView = GhosttyFlashOverlayView(frame: .zero)
         dropZoneOverlayView = GhosttyFlashOverlayView(frame: .zero)
@@ -8404,6 +8423,12 @@ final class GhosttySurfaceScrollView: NSView {
         backgroundView.wantsLayer = true
         backgroundView.layer?.backgroundColor = NSColor.clear.cgColor
         backgroundView.layer?.isOpaque = false
+        backgroundView.onPointerDown = { [weak surfaceView] in
+            surfaceView?.focusFromPointerDown()
+        }
+        backgroundView.onScrollWheel = { [weak scrollView] event in
+            scrollView?.scrollWheel(with: event)
+        }
         addSubview(backgroundView)
         addSubview(scrollView)
         mobileViewportBorderOverlayView.isHidden = true
@@ -8845,7 +8870,7 @@ final class GhosttySurfaceScrollView: NSView {
             _ = setFrameIfNeeded(sharedBackdropCutoutView, to: bounds)
         }
         _ = setFrameIfNeeded(backgroundView, to: bounds)
-        let contentFrame = sessionContentWidthPresentation.contentFrame(in: bounds)
+        let contentFrame = sessionContentFrame
         _ = setFrameIfNeeded(scrollView, to: contentFrame)
         let targetSize = scrollView.bounds.size
 #if DEBUG
@@ -8913,6 +8938,10 @@ final class GhosttySurfaceScrollView: NSView {
         _ = synchronizeGeometryAndContent()
     }
 
+    private var sessionContentFrame: CGRect {
+        sessionContentWidthPresentation.contentFrame(in: bounds)
+    }
+
     func setMobileViewportBorder(size: CGSize?, drawRight: Bool, drawBottom: Bool) {
         let isVisible = drawRight || drawBottom
         mobileViewportBorderOverlayView.effectiveSize = size
@@ -8967,8 +8996,8 @@ final class GhosttySurfaceScrollView: NSView {
         if let existing = cloudTerminalReconnectOverlayView {
             overlay = existing
         } else {
-            overlay = CloudTerminalReconnectOverlayView(frame: bounds)
-            overlay.autoresizingMask = [.width, .height]
+            overlay = CloudTerminalReconnectOverlayView(frame: sessionContentFrame)
+            overlay.autoresizingMask = []
             cloudTerminalReconnectOverlayView = overlay
         }
         overlay.apply(presentation)
@@ -8979,7 +9008,7 @@ final class GhosttySurfaceScrollView: NSView {
             }
             _ = workspace.reconnectCloudTerminalSurface(surfaceId: terminalSurface.id)
         }
-        overlay.frame = bounds
+        overlay.frame = sessionContentFrame
         if overlay.superview !== self {
             addSubview(overlay, positioned: .above, relativeTo: nil)
         }
@@ -9551,7 +9580,7 @@ final class GhosttySurfaceScrollView: NSView {
            lastSearchOverlayStateID == searchStateID,
            overlay.superview === self {
             cancelDeferredSearchOverlayMutation()
-            _ = setFrameIfNeeded(overlay, to: bounds)
+            _ = setFrameIfNeeded(overlay, to: sessionContentFrame)
             updateKeyboardCopyModeBadgeZOrder(relativeTo: overlay)
             return
         }
@@ -9573,8 +9602,8 @@ final class GhosttySurfaceScrollView: NSView {
                 scheduleDeferredSearchOverlayMutation(generation: mutationGeneration) { [weak self, weak overlay] in
                     guard let self, let overlay else { return }
                     overlay.removeFromSuperview()
-                    overlay.frame = self.bounds
-                    overlay.autoresizingMask = [.width, .height]
+                    overlay.frame = self.sessionContentFrame
+                    overlay.autoresizingMask = []
                     self.addSubview(overlay)
                     self.updateKeyboardCopyModeBadgeZOrder(relativeTo: overlay)
                     self.requestMountedSearchFieldFocus(
@@ -9585,23 +9614,23 @@ final class GhosttySurfaceScrollView: NSView {
                 return
             }
             cancelDeferredSearchOverlayMutation()
-            _ = setFrameIfNeeded(overlay, to: bounds)
+            _ = setFrameIfNeeded(overlay, to: sessionContentFrame)
             updateKeyboardCopyModeBadgeZOrder(relativeTo: overlay)
             return
         }
 
         searchFocusTarget = .searchField
         let overlay = TerminalSearchOverlayHostingView(rootView: rootView, surfaceView: surfaceView)
-        overlay.frame = bounds
-        overlay.autoresizingMask = [.width, .height]
+        overlay.frame = sessionContentFrame
+        overlay.autoresizingMask = []
         searchOverlayHostingView = overlay
         lastSearchOverlayStateID = searchStateID
         scheduleDeferredSearchOverlayMutation(generation: mutationGeneration) { [weak self, weak overlay] in
             guard let self, let overlay else { return }
             guard self.searchOverlayHostingView === overlay else { return }
             overlay.removeFromSuperview()
-            overlay.frame = self.bounds
-            overlay.autoresizingMask = [.width, .height]
+            overlay.frame = self.sessionContentFrame
+            overlay.autoresizingMask = []
             self.addSubview(overlay)
             self.updateKeyboardCopyModeBadgeZOrder(relativeTo: overlay)
             self.requestMountedSearchFieldFocus(
