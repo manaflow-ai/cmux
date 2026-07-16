@@ -319,7 +319,8 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
                 details: requested,
                 key: "browser.webExtension.permissionPrompt.permissions.message",
                 defaultValue: "The extension “%@” wants these browser permissions:\n\n%@"
-            )
+            ),
+            scrollableDetails: requested
         )
         completionHandler(allowed ? permissions : [], nil)
         persistPermissionStateSoon(for: extensionContext)
@@ -342,7 +343,8 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
                 details: requested,
                 key: "browser.webExtension.permissionPrompt.urls.message",
                 defaultValue: "The extension “%@” wants access to these pages:\n\n%@"
-            )
+            ),
+            scrollableDetails: requested
         )
         completionHandler(allowed ? urls : [], nil)
         persistPermissionStateSoon(for: extensionContext)
@@ -365,7 +367,8 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
                 details: requested,
                 key: "browser.webExtension.permissionPrompt.matchPatterns.message",
                 defaultValue: "The extension “%@” wants access to matching pages:\n\n%@"
-            )
+            ),
+            scrollableDetails: requested
         )
         completionHandler(allowed ? matchPatterns : [], nil)
         persistPermissionStateSoon(for: extensionContext)
@@ -388,9 +391,12 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
         )
     }
 
-    func confirmPermissionRequest(informativeText: String) -> Bool {
+    func confirmPermissionRequest(informativeText: String, scrollableDetails: String? = nil) -> Bool {
+        let content = scrollableDetails.map {
+            CmuxAlertContent(flattenedText: informativeText, separatingScrollableDetails: $0)
+        } ?? CmuxAlertContent.scrollingAll(informativeText)
         if let permissionConfirmation {
-            return permissionConfirmation(informativeText)
+            return permissionConfirmation(content.flattenedText)
         }
         let alert = NSAlert()
         alert.alertStyle = .warning
@@ -398,7 +404,6 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
             localized: "browser.webExtension.permissionPrompt.title",
             defaultValue: "Allow Extension Access?"
         )
-        alert.informativeText = informativeText
         alert.addButton(withTitle: String(
             localized: "browser.webExtension.permissionPrompt.allow",
             defaultValue: "Allow"
@@ -407,6 +412,6 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
             localized: "browser.webExtension.permissionPrompt.deny",
             defaultValue: "Deny"
         ))
-        return alert.runModal() == .alertFirstButtonReturn
+        return runCmuxModalAlert(alert, content: content) == .alertFirstButtonReturn
     }
 }

@@ -1,6 +1,6 @@
 import AppKit
 
-/// How ``runCmuxModalAlert(_:presentingWindow:willPresent:)`` ended up
+/// How ``runCmuxModalAlert(_:presentingWindow:content:willPresent:)`` ended up
 /// presenting an alert.
 ///
 /// Reported to the `willPresent` hook from inside the presenter so callers
@@ -69,6 +69,8 @@ func cmuxMainWindowForModalPresentation(preferring preferredWindow: NSWindow? = 
 ///   - alert: The configured alert to present.
 ///   - presentingWindow: An explicit host window. When `nil`, the main cmux
 ///     window is resolved via ``cmuxMainWindowForModalPresentation(preferring:)``.
+///   - content: Structured alert copy whose user-sized details are bounded to
+///     the presenting screen and made internally scrollable.
 ///   - willPresent: Invoked synchronously with the chosen presentation just
 ///     before the modal session begins, so callers can record telemetry from
 ///     the path the presenter actually takes instead of re-deriving it.
@@ -77,6 +79,7 @@ func cmuxMainWindowForModalPresentation(preferring preferredWindow: NSWindow? = 
 func runCmuxModalAlert(
     _ alert: NSAlert,
     presentingWindow: NSWindow? = nil,
+    content: CmuxAlertContent? = nil,
     willPresent: ((CmuxModalAlertPresentation) -> Void)? = nil
 ) -> NSApplication.ModalResponse {
     if NSApp.activationPolicy() == .regular {
@@ -84,6 +87,12 @@ func runCmuxModalAlert(
     }
 
     let hostWindow = presentingWindow ?? cmuxMainWindowForModalPresentation()
+    if let content {
+        content.apply(to: alert, presentingWindow: hostWindow)
+    } else if alert.accessoryView == nil, !alert.informativeText.isEmpty {
+        CmuxAlertContent(informativeText: alert.informativeText)
+            .apply(to: alert, presentingWindow: hostWindow)
+    }
     guard let hostWindow, hostWindow.attachedSheet == nil else {
         willPresent?(.appModal(hostWindowHadAttachedSheet: hostWindow?.attachedSheet != nil))
         return alert.runModal()

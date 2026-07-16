@@ -131,7 +131,7 @@ extension TerminalController {
             defaultValue: "Allow Resume Command?"
         )
         let cwd = binding.cwd ?? String(localized: "surfaceResumeApproval.cwd.none", defaultValue: "None")
-        alert.informativeText = String(
+        let informativeText = String(
             format: String(
                 localized: "surfaceResumeApproval.proposal.message",
                 defaultValue: "A process wants cmux to keep this resume command for the current terminal:\n\n%@\n\nWorking directory: %@"
@@ -142,6 +142,11 @@ extension TerminalController {
         alert.addButton(withTitle: String(localized: "surfaceResumeApproval.proposal.auto", defaultValue: "Auto-Restore"))
         alert.addButton(withTitle: String(localized: "surfaceResumeApproval.proposal.ask", defaultValue: "Ask Each Time"))
         alert.addButton(withTitle: String(localized: "surfaceResumeApproval.proposal.manual", defaultValue: "Keep Manual"))
+        let content = CmuxAlertContent(
+            flattenedText: informativeText,
+            separatingScrollableDetails: binding.command
+        )
+        content.apply(to: alert, presentingWindow: nil)
 
         switch alert.runModal() {
         case .alertFirstButtonReturn:

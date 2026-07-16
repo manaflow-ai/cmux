@@ -2488,7 +2488,7 @@ final class Workspace: Identifiable, ObservableObject {
             localized: "surfaceResumeApproval.runPrompt.title",
             defaultValue: "Run Resume Command?"
         )
-        alert.informativeText = String(
+        let informativeText = String(
             format: String(
                 localized: "surfaceResumeApproval.runPrompt.message",
                 defaultValue: "cmux is restoring a terminal with this resume command:\n\n%@\n\nWorking directory: %@"
@@ -2498,7 +2498,11 @@ final class Workspace: Identifiable, ObservableObject {
         )
         alert.addButton(withTitle: String(localized: "surfaceResumeApproval.runPrompt.run", defaultValue: "Run"))
         alert.addButton(withTitle: String(localized: "surfaceResumeApproval.runPrompt.skip", defaultValue: "Skip"))
-        return alert.runModal() == .alertFirstButtonReturn
+        let content = CmuxAlertContent(
+            flattenedText: informativeText,
+            separatingScrollableDetails: binding.command
+        )
+        return runCmuxModalAlert(alert, content: content) == .alertFirstButtonReturn
     }
 
     // MARK: - Initialization
@@ -11233,8 +11237,10 @@ extension Workspace: BonsplitDelegate {
             cancelButton.keyEquivalent = "\u{1b}"
         }
 
+        let content = CmuxAlertContent(informativeText: message)
         // Prefer a sheet if we can find a window, otherwise fall back to modal.
         if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            content.apply(to: alert, presentingWindow: window)
             return await withCheckedContinuation { continuation in
                 alert.beginSheetModal(for: window) { response in
                     continuation.resume(returning: response == .alertFirstButtonReturn)
@@ -11242,6 +11248,7 @@ extension Workspace: BonsplitDelegate {
             }
         }
 
+        content.apply(to: alert, presentingWindow: nil)
         return alert.runModal() == .alertFirstButtonReturn
     }
 
