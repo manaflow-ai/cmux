@@ -6,7 +6,7 @@ import Foundation
 ///
 /// The parent creates one projection before `LazyVStack`; SwiftUI invokes
 /// `input(for:)` only for realized rows. All expensive workspace presentation
-/// snapshots were already built by the parent's observation callbacks, so this
+/// snapshots are already present in its render-time value dictionary, so this
 /// resolver performs no model reads, state writes, or snapshot construction.
 struct SidebarWorkspaceRowInputProjection {
     let modelSnapshotsById: [UUID: SidebarWorkspaceRowModelSnapshot]
