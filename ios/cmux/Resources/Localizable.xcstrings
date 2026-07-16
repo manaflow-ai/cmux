@@ -3012,13 +3012,6 @@
         "ja": { "stringUnit": { "state": "translated", "value": "ワークスペース" } }
       }
     },
-    "mobile.notificationFeed.workspaceSurfaceFormat": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "%1$@ / %2$@" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%1$@ / %2$@" } }
-      }
-    },
     "mobile.settings.notifications": {
       "extractionState": "manual",
       "localizations": {

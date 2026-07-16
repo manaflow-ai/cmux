@@ -82,13 +82,13 @@ struct NotificationFeedRow: View {
                 ? L10n.string("mobile.notificationFeed.read", defaultValue: "Read")
                 : L10n.string("mobile.notificationFeed.unread", defaultValue: "Unread"),
         ]
+        details.append(workspaceName)
         if let subtitle = item.subtitle, !subtitle.isEmpty {
             details.append(subtitle)
         }
         if !item.body.isEmpty {
             details.append(item.body)
         }
-        details.append(workspaceName)
         if let surfaceTitle = item.surfaceTitle, !surfaceTitle.isEmpty {
             details.append(surfaceTitle)
         }
@@ -135,9 +135,11 @@ private struct NotificationFeedRowLabel: View {
                         .lineLimit(1)
                 }
 
+                NotificationFeedWorkspaceLabel(workspaceTitle: item.workspaceTitle)
+
                 if let subtitle = item.subtitle, !subtitle.isEmpty {
                     Text(subtitle)
-                        .font(.subheadline.weight(.medium))
+                        .font(.caption.weight(.medium))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
@@ -160,18 +162,40 @@ private struct NotificationFeedRowLabel: View {
     }
 }
 
+private struct NotificationFeedWorkspaceLabel: View {
+    let workspaceTitle: String?
+
+    var body: some View {
+        Label(workspaceName, systemImage: "rectangle.stack")
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+    }
+
+    private var workspaceName: String {
+        guard let workspaceTitle, !workspaceTitle.isEmpty else {
+            return L10n.string("mobile.notificationFeed.workspaceFallback", defaultValue: "Workspace")
+        }
+        return workspaceTitle
+    }
+}
+
 private struct NotificationFeedMetadata: View {
     let item: MobileNotificationFeedItem
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 7) {
-                workspaceLabel
-                separator
+                if let surfaceName {
+                    surfaceLabel(surfaceName)
+                    separator
+                }
                 macLabel
             }
             VStack(alignment: .leading, spacing: 3) {
-                workspaceLabel
+                if let surfaceName {
+                    surfaceLabel(surfaceName)
+                }
                 macLabel
             }
         }
@@ -179,8 +203,8 @@ private struct NotificationFeedMetadata: View {
         .foregroundStyle(.tertiary)
     }
 
-    private var workspaceLabel: some View {
-        Label(workspaceContext, systemImage: "rectangle.stack")
+    private func surfaceLabel(_ surfaceName: String) -> some View {
+        Label(surfaceName, systemImage: "terminal")
             .lineLimit(1)
     }
 
@@ -194,25 +218,11 @@ private struct NotificationFeedMetadata: View {
         Text(verbatim: "•").accessibilityHidden(true)
     }
 
-    private var workspaceName: String {
-        guard let title = item.workspaceTitle, !title.isEmpty else {
-            return L10n.string("mobile.notificationFeed.workspaceFallback", defaultValue: "Workspace")
-        }
-        return title
-    }
-
-    private var workspaceContext: String {
+    private var surfaceName: String? {
         guard let surfaceTitle = item.surfaceTitle, !surfaceTitle.isEmpty else {
-            return workspaceName
+            return nil
         }
-        return String(
-            format: L10n.string(
-                "mobile.notificationFeed.workspaceSurfaceFormat",
-                defaultValue: "%1$@ / %2$@"
-            ),
-            workspaceName,
-            surfaceTitle
-        )
+        return surfaceTitle
     }
 
     private var macStatusText: String {
