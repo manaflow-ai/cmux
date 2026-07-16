@@ -65,9 +65,18 @@ public struct HiveSyncRuntime: MobileSyncRuntime, Sendable {
         let supportedKinds: [CmxAttachTransportKind] = allowsLoopbackRoutes
             ? [.debugLoopback, .tailscale]
             : [.tailscale]
+        // Tailscale goes through the viewer's own tailnet-verified factory:
+        // the shared network factory fails closed for tailscale (correct for
+        // phone pairings from untrusted payloads), while the viewer's routes
+        // come from the account's own device registry.
         let networkFactory = CmxNetworkByteTransportFactory(supportedKinds: supportedKinds)
-        let registrations = supportedKinds.map {
-            CmxRouteTransportFactoryRegistration(kind: $0, factory: networkFactory)
+        let registrations = supportedKinds.map { kind in
+            CmxRouteTransportFactoryRegistration(
+                kind: kind,
+                factory: kind == .tailscale
+                    ? HiveTailscaleByteTransportFactory()
+                    : networkFactory
+            )
         }
         let transportFactory: any CmxByteTransportFactory
         do {
