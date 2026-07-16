@@ -11,6 +11,10 @@
 }
 
 * { box-sizing: border-box; }
+html {
+  scrollbar-gutter: stable;
+}
+
 html, body, #root { margin: 0; min-height: 100%; width: 100%; }
 body { background: transparent; color: var(--feed-foreground); }
 button, input { font: inherit; }
