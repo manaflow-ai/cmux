@@ -57,8 +57,9 @@ struct SidebarWorkspaceRowModelSnapshot {
         hasCustomTitle = workspace.hasCustomTitle
         hasCustomDescription = workspace.hasCustomDescription
         customTitle = workspace.customTitle
-        isRemoteContextMenuEligible = workspace.isRemoteWorkspace
-            && !workspace.isManagedCloudVMWorkspace
+        isRemoteContextMenuEligible = (
+            workspace.isRemoteWorkspace || workspace.isRemoteTmuxMirror
+        ) && !workspace.isManagedCloudVMWorkspace
         remoteConnectionState = workspace.remoteConnectionState
         inferredTaskStatus = workspace.inferredTaskStatus
         isTodoStatusHidden = workspace.todoState.statusHidden
