@@ -4,6 +4,19 @@ import Testing
 
 private final class CodexCriticalNotificationBundleMarker: NSObject {}
 
+private final class CodexCriticalClaimCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+
+    func increment() {
+        lock.withLock { value += 1 }
+    }
+
+    var count: Int {
+        lock.withLock { value }
+    }
+}
+
 @Suite("Codex critical notifications", .serialized)
 struct CodexCriticalNotificationTests {
     private let workspaceID = "11111111-1111-1111-1111-111111111111"
@@ -67,6 +80,59 @@ struct CodexCriticalNotificationTests {
         )
     }
 
+    @Test("A terminal stream disconnect notifies without a Stop hook")
+    func streamDisconnectNotifiesFromMonitor() throws {
+        let result = try runMonitor(
+            transcript: """
+            {"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-stream"}}
+            {"type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-stream","last_agent_message":null,"error":{"message":"stream disconnected before completion: error sending request for url (http://cmux-mac-mini:31415/v1/responses)","codex_error_info":"response_stream_disconnected"}}}
+            """,
+            sessionID: "session-stream",
+            turnID: "turn-stream"
+        )
+
+        #expect(!result.process.timedOut, result.process.stderr)
+        #expect(result.process.status == 0, result.process.stderr)
+        #expect(
+            result.commands.contains { command in
+                command.contains("notify_target \(workspaceID) \(surfaceID) Codex|Network error|stream disconnected before completion: error sending request for url")
+            },
+            "Expected the terminal stream disconnect to notify, saw \(result.commands)"
+        )
+    }
+
+    @Test("Critical notification claims are atomic across hook processes")
+    func criticalNotificationClaimIsAtomic() throws {
+        let root = URL(fileURLWithPath: "/tmp/cmux-codex-claim-\(UUID().uuidString.prefix(8))", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        let claimEnvironment = environment
+        let seedStore = ClaudeHookSessionStore(processEnv: claimEnvironment)
+        _ = try seedStore.upsertCodexPromptRunningIfFresh(
+            sessionId: "session-claim",
+            workspaceId: workspaceID,
+            surfaceId: surfaceID,
+            cwd: root.path,
+            turnId: "turn-claim"
+        )
+
+        let claims = CodexCriticalClaimCounter()
+        DispatchQueue.concurrentPerform(iterations: 8) { _ in
+            let claimedAt = try? ClaudeHookSessionStore(processEnv: claimEnvironment).claimNotificationEmission(
+                sessionId: "session-claim",
+                fingerprint: "critical-fingerprint"
+            )
+            if claimedAt != nil {
+                claims.increment()
+            }
+        }
+
+        #expect(claims.count == 1)
+    }
+
     private func runMonitor(
         transcript: String,
         sessionID: String,
@@ -97,6 +163,14 @@ struct CodexCriticalNotificationTests {
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        _ = try ClaudeHookSessionStore(processEnv: environment).upsertCodexPromptRunningIfFresh(
+            sessionId: sessionID,
+            workspaceId: workspaceID,
+            surfaceId: surfaceID,
+            cwd: root.path,
+            transcriptPath: transcriptURL.path,
+            turnId: turnID
+        )
         let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CodexCriticalNotificationBundleMarker.self)
         let process = runCodexHookProcess(
             executablePath: cliPath,

@@ -1226,6 +1226,77 @@ final class ClaudeHookSessionStore {
         }
     }
 
+    /// Atomically reserves a notification fingerprint across hook processes.
+    /// The returned timestamp identifies this exact reservation so a failed
+    /// delivery can release it without clearing a newer publisher's claim.
+    func claimNotificationEmission(
+        sessionId: String,
+        fingerprint: String,
+        within interval: TimeInterval = 60 * 60
+    ) throws -> TimeInterval? {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return nil }
+        let normalizedFingerprint = fingerprint.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedFingerprint.isEmpty else { return nil }
+        return try withLockedState { state in
+            guard var record = state.sessions[normalized] else { return nil }
+            let now = Date().timeIntervalSince1970
+            if let emittedAt = record.recentEmittedNotificationFingerprints?[normalizedFingerprint],
+               now - emittedAt <= interval {
+                return nil
+            }
+            if record.lastEmittedNotificationFingerprint == normalizedFingerprint,
+               let emittedAt = record.lastEmittedNotificationAt,
+               now - emittedAt <= interval {
+                return nil
+            }
+            record.lastEmittedNotificationFingerprint = normalizedFingerprint
+            record.lastEmittedNotificationAt = now
+            var recent = record.recentEmittedNotificationFingerprints ?? [:]
+            recent[normalizedFingerprint] = now
+            recent = recent.filter { now - $0.value <= 60 * 60 }
+            if recent.count > 16 {
+                let keep = recent.sorted { lhs, rhs in
+                    if lhs.value == rhs.value { return lhs.key < rhs.key }
+                    return lhs.value > rhs.value
+                }.prefix(16)
+                recent = Dictionary(uniqueKeysWithValues: keep.map { ($0.key, $0.value) })
+            }
+            record.recentEmittedNotificationFingerprints = recent
+            record.updatedAt = now
+            state.sessions[normalized] = record
+            return now
+        }
+    }
+
+    func releaseNotificationEmissionClaim(
+        sessionId: String,
+        fingerprint: String,
+        claimedAt: TimeInterval
+    ) throws {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return }
+        let normalizedFingerprint = fingerprint.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedFingerprint.isEmpty else { return }
+        try withLockedState { state in
+            guard var record = state.sessions[normalized],
+                  record.recentEmittedNotificationFingerprints?[normalizedFingerprint] == claimedAt else {
+                return
+            }
+            var recent = record.recentEmittedNotificationFingerprints ?? [:]
+            recent.removeValue(forKey: normalizedFingerprint)
+            record.recentEmittedNotificationFingerprints = recent.isEmpty ? nil : recent
+            if record.lastEmittedNotificationFingerprint == normalizedFingerprint,
+               record.lastEmittedNotificationAt == claimedAt {
+                let latest = recent.max { lhs, rhs in lhs.value < rhs.value }
+                record.lastEmittedNotificationFingerprint = latest?.key
+                record.lastEmittedNotificationAt = latest?.value
+            }
+            record.updatedAt = Date().timeIntervalSince1970
+            state.sessions[normalized] = record
+        }
+    }
+
     func hasRunningSession(
         workspaceId: String,
         surfaceId: String?,
@@ -26804,6 +26875,7 @@ struct CMUXCLI {
                 case .failure(let failure):
                     publishCodexMonitorFailure(
                         failure,
+                        sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         client: client
@@ -26845,6 +26917,7 @@ struct CMUXCLI {
                 case .failure(let failure):
                     publishCodexMonitorFailure(
                         failure,
+                        sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         client: client
@@ -26867,6 +26940,7 @@ struct CMUXCLI {
                     additionalDetails: nil,
                     isStreamError: false
                 ),
+                sessionId: sessionId,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 client: client
@@ -26899,14 +26973,38 @@ struct CMUXCLI {
 
     private func publishCodexMonitorFailure(
         _ failure: CodexHookFailureCandidate,
+        sessionId: String,
         workspaceId: String,
         surfaceId: String?,
         client: SocketClient
     ) {
         let summary = summarizeCodexHookFailureCandidate(failure)
         if let surfaceId, !surfaceId.isEmpty {
+            guard let fingerprint = AgentHookNotificationPolicy.dedupeFingerprint(
+                agentName: "codex",
+                sessionId: sessionId,
+                status: .error,
+                category: .other,
+                body: summary.body
+            ) else { return }
+            let store = ClaudeHookSessionStore()
+            guard let claimedAt = try? store.claimNotificationEmission(
+                sessionId: sessionId,
+                fingerprint: fingerprint
+            ) else {
+                return
+            }
             let payload = "Codex|\(sanitizeNotificationField(summary.subtitle))|\(sanitizeNotificationField(summary.body))"
-            _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
+            do {
+                _ = try sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
+            } catch {
+                try? store.releaseNotificationEmissionClaim(
+                    sessionId: sessionId,
+                    fingerprint: fingerprint,
+                    claimedAt: claimedAt
+                )
+                return
+            }
         }
         _ = try? sendV1Command(
             "set_status codex \(summary.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
@@ -31346,6 +31444,24 @@ export default CMUXSessionRestore;
                 && (grokAssistantMessage != nil || !hasGrokTranscriptContext)
             let shouldPublishStopAlert = (shouldPublishStopNotification || shouldPublishGrokStopFallbackNotification)
                 && !suppressCompletionNotification
+            let isCodexCriticalAlert = def.name == "codex" && stopNotificationStatus == .error
+            let codexCriticalClaim: (fingerprint: String, claimedAt: TimeInterval)?
+            let shouldSendStopAlertNotification: Bool
+            if shouldPublishStopAlert,
+               isCodexCriticalAlert,
+               let notificationFingerprint,
+               let claimedAt = try? store.claimNotificationEmission(
+                   sessionId: sessionId,
+                   fingerprint: notificationFingerprint
+               ) {
+                codexCriticalClaim = (notificationFingerprint, claimedAt)
+                shouldSendStopAlertNotification = true
+            } else {
+                codexCriticalClaim = nil
+                shouldSendStopAlertNotification = shouldPublishStopAlert
+                    && !isCodexCriticalAlert
+                    && shouldSendNotification(fingerprint: notificationFingerprint)
+            }
             if suppressVisibleMutations {
                 telemetry.breadcrumb(
                     staleIdleStopHasNewerRunningSession
@@ -31355,7 +31471,7 @@ export default CMUXSessionRestore;
             } else if suppressCompletionNotification {
                 telemetry.breadcrumb("\(def.name)-hook.stop.subagent-notification-suppressed")
             }
-            if shouldPublishStopAlert, shouldSendNotification(fingerprint: notificationFingerprint) {
+            if shouldSendStopAlertNotification {
                 // Tag successful turn-end pings so the app's "Agent Finished"
                 // setting covers every built-in agent, not just Claude. Error
                 // alerts stay untagged and always deliver.
@@ -31380,8 +31496,17 @@ export default CMUXSessionRestore;
                         env: env
                     )
 #endif
-                    markNotificationSent(fingerprint: notificationFingerprint)
+                    if codexCriticalClaim == nil {
+                        markNotificationSent(fingerprint: notificationFingerprint)
+                    }
                 } catch {
+                    if let codexCriticalClaim {
+                        try? store.releaseNotificationEmissionClaim(
+                            sessionId: sessionId,
+                            fingerprint: codexCriticalClaim.fingerprint,
+                            claimedAt: codexCriticalClaim.claimedAt
+                        )
+                    }
 #if DEBUG
                     agentHookDebugLog(
                         "agentHook.stop.notify.error agent=\(def.name) session=\(agentHookDebugShort(sessionId)) error=\(String(describing: error))",
