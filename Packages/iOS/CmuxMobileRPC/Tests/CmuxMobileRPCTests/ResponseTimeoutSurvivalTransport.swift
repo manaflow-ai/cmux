@@ -25,9 +25,13 @@ actor ResponseTimeoutSurvivalTransport: CmxByteTransport {
     func send(_ data: Data) async throws {
         var buffer = data
         let payloads = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
-        sentPayloads.append(contentsOf: payloads)
         for payload in payloads {
             let request = try recordedRPCRequest(from: payload)
+            if request.method == "mobile.connection.authenticate" {
+                try enqueueResponse(id: request.id)
+                continue
+            }
+            sentPayloads.append(payload)
             guard request.id == "second-after-timeout" else { continue }
             try enqueueResponse(id: request.id)
         }

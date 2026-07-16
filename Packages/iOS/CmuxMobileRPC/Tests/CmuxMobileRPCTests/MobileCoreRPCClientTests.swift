@@ -434,6 +434,53 @@ import Testing
         #expect(frame.hasAuth)
     }
 
+    @Test func stackTokenAuthenticatesPersistentConnectionOnlyOnce() async throws {
+        let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 58465)
+        let transport = AutoRespondingRPCTransport()
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: AutoRespondingRPCTransportFactory(transport: transport),
+            stackAccessToken: "test-stack-token"
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-main",
+            terminalID: "terminal-main",
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(60),
+            authToken: "ticket-secret"
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+
+        for (id, text) in [("input-1", "a"), ("input-2", "b")] {
+            let request = try MobileCoreRPCClient.requestData(
+                method: "terminal.input",
+                params: [
+                    "workspace_id": "workspace-main",
+                    "terminal_id": "terminal-main",
+                    "text": text,
+                ],
+                id: id
+            )
+            _ = try await client.sendRequest(request)
+        }
+
+        let sent = try await transport.sentRequests()
+        #expect(sent.map(\.method) == [
+            "mobile.connection.authenticate",
+            "terminal.input",
+            "terminal.input",
+        ])
+        #expect(sent.first?.stackAccessToken == "test-stack-token")
+        #expect(sent.dropFirst().allSatisfy { $0.stackAccessToken == nil })
+        #expect(sent.dropFirst().allSatisfy { $0.attachToken == "ticket-secret" })
+    }
+
     @Test func admittedIrohRequestCarriesNoStackOrAttachCredential() async throws {
         let identity = try CmxIrohPeerIdentity(
             endpointID: String(repeating: "ab", count: 32)

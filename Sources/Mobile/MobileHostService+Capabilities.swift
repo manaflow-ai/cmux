@@ -16,6 +16,7 @@ extension MobileHostService {
     /// data plane enforces.
     nonisolated static var mobileHostCapabilities: [String] {
         let capabilities = [
+            "connection.stack_auth.v1",
             "events.v1",
             "notification.badge.v1",
             "notification.dismiss.v1",

@@ -999,6 +999,19 @@ final class MobileHostService {
         }
 
         let id = UUID()
+        let authenticateConnection: (@Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?)?
+        let authorizeAuthenticatedRequest: (@Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?)?
+        if authorization == .stackBearer {
+            authenticateConnection = { request in
+                await MobileHostService.shared.stackAuthorizationError(for: request)
+            }
+            authorizeAuthenticatedRequest = { request in
+                await MobileHostService.shared.authenticatedConnectionAuthorizationError(for: request)
+            }
+        } else {
+            authenticateConnection = nil
+            authorizeAuthenticatedRequest = nil
+        }
         let session = MobileHostConnection(
             id: id,
             transport: transport,
@@ -1012,6 +1025,8 @@ final class MobileHostService {
                     }
                 )
             },
+            authenticateConnection: authenticateConnection,
+            authorizeAuthenticatedRequest: authorizeAuthenticatedRequest,
             onAuthorizedRequest: { request in
                 guard let clientID = Self.clientID(from: request.params) else {
                     return
@@ -1275,19 +1290,27 @@ final class MobileHostService {
         guard Self.requiresAuthorization(method: request.method) else {
             return nil
         }
-        // Stack auth is the SOLE authorization gate for the mobile data plane.
+        // Stack auth is the SOLE account gate for the mobile data plane.
         // The attach ticket is route-discovery and workspace-selection only; it
         // never authorizes on its own. Every operation must present the Mac
-        // owner's same-account Stack access token. Consequences: a leaked or
-        // photographed QR is useless without the owner's signed-in account, and
-        // pairing is bound to "who is signed in on this Mac" rather than a stored
-        // ticket, so it survives Mac restarts and ticket expiry.
+        // owner's same-account Stack access token, either on this request for a
+        // legacy client or on the connection-authentication request. A leaked or
+        // photographed QR is therefore useless without the owner's signed-in
+        // account. Pairing is bound to "who is signed in on this Mac" rather
+        // than a stored ticket, so it survives Mac restarts and ticket expiry.
+        if let stackError = await stackAuthorizationError(for: request) {
+            return stackError
+        }
+        return ticketAuthorizationResultIfNeeded(for: request)
+    }
+
+    private func stackAuthorizationError(for request: MobileHostRPCRequest) async -> MobileHostRPCResult? {
         if devStackTokenAuthorized(request) {
-            return ticketAuthorizationResultIfNeeded(for: request)
+            return nil
         }
         do {
             try await Self.verifyStackAuthOffMainActor(auth: request.auth)
-            return ticketAuthorizationResultIfNeeded(for: request)
+            return nil
         } catch MobileHostAuthorizationError.accountMismatch {
             // The presented Stack token is valid but belongs to a different
             // account than the one signed in on this Mac. Surface a distinct code
@@ -1305,6 +1328,15 @@ final class MobileHostService {
                 message: "Mobile sync authorization failed."
             ))
         }
+    }
+
+    private func authenticatedConnectionAuthorizationError(
+        for request: MobileHostRPCRequest
+    ) -> MobileHostRPCResult? {
+        guard Self.requiresAuthorization(method: request.method) else {
+            return nil
+        }
+        return ticketAuthorizationResultIfNeeded(for: request)
     }
 
     private func ticketAuthorizationResultIfNeeded(for request: MobileHostRPCRequest) -> MobileHostRPCResult? {
@@ -1613,6 +1645,8 @@ actor MobileHostConnection {
     private let firstFrameTimeoutNanoseconds: UInt64
     private let idleTimeoutNanoseconds: UInt64
     private let authorizeRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?
+    private let authenticateConnection: (@Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?)?
+    private let authorizeAuthenticatedRequest: (@Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?)?
     private let onAuthorizedRequest: @Sendable (MobileHostRPCRequest) async -> Void
     private let handleRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
     private let onClose: @Sendable (UUID) async -> Void
@@ -1629,6 +1663,7 @@ actor MobileHostConnection {
     private var independentEventNegotiationInProgress = false
     private var didDecodeFirstFrame = false
     private var isClosed = false
+    private var isStackAuthenticated = false
     /// stream_id → topics and their negotiated event delivery path.
     /// Populated by `mobile.events.subscribe`; cleared on close.
     private var subscriptions: [String: EventSubscription] = [:]
@@ -1640,6 +1675,8 @@ actor MobileHostConnection {
         idleTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultIdleTimeoutNanoseconds,
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
         authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
+        authenticateConnection: (@Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?)? = nil,
+        authorizeAuthenticatedRequest: (@Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?)? = nil,
         onAuthorizedRequest: @escaping @Sendable (MobileHostRPCRequest) async -> Void,
         handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
         onClose: @escaping @Sendable (UUID) async -> Void
@@ -1652,6 +1689,8 @@ actor MobileHostConnection {
         self.firstFrameTimeoutNanoseconds = firstFrameTimeoutNanoseconds
         self.idleTimeoutNanoseconds = idleTimeoutNanoseconds
         self.authorizeRequest = authorizeRequest
+        self.authenticateConnection = authenticateConnection
+        self.authorizeAuthenticatedRequest = authorizeAuthenticatedRequest
         self.onAuthorizedRequest = onAuthorizedRequest
         self.handleRequest = handleRequest
         self.onClose = onClose
@@ -1664,6 +1703,8 @@ actor MobileHostConnection {
         idleTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultIdleTimeoutNanoseconds,
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
         authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
+        authenticateConnection: (@Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?)? = nil,
+        authorizeAuthenticatedRequest: (@Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?)? = nil,
         onAuthorizedRequest: @escaping @Sendable (MobileHostRPCRequest) async -> Void,
         handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
         onClose: @escaping @Sendable (UUID) async -> Void
@@ -1675,6 +1716,8 @@ actor MobileHostConnection {
         self.firstFrameTimeoutNanoseconds = firstFrameTimeoutNanoseconds
         self.idleTimeoutNanoseconds = idleTimeoutNanoseconds
         self.authorizeRequest = authorizeRequest
+        self.authenticateConnection = authenticateConnection
+        self.authorizeAuthenticatedRequest = authorizeAuthenticatedRequest
         self.onAuthorizedRequest = onAuthorizedRequest
         self.handleRequest = handleRequest
         self.onClose = onClose
@@ -1896,7 +1939,36 @@ actor MobileHostConnection {
                     MobileHostRequestActivity.endRequest()
                 }
             }
-            if let error = await authorizeRequest(request) {
+            if request.method == "mobile.connection.authenticate",
+               let authenticateConnection {
+                if let error = await authenticateConnection(request) {
+                    guard !isClosed, !Task.isCancelled else {
+                        return
+                    }
+                    _ = await sendResponse(
+                        MobileHostRPCEnvelope.encodeResponse(id: request.id, result: error)
+                    )
+                    return
+                }
+                isStackAuthenticated = true
+                guard !isClosed, !Task.isCancelled else {
+                    return
+                }
+                _ = await sendResponse(
+                    MobileHostRPCEnvelope.ok(
+                        id: request.id,
+                        ["authorization": "stack_connection_v1"]
+                    )
+                )
+                return
+            }
+            let authorizationError: MobileHostRPCResult?
+            if isStackAuthenticated, let authorizeAuthenticatedRequest {
+                authorizationError = await authorizeAuthenticatedRequest(request)
+            } else {
+                authorizationError = await authorizeRequest(request)
+            }
+            if let error = authorizationError {
                 guard !isClosed, !Task.isCancelled else {
                     return
                 }
