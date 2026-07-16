@@ -1,4 +1,5 @@
 import CmuxHive
+import CmuxSettings
 import CmuxSettingsUI
 import Foundation
 
@@ -59,10 +60,36 @@ extension HostSettingsActions {
     func unpairComputer(deviceID: String) async {
         guard let directory = computersDirectory else { return }
         await directory.unpair(deviceID: deviceID)
+        await HiveComputersService.shared.discardEmbeddedSession(deviceID: deviceID)
     }
 
     func openComputerViewer(deviceID: String) {
-        HiveViewerWindowController.shared.show(deviceID: deviceID)
+        // Honor the presentation setting: sidebar mode routes the key main
+        // window's content to the embedded computer page (same page the
+        // sidebar scope picker drives); windows mode opens/focuses the
+        // per-computer auxiliary viewer window.
+        Task { @MainActor in
+            let presentation: ComputersPresentationMode
+            if let runtime = AppDelegate.shared?.settingsRuntime {
+                presentation = await runtime.jsonStore.value(for: runtime.catalog.computers.presentation)
+            } else {
+                presentation = .windows
+            }
+            switch presentation {
+            case .sidebar:
+                guard let appDelegate = AppDelegate.shared,
+                      let context = appDelegate.mainWindowContexts.values.first(where: { $0.window?.isKeyWindow == true })
+                        ?? appDelegate.mainWindowContexts.values.first(where: { $0.window != nil })
+                else {
+                    HiveViewerWindowController.shared.show(deviceID: deviceID)
+                    return
+                }
+                context.sidebarSelectionState.selection = .computer(deviceID: deviceID)
+                context.window?.makeKeyAndOrderFront(nil)
+            case .windows:
+                HiveViewerWindowController.shared.show(deviceID: deviceID)
+            }
+        }
     }
 
     /// Mints a short-lived 6-digit pairing code and advertises it through the

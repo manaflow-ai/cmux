@@ -4,6 +4,8 @@ import CmuxCommandPalette
 import CmuxCore
 import CmuxFeedback
 import CmuxFoundation
+import CmuxHive
+import CmuxHiveUI
 import CmuxPanes
 import CmuxSettings
 import CmuxWorkspaces
@@ -1733,6 +1735,14 @@ struct ContentView: View {
                 .opacity(sidebarSelectionState.selection == .notifications ? 1 : 0)
                 .allowsHitTesting(sidebarSelectionState.selection == .notifications)
                 .accessibilityHidden(sidebarSelectionState.selection != .notifications)
+
+            if case let .computer(deviceID) = sidebarSelectionState.selection {
+                HiveEmbeddedComputerPage(
+                    deviceID: deviceID,
+                    sessionProvider: { await HiveComputersService.shared.embeddedSession(deviceID: $0) }
+                )
+                .zIndex(3)
+            }
         }
         .modifier(WorkspacePresentationModeContentTopPaddingModifier(
             isFullScreen: isFullScreen,
@@ -10342,12 +10352,16 @@ struct VerticalTabsSidebar: View {
             } else {
                 extensionSidebarScrollArea(renderContext: renderContext)
             }
-            SidebarFooter(
-                updateViewModel: updateViewModel,
-                fileExplorerState: fileExplorerState,
-                modifierKeyMonitor: modifierKeyMonitor,
-                onSendFeedback: onSendFeedback
-            )
+            VStack(alignment: .leading, spacing: 4) {
+                HiveSidebarScopePicker(selection: $selection)
+                    .padding(.leading, 8)
+                SidebarFooter(
+                    updateViewModel: updateViewModel,
+                    fileExplorerState: fileExplorerState,
+                    modifierKeyMonitor: modifierKeyMonitor,
+                    onSendFeedback: onSendFeedback
+                )
+            }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .accessibilityIdentifier("Sidebar")
@@ -15807,7 +15821,11 @@ private struct ExtensionSidebarBrowserStackDropDelegate: DropDelegate {
     }
 }
 
-enum SidebarSelection {
+enum SidebarSelection: Equatable {
     case tabs
     case notifications
+    /// A paired remote computer presented in the main window's content area
+    /// (the `computers.presentation = sidebar` mode). Not persisted across
+    /// relaunch: sessions are live connections, so restore lands on `.tabs`.
+    case computer(deviceID: String)
 }

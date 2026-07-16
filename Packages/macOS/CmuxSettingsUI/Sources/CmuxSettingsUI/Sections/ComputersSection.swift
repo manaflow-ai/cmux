@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxSettings
 import SwiftUI
 
 /// **Computers** section — the account's registered computers (from the team
@@ -8,6 +9,7 @@ import SwiftUI
 @MainActor
 public struct ComputersSection: View {
     @State private var model: ComputersListModel
+    @State private var presentation: JSONValueModel<ComputersPresentationMode>
     /// Device ids with a pair/unpair action in flight, so their buttons show
     /// a busy state without re-rendering unrelated rows.
     @State private var pendingDeviceIDs: Set<String> = []
@@ -25,10 +27,24 @@ public struct ComputersSection: View {
     private let hostActions: SettingsHostActions
 
     /// Creates the Computers section bound to the host bridge.
-    /// - Parameter hostActions: Supplies the merged computer snapshots and
-    ///   the pair/unpair/refresh actions.
-    public init(hostActions: SettingsHostActions) {
+    /// - Parameters:
+    ///   - hostActions: Supplies the merged computer snapshots and the
+    ///     pair/unpair/refresh actions.
+    ///   - jsonStore: The `cmux.json` store backing the presentation mode.
+    ///   - catalog: The setting catalog carrying `computers.presentation`.
+    ///   - errorLog: Sink for JSON write failures.
+    public init(
+        hostActions: SettingsHostActions,
+        jsonStore: JSONConfigStore,
+        catalog: SettingCatalog,
+        errorLog: SettingsErrorLog
+    ) {
         _model = State(initialValue: ComputersListModel(hostActions: hostActions))
+        _presentation = State(initialValue: JSONValueModel(
+            store: jsonStore,
+            key: catalog.computers.presentation,
+            errorLog: errorLog
+        ))
         self.hostActions = hostActions
     }
 
@@ -55,10 +71,13 @@ public struct ComputersSection: View {
                 SettingsCardDivider()
                 pairThisMacRow
                 mintResultCaption
+                SettingsCardDivider()
+                presentationRow
             }
         }
         .task {
             startSettingsObservation([model])
+            presentation.startObserving()
             hostActions.refreshComputers()
             // Periodic registry re-fetch replaces the old manual Refresh
             // button; a bounded cadence delay cancelled with the view's task,
@@ -198,6 +217,34 @@ public struct ComputersSection: View {
             }
         case nil:
             EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    private var presentationRow: some View {
+        SettingsCardRow(
+            configurationReview: .json("computers.presentation"),
+            searchAnchorID: "setting:computers:presentation",
+            String(localized: "settings.computers.presentation", defaultValue: "Open Computers In"),
+            subtitle: presentation.current == .windows
+                ? String(
+                    localized: "settings.computers.presentation.windows.subtitle",
+                    defaultValue: "Each paired computer opens in its own window."
+                )
+                : String(
+                    localized: "settings.computers.presentation.sidebar.subtitle",
+                    defaultValue: "Paired computers merge into the main sidebar behind its computer picker."
+                )
+        ) {
+            Picker("", selection: Binding(get: { presentation.current }, set: { presentation.set($0) })) {
+                Text(String(localized: "settings.computers.presentation.windows", defaultValue: "Separate Windows"))
+                    .tag(ComputersPresentationMode.windows)
+                Text(String(localized: "settings.computers.presentation.sidebar", defaultValue: "Main Sidebar"))
+                    .tag(ComputersPresentationMode.sidebar)
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .accessibilityIdentifier("SettingsComputersPresentationPicker")
         }
     }
 

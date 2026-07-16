@@ -1507,6 +1507,21 @@
         }
       }
     },
+    "computers": {
+      "title": "computers",
+      "description": "Paired remote computers from Settings > Computers.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "presentation": {
+          "type": "string",
+          "enum": ["windows", "sidebar"],
+          "default": "windows",
+          "description": "How paired computers open: `windows` gives each computer its own viewer window; `sidebar` merges them into the main sidebar behind its computer picker.",
+          "descriptionKey": "schemaDescriptions.computers.presentation"
+        }
+      }
+    },
     "diffViewer": {
       "title": "diffViewer",
       "description": "Built-in diff viewer settings.",

@@ -238419,6 +238419,142 @@
           }
         }
       }
+    },
+    "settings.computers.presentation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Computers In"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータの表示先"
+          }
+        }
+      }
+    },
+    "settings.computers.presentation.windows.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Each paired computer opens in its own window."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリング済みのコンピュータをそれぞれ別のウインドウで開きます。"
+          }
+        }
+      }
+    },
+    "settings.computers.presentation.sidebar.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paired computers merge into the main sidebar behind its computer picker."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリング済みのコンピュータをメインサイドバーのコンピュータピッカーに統合します。"
+          }
+        }
+      }
+    },
+    "settings.computers.presentation.windows": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Separate Windows"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別ウインドウ"
+          }
+        }
+      }
+    },
+    "settings.computers.presentation.sidebar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Main Sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メインサイドバー"
+          }
+        }
+      }
+    },
+    "hive.scopePicker.thisMac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac"
+          }
+        }
+      }
+    },
+    "hive.embedded.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータを利用できません"
+          }
+        }
+      }
+    },
+    "hive.embedded.unavailable.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This computer isn't paired anymore. Pair it again in Settings › Computers."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコンピュータはペアリングが解除されています。設定 › コンピュータで再度ペアリングしてください。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

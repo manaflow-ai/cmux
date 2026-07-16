@@ -448,8 +448,13 @@ public struct SettingsWindowRoot: View {
         MobileSection(defaultsStore: defaultsStore, catalog: catalog, hostActions: hostActions)
             .id(anchorID(for: .mobile))
 
-        ComputersSection(hostActions: hostActions)
-            .id(anchorID(for: .computers))
+        ComputersSection(
+            hostActions: hostActions,
+            jsonStore: jsonStore,
+            catalog: catalog,
+            errorLog: runtime.errorLog
+        )
+        .id(anchorID(for: .computers))
 
         IrohNetworkingSection(hostActions: hostActions)
             .id(anchorID(for: .networking))
