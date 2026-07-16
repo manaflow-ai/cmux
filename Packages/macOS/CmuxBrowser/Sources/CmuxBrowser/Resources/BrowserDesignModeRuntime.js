@@ -1381,6 +1381,22 @@
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation();
+    // The composer region is pointer-dead for the page: no hover, and the
+    // shield must not advertise its crosshair there (WebKit derives the
+    // cursor from the hovered element's CSS even under native overlays).
+    const insideComposer = composerFrame
+      && event.clientX >= composerFrame.x && event.clientX <= composerFrame.x + composerFrame.width
+      && event.clientY >= composerFrame.y && event.clientY <= composerFrame.y + composerFrame.height;
+    if (overlay) {
+      overlay.shield.style.cursor = insideComposer ? "default" : "crosshair";
+    }
+    if (insideComposer) {
+      if (hoveredElement) {
+        hoveredElement = null;
+        scheduleOverlayRefresh();
+      }
+      return;
+    }
     if (pendingPointer && interactionMode === "draw") {
       const dx = event.clientX - pendingPointer.x;
       const dy = event.clientY - pendingPointer.y;
@@ -1394,15 +1410,6 @@
       }
     }
     if (interactionMode === "draw") return;
-    if (composerFrame
-        && event.clientX >= composerFrame.x && event.clientX <= composerFrame.x + composerFrame.width
-        && event.clientY >= composerFrame.y && event.clientY <= composerFrame.y + composerFrame.height) {
-      if (hoveredElement) {
-        hoveredElement = null;
-        scheduleOverlayRefresh();
-      }
-      return;
-    }
     const candidate = elementUnderPoint(event.clientX, event.clientY);
     if (!candidate || candidate === hoveredElement) return;
     hoveredElement = candidate;

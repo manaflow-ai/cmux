@@ -307,17 +307,13 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             }
 
             // Append tokens for newly stacked selections after whatever the
-            // user already has.
+            // user already has. No literal separator characters: the token
+            // cell carries its own visual margins, so backspace between
+            // pills always deletes a pill, never an invisible space.
             let present = Set(attachmentIdentities(in: storage))
             var appended = false
             for selection in effective where !present.contains(selection.selector) {
-                let insertion = NSMutableAttributedString()
-                if storage.length > 0, !storage.string.hasSuffix(" ") {
-                    insertion.append(NSAttributedString(string: " ", attributes: typingAttributes))
-                }
-                insertion.append(BrowserDesignModeTokenAttachment.attributedToken(for: selection, at: 0))
-                insertion.append(NSAttributedString(string: " ", attributes: typingAttributes))
-                storage.append(insertion)
+                storage.append(BrowserDesignModeTokenAttachment.attributedToken(for: selection, at: 0))
                 appended = true
             }
 
@@ -412,9 +408,14 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
             switch commandSelector {
             case #selector(NSResponder.insertNewline(_:)):
-                // Enter types a newline and the card grows downward;
-                // ⌘↩ (the copy button's shortcut) submits.
-                return false
+                // Cursor semantics: Enter copies; Shift/Option+Enter types a
+                // newline (long text wraps automatically either way).
+                if let event = NSApp.currentEvent,
+                   !event.modifierFlags.intersection([.shift, .option]).isEmpty {
+                    return false
+                }
+                Task { @MainActor [controller] in await controller.copySelection() }
+                return true
             case #selector(NSResponder.cancelOperation(_:)):
                 // Escape in the field follows the shared chain: reset the
                 // prompt first, exit Design Mode on a clean slate.
@@ -620,8 +621,10 @@ final class BrowserDesignModeTokenCell: NSTextAttachmentCell {
     }
 
     override func cellSize() -> NSSize {
+        // Width includes the visual breathing room between pills (no literal
+        // space characters live in the storage).
         let iconWidth: CGFloat = icon == nil ? 0 : 13
-        return NSSize(width: titleSize.width + iconWidth + 4, height: 18)
+        return NSSize(width: titleSize.width + iconWidth + 16, height: 18)
     }
 
     override func cellBaselineOffset() -> NSPoint {
@@ -630,7 +633,7 @@ final class BrowserDesignModeTokenCell: NSTextAttachmentCell {
 
     override func draw(withFrame cellFrame: NSRect, in controlView: NSView?) {
         // Cursor-style: plain blue icon + tag name, no pill background.
-        var textX = cellFrame.minX + 2
+        var textX = cellFrame.minX + 8
         if let icon {
             let iconRect = NSRect(
                 x: textX,

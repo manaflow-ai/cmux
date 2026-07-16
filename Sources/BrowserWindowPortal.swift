@@ -1458,7 +1458,14 @@ final class WindowBrowserSlotView: NSView {
         configuration: BrowserPortalDesignComposerConfiguration,
         overlay: BrowserDesignModeComposerHostingView
     ) -> BrowserDesignModePopoverHost {
-        BrowserDesignModePopoverHost(controller: configuration.controller) { [weak overlay, weak controller = configuration.controller] frame in
+        let dragBridge = BrowserDesignModeCardDragBridge()
+        overlay.onCardDrag = { [weak dragBridge] translation in
+            dragBridge?.translation = translation
+        }
+        return BrowserDesignModePopoverHost(
+            controller: configuration.controller,
+            dragBridge: dragBridge
+        ) { [weak overlay, weak controller = configuration.controller] frame in
             overlay?.cardFrameInTopLeftCoordinates = frame
             controller?.updateComposerFrame(frame)
         }

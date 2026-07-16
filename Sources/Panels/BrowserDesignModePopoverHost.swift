@@ -23,7 +23,14 @@ final class BrowserDesignModeComposerHostingView: NSHostingView<BrowserDesignMod
     /// not fire reliably over the embedded AppKit token text view, so the
     /// page-side hover clear is driven from this tracking area instead.
     var onPointerInsideCard: (() -> Void)?
+    /// Native card dragging: translation in top-left coordinates while a
+    /// drag that began on the card (outside the text editor) is active,
+    /// then nil on end. SwiftUI gestures cannot own this because the AppKit
+    /// editor consumes events over most of the card.
+    var onCardDrag: ((CGSize?) -> Void)?
     private var cardTrackingArea: NSTrackingArea?
+    private var cardDragStartInWindow: NSPoint?
+    private var cardDragActive = false
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -36,6 +43,54 @@ final class BrowserDesignModeComposerHostingView: NSHostingView<BrowserDesignMod
         )
         addTrackingArea(area)
         cardTrackingArea = area
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let localPoint = convert(event.locationInWindow, from: nil)
+        let topLeftPoint = isFlipped
+            ? localPoint
+            : NSPoint(x: localPoint.x, y: bounds.height - localPoint.y)
+        if cardFrameInTopLeftCoordinates.contains(topLeftPoint), !pointIsInTextEditor(localPoint) {
+            cardDragStartInWindow = event.locationInWindow
+        }
+        super.mouseDown(with: event)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        if let start = cardDragStartInWindow {
+            let dx = event.locationInWindow.x - start.x
+            let dy = start.y - event.locationInWindow.y
+            if cardDragActive || abs(dx) > 3 || abs(dy) > 3 {
+                cardDragActive = true
+                onCardDrag?(CGSize(width: dx, height: dy))
+            }
+        }
+        super.mouseDragged(with: event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        if cardDragActive {
+            onCardDrag?(nil)
+        }
+        cardDragStartInWindow = nil
+        cardDragActive = false
+        super.mouseUp(with: event)
+    }
+
+    /// The prompt editor keeps its own drag behavior (text selection); card
+    /// drags start anywhere else on the card.
+    private func pointIsInTextEditor(_ localPoint: NSPoint) -> Bool {
+        var stack: [NSView] = subviews
+        while let view = stack.popLast() {
+            if view is NSScrollView || view is NSTextView {
+                if let container = view.superview {
+                    let converted = convert(localPoint, to: container)
+                    if view.frame.contains(converted) { return true }
+                }
+            }
+            stack.append(contentsOf: view.subviews)
+        }
+        return false
     }
 
     override func mouseMoved(with event: NSEvent) {
@@ -83,6 +138,13 @@ final class BrowserDesignModeComposerHostingView: NSHostingView<BrowserDesignMod
     }
 }
 
+/// Relays native card drags from the AppKit hosting view into the SwiftUI
+/// placement state (translation while dragging, nil on end).
+@MainActor
+final class BrowserDesignModeCardDragBridge: ObservableObject {
+    @Published var translation: CGSize?
+}
+
 /// Presents the Design Mode composer as a floating card over the browser panel.
 ///
 /// The card anchors bottom-center until the user drags it; dragging moves the
@@ -93,6 +155,7 @@ struct BrowserDesignModePopoverHost: View {
     private static let edgeInset: CGFloat = 8
 
     @Bindable var controller: BrowserDesignModeController
+    @ObservedObject var dragBridge = BrowserDesignModeCardDragBridge()
     var onCardFrameChange: (CGRect) -> Void = { _ in }
 
     @State private var cardFrame: CGRect = .zero
@@ -137,6 +200,22 @@ struct BrowserDesignModePopoverHost: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: cardOrigin == nil ? .bottom : .topLeading)
+            .onChange(of: dragBridge.translation) { _, translation in
+                // Native card drags from the hosting view use the same
+                // clamped placement math as the SwiftUI gesture.
+                guard let translation else {
+                    dragStartOrigin = nil
+                    return
+                }
+                let start = dragStartOrigin ?? cardFrame.origin
+                dragStartOrigin = start
+                cardOrigin = CGPoint(
+                    x: min(max(start.x + translation.width, Self.edgeInset),
+                           max(Self.edgeInset, host.size.width - cardFrame.width - Self.edgeInset)),
+                    y: min(max(start.y + translation.height, Self.edgeInset),
+                           max(Self.edgeInset, host.size.height - cardFrame.height - Self.edgeInset))
+                )
+            }
             .onChange(of: activeAnchor) { _, anchor in
                 // Follow each new selection unless the user is mid-drag.
                 guard let anchor, dragStartOrigin == nil else { return }
