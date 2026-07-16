@@ -3014,7 +3014,15 @@ final class BrowserPanel: Panel, ObservableObject {
             pasteboard.clearContents()
             return pasteboard.setString(prompt, forType: .string)
         },
-        onActivityChanged: { [weak self] in self?.reevaluateHiddenWebViewDiscardScheduling(reason: "design_mode_changed") }
+        onActivityChanged: { [weak self] in
+            guard let self else { return }
+            self.reevaluateHiddenWebViewDiscardScheduling(reason: "design_mode_changed")
+            // Design Mode needs the omnibar on screen (pen toggle, URL
+            // context); drop browser focus mode when it activates.
+            if self.designModeController.isActive, self.isBrowserFocusModeActive {
+                self.clearBrowserFocusMode(reason: "designMode.activated")
+            }
+        }
     )
     var reactGrabMessageHandler: ReactGrabMessageHandler?
     var sslTrustBypassMessageHandler: BrowserSSLTrustBypassMessageHandler?
@@ -7243,7 +7251,10 @@ extension BrowserPanel {
         shouldRenderWebView &&
             browserInteractiveModalHostWindow(for: webView) != nil &&
             !webView.isHiddenOrHasHiddenAncestor &&
-            searchState == nil
+            searchState == nil &&
+            // Design Mode owns the pointer/keyboard and needs the omnibar's
+            // pen toggle reachable; never hide the chrome under it.
+            !designModeController.isActive
     }
 
     var canToggleBrowserFocusMode: Bool {
