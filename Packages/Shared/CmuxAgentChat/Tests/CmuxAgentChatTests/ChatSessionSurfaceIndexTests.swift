@@ -47,4 +47,23 @@ struct ChatSessionSurfaceIndexTests {
         expectParity(surfaceID: "surface-a")
         expectParity(surfaceID: "surface-b")
     }
+
+    @Test("an index miss scans authoritative records once and self-heals")
+    func selfHealsFromAuthoritativeRecords() {
+        let records = [
+            "one": Record(sessionID: "one", surfaceID: "surface-a"),
+            "two": Record(sessionID: "two", surfaceID: "surface-a"),
+            "other": Record(sessionID: "other", surfaceID: "surface-b"),
+        ]
+        var index = ChatSessionSurfaceIndex<String>()
+
+        let healed = index.sessionIDs(
+            surfaceID: "surface-a",
+            healingFrom: records,
+            recordSurfaceID: \.surfaceID
+        )
+
+        #expect(healed == ["one", "two"])
+        #expect(index.sessionIDs(surfaceID: "surface-a") == healed)
+    }
 }
