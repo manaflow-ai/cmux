@@ -38,6 +38,19 @@ private final class BrowserWebNotificationContractProbe: NSObject, WKScriptMessa
     }
 }
 
+private final class BrowserPersistentNotificationProbe: NSObject {
+    @objc dynamic let title: String
+    @objc dynamic let body: String
+    @objc dynamic let origin: String
+    @objc dynamic let dictionaryRepresentation: NSDictionary = ["notification": "probe"]
+
+    init(title: String, body: String, origin: URL) {
+        self.title = title
+        self.body = body
+        self.origin = origin.absoluteString
+    }
+}
+
 @MainActor
 private final class BrowserWebNotificationLoadProbe: NSObject, WKNavigationDelegate {
     private var continuation: CheckedContinuation<Void, Error>?
@@ -716,6 +729,95 @@ struct BrowserWebNotificationTests {
         #expect(notification.tabId == TerminalNotification.globalTargetSentinel)
         #expect(notification.paneFlash == false)
         #expect(notification.source == .website(profileID: profileID, origin: origin, isBackground: true))
+    }
+
+    @Test func persistentDeliveryRespectsTheLiveForwardingSetting() throws {
+        let setting = SettingCatalog().browser.forwardWebNotifications
+        let defaults = UserDefaults.standard
+        let previousSetting = defaults.object(forKey: setting.userDefaultsKey)
+        let store = TerminalNotificationStore.shared
+        let adapter = BrowserWebNotificationNativeAdapter.shared
+        let dataStore = WKWebsiteDataStore.nonPersistent()
+        let profileID = UUID()
+        adapter.setProfileForTesting(profileID, on: dataStore)
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        defer {
+            adapter.setProfileForTesting(nil, on: dataStore)
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            if let previousSetting { defaults.set(previousSetting, forKey: setting.userDefaultsKey) }
+            else { defaults.removeObject(forKey: setting.userDefaultsKey) }
+        }
+
+        setting.set(false, in: defaults)
+        let notification = BrowserPersistentNotificationProbe(
+            title: "Background",
+            body: "Must stay hidden",
+            origin: try #require(URL(string: "https://example.com"))
+        )
+        adapter.showPersistentNotification(notification, from: dataStore)
+        #expect(store.notifications.isEmpty)
+    }
+
+    @Test func nativeForegroundDeliveryUsesTheNotificationsSecurityOrigin() throws {
+        let setting = SettingCatalog().browser.forwardWebNotifications
+        let defaults = UserDefaults.standard
+        let previousSetting = defaults.object(forKey: setting.userDefaultsKey)
+        defer {
+            if let previousSetting { defaults.set(previousSetting, forKey: setting.userDefaultsKey) }
+            else { defaults.removeObject(forKey: setting.userDefaultsKey) }
+        }
+        setting.set(true, in: defaults)
+        let panel = BrowserPanel(workspaceId: UUID(), renderInitialNavigation: false)
+        defer { panel.close() }
+        var subtitle: String?
+        panel.deliverWebNotification = { _, _, _, deliveredSubtitle, _ in
+            subtitle = deliveredSubtitle
+        }
+
+        panel.handleNativeWebNotification(
+            title: "Origin probe",
+            body: "Ready",
+            securityOrigin: try #require(URL(string: "http://cmux-loopback.localtest.me:4317"))
+        )
+        #expect(subtitle == "localhost")
+    }
+
+    @Test func removedNativeManagerAddressCanBeProvisionedAgain() {
+        let adapter = BrowserWebNotificationNativeAdapter.shared
+        let manager = UnsafeRawPointer(bitPattern: 0xCAFE)!
+        #expect(adapter.provisionManagerForTesting(manager))
+        #expect(adapter.isManagerTrackedForTesting(manager))
+
+        adapter.simulateManagerRemovalForTesting(manager)
+        #expect(!adapter.isManagerTrackedForTesting(manager))
+        #expect(adapter.provisionManagerForTesting(manager))
+    }
+
+    @Test func rejectedPersistentClickOpensTheDisplayOrigin() throws {
+        let adapter = BrowserWebNotificationNativeAdapter.shared
+        let dataStore = WKWebsiteDataStore.nonPersistent()
+        let notificationID = UUID()
+        let proxyOrigin = try #require(URL(string: "http://cmux-loopback.localtest.me:4317"))
+        var openedURL: URL?
+        adapter.persistentClickProcessorForTesting = { _, _, completion in
+            completion(false)
+            return true
+        }
+        adapter.externalURLOpenerForTesting = { url in
+            openedURL = url
+            return true
+        }
+        adapter.registerPersistentClickForTesting(
+            notificationID: notificationID,
+            dataStore: dataStore,
+            origin: proxyOrigin
+        )
+        defer { adapter.resetNativeDeliveryTestingState() }
+
+        adapter.handleGlobalNotificationClick(notificationID: notificationID, fallbackOrigin: proxyOrigin)
+        #expect(openedURL?.absoluteString == "http://localhost:4317")
     }
 
     @Test func settingsFileAndGeneratedTemplateExposeForwardingToggle() throws {
