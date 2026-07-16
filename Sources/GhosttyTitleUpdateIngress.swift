@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 /// Synchronous callback ingress: duplicate titles are rejected before an
@@ -5,14 +6,19 @@ import Foundation
 /// so its newest-value stream preserves that view's final title without a
 /// process-global mailbox or cross-surface contention.
 final class GhosttyTitleUpdateIngress {
-    private let continuation: AsyncStream<GhosttyTitleUpdateEvent>.Continuation
+    private let attachmentGeneration: AtomicUInt64Generation
+    private let dispatcher: GhosttyTitleUpdateDispatcher
+    private let continuation: AsyncStream<GhosttyTitleUpdate>.Continuation
     private let consumerTask: Task<Void, Never>
     /// Ghostty serializes action callbacks for a view; no other context reads
     /// or writes this duplicate-rejection snapshot.
     private var lastSubmittedUpdate: GhosttyTitleUpdate?
 
     init(center: NotificationCenter = .default) {
-        let dispatcher = GhosttyTitleUpdateDispatcher { updates in
+        let attachmentGeneration = AtomicUInt64Generation()
+        let dispatcher = GhosttyTitleUpdateDispatcher(
+            attachmentGeneration: attachmentGeneration
+        ) { updates in
 #if DEBUG
             let timingStart = CmuxTypingTiming.start()
 #endif
@@ -33,18 +39,15 @@ final class GhosttyTitleUpdateIngress {
             )
 #endif
         }
-        let (events, continuation) = AsyncStream<GhosttyTitleUpdateEvent>.makeStream(
+        let (updates, continuation) = AsyncStream<GhosttyTitleUpdate>.makeStream(
             bufferingPolicy: .bufferingNewest(1)
         )
+        self.attachmentGeneration = attachmentGeneration
+        self.dispatcher = dispatcher
         self.continuation = continuation
         consumerTask = Task {
-            for await event in events {
-                switch event {
-                case .update(let update):
-                    await dispatcher.receive(update)
-                case .retire(let surfaceKey):
-                    await dispatcher.retire(surfaceKey)
-                }
+            for await update in updates {
+                await dispatcher.receive(update)
             }
         }
     }
@@ -62,11 +65,12 @@ final class GhosttyTitleUpdateIngress {
             tabId: tabId,
             surfaceId: surfaceId,
             title: title,
-            sourceSurfaceIdentifier: ObjectIdentifier(sourceSurface)
+            sourceSurfaceIdentifier: ObjectIdentifier(sourceSurface),
+            attachmentGeneration: attachmentGeneration.loadRelaxed()
         )
         guard update != lastSubmittedUpdate else { return false }
         lastSubmittedUpdate = update
-        switch continuation.yield(.update(update)) {
+        switch continuation.yield(update) {
         case .enqueued, .dropped:
             return true
         case .terminated:
@@ -76,7 +80,10 @@ final class GhosttyTitleUpdateIngress {
         }
     }
 
-    func retire(_ surfaceKey: GhosttyTitleUpdateSurfaceKey) {
-        _ = continuation.yield(.retire(surfaceKey))
+    func retireCurrentAttachment() {
+        let nextGeneration = attachmentGeneration.advanceRelaxed()
+        Task { [dispatcher] in
+            await dispatcher.retireUpdates(before: nextGeneration)
+        }
     }
 }
