@@ -460,10 +460,10 @@ impl Terminal {
         self.cursor_override.active
     }
 
-    /// Set host-provided default foreground/background colors.
+    /// Set host-provided default foreground, background, and cursor colors.
     ///
     /// `None` leaves that channel unchanged.
-    pub fn set_default_colors(&mut self, fg: Option<Rgb>, bg: Option<Rgb>) {
+    pub fn set_default_colors(&mut self, fg: Option<Rgb>, bg: Option<Rgb>, cursor: Option<Rgb>) {
         unsafe {
             if let Some(fg) = fg {
                 let color = sys::GhosttyColorRgb { r: fg.r, g: fg.g, b: fg.b };
@@ -478,6 +478,14 @@ impl Terminal {
                 sys::ghostty_terminal_set(
                     self.raw,
                     sys::GHOSTTY_TERMINAL_OPT_COLOR_BACKGROUND,
+                    &color as *const sys::GhosttyColorRgb as *const c_void,
+                );
+            }
+            if let Some(cursor) = cursor {
+                let color = sys::GhosttyColorRgb { r: cursor.r, g: cursor.g, b: cursor.b };
+                sys::ghostty_terminal_set(
+                    self.raw,
+                    sys::GHOSTTY_TERMINAL_OPT_COLOR_CURSOR,
                     &color as *const sys::GhosttyColorRgb as *const c_void,
                 );
             }

@@ -1394,7 +1394,8 @@ fn run_ghostty_show_config(path: &Path) -> Option<String> {
 ///
 /// When the Ghostty executable is unavailable, a theme is only accepted if
 /// its file can be read. This preserves Ghostty's fail-soft behavior: a
-/// later missing theme leaves the last loadable one in effect.
+/// later theme entries are ignored, matching Ghostty's first-theme-wins
+/// behavior.
 pub(crate) fn parse_ghostty_defaults(text: &str) -> DefaultColors {
     parse_ghostty_defaults_with_theme_dirs(text, &platform::ghostty_theme_dirs())
 }
@@ -1406,7 +1407,9 @@ fn parse_ghostty_defaults_with_theme_dirs(text: &str, theme_dirs: &[PathBuf]) ->
         let line = line.trim();
         let Some((key, value)) = line.split_once('=') else { continue };
         if key.trim() == "theme" {
-            if let Some(theme_defaults) = load_ghostty_theme(value.trim(), theme_dirs) {
+            if theme.is_none()
+                && let Some(theme_defaults) = load_ghostty_theme(value.trim(), theme_dirs)
+            {
                 theme = Some(theme_defaults);
             }
         } else {
@@ -1442,6 +1445,11 @@ fn apply_ghostty_default(defaults: &mut DefaultColors, key: &str, value: &str) {
         "background" => {
             if let Some(color) = ghostty_vt::parse_color(value) {
                 defaults.bg = Some(color);
+            }
+        }
+        "cursor-color" => {
+            if let Some(color) = ghostty_vt::parse_color(value) {
+                defaults.cursor = Some(color);
             }
         }
         "selection-background" => {
@@ -1498,6 +1506,9 @@ fn overlay_ghostty_defaults(defaults: &mut DefaultColors, overrides: DefaultColo
     }
     if overrides.bg.is_some() {
         defaults.bg = overrides.bg;
+    }
+    if overrides.cursor.is_some() {
+        defaults.cursor = overrides.cursor;
     }
     if overrides.selection_bg.is_some() {
         defaults.selection_bg = overrides.selection_bg;
@@ -1600,6 +1611,7 @@ mod tests {
              foreground = #fdfff1\n\
              selection-background = #57584f\n\
              selection-foreground = #fdfff1\n\
+             cursor-color = #c0c1b5\n\
              cursor-style = bar\n\
              cursor-style-blink = false\n\
              palette = 0=#272822\n\
@@ -1611,6 +1623,7 @@ mod tests {
         assert_eq!(defaults.fg, Some(Rgb { r: 0xfd, g: 0xff, b: 0xf1 }));
         assert_eq!(defaults.selection_bg, Some(Rgb { r: 0x57, g: 0x58, b: 0x4f }));
         assert_eq!(defaults.selection_fg, Some(Rgb { r: 0xfd, g: 0xff, b: 0xf1 }));
+        assert_eq!(defaults.cursor, Some(Rgb { r: 0xc0, g: 0xc1, b: 0xb5 }));
         assert_eq!(defaults.cursor_style, Some(CursorShape::Bar));
         assert_eq!(defaults.cursor_blink, Some(false));
         assert_eq!(defaults.palette[0], Some(Rgb { r: 0x27, g: 0x28, b: 0x22 }));
