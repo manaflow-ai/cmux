@@ -47,7 +47,7 @@ use crate::{
     assign_short_ids,
 };
 
-pub const PROTOCOL_VERSION: u32 = 7;
+pub const PROTOCOL_VERSION: u32 = 8;
 
 /// Default socket path for a session.
 pub fn default_socket_path(session: &str) -> PathBuf {
@@ -1412,6 +1412,11 @@ fn node_json(node: &Node) -> Value {
             "ratio": ratio,
             "a": node_json(a),
             "b": node_json(b),
+        }),
+        Node::Stack { panes, expanded } => json!({
+            "type": "stack",
+            "panes": panes,
+            "expanded": expanded,
         }),
     }
 }

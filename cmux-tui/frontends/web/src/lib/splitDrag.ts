@@ -50,6 +50,7 @@ function paneWithoutCrossingDirection(
   direction: PaneLayoutGroup["direction"],
 ): Id | null {
   if (node.type === "pane") return node.pane;
+  if (node.type === "stack") return node.expanded;
   if (node.direction === direction) return null;
   return paneWithoutCrossingDirection(node.first, direction)
     ?? paneWithoutCrossingDirection(node.second, direction);

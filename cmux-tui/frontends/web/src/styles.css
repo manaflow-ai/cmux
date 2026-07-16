@@ -94,11 +94,14 @@ button { color: inherit; touch-action: manipulation; }
 .new-workspace:hover { color: var(--status-active-fg); background: var(--sidebar-active-bg); }
 
 .pane-layout { display: flex; grid-area: 1 / 2; min-width: 0; min-height: 0; overflow: hidden; }
-.pane-layout > .pane-leaf, .pane-layout > .pane-group { flex: 1 1 auto; min-width: 0; min-height: 0; }
+.pane-layout > .pane-leaf, .pane-layout > .pane-group, .pane-layout > .pane-stack { flex: 1 1 auto; min-width: 0; min-height: 0; }
 .pane-group { position: relative; display: flex; width: 100%; height: 100%; min-width: 0; min-height: 0; gap: 1px; background: var(--border-inactive); }
 .pane-group.row { flex-direction: row; }
 .pane-group.column { flex-direction: column; }
 .pane-leaf { min-width: 0; min-height: 0; background: var(--terminal-background); }
+.pane-stack { display: flex; flex-direction: column; width: 100%; height: 100%; min-width: 0; min-height: 0; gap: 1px; overflow: hidden; background: var(--border-inactive); }
+.pane-stack > .pane-leaf { flex: 0 1 30px; overflow: hidden; }
+.pane-stack > .pane-leaf.expanded { flex: 1 1 auto; min-height: 30px; }
 .split-divider { position: absolute; z-index: 5; padding: 0; border: 0; background: var(--border-inactive); touch-action: none; user-select: none; -webkit-user-select: none; }
 .split-divider::before { position: absolute; content: ""; }
 .pane-group.row > .split-divider { top: 0; bottom: 0; width: 1px; transform: translateX(-0.5px); cursor: col-resize; }

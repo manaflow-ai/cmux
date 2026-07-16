@@ -1,6 +1,8 @@
 //! Pure layout math shared by frontends: a screen's split tree plus a
 //! rectangle produce pane rects that tile the area exactly.
 
+use std::collections::HashSet;
+
 use crate::{Node, PaneId, SplitDir};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -20,6 +22,9 @@ impl Rect {
 #[derive(Debug, Default)]
 pub struct LayoutResult {
     pub panes: Vec<(PaneId, Rect)>,
+    /// Pane rows that represent collapsed Zellij stack headers rather than
+    /// terminal content.
+    pub stacked_headers: HashSet<PaneId>,
 }
 
 impl LayoutResult {
@@ -191,16 +196,8 @@ pub fn zellij_default_pane_layout(panes: &[PaneId]) -> Option<Node> {
 }
 
 fn zellij_stacked_layout(panes: &[PaneId]) -> Node {
-    match panes {
-        [pane] => Node::Leaf(*pane),
-        [pane, rest @ ..] => Node::Split {
-            dir: SplitDir::Down,
-            ratio: 0.0,
-            a: Box::new(Node::Leaf(*pane)),
-            b: Box::new(zellij_stacked_layout(rest)),
-        },
-        [] => unreachable!("stack layout requires at least one pane"),
-    }
+    let expanded = *panes.last().expect("stack layout requires at least one pane");
+    Node::Stack { panes: panes.to_vec(), expanded }
 }
 
 fn equal_split(panes: &[PaneId], dir: SplitDir) -> Node {
@@ -237,6 +234,33 @@ fn walk(node: &Node, area: Rect, out: &mut LayoutResult) {
             walk(a, a_rect, out);
             walk(b, b_rect, out);
         }
+        Node::Stack { panes, expanded } => walk_stack(panes, *expanded, area, out),
+    }
+}
+
+fn walk_stack(panes: &[PaneId], expanded: PaneId, area: Rect, out: &mut LayoutResult) {
+    let expanded_index = panes.iter().position(|pane| *pane == expanded).unwrap_or(panes.len() - 1);
+    let visible_headers = usize::from(area.height.saturating_sub(1)).min(panes.len() - 1);
+    let headers_before = expanded_index.min(visible_headers);
+    let headers_after = (visible_headers - headers_before).min(panes.len() - expanded_index - 1);
+    let expanded_height = area.height.saturating_sub((headers_before + headers_after) as u16);
+
+    let mut y = area.y;
+    for (index, pane) in panes.iter().copied().enumerate() {
+        let height = if index == expanded_index {
+            expanded_height
+        } else if index < headers_before
+            || index > expanded_index && index <= expanded_index + headers_after
+        {
+            1
+        } else {
+            0
+        };
+        out.panes.push((pane, Rect { y, height, ..area }));
+        if height == 1 && index != expanded_index {
+            out.stacked_headers.insert(pane);
+        }
+        y = y.saturating_add(height);
     }
 }
 
@@ -310,6 +334,7 @@ fn leaf_without_crossing_dir(node: &Node, dir: SplitDir) -> Option<PaneId> {
                 leaf_without_crossing_dir(a, dir).or_else(|| leaf_without_crossing_dir(b, dir))
             }
         }
+        Node::Stack { expanded, .. } => Some(*expanded),
     }
 }
 
@@ -398,7 +423,21 @@ mod tests {
         for (index, (_, rect)) in layout.panes[..12].iter().enumerate() {
             assert_eq!(*rect, Rect { x: 0, y: index as u16, width: 120, height: 1 });
         }
+        assert_eq!(layout.stacked_headers.len(), 12);
+        assert!(panes[..12].iter().all(|pane| layout.stacked_headers.contains(pane)));
         assert_eq!(layout.panes[12].1, Rect { x: 0, y: 12, width: 120, height: 28 });
+    }
+
+    #[test]
+    fn zellij_stack_expands_focus_and_keeps_it_visible_in_short_areas() {
+        let panes = (1..=13).collect::<Vec<_>>();
+        let mut root = zellij_default_pane_layout(&panes).unwrap();
+        assert!(root.expand_stack(1));
+
+        let layout = layout_screen(&root, Rect { x: 0, y: 0, width: 80, height: 5 });
+        assert_eq!(layout.rect_of(1), Some(Rect { x: 0, y: 0, width: 80, height: 1 }));
+        assert!(!layout.stacked_headers.contains(&1));
+        assert_eq!(layout.stacked_headers.len(), 4);
     }
 
     #[test]

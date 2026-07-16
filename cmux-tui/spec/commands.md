@@ -1,6 +1,6 @@
 # Command Contract
 
-This file specifies the JSON command contract for the cmux-tui protocol. Implemented commands match protocol v7 in `cmux-tui/crates/cmux-tui-core/src/server.rs`.
+This file specifies the JSON command contract for the cmux-tui protocol. Implemented commands match protocol v8 in `cmux-tui/crates/cmux-tui-core/src/server.rs`.
 
 ## Notation
 
@@ -59,6 +59,7 @@ object{
 ```text
 object{type:"leaf",pane:Id}
 | object{type:"split",dir:"right"|"down",ratio:float32,a:Layout,b:Layout}
+| object{type:"stack",panes:array<Id>,expanded:Id}
 ```
 
 `DeclarativeLayout`:
@@ -131,7 +132,7 @@ Example:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":7,"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":8,"session":"main","pid":12345}}
 ```
 
 ### ping
@@ -872,9 +873,9 @@ Example:
 | --- | --- |
 | name | `new-pane` |
 | status | implemented |
-| since | protocol 7 |
+| since | protocol 8 |
 
-Creates a PTY pane after the current panes in creation order, focuses it, and reapplies Zellij's default auto-layout. Panes one through five use one full-height left column and up to four equal right-side rows. Panes six through twelve fill balanced columns of four. Above twelve panes, older panes collapse to one-row headers and the newest pane expands in the remaining stacked area. The new surface inherits the active surface working directory of `pane` when available.
+Creates a PTY pane after the current panes in creation order, focuses it, and reapplies Zellij's default auto-layout. Panes one through five use one full-height left column and up to four equal right-side rows. Panes six through twelve fill balanced columns of four. Above twelve panes, non-focused panes collapse to one-row headers and the focused pane expands in the remaining stacked area. The new surface inherits the active surface working directory of `pane` when available.
 
 Params:
 

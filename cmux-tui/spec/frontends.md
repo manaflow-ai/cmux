@@ -58,7 +58,7 @@ Browser surfaces use the browser attach events documented in [`events.md`](event
 
 The workspace tree carries per-surface notification state for initial rendering. A subscribed frontend also receives `notification` events with title, body, level, and optional surface. Show the notification and mark the referenced surface as needing attention until the user views it; then use the relevant selection/read path described in [`commands.md`](commands.md).
 
-Call [`list-agents`](commands.md#list-agents) to read current agent records, optionally filtered by surface or state. Agent producers report state through [`report-agent`](commands.md#report-agent); a presentation-only frontend normally reads and displays these records rather than inventing its own agent state. There is no dedicated agent-change event in protocol v7, so re-fetch after a frontend reports state and when tree or surface lifecycle events make the presentation stale.
+Call [`list-agents`](commands.md#list-agents) to read current agent records, optionally filtered by surface or state. Agent producers report state through [`report-agent`](commands.md#report-agent); a presentation-only frontend normally reads and displays these records rather than inventing its own agent state. There is no dedicated agent-change event in protocol v8, so re-fetch after a frontend reports state and when tree or surface lifecycle events make the presentation stale.
 
 ## End-to-End WebSocket Transcript
 

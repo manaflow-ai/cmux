@@ -1,6 +1,6 @@
 # Event Contract
 
-This file specifies event lines emitted by protocol v7, including compatibility notes for fields and attach behavior introduced in earlier versions. Event lines are JSON objects with an `event` string and no response envelope.
+This file specifies event lines emitted by protocol v8, including compatibility notes for fields and attach behavior introduced in earlier versions. Event lines are JSON objects with an `event` string and no response envelope.
 
 Implemented event lines can appear on two stream types:
 

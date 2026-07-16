@@ -1,6 +1,6 @@
 # Control Socket Protocol
 
-As of protocol v7, every server speaks JSON Lines over a Unix domain socket. Send one JSON object per line. Every request receives one response line. `subscribe` and `attach-surface` also push event lines on the same connection.
+As of protocol v8, every server speaks JSON Lines over a Unix domain socket. Send one JSON object per line. Every request receives one response line. `subscribe` and `attach-surface` also push event lines on the same connection.
 
 For shell use, prefer `cmux-tui <verb>`; it wraps the same socket commands and preserves JSON output with `--json`.
 
@@ -14,7 +14,7 @@ $TMPDIR/cmux-tui-<uid>/<session>.sock
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":7,"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":8,"session":"main","pid":12345}}
 ```
 
 Responses have this shape:
@@ -148,7 +148,7 @@ When the stream ends, it sends:
 
 ## Client Compatibility
 
-The remote TUI requires protocol v7. It refuses servers reporting any other protocol version because it relies on resized attach replays and authoritative title events.
+The remote TUI requires protocol v8. It refuses servers reporting any other protocol version because it relies on Zellij stack layouts, resized attach replays, and authoritative title events.
 
 Attach clients mirror PTY surfaces locally. On first render, a client can resize the server surface before requesting `attach-surface`, so the initial VT replay is captured at the visible geometry.
 

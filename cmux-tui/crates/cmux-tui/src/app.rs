@@ -2108,6 +2108,10 @@ fn pane_parts_for_rect(
     (bar, omnibar, content, track)
 }
 
+fn stacked_header_parts_for_rect(rect: Rect) -> (Option<Rect>, Option<Rect>, Rect, Option<Rect>) {
+    (Some(rect), None, Rect { y: rect.y.saturating_add(rect.height), height: 0, ..rect }, None)
+}
+
 pub fn run(
     session: Session,
     session_label: String,
@@ -2947,13 +2951,17 @@ impl App {
 
         self.pane_areas.clear();
         let Some(screen) = self.tree.active_screen().cloned() else { return };
+        let stacked_headers = layout.stacked_headers;
         for (pane_id, rect) in layout.panes {
             let Some(pane) = screen.pane(pane_id) else { continue };
             let Some(surface_id) = pane.active_surface() else { continue };
             let has_browser_omnibar =
                 pane.tabs.get(pane.active_tab).is_some_and(|tab| tab.kind == SurfaceKind::Browser);
-            let (bar, omnibar, content, track) =
-                pane_parts_for_rect(rect, self.config.scrollbar.position, has_browser_omnibar);
+            let (bar, omnibar, content, track) = if stacked_headers.contains(&pane_id) {
+                stacked_header_parts_for_rect(rect)
+            } else {
+                pane_parts_for_rect(rect, self.config.scrollbar.position, has_browser_omnibar)
+            };
             self.pane_areas.push(PaneArea {
                 pane: pane_id,
                 surface: surface_id,
@@ -4607,6 +4615,7 @@ impl App {
         // Re-derive the layout geometry from the frame's pane areas.
         let layout = cmux_tui_core::LayoutResult {
             panes: self.pane_areas.iter().map(|a| (a.pane, a.rect)).collect(),
+            ..Default::default()
         };
         if let Some(next) = layout.neighbor(active, dx, dy) {
             self.focus_pane_after_input(next);
@@ -6759,6 +6768,16 @@ mod tests {
             assert_eq!(*rect, Rect { x: 0, y: index as u16, width: 200, height: 1 });
         }
         assert_eq!(layout.panes[12], (panes[12], Rect { x: 0, y: 12, width: 200, height: 28 }));
+
+        app.sync_layout((200, 41));
+        for pane in &panes[..12] {
+            let area = app.pane_areas.iter().find(|area| area.pane == *pane).unwrap();
+            assert_eq!(area.bar, Some(area.rect));
+            assert_eq!(area.content.height, 0);
+        }
+        let expanded = app.pane_areas.iter().find(|area| area.pane == panes[12]).unwrap();
+        assert_eq!(expanded.rect.height, 28);
+        assert_eq!(expanded.content.height, 26);
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {

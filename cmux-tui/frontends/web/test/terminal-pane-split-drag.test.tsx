@@ -159,6 +159,24 @@ describe("TerminalPane split dividers", () => {
   });
 });
 
+describe("TerminalPane stacks", () => {
+  it("renders collapsed title rows around the expanded pane", () => {
+    const props = terminalPaneProps(vi.fn(async () => true));
+    const screen: ScreenView = {
+      ...screenView(0.5),
+      layout: { type: "stack", panes: [1, 2, 3], expanded: 2 },
+      activePane: 2,
+    };
+
+    const { container } = render(<TerminalPane {...props} screen={screen} />);
+    const stack = container.querySelector(".pane-stack");
+    expect(stack).toBeInTheDocument();
+    expect(stack?.querySelectorAll(":scope > .pane-leaf.collapsed")).toHaveLength(2);
+    expect(stack?.querySelectorAll(":scope > .pane-leaf.expanded")).toHaveLength(1);
+    expect(stack?.children[1]).toHaveClass("expanded");
+  });
+});
+
 describe("TerminalPane foreign-size indicator", () => {
   it("renders the true-size marker and names one matching foreign client", () => {
     attachedTerminal.foreignSize = { cols: 126, rows: 38 };

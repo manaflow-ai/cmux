@@ -229,6 +229,32 @@ interface LayoutGroupNodeProps extends Omit<LayoutNodeProps, "node"> {
   node: Extract<PaneLayoutView, { type: "group" }>;
 }
 
+interface LayoutStackNodeProps extends Omit<LayoutNodeProps, "node"> {
+  node: Extract<PaneLayoutView, { type: "stack" }>;
+}
+
+function LayoutStackNode({ node, screen, basis, ...actions }: LayoutStackNodeProps) {
+  const style = basis === undefined ? undefined : { flex: `0 0 ${basis}%` };
+  return (
+    <div className="pane-stack" style={style}>
+      {node.panes.map((pane) => (
+        <div
+          className={`pane-leaf${pane === node.expanded ? " expanded" : " collapsed"}`}
+          key={pane}
+        >
+          <PaneLeaf
+            {...actions}
+            pane={screen.panes.find((candidate) => candidate.id === pane) ?? null}
+            paneId={pane}
+            active={screen.activePane === pane}
+            zoomed={screen.zoomedPane === pane}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodeProps) {
   const style = basis === undefined ? undefined : { flex: `0 0 ${basis}%` };
   const authoritativeRatio = node.firstPercent / 100;
@@ -355,6 +381,9 @@ function LayoutNode({ node, screen, basis, ...actions }: LayoutNodeProps) {
     // Keyed by screen so switching screens remounts the group and drops any
     // drag/pending overlay state, replacing an imperative reset effect.
     return <LayoutGroupNode key={screen.id} {...actions} node={node} screen={screen} basis={basis} />;
+  }
+  if (node.type === "stack") {
+    return <LayoutStackNode {...actions} node={node} screen={screen} basis={basis} />;
   }
   return (
     <div className="pane-leaf" style={style}>

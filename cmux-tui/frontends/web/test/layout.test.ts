@@ -52,6 +52,12 @@ describe("layoutToViewModel", () => {
     expect(layoutToViewModel(layout, 2)).toEqual({ type: "pane", pane: 2 });
     expect(layout.type).toBe("split");
   });
+
+  it("preserves Zellij stack order and the expanded pane", () => {
+    const layout: Layout = { type: "stack", panes: [1, 2, 3], expanded: 2 };
+    expect(layoutToViewModel(layout)).toEqual({ type: "stack", panes: [1, 2, 3], expanded: 2 });
+    expect(layoutToViewModel(layout, 3)).toEqual({ type: "pane", pane: 3 });
+  });
 });
 
 describe("split drag", () => {

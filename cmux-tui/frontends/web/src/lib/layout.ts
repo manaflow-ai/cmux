@@ -2,6 +2,7 @@ import type { Id, Layout } from "cmux/browser";
 
 export type PaneLayoutView =
   | { type: "pane"; pane: Id }
+  | { type: "stack"; panes: Id[]; expanded: Id }
   | {
       type: "group";
       direction: "row" | "column";
@@ -14,6 +15,7 @@ export type PaneLayoutView =
 export function layoutToViewModel(layout: Layout, zoomedPane: Id | null = null): PaneLayoutView {
   if (zoomedPane !== null) return { type: "pane", pane: zoomedPane };
   if (layout.type === "leaf") return { type: "pane", pane: layout.pane };
+  if (layout.type === "stack") return { type: "stack", panes: layout.panes, expanded: layout.expanded };
 
   const firstPercent = Math.max(5, Math.min(95, layout.ratio * 100));
   return {

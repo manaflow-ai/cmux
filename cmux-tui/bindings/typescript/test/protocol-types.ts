@@ -65,6 +65,13 @@ type IdentifyData = CmuxResponseData<(typeof requests)[0]>;
 const identify: IdentifyData = { app: "cmux-tui", version: "0.1.2", protocol: 6, session: "main", pid: 1 };
 void identify;
 
+const stackLayout = {
+  type: "stack",
+  panes: [1, 2, 3],
+  expanded: 3,
+} as const satisfies import("../src/browser.js").Layout;
+void stackLayout;
+
 function surfaceFromKnownEvent(event: KnownCmuxEvent): number | undefined {
   switch (event.event) {
     case "surface-output":

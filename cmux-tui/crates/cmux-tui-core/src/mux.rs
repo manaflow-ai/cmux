@@ -860,6 +860,7 @@ impl Mux {
                     root: Node::Leaf(pane_id),
                     active_pane: pane_id,
                     zoomed_pane: None,
+                    zellij_auto_layout: Some(vec![pane_id]),
                 }],
                 active_screen: 0,
             });
@@ -901,6 +902,7 @@ impl Mux {
                         root: Node::Leaf(pane_id),
                         active_pane: pane_id,
                         zoomed_pane: None,
+                        zellij_auto_layout: Some(vec![pane_id]),
                     }],
                     active_screen: 0,
                 });
@@ -1004,6 +1006,7 @@ impl Mux {
                         root: Node::Leaf(pane_id),
                         active_pane: pane_id,
                         zoomed_pane: None,
+                        zellij_auto_layout: Some(vec![pane_id]),
                     });
                     ws.active_screen = ws.screens.len() - 1;
                     state.panes.insert(pane_id, pane);
@@ -1117,6 +1120,7 @@ impl Mux {
                         root: Node::Leaf(pane_id),
                         active_pane: pane_id,
                         zoomed_pane: None,
+                        zellij_auto_layout: Some(vec![pane_id]),
                     }],
                     active_screen: 0,
                 });
@@ -1243,6 +1247,11 @@ impl Mux {
                 for screen in ws.screens.iter_mut() {
                     if screen.root.split_leaf(target, dir, pane_id) {
                         screen.active_pane = pane_id;
+                        // A directional split damages the automatic layout.
+                        // The next Alt-N can establish a fresh Zellij layout
+                        // from stable pane ids, but close must preserve this
+                        // manual tree until then.
+                        screen.zellij_auto_layout = None;
                         changed_screen = Some(screen.id);
                         done = true;
                         break 'outer;
@@ -1277,9 +1286,9 @@ impl Mux {
     }
 
     /// Create a pane and reapply Zellij's default pane distribution to the
-    /// containing screen. Pane traversal order is the creation order maintained
-    /// by this layout family, so existing terminals keep stable positions as
-    /// later columns fill.
+    /// containing screen. The screen stores creation order independently of
+    /// the mutable split tree, so swaps and directional splits cannot reorder
+    /// terminals when automatic layout resumes.
     pub fn new_pane(
         self: &Arc<Self>,
         target: PaneId,
@@ -1297,12 +1306,18 @@ impl Mux {
                     if !screen.root.contains(target) {
                         continue;
                     }
-                    let mut panes = Vec::new();
-                    screen.root.pane_ids(&mut panes);
+                    let mut panes = screen.zellij_auto_layout.clone().unwrap_or_else(|| {
+                        let mut panes = Vec::new();
+                        screen.root.pane_ids(&mut panes);
+                        panes.sort_unstable();
+                        panes
+                    });
+                    panes.retain(|pane| screen.root.contains(*pane));
                     panes.push(pane_id);
                     screen.root = crate::zellij_default_pane_layout(&panes)
                         .expect("new pane layout always has at least one pane");
                     screen.active_pane = pane_id;
+                    screen.zellij_auto_layout = Some(panes);
                     changed_screen = Some(screen.id);
                     break 'outer;
                 }
@@ -1539,23 +1554,28 @@ impl Mux {
     /// workspace active).
     pub fn focus_pane(&self, pane: PaneId) -> bool {
         let active_at = self.next_active_at();
-        let (found, viewed) = {
+        let (found, viewed, layout_changed) = {
             let mut state = self.state.lock().unwrap();
             match state.screen_of(pane) {
                 Some((wi, si)) => {
                     state.active_workspace = wi;
                     let ws = &mut state.workspaces[wi];
                     ws.active_screen = si;
-                    ws.screens[si].active_pane = pane;
+                    let screen = &mut ws.screens[si];
+                    screen.active_pane = pane;
+                    let layout_changed = screen.root.expand_stack(pane).then_some(screen.id);
                     stamp_pane(&mut state, pane, active_at);
-                    (true, Self::active_surface_in_state(&state))
+                    (true, Self::active_surface_in_state(&state), layout_changed)
                 }
-                None => (false, None),
+                None => (false, None, None),
             }
         };
         if found {
             self.clear_viewed_notification(viewed);
             self.emit(MuxEvent::TreeChanged);
+            if let Some(screen) = layout_changed {
+                self.emit(MuxEvent::LayoutChanged(screen));
+            }
         }
         found
     }
@@ -1566,7 +1586,12 @@ impl Mux {
         let changed_screen = {
             let mut state = self.state.lock().unwrap();
             state.workspaces.iter_mut().flat_map(|ws| ws.screens.iter_mut()).find_map(|screen| {
-                screen.root.set_deepest_ratio(pane, dir, ratio).then_some(screen.id)
+                if screen.root.set_deepest_ratio(pane, dir, ratio) {
+                    screen.zellij_auto_layout = None;
+                    Some(screen.id)
+                } else {
+                    None
+                }
             })
         };
         if let Some(screen) = changed_screen {
@@ -1612,11 +1637,14 @@ impl Mux {
     pub fn swap_panes(&self, pane: PaneId, target: PaneId) -> bool {
         let changed_screen = {
             let mut state = self.state.lock().unwrap();
-            state
-                .workspaces
-                .iter_mut()
-                .flat_map(|ws| ws.screens.iter_mut())
-                .find_map(|screen| screen.root.swap_leaves(pane, target).then_some(screen.id))
+            state.workspaces.iter_mut().flat_map(|ws| ws.screens.iter_mut()).find_map(|screen| {
+                if screen.root.swap_leaves(pane, target) {
+                    screen.zellij_auto_layout = None;
+                    Some(screen.id)
+                } else {
+                    None
+                }
+            })
         };
         if let Some(screen) = changed_screen {
             self.emit(MuxEvent::TreeChanged);
@@ -1692,7 +1720,14 @@ impl Mux {
             for (pane_id, pane) in panes {
                 state.panes.insert(pane_id, pane);
             }
-            let screen = Screen { id: screen_id, name, root, active_pane, zoomed_pane: None };
+            let screen = Screen {
+                id: screen_id,
+                name,
+                root,
+                active_pane,
+                zoomed_pane: None,
+                zellij_auto_layout: None,
+            };
             match workspace {
                 Some(id) => {
                     let ws = state
@@ -2000,17 +2035,25 @@ fn remove_surface(state: &mut State, target: SurfaceId) -> Option<Arc<Surface>> 
     let Some((wi, si)) = state.screen_of(pane_id) else {
         return removed;
     };
-    let (was_active, root) = {
+    let (was_active, root, mut zellij_auto_layout) = {
         let screen = &mut state.workspaces[wi].screens[si];
         let was_active = screen.active_pane == pane_id;
         if screen.zoomed_pane == Some(pane_id) {
             screen.zoomed_pane = None;
         }
         let root = std::mem::replace(&mut screen.root, Node::Leaf(0));
-        (was_active, root)
+        (was_active, root, screen.zellij_auto_layout.take())
     };
     match root.remove_leaf(pane_id) {
-        Some(root) => {
+        Some(mut root) => {
+            if let Some(panes) = zellij_auto_layout.as_mut() {
+                panes.retain(|pane| *pane != pane_id);
+                if let Some(layout) = crate::zellij_default_pane_layout(panes) {
+                    root = layout;
+                } else {
+                    zellij_auto_layout = None;
+                }
+            }
             let next_active = if was_active {
                 let mut ids = Vec::new();
                 root.pane_ids(&mut ids);
@@ -2020,6 +2063,7 @@ fn remove_surface(state: &mut State, target: SurfaceId) -> Option<Arc<Surface>> 
             };
             let screen = &mut state.workspaces[wi].screens[si];
             screen.root = root;
+            screen.zellij_auto_layout = zellij_auto_layout;
             if let Some(next) = next_active {
                 screen.active_pane = next;
             }
@@ -2050,17 +2094,25 @@ fn collapse_empty_pane(state: &mut State, pane_id: PaneId) {
     let Some((wi, si)) = state.screen_of(pane_id) else {
         return;
     };
-    let (was_active, root) = {
+    let (was_active, root, mut zellij_auto_layout) = {
         let screen = &mut state.workspaces[wi].screens[si];
         let was_active = screen.active_pane == pane_id;
         if screen.zoomed_pane == Some(pane_id) {
             screen.zoomed_pane = None;
         }
         let root = std::mem::replace(&mut screen.root, Node::Leaf(0));
-        (was_active, root)
+        (was_active, root, screen.zellij_auto_layout.take())
     };
     match root.remove_leaf(pane_id) {
-        Some(root) => {
+        Some(mut root) => {
+            if let Some(panes) = zellij_auto_layout.as_mut() {
+                panes.retain(|pane| *pane != pane_id);
+                if let Some(layout) = crate::zellij_default_pane_layout(panes) {
+                    root = layout;
+                } else {
+                    zellij_auto_layout = None;
+                }
+            }
             let next_active = if was_active {
                 let mut ids = Vec::new();
                 root.pane_ids(&mut ids);
@@ -2070,6 +2122,7 @@ fn collapse_empty_pane(state: &mut State, pane_id: PaneId) {
             };
             let screen = &mut state.workspaces[wi].screens[si];
             screen.root = root;
+            screen.zellij_auto_layout = zellij_auto_layout;
             if let Some(next) = next_active {
                 screen.active_pane = next;
             }
@@ -2321,6 +2374,7 @@ mod tests {
                     },
                     active_pane: p3,
                     zoomed_pane: None,
+                    zellij_auto_layout: None,
                 }],
                 active_screen: 0,
             }],
@@ -2353,6 +2407,7 @@ mod tests {
                 };
                 format!("{dir}:{ratio:.2}({}, {})", node_shape(a), node_shape(b))
             }
+            Node::Stack { panes, expanded } => format!("stack:{expanded}:{panes:?}"),
         }
     }
 
@@ -2411,6 +2466,7 @@ mod tests {
                     Node::Split { dir, ratio, a, b } => {
                         split_spec(*dir, *ratio, from_node(a), from_node(b))
                     }
+                    Node::Stack { .. } => panic!("apply-layout does not construct stacks"),
                 }
             }
             from_node(&s.workspaces[0].screens[0].root)
@@ -2566,6 +2622,76 @@ mod tests {
         mux.close_pane(p3);
         assert_eq!(mux.surface_count(), 0);
         mux.with_state(|s| assert!(s.workspaces.is_empty()));
+    }
+
+    #[test]
+    fn zellij_new_pane_uses_creation_order_after_manual_split() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, None).unwrap();
+        let p1 = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_pane(p1, None).unwrap();
+        let p2 = mux.with_state(|state| state.pane_of(second.id).unwrap());
+        let third = mux.split(p1, SplitDir::Down, None).unwrap();
+        let p3 = mux.with_state(|state| state.pane_of(third.id).unwrap());
+        let fourth = mux.new_pane(p3, None).unwrap();
+        let p4 = mux.with_state(|state| state.pane_of(fourth.id).unwrap());
+
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            let mut order = Vec::new();
+            screen.root.pane_ids(&mut order);
+            assert_eq!(order, vec![p1, p2, p3, p4]);
+            assert_eq!(screen.zellij_auto_layout.as_deref(), Some(order.as_slice()));
+        });
+    }
+
+    #[test]
+    fn closing_zellij_pane_reapplies_layout_for_remaining_count() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, None).unwrap();
+        let mut surfaces = vec![first];
+        let mut active = mux.with_state(|state| state.pane_of(surfaces[0].id).unwrap());
+        for _ in 0..4 {
+            let surface = mux.new_pane(active, None).unwrap();
+            active = mux.with_state(|state| state.pane_of(surface.id).unwrap());
+            surfaces.push(surface);
+        }
+
+        mux.close_surface(surfaces[0].id);
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            let order = screen.zellij_auto_layout.as_ref().unwrap();
+            assert_eq!(order.len(), 4);
+            let layout = layout_screen(&screen.root, Rect { x: 0, y: 0, width: 200, height: 40 });
+            assert_eq!(layout.rect_of(order[0]).unwrap().height, 40);
+            let right_heights = order[1..]
+                .iter()
+                .map(|pane| layout.rect_of(*pane).unwrap().height)
+                .collect::<Vec<_>>();
+            assert_eq!(right_heights, vec![13, 14, 13]);
+        });
+    }
+
+    #[test]
+    fn focusing_zellij_stack_header_expands_that_pane() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, None).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let mut active = first_pane;
+        for _ in 1..13 {
+            let surface = mux.new_pane(active, None).unwrap();
+            active = mux.with_state(|state| state.pane_of(surface.id).unwrap());
+        }
+
+        assert!(mux.focus_pane(first_pane));
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            assert_eq!(screen.active_pane, first_pane);
+            assert!(matches!(
+                &screen.root,
+                Node::Stack { expanded, .. } if *expanded == first_pane
+            ));
+        });
     }
 
     #[test]

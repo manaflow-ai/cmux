@@ -11,7 +11,18 @@ use crate::{PaneId, ScreenId, SplitDir, Surface, SurfaceId, WorkspaceId};
 #[derive(Debug, Clone)]
 pub enum Node {
     Leaf(PaneId),
-    Split { dir: SplitDir, ratio: f32, a: Box<Node>, b: Box<Node> },
+    Split {
+        dir: SplitDir,
+        ratio: f32,
+        a: Box<Node>,
+        b: Box<Node>,
+    },
+    /// Zellij-style stacked panes. Every non-expanded pane renders as a
+    /// one-row title header and the expanded pane receives the remaining area.
+    Stack {
+        panes: Vec<PaneId>,
+        expanded: PaneId,
+    },
 }
 
 impl Node {
@@ -22,6 +33,7 @@ impl Node {
                 a.pane_ids(out);
                 b.pane_ids(out);
             }
+            Node::Stack { panes, .. } => out.extend(panes),
         }
     }
 
@@ -29,6 +41,7 @@ impl Node {
         match self {
             Node::Leaf(id) => *id == target,
             Node::Split { a, b, .. } => a.contains(target) || b.contains(target),
+            Node::Stack { panes, .. } => panes.contains(&target),
         }
     }
 
@@ -49,6 +62,20 @@ impl Node {
                 a.swap_leaf_ids(first, second);
                 b.swap_leaf_ids(first, second);
             }
+            Node::Stack { panes, expanded } => {
+                for pane in panes {
+                    if *pane == first {
+                        *pane = second;
+                    } else if *pane == second {
+                        *pane = first;
+                    }
+                }
+                if *expanded == first {
+                    *expanded = second;
+                } else if *expanded == second {
+                    *expanded = first;
+                }
+            }
         }
     }
 
@@ -68,6 +95,12 @@ impl Node {
             Node::Split { a, b, .. } => {
                 a.split_leaf(target, dir, new_pane) || b.split_leaf(target, dir, new_pane)
             }
+            Node::Stack { panes, expanded } if panes.contains(&target) => {
+                panes.push(new_pane);
+                *expanded = new_pane;
+                true
+            }
+            Node::Stack { .. } => false,
         }
     }
 
@@ -85,6 +118,21 @@ impl Node {
                     (Some(a), None) => Some(a),
                     (None, Some(b)) => Some(b),
                     (None, None) => None,
+                }
+            }
+            Node::Stack { mut panes, expanded } => {
+                panes.retain(|pane| *pane != target);
+                match panes.as_slice() {
+                    [] => None,
+                    [pane] => Some(Node::Leaf(*pane)),
+                    _ => {
+                        let expanded = if expanded == target {
+                            *panes.last().expect("non-empty stack")
+                        } else {
+                            expanded
+                        };
+                        Some(Node::Stack { panes, expanded })
+                    }
                 }
             }
         }
@@ -116,10 +164,28 @@ impl Node {
                         (contains, false)
                     }
                 }
+                Node::Stack { panes, .. } => (panes.contains(&target), false),
             }
         }
 
         walk(self, target, dir, new_ratio).1
+    }
+
+    /// Expand `target` when it belongs to a stack. Returns whether geometry
+    /// changed.
+    pub(crate) fn expand_stack(&mut self, target: PaneId) -> bool {
+        match self {
+            Node::Leaf(_) => false,
+            Node::Split { a, b, .. } => a.expand_stack(target) || b.expand_stack(target),
+            Node::Stack { panes, expanded } => {
+                if panes.contains(&target) && *expanded != target {
+                    *expanded = target;
+                    true
+                } else {
+                    false
+                }
+            }
+        }
     }
 }
 
@@ -150,6 +216,9 @@ pub struct Screen {
     pub root: Node,
     pub active_pane: PaneId,
     pub zoomed_pane: Option<PaneId>,
+    /// Stable pane creation order for Zellij's default auto-layout family.
+    /// `None` means the screen owns a custom/damaged layout.
+    pub zellij_auto_layout: Option<Vec<PaneId>>,
 }
 
 #[derive(Debug)]

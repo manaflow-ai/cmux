@@ -1,6 +1,6 @@
 # cmux-tui Programmability Contract
 
-This directory is the source of truth for the cmux-tui control protocol, the generated `cmux-tui` command surface, plugin contracts, and future generated language bindings. The implemented protocol described here is protocol version 7, as defined by `cmux-tui-core/src/server.rs`.
+This directory is the source of truth for the cmux-tui control protocol, the generated `cmux-tui` command surface, plugin contracts, and future generated language bindings. The implemented protocol described here is protocol version 8, as defined by `cmux-tui-core/src/server.rs`.
 
 The spec is intentionally stricter than prose docs. Implemented commands and events describe the current server behavior exactly, including awkward result shapes and no-op cases. Proposed commands, events, transports, and config are marked `proposed` and are not part of the implemented protocol.
 
