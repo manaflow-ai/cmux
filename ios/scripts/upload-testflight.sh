@@ -151,14 +151,22 @@ verify_ipa_framework_minimum_os_versions() {
   while IFS= read -r -d '' framework; do
     framework_name="$(basename "$framework")"
     # ASC validates the framework BINARY, not just Info.plist: an embedded
-    # framework whose binary is a static archive has no Mach-O minimum-OS load
-    # command and is rejected in processing (ITMS-90208) even when its
-    # Info.plist declares MinimumOSVersion. Static code is already linked into
-    # the app executable; the manual re-sign path strips these, so reaching
-    # this check with one still embedded is a hard error.
-    framework_binary="$framework/$(basename "$framework" .framework)"
-    if [[ -f "$framework_binary" ]] && file -b "$framework_binary" | grep -q 'ar archive'; then
-      echo "error: $framework_name is embedded in the app bundle but its binary is a static archive; ASC rejects this (ITMS-90208). It must be stripped from Frameworks/ (its code is already statically linked into the app executable)." >&2
+    # framework whose executable is a static archive, a stripped-out shell
+    # (Info.plist with no binary — Xcode's export processing leaves these
+    # behind for static SPM binaryTargets), or any other non-dylib blob is
+    # rejected in processing (ITMS-90208) even when its Info.plist declares
+    # MinimumOSVersion. The manual re-sign path strips those, so reaching
+    # this check with one still embedded is a hard error: an embedded
+    # framework must be a dynamically linked Mach-O, full stop.
+    framework_exec_name="$("$PLISTBUDDY" -c 'Print :CFBundleExecutable' "$framework/Info.plist" 2>/dev/null || basename "$framework" .framework)"
+    framework_binary="$framework/$framework_exec_name"
+    if [[ ! -f "$framework_binary" ]]; then
+      echo "error: $framework_name is embedded in the app bundle but has no executable ($framework_exec_name); ASC rejects invalid framework shells (ITMS-90208). Strip it from Frameworks/." >&2
+      rm -rf "$workdir"
+      return 1
+    fi
+    if ! file -b "$framework_binary" | grep -q 'dynamically linked shared library'; then
+      echo "error: $framework_name is embedded in the app bundle but its executable is not a dynamic library ($(file -b "$framework_binary")); ASC rejects this (ITMS-90208). Strip it from Frameworks/ (static code is already linked into the app executable)." >&2
       rm -rf "$workdir"
       return 1
     fi
@@ -1007,27 +1015,46 @@ if [[ "$SIGNING" == "manual" ]]; then
   # Xcode embeds SPM binaryTarget frameworks into Frameworks/ even when the
   # framework's binary is a STATIC archive (ar), e.g. iroh-ffi's Iroh.framework.
   # The linker already folded that code into the app executable, so the embedded
-  # copy is inert dead weight — and App Store Connect rejects it in processing
-  # (ITMS-90208: a static archive has no Mach-O minimum-OS load command, so ASC
-  # reads "does not support the minimum OS Version" regardless of the
-  # deployment target or the framework's Info.plist). Strip such frameworks
-  # before re-signing. Gate: prove the app executable does not reference a
-  # stripped framework in its dynamic load commands (it cannot, for an ar
-  # archive, but verify rather than assume).
+  # copy is inert — and App Store Connect rejects it in processing with
+  # ITMS-90208 regardless of the app's deployment target or the framework's
+  # Info.plist. Depending on the Xcode version, export-time distribution
+  # processing may also strip the static executable and leave an INVALID SHELL
+  # (Info.plist with no binary), which ASC rejects the same way; build
+  # 20260716043221 shipped exactly that past an ar-archive-only check here.
+  # So the keep policy is a whitelist, not a blacklist: an embedded framework
+  # stays ONLY if its executable exists and is a dynamically linked Mach-O.
+  # Everything else is stripped, gated on the app executable not referencing
+  # the framework in its dynamic load commands. Every framework's state is
+  # logged first so a future ASC rejection comes with ground truth.
   RESIGN_APP_EXECUTABLE="$RESIGN_APP/$("$PLISTBUDDY" -c 'Print :CFBundleExecutable' "$RESIGN_APP/Info.plist")"
+  if [[ -d "$RESIGN_APP/Frameworks" ]]; then
+    echo "embedded Frameworks/ contents before static-framework strip:"
+    find "$RESIGN_APP/Frameworks" -maxdepth 2 -print | sed "s|$RESIGN_APP/||"
+  fi
   while IFS= read -r -d '' embedded_fw; do
     embedded_fw_name="$(basename "$embedded_fw" .framework)"
-    embedded_fw_bin="$embedded_fw/$embedded_fw_name"
-    [[ -f "$embedded_fw_bin" ]] || continue
-    if file -b "$embedded_fw_bin" | grep -q 'ar archive'; then
-      if otool -L "$RESIGN_APP_EXECUTABLE" | grep -qF "/${embedded_fw_name}.framework/"; then
-        echo "error: app executable dynamically links ${embedded_fw_name}.framework but the embedded binary is a static archive; refusing to strip or upload" >&2
-        exit 1
-      fi
-      echo "stripping embedded static-archive framework (already statically linked into the app executable; ASC rejects it as an embedded framework): Frameworks/${embedded_fw_name}.framework"
-      rm -rf "$embedded_fw"
+    embedded_fw_exec_name="$("$PLISTBUDDY" -c 'Print :CFBundleExecutable' "$embedded_fw/Info.plist" 2>/dev/null || echo "$embedded_fw_name")"
+    embedded_fw_bin="$embedded_fw/$embedded_fw_exec_name"
+    if [[ -f "$embedded_fw_bin" ]]; then
+      embedded_fw_kind="$(file -b "$embedded_fw_bin")"
+    else
+      embedded_fw_kind="<executable missing>"
     fi
+    echo "embedded framework ${embedded_fw_name}.framework binary: $embedded_fw_kind"
+    if [[ "$embedded_fw_kind" == *"dynamically linked shared library"* ]]; then
+      xcrun vtool -show-build "$embedded_fw_bin" 2>/dev/null | sed -n '1,8p' || true
+      continue
+    fi
+    if otool -L "$RESIGN_APP_EXECUTABLE" | grep -qF "/${embedded_fw_name}.framework/"; then
+      echo "error: app executable dynamically links ${embedded_fw_name}.framework but the embedded copy is not a valid dynamic library ($embedded_fw_kind); refusing to strip or upload" >&2
+      exit 1
+    fi
+    echo "stripping embedded framework without a valid dynamic-library executable ($embedded_fw_kind); its code is statically linked into the app executable and ASC rejects the leftover bundle (ITMS-90208): Frameworks/${embedded_fw_name}.framework"
+    rm -rf "$embedded_fw"
   done < <(find "$RESIGN_APP/Frameworks" -maxdepth 1 -type d -name '*.framework' -print0 2>/dev/null)
+  # An empty Frameworks/ dir after stripping is pointless; remove it so the
+  # bundle matches the historical no-Frameworks layout.
+  rmdir "$RESIGN_APP/Frameworks" 2>/dev/null || true
 
   # Start from the exported app's current (profile-baseline) entitlements, then
   # MERGE the profile's authorized Entitlements dict, then every key from the
