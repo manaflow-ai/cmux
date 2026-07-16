@@ -373,11 +373,12 @@ enum AgentForkSupport {
     ) -> Bool {
         switch snapshot.kind {
         case .pi:
-            return snapshot.registration == nil || snapshot.registration == .builtInPi
+            guard let registration = snapshot.registration else { return true }
+            return registration.forkCommand == CmuxVaultAgentRegistration.builtInPi.forkCommand
         case .custom("pi"):
-            return snapshot.registration == .builtInPi
+            return snapshot.registration?.forkCommand == CmuxVaultAgentRegistration.builtInPi.forkCommand
         case .custom("omp"):
-            return snapshot.registration == .builtInOmp
+            return snapshot.registration?.forkCommand == CmuxVaultAgentRegistration.builtInOmp.forkCommand
         default:
             return false
         }
