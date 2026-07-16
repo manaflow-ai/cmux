@@ -1571,6 +1571,13 @@ mod tests {
         );
         assert_eq!(invalid.cursor_style, Some(CursorShape::Underline));
         assert_eq!(invalid.cursor_blink, Some(true));
+
+        let quoted = parse_ghostty_defaults(
+            "cursor-style = \"bar\"\n\
+             cursor-style-blink = \"false\"\n",
+        );
+        assert_eq!(quoted.cursor_style, Some(CursorShape::Bar));
+        assert_eq!(quoted.cursor_blink, Some(false));
     }
 
     #[test]
