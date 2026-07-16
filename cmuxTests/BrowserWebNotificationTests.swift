@@ -592,6 +592,9 @@ struct BrowserWebNotificationTests {
         ))
         defer { popupWebView.window?.close() }
         #expect(popupWebView.configuration.userContentController !== panel.webView.configuration.userContentController)
+        #expect(popupWebView.uiDelegate?.responds(
+            to: NSSelectorFromString("_webView:requestNotificationPermissionForSecurityOrigin:decisionHandler:")
+        ) == true)
 
         let loadProbe = BrowserWebNotificationLoadProbe()
         popupWebView.navigationDelegate = loadProbe
