@@ -247,6 +247,40 @@ struct KimiHookConfigLocationTests {
         #expect(try String(contentsOf: legacyConfig, encoding: .utf8) == legacyUserContent)
     }
 
+    @Test("Uninstall succeeds when the legacy Kimi config cannot be read")
+    func uninstallSucceedsWhenLegacyConfigCannotBeRead() throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let currentDirectory = fixture.root.appendingPathComponent("current-kimi", isDirectory: true)
+        let legacyDirectory = fixture.root.appendingPathComponent("legacy-kimi", isDirectory: true)
+        try FileManager.default.createDirectory(at: currentDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: legacyDirectory, withIntermediateDirectories: true)
+
+        let currentUserContent = Self.userHookContent(command: "vibe-island")
+        let currentConfig = currentDirectory.appendingPathComponent("config.toml", isDirectory: false)
+        let legacyConfig = legacyDirectory.appendingPathComponent("config.toml", isDirectory: false)
+        try Self.installingCmuxBlock(in: currentUserContent)
+            .write(to: currentConfig, atomically: true, encoding: .utf8)
+        try FileManager.default.createDirectory(at: legacyConfig, withIntermediateDirectories: true)
+
+        let result = try runCLI(
+            arguments: ["hooks", "uninstall", "kimi", "--yes"],
+            fixture: fixture,
+            environmentOverrides: [
+                "KIMI_SHARE_DIR": currentDirectory.path,
+                "KIMI_CODE_HOME": legacyDirectory.path,
+            ]
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.output))
+        #expect(result.status == 0, Comment(rawValue: result.output))
+        #expect(try String(contentsOf: currentConfig, encoding: .utf8) == currentUserContent)
+        #expect(FileManager.default.fileExists(atPath: legacyConfig.path))
+        #expect(result.output.contains(legacyConfig.path))
+        #expect(result.output.contains("cmux hooks uninstall kimi"))
+    }
+
     private struct Fixture {
         let root: URL
         let home: URL
