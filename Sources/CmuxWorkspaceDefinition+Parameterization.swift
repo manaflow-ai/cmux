@@ -7,7 +7,7 @@ extension CmuxWorkspaceDefinition {
         params != nil
     }
 
-    /// Editable launch inputs in deterministic first-occurrence order.
+    /// Editable configuration inputs in deterministic first-occurrence order.
     func templateParameterInputs(
         processEnvironment: [String: String]
     ) -> [CmuxTemplateParameterInput] {

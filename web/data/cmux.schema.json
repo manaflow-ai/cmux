@@ -66,7 +66,7 @@
     },
     "commands": {
       "title": "commands",
-      "description": "Custom shell commands and workspace layout definitions. Workspace definitions support name, cwd, color, env, layout, setup, and params defaults for launch-time {{variable}} placeholders.",
+      "description": "Custom shell commands and workspace layout definitions. Workspace definitions support name, cwd, color, env, layout, setup, and saved params values for launch-time {{variable}} placeholders.",
       "type": "array",
       "items": {
         "type": "object",
@@ -1778,7 +1778,7 @@
       "additionalProperties": {
         "type": "string"
       },
-      "description": "Opts the workspace into {{variable}} placeholder handling and supplies default values. Use an empty object to request every value in the launch UI. Explicit invocation template_params/--param values take precedence."
+      "description": "Opts the workspace into {{variable}} placeholder handling and supplies values used automatically by UI launches. Global inline workspace actions can edit these under Manage Layouts > Edit Layout Parameters. Explicit invocation template_params/--param values take precedence."
     },
     "workspaceLayoutNode": {
       "oneOf": [

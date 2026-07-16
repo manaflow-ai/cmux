@@ -1,5 +1,4 @@
 import AppKit
-import CmuxFoundation
 import Foundation
 
 @MainActor
@@ -64,7 +63,7 @@ extension AppDelegate {
                 NSSound.beep()
                 return
             }
-            _ = context.tabManager.openSavedLayoutInteractively(
+            _ = context.tabManager.openSavedLayout(
                 layout,
                 cwdOverride: nil,
                 focus: true,

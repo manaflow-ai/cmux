@@ -177,6 +177,54 @@ struct CmuxConfigActionSaverTests {
         #expect(permissions.intValue & 0o777 == 0o600)
     }
 
+    @Test func updateWorkspaceParametersPreservesActionAndComments() throws {
+        let root = try temporaryRoot("update-parameters")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let configPath = root.appendingPathComponent("cmux.json").path
+        try """
+        {
+          "actions": {
+            // keep the user's layout note
+            "ticket-dev": {
+              "type": "workspace",
+              "title": "Ticket Dev",
+              "subtitle": "Keep this metadata",
+              "workspace": {
+                "name": "{{ticket}} Dev",
+                "cwd": "{{projectDir}}",
+                "params": {
+                  "ticket": "OLD-1" // keep the parameter note
+                }
+              }
+            }
+          }
+        }
+        """.write(toFile: configPath, atomically: true, encoding: .utf8)
+
+        try CmuxConfigActionSaver.updateWorkspaceActionParameters(
+            id: "ticket-dev",
+            parameters: [
+                "ticket": "CMUX-8059",
+                "projectDir": "/tmp/cmux",
+            ],
+            globalConfigPath: configPath
+        )
+
+        let saved = try String(contentsOfFile: configPath, encoding: .utf8)
+        #expect(saved.contains("// keep the user's layout note"))
+        #expect(saved.contains("// keep the parameter note"))
+        let sanitized = try JSONCParser.preprocess(data: Data(saved.utf8))
+        let config = try JSONDecoder().decode(CmuxConfigFile.self, from: sanitized)
+        let action = try #require(config.actions["ticket-dev"])
+        #expect(action.title == "Ticket Dev")
+        #expect(action.subtitle == "Keep this metadata")
+        let definition = try #require(action.action?.inlineWorkspace?.definition)
+        #expect(definition.params == [
+            "ticket": "CMUX-8059",
+            "projectDir": "/tmp/cmux",
+        ])
+    }
+
     // MARK: - Deleting
 
     @Test func deleteRemovesActionAndPreservesComments() throws {

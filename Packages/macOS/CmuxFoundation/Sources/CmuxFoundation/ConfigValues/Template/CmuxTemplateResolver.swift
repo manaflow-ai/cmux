@@ -82,11 +82,11 @@ public struct CmuxTemplateResolver: Sendable {
         return values
     }
 
-    /// Describes the editable values needed by a launch UI.
+    /// Describes the editable values exposed by a configuration UI.
     ///
     /// Inputs preserve first-occurrence order and use the same precedence as
-    /// final resolution, so a prompt can prefill the value that would otherwise
-    /// be selected automatically.
+    /// final resolution, so an editor can show the value that launches would
+    /// otherwise select automatically.
     public func parameterInputs(for templates: [CmuxTemplate]) -> [CmuxTemplateParameterInput] {
         var seen = Set<String>()
         return templates.flatMap(\.variables).compactMap { variable in

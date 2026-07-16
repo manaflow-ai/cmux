@@ -236,12 +236,15 @@ literal `{{name}}`. Names use the same grammar as custom-command parameters:
 they start with a letter or `_` and continue with letters, digits, `_`, or `-`.
 
 File-backed workspace definitions opt into placeholder handling by declaring a
-`params` object; use `"params": {}` when every value should be entered at
-launch. Selecting an opted-in configured layout or saved layout in the cmux UI
-opens a parameter sheet with one editable field per placeholder, prefilled from
-the precedence rules below. Definitions without `params` preserve existing
-`{{...}}` text literally. Socket `workspace.create` requests opt in by supplying
-at least one `template_params` value.
+`params` object. Values stored there are used automatically when the layout is
+opened from the cmux UI; choosing a layout never interrupts creation with a
+parameter prompt. For global inline workspace actions, edit those saved values
+from **New Workspace → Manage Layouts → Edit Layout Parameters**. Project-local
+actions, `workspaceCommand` definitions, and `~/.config/cmux/layouts.json`
+entries remain source-owned and can be edited in their configuration file.
+Definitions without `params` preserve existing `{{...}}` text literally. Socket
+`workspace.create` requests opt in by supplying at least one `template_params`
+value.
 
 Parameterization covers the workspace `name`, `cwd`, `setup`, and `env` values;
 surface `name`, `command`, `cwd`, `env` values, and `url`; and the corresponding

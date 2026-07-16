@@ -1,5 +1,4 @@
 import AppKit
-import CmuxFoundation
 import CmuxCommandPalette
 import Foundation
 
@@ -58,7 +57,7 @@ extension ContentView {
                         NSSound.beep()
                         return
                     }
-                    _ = tabManager.openSavedLayoutInteractively(
+                    _ = tabManager.openSavedLayout(
                         resolvedLayout,
                         cwdOverride: nil,
                         focus: true,

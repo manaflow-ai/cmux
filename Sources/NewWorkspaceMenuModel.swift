@@ -14,6 +14,7 @@ struct NewWorkspaceMenuModel: Equatable {
 
     struct ManagementSection: Equatable {
         let defaultLayout: NewWorkspaceDefaultLayoutMenuModel
+        let editableActions: [CmuxResolvedConfigAction]
         let deletableActions: [CmuxResolvedConfigAction]
     }
 
@@ -95,6 +96,17 @@ struct NewWorkspaceMenuModel: Equatable {
         )
         let management = ManagementSection(
             defaultLayout: defaultLayout,
+            editableActions: loadedActions
+                .filter { action in
+                    guard deletable(action),
+                          let definition = action.action.inlineWorkspace?.definition else {
+                        return false
+                    }
+                    return !definition.templateParameterInputs(
+                        processEnvironment: [:]
+                    ).isEmpty
+                }
+                .sorted { ($0.title, $0.id) < ($1.title, $1.id) },
             deletableActions: loadedActions
                 .filter { isWorkspaceLayout($0) && deletable($0) }
                 .sorted { ($0.title, $0.id) < ($1.title, $1.id) }

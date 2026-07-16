@@ -1083,7 +1083,7 @@
       "fullExample": "전체 예시",
       "wsFieldParams": "워크스페이스 템플릿 변수의 기본값",
       "parameterizedLayouts": "매개변수화된 워크스페이스 레이아웃",
-      "parameterizedLayoutsDesc": "워크스페이스 및 서피스 제목, 경로, 환경 값, 설정 명령, 터미널 명령, 브라우저 URL에서 <variable>{variableSyntax}</variable> 또는 <defaultValue>{defaultSyntax}</defaultValue>를 사용합니다. <escaped>{escapedSyntax}</escaped>를 앞에 붙이면 자리표시자를 문자 그대로 유지합니다. <params>params</params> 객체는 재사용 가능한 기본값을 제공합니다.",
+      "parameterizedLayoutsDesc": "<params>params</params> 객체를 추가하여 워크스페이스 매개변수를 활성화한 다음 워크스페이스 및 서피스 제목, 경로, 환경 값, 설정 명령, 터미널 명령, 브라우저 URL에서 <variable>{variableSyntax}</variable> 또는 <defaultValue>{defaultSyntax}</defaultValue>를 사용합니다. <escaped>{escapedSyntax}</escaped>를 앞에 붙이면 자리표시자를 문자 그대로 유지합니다. <params>params</params> 값은 자동으로 재사용됩니다. 전역 인라인 작업의 값은 새 작업 공간 → 레이아웃 관리 → 레이아웃 매개변수 편집에서 변경합니다.",
       "parameterizedLayoutsPrecedence": "해결 순서는 <explicit>명시적 호출 값</explicit>, <params>params</params> 기본값, 워크스페이스의 리터럴 <env>env</env>, <process>cmux 프로세스 환경</process>, <inline>인라인 기본값</inline>입니다. 필수 값이 없으면 워크스페이스를 만들기 전에 전체 실행을 중단합니다.",
       "parameterizedLayoutsCLI": "<workspaceCreate>cmux workspace create</workspaceCreate> 및 <layoutOpen>cmux layout open</layoutOpen>에서 <paramValue>--param KEY=VALUE</paramValue> 또는 <paramEnv>--param KEY</paramEnv>를 사용합니다. 값 없는 형식은 호출 셸 변수를 가져옵니다. 소켓 클라이언트는 template_params를 보내며, 값이 없으면 <missing>missing_parameters</missing>를 반환합니다.",
       "restartNew": "새 워크스페이스 만들기 (기본값)"

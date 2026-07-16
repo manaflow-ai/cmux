@@ -12,6 +12,8 @@ enum CmuxConfigActionSaver {
     enum SaveError: LocalizedError, Equatable {
         case unreadableConfig(String)
         case malformedConfig(String)
+        case actionNotFound(String)
+        case notEditableWorkspaceAction(String)
 
         var errorDescription: String? {
             switch self {
@@ -27,6 +29,18 @@ enum CmuxConfigActionSaver {
                     defaultValue: "%@ isn't a valid JSON object, so the action couldn't be added. Fix the file and try again."
                 )
                 return String(format: format, path)
+            case .actionNotFound(let actionID):
+                let format = String(
+                    localized: "error.cmuxConfigActionSaver.actionNotFound",
+                    defaultValue: "Couldn't find workspace layout “%@” in the global configuration."
+                )
+                return String(format: format, actionID)
+            case .notEditableWorkspaceAction(let actionID):
+                let format = String(
+                    localized: "error.cmuxConfigActionSaver.notEditableWorkspaceAction",
+                    defaultValue: "“%@” is not an inline workspace layout and can't be edited here."
+                )
+                return String(format: format, actionID)
             }
         }
     }
@@ -88,6 +102,51 @@ enum CmuxConfigActionSaver {
 
         try writeOwnerOnlyConfig(updated, globalConfigPath: globalConfigPath, fileManager: fileManager)
         return SaveResult(actionID: actionID, configPath: globalConfigPath)
+    }
+
+    /// Updates the persisted values for an existing inline workspace layout.
+    static func updateWorkspaceActionParameters(
+        id actionID: String,
+        parameters: [String: String],
+        globalConfigPath: String,
+        fileManager: FileManager = .default
+    ) throws {
+        guard fileManager.fileExists(atPath: globalConfigPath),
+              let data = fileManager.contents(atPath: globalConfigPath),
+              let source = String(data: data, encoding: .utf8) else {
+            throw SaveError.unreadableConfig(globalConfigPath)
+        }
+        try validateEditableConfig(source, globalConfigPath: globalConfigPath)
+
+        guard let sanitized = try? JSONCParser.preprocess(data: Data(source.utf8)),
+              let config = try? JSONDecoder().decode(CmuxConfigFile.self, from: sanitized),
+              let action = config.actions[actionID]?.action else {
+            throw SaveError.actionNotFound(actionID)
+        }
+        guard action.inlineWorkspace != nil else {
+            throw SaveError.notEditableWorkspaceAction(actionID)
+        }
+
+        var updated = source
+        for name in parameters.keys.sorted() {
+            guard let value = parameters[name] else { continue }
+            do {
+                updated = try JSONCObjectEditor.setNestedStringProperty(
+                    objectPath: ["actions", actionID, "workspace", "params"],
+                    key: name,
+                    value: value,
+                    in: updated
+                )
+            } catch {
+                throw SaveError.malformedConfig(globalConfigPath)
+            }
+        }
+        guard updated != source else { return }
+        try writeOwnerOnlyConfig(
+            updated,
+            globalConfigPath: globalConfigPath,
+            fileManager: fileManager
+        )
     }
 
     /// Removes `actions.<actionID>` from the config file, preserving comments

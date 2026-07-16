@@ -268,30 +268,32 @@ struct CmuxConfigNewWorkspaceMenuTests {
 
     @MainActor
     @Test func renderedContextMenuGroupsCreateLayoutsAndManagementTail() throws {
-        let (store, root) = try loadStore(globalJSON: twoLayoutConfig(defaultActionID: "review-layout"))
-        defer { try? FileManager.default.removeItem(at: root) }
+        try withAgentChatUIFlag(true) {
+            let (store, root) = try loadStore(globalJSON: twoLayoutConfig(defaultActionID: "review-layout"))
+            defer { try? FileManager.default.removeItem(at: root) }
 
-        try withNewWorkspaceContextMenu(store: store) { menu in
-            let layoutsHeader = String(localized: "menu.newWorkspace.layoutsHeader", defaultValue: "Layouts")
-            let headerIndex = try #require(menu.items.firstIndex { $0.title == layoutsHeader })
-            let saveTitle = String(localized: "menu.newWorkspace.saveWorkspaceAsLayout", defaultValue: "Save Workspace as Layout…")
-            let saveIndex = try #require(menu.items.firstIndex { $0.title == saveTitle })
-            let newWorkspaceIndex = try #require(firstContextMenuIndex(menu, actionID: CmuxSurfaceTabBarBuiltInAction.newWorkspace.configID))
-            let agentChatIndex = try #require(firstContextMenuIndex(menu, actionID: CmuxSurfaceTabBarBuiltInAction.newAgentChat.configID))
-            let reviewIndex = try #require(firstContextMenuIndex(menu, actionID: "review-layout"))
-            let devIndex = try #require(firstContextMenuIndex(menu, actionID: "dev-layout"))
+            try withNewWorkspaceContextMenu(store: store) { menu in
+                let layoutsHeader = String(localized: "menu.newWorkspace.layoutsHeader", defaultValue: "Layouts")
+                let headerIndex = try #require(menu.items.firstIndex { $0.title == layoutsHeader })
+                let saveTitle = String(localized: "menu.newWorkspace.saveWorkspaceAsLayout", defaultValue: "Save Workspace as Layout…")
+                let saveIndex = try #require(menu.items.firstIndex { $0.title == saveTitle })
+                let newWorkspaceIndex = try #require(firstContextMenuIndex(menu, actionID: CmuxSurfaceTabBarBuiltInAction.newWorkspace.configID))
+                let agentChatIndex = try #require(firstContextMenuIndex(menu, actionID: CmuxSurfaceTabBarBuiltInAction.newAgentChat.configID))
+                let reviewIndex = try #require(firstContextMenuIndex(menu, actionID: "review-layout"))
+                let devIndex = try #require(firstContextMenuIndex(menu, actionID: "dev-layout"))
 
-            #expect(newWorkspaceIndex < headerIndex)
-            #expect(agentChatIndex < headerIndex)
-            #expect(headerIndex < reviewIndex)
-            #expect(headerIndex < devIndex)
-            #expect(reviewIndex < saveIndex)
-            #expect(devIndex < saveIndex)
-            let layoutRange = (headerIndex + 1)..<saveIndex
-            let nonLayoutIDs = menu.items[layoutRange].compactMap(contextMenuActionID).filter {
-                $0 != "review-layout" && $0 != "dev-layout"
+                #expect(newWorkspaceIndex < headerIndex)
+                #expect(agentChatIndex < headerIndex)
+                #expect(headerIndex < reviewIndex)
+                #expect(headerIndex < devIndex)
+                #expect(reviewIndex < saveIndex)
+                #expect(devIndex < saveIndex)
+                let layoutRange = (headerIndex + 1)..<saveIndex
+                let nonLayoutIDs = menu.items[layoutRange].compactMap(contextMenuActionID).filter {
+                    $0 != "review-layout" && $0 != "dev-layout"
+                }
+                #expect(nonLayoutIDs.isEmpty)
             }
-            #expect(nonLayoutIDs.isEmpty)
         }
     }
 
@@ -365,7 +367,63 @@ struct CmuxConfigNewWorkspaceMenuTests {
             #expect(submenu.items.contains { $0.title == String(localized: "menu.newWorkspace.deleteLayoutSubmenu", defaultValue: "Delete Workspace Layout") })
             let deleteIDs = submenu.items.compactMap { ($0.representedObject as? WorkspaceActionDeleteBox)?.actionID }
             #expect(deleteIDs == ["dev-layout", "review-layout"])
-            #expect(submenu.items.allSatisfy { $0.submenu == nil })
+            #expect(submenu.items.filter {
+                $0.title != String(
+                    localized: "menu.newWorkspace.editLayoutParametersSubmenu",
+                    defaultValue: "Edit Layout Parameters"
+                )
+            }.allSatisfy { $0.submenu == nil })
+        }
+    }
+
+    @MainActor
+    @Test func renderedContextMenuOffersExplicitParameterEditing() throws {
+        let (store, root) = try loadStore(globalJSON: """
+        {
+          "actions": {
+            "static-layout": {
+              "type": "workspace",
+              "title": "Static Layout",
+              "workspace": { "name": "Static" }
+            },
+            "ticket-layout": {
+              "type": "workspace",
+              "title": "Ticket Layout",
+              "workspace": {
+                "name": "{{ticket}} Dev",
+                "params": { "ticket": "CMUX-8059" }
+              }
+            }
+          }
+        }
+        """)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try withNewWorkspaceContextMenu(store: store) { menu in
+            let manage = try #require(menu.items.first {
+                $0.title == String(
+                    localized: "menu.newWorkspace.manageLayouts",
+                    defaultValue: "Manage Layouts"
+                )
+            })
+            let submenu = try #require(manage.submenu)
+            let editParameters = try #require(submenu.items.first {
+                $0.title == String(
+                    localized: "menu.newWorkspace.editLayoutParametersSubmenu",
+                    defaultValue: "Edit Layout Parameters"
+                )
+            })
+            let editParametersSubmenu = try #require(editParameters.submenu)
+            let editItems = editParametersSubmenu.items.compactMap { item -> (NSMenuItem, WorkspaceActionParameterEditBox)? in
+                guard let box = item.representedObject as? WorkspaceActionParameterEditBox else {
+                    return nil
+                }
+                return (item, box)
+            }
+            #expect(editItems.map { $0.1.actionID } == ["ticket-layout"])
+            let editItem = try #require(editItems.first?.0)
+            #expect(editItem.title == "Ticket Layout…")
+            #expect(editItem.action == Selector(("editWorkspaceConfigActionParametersMenuItem:")))
         }
     }
 

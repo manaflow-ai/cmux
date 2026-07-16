@@ -11,7 +11,7 @@ struct WorkspaceTemplateErrorPresenter {
         if case CmuxTemplateResolutionError.missingVariables(let names) = error {
             let format = String(
                 localized: "dialog.workspaceTemplate.missingParameters.message",
-                defaultValue: "Missing values for: %@"
+                defaultValue: "Missing values for: %@. If this layout appears in the workspace menu, choose Manage Layouts → Edit Layout Parameters. Otherwise, add the values to params in its configuration file."
             )
             message = String.localizedStringWithFormat(format, names.joined(separator: ", "))
         } else {

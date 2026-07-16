@@ -136,6 +136,57 @@ extension AppDelegate {
         }
     }
 
+    @objc func editWorkspaceConfigActionParametersMenuItem(_ sender: NSMenuItem) {
+        guard let box = sender.representedObject as? WorkspaceActionParameterEditBox,
+              let context = mainWindowContexts.values.first(where: { $0.windowId == box.windowId }),
+              let cmuxConfigStore = context.cmuxConfigStore,
+              let window = resolvedWindow(for: context),
+              let action = cmuxConfigStore.actionLookup[box.actionID],
+              isDeletableGlobalAction(action, cmuxConfigStore: cmuxConfigStore),
+              let definition = action.action.inlineWorkspace?.definition else {
+            NSSound.beep()
+            return
+        }
+
+        let presented = WorkspaceActionParameterEditor(
+            processEnvironment: ProcessInfo.processInfo.environment
+        ).present(
+            definition: definition,
+            displayName: box.actionTitle,
+            presentingWindow: window
+        ) { [weak window, weak cmuxConfigStore] parameters in
+            guard let parameters, let cmuxConfigStore else { return }
+            do {
+                try CmuxConfigActionSaver.updateWorkspaceActionParameters(
+                    id: box.actionID,
+                    parameters: parameters,
+                    globalConfigPath: cmuxConfigStore.globalConfigPath
+                )
+                cmuxConfigStore.loadAll()
+#if DEBUG
+                cmuxDebugLog("workspaceLayoutParameters.updated id=\(box.actionID)")
+#endif
+            } catch {
+                guard let window else { return }
+                let errorAlert = NSAlert()
+                errorAlert.alertStyle = .warning
+                errorAlert.messageText = String(
+                    localized: "dialog.workspaceLayoutParameters.edit.failedTitle",
+                    defaultValue: "Couldn't Update Workspace Layout"
+                )
+                errorAlert.informativeText = error.localizedDescription
+                errorAlert.addButton(withTitle: String(
+                    localized: "common.ok",
+                    defaultValue: "OK"
+                ))
+                errorAlert.beginSheetModal(for: window)
+            }
+        }
+        if !presented {
+            NSSound.beep()
+        }
+    }
+
     @objc func saveWorkspaceAsConfigActionMenuItem(_ sender: NSMenuItem) {
         guard let windowId = (sender.representedObject as? NSUUID) as UUID?,
               let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) else {
