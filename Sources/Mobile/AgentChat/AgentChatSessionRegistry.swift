@@ -47,9 +47,22 @@ final class AgentChatSessionRegistry {
 
     /// Creates a registry.
     ///
-    /// - Parameter hookStore: Reader for the per-agent hook session stores.
-    init(hookStore: AgentChatHookSessionStore = AgentChatHookSessionStore()) {
+    /// - Parameters:
+    ///   - hookStore: Reader for the per-agent hook session stores.
+    ///   - restoredRecords: Records restored before live observation begins.
+    init(
+        hookStore: AgentChatHookSessionStore = AgentChatHookSessionStore(),
+        restoredRecords: [AgentChatSessionRecord] = []
+    ) {
         self.hookStore = hookStore
+        for record in restoredRecords {
+            records[record.sessionID] = record
+            versionBySessionID[record.sessionID] = record.version
+        }
+        rebuildSessionIndexes()
+        for record in records.values {
+            syncProcessExitWatch(for: record)
+        }
     }
 
     /// All known sessions, optionally restricted to one workspace, most
@@ -139,10 +152,7 @@ final class AgentChatSessionRegistry {
                 }
                 stampLifecycleTransition(previous: nil, current: &record, at: session.sampledAt)
                 stampVersion(&record)
-                records[targetSessionID] = record
-                syncProcessExitWatch(for: record)
-                updateSessionIndexes(previous: nil, current: record)
-                onRecordChanged?(record, nil)
+                storeRecord(record, replacing: nil)
             } else {
                 guard let current = records[targetSessionID] else { continue }
                 if reviveEndedObservedSessionIfNeeded(current: current, observed: session, now: now) {
@@ -260,9 +270,7 @@ final class AgentChatSessionRegistry {
         if let live = liveSession(surfaceID: surfaceID) {
             return live
         }
-        return sessionSurfaceIndex.sessionIDs(surfaceID: surfaceID)
-            .compactMap { records[$0] }
-            .filter { $0.surfaceID == surfaceID }
+        return indexedRecords(surfaceID: surfaceID)
             .max { $0.lastActivityAt < $1.lastActivityAt }
     }
 
@@ -302,7 +310,6 @@ final class AgentChatSessionRegistry {
         mutate(&record)
         stampLifecycleTransition(previous: previous, current: &record, at: Date())
         stampVersion(&record)
-        records[sessionID] = record
         #if DEBUG
         if previous.state != record.state {
             cmuxDebugLog(
@@ -311,9 +318,7 @@ final class AgentChatSessionRegistry {
             )
         }
         #endif
-        syncProcessExitWatch(for: record)
-        updateSessionIndexes(previous: previous, current: record)
-        onRecordChanged?(record, previous)
+        storeRecord(record, replacing: previous)
     }
 
     #if DEBUG
@@ -388,10 +393,7 @@ final class AgentChatSessionRegistry {
                 record.rememberHookStoreSessionID(entry.sessionID)
                 stampLifecycleTransition(previous: nil, current: &record, at: entry.updatedAt ?? Date())
                 stampVersion(&record)
-                records[sessionID] = record
-                syncProcessExitWatch(for: record)
-                updateSessionIndexes(previous: nil, current: record)
-                onRecordChanged?(record, nil)
+                storeRecord(record, replacing: nil)
             }
         }
     }
@@ -476,10 +478,7 @@ final class AgentChatSessionRegistry {
         record.state = Self.nextState(previous: record.state, event: event)
         stampLifecycleTransition(previous: previous, current: &record, at: event.receivedAt)
         stampVersion(&record)
-        records[sessionID] = record
-        syncProcessExitWatch(for: record)
-        updateSessionIndexes(previous: previous, current: record)
-        onRecordChanged?(record, previous)
+        storeRecord(record, replacing: previous)
         if shouldConsultStore {
             backfillBindingsFromStore(
                 sessionID: sessionID,
@@ -556,18 +555,7 @@ final class AgentChatSessionRegistry {
             .map(\.sessionID)
         guard !aliases.isEmpty else { return }
         for alias in aliases {
-            guard var record = records.removeValue(forKey: alias) else { continue }
-            stampVersion(&record)
-            exitWatchers[alias]?.source.cancel()
-            exitWatchers[alias] = nil
-            hookStoreConsultedAt.removeValue(forKey: alias)
-            updateSessionIndexes(previous: record, current: nil)
-            onRecordRemoved?(record)
-        }
-        if let indexed = liveSessionIDBySurfaceID[surfaceID],
-           aliases.contains(indexed) {
-            liveSessionIDBySurfaceID.removeValue(forKey: surfaceID)
-            rebuildLiveSessionIndex(surfaceID: surfaceID)
+            removeRecord(sessionID: alias)
         }
     }
 
@@ -650,10 +638,7 @@ final class AgentChatSessionRegistry {
         )
         stampLifecycleTransition(previous: nil, current: &record, at: now)
         stampVersion(&record)
-        records[sessionID] = record
-        syncProcessExitWatch(for: record)
-        updateSessionIndexes(previous: nil, current: record)
-        onRecordChanged?(record, nil)
+        storeRecord(record, replacing: nil)
     }
 
     /// Reads one session's hook-store entry OFF the main actor and applies any
@@ -692,6 +677,57 @@ final class AgentChatSessionRegistry {
         update(sessionID: sessionID) { record in
             record.adoptMissingBindings(from: entry, includingPID: record.pid == nil)
         }
+    }
+
+    /// Stores one record and reconciles every derived registry structure.
+    private func storeRecord(
+        _ record: AgentChatSessionRecord,
+        replacing previous: AgentChatSessionRecord?
+    ) {
+        records[record.sessionID] = record
+        syncProcessExitWatch(for: record)
+        updateSessionIndexes(previous: previous, current: record)
+        onRecordChanged?(record, previous)
+    }
+
+    /// Removes one record and reconciles every derived registry structure.
+    private func removeRecord(sessionID: String) {
+        guard var record = records.removeValue(forKey: sessionID) else { return }
+        stampVersion(&record)
+        exitWatchers[sessionID]?.source.cancel()
+        exitWatchers[sessionID] = nil
+        hookStoreConsultedAt.removeValue(forKey: sessionID)
+        updateSessionIndexes(previous: record, current: nil)
+        onRecordRemoved?(record)
+    }
+
+    /// Rebuilds all derived indexes after records are restored at initialization.
+    private func rebuildSessionIndexes() {
+        sessionSurfaceIndex = ChatSessionSurfaceIndex<String>()
+        liveSessionIDBySurfaceID.removeAll(keepingCapacity: true)
+        liveClaudeSessionIDsBySurfaceID.removeAll(keepingCapacity: true)
+        for record in records.values {
+            updateSessionIndexes(previous: nil, current: record)
+        }
+    }
+
+    /// Resolves indexed records and repairs a missing or stale surface entry.
+    private func indexedRecords(surfaceID: String) -> [AgentChatSessionRecord] {
+        let before = sessionSurfaceIndex.sessionIDs(surfaceID: surfaceID)
+        let sessionIDs = sessionSurfaceIndex.sessionIDs(
+            surfaceID: surfaceID,
+            healingFrom: records,
+            recordSurfaceID: \.surfaceID
+        )
+        #if DEBUG
+        if before != sessionIDs, !sessionIDs.isEmpty {
+            cmuxDebugLog(
+                "agentChat.surfaceIndex divergence surface=\(surfaceID.prefix(8)) "
+                + "indexed=\(before.count) recovered=\(sessionIDs.count)"
+            )
+        }
+        #endif
+        return sessionIDs.compactMap { records[$0] }
     }
 
     private func updateSessionIndexes(
@@ -745,8 +781,7 @@ final class AgentChatSessionRegistry {
 
     private func rebuildLiveSessionIndex(surfaceID: String?) {
         guard let surfaceID else { return }
-        if let newest = sessionSurfaceIndex.sessionIDs(surfaceID: surfaceID)
-            .compactMap({ records[$0] })
+        if let newest = indexedRecords(surfaceID: surfaceID)
             .filter({ $0.surfaceID == surfaceID && $0.state != .ended })
             .max(by: { $0.lastActivityAt < $1.lastActivityAt }) {
             liveSessionIDBySurfaceID[surfaceID] = newest.sessionID
