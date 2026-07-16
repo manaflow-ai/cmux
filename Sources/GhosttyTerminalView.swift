@@ -7210,7 +7210,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         sendsTerminalPointerEvent: Bool
     ) -> NSMenu? {
         guard let surface = surface else { return nil }
-        if ghostty_surface_mouse_captured(surface) {
+        if sendsTerminalPointerEvent, ghostty_surface_mouse_captured(surface) {
             return nil
         }
 

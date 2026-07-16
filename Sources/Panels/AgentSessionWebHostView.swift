@@ -42,17 +42,26 @@ final class AgentSessionWebHostView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        guard let webView = hostedWebView as? AgentSessionWebView else { return }
+        guard let webView = hostedWebView as? AgentSessionWebView else {
+            super.mouseDown(with: event)
+            return
+        }
         webView.onPointerDown?()
         window?.makeFirstResponder(webView)
     }
 
     override func scrollWheel(with event: NSEvent) {
-        guard let hostedWebView else { return }
+        guard let hostedWebView else {
+            super.scrollWheel(with: event)
+            return
+        }
         let pointScale: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 20
         let deltaX = event.scrollingDeltaX * pointScale
         let deltaY = event.scrollingDeltaY * pointScale
-        guard deltaX.isFinite, deltaY.isFinite else { return }
+        guard deltaX.isFinite, deltaY.isFinite else {
+            super.scrollWheel(with: event)
+            return
+        }
 
         pendingScrollDelta.x = Self.clampedScrollDelta(pendingScrollDelta.x + deltaX)
         pendingScrollDelta.y = Self.clampedScrollDelta(pendingScrollDelta.y + deltaY)
