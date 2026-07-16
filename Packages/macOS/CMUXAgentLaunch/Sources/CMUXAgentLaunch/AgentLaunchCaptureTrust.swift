@@ -132,9 +132,10 @@ public enum AgentLaunchCaptureTrust {
         childArguments: [String],
         kind: String
     ) -> Bool {
-        guard parentArguments.count == 2,
+        guard parentArguments.count >= 2,
               let parentExecutable = processBasename(parentArguments.first),
               isInterpreterHost(parentExecutable),
+              !parentArguments[1].hasPrefix("-"),
               nativeProcessDescribesKind(
                   processName: parentProcessName,
                   arguments: parentArguments,
@@ -148,7 +149,7 @@ public enum AgentLaunchCaptureTrust {
             return false
         }
 
-        let entrypoint = parentArguments[1]
+        let forwardedArguments = parentArguments.dropFirst()
         let childHosts = Set([
             processBasename(childProcessName),
             processBasename(childArguments.first),
@@ -156,7 +157,8 @@ public enum AgentLaunchCaptureTrust {
         if !childHosts.contains(where: isInterpreterHost) {
             return true
         }
-        return childArguments.dropFirst().contains(entrypoint)
+        guard childArguments.count > forwardedArguments.count else { return false }
+        return childArguments.suffix(forwardedArguments.count).elementsEqual(forwardedArguments)
     }
 
     /// True when a process is running a script but its argv cannot identify a
