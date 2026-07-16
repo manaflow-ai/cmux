@@ -143,10 +143,23 @@ extension MobileShellComposite {
             return
         }
         let workspacesBeforeForget = workspacesByMac
+        let focusRevisionsBeforeForget = workspaceFocusEventRevisionsByMac
         let foregroundMacDeviceIDBeforeForget = foregroundMacDeviceID
-        let isActiveMac = pairedMacsForIdentityMatching.contains {
-            targetIDSet.contains($0.macDeviceID) && $0.isActive
-        }
+        let activeTargetIDSet = Set(pairedMacsForIdentityMatching.compactMap { mac in
+            targetIDSet.contains(mac.macDeviceID) && mac.isActive ? mac.macDeviceID : nil
+        })
+        let isActiveMac = !activeTargetIDSet.isEmpty
+        let capturedHierarchyWorkspaceIDsByMac = Dictionary(
+            uniqueKeysWithValues: macDeviceIDs.map { id in
+                var ownerKeys: Set<String> = [id]
+                if foregroundMacDeviceID == id
+                    || activeTicket?.macDeviceID == id
+                    || activeTargetIDSet.contains(id) {
+                    ownerKeys.insert(foregroundMacKey)
+                }
+                return (id, hierarchyPresentationWorkspaceIDs(ownerKeys: ownerKeys))
+            }
+        )
         if pairedMacsForIdentityMatching.contains(where: { targetIDSet.contains($0.macDeviceID) }) {
             invalidateStoredMacReconnectAttempt()
         }
@@ -165,6 +178,7 @@ extension MobileShellComposite {
                 await clearForgottenMacDeviceID(id, scope: scope)
             }
             workspacesByMac = workspacesBeforeForget
+            workspaceFocusEventRevisionsByMac = focusRevisionsBeforeForget
             foregroundMacDeviceID = foregroundMacDeviceIDBeforeForget
             return
         }
@@ -189,11 +203,21 @@ extension MobileShellComposite {
                 await clearForgottenMacDeviceID(id, scope: scope)
             }
             workspacesByMac = workspacesBeforeForget
+            workspaceFocusEventRevisionsByMac = focusRevisionsBeforeForget
             foregroundMacDeviceID = foregroundMacDeviceIDBeforeForget
             for id in removedIDs {
                 pruneWorkspaceStateForForgottenMac(id)
             }
         }
+        let capturedRemovedHierarchyWorkspaceIDs = removedIDs.reduce(
+            into: Set<MobileWorkspacePreview.ID>()
+        ) { workspaceIDs, removedID in
+            workspaceIDs.formUnion(capturedHierarchyWorkspaceIDsByMac[removedID] ?? [])
+        }
+        terminalReorderGate.evictOwners(in: .owners(
+            macDeviceIDs: removedIDs,
+            presentationWorkspaceIDs: capturedRemovedHierarchyWorkspaceIDs
+        ))
         await loadPairedMacs()
         clearSavedMacHintAfterDeletingLastVisibleMacIfNeeded()
     }
@@ -210,6 +234,9 @@ extension MobileShellComposite {
         if foregroundMacDeviceID == macDeviceID {
             foregroundMacDeviceID = nil
         }
+        let removedOwnerKeys = workspacesByMac.compactMap { key, state in
+            key == macDeviceID || state.macDeviceID == macDeviceID ? key : nil
+        }
         let pruned = workspacesByMac.reduce(into: [String: MacWorkspaceState]()) { result, entry in
             let (key, state) = entry
             guard key != macDeviceID, state.macDeviceID != macDeviceID else { return }
@@ -222,6 +249,21 @@ extension MobileShellComposite {
             workspacesByMac = pruned
         } else if pruned != workspacesByMac {
             workspacesByMac = pruned
+        }
+        if let anonymousState = pruned[Self.foregroundAnonymousKey] {
+            let retainedRemoteWorkspaceIDs = Set(anonymousState.workspaces.map {
+                $0.rpcWorkspaceID.rawValue
+            })
+            workspaceFocusEventRevisionsByMac[Self.foregroundAnonymousKey] =
+                workspaceFocusEventRevisionsByMac[Self.foregroundAnonymousKey]?.filter {
+                    retainedRemoteWorkspaceIDs.contains($0.key)
+                }
+            if workspaceFocusEventRevisionsByMac[Self.foregroundAnonymousKey]?.isEmpty == true {
+                workspaceFocusEventRevisionsByMac[Self.foregroundAnonymousKey] = nil
+            }
+        }
+        for ownerKey in removedOwnerKeys {
+            removeWorkspaceFocusRevisions(ownerKey: ownerKey)
         }
     }
 }

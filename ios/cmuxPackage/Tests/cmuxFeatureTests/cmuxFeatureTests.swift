@@ -22,17 +22,27 @@ import UIKit
 final class TerminalOutputCollector {
     private(set) var lines: [String] = []
     private var task: Task<Void, Never>?
+    private var lineWaiters: [UUID: (
+        expected: String,
+        continuation: CheckedContinuation<Bool, Never>,
+        timeout: DispatchSourceTimer
+    )] = [:]
 
     /// Begin consuming the surface's output stream into ``lines``.
     func mount(store: CMUXMobileShellStore, surfaceID: String) {
         task = Task { @MainActor [weak self] in
             for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
                 guard let self else { break }
-                self.lines.append(String(data: chunk.data, encoding: .utf8) ?? "")
+                let line = String(data: chunk.data, encoding: .utf8) ?? ""
+                self.lines.append(line)
                 store.terminalOutputDidProcess(
                     surfaceID: surfaceID,
                     streamToken: chunk.streamToken
                 )
+                let completedWaiters = self.lineWaiters.filter { $0.value.expected == line }
+                for (id, _) in completedWaiters {
+                    self.finishLineWaiter(id: id, delivered: true)
+                }
             }
         }
     }
@@ -41,6 +51,42 @@ final class TerminalOutputCollector {
     func unmount() {
         task?.cancel()
         task = nil
+        for id in Array(lineWaiters.keys) {
+            finishLineWaiter(id: id, delivered: false)
+        }
+    }
+
+    /// Wait for a specific sink delivery without racing an already-delivered line.
+    func waitForLine(_ expected: String) async -> Bool {
+        guard !lines.contains(expected) else { return true }
+        let waiterID = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard !lines.contains(expected) else {
+                    continuation.resume(returning: true)
+                    return
+                }
+                let timeout = DispatchSource.makeTimerSource(queue: .main)
+                timeout.schedule(deadline: .now() + .seconds(3))
+                timeout.setEventHandler { [weak self] in
+                    MainActor.assumeIsolated {
+                        self?.finishLineWaiter(id: waiterID, delivered: false)
+                    }
+                }
+                lineWaiters[waiterID] = (expected, continuation, timeout)
+                timeout.resume()
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.finishLineWaiter(id: waiterID, delivered: false)
+            }
+        }
+    }
+
+    private func finishLineWaiter(id: UUID, delivered: Bool) {
+        guard let waiter = lineWaiters.removeValue(forKey: id) else { return }
+        waiter.timeout.cancel()
+        waiter.continuation.resume(returning: delivered)
     }
 }
 
@@ -2148,6 +2194,57 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
+@Test func remoteCreateTerminalSelectionSurvivesFocusNeutralRefresh() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "workspace-main",
+        terminalID: "terminal-agent-a",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date(timeIntervalSince1970: 2_000_000_000)
+    )
+    let router = FocusNeutralRemoteCreateTerminalRouter()
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: RequestAwareTransportFactory(router: router),
+        supportsServerPushEvents: true
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+    #expect(await waitForTerminalHierarchyCapabilities(store))
+    let workspace = try #require(store.workspaces.first { $0.rpcWorkspaceID.rawValue == "workspace-main" })
+    #expect(workspace.focusedPaneID == "pane-focused")
+    #expect(workspace.terminals.filter { $0.name == "Agent" }.count == 2)
+
+    store.createTerminal(in: workspace.id)
+    #expect(await waitForSelectedTerminal("terminal-agent-returned", in: store))
+    let createRequest = try #require(
+        await router.sentRequests().first { $0.method == "terminal.create" }
+    )
+    #expect(createRequest.workspaceID == "workspace-main")
+    #expect(createRequest.paneID == "pane-focused")
+    let created = try #require(
+        store.selectedWorkspace?.terminals.first { $0.id.rawValue == "terminal-agent-returned" }
+    )
+    #expect(created.name == "Agent")
+    #expect(created.paneID == "pane-focused")
+    #expect(created.isReady)
+    #expect(!store.selectedWorkspace!.terminals.contains { $0.id.rawValue == "terminal-agent-optimistic" })
+
+    #expect(await store.refreshForegroundWorkspaceList())
+
+    #expect(store.selectedWorkspace?.id == workspace.id)
+    #expect(store.selectedTerminalID?.rawValue == "terminal-agent-returned")
+}
+
+@MainActor
 @Test func remoteCreateTerminalDoesNotStealSelectionAfterWorkspaceSwitch() async throws {
     let route = try CmxAttachRoute(
         id: "debug_loopback",
@@ -2186,6 +2283,116 @@ final class TerminalOutputCollector {
     #expect(store.selectedWorkspace?.id.rawValue == "workspace-docs")
     #expect(store.selectedTerminalID?.rawValue == "terminal-notes")
     #expect(!requests.contains { $0.workspaceID == "workspace-docs" && $0.terminalID == "workspace-main-terminal-2" })
+}
+
+@MainActor
+@Test func disconnectReleasesSuspendedTerminalCreateAndReconnectCanRetry() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "workspace-main",
+        terminalID: "terminal-build",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date(timeIntervalSince1970: 2_000_000_000)
+    )
+    let router = DisconnectDuringTerminalCreateRouter()
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: RequestAwareTransportFactory(router: router),
+        supportsServerPushEvents: true
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+    let attachURL = try attachURL(for: ticket).absoluteString
+
+    store.signIn()
+    await store.connectPairingURL(attachURL)
+    await router.waitForHostStatusRequest(count: 1)
+    #expect(await waitForTerminalHierarchyCapabilities(store))
+    let workspaceID = try installTerminalHierarchyWorkspace(in: store)
+
+    store.createTerminal(in: workspaceID)
+    await router.waitForTerminalCreateRequest(count: 1)
+    #expect(store.terminalReorderGate.isActive)
+
+    store.disconnectAndForgetActiveMac()
+
+    let releasedSuspendedCreate = !store.terminalReorderGate.isActive
+    #expect(releasedSuspendedCreate)
+    guard releasedSuspendedCreate else {
+        await router.releaseFirstTerminalCreateResponse()
+        return
+    }
+
+    await store.connectPairingURL(attachURL)
+    await router.waitForHostStatusRequest(count: 2)
+    #expect(await waitForTerminalHierarchyCapabilities(store))
+    let reconnectedWorkspaceID = try installTerminalHierarchyWorkspace(in: store)
+
+    store.createTerminal(in: reconnectedWorkspaceID)
+    await router.waitForTerminalCreateRequest(count: 2)
+    #expect(await waitForSelectedTerminal("workspace-main-terminal-2", in: store))
+    #expect(store.terminalReorderGate.canMutate(workspaceID: reconnectedWorkspaceID))
+
+    await router.releaseFirstTerminalCreateResponse()
+}
+
+@MainActor
+private func installTerminalHierarchyWorkspace(
+    in store: CMUXMobileShellStore
+) throws -> MobileWorkspacePreview.ID {
+    var workspace = try #require(store.workspaces.first {
+        $0.rpcWorkspaceID.rawValue == "workspace-main" || $0.id.rawValue == "workspace-main"
+    })
+    let paneID = MobilePanePreview.ID(rawValue: "pane-main")
+    for index in workspace.terminals.indices {
+        workspace.terminals[index].paneID = paneID
+    }
+    workspace.panes = [
+        MobilePanePreview(
+            id: paneID,
+            spatialIndex: 0,
+            isFocused: true,
+            terminalIDs: workspace.terminals.map(\.id)
+        ),
+    ]
+    workspace.focusedPaneID = paneID
+    workspace.selectedTerminalID = workspace.terminals.first?.id
+    store.replaceForegroundWorkspaceState([workspace])
+    let installed = try #require(store.workspaces.first { $0.id == workspace.id })
+    #expect(installed.actionCapabilities.supportsTerminalCreateInPane)
+    #expect(installed.actionCapabilities.supportsTerminalCloseActions)
+    return installed.id
+}
+
+@MainActor
+private func waitForTerminalHierarchyCapabilities(_ store: CMUXMobileShellStore) async -> Bool {
+    for _ in 0..<200 {
+        if store.workspaces.first?.actionCapabilities.supportsTerminalCreateInPane == true,
+           store.workspaces.first?.actionCapabilities.supportsTerminalCloseActions == true {
+            return true
+        }
+        try? await Task.sleep(for: .milliseconds(10))
+    }
+    return false
+}
+
+@MainActor
+private func waitForSelectedTerminal(
+    _ terminalID: String,
+    in store: CMUXMobileShellStore
+) async -> Bool {
+    for _ in 0..<200 {
+        if store.selectedTerminalID?.rawValue == terminalID {
+            return true
+        }
+        try? await Task.sleep(for: .milliseconds(10))
+    }
+    return false
 }
 
 @MainActor
@@ -2317,11 +2524,18 @@ struct TerminalStreamTests {
 
     store.signIn()
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+    let initialSubscribeRequests = try await waitForRequestCount(
+        "mobile.events.subscribe",
+        count: 1,
+        router: router
+    )
+    try #require(initialSubscribeRequests.count >= 1)
     collector.mount(store: store, surfaceID: "live-terminal")
     let oldGridText = try terminalRenderGridReplacementText(seq: 4, text: "old")
     let currentGridText = try terminalRenderGridReplacementText(seq: 12, text: "current")
 
-    _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
+    let initialReplayRequests = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
+    try #require(initialReplayRequests.count >= 1)
     // Anchor on the cold replay's DELIVERY, not just its request: submitting
     // input while the first replay's response is still in flight races the
     // input-triggered resync against the in-flight replay's barrier state,
@@ -2329,22 +2543,15 @@ struct TerminalStreamTests {
     // iPad failure in https://github.com/manaflow-ai/cmux/issues/7820). The
     // scenario under test is a phone SETTLED at stale content learning from
     // an input ack that the mac is ahead.
-    for _ in 0..<4000 where !collector.lines.contains(oldGridText) {
-        try await Task.sleep(nanoseconds: 1_000_000)
-    }
-    #expect(collector.lines.last == oldGridText)
+    try #require(await collector.waitForLine(oldGridText))
 
     await store.submitTerminalRawInput(Data("x".utf8), surfaceID: "live-terminal")
 
     let replayRequests = try await waitForRequestCount("mobile.terminal.replay", count: 2, router: router)
+    let subscribeRequests = try await waitForRequestCount("mobile.events.subscribe", count: 2, router: router)
     #expect(replayRequests.count >= 2)
-    _ = try await waitForRequestCount("mobile.events.subscribe", count: 2, router: router)
-    // The request-count waits only prove the second replay was REQUESTED; its
-    // response still has to round-trip and deliver. The slower CI iPad leg
-    // regularly needs more than the file's usual 200ms here.
-    for _ in 0..<4000 where !collector.lines.contains(currentGridText) {
-        try await Task.sleep(nanoseconds: 1_000_000)
-    }
+    #expect(subscribeRequests.count >= 2)
+    try #require(await collector.waitForLine(currentGridText))
 
     #expect(collector.lines.last == currentGridText)
     #expect(Set(collector.lines).isSubset(of: [oldGridText, currentGridText]))
@@ -2380,23 +2587,22 @@ struct TerminalStreamTests {
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
     _ = try await waitForRequestCount("mobile.events.subscribe", count: 1, router: router)
     collector.mount(store: store, surfaceID: "live-terminal")
-    _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
+    let initialReplayRequests = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
+    try #require(initialReplayRequests.count >= 1)
+
+    let oldGridText = try terminalRenderGridReplacementText(seq: 4, text: "old")
+    let currentGridText = try terminalRenderGridReplacementText(seq: 12, text: "current")
+    try #require(await collector.waitForLine(oldGridText))
 
     await store.submitTerminalRawInput(Data("x".utf8), surfaceID: "live-terminal")
     let afterFirstInput = await router.sentRequests()
     #expect(afterFirstInput.filter { $0.method == "mobile.terminal.replay" }.count == 1)
 
     await store.submitTerminalRawInput(Data("y".utf8), surfaceID: "live-terminal")
-    _ = try await waitForRequestCount("mobile.terminal.replay", count: 2, router: router)
-    // The request-count wait only proves the second replay REQUEST was sent;
-    // its response still flows back through the transport asynchronously.
-    // Poll for delivery like the sibling tests do, then assert content.
-    for _ in 0..<200 where collector.lines.count < 2 {
-        try await Task.sleep(nanoseconds: 1_000_000)
-    }
+    let replayRequests = try await waitForRequestCount("mobile.terminal.replay", count: 2, router: router)
+    #expect(replayRequests.count >= 2)
+    try #require(await collector.waitForLine(currentGridText))
 
-    let oldGridText = try terminalRenderGridReplacementText(seq: 4, text: "old")
-    let currentGridText = try terminalRenderGridReplacementText(seq: 12, text: "current")
     #expect(collector.lines == [
         oldGridText,
         currentGridText,
@@ -2432,7 +2638,7 @@ struct TerminalStreamTests {
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
 
     let subscribeRequests = try await waitForRequestCount("mobile.events.subscribe", count: 1, router: router)
-    #expect(subscribeRequests.first?.topics == ["workspace.updated", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge"])
+    #expect(subscribeRequests.first?.topics == ["workspace.updated", "workspace.focused", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge"])
 
     collector.mount(store: store, surfaceID: "live-terminal")
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
@@ -2851,7 +3057,8 @@ private func rpcHostStatusFrame(
     terminalBytes: Bool = true,
     macDeviceID: String? = "test-mac",
     macDisplayName: String? = nil,
-    macInstanceTag: String? = "default"
+    macInstanceTag: String? = "default",
+    additionalCapabilities: [String] = []
 ) throws -> Data {
     var capabilities = ["events.v1", "terminal.replay.v1"]
     if terminalBytes {
@@ -2860,6 +3067,7 @@ private func rpcHostStatusFrame(
     if renderGrid {
         capabilities.append("terminal.render_grid.v1")
     }
+    capabilities.append(contentsOf: additionalCapabilities)
     var result: [String: Any] = [
         "terminal_fidelity": renderGrid ? "render_grid" : "ghostty_bytes",
         "capabilities": capabilities,
@@ -3037,6 +3245,70 @@ private func rpcTerminalCreateScopedFrame() throws -> Data {
             ],
         ]
     )
+}
+
+private func rpcFocusNeutralTerminalCreateFrame(created: Bool) throws -> Data {
+    var result: [String: Any] = [
+        "workspaces": [
+            [
+                "id": "workspace-main",
+                "title": "cmux",
+                "current_directory": "/Users/test/project",
+                "is_selected": true,
+                "focused_pane_id": "pane-focused",
+                "selected_terminal_id": "terminal-agent-a",
+                "panes": [
+                    [
+                        "id": "pane-other",
+                        "spatial_index": 0,
+                        "is_focused": false,
+                        "terminal_ids": ["terminal-other"],
+                    ],
+                    [
+                        "id": "pane-focused",
+                        "spatial_index": 1,
+                        "is_focused": true,
+                        "terminal_ids": created
+                            ? ["terminal-agent-a", "terminal-agent-b", "terminal-agent-returned"]
+                            : ["terminal-agent-a", "terminal-agent-b"],
+                    ],
+                ],
+                "terminals": [
+                    [
+                        "id": "terminal-other",
+                        "title": "Other",
+                        "pane_id": "pane-other",
+                        "is_ready": true,
+                        "is_focused": false,
+                    ],
+                    [
+                        "id": "terminal-agent-a",
+                        "title": "Agent",
+                        "pane_id": "pane-focused",
+                        "is_ready": true,
+                        "is_focused": true,
+                    ],
+                    [
+                        "id": "terminal-agent-b",
+                        "title": "Agent",
+                        "pane_id": "pane-focused",
+                        "is_ready": true,
+                        "is_focused": false,
+                    ],
+                ] + (created ? [[
+                    "id": "terminal-agent-returned",
+                    "title": "Agent",
+                    "pane_id": "pane-focused",
+                    "is_ready": true,
+                    "is_focused": false,
+                ]] : []),
+            ],
+        ],
+    ]
+    if created {
+        result["created_terminal_id"] = "terminal-agent-optimistic"
+    }
+    return try rpcResultFrame(result: result)
 }
 
 private func rpcAttachTicketFrame(
@@ -3266,6 +3538,42 @@ private actor RemoteCreateTerminalRouter: RequestAwareTransportRouter {
     }
 }
 
+private actor FocusNeutralRemoteCreateTerminalRouter: RequestAwareTransportRouter {
+    private var requests: [RecordedRPCRequest] = []
+    private var created = false
+
+    func record(_ request: RecordedRPCRequest) {
+        requests.append(request)
+    }
+
+    func sentRequests() -> [RecordedRPCRequest] {
+        requests
+    }
+
+    func response(for request: RecordedRPCRequest) async throws -> Data? {
+        switch request.method {
+        case "workspace.list", "mobile.workspace.list":
+            return try rpcFocusNeutralTerminalCreateFrame(created: created)
+        case "mobile.host.status":
+            return try rpcHostStatusFrame(
+                renderGrid: true,
+                additionalCapabilities: [
+                    "terminal.close.v1",
+                    "terminal.create_in_pane.v1",
+                    "terminal.reorder.v1",
+                ]
+            )
+        case "mobile.events.subscribe":
+            return try rpcResultFrame(result: ["stream_id": "focus-neutral-create-events"])
+        case "terminal.create":
+            created = true
+            return try rpcFocusNeutralTerminalCreateFrame(created: true)
+        default:
+            return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
+        }
+    }
+}
+
 private actor DelayedRemoteCreateTerminalRouter: RequestAwareTransportRouter {
     private var terminalCreateRequested = false
     private var terminalCreateReleased = false
@@ -3320,6 +3628,91 @@ private actor DelayedRemoteCreateTerminalRouter: RequestAwareTransportRouter {
         guard !terminalCreateReleased else { return }
         await withCheckedContinuation { continuation in
             terminalCreateReleaseContinuation = continuation
+        }
+    }
+}
+
+private actor DisconnectDuringTerminalCreateRouter: RequestAwareTransportRouter {
+    private var requests: [RecordedRPCRequest] = []
+    private var terminalCreateRequestCount = 0
+    private var hostStatusRequestCount = 0
+    private var terminalCreateWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private var hostStatusWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private var firstTerminalCreateReleaseContinuation: CheckedContinuation<Void, Never>?
+
+    func record(_ request: RecordedRPCRequest) {
+        requests.append(request)
+    }
+
+    func sentRequests() -> [RecordedRPCRequest] {
+        requests
+    }
+
+    func waitForTerminalCreateRequest(count: Int) async {
+        guard terminalCreateRequestCount < count else { return }
+        await withCheckedContinuation { continuation in
+            terminalCreateWaiters.append((count, continuation))
+        }
+    }
+
+    func waitForHostStatusRequest(count: Int) async {
+        guard hostStatusRequestCount < count else { return }
+        await withCheckedContinuation { continuation in
+            hostStatusWaiters.append((count, continuation))
+        }
+    }
+
+    func releaseFirstTerminalCreateResponse() {
+        firstTerminalCreateReleaseContinuation?.resume()
+        firstTerminalCreateReleaseContinuation = nil
+    }
+
+    func response(for request: RecordedRPCRequest) async throws -> Data? {
+        switch request.method {
+        case "workspace.list":
+            return try rpcTwoWorkspaceListFrame()
+        case "mobile.host.status":
+            hostStatusRequestCount += 1
+            resumeHostStatusWaiters()
+            return try rpcHostStatusFrame(
+                renderGrid: true,
+                macDeviceID: "test-mac",
+                macDisplayName: "Test Mac",
+                additionalCapabilities: [
+                    "terminal.close.v1",
+                    "terminal.create_in_pane.v1",
+                    "terminal.reorder.v1",
+                ]
+            )
+        case "mobile.events.subscribe":
+            return try rpcResultFrame(result: ["stream_id": "terminal-events"])
+        case "terminal.create":
+            terminalCreateRequestCount += 1
+            resumeTerminalCreateWaiters()
+            if terminalCreateRequestCount == 1 {
+                await withCheckedContinuation { continuation in
+                    firstTerminalCreateReleaseContinuation = continuation
+                }
+            }
+            return try rpcTerminalCreateScopedFrame()
+        default:
+            return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
+        }
+    }
+
+    private func resumeTerminalCreateWaiters() {
+        let ready = terminalCreateWaiters.filter { $0.count <= terminalCreateRequestCount }
+        terminalCreateWaiters.removeAll { $0.count <= terminalCreateRequestCount }
+        for waiter in ready {
+            waiter.continuation.resume()
+        }
+    }
+
+    private func resumeHostStatusWaiters() {
+        let ready = hostStatusWaiters.filter { $0.count <= hostStatusRequestCount }
+        hostStatusWaiters.removeAll { $0.count <= hostStatusRequestCount }
+        for waiter in ready {
+            waiter.continuation.resume()
         }
     }
 }
@@ -3710,6 +4103,7 @@ private struct RecordedRPCRequest: Sendable {
     var method: String?
     var workspaceID: String?
     var terminalID: String?
+    var paneID: String?
     var viewportColumns: Int?
     var viewportRows: Int?
     var maxScrollbackRows: Int?
@@ -3730,6 +4124,7 @@ private func recordedRPCRequest(from payload: Data) throws -> RecordedRPCRequest
         method: request["method"] as? String,
         workspaceID: params["workspace_id"] as? String,
         terminalID: params["terminal_id"] as? String ?? params["surface_id"] as? String,
+        paneID: params["pane_id"] as? String,
         viewportColumns: params["viewport_columns"] as? Int,
         viewportRows: params["viewport_rows"] as? Int,
         maxScrollbackRows: params["max_scrollback_rows"] as? Int,

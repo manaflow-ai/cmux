@@ -2,6 +2,12 @@ import CmuxRemoteSession
 import Foundation
 import os
 
+enum RemoteTmuxMutationOutcome: Equatable {
+    case applied
+    case rejected
+    case unknown
+}
+
 /// A live tmux control-mode connection to one remote session.
 ///
 /// Spawns `ssh -tt <ControlMaster> host tmux -CC attach -t <session>` as a
@@ -12,6 +18,17 @@ import os
 /// command-queue desync because we issue and correlate commands ourselves.
 @MainActor
 final class RemoteTmuxControlConnection {
+    typealias ActivityQueryDeadlineCancellation = @MainActor () -> Void
+    typealias ActivityQueryDeadlineScheduler = @MainActor (
+        Duration,
+        @escaping @MainActor () -> Void
+    ) -> ActivityQueryDeadlineCancellation
+
+    struct PendingWindowClose {
+        let windowID: Int
+        let completion: (RemoteTmuxMutationOutcome) -> Void
+    }
+
     /// The host this connection talks to.
     let host: RemoteTmuxHost
     /// The tmux session name this connection attaches to. Mutable because a
@@ -85,12 +102,24 @@ final class RemoteTmuxControlConnection {
     /// the cached classification instead of hanging until a reconnect that may
     /// never come.
     var activityQueryCompletions: [UUID: ([Int: PaneForegroundState]?) -> Void] = [:]
+    /// Deadline cancellations paired one-to-one with
+    /// ``activityQueryCompletions``. A connected control stream can remain wedged
+    /// without producing either a reply or a reset, so stream lifecycle alone
+    /// cannot bound close RPCs.
+    var activityQueryDeadlineCancellations: [UUID: ActivityQueryDeadlineCancellation] = [:]
     var newWindowCompletions: [UUID: (Int?) -> Void] = [:]
     /// Completions for ``sendTracked(_:completion:)`` blocks, keyed by the
     /// `.tracked` token in the FIFO. Guaranteed exactly one edge each: `%end`,
     /// `%error`, or a stream reset (``failPendingTrackedSends()``) — callers
     /// build protocol-anchored state machines on that guarantee.
     var trackedSendCompletions: [UUID: (Bool) -> Void] = [:]
+    var windowCloseRequests: [UUID: PendingWindowClose] = [:]
+    var windowCloseDeadlineCancellations: [UUID: ActivityQueryDeadlineCancellation] = [:]
+    /// Close verifications whose deadline fired while the kill command was
+    /// already on the wire. They remain unresolved until a FIFO-following
+    /// `list-windows` snapshot proves whether the target is present.
+    var windowCloseRecoveryTokensAwaitingList: Set<UUID> = []
+    var windowCloseRecoveryTokensInFlight: Set<UUID> = []
 
     private var process: Process?
     var stdinWriter: RemoteTmuxControlPipeWriter?
@@ -110,8 +139,14 @@ final class RemoteTmuxControlConnection {
     var windowReorderBatchFailed = false
     var windowReorderGeneration: UInt64 = 0
     var windowReorderRecoveryGeneration: UInt64?
+    /// Recovery generation waiting behind an older coalesced `list-windows`
+    /// request. Distinct from an already-written recovery so each FIFO phase
+    /// receives one bounded deadline without repeated dirty marks extending it.
+    var windowReorderRecoveryAwaitingListGeneration: UInt64?
     var windowReorderVerificationGeneration: UInt64?
-    var windowReorderVerifications: [UInt64: (Bool) -> Void] = [:]
+    var windowReorderVerifications: [UInt64: (RemoteTmuxMutationOutcome) -> Void] = [:]
+    var windowReorderVerificationTokens: [UUID: UInt64] = [:]
+    var windowReorderDeadlineCancellations: [UInt64: ActivityQueryDeadlineCancellation] = [:]
     private var connectionWaiters: [UUID: (Bool) -> Void] = [:]
     /// `false` until the attach command's own `%begin`/`%end` block — always the
     /// FIRST block on each control stream, preceding every notification — has been
@@ -122,6 +157,7 @@ final class RemoteTmuxControlConnection {
     /// produces a fresh attach block).
     private var attachBlockDrained = false
     private let createIfMissing: Bool
+    let scheduleActivityQueryDeadline: ActivityQueryDeadlineScheduler
 
     /// Stateless pure decoders for control-mode message payloads (pane-state seed,
     /// window reorder, session-gone classification). Holds no state.
@@ -290,10 +326,27 @@ final class RemoteTmuxControlConnection {
     static let altScreenEnterSequence = Data("\u{1b}[?1049h".utf8)
     static let altScreenExitSequence = Data("\u{1b}[?1049l".utf8)
 
-    init(host: RemoteTmuxHost, sessionName: String, createIfMissing: Bool = false) {
+    init(
+        host: RemoteTmuxHost,
+        sessionName: String,
+        createIfMissing: Bool = false,
+        scheduleActivityQueryDeadline: @escaping ActivityQueryDeadlineScheduler = { delay, action in
+            let task = Task { @MainActor in
+                do {
+                    try await Task.sleep(for: delay)
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled else { return }
+                action()
+            }
+            return { task.cancel() }
+        }
+    ) {
         self.host = host
         self.sessionName = sessionName
         self.createIfMissing = createIfMissing
+        self.scheduleActivityQueryDeadline = scheduleActivityQueryDeadline
     }
 
     /// Spawns the SSH `tmux -CC` process and begins streaming.
@@ -373,6 +426,7 @@ final class RemoteTmuxControlConnection {
         // caller of spawnProcess can't strand command decisions.
         failPendingActivityQueries()
         failPendingNewWindowRequests()
+        failPendingWindowCloseRequests()
         failPendingWindowReorderVerifications()
         failPendingTrackedSends()
         attachBlockDrained = false
@@ -504,6 +558,7 @@ final class RemoteTmuxControlConnection {
     private func cancelScheduledWork() {
         failPendingActivityQueries()
         failPendingNewWindowRequests()
+        failPendingWindowCloseRequests()
         failPendingWindowReorderVerifications()
         failPendingTrackedSends()
         reconnectTask?.cancel()
@@ -680,8 +735,15 @@ final class RemoteTmuxControlConnection {
         // not hang for the whole backoff window — fail it onto the cache now.
         failPendingActivityQueries()
         failPendingNewWindowRequests()
+        failPendingWindowCloseRequests()
         failPendingWindowReorderVerifications()
         failPendingTrackedSends()
+        // The old stream is unusable now, not after the reconnect backoff.
+        // Drop its positional correlation immediately so a late reply cannot
+        // consume a slot that a replacement stream will later reuse.
+        pendingCommands.removeAll()
+        windowReorderBatchFailed = false
+        windowReorderRecoveryGeneration = nil
         resetWindowListRequestCoalescing()
         cancelSizingFollowUps()
         // Subscriptions belong to the dying client, so forget them HERE, not in
@@ -845,6 +907,9 @@ final class RemoteTmuxControlConnection {
             // ledger above keeps any moved pane's control identity alive until
             // the authoritative window snapshot publishes its destination.
             observers.notifyTopologyChanged()
+            // Only this authoritative notification may release a successful
+            // mobile close, and only after observers removed the exact panel.
+            finishWindowCloseRequests(windowID: id, outcome: .applied)
         case let .windowRenamed(id, name):
             record("window-renamed @\(id)")
             // Update published AND quarantined topology. A rename racing a

@@ -162,6 +162,7 @@ extension MobileShellComposite {
             method: "workspace.move",
             params: params,
             target: target,
+            hierarchyWorkspaceID: id,
             hostDisplayName: hostDisplayName,
             logID: id.rawValue,
             actionName: "move"
@@ -290,7 +291,7 @@ extension MobileShellComposite {
         return policy.allowsMacScopedWorkspaceMutations(ticket)
     }
 
-    private func sendWorkspaceMutation(
+    func sendWorkspaceMutation(
         method: String,
         params: [String: Any],
         id: MobileWorkspacePreview.ID,
@@ -301,6 +302,7 @@ extension MobileShellComposite {
             method: method,
             params: params,
             target: target,
+            hierarchyWorkspaceID: id,
             hostDisplayName: workspaceMutationHostDisplayName(
                 target: target,
                 fallback: workspaceHostDisplayName(for: id)
@@ -342,6 +344,7 @@ extension MobileShellComposite {
         method: String,
         params: [String: Any],
         target: WorkspaceMutationTarget,
+        hierarchyWorkspaceID: MobileWorkspacePreview.ID? = nil,
         hostDisplayName: String?,
         logID: String,
         actionName: String
@@ -359,11 +362,22 @@ extension MobileShellComposite {
             await refreshWorkspaces()
             return .failure(.notConnected(hostDisplayName: hostDisplayName))
         }
+        let generation = connectionGeneration
         do {
             let request = try MobileCoreRPCClient.requestData(method: method, params: params)
             _ = try await client.sendRequest(request)
         } catch {
-            if disconnectForAuthorizationFailureIfNeeded(error) {
+            guard isCurrentWorkspaceMutationTarget(
+                target,
+                client: client,
+                generation: generation
+            ), !Task.isCancelled else { return .success(()) }
+            if invalidateWorkspaceMutationTargetForAuthorizationFailure(
+                error,
+                target: target,
+                client: client,
+                generation: generation
+            ) {
                 return .failure(.authorizationFailed(hostDisplayName: hostDisplayName))
             }
             // Only the foreground connection's health drives the foreground
@@ -373,15 +387,60 @@ extension MobileShellComposite {
                 markMacConnectionUnavailableIfNeeded(after: error)
             }
             mobileShellLog.error("workspace mutation failed action=\(actionName, privacy: .public) id=\(logID, privacy: .public) error=\(String(describing: error), privacy: .public)")
-            await refreshAfterWorkspaceMutation(target)
-            return .failure(workspaceMutationFailure(error, hostDisplayName: hostDisplayName))
+            switch workspaceMutationErrorDisposition(error) {
+            case .immediateRejection:
+                return .failure(workspaceMutationFailure(error, hostDisplayName: hostDisplayName))
+            case .definiteDivergence:
+                let reconciled = await refreshAfterWorkspaceMutation(target)
+                guard isCurrentWorkspaceMutationTarget(
+                    target,
+                    client: client,
+                    generation: generation
+                ), !Task.isCancelled else { return .success(()) }
+                if !reconciled {
+                    if let hierarchyWorkspaceID {
+                        terminalReorderGate.requireRefresh(workspaceID: hierarchyWorkspaceID)
+                    }
+                    return .failure(.staleStateNeedsRefresh(hostDisplayName: hostDisplayName))
+                }
+                return .failure(workspaceMutationFailure(error, hostDisplayName: hostDisplayName))
+            case .ambiguous:
+                let reconciled = await refreshAfterWorkspaceMutation(target)
+                guard isCurrentWorkspaceMutationTarget(
+                    target,
+                    client: client,
+                    generation: generation
+                ), !Task.isCancelled else { return .success(()) }
+                if !reconciled {
+                    return .failure(unreconciledWorkspaceMutationFailure(
+                        error,
+                        hostDisplayName: hostDisplayName
+                    ))
+                }
+                return .failure(reconciledWorkspaceMutationFailure(
+                    error,
+                    hostDisplayName: hostDisplayName
+                ))
+            }
         }
         // Re-sync the authoritative list for the Mac we actually mutated.
-        await refreshAfterWorkspaceMutation(target)
+        guard isCurrentWorkspaceMutationTarget(
+            target,
+            client: client,
+            generation: generation
+        ), !Task.isCancelled else { return .success(()) }
+        let reconciled = await refreshAfterWorkspaceMutation(target)
+        guard isCurrentWorkspaceMutationTarget(
+            target,
+            client: client,
+            generation: generation
+        ), !Task.isCancelled else { return .success(()) }
+        guard reconciled else {
+            return .failure(.appliedNeedsRefresh(hostDisplayName: hostDisplayName))
+        }
         return .success(())
     }
-
-    private func workspaceMutationParams(id: MobileWorkspacePreview.ID) -> [String: Any] {
+    func workspaceMutationParams(id: MobileWorkspacePreview.ID) -> [String: Any] {
         var params: [String: Any] = [
             "workspace_id": remoteWorkspaceID(for: id).rawValue,
             "client_id": clientID,
@@ -403,36 +462,7 @@ extension MobileShellComposite {
         return workspaceMutationTarget(for: anchorWorkspaceID)
     }
 
-    private func workspaceMutationFailure(
-        _ error: any Error,
-        hostDisplayName: String?
-    ) -> MobileWorkspaceMutationFailure {
-        guard let connectionError = error as? MobileShellConnectionError else {
-            return .rejected(hostDisplayName: hostDisplayName)
-        }
-        switch connectionError {
-        case .connectionClosed:
-            return .notConnected(hostDisplayName: hostDisplayName)
-        case .requestTimedOut:
-            return .requestTimedOut(hostDisplayName: hostDisplayName)
-        case .attachTicketExpired, .authorizationFailed, .accountMismatch, .insecureManualRoute:
-            return .authorizationFailed(hostDisplayName: hostDisplayName)
-        case let .rpcError(code, _):
-            let normalizedCode = code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            if let normalizedCode,
-               ["unauthorized", "forbidden", "invalid_token", "token_expired", "expired_token", "auth_required", "account_mismatch"].contains(normalizedCode) {
-                return .authorizationFailed(hostDisplayName: hostDisplayName)
-            }
-            if normalizedCode == "unavailable" {
-                return .notConnected(hostDisplayName: hostDisplayName)
-            }
-            return .rejected(hostDisplayName: hostDisplayName)
-        case .invalidResponse:
-            return .rejected(hostDisplayName: hostDisplayName)
-        }
-    }
-
-    private func workspaceMutationHostDisplayName(
+    func workspaceMutationHostDisplayName(
         target: WorkspaceMutationTarget,
         fallback: String?
     ) -> String? {
@@ -452,7 +482,7 @@ extension MobileShellComposite {
         return fallback
     }
 
-    private func workspaceHostDisplayName(for id: MobileWorkspacePreview.ID) -> String? {
+    func workspaceHostDisplayName(for id: MobileWorkspacePreview.ID) -> String? {
         workspaces.first(where: { $0.id == id })?.macDisplayName
     }
 

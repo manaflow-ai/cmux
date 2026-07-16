@@ -105,6 +105,13 @@ import Testing
         text: "partial-dropped-before-full-ack",
         full: false
     ))
+    let partialDroppedByBarrier = try await pollUntil {
+        store.terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID] == 1
+    }
+    #expect(
+        partialDroppedByBarrier,
+        "the post-full partial must be consumed and recorded before the full-frame acknowledgement"
+    )
     await router.enqueueReplayPayload(text: "stale-held-replay", sequence: 5)
     await router.releaseAllHeld()
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: fullChunk.streamToken)

@@ -63,18 +63,21 @@ import Testing
     #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
 
     let transport = try #require(box.get())
+    let replayCountAfterFailure = await router.count(of: "mobile.terminal.replay")
     await transport.deliver(try renderGridEventFrame(
         surfaceID: surfaceID,
         seq: 4,
         text: "partial-after-failed-replay",
         full: false
     ))
-    let replayCountAfterFailure = await router.count(of: "mobile.terminal.replay")
-    #expect(!collector.lines.contains { $0.contains("partial-after-failed-replay") }, "partial render-grid deltas must wait for a baseline after failed cold replay")
-    #expect(
-        await router.count(of: "mobile.terminal.replay") == replayCountAfterFailure,
-        "partial render-grid deltas must not retry replay on every event after retries are exhausted"
+    let replayRestarted = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replayCountAfterFailure + 1,
+        timeoutNanoseconds: 500_000_000,
+        recordIssueOnTimeout: false
     )
+    #expect(!collector.lines.contains { $0.contains("partial-after-failed-replay") }, "partial render-grid deltas must wait for a baseline after failed cold replay")
+    #expect(!replayRestarted, "partial render-grid deltas must not retry replay on every event after retries are exhausted")
 
     await transport.deliver(try renderGridEventFrame(
         surfaceID: surfaceID,

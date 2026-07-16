@@ -157,7 +157,8 @@ extension RemoteTmuxController {
     func handleMirrorWindowsReordered(
         workspaceId: UUID,
         orderedPanelIds: [UUID],
-        verification: ((Bool) -> Void)? = nil
+        verificationToken: UUID? = nil,
+        verification: ((RemoteTmuxMutationOutcome) -> Void)? = nil
     ) -> Bool {
         guard let mirror = sessionMirror(workspaceId: workspaceId) else { return false }
         guard mirror.connection.connectionState == .connected else {
@@ -167,7 +168,7 @@ extension RemoteTmuxController {
         let desired = orderedPanelIds.compactMap { mirror.windowId(forPanel: $0) }
         guard desired.count == orderedPanelIds.count else { mirror.rebuild(); return false }
         guard desired.count >= 2 else {
-            verification?(true)
+            verification?(.applied)
             return true
         }
         let desiredSet = Set(desired)
@@ -177,11 +178,15 @@ extension RemoteTmuxController {
             return false
         }
         guard current != desired else {
-            verification?(true)
+            verification?(.applied)
             return true
         }
         let commands = Self.mirrorWindowReorderCommands(current: current, desired: desired)
-        guard mirror.connection.sendWindowReorder(commands, verification: verification) else {
+        guard mirror.connection.sendWindowReorder(
+            commands,
+            verificationToken: verificationToken,
+            verification: verification
+        ) else {
             mirror.rebuild()
             return false
         }

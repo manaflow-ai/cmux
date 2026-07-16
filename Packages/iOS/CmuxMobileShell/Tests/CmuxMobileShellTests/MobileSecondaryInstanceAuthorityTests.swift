@@ -279,4 +279,95 @@ import Testing
         #expect(shell.workspacesByMac["mac-b"]?.status == .unavailable)
         #expect(shell.workspacesByMac["mac-b"]?.workspaces.isEmpty == true)
     }
+
+    @Test func promotionRejectsSnapshotOlderThanSecondaryRefreshGeneration() async throws {
+        let router = RoutingHostRouter()
+        await router.workspaceListGate.setUsesOrdinalTitles(true)
+        let macID = "secondary-promotion-generation"
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: ["team-a": [promotionPairedMac(macID: macID)]],
+            blockedTeams: []
+        )
+        await pairedStore.gateLoadAll(number: 2)
+        let shell = makeRoutingMultiMacStore(router: router, pairedMacStore: pairedStore)
+        try installSecondaryClient(on: shell, macDeviceID: macID, router: router)
+        let subscription = try #require(shell.secondaryMacSubscriptions[macID])
+
+        let switchTask = Task { @MainActor in
+            await shell.switchToMac(macDeviceID: macID)
+        }
+        // Promotion has decoded its first workspace list and is suspended in its
+        // post-fetch paired-Mac authority read.
+        await pairedStore.waitUntilLoadAllStarted(number: 2)
+
+        let newerRefresh = try #require(shell.scheduleSecondaryRefresh(
+            macID: macID,
+            client: subscription.client,
+            displayName: "Secondary Mac"
+        ))
+        await newerRefresh.value
+        #expect(subscription.refreshCompletedGeneration == 1)
+        #expect(shell.workspacesByMac[macID]?.workspaces.first?.name == "Fresh Workspace")
+
+        await pairedStore.releaseLoadAll(number: 2)
+        let switched = await switchTask.value
+
+        #expect(!switched)
+        #expect(shell.foregroundMacDeviceID != macID)
+        #expect(shell.workspacesByMac[macID]?.workspaces.first?.name == "Fresh Workspace")
+    }
+
+    @Test func promotionRejectsSnapshotOlderThanHierarchyMutationRevision() async throws {
+        let router = RoutingHostRouter()
+        await router.workspaceListGate.setUsesOrdinalTitles(true)
+        let macID = "secondary-promotion-mutation"
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: ["team-a": [promotionPairedMac(macID: macID)]],
+            blockedTeams: []
+        )
+        await pairedStore.gateLoadAll(number: 2)
+        let shell = makeRoutingMultiMacStore(router: router, pairedMacStore: pairedStore)
+        try installSecondaryClient(on: shell, macDeviceID: macID, router: router)
+        let subscription = try #require(shell.secondaryMacSubscriptions[macID])
+
+        let switchTask = Task { @MainActor in
+            await shell.switchToMac(macDeviceID: macID)
+        }
+        // The promotion snapshot has returned, but it has not crossed its final
+        // authority boundary yet.
+        await pairedStore.waitUntilLoadAllStarted(number: 2)
+
+        subscription.hierarchyMutationRevision &+= 1
+        shell.mergeScopedSecondaryWorkspaceState(
+            macID: macID,
+            workspaces: [MobileWorkspacePreview(
+                id: .init(rawValue: RoutingHostRouter.workspaceID),
+                macDeviceID: macID,
+                name: "Mutated Workspace",
+                terminals: []
+            )],
+            actionCapabilities: .none
+        )
+        #expect(shell.workspacesByMac[macID]?.workspaces.first?.name == "Mutated Workspace")
+
+        await pairedStore.releaseLoadAll(number: 2)
+        let switched = await switchTask.value
+
+        #expect(!switched)
+        #expect(shell.foregroundMacDeviceID != macID)
+        #expect(shell.workspacesByMac[macID]?.workspaces.first?.name == "Mutated Workspace")
+    }
+
+    private func promotionPairedMac(macID: String) -> MobilePairedMac {
+        MobilePairedMac(
+            macDeviceID: macID,
+            displayName: "Secondary Mac",
+            routes: [],
+            createdAt: Date(timeIntervalSince1970: 1),
+            lastSeenAt: Date(timeIntervalSince1970: 2),
+            isActive: false,
+            stackUserID: "user-1",
+            teamID: "team-a"
+        )
+    }
 }

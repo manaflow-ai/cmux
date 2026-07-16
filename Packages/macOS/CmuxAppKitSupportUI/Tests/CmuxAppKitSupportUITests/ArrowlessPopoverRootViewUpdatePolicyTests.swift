@@ -1,5 +1,6 @@
 #if canImport(AppKit)
 
+import AppKit
 import Testing
 @testable import CmuxAppKitSupportUI
 
@@ -66,6 +67,35 @@ import Testing
         await Task.yield()
         await Task.yield()
         #expect(applied == ["rescheduled"])
+    }
+}
+
+@MainActor
+@Suite struct CmuxPopoverMutationTests {
+    @Test func animationContextDisablesImplicitAnimationForMutation() {
+        var mutationRan = false
+        var observedDuration: TimeInterval?
+        var observedAllowsImplicitAnimation: Bool?
+
+        NSAnimationContext.cmuxPerformWithoutImplicitAnimation {
+            mutationRan = true
+            observedDuration = NSAnimationContext.current.duration
+            observedAllowsImplicitAnimation = NSAnimationContext.current.allowsImplicitAnimation
+        }
+
+        #expect(mutationRan)
+        #expect(observedDuration == 0)
+        #expect(observedAllowsImplicitAnimation == false)
+    }
+
+    @Test func hiddenPopoverUpdatesContentSizeDirectly() {
+        let popover = NSPopover()
+        let contentSize = NSSize(width: 320, height: 240)
+
+        #expect(popover.isShown == false)
+        popover.cmuxSetContentSize(contentSize)
+
+        #expect(popover.contentSize == contentSize)
     }
 }
 
