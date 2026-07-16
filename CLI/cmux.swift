@@ -29226,7 +29226,7 @@ export default CMUXSessionRestore;
         print("Removed \(removed) legacy \(def.displayName) cmux hook(s) from \(legacyURL.path)")
     }
 
-    private func uninstallAgentHooks(_ def: AgentHookDef) throws {
+    func uninstallAgentHooks(_ def: AgentHookDef, quiet: Bool = false) throws {
         if def.name == "opencode" { try uninstallOpenCodePluginHooks(def); return }
         if def.name == "pi" { try uninstallPiExtensionHooks(def); return }
         if def.name == "omp" { try uninstallOmpExtensionHooks(def); return }
@@ -29258,7 +29258,9 @@ export default CMUXSessionRestore;
 
         guard let data = fm.contents(atPath: filePath),
               var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            print("No \(def.configFile) found at \(filePath)")
+            if !quiet {
+                print("No \(def.configFile) found at \(filePath)")
+            }
             return
         }
 
@@ -29323,7 +29325,9 @@ export default CMUXSessionRestore;
         json["hooks"] = hooks
         let newData = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
         try newData.write(to: URL(fileURLWithPath: filePath), options: .atomic)
-        print("Removed \(removed) cmux hook(s) from \(filePath)")
+        if !quiet {
+            print("Removed \(removed) cmux hook(s) from \(filePath)")
+        }
 
         // Post-uninstall actions
         if let action = def.postInstallAction {
@@ -29345,7 +29349,9 @@ export default CMUXSessionRestore;
                 )
                 if newContent != content {
                     try newContent.write(toFile: configPath, atomically: true, encoding: .utf8)
-                    print("Removed Codex hooks feature from \(configPath)")
+                    if !quiet {
+                        print("Removed Codex hooks feature from \(configPath)")
+                    }
                 }
             }
         }
@@ -34636,6 +34642,9 @@ export default CMUXSessionRestore;
             return
         }
         try installAgentHooks(def)
+        if def.name == "codex", Self.codexPersistentHooksAreInstalled(for: def) {
+            try Self.recordCodexPersistentHookOptIn(for: def)
+        }
     }
 
     private func uninstallHooksForAgent(_ def: AgentHookDef, arguments: [String]) throws {
@@ -34650,6 +34659,9 @@ export default CMUXSessionRestore;
             return
         }
         try uninstallAgentHooks(def)
+        if def.name == "codex" {
+            Self.removeCodexPersistentHookOptIn(for: def)
+        }
     }
 
     private func runHooksSocketCommand(
@@ -34770,6 +34782,10 @@ export default CMUXSessionRestore;
 
         for def in Self.agentDefs {
             if let agentFilterDef, agentFilterDef.name != def.name { continue }
+            if !isUninstall, agentFilterDef == nil, def.name == "codex" {
+                skipped += 1
+                continue
+            }
             let configDir = def.resolvedConfigDir()
             let canUseMissingConfigDir = def.createConfigDirIfMissing
                 || def.name == "opencode"
