@@ -120,6 +120,17 @@ import Testing
         baseBackground: NSColor
     ) throws -> [(String, NSColor)] {
         let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let focusedSelection = try resolved(
+            NSColor.controlAccentColor.withAlphaComponent(0.20),
+            in: appearance
+        )
+        let unfocusedSelection = try resolved(
+            NSColor.labelColor.withAlphaComponent(0.08),
+            in: appearance
+        )
+
+        // FileExplorerRowView draws the focused and unfocused overlays above. Keep the
+        // black/white 20% case as the worst luminance bound for any 20% accent tint.
         let worstCaseSelection = composited(
             (isDark ? NSColor.white : NSColor.black).withAlphaComponent(0.20),
             over: baseBackground
@@ -127,7 +138,9 @@ import Testing
         let hoverOverlay = try resolved(style.hoverColor, in: appearance)
         return [
             ("plain", baseBackground),
-            ("selected", worstCaseSelection),
+            ("selected-focused", composited(focusedSelection, over: baseBackground)),
+            ("selected-unfocused", composited(unfocusedSelection, over: baseBackground)),
+            ("selected-worst-case", worstCaseSelection),
             ("hovered", composited(hoverOverlay, over: baseBackground)),
         ]
     }
