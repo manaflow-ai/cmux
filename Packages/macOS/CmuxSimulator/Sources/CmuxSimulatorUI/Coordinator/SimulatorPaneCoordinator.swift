@@ -95,6 +95,7 @@ public final class SimulatorPaneCoordinator {
     @ObservationIgnored let preferredDeviceID: String?
     @ObservationIgnored let preferredRuntimeIdentifier: String?
     @ObservationIgnored let preferredDeviceTypeIdentifier: String?
+    @ObservationIgnored let requiresExplicitDeviceSelection: Bool
     @ObservationIgnored var outgoingStream: AsyncStream<SimulatorWorkerInbound>
     @ObservationIgnored var outgoingContinuation: AsyncStream<SimulatorWorkerInbound>.Continuation
     @ObservationIgnored var outgoingTask: Task<Void, Never>?
@@ -152,6 +153,7 @@ public final class SimulatorPaneCoordinator {
         preferredDeviceID: String? = nil,
         preferredRuntimeIdentifier: String? = nil,
         preferredDeviceTypeIdentifier: String? = nil,
+        requiresExplicitDeviceSelection: Bool = false,
         filePicker: any SimulatorFilePicking = NativeSimulatorFilePicker()
     ) {
         self.init(
@@ -159,6 +161,7 @@ public final class SimulatorPaneCoordinator {
             preferredDeviceID: preferredDeviceID,
             preferredRuntimeIdentifier: preferredRuntimeIdentifier,
             preferredDeviceTypeIdentifier: preferredDeviceTypeIdentifier,
+            requiresExplicitDeviceSelection: requiresExplicitDeviceSelection,
             filePicker: filePicker,
             webInspectorSleeper: ContinuousSimulatorProcessSleeper(),
             locationRouteSleeper: ContinuousSimulatorProcessSleeper()
@@ -170,6 +173,7 @@ public final class SimulatorPaneCoordinator {
         preferredDeviceID: String? = nil,
         preferredRuntimeIdentifier: String? = nil,
         preferredDeviceTypeIdentifier: String? = nil,
+        requiresExplicitDeviceSelection: Bool = false,
         filePicker: any SimulatorFilePicking = NativeSimulatorFilePicker(),
         webInspectorSleeper: any SimulatorProcessSleeper,
         locationRouteSleeper: any SimulatorProcessSleeper = ContinuousSimulatorProcessSleeper(),
@@ -183,6 +187,7 @@ public final class SimulatorPaneCoordinator {
         self.preferredDeviceID = preferredDeviceID
         self.preferredRuntimeIdentifier = preferredRuntimeIdentifier
         self.preferredDeviceTypeIdentifier = preferredDeviceTypeIdentifier
+        self.requiresExplicitDeviceSelection = requiresExplicitDeviceSelection
         let (stream, continuation) = AsyncStream.makeStream(
             of: SimulatorWorkerInbound.self,
             bufferingPolicy: .bufferingOldest(Self.maximumOutgoingMessageCount)

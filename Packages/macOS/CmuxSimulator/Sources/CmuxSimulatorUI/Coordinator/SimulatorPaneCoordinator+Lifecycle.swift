@@ -161,6 +161,21 @@ extension SimulatorPaneCoordinator {
                devices.contains(where: { $0.id == selectedDeviceID }) {
                 return
             }
+            if requiresExplicitDeviceSelection, previousDeviceID == nil {
+                selectActionHistory(deviceID: nil)
+                selectedDeviceID = nil
+                let unavailable = SimulatorFailure(
+                    code: "simulator_saved_device_unavailable",
+                    message: String(
+                        localized: "simulator.failure.savedDeviceUnavailable",
+                        defaultValue: "The saved Simulator is no longer available. Choose another device."
+                    ),
+                    isRecoverable: true
+                )
+                failure = unavailable
+                status = .failed(unavailable)
+                return
+            }
             if let preferredDeviceID,
                previousDeviceID == nil || previousDeviceID == preferredDeviceID,
                !devices.contains(where: { $0.id == preferredDeviceID }) {

@@ -34,7 +34,8 @@ extension Workspace {
         let panel = SimulatorPanel(
             preferredDeviceID: preferredDeviceID,
             preferredRuntimeIdentifier: preferredRuntimeIdentifier,
-            preferredDeviceTypeIdentifier: preferredDeviceTypeIdentifier
+            preferredDeviceTypeIdentifier: preferredDeviceTypeIdentifier,
+            requiresExplicitDeviceSelection: restoringSession && preferredDeviceID == nil
         )
         panels[panel.id] = panel
         panelTitles[panel.id] = panel.displayTitle

@@ -56,6 +56,25 @@ struct SimulatorSubprocessTests {
         #expect(result.errorWasTruncated)
     }
 
+    @Test("Fast normal exits preserve buffered stdout and stderr")
+    func normalExitDrainsBufferedOutput() async throws {
+        let runner = SimulatorSubprocessRunner()
+        let stdout = String(repeating: "stdout-payload-", count: 512)
+        let stderr = String(repeating: "stderr-payload-", count: 512)
+
+        for _ in 0..<32 {
+            let result = try await runner.run(
+                executableURL: URL(fileURLWithPath: "/bin/sh"),
+                arguments: ["-c", "printf %s \"$1\"; printf %s \"$2\" >&2", "cmux", stdout, stderr]
+            )
+            #expect(result.status == 0)
+            #expect(result.standardOutput == stdout)
+            #expect(result.standardError == stderr)
+            #expect(!result.outputWasTruncated)
+            #expect(!result.errorWasTruncated)
+        }
+    }
+
     @Test("Inherent timeout escalates a TERM-ignoring child to KILL")
     func inherentTimeout() async throws {
         let sleeper = FastEscalationSubprocessSleeper()

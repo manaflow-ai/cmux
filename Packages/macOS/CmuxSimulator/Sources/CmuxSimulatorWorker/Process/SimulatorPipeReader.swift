@@ -74,6 +74,7 @@ private func readSimulatorPipeToEnd(
     var data = Data()
     data.reserveCapacity(limit)
     var truncated = false
+    var stopRequested = false
     var buffer = [UInt8](repeating: 0, count: 64 * 1_024)
     while true {
         let bufferCount = buffer.count
@@ -92,12 +93,17 @@ private func readSimulatorPipeToEnd(
         } else if errno == EINTR {
             continue
         } else if errno == EAGAIN || errno == EWOULDBLOCK {
+            if stopRequested { break }
             var descriptors = [
                 pollfd(fd: fileDescriptor, events: Int16(POLLIN | POLLHUP), revents: 0),
                 pollfd(fd: stopFileDescriptor, events: Int16(POLLIN | POLLHUP), revents: 0),
             ]
             _ = Darwin.poll(&descriptors, 2, 100)
-            if descriptors[1].revents != 0 { break }
+            if descriptors[1].revents != 0 {
+                // The process-exit callback can race buffered pipe data. Make one
+                // more nonblocking drain pass before honoring the bounded stop.
+                stopRequested = true
+            }
         } else {
             break
         }

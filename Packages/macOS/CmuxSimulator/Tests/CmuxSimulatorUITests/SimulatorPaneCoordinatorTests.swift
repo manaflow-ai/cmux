@@ -171,6 +171,27 @@ struct SimulatorPaneCoordinatorTests {
         #expect(await client.activations().map(\.id) == ["phone"])
     }
 
+    @Test("Restored panes without a persisted UDID require explicit selection")
+    func restoredPaneWithoutIdentityFailsClosed() async throws {
+        let client = SimulatorPaneClientSpy(devices: [
+            Self.device(id: "phone", family: .iPhone, state: .booted),
+        ])
+        let coordinator = SimulatorPaneCoordinator(
+            client: client,
+            requiresExplicitDeviceSelection: true
+        )
+
+        await coordinator.reloadDevices()
+
+        #expect(coordinator.selectedDeviceID == nil)
+        #expect(coordinator.failure?.code == "simulator_saved_device_unavailable")
+        #expect(await client.activations().isEmpty)
+
+        try await coordinator.selectDeviceAndWait(id: "phone")
+        #expect(coordinator.selectedDeviceID == "phone")
+        #expect(coordinator.status == .streaming)
+    }
+
     @Test("Explicit device selection waits for the requested iPad")
     func explicitDeviceSelection() async throws {
         let client = SimulatorPaneClientSpy(devices: [

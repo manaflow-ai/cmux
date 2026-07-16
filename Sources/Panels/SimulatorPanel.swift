@@ -21,6 +21,7 @@ final class SimulatorPanel: Panel {
     private var preferredDeviceID: String?
     private var preferredRuntimeIdentifier: String?
     private var preferredDeviceTypeIdentifier: String?
+    private let requiresExplicitDeviceSelection: Bool
     @ObservationIgnored private var featureFlagsObserver: (any NSObjectProtocol)?
     @ObservationIgnored private var startupTask: Task<Void, Never>?
     @ObservationIgnored private var shutdownTask: Task<Void, Never>?
@@ -54,6 +55,7 @@ final class SimulatorPanel: Panel {
         preferredDeviceID: String? = nil,
         preferredRuntimeIdentifier: String? = nil,
         preferredDeviceTypeIdentifier: String? = nil,
+        requiresExplicitDeviceSelection: Bool = false,
         clientFactory: @escaping @MainActor () -> any SimulatorPaneClient = {
             SimulatorWorkerClientFactory().makeClient()
         }
@@ -62,11 +64,13 @@ final class SimulatorPanel: Panel {
         self.preferredDeviceID = preferredDeviceID
         self.preferredRuntimeIdentifier = preferredRuntimeIdentifier
         self.preferredDeviceTypeIdentifier = preferredDeviceTypeIdentifier
+        self.requiresExplicitDeviceSelection = requiresExplicitDeviceSelection
         coordinator = SimulatorPaneCoordinator(
             client: clientFactory(),
             preferredDeviceID: preferredDeviceID,
             preferredRuntimeIdentifier: preferredRuntimeIdentifier,
-            preferredDeviceTypeIdentifier: preferredDeviceTypeIdentifier
+            preferredDeviceTypeIdentifier: preferredDeviceTypeIdentifier,
+            requiresExplicitDeviceSelection: requiresExplicitDeviceSelection
         )
         featureFlagsObserver = NotificationCenter.default.addObserver(
             forName: .cmuxFeatureFlagsDidChange,
@@ -84,12 +88,14 @@ final class SimulatorPanel: Panel {
         preferredDeviceID: String? = nil,
         preferredRuntimeIdentifier: String? = nil,
         preferredDeviceTypeIdentifier: String? = nil,
+        requiresExplicitDeviceSelection: Bool = false,
         client: any SimulatorPaneClient
     ) {
         self.init(
             preferredDeviceID: preferredDeviceID,
             preferredRuntimeIdentifier: preferredRuntimeIdentifier,
             preferredDeviceTypeIdentifier: preferredDeviceTypeIdentifier,
+            requiresExplicitDeviceSelection: requiresExplicitDeviceSelection,
             clientFactory: { client }
         )
     }
@@ -128,7 +134,8 @@ final class SimulatorPanel: Panel {
                 client: self.clientFactory(),
                 preferredDeviceID: self.preferredDeviceID,
                 preferredRuntimeIdentifier: self.preferredRuntimeIdentifier,
-                preferredDeviceTypeIdentifier: self.preferredDeviceTypeIdentifier
+                preferredDeviceTypeIdentifier: self.preferredDeviceTypeIdentifier,
+                requiresExplicitDeviceSelection: self.requiresExplicitDeviceSelection
             )
             self.applyEffectiveVisibility()
         }
