@@ -84,14 +84,31 @@ struct SharedLiveAgentIndexLoader {
     }
 
     static func processScopeFingerprint(from snapshot: CmuxTopProcessSnapshot) -> Set<String> {
-        Set(snapshot.cmuxScopedProcesses().map { process in
-            [
+        // Track one owner per terminal instead of every short-lived descendant.
+        // The foreground process-group leader changes when a shell launches an
+        // agent, and its name/path change when the leader execs in place. Prompt
+        // helpers that remain in the shell's process group do not own the terminal
+        // and therefore cannot invalidate the shared agent index.
+        var fingerprint: Set<String> = []
+        for process in snapshot.cmuxScopedProcesses() {
+            guard let terminalProcessGroupID = process.terminalProcessGroupID,
+                  process.pid == terminalProcessGroupID else {
+                continue
+            }
+            let components: [String] = [
                 process.cmuxWorkspaceID?.uuidString ?? "",
                 process.cmuxSurfaceID?.uuidString ?? "",
                 String(process.pid),
-                String(process.parentPID)
-            ].joined(separator: "|")
-        })
+                String(process.parentPID),
+                process.name,
+                process.path ?? "",
+                process.ttyDevice.map { String($0) } ?? "",
+                process.processGroupID.map { String($0) } ?? "",
+                String(terminalProcessGroupID)
+            ]
+            fingerprint.insert(components.joined(separator: "|"))
+        }
+        return fingerprint
     }
 
     private static func forkValidatedPanels(

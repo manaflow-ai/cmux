@@ -901,7 +901,7 @@ private enum AgentResumeScriptStore {
 }
 
 struct RestorableAgentSessionIndex: Sendable {
-    static let empty = RestorableAgentSessionIndex(entriesByPanel: [:])
+    static let empty = RestorableAgentSessionIndex(entriesByPanel: [:], decodedHookRecordCount: 0)
 
     struct PanelKey: Hashable, Sendable {
         let workspaceId: UUID
@@ -955,6 +955,7 @@ struct RestorableAgentSessionIndex: Sendable {
 
     private let entriesByPanel: [PanelKey: Entry]
     private let entriesByPanelId: [UUID: Entry]
+    private let decodedHookRecordCount: Int
 
     func entry(workspaceId: UUID, panelId: UUID) -> Entry? {
         entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)] ?? entriesByPanelId[panelId]
@@ -985,6 +986,18 @@ struct RestorableAgentSessionIndex: Sendable {
     }
 
     func forkValidationEntries() -> [(PanelKey, Entry)] { Array(entriesByPanel) }
+
+    var loadWorkloadCount: Int { max(entriesByPanel.count, decodedHookRecordCount) }
+
+    var liveAgentProcessCount: Int {
+        var processIDs = Set<Int>()
+        for entry in entriesByPanel.values {
+            processIDs.formUnion(
+                entry.agentProcessIDs.isEmpty ? entry.processIDs : entry.agentProcessIDs
+            )
+        }
+        return processIDs.count
+    }
 
     func hasLiveProcess(workspaceId: UUID, panelId: UUID) -> Bool {
         !processIDs(workspaceId: workspaceId, panelId: panelId).isEmpty
@@ -1086,6 +1099,7 @@ struct RestorableAgentSessionIndex: Sendable {
         var hookCandidatesBySession: [SessionKey: Entry] = [:]
         var hookCandidatesByPanelAndKind: [PanelKindKey: Entry] = [:]
         var hookCandidatesByPanelIdAndKind: [PanelIDKindKey: PanelIDKindCandidate] = [:]
+        var decodedHookRecordCount = 0
 
         for (kind, registration) in hookKinds {
             let fileURL = kind.hookStoreFileURL(homeDirectory: homeDirectory)
@@ -1094,6 +1108,7 @@ struct RestorableAgentSessionIndex: Sendable {
                   let state = try? decoder.decode(RestorableAgentHookSessionStoreFile.self, from: data) else {
                 continue
             }
+            decodedHookRecordCount += state.sessions.count
 
             for record in state.sessions.values {
                 var effectiveRecord = kind == .claude
@@ -1280,7 +1295,10 @@ struct RestorableAgentSessionIndex: Sendable {
             }
         }
 
-        return RestorableAgentSessionIndex(entriesByPanel: resolved)
+        return RestorableAgentSessionIndex(
+            entriesByPanel: resolved,
+            decodedHookRecordCount: decodedHookRecordCount
+        )
     }
 
     private static func matchingHookEntry(
@@ -2207,8 +2225,12 @@ struct RestorableAgentSessionIndex: Sendable {
         return rawValue
     }
 
-    private init(entriesByPanel: [PanelKey: Entry]) {
+    private init(
+        entriesByPanel: [PanelKey: Entry],
+        decodedHookRecordCount: Int
+    ) {
         self.entriesByPanel = entriesByPanel
+        self.decodedHookRecordCount = decodedHookRecordCount
         var entriesByPanelId: [UUID: Entry] = [:]
         for (key, entry) in entriesByPanel {
             let existing = entriesByPanelId[key.panelId]

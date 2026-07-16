@@ -1,6 +1,15 @@
 import Darwin
 import Foundation
 
+struct HookStoreFileStamp: Equatable, Sendable {
+    let filename: String
+    let deviceID: UInt64
+    let inode: UInt64
+    let size: Int64
+    let modificationTimeSeconds: Int64
+    let modificationTimeNanoseconds: Int64
+}
+
 /// Process-wide cache of `RestorableAgentSessionIndex` results for agent fork and restore paths.
 @MainActor
 final class SharedLiveAgentIndex {
@@ -30,12 +39,20 @@ final class SharedLiveAgentIndex {
     private var processScopeFingerprint: Set<String> = []
     private var changePending = false
     private var deferredReloadTimer: DispatchSourceTimer?
+    private var hookStoreInputStamp: [HookStoreFileStamp]?
+    private var hookStoreInputStampObservedDuringInitialLoad: [HookStoreFileStamp]?
+    private var latestCompletedLoadWorkloadCount = 0
+    private var latestCompletedLiveAgentProcessCount = 0
 
     private static let cacheTTL: TimeInterval = 60.0
     private static let forkAvailabilityProbeTTL: TimeInterval = 15.0
-    // Floor between event-driven reloads so chatty hook stores cannot keep the
-    // measured ~350ms-1.8s loader running at near-continuous duty cycle.
+    // Scale event-driven reloads so the measured ~350ms-1.8s loader cannot
+    // approach continuous duty cycle as indexed history or live-agent work grows.
     private static let minEventReloadInterval: TimeInterval = 5.0
+    private static let maxEventReloadInterval: TimeInterval = 30.0
+    // Reach the cap near the profiled large-history fixtures, not at modest history sizes.
+    private static let historyRecordsPerReloadIntervalStep = 45
+    private static let liveAgentsPerReloadIntervalStep = 11
 
     private var directoryWatchSource: DispatchSourceFileSystemObject?
     // DispatchSource file watching requires a delivery queue; state hops back to MainActor.
@@ -201,6 +218,30 @@ final class SharedLiveAgentIndex {
         return index
     }
 
+    func currentAutosaveCacheSchedulingRefresh() -> ProcessDetectedResumeIndexes.AutosaveAgentIndexCache? {
+        scheduleRefreshIfStale()
+        guard refreshTask == nil,
+              forkAvailabilityRefreshTask == nil,
+              !changePending,
+              deferredReloadTimer == nil,
+              let index else {
+            return nil
+        }
+        return ProcessDetectedResumeIndexes.AutosaveAgentIndexCache(
+            restorableAgentIndex: index,
+            processScopeFingerprint: processScopeFingerprint
+        )
+    }
+
+    func requestRefreshForAutosaveProcessScopeMismatch() {
+        guard refreshTask == nil,
+              forkAvailabilityRefreshTask == nil,
+              deferredReloadTimer == nil else {
+            return
+        }
+        startReload()
+    }
+
     func scheduleRefreshIfStale(
         validating panelKey: RestorableAgentSessionIndex.PanelKey? = nil,
         isRemoteContext: Bool = false
@@ -297,11 +338,29 @@ final class SharedLiveAgentIndex {
 
     private func reload(forcePublish: Bool) async {
         let indexLoader = self.indexLoader
-        let result = await Task.detached(priority: .utility) {
-            indexLoader()
+        let initialHookStoreDirectory = hookStoreInputStamp == nil
+            ? hookStoreDirectoryProvider()
+            : nil
+        let (result, initialHookStoreInputStamp) = await Task.detached(priority: .utility) {
+            let initialHookStoreInputStamp = initialHookStoreDirectory.map {
+                Self.hookStoreInputStamp(in: $0)
+            }
+            return (indexLoader(), initialHookStoreInputStamp)
         }.value
         guard !Task.isCancelled else { return }
+        if hookStoreInputStamp == nil {
+            let observedInputStamp = hookStoreInputStampObservedDuringInitialLoad
+            hookStoreInputStamp = observedInputStamp ?? initialHookStoreInputStamp
+            if let initialHookStoreInputStamp,
+               let observedInputStamp,
+               observedInputStamp != initialHookStoreInputStamp {
+                changePending = true
+            }
+            hookStoreInputStampObservedDuringInitialLoad = nil
+        }
         let loadedAt = dateProvider()
+        latestCompletedLoadWorkloadCount = result.index.loadWorkloadCount
+        latestCompletedLiveAgentProcessCount = result.index.liveAgentProcessCount
         let hasPendingForkValidations = !pendingForkValidationPanels.isEmpty
         if forcePublish
             || hasPendingForkValidations
@@ -407,13 +466,17 @@ final class SharedLiveAgentIndex {
             changePending = true
             return
         }
+        let reloadInterval = Self.hookEventReloadInterval(
+            liveAgentCount: latestCompletedLiveAgentProcessCount,
+            historyWorkloadCount: latestCompletedLoadWorkloadCount
+        )
         let elapsed = loadedAt.map { dateProvider().timeIntervalSince($0) } ?? .infinity
-        if elapsed >= Self.minEventReloadInterval {
+        if elapsed >= reloadInterval {
             startReload()
         } else if deferredReloadTimer == nil {
             // DispatchSourceTimer coalesces hook-store event bursts without Task.sleep in runtime code.
             let timer = DispatchSource.makeTimerSource(queue: watchQueue)
-            timer.schedule(deadline: .now() + (Self.minEventReloadInterval - elapsed))
+            timer.schedule(deadline: .now() + (reloadInterval - elapsed))
             timer.setEventHandler { [weak self] in
                 Task { @MainActor in
                     guard let self else { return }
@@ -442,7 +505,8 @@ final class SharedLiveAgentIndex {
             queue: watchQueue
         )
         source.setEventHandler { [weak self] in
-            Task { @MainActor in self?.handleHookStoreChange() }
+            let currentStamp = Self.hookStoreInputStamp(in: dir)
+            Task { @MainActor in self?.handleHookStoreDirectoryEvent(currentStamp) }
         }
         source.setCancelHandler { Darwin.close(fd) }
         source.resume()
@@ -452,6 +516,71 @@ final class SharedLiveAgentIndex {
         } else {
             changePending = true
         }
+    }
+
+    func handleHookStoreDirectoryEvent(_ currentStamp: [HookStoreFileStamp]) {
+        guard let baselineStamp = hookStoreInputStamp else {
+            hookStoreInputStampObservedDuringInitialLoad = currentStamp
+            return
+        }
+        guard currentStamp != baselineStamp else { return }
+        hookStoreInputStamp = currentStamp
+        handleHookStoreChange()
+    }
+
+    nonisolated private static func hookStoreInputStamp(in directory: String) -> [HookStoreFileStamp] {
+        let filenames = (try? FileManager.default.contentsOfDirectory(atPath: directory)) ?? []
+        let directoryURL = URL(fileURLWithPath: directory, isDirectory: true)
+        return filenames
+            .filter { $0.hasSuffix("-hook-sessions.json") }
+            .sorted()
+            .compactMap { filename -> HookStoreFileStamp? in
+                let path = directoryURL
+                    .appendingPathComponent(filename, isDirectory: false)
+                    .path
+                var info = stat()
+                guard stat(path, &info) == 0 else { return nil }
+                return HookStoreFileStamp(
+                    filename: filename,
+                    deviceID: UInt64(info.st_dev),
+                    inode: UInt64(info.st_ino),
+                    size: Int64(info.st_size),
+                    modificationTimeSeconds: Int64(info.st_mtimespec.tv_sec),
+                    modificationTimeNanoseconds: Int64(info.st_mtimespec.tv_nsec)
+                )
+            }
+    }
+
+    private static func hookEventReloadInterval(
+        liveAgentCount: Int,
+        historyWorkloadCount: Int
+    ) -> TimeInterval {
+        let intervalSteps = max(
+            1,
+            max(
+                reloadIntervalSteps(
+                    workloadCount: historyWorkloadCount,
+                    unitsPerStep: historyRecordsPerReloadIntervalStep
+                ),
+                reloadIntervalSteps(
+                    workloadCount: liveAgentCount,
+                    unitsPerStep: liveAgentsPerReloadIntervalStep
+                )
+            )
+        )
+        return min(
+            maxEventReloadInterval,
+            minEventReloadInterval * TimeInterval(intervalSteps)
+        )
+    }
+
+    private static func reloadIntervalSteps(
+        workloadCount: Int,
+        unitsPerStep: Int
+    ) -> Int {
+        let workloadCount = max(0, workloadCount)
+        return workloadCount / unitsPerStep
+            + (workloadCount.isMultiple(of: unitsPerStep) ? 0 : 1)
     }
 }
 
