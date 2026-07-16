@@ -79,6 +79,21 @@ if ! grep -Fq "if: needs.decide.outputs.should_build == 'true' && (github.event_
   exit 1
 fi
 
+if ! awk '
+  /^      - name: Checkout build ref/ { in_checkout=1; next }
+  in_checkout && /^      - name:/ { in_checkout=0 }
+  in_checkout && /ref: \$\{\{ needs\.decide\.outputs\.head_sha \}\}/ { saw_fixed_sha=1 }
+  END { exit !saw_fixed_sha }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: Nightly must build the fixed source revision selected by the decide job"
+  exit 1
+fi
+
+if grep -Eq 'current_head_(prebuild|postbuild)|still_current' "$WORKFLOW_FILE"; then
+  echo "FAIL: main advancing after dispatch must not skip a fixed Nightly candidate or report false-green publication"
+  exit 1
+fi
+
 R2_UPLOAD_LINE="$(grep -nF -- '- name: Upload nightly appcast to R2' "$WORKFLOW_FILE" | cut -d: -f1)"
 TAG_MOVE_LINE="$(grep -nF -- '- name: Move nightly tag to built commit' "$WORKFLOW_FILE" | cut -d: -f1)"
 if [ -z "$R2_UPLOAD_LINE" ] || [ -z "$TAG_MOVE_LINE" ] || [ "$TAG_MOVE_LINE" -le "$R2_UPLOAD_LINE" ]; then
