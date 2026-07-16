@@ -401,7 +401,16 @@ enum AgentForkSupport {
         }
     }
 
-    private actor CommandOutputDrain {
+    /// Drains one probe process output pipe off Swift's cooperative executor.
+    /// `@unchecked Sendable` is safe here because instances are immutable after
+    /// initialization, and the shared mutable state is the kernel file
+    /// descriptor closed by the owning process runner to interrupt a read.
+    private final class CommandOutputDrain: @unchecked Sendable {
+        private static let queue = DispatchQueue(
+            label: "com.cmux.agent-fork-support.output-drain",
+            qos: .utility,
+            attributes: .concurrent
+        )
         private let readHandle: FileHandle
         private let maximumBytes: Int
 
@@ -410,7 +419,20 @@ enum AgentForkSupport {
             self.maximumBytes = maximumBytes
         }
 
-        func run() -> Data {
+        func run() async -> Data {
+            await withCheckedContinuation { continuation in
+                Self.queue.async { [readHandle, maximumBytes] in
+                    continuation.resume(
+                        returning: Self.drainOutput(
+                            readHandle: readHandle,
+                            maximumBytes: maximumBytes
+                        )
+                    )
+                }
+            }
+        }
+
+        private static func drainOutput(readHandle: FileHandle, maximumBytes: Int) -> Data {
             var output = Data()
             do {
                 while true {
