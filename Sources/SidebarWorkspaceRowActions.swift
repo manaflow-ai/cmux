@@ -38,6 +38,8 @@ struct SidebarWorkspaceRowActions {
     let requestChecklistAdd: () -> Void
     let markRead: ([UUID]) -> Void
     let markUnread: ([UUID]) -> Void
+    /// Reads the bounded notification history when the deferred menu opens.
+    let currentNotifications: ([UUID]) -> [TerminalNotification]
     let clearLatestNotifications: ([UUID]) -> Void
     let openNotification: (TerminalNotification) -> Void
     let copyWorkspaceLinks: ([UUID]) -> Void

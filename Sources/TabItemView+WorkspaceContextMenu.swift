@@ -72,6 +72,7 @@ extension TabItemView {
         let editWorkspaceDescriptionShortcut = KeyboardShortcutSettings.shortcut(for: .editWorkspaceDescription)
         let closeWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .closeWorkspace)
         let windowMoveTargets = actions.currentWindowMoveTargets()
+        let notifications = actions.currentNotifications(targetIds)
         let moveMenuTitle = targetIds.count > 1
             ? String(localized: "contextMenu.moveWorkspacesToWindow", defaultValue: "Move Workspaces to Window")
             : String(localized: "contextMenu.moveWorkspaceToWindow", defaultValue: "Move Workspace to Window")
@@ -262,9 +263,9 @@ extension TabItemView {
         Button(clearLatestNotificationLabel) {
             actions.clearLatestNotifications(targetIds)
         }
-        .disabled(!context.hasLatestNotification)
+        .disabled(notifications.isEmpty)
 
-        workspaceNotificationsContextMenu(targetIds)
+        workspaceNotificationsContextMenu(notifications, targetIds: targetIds)
         Divider()
         Button(copyWorkspaceIDLabel) {
             copyWorkspaceIdsToPasteboard(targetIds)

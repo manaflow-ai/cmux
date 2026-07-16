@@ -10,7 +10,6 @@ extension VerticalTabsSidebar {
         memberWorkspaceIds: [UUID],
         renderContext: WorkspaceListRenderContext,
         unreadSummariesByWorkspaceId: [UUID: SidebarWorkspaceUnreadSummary],
-        notificationIndex: SidebarWorkspaceNotificationIndex,
         shouldCollectWorkspaceDropTargets: Bool,
         showModifierHoldHints: Bool
     ) -> SidebarWorkspaceGroupRowSnapshot {
@@ -40,9 +39,11 @@ extension VerticalTabsSidebar {
         let canMarkAnchorUnread = anchorIds.contains {
             (unreadSummariesByWorkspaceId[$0]?.unreadCount ?? 0) == 0
         }
-        let anchorHasLatestNotification = notificationIndex.hasNotification(
-            workspaceId: group.anchorWorkspaceId
-        )
+        // `latestNotification` is an indexed O(1) store lookup. Notification
+        // history sorting is deferred until a workspace context menu opens.
+        let anchorHasLatestNotification = notificationStore.latestNotification(
+            forTabId: group.anchorWorkspaceId
+        ) != nil
         // "Mark all workspaces in group" targets the contained workspaces only,
         // never the anchor: the anchor is the group's own row, whose read status
         // is owned by the separate "Mark Group as Read/Unread" actions.

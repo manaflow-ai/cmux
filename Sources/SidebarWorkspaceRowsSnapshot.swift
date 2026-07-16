@@ -2,44 +2,42 @@ import Foundation
 
 /// Parent-owned immutable values consumed by the workspace sidebar's lazy rows.
 ///
-/// The dictionaries and shared selection aggregate are value projections built
-/// before `LazyVStack`. Row/action construction operates only on these copied
-/// values, never on observable stores.
+/// Group rows and shared menu facts are value projections built before
+/// `LazyVStack`. Workspace inputs are resolved lazily from copied values, never
+/// from observable stores.
 struct SidebarWorkspaceRowsSnapshot {
-    let workspaceRowsById: [UUID: SidebarWorkspaceRowInput]
     let groupRowsById: [UUID: SidebarWorkspaceGroupRowSnapshot]
     let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
     let canCreateEmptyGroup: Bool
     let selectedContextMenuTargetAggregate: SidebarWorkspaceContextMenuTargetAggregate
 
     private let anchorWorkspaceIds: Set<UUID>
-    private let notificationIndex: SidebarWorkspaceNotificationIndex
+    private let modelSnapshotsById: [UUID: SidebarWorkspaceRowModelSnapshot]
+    private let unreadSummariesByWorkspaceId: [UUID: SidebarWorkspaceUnreadSummary]
 
-    @MainActor
     init(
-        workspaceRowsById: [UUID: SidebarWorkspaceRowInput],
+        modelSnapshotsById: [UUID: SidebarWorkspaceRowModelSnapshot],
         groupRowsById: [UUID: SidebarWorkspaceGroupRowSnapshot],
         selectedContextTargetIds: [UUID],
         anchorWorkspaceIds: Set<UUID>,
         workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot,
         canCreateEmptyGroup: Bool,
-        notificationIndex: SidebarWorkspaceNotificationIndex
+        unreadSummariesByWorkspaceId: [UUID: SidebarWorkspaceUnreadSummary]
     ) {
-        self.workspaceRowsById = workspaceRowsById
         self.groupRowsById = groupRowsById
         self.workspaceGroupMenuSnapshot = workspaceGroupMenuSnapshot
         self.canCreateEmptyGroup = canCreateEmptyGroup
         self.anchorWorkspaceIds = anchorWorkspaceIds
-        self.notificationIndex = notificationIndex
+        self.modelSnapshotsById = modelSnapshotsById
+        self.unreadSummariesByWorkspaceId = unreadSummariesByWorkspaceId
         selectedContextMenuTargetAggregate = SidebarWorkspaceContextMenuTargetAggregate(
             targetWorkspaceIds: selectedContextTargetIds,
-            workspaceRowsById: workspaceRowsById,
-            anchorWorkspaceIds: anchorWorkspaceIds,
-            notificationIndex: notificationIndex
+            modelSnapshotsById: modelSnapshotsById,
+            unreadSummariesByWorkspaceId: unreadSummariesByWorkspaceId,
+            anchorWorkspaceIds: anchorWorkspaceIds
         )
     }
 
-    @MainActor
     func contextMenuTargetAggregate(
         for input: SidebarWorkspaceRowInput
     ) -> SidebarWorkspaceContextMenuTargetAggregate {
@@ -48,9 +46,9 @@ struct SidebarWorkspaceRowsSnapshot {
         }
         return SidebarWorkspaceContextMenuTargetAggregate(
             targetWorkspaceIds: [input.workspaceId],
-            workspaceRowsById: workspaceRowsById,
-            anchorWorkspaceIds: anchorWorkspaceIds,
-            notificationIndex: notificationIndex
+            modelSnapshotsById: modelSnapshotsById,
+            unreadSummariesByWorkspaceId: unreadSummariesByWorkspaceId,
+            anchorWorkspaceIds: anchorWorkspaceIds
         )
     }
 }

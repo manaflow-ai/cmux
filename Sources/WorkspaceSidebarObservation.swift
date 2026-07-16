@@ -5,6 +5,19 @@ import Foundation
 import CmuxSidebar
 import SwiftUI
 
+extension Publisher where Failure == Never {
+    /// Adapts sink-style sidebar publishers to `AsyncPublisher` demand.
+    ///
+    /// `coalesceLatest` deliberately ignores downstream demand, while
+    /// `AsyncPublisher` traps if it receives a value between iterator requests.
+    /// A single latest-value slot absorbs that gap without replaying stale
+    /// intermediate refreshes when the sidebar observation task resumes.
+    func sidebarAsyncValues() -> AsyncPublisher<Publishers.Buffer<Self>> {
+        buffer(size: 1, prefetch: .keepFull, whenFull: .dropOldest)
+            .values
+    }
+}
+
 private struct SidebarPanelObservationState: Equatable {
     let panelIds: [UUID]
 
@@ -32,7 +45,7 @@ extension View {
             await withTaskGroup(of: Void.self) { group in
                 for (id, workspace) in zip(ids, workspaces) {
                     let immediateChanges = workspace.sidebarImmediateObservationPublisher
-                        .values
+                        .sidebarAsyncValues()
                     let debouncedChanges = workspace.sidebarObservationPublisher
                         .receive(on: RunLoop.main)
                         .debounce(for: debouncedInterval, scheduler: RunLoop.main)
