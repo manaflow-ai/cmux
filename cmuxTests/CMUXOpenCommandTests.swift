@@ -93,6 +93,50 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(params["pane_id"] as? String, paneID)
     }
 
+    func testSimulatorCommandPreservesExplicitWindowAndSurface() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("simwinsurf")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowID = UUID().uuidString.lowercased()
+        let surfaceID = UUID().uuidString.lowercased()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+            return Self.v2Response(id: id, ok: true, result: [
+                "completed": method == "simulator.tap",
+            ])
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: [
+                "--window", windowID,
+                "simulator", "tap", "0.5", "0.5", "--surface", surfaceID,
+            ]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let command = try XCTUnwrap(state.commands.first(where: {
+            Self.v2Payload(from: $0)?["method"] as? String == "simulator.tap"
+        }))
+        let payload = try XCTUnwrap(Self.v2Payload(from: command))
+        let params = try XCTUnwrap(payload["params"] as? [String: Any])
+        XCTAssertEqual(params["window_id"] as? String, windowID)
+        XCTAssertEqual(params["surface_id"] as? String, surfaceID)
+    }
+
     func testOpenCommandHonorsTerminatorForDashPrefixedPath() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("open-dash")

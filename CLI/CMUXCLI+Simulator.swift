@@ -583,8 +583,12 @@ extension CMUXCLI {
         client: SocketClient,
         window: String?
     ) throws -> [String: Any] {
-        if let window { return ["window_id": window] }
-        if let normalizedSurface { return ["surface_id": normalizedSurface] }
+        if window != nil || normalizedSurface != nil {
+            var params: [String: Any] = [:]
+            if let window { params["window_id"] = window }
+            if let normalizedSurface { params["surface_id"] = normalizedSurface }
+            return params
+        }
 
         let environment = ProcessInfo.processInfo.environment
         guard let workspaceID = environment["CMUX_WORKSPACE_ID"]?

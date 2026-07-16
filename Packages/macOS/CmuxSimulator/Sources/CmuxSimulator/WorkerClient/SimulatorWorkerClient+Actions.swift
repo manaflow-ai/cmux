@@ -38,6 +38,7 @@ extension SimulatorWorkerClient {
                       responseID == requestID else { return nil }
                 return succeeded
             }
+            try? await sendInteractiveRecovery(for: interactiveAction)
             guard succeeded else {
                 throw SimulatorControlError(
                     code: "interactive_action_failed",
@@ -48,7 +49,6 @@ extension SimulatorWorkerClient {
                     )
                 )
             }
-            try? await sendInteractiveRecovery(for: interactiveAction)
             return .none
         }
         if let result = try await performWebInspectorAction(action) { return result }

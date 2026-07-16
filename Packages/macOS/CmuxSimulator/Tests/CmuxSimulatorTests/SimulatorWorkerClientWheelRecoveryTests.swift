@@ -3,6 +3,38 @@ import Testing
 @testable import CmuxSimulator
 
 extension SimulatorWorkerClientTests {
+    @Test("A failed correlated hardware button still sends a raw up")
+    func interactiveButtonFailureRecovery() async throws {
+        let launcher = TestWorkerLauncher()
+        launcher.setResponder { message in
+            switch message {
+            case .attach: .status(.streaming)
+            case let .ping(sequence): .ack(sequence)
+            case let .interactiveAction(requestID, _):
+                .interactiveAction(requestID: requestID, succeeded: false)
+            default: nil
+            }
+        }
+        let client = makeClient(launcher: launcher)
+        await client.send(.attach(udid: "DEVICE", geometry: nil))
+        let worker = try #require(launcher.endpoint(at: 0))
+
+        await #expect(throws: SimulatorControlError.self) {
+            try await client.perform(.interactive(.hardwareButton(.volumeUp)))
+        }
+
+        let release = SimulatorWorkerInbound.hidButton(.init(
+            button: .init(page: 0x0C, usage: 0xE9),
+            phase: .up
+        ))
+        for _ in 0..<1_000 {
+            if worker.inboundMessages().contains(release) { break }
+            await Task.yield()
+        }
+        #expect(worker.inboundMessages().contains(release))
+        await client.stop()
+    }
+
     @Test("Crash during correlated hardware button replays a raw up")
     func interactiveButtonCrashRecovery() async throws {
         let launcher = TestWorkerLauncher()
