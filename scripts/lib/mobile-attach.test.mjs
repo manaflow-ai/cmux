@@ -41,13 +41,34 @@ function resolveDevAPIBaseURL(fallback, override = "") {
   ]);
 }
 
-async function mintAttachURL(target, payload) {
+async function mintAttachURL(target, payload, maxAttempts = 1) {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-mobile-attach-test-"));
   const scriptsDir = path.join(tempRoot, "scripts");
   const socketPath = path.join(tempRoot, "mobile.sock");
+  const payloadDirectory = path.join(tempRoot, "payloads");
+  const callCounterPath = path.join(tempRoot, "call-count");
   fs.mkdirSync(scriptsDir);
+  fs.mkdirSync(payloadDirectory);
+  const payloads = Array.isArray(payload) ? payload : [payload];
+  payloads.forEach((value, index) => {
+    fs.writeFileSync(
+      path.join(payloadDirectory, `${index + 1}`),
+      value == null ? "" : JSON.stringify(value),
+    );
+  });
   const fakeCLI = path.join(scriptsDir, "cmux-debug-cli.sh");
-  fs.writeFileSync(fakeCLI, "#!/usr/bin/env bash\nprintf '%s' \"$CMUX_TEST_ATTACH_PAYLOAD\"\n");
+  fs.writeFileSync(
+    fakeCLI,
+    [
+      "#!/usr/bin/env bash",
+      'count="$(cat "$CMUX_TEST_CALL_COUNTER" 2>/dev/null || printf 0)"',
+      'count="$((count + 1))"',
+      'printf "%s" "$count" > "$CMUX_TEST_CALL_COUNTER"',
+      'payload="$CMUX_TEST_PAYLOAD_DIRECTORY/$count"',
+      '[[ -f "$payload" ]] && cat "$payload"',
+      "",
+    ].join("\n"),
+  );
   fs.chmodSync(fakeCLI, 0o755);
 
   const server = net.createServer();
@@ -57,30 +78,36 @@ async function mintAttachURL(target, payload) {
   });
 
   try {
-    return spawnSync(
+    const result = spawnSync(
       "bash",
       [
         "-c",
         [
           'source "$1"',
           'cmux_attach_socket_path() { printf "%s" "$CMUX_TEST_SOCKET"; }',
-          'cmux_attach_mint_url "test" 60 "$2" "$3" 1',
+          'cmux_attach_mint_url "test" 60 "$2" "$3" "$4"',
         ].join("; "),
         "mobile-attach-test",
         validator,
         tempRoot,
         target,
+        String(maxAttempts),
       ],
       {
         cwd: repoRoot,
         encoding: "utf8",
         env: {
           ...process.env,
-          CMUX_TEST_ATTACH_PAYLOAD: JSON.stringify(payload),
+          CMUX_TEST_CALL_COUNTER: callCounterPath,
+          CMUX_TEST_PAYLOAD_DIRECTORY: payloadDirectory,
           CMUX_TEST_SOCKET: socketPath,
         },
       },
     );
+    result.callCount = fs.existsSync(callCounterPath)
+      ? Number.parseInt(fs.readFileSync(callCounterPath, "utf8"), 10)
+      : 0;
+    return result;
   } finally {
     await new Promise((resolve) => server.close(resolve));
     fs.rmSync(tempRoot, { recursive: true, force: true });
@@ -136,9 +163,14 @@ test("macOS and iOS reloads share the dev API backend override", () => {
 });
 
 test("physical-device mint rejects a ticket with only plaintext Tailscale routes", async () => {
-  const result = await mintAttachURL("physical_device", attachPayload("tailscale"));
+  const result = await mintAttachURL(
+    "physical_device",
+    attachPayload("tailscale"),
+    20,
+  );
   assert.equal(result.status, 2);
   assert.equal(result.stdout, "");
+  assert.equal(result.callCount, 1);
 });
 
 test("physical-device mint accepts an encrypted Iroh route", async () => {
@@ -153,6 +185,28 @@ test("simulator mint retains its loopback ticket behavior", async () => {
   const result = await mintAttachURL("simulator_injection", payload);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, payload.attach_url);
+});
+
+test("physical-device mint retries transient empty responses", async () => {
+  const payload = attachPayload("iroh");
+  const result = await mintAttachURL(
+    "physical_device",
+    [null, payload],
+    20,
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, payload.attach_url);
+  assert.equal(result.callCount, 2);
+});
+
+test("mobile launch accepts an explicit no-attach override", () => {
+  const result = run("bash", [
+    "scripts/mobile-dev-launch.sh",
+    "--no-attach",
+    "--help",
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.doesNotMatch(result.stderr, /unknown arg/);
 });
 
 test("physical-device attach reports a missing tagged Mac before blaming Iroh", () => {
