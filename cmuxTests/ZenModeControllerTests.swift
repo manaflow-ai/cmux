@@ -152,7 +152,10 @@ final class ZenModeControllerTests {
         ))
         #expect(KeyboardShortcutSettings.settingsVisibleActions.contains(.toggleZenMode))
         #expect(ShortcutAction.settingsVisibleActions.contains(.toggleZenMode))
-        #expect(ShortcutAction.toggleZenMode.defaultShortcut == shortcut)
+        #expect(ShortcutAction.toggleZenMode.defaultShortcut == CmuxSettings.StoredShortcut(
+            first: CmuxSettings.ShortcutStroke(key: "k", command: true),
+            second: CmuxSettings.ShortcutStroke(key: "z")
+        ))
     }
 
     private func resetDefaults() -> UserDefaults {
