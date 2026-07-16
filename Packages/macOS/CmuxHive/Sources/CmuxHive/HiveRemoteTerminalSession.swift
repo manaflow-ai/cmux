@@ -41,6 +41,10 @@ public final class HiveRemoteTerminalSession {
     /// so a manual-I/O ghostty surface can render the stream natively. The
     /// grid model keeps reducing in parallel for tests and fallbacks.
     @ObservationIgnored public var frameBytesHandler: (@MainActor (Data) -> Void)?
+    /// The most recent full frame as replacement bytes, kept so a surface
+    /// that realizes (or resizes) after the replay landed can be repainted
+    /// immediately without a network round-trip.
+    @ObservationIgnored public private(set) var lastFullFrameBytes: Data?
 
     @ObservationIgnored private let client: MobileCoreRPCClient
     @ObservationIgnored private let retryDelay: @Sendable (_ attempt: Int) async -> Void
@@ -191,9 +195,10 @@ public final class HiveRemoteTerminalSession {
 
     private func applyFrame(_ frame: MobileTerminalRenderGridFrame) {
         grid.apply(frame)
-        guard let frameBytesHandler else { return }
         let replay = MobileTerminalRenderGridReplay(frame)
-        frameBytesHandler(frame.full ? replay.replacementBytes() : replay.patchBytes())
+        let bytes = frame.full ? replay.replacementBytes() : replay.patchBytes()
+        if frame.full { lastFullFrameBytes = bytes }
+        frameBytesHandler?(bytes)
     }
 
     /// Decode one `terminal.render_grid` event payload: either the wrapped
