@@ -105,7 +105,9 @@ jobs:
         shell: bash
         env:
           CMUX_TUI_BUILD_COMMIT: ${{ github.sha }}
-        run: cargo build -p cmux-tui --bin cmux-tui --release --locked --target ${{ matrix.target }}
+        run: |
+          export CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty rev-parse HEAD)"
+          cargo build -p cmux-tui --bin cmux-tui --release --locked --target ${{ matrix.target }}
 
       - name: Build cmux-tui (cross)
         if: matrix.cross == true
@@ -113,7 +115,9 @@ jobs:
         shell: bash
         env:
           CMUX_TUI_BUILD_COMMIT: ${{ github.sha }}
-        run: cargo zigbuild -p cmux-tui --bin cmux-tui --release --locked --target ${{ matrix.target }}
+        run: |
+          export CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty rev-parse HEAD)"
+          cargo zigbuild -p cmux-tui --bin cmux-tui --release --locked --target ${{ matrix.target }}
 
       - name: Stage binary
         shell: bash
@@ -170,6 +174,7 @@ jobs:
         env:
           CMUX_TUI_BUILD_COMMIT: ${{ github.sha }}
         run: |
+          export CMUX_TUI_GHOSTTY_COMMIT="$(git -C ghostty rev-parse HEAD)"
           cd ghostty
           zig build -Demit-lib-vt=true -Demit-xcframework=false -Doptimize=ReleaseFast -Dtarget=x86_64-windows-gnu --prefix "$RUNNER_TEMP/ghostty-vt-win-gnu"
           cd ../cmux-tui

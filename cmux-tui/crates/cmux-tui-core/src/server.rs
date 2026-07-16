@@ -1849,6 +1849,7 @@ fn handle_command(
             "app": "cmux-tui",
             "version": env!("CARGO_PKG_VERSION"),
             "build_commit": stamped_build_commit(),
+            "ghostty_commit": stamped_ghostty_commit(),
             "protocol": PROTOCOL_VERSION,
             "session": mux.session,
             "pid": std::process::id(),
@@ -1857,6 +1858,7 @@ fn handle_command(
             "ok": true,
             "version": env!("CARGO_PKG_VERSION"),
             "build_commit": stamped_build_commit(),
+            "ghostty_commit": stamped_ghostty_commit(),
             "protocol": PROTOCOL_VERSION,
         })),
         Command::SetClientInfo { name, kind } => {
@@ -2572,6 +2574,10 @@ fn stamped_build_commit() -> Option<&'static str> {
         .filter(|commit| !commit.is_empty())
 }
 
+fn stamped_ghostty_commit() -> Option<&'static str> {
+    option_env!("CMUX_TUI_GHOSTTY_COMMIT").filter(|commit| !commit.is_empty())
+}
+
 fn subscribed_event_json(event: &MuxEvent) -> Value {
     match event {
         MuxEvent::SurfaceOutput(id) => json!({"event": "surface-output", "surface": id}),
@@ -2918,11 +2924,13 @@ mod tests {
         assert_eq!(identity["version"].as_str(), Some(env!("CARGO_PKG_VERSION")));
         assert_eq!(identity["protocol"].as_u64(), Some(PROTOCOL_VERSION as u64));
         assert_eq!(identity["build_commit"].as_str(), stamped_build_commit());
+        assert_eq!(identity["ghostty_commit"].as_str(), stamped_ghostty_commit());
 
         let data = handle_command(&mux, 0, Command::Ping, &test_writer()).unwrap();
         assert_eq!(data["ok"].as_bool(), Some(true));
         assert_eq!(data["version"].as_str(), Some(env!("CARGO_PKG_VERSION")));
         assert_eq!(data["build_commit"].as_str(), stamped_build_commit());
+        assert_eq!(data["ghostty_commit"].as_str(), stamped_ghostty_commit());
         assert_eq!(data["protocol"].as_u64(), Some(PROTOCOL_VERSION as u64));
     }
 
