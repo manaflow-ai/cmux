@@ -18,6 +18,8 @@ public struct BrowserStreamSurfaceActions: Sendable {
     public let forward: @Sendable (_ panelID: String) async -> Void
     /// Reloads the page.
     public let reload: @Sendable (_ panelID: String) async -> Void
+    /// Answers a mirrored native browser dialog.
+    public let respondToDialog: @Sendable (MobileBrowserDialogRespondParameters) async -> Void
 
     /// Creates a complete action sink.
     /// - Parameters:
@@ -29,6 +31,7 @@ public struct BrowserStreamSurfaceActions: Sendable {
     ///   - back: Navigates a panel backward.
     ///   - forward: Navigates a panel forward.
     ///   - reload: Reloads a panel.
+    ///   - respondToDialog: Answers a mirrored native browser dialog.
     public init(
         pointer: @escaping @Sendable (MobileBrowserPointerInput) async -> Void,
         scroll: @escaping @Sendable (MobileBrowserScrollInput) async -> Void,
@@ -37,7 +40,8 @@ public struct BrowserStreamSurfaceActions: Sendable {
         navigate: @escaping @Sendable (String, String) async -> Void,
         back: @escaping @Sendable (String) async -> Void,
         forward: @escaping @Sendable (String) async -> Void,
-        reload: @escaping @Sendable (String) async -> Void
+        reload: @escaping @Sendable (String) async -> Void,
+        respondToDialog: @escaping @Sendable (MobileBrowserDialogRespondParameters) async -> Void
     ) {
         self.pointer = pointer
         self.scroll = scroll
@@ -47,5 +51,6 @@ public struct BrowserStreamSurfaceActions: Sendable {
         self.back = back
         self.forward = forward
         self.reload = reload
+        self.respondToDialog = respondToDialog
     }
 }

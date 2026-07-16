@@ -46,11 +46,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         var eventTopics: [String] {
             switch self {
             case .hybrid:
-                return ["workspace.updated", "terminal.bytes", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge", "browser.frame", "browser.state", "browser.closed"]
+                return ["workspace.updated", "terminal.bytes", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge", "browser.frame", "browser.state", "browser.closed", "browser.dialog", "browser.dialog.resolved"]
             case .renderGrid:
-                return ["workspace.updated", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge", "browser.frame", "browser.state", "browser.closed"]
+                return ["workspace.updated", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge", "browser.frame", "browser.state", "browser.closed", "browser.dialog", "browser.dialog.resolved"]
             case .rawBytes:
-                return ["workspace.updated", "terminal.bytes", "terminal.set_font", "notification.dismissed", "notification.badge", "browser.frame", "browser.state", "browser.closed"]
+                return ["workspace.updated", "terminal.bytes", "terminal.set_font", "notification.dismissed", "notification.badge", "browser.frame", "browser.state", "browser.closed", "browser.dialog", "browser.dialog.resolved"]
             }
         }
 
@@ -88,6 +88,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private static let terminalRenderGridCapability = "terminal.render_grid.v1"
     private static let terminalBytesCapability = "terminal.bytes.v1"
     static let browserStreamCapability = MobileBrowserStreamCapability.identifier
+    static let browserStreamDialogCapability = MobileBrowserStreamCapability.dialogIdentifier
     static let terminalReplayCapability = "terminal.replay.v1"
     static let maxTerminalReplayBarrierDroppedOutputBeforeFailOpen: UInt64 = 256
     static let workspaceActionsCapability = "workspace.actions.v1"
@@ -6166,6 +6167,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     self.handleMobileBrowserStateEvent(event)
                 } else if event.topic == "browser.closed" {
                     self.handleMobileBrowserClosedEvent(event)
+                } else if event.topic == "browser.dialog" {
+                    self.handleMobileBrowserDialogEvent(event)
+                } else if event.topic == "browser.dialog.resolved" {
+                    self.handleMobileBrowserDialogResolvedEvent(event)
                 }
             }
             guard let self else { return }

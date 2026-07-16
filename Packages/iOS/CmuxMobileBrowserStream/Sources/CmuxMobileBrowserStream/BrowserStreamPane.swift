@@ -48,7 +48,7 @@ public struct BrowserStreamPane: View {
             .accessibilityIdentifier("BrowserStreamSurface")
             .ignoresSafeArea(.container, edges: .bottom)
             .ignoresSafeArea(.keyboard, edges: .bottom)
-            .overlay { surfaceOverlay }
+            .overlay { paneOverlay }
             .background(Color(red: 0.055, green: 0.063, blue: 0.075))
             .safeAreaInset(edge: .bottom) { bottomBar }
             .onChange(of: state.url) { _, url in
@@ -189,6 +189,19 @@ public struct BrowserStreamPane: View {
     }
 
     // MARK: - Overlays
+
+    @ViewBuilder
+    private var paneOverlay: some View {
+        ZStack {
+            surfaceOverlay
+            if let dialog = state.pendingDialog {
+                BrowserStreamDialogCard(dialog: dialog) { response in
+                    Task { await actions.respondToDialog(response) }
+                }
+                .id(dialog.dialogID)
+            }
+        }
+    }
 
     @ViewBuilder
     private var surfaceOverlay: some View {

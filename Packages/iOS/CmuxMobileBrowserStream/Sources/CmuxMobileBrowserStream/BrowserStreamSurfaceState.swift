@@ -71,6 +71,8 @@ public final class BrowserStreamSurfaceState: Identifiable {
     public private(set) var latestFrame: BrowserStreamFrame?
     /// A pending chrome command consumed once by the representable.
     public private(set) var pendingCommand: ChromeCommand?
+    /// Current unresolved native Mac browser dialog.
+    public private(set) var pendingDialog: MobileBrowserDialogEvent?
     private var keyboardPolicy: BrowserStreamKeyboardPolicy
     private var newestDisplayedSequence: UInt64?
 
@@ -91,6 +93,7 @@ public final class BrowserStreamSurfaceState: Identifiable {
         streamStatus = .idle
         latestFrame = nil
         pendingCommand = nil
+        pendingDialog = descriptor.pendingDialog
         keyboardPolicy = BrowserStreamKeyboardPolicy()
         newestDisplayedSequence = nil
     }
@@ -111,6 +114,9 @@ public final class BrowserStreamSurfaceState: Identifiable {
             progress = 0
         }
         pageSize = CGSize(width: descriptor.pageWidth, height: descriptor.pageHeight)
+        if let pendingDialog = descriptor.pendingDialog {
+            self.pendingDialog = pendingDialog
+        }
     }
 
     /// Applies a browser state push from the Mac.
@@ -163,5 +169,19 @@ public final class BrowserStreamSurfaceState: Identifiable {
     /// Toggles the manual keyboard override for pages that do not report editable focus.
     public func toggleManualKeyboard() {
         keyboardPolicy.toggleManualRequest()
+    }
+
+    /// Installs the current native browser dialog for this panel.
+    /// - Parameter dialog: Dialog pushed by the Mac.
+    public func installDialog(_ dialog: MobileBrowserDialogEvent) {
+        guard dialog.panelID == id else { return }
+        pendingDialog = dialog
+    }
+
+    /// Clears a dialog only when the UUID still matches the current presentation.
+    /// - Parameter dialogID: Dialog UUID resolved by either device.
+    public func resolveDialog(dialogID: String) {
+        guard pendingDialog?.dialogID == dialogID else { return }
+        pendingDialog = nil
     }
 }

@@ -12,6 +12,8 @@ public final class BrowserStreamStore: BrowserStreamEventReceiving {
     private var descriptorsByWorkspace: [String: [MobileBrowserPanelDescriptor]] = [:]
     private var statesByPanel: [String: BrowserStreamSurfaceState] = [:]
     private var activePanelByWorkspace: [String: String] = [:]
+    private var pendingDialogsByPanel: [String: MobileBrowserDialogEvent] = [:]
+    private var lastResolvedDialogIDByPanel: [String: String] = [:]
     private var currentConnectionStatus: BrowserStreamSurfaceState.ConnectionStatus = .disconnected
     @ObservationIgnored private var decodersByPanel: [String: BrowserStreamFrameDecoder] = [:]
     @ObservationIgnored private var frameTasksByPanel: [String: Task<Void, Never>] = [:]
@@ -82,6 +84,9 @@ public final class BrowserStreamStore: BrowserStreamEventReceiving {
                 let state = BrowserStreamSurfaceState(descriptor: descriptor)
                 state.connectionStatus = currentConnectionStatus
                 statesByPanel[descriptor.panelID] = state
+            }
+            if let dialog = descriptor.pendingDialog ?? pendingDialogsByPanel[descriptor.panelID] {
+                installDialog(dialog)
             }
             _ = decoder(for: descriptor.panelID)
         }
@@ -176,6 +181,9 @@ public final class BrowserStreamStore: BrowserStreamEventReceiving {
         if state.streamStatus != .streaming {
             state.streamStatus = .starting
         }
+        if let dialog = descriptor.pendingDialog {
+            installDialog(dialog)
+        }
     }
 
     /// Resets decoder and display sequencing for a new subscription.
@@ -224,12 +232,61 @@ public final class BrowserStreamStore: BrowserStreamEventReceiving {
         statesByPanel[event.panelID]?.apply(event)
     }
 
+    /// Decodes and installs a native browser dialog push.
+    /// - Parameter payload: Raw `browser.dialog` event payload.
+    public func receiveBrowserDialogPayload(_ payload: Data) {
+        guard let dialog = try? JSONDecoder().decode(MobileBrowserDialogEvent.self, from: payload) else { return }
+        installDialog(dialog)
+    }
+
+    /// Decodes and applies a native browser dialog resolution push.
+    /// - Parameter payload: Raw `browser.dialog.resolved` event payload.
+    public func receiveBrowserDialogResolvedPayload(_ payload: Data) {
+        guard let resolved = try? JSONDecoder().decode(
+            MobileBrowserDialogResolvedEvent.self,
+            from: payload
+        ) else { return }
+        lastResolvedDialogIDByPanel[resolved.panelID] = resolved.dialogID
+        if pendingDialogsByPanel[resolved.panelID]?.dialogID == resolved.dialogID {
+            pendingDialogsByPanel[resolved.panelID] = nil
+        }
+        statesByPanel[resolved.panelID]?.resolveDialog(dialogID: resolved.dialogID)
+    }
+
+    /// Optimistically claims the visible dialog before its response RPC is sent.
+    /// - Parameters:
+    ///   - panelID: Browser panel UUID string.
+    ///   - dialogID: Dialog UUID string being answered.
+    /// - Returns: The claimed dialog, or `nil` when it was already resolved.
+    public func beginBrowserDialogResponse(
+        panelID: String,
+        dialogID: String
+    ) -> MobileBrowserDialogEvent? {
+        guard let dialog = pendingDialogsByPanel[panelID], dialog.dialogID == dialogID else { return nil }
+        pendingDialogsByPanel[panelID] = nil
+        statesByPanel[panelID]?.resolveDialog(dialogID: dialogID)
+        return dialog
+    }
+
+    /// Restores a dialog after a response transport failure if no newer dialog replaced it.
+    /// - Parameter dialog: Previously claimed dialog.
+    public func restoreBrowserDialog(_ dialog: MobileBrowserDialogEvent) {
+        guard pendingDialogsByPanel[dialog.panelID] == nil,
+              lastResolvedDialogIDByPanel[dialog.panelID] != dialog.dialogID else { return }
+        installDialog(dialog)
+    }
+
     /// Decodes a raw browser closed event and removes its discovery and selection state.
     /// - Parameter payload: The raw event payload.
     /// - Returns: The decoded closed panel identifier, or `nil` for malformed data.
     public func receiveBrowserClosedPayload(_ payload: Data) -> String? {
         guard let event = try? JSONDecoder().decode(MobileBrowserClosedEvent.self, from: payload) else { return nil }
         statesByPanel[event.panelID]?.streamStatus = .closed
+        pendingDialogsByPanel[event.panelID] = nil
+        lastResolvedDialogIDByPanel[event.panelID] = nil
+        if let dialogID = statesByPanel[event.panelID]?.pendingDialog?.dialogID {
+            statesByPanel[event.panelID]?.resolveDialog(dialogID: dialogID)
+        }
         for (workspaceID, panelID) in activePanelByWorkspace where panelID == event.panelID {
             activePanelByWorkspace[workspaceID] = nil
         }
@@ -237,6 +294,13 @@ public final class BrowserStreamStore: BrowserStreamEventReceiving {
             descriptorsByWorkspace[workspaceID] = descriptors.filter { $0.panelID != event.panelID }
         }
         return event.panelID
+    }
+
+    private func installDialog(_ dialog: MobileBrowserDialogEvent) {
+        guard lastResolvedDialogIDByPanel[dialog.panelID] != dialog.dialogID else { return }
+        lastResolvedDialogIDByPanel[dialog.panelID] = nil
+        pendingDialogsByPanel[dialog.panelID] = dialog
+        statesByPanel[dialog.panelID]?.installDialog(dialog)
     }
 
     private func decoder(for panelID: String) -> BrowserStreamFrameDecoder {

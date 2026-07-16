@@ -31,6 +31,21 @@ public protocol BrowserStreamEventReceiving: AnyObject {
     /// Routes a raw `browser.state` payload into panel state.
     /// - Parameter payload: The raw event payload.
     func receiveBrowserStatePayload(_ payload: Data)
+    /// Routes a raw `browser.dialog` payload into panel state.
+    /// - Parameter payload: Raw event payload.
+    func receiveBrowserDialogPayload(_ payload: Data)
+    /// Routes a raw `browser.dialog.resolved` payload into panel state.
+    /// - Parameter payload: Raw event payload.
+    func receiveBrowserDialogResolvedPayload(_ payload: Data)
+    /// Claims the visible dialog before its response RPC is sent.
+    /// - Parameters:
+    ///   - panelID: Browser panel UUID string.
+    ///   - dialogID: Dialog UUID string being answered.
+    /// - Returns: The claimed dialog, or `nil` when it was already resolved.
+    func beginBrowserDialogResponse(panelID: String, dialogID: String) -> MobileBrowserDialogEvent?
+    /// Restores a dialog after a response transport failure.
+    /// - Parameter dialog: Previously claimed dialog.
+    func restoreBrowserDialog(_ dialog: MobileBrowserDialogEvent)
     /// Routes a raw `browser.closed` payload and returns the closed panel identifier.
     /// - Parameter payload: The raw event payload.
     /// - Returns: The decoded closed panel identifier, or `nil` for malformed data.

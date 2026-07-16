@@ -72,7 +72,8 @@ extension WorkspaceDetailView {
                 navigate: { await store.navigateMobileBrowser(panelID: $0, url: $1) },
                 back: { await store.backMobileBrowser(panelID: $0) },
                 forward: { await store.forwardMobileBrowser(panelID: $0) },
-                reload: { await store.reloadMobileBrowser(panelID: $0) }
+                reload: { await store.reloadMobileBrowser(panelID: $0) },
+                respondToDialog: { await store.respondToMobileBrowserDialog($0) }
             ),
             close: {
                 browserStreamStore.deactivate(in: workspace.rpcWorkspaceID.rawValue)

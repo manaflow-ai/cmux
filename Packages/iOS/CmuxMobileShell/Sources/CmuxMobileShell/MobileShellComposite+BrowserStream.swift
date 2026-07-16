@@ -103,6 +103,29 @@ extension MobileShellComposite {
         _ = try? await remoteClient?.reloadMobileBrowser(panelID: panelID)
     }
 
+    /// Answers a mirrored native browser dialog without retaining sensitive text.
+    /// - Parameter response: Selected action and optional text entered on the phone.
+    public func respondToMobileBrowserDialog(
+        _ response: MobileBrowserDialogRespondParameters
+    ) async {
+        guard supportsBrowserStreamDialogs,
+              let dialog = browserStreamEvents?.beginBrowserDialogResponse(
+                  panelID: response.panelID,
+                  dialogID: response.dialogID
+              ) else { return }
+        guard let client = remoteClient else {
+            browserStreamEvents?.restoreBrowserDialog(dialog)
+            return
+        }
+        do {
+            _ = try await client.respondToMobileBrowserDialog(response)
+        } catch MobileShellConnectionError.rpcError(let code, _) where code == "not_found" {
+            // The Mac or another phone won the exactly-once claim.
+        } catch {
+            browserStreamEvents?.restoreBrowserDialog(dialog)
+        }
+    }
+
     func handleMobileBrowserFrameEvent(_ event: MobileEventEnvelope) {
         guard let payload = event.payloadJSON else { return }
         browserStreamEvents?.receiveBrowserFramePayload(payload) { [weak self] panelID, sequence in
@@ -120,6 +143,16 @@ extension MobileShellComposite {
         if let panelID = browserStreamEvents?.receiveBrowserClosedPayload(payload) {
             startedMobileBrowserPanelIDs.remove(panelID)
         }
+    }
+
+    func handleMobileBrowserDialogEvent(_ event: MobileEventEnvelope) {
+        guard supportsBrowserStreamDialogs, let payload = event.payloadJSON else { return }
+        browserStreamEvents?.receiveBrowserDialogPayload(payload)
+    }
+
+    func handleMobileBrowserDialogResolvedEvent(_ event: MobileEventEnvelope) {
+        guard supportsBrowserStreamDialogs, let payload = event.payloadJSON else { return }
+        browserStreamEvents?.receiveBrowserDialogResolvedPayload(payload)
     }
 
     func refreshVisibleMobileBrowserPanels() {

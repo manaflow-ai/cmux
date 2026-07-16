@@ -1,6 +1,10 @@
 extension MobileShellComposite {
     /// Whether the connected Mac supports browser-pane streaming.
     public var supportsBrowserStream: Bool { supportedHostCapabilities.contains(Self.browserStreamCapability) }
+    /// Whether the connected Mac supports native browser dialog mirroring.
+    public var supportsBrowserStreamDialogs: Bool {
+        supportsBrowserStream && supportedHostCapabilities.contains(Self.browserStreamDialogCapability)
+    }
     /// Whether the Mac supports workspace close requests.
     public var supportsWorkspaceCloseActions: Bool { supportedHostCapabilities.contains(Self.workspaceCloseCapability) }
     /// Whether the Mac supports workspace move/reorder requests.
