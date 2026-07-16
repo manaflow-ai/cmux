@@ -252,6 +252,30 @@ Opt-in AI auto-naming of workspaces and tabs from agent conversation content. Wh
 
 Default: `false`. Manual renames (sidebar, command palette, CLI, or `/rename`) always win: a workspace or tab you renamed yourself is never auto-named again until you clear its custom name. Enable it from **Settings > Automation > Workspace Auto-Naming**.
 
+## `subrouter.*`
+
+Opt-in integration with the local [subrouter](https://github.com/manaflow-ai/subrouter) daemon: AI-agent (Codex/Claude) account switching and live quota usage in the right-sidebar **Agents** panel, the sidebar-footer account switcher, and the `cmux subrouter` CLI.
+
+```json
+{
+  "subrouter": {
+    "enabled": true,
+    "endpoint": "127.0.0.1:31415",
+    "commandPath": "~/bin/subrouter"
+  },
+  "sidebar": {
+    "showAccountSwitcher": true
+  }
+}
+```
+
+- `subrouter.enabled`: master gate, default `false`. While off, cmux never contacts the daemon or runs the `sr` CLI, and the Agents mode plus footer switcher are hidden. Enable from **Settings > Agent Accounts**.
+- `subrouter.endpoint`: daemon address (`host:port` or full `http(s)` URL). Empty means the daemon's standard loopback bind, `http://127.0.0.1:31415`.
+- `subrouter.commandPath`: explicit path to the `sr`/`subrouter` CLI used for account switches. Empty resolves from `PATH`, then `~/bin` and the Homebrew locations.
+- `sidebar.showAccountSwitcher`: shows the compact account switcher in the left-sidebar footer, default `true` (only visible while `subrouter.enabled` is on).
+
+cmux polls the daemon only while a subrouter UI surface is visible (fast while the Agents panel is open, slow for the footer dot while the app is active) and backs off exponentially when the daemon is unreachable.
+
 ## `diffViewer.defaultLayout`
 
 Controls the initial layout for newly opened diff viewers.

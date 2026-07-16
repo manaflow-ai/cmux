@@ -474,6 +474,9 @@ public struct SettingsWindowRoot: View {
         )
         .id(anchorID(for: .automation))
 
+        SubrouterSection(defaultsStore: defaultsStore, catalog: catalog)
+            .id(anchorID(for: .subrouter))
+
         BrowserSection(
             defaultsStore: defaultsStore,
             catalog: catalog,

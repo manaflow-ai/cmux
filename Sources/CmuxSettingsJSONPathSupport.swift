@@ -232,6 +232,10 @@ enum SidebarSettingsFileMapping {
             defaultsKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey
         ),
         .init(
+            jsonKey: "showAccountSwitcher",
+            defaultsKey: sidebar.showAccountSwitcher.userDefaultsKey
+        ),
+        .init(
             jsonKey: "watchGitStatus",
             defaultsKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey
         ),
@@ -296,6 +300,19 @@ enum AutomationSettingsFileMapping {
         .init(jsonKey: "claudeBinaryPath", defaultsKey: automation.claudeBinaryPath.userDefaultsKey),
         .init(jsonKey: "ripgrepBinaryPath", defaultsKey: automation.ripgrepBinaryPath.userDefaultsKey),
         .init(jsonKey: "autoNamingAgent", defaultsKey: automation.autoNamingAgent.userDefaultsKey),
+    ]
+}
+
+enum SubrouterSettingsFileMapping {
+    private static let subrouter = SubrouterCatalogSection()
+
+    static let booleanSettings: [SettingsFileBooleanMapping] = [
+        .init(jsonKey: "enabled", defaultsKey: subrouter.enabled.userDefaultsKey),
+    ]
+
+    static let stringSettings: [SettingsFileStringMapping] = [
+        .init(jsonKey: "endpoint", defaultsKey: subrouter.endpoint.userDefaultsKey),
+        .init(jsonKey: "commandPath", defaultsKey: subrouter.commandPath.userDefaultsKey),
     ]
 }
 
@@ -412,6 +429,7 @@ extension CmuxSettingsFileStore {
         "sidebar.notificationMessageLineLimit",
         "sidebar.showBranchDirectory",
         "sidebar.showPullRequests",
+        "sidebar.showAccountSwitcher",
         "sidebar.watchGitStatus",
         "sidebar.makePullRequestsClickable",
         "sidebar.openPullRequestLinksInCmuxBrowser",
@@ -451,6 +469,9 @@ extension CmuxSettingsFileStore {
         "automation.kiroNotificationLevel",
         "automation.portBase",
         "automation.portRange",
+        "subrouter.enabled",
+        "subrouter.endpoint",
+        "subrouter.commandPath",
         "browser.defaultSearchEngine",
         "browser.customSearchEngineName",
         "browser.customSearchEngineURLTemplate",
