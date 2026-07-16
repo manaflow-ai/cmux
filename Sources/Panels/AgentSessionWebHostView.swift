@@ -43,7 +43,30 @@ final class AgentSessionWebHostView: NSView {
     }
 
     override func scrollWheel(with event: NSEvent) {
-        hostedWebView?.scrollWheel(with: event)
+        guard let hostedWebView else { return }
+        guard let cgEvent = event.cgEvent?.copy() else {
+            hostedWebView.scrollWheel(with: event)
+            return
+        }
+
+        let targetInWindow = hostedWebView.convert(
+            NSPoint(x: hostedWebView.bounds.midX, y: hostedWebView.bounds.midY),
+            to: nil
+        )
+        let windowDelta = NSPoint(
+            x: targetInWindow.x - event.locationInWindow.x,
+            y: targetInWindow.y - event.locationInWindow.y
+        )
+        var targetInQuartz = cgEvent.location
+        targetInQuartz.x += windowDelta.x
+        targetInQuartz.y -= windowDelta.y
+        cgEvent.location = targetInQuartz
+
+        guard let retargetedEvent = NSEvent(cgEvent: cgEvent) else {
+            hostedWebView.scrollWheel(with: event)
+            return
+        }
+        hostedWebView.scrollWheel(with: retargetedEvent)
     }
 
     override func setFrameOrigin(_ newOrigin: NSPoint) {
