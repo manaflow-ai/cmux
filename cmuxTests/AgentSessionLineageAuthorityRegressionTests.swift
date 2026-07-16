@@ -7,6 +7,28 @@ import Testing
 #endif
 
 extension CMUXCLIErrorOutputRegressionTests {
+    @Test func explicitHookAgentNameOwnsVisibleMutationLineage() {
+        let resolver = AgentVisibleMutationOwnershipAgentName()
+        #expect(
+            resolver.resolve(
+                explicitAgentName: "gemini",
+                environment: [:]
+            ) == "gemini"
+        )
+        #expect(
+            resolver.resolve(
+                explicitAgentName: "gemini",
+                environment: ["CMUX_AGENT_LAUNCH_KIND": "codex"]
+            ) == "gemini"
+        )
+        #expect(
+            resolver.resolve(
+                explicitAgentName: nil,
+                environment: ["CMUX_AGENT_LAUNCH_KIND": "codex"]
+            ) == "codex"
+        )
+    }
+
     @Test func inheritedForkMetadataCannotPromoteAManagedChild() {
         let lineage = AgentHookSessionLineageResolver().resolve(
             agentName: "codex",
