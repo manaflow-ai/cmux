@@ -813,6 +813,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var ghosttyCrashBreadcrumbTask: Task<Void, Never>?
     private static let configuredShortcutChordTimeout: TimeInterval = 1
     private struct PendingConfiguredShortcutChord {
+        let id: UUID
         let firstStroke: ShortcutStroke
         let secondStrokes: [ShortcutStroke]
         let expiresAt: TimeInterval
@@ -820,6 +821,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let fallbackEvent: NSEvent
     }
     private var pendingConfiguredShortcutChord: PendingConfiguredShortcutChord?
+    private var configuredShortcutChordExpirationTimer: Timer?
     var activeConfiguredShortcutChordPrefixForCurrentEvent: ShortcutStroke?
     var shortcutEventFocusContextCache: ShortcutEventFocusContextCache?
     private var ghosttyConfigObserver: NSObjectProtocol?
@@ -12587,6 +12589,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func clearConfiguredShortcutChordState() {
+        configuredShortcutChordExpirationTimer?.invalidate()
+        configuredShortcutChordExpirationTimer = nil
         pendingConfiguredShortcutChord = nil
         activeConfiguredShortcutChordPrefixForCurrentEvent = nil
     }
@@ -13329,6 +13333,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
+        let configuredCmuxShortcutContext = preferredMainWindowContextForShortcutRouting(event: event)
+        let configuredCmuxShortcutActions = configuredCmuxShortcutActions(for: configuredCmuxShortcutContext)
+
         if activeConfiguredShortcutChordPrefixForCurrentEvent == nil {
             let shortcutContext = shortcutEventFocusContext(event).shortcutContext
             let availableChordActions = currentConfiguredShortcutChordActions().filter { action in
@@ -13338,21 +13345,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // one does not swallow its first stroke elsewhere (issue #5189).
                 KeyboardShortcutSettings.effectiveWhenClause(for: action).evaluate(shortcutContext)
             }
-            if armConfiguredShortcutChordIfNeeded(event: event, actions: availableChordActions) {
+            if armConfiguredShortcutChordIfNeeded(
+                event: event,
+                actions: availableChordActions,
+                shortcuts: configuredCmuxShortcutActions.compactMap(\.shortcut)
+            ) {
                 return true
             }
-        }
-
-        let configuredCmuxShortcutContext = preferredMainWindowContextForShortcutRouting(event: event)
-        let configuredCmuxShortcutActions = configuredCmuxShortcutActions(for: configuredCmuxShortcutContext)
-
-        if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
-           armConfiguredShortcutChordIfNeeded(
-               event: event,
-               actions: [],
-               shortcuts: configuredCmuxShortcutActions.compactMap(\.shortcut)
-           ) {
-            return true
         }
 
         // Focused browser web content owns document-editing command equivalents
@@ -15243,6 +15242,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let firstStroke else { return false }
 
         let pending = PendingConfiguredShortcutChord(
+            id: UUID(),
             firstStroke: firstStroke,
             secondStrokes: secondStrokes,
             expiresAt: event.timestamp + Self.configuredShortcutChordTimeout,
@@ -15250,11 +15250,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             fallbackEvent: event
         )
         pendingConfiguredShortcutChord = pending
+        configuredShortcutChordExpirationTimer?.invalidate()
+        let timer = Timer(timeInterval: Self.configuredShortcutChordTimeout, repeats: false) { [weak self] timer in
+            MainActor.assumeIsolated {
+                guard let self, self.configuredShortcutChordExpirationTimer === timer else { return }
+                self.configuredShortcutChordExpirationTimer = nil
+                self.expireConfiguredShortcutChord(id: pending.id)
+            }
+        }
+        configuredShortcutChordExpirationTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
         return true
     }
 
     private func resolvePendingConfiguredShortcutChord(for event: NSEvent) -> ShortcutStroke? {
         guard let pending = pendingConfiguredShortcutChord else { return nil }
+        configuredShortcutChordExpirationTimer?.invalidate()
+        configuredShortcutChordExpirationTimer = nil
         pendingConfiguredShortcutChord = nil
 
         let sameWindow = pending.windowNumber == configuredShortcutChordWindowNumber(for: event)
@@ -15266,6 +15278,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         deliverConfiguredShortcutChordFallback(pending)
         return nil
+    }
+
+    private func expireConfiguredShortcutChord(id: UUID) {
+        guard let pending = pendingConfiguredShortcutChord, pending.id == id else { return }
+        pendingConfiguredShortcutChord = nil
+        deliverConfiguredShortcutChordFallback(pending)
     }
 
     private func deliverConfiguredShortcutChordFallback(_ pending: PendingConfiguredShortcutChord) {

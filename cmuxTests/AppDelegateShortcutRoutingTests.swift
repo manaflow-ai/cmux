@@ -1059,7 +1059,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(window.receivedEvents.first === prefixEvent)
     }
 
-    func testExpiredChordReplaysPrefixBeforeRoutingNextEvent() {
+    func testChordTimeoutReplaysPrefixToOriginalWindow() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -1079,26 +1079,63 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             key: "k",
             modifiers: [.command],
             keyCode: 40,
-            windowNumber: window.windowNumber,
-            timestamp: 100
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct chord prefix event")
+            return
+        }
+
+        XCTAssertTrue(appDelegate.armConfiguredShortcutChordIfNeeded(event: prefixEvent, actions: [.toggleZenMode]))
+        waitFor(timeout: 1.5) { window.receivedEvents.count == 1 }
+        XCTAssertEqual(window.receivedEvents.count, 1)
+        XCTAssertTrue(window.receivedEvents.first === prefixEvent)
+    }
+
+    func testBuiltInAndCustomChordsSharingPrefixAcceptEitherSuffix() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let window = ShortcutFallbackRecordingWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.orderFront(nil)
+        defer { window.orderOut(nil) }
+
+        guard let prefixEvent = makeKeyDownEvent(
+            key: "k",
+            modifiers: [.command],
+            keyCode: 40,
+            windowNumber: window.windowNumber
         ),
-        let expiredSuffixEvent = makeKeyDownEvent(
-            key: "z",
+        let customSuffixEvent = makeKeyDownEvent(
+            key: "c",
             modifiers: [],
-            keyCode: 6,
-            windowNumber: window.windowNumber,
-            timestamp: 102
+            keyCode: 8,
+            windowNumber: window.windowNumber
         ) else {
             XCTFail("Failed to construct chord events")
             return
         }
 
-        XCTAssertTrue(appDelegate.armConfiguredShortcutChordIfNeeded(event: prefixEvent, actions: [.toggleZenMode]))
+        let customShortcut = StoredShortcut(
+            first: ShortcutStroke(key: "k", command: true),
+            second: ShortcutStroke(key: "c")
+        )
+        XCTAssertTrue(appDelegate.armConfiguredShortcutChordIfNeeded(
+            event: prefixEvent,
+            actions: [.toggleZenMode],
+            shortcuts: [customShortcut]
+        ))
 #if DEBUG
-        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: expiredSuffixEvent))
+        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: customSuffixEvent))
 #endif
-        XCTAssertEqual(window.receivedEvents.count, 1)
-        XCTAssertTrue(window.receivedEvents.first === prefixEvent)
+        XCTAssertTrue(window.receivedEvents.isEmpty)
     }
 
     func testCreateMainWindowDoesNotDisallowFullScreenTilingByDefault() {
