@@ -22,6 +22,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     let session: MobileCoreRPCSession
     private let stackTokenGate: RPCStackTokenGate
     private let stackTokenForceRefreshGate: RPCStackTokenGate
+    private let lifecycleGate: MobileRPCClientLifecycleGate
 
     /// Create a client bound to one route + attach ticket.
     /// - Parameters:
@@ -52,6 +53,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         )
         self.transportRequest = transportRequest
         self.allowsStackAuthFallback = allowsStackAuthFallback
+        let lifecycleGate = MobileRPCClientLifecycleGate()
+        self.lifecycleGate = lifecycleGate
         self.stackTokenGate = stackTokenGate
             ?? RPCStackTokenGate(timedOutResetNanoseconds: stackTokenGateResetNanoseconds)
         self.stackTokenForceRefreshGate = stackTokenForceRefreshGate
@@ -70,8 +73,11 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             connectAttemptRegistry: connectAttemptRegistry,
             abandonedConnectCleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
             lateAbandonedConnectCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds,
-            makeTransport: { [runtime, transportRequest] in
-                try runtime.transportFactory.makeTransport(for: transportRequest)
+            makeTransport: { [runtime, transportRequest, lifecycleGate] in
+                guard lifecycleGate.acceptsNewConnections else {
+                    throw MobileShellConnectionError.connectionClosed
+                }
+                return try runtime.transportFactory.makeTransport(for: transportRequest)
             },
             makeIndependentEventByteStream: independentEventFactory
         )
@@ -80,7 +86,16 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     /// Tear down the persistent transport (called when the client is
     /// replaced or the user signs out).
     public func disconnect() async {
+        retire()
         await session.tearDown(error: .connectionClosed)
+    }
+
+    /// Synchronously prevent this client from allocating another transport.
+    /// Shell ownership changes call this before scheduling actor-isolated
+    /// teardown, closing the window where an already-queued RPC could reopen a
+    /// client that is no longer authoritative.
+    public func retire() {
+        lifecycleGate.retire()
     }
 
     /// Subscribe to server-pushed events. Returns a stream of envelopes
@@ -438,6 +453,19 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         let hasConflict: Bool
     }
 
+}
+
+private final class MobileRPCClientLifecycleGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var retired = false
+
+    var acceptsNewConnections: Bool {
+        lock.withLock { !retired }
+    }
+
+    func retire() {
+        lock.withLock { retired = true }
+    }
 }
 
 private extension MobileCoreRPCClient {

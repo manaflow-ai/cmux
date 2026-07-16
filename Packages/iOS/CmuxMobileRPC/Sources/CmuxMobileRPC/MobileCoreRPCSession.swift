@@ -208,6 +208,13 @@ actor MobileCoreRPCSession {
     // MARK: - private
 
     private func ensureConnected(timeoutNanoseconds: UInt64) async throws -> any CmxByteTransport {
+        // `tearDown` is actor-reentrant while it awaits transport close and
+        // abandoned-connect cleanup. Reject requests that arrive in that
+        // window so a stale client cannot install a replacement transport
+        // underneath the shell owner that is retiring it.
+        guard !isTearingDown else {
+            throw MobileShellConnectionError.connectionClosed
+        }
         if let transport { return transport }
 
         let waiterID = UUID()

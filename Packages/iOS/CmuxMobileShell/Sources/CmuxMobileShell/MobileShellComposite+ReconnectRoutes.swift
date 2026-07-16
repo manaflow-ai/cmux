@@ -189,10 +189,15 @@ extension MobileShellComposite {
         evaluatePresenceSubscription()
         let shouldResync = shouldResyncTerminalOutputOnForeground()
         lastBackgroundedAt = nil
-        if shouldResync {
+        // Persisted connections let the recovery owner probe first. Restarting
+        // their listener here can make a dead MobileCoreRPCClient reopen its old
+        // transport before the probe decides to replace it, creating two owners
+        // for one foreground transition. Preview/legacy clients have no stored
+        // route to redial, so retain their same-client resubscribe fallback.
+        if shouldResync, pairedMacStore == nil {
             resyncTerminalOutput(reason: "foreground", restartEventStream: true)
         }
-        recoverForegroundConnectionIfNeeded()
+        recoverForegroundConnectionIfNeeded(resyncAfterHealthy: shouldResync)
         // The foreground Mac's workspace list updates live over the sync stream,
         // but the other Macs are a read-only snapshot. Re-aggregate them on
         // foreground so workspaces created on another Mac while backgrounded
