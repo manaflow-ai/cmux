@@ -124,6 +124,9 @@ jobs:
       - name: Validate create-dmg version pinning
         run: ./tests/test_ci_create_dmg_pinned.sh
 
+      - name: Validate app bundle license compliance
+        run: ./tests/test_app_bundle_license_compliance.sh
+
       - name: Validate unit-test SwiftPM retry guard
         run: ./tests/test_ci_unit_test_spm_retry.sh
 
@@ -322,6 +325,44 @@ jobs:
       - name: React Doctor
         working-directory: webviews
         run: bun run react-doctor:ci
+
+  diff-sidecar-check:
+    needs: changes
+    # Generated protocol and streaming benchmarks also cover webview-only diffs.
+    if: ${{ needs.changes.outputs.macos == 'true' || needs.changes.outputs.web == 'true' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        run: ./scripts/install-rust-ci.sh
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Install webview dependencies
+        working-directory: webviews
+        run: bun install --frozen-lockfile
+
+      - name: Check Rust sidecar
+        run: |
+          ./scripts/run-diff-sidecar-cargo.sh fmt --manifest-path Native/DiffSidecar/Cargo.toml --all --check
+          ./scripts/run-diff-sidecar-cargo.sh clippy --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --locked --no-default-features -- -D warnings
+          ./scripts/run-diff-sidecar-cargo.sh clippy --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --all-features --locked -- -D warnings
+          ./scripts/run-diff-sidecar-cargo.sh test --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --locked --no-default-features
+          ./scripts/run-diff-sidecar-cargo.sh test --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --all-features --locked
+
+      - name: Verify generated protocol types
+        run: ./scripts/generate-diff-sidecar-types.sh --check
+
+      - name: Enforce diff-viewer performance budgets
+        env:
+          CMUX_DIFF_WEB_BENCH_ITERATIONS: "10"
+        run: ./scripts/benchmark-diff-viewer.sh
 
   web-db-migrations:
     needs: changes
@@ -1159,7 +1200,7 @@ jobs:
             fi
             echo "::group::swift test $pkgdir"
             case "$pkg" in
-            CmuxAuthRuntime|CmuxIrohTransport)
+            CmuxAgentChat|CmuxAuthRuntime|CmuxIrohTransport)
               ./scripts/ci/run-swift-testing-suites.sh "$pkgdir"
               ;;
             CmuxTerminal|CmuxTerminalCore)
@@ -1211,6 +1252,7 @@ jobs:
       - remote-daemon-tests
       - web-typecheck
       - react-apps-check
+      - diff-sidecar-check
       - web-db-migrations
       - agent-session-web-resources
     if: ${{ always() }}
@@ -1232,6 +1274,7 @@ jobs:
               "remote-daemon-tests",
               "web-typecheck",
               "react-apps-check",
+              "diff-sidecar-check",
               "web-db-migrations",
               "agent-session-web-resources",
           }
@@ -1247,6 +1290,7 @@ jobs:
               "remote-daemon-tests": "go",
               "web-typecheck": "web",
               "react-apps-check": "web",
+              "diff-sidecar-check": "macos",
               "web-db-migrations": "web",
               "agent-session-web-resources": "agent_session_web",
           }
@@ -1772,15 +1816,18 @@ jobs:
           APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
           CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
           HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
+          DIFF_SIDECAR="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-diff-sidecar"
           test -x "$APP_BINARY"
           test -x "$CLI_BINARY"
           test -x "$HELPER_BINARY"
-          file "$APP_BINARY" "$CLI_BINARY" "$HELPER_BINARY"
+          test -x "$DIFF_SIDECAR"
+          file "$APP_BINARY" "$CLI_BINARY" "$HELPER_BINARY" "$DIFF_SIDECAR"
           SDK_VERSION="$(otool -l "$APP_BINARY" | awk '/LC_BUILD_VERSION/ { in_version=1; next } in_version && /sdk / { print $2; exit }')"
           echo "App SDK version: $SDK_VERSION"
           lipo "$APP_BINARY" -verify_arch arm64 x86_64
           lipo "$CLI_BINARY" -verify_arch arm64 x86_64
           lipo "$HELPER_BINARY" -verify_arch arm64 x86_64
+          ./scripts/verify-diff-sidecar-artifact.sh "$DIFF_SIDECAR"
           [[ "$SDK_VERSION" == 26.* ]]
 
   ci-status:
@@ -1790,6 +1837,7 @@ jobs:
       - remote-daemon-tests
       - web-typecheck
       - react-apps-check
+      - diff-sidecar-check
       - web-db-migrations
       - linux-preflight
       - app-host-unit-tests
