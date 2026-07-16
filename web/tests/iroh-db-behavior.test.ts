@@ -567,6 +567,36 @@ describe("Iroh trust broker database behavior", () => {
     expect(total).toBe("120");
   });
 
+  dbTest("allows forty same-device challenges under an explicit development quota", async () => {
+    const userId = "user-development-challenges";
+    const deviceUuid = randomUUID();
+    const results = await Promise.all(Array.from({ length: 40 }, (_, index) => {
+      const suffix = (index + 1).toString(16).padStart(64, "0");
+      const input = {
+        userId,
+        deviceUuid,
+        appInstanceId: randomUUID(),
+        tag: `dev-${index + 1}`,
+        endpointId: suffix,
+        identityGeneration: 1,
+        payloadSha256: suffix,
+        nonceHash: (index + 101).toString(16).padStart(64, "0"),
+        now: NOW,
+        expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
+        challengeQuota: { account: 256, device: 128 },
+      } as Parameters<IrohRepositoryShape["issueChallenge"]>[0];
+      return Effect.runPromiseExit(requiredRepository().issueChallenge(input));
+    }));
+
+    expect(results.filter((result) => result._tag === "Success")).toHaveLength(40);
+    const [{ total }] = await requiredSql()<Array<{ total: string }>>`
+      select count(*)::text as total
+      from iroh_registration_challenges
+      where user_id = ${userId}
+    `;
+    expect(total).toBe("40");
+  });
+
   dbTest("enforces globally unique active EndpointIDs and app instances", async () => {
     const appInstanceId = randomUUID();
     const endpointId = "40".repeat(32);
