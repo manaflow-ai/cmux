@@ -14,6 +14,17 @@ struct AgentLaunchCaptureTrustTests {
         #expect(AgentLaunchCaptureTrust.launcherDescribesKind("  ", kind: "codex"))
     }
 
+    @Test func absentLauncherUsesHookKindToValidateCapture() {
+        #expect(
+            AgentLaunchCaptureTrust.capturedArgumentsDescribeKind(
+                launcher: nil,
+                executablePath: "/opt/homebrew/bin/codex",
+                arguments: ["/opt/homebrew/bin/codex", "--yolo"],
+                kind: "codex"
+            )
+        )
+    }
+
     @Test func wrapperLaunchersDescribeTheirKind() {
         #expect(AgentLaunchCaptureTrust.launcherDescribesKind("claudeTeams", kind: "claude"))
         #expect(AgentLaunchCaptureTrust.launcherDescribesKind("codexTeams", kind: "codex"))
