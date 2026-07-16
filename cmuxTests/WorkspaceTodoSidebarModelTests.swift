@@ -267,21 +267,35 @@ struct WorkspaceTodoSidebarModelTests {
     }
 
     @Test
-    func todoPaneEditFieldUsesStandaloneTextViewForNativeLineNavigation() throws {
-        let source = try Self.sourceText("Sources/Panels/WorkspaceTodoPanelView.swift")
+    func checklistInputFieldUsesStandaloneTextViewForNativeLineNavigation() throws {
+        let source = try Self.sourceText("Sources/ChecklistInputField.swift")
 
-        #expect(source.contains("WorkspaceTodoPaneMultilineEditField("))
-        #expect(source.contains("WorkspaceTodoPaneMultilineTextView: NSTextView"))
+        #expect(source.contains("ChecklistInputTextView: NSTextView"))
+        #expect(source.contains("insertNewline(nil)"))
+        #expect(source.contains("onMoveHighlightWhenEmpty"))
         #expect(!source.contains("axis: .vertical"))
-        #expect(!source.contains(".onSubmit { actions.commitEdit() }"))
     }
 
     @Test
-    func todoPaneMultilineEditSizingClampsVisibleLines() {
-        #expect(WorkspaceTodoPaneMultilineEditSizing.visibleLineCount(for: "") == 1)
-        #expect(WorkspaceTodoPaneMultilineEditSizing.visibleLineCount(for: "one") == 1)
-        #expect(WorkspaceTodoPaneMultilineEditSizing.visibleLineCount(for: "one\ntwo") == 2)
-        #expect(WorkspaceTodoPaneMultilineEditSizing.visibleLineCount(
+    func checklistSurfacesUseSharedChecklistInputField() throws {
+        let pane = try Self.sourceText("Sources/Panels/WorkspaceTodoPanelView.swift")
+        let inline = try Self.sourceText("Sources/SidebarWorkspaceChecklistView.swift")
+        let popover = try Self.sourceText("Sources/SidebarWorkspaceChecklistPopover.swift")
+
+        #expect(pane.contains("ChecklistInputField("))
+        #expect(inline.contains("ChecklistInputField("))
+        #expect(popover.contains("ChecklistInputField("))
+        #expect(!pane.contains("WorkspaceTodoPaneMultilineEditField"))
+        #expect(!pane.contains("WorkspaceTodoPaneMultilineTextView"))
+        #expect(!popover.contains("TextField("))
+    }
+
+    @Test
+    func checklistInputFieldSizingClampsVisibleLines() {
+        #expect(ChecklistInputField.visibleLineCount(for: "") == 1)
+        #expect(ChecklistInputField.visibleLineCount(for: "one") == 1)
+        #expect(ChecklistInputField.visibleLineCount(for: "one\ntwo") == 2)
+        #expect(ChecklistInputField.visibleLineCount(
             for: (0..<12).map { "line \($0)" }.joined(separator: "\n")
         ) == 8)
     }

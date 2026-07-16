@@ -86,18 +86,6 @@ enum WorkspaceTodoPaneKeyboardNavigationPolicy {
     }
 }
 
-enum WorkspaceTodoPaneMultilineEditSizing {
-    nonisolated static func visibleLineCount(for text: String, maxLines: Int = 8) -> Int {
-        min(max(text.split(separator: "\n", omittingEmptySubsequences: false).count, 1), maxLines)
-    }
-
-    nonisolated static func height(for text: String, fontSize: CGFloat) -> CGFloat {
-        let font = NSFont.systemFont(ofSize: fontSize)
-        let lineHeight = ceil(font.ascender - font.descender + font.leading)
-        return CGFloat(visibleLineCount(for: text)) * lineHeight + 2
-    }
-}
-
 private struct WorkspaceTodoPanelOpaqueBackground: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         WorkspaceTodoPanelOpaqueBackgroundView()
@@ -130,10 +118,10 @@ private struct WorkspaceTodoPaneContent: View {
 
     @State private var isStatusPopoverPresented = false
     @State private var pendingItemText = ""
-    @FocusState private var addFieldFocused: Bool
+    @State private var addFieldGeneration = 0
     @State private var editingItemId: UUID?
     @State private var editingText = ""
-    @State private var editFieldFocused = false
+    @State private var editFieldFocusGeneration = 0
     /// The keyboard-highlighted item (Up/Down arrows); Return or Cmd+Return
     /// toggles it.
     @State private var highlightedItemId: UUID?
@@ -210,22 +198,19 @@ private struct WorkspaceTodoPaneContent: View {
             }
             Divider()
             if todoControlsEnabled {
-                addItemRow
+                addItemRow(ordered: ordered)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
             }
         }
         // The add field is armed whenever the pane holds focus, so typing a
         // new item needs zero extra clicks after `cmux todo open`.
-        .onAppear { if todoControlsEnabled, isFocused { addFieldFocused = true } }
+        .onAppear { if todoControlsEnabled, isFocused { addFieldGeneration += 1 } }
         .onChange(of: isFocused) { _, focused in
-            if todoControlsEnabled, focused, editingItemId == nil { addFieldFocused = true }
+            if todoControlsEnabled, focused, editingItemId == nil { addFieldGeneration += 1 }
         }
         .onChange(of: addFieldArmToken) { _, _ in
-            if todoControlsEnabled, editingItemId == nil { addFieldFocused = true }
-        }
-        .onChange(of: editFieldFocused) { _, focused in
-            if !focused { finishItemEditOnFocusLoss() }
+            if todoControlsEnabled, editingItemId == nil { addFieldGeneration += 1 }
         }
         .accessibilityIdentifier("WorkspaceTodoPane")
     }
@@ -310,7 +295,7 @@ private struct WorkspaceTodoPaneContent: View {
             isEditing: editingItemId == item.id,
             isHighlighted: highlightedItemId == item.id,
             editingText: $editingText,
-            editFieldFocused: $editFieldFocused,
+            editFieldFocusGeneration: editFieldFocusGeneration,
             itemFontSize: Self.itemFontSize,
             checkboxPointSize: Self.checkboxPointSize,
             actions: WorkspaceTodoPaneItemRowActions(
@@ -325,7 +310,7 @@ private struct WorkspaceTodoPaneContent: View {
                 commitEdit: { commitItemEdit(item.id) },
                 cancelEdit: cancelItemEdit,
                 focusEditor: {
-                    editFieldFocused = true
+                    editFieldFocusGeneration += 1
                 },
                 select: {
                     highlightedItemId = item.id
@@ -401,6 +386,18 @@ private struct WorkspaceTodoPaneContent: View {
         return .handled
     }
 
+    private func toggleHighlighted(in ordered: [WorkspaceChecklistItem]) -> Bool {
+        guard editingItemId == nil,
+              let id = highlightedItemId,
+              let item = ordered.first(where: { $0.id == id }) else { return false }
+        WorkspaceTodoActions.setChecklistItemState(
+            id: item.id,
+            state: item.state == .completed ? .pending : .completed,
+            in: workspace
+        )
+        return true
+    }
+
     private func toggleChecklistItemCompleteShortcutMatches(_ press: KeyPress) -> Bool {
         let shortcut = KeyboardShortcutSettings.shortcut(for: .toggleChecklistItemComplete)
         guard let key = shortcut.keyEquivalent else { return false }
@@ -417,22 +414,24 @@ private struct WorkspaceTodoPaneContent: View {
 
     // MARK: Add-item row (pinned at the bottom, always armed)
 
-    private var addItemRow: some View {
+    private func addItemRow(ordered: [WorkspaceChecklistItem]) -> some View {
         HStack(alignment: .center, spacing: 7) {
             // A `plus.circle` "add" affordance, not an empty checkbox, so the
             // add row never reads as a real (unchecked) item.
             CmuxSystemSymbolImage(systemName: "plus.circle", pointSize: Self.checkboxPointSize)
                 .foregroundColor(.secondary)
-            TextField(
-                String(localized: "sidebar.checklist.addItemPlaceholder", defaultValue: "New checklist item"),
-                text: $pendingItemText
+            ChecklistInputField(
+                text: $pendingItemText,
+                placeholder: String(localized: "sidebar.checklist.addItemPlaceholder", defaultValue: "New checklist item"),
+                fontSize: Self.itemFontSize,
+                onCommit: { _ in commitPendingItem() },
+                onCancel: cancelPendingItem,
+                commitsOnFocusLoss: false,
+                onMoveHighlightWhenEmpty: { moveHighlight($0, in: ordered) == .handled },
+                onToggleHighlightWhenEmpty: { toggleHighlighted(in: ordered) }
             )
-            .font(.system(size: Self.itemFontSize))
-            .textFieldStyle(.plain)
-            .foregroundColor(.primary)
-            .focused($addFieldFocused)
-            .onSubmit(commitPendingItem)
-            .onExitCommand(perform: cancelPendingItem)
+            .id(addFieldGeneration)
+            .frame(height: ChecklistInputField.height(for: pendingItemText, fontSize: Self.itemFontSize))
             .accessibilityIdentifier("WorkspaceTodoPaneAddItemField")
         }
     }
@@ -442,15 +441,15 @@ private struct WorkspaceTodoPaneContent: View {
         guard WorkspaceTodoFeature.isEnabled else { return }
         let text = pendingItemText
         pendingItemText = ""
+        addFieldGeneration += 1
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         WorkspaceTodoActions.addChecklistItem(text: text, to: workspace)
-        addFieldFocused = true
     }
 
     /// Esc clears a partial entry and releases keyboard focus.
     private func cancelPendingItem() {
         pendingItemText = ""
-        addFieldFocused = false
+        addFieldGeneration += 1
     }
 
     // MARK: Item text editing
@@ -458,7 +457,7 @@ private struct WorkspaceTodoPaneContent: View {
     private func beginItemEdit(_ item: WorkspaceChecklistItem) {
         editingItemId = item.id
         editingText = item.text
-        editFieldFocused = true
+        editFieldFocusGeneration += 1
     }
 
     /// Cmd-Return or focus loss commits the trimmed replacement text; empty keeps the old text.
@@ -469,19 +468,9 @@ private struct WorkspaceTodoPaneContent: View {
         WorkspaceTodoActions.editChecklistItem(id: id, text: text, in: workspace)
     }
 
-    private func finishItemEditOnFocusLoss() {
-        guard let id = editingItemId else { return }
-        let text = editingText
-        editingItemId = nil
-        editingText = ""
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        WorkspaceTodoActions.editChecklistItem(id: id, text: text, in: workspace)
-    }
-
     private func cancelItemEdit() {
         editingItemId = nil
         editingText = ""
-        editFieldFocused = false
     }
 }
 
@@ -506,7 +495,7 @@ private struct WorkspaceTodoPaneItemRow: View {
     let isEditing: Bool
     let isHighlighted: Bool
     @Binding var editingText: String
-    @Binding var editFieldFocused: Bool
+    let editFieldFocusGeneration: Int
     let itemFontSize: CGFloat
     let checkboxPointSize: CGFloat
     let actions: WorkspaceTodoPaneItemRowActions
@@ -543,15 +532,16 @@ private struct WorkspaceTodoPaneItemRow: View {
                     : String(localized: "sidebar.checklist.checkTooltip", defaultValue: "Mark as completed")
             )
             if isEditing {
-                WorkspaceTodoPaneMultilineEditField(
+                ChecklistInputField(
                     text: $editingText,
-                    isFocused: $editFieldFocused,
-                    fontSize: itemFontSize,
                     placeholder: String(localized: "sidebar.checklist.editItemPlaceholder", defaultValue: "Item text"),
-                    commit: actions.commitEdit,
-                    cancel: actions.cancelEdit
+                    fontSize: itemFontSize,
+                    onCommit: { _ in actions.commitEdit() },
+                    onCancel: actions.cancelEdit,
+                    commitsOnFocusLoss: true
                 )
-                .frame(height: WorkspaceTodoPaneMultilineEditSizing.height(
+                .id(editFieldFocusGeneration)
+                .frame(height: ChecklistInputField.height(
                     for: editingText,
                     fontSize: itemFontSize
                 ))
@@ -634,152 +624,5 @@ private struct WorkspaceTodoPaneItemRow: View {
         case .inProgress: return "minus.square"
         case .completed: return "checkmark.square.fill"
         }
-    }
-}
-
-private struct WorkspaceTodoPaneMultilineEditField: NSViewRepresentable {
-    @Binding var text: String
-    @Binding var isFocused: Bool
-    let fontSize: CGFloat
-    let placeholder: String
-    let commit: () -> Void
-    let cancel: () -> Void
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text, isFocused: $isFocused, commit: commit, cancel: cancel)
-    }
-
-    func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
-        scrollView.drawsBackground = false
-        scrollView.borderType = .noBorder
-        scrollView.hasVerticalScroller = true
-        scrollView.autohidesScrollers = true
-
-        let textView = WorkspaceTodoPaneMultilineTextView()
-        textView.isRichText = false
-        textView.importsGraphics = false
-        textView.allowsUndo = true
-        textView.isEditable = true
-        textView.isSelectable = true
-        textView.drawsBackground = false
-        textView.backgroundColor = .clear
-        textView.textColor = .labelColor
-        textView.insertionPointColor = .labelColor
-        textView.font = .systemFont(ofSize: fontSize)
-        textView.textContainerInset = .zero
-        textView.textContainer?.lineFragmentPadding = 0
-        textView.textContainer?.widthTracksTextView = true
-        textView.textContainer?.containerSize = NSSize(
-            width: scrollView.contentSize.width,
-            height: .greatestFiniteMagnitude
-        )
-        textView.autoresizingMask = [.width]
-        textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = false
-        textView.minSize = NSSize(width: 0, height: 0)
-        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        textView.string = text
-        textView.setAccessibilityLabel(placeholder)
-        textView.delegate = context.coordinator
-        textView.commit = { context.coordinator.commitCurrentText() }
-        textView.cancel = { context.coordinator.cancel() }
-
-        context.coordinator.textView = textView
-        scrollView.documentView = textView
-        return scrollView
-    }
-
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        context.coordinator.text = $text
-        context.coordinator.isFocused = $isFocused
-        context.coordinator.commit = commit
-        context.coordinator.cancel = cancel
-
-        guard let textView = scrollView.documentView as? WorkspaceTodoPaneMultilineTextView else { return }
-        textView.font = .systemFont(ofSize: fontSize)
-        textView.setAccessibilityLabel(placeholder)
-        textView.commit = { context.coordinator.commitCurrentText() }
-        textView.cancel = { context.coordinator.cancel() }
-
-        if textView.string != text {
-            textView.string = text
-        }
-
-        guard isFocused else { return }
-        if textView.window?.firstResponder !== textView {
-            DispatchQueue.main.async {
-                guard self.isFocused, let window = textView.window else { return }
-                window.makeFirstResponder(textView)
-                textView.selectedRange = NSRange(location: textView.string.count, length: 0)
-            }
-        }
-    }
-
-    final class Coordinator: NSObject, NSTextViewDelegate {
-        var text: Binding<String>
-        var isFocused: Binding<Bool>
-        var commit: () -> Void
-        var cancel: () -> Void
-        weak var textView: NSTextView?
-
-        init(
-            text: Binding<String>,
-            isFocused: Binding<Bool>,
-            commit: @escaping () -> Void,
-            cancel: @escaping () -> Void
-        ) {
-            self.text = text
-            self.isFocused = isFocused
-            self.commit = commit
-            self.cancel = cancel
-        }
-
-        func textDidBeginEditing(_ notification: Notification) {
-            isFocused.wrappedValue = true
-        }
-
-        func textDidChange(_ notification: Notification) {
-            guard let textView = notification.object as? NSTextView else { return }
-            text.wrappedValue = textView.string
-        }
-
-        func textDidEndEditing(_ notification: Notification) {
-            isFocused.wrappedValue = false
-        }
-
-        func commitCurrentText() {
-            if let textView {
-                text.wrappedValue = textView.string
-            }
-            commit()
-        }
-    }
-}
-
-private final class WorkspaceTodoPaneMultilineTextView: NSTextView {
-    var commit: (() -> Void)?
-    var cancel: (() -> Void)?
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        guard let window else { return }
-        window.makeFirstResponder(self)
-        selectedRange = NSRange(location: string.count, length: 0)
-    }
-
-    override func keyDown(with event: NSEvent) {
-        let flags = event.modifierFlags
-            .intersection(.deviceIndependentFlagsMask)
-            .subtracting([.capsLock, .function, .numericPad])
-        if (event.keyCode == 36 || event.keyCode == 76), flags == [.command] {
-            commit?()
-            return
-        }
-        super.keyDown(with: event)
-    }
-
-    override func cancelOperation(_ sender: Any?) {
-        cancel?()
     }
 }

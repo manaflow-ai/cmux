@@ -202,7 +202,10 @@ struct SidebarWorkspaceChecklistSection: View {
     /// Bumped after each add to recreate the AppKit add field (which re-focuses
     /// and clears itself on appear).
     @State private var inlineAddGeneration = 0
+    @State private var pendingInlineAddText = ""
     @State private var editingItemId: UUID?
+    @State private var editingText = ""
+    @State private var editFieldFocusGeneration = 0
     /// The item currently under the pointer, used to reveal the trailing
     /// delete button. A single id (not a per-row `@State`) is enough because
     /// only one row can be hovered at a time; mirrors `editingItemId`.
@@ -382,15 +385,15 @@ struct SidebarWorkspaceChecklistSection: View {
             )
             if editingItemId == item.id {
                 ChecklistInputField(
-                    initialText: item.text,
+                    text: $editingText,
                     placeholder: String(localized: "sidebar.checklist.editItemPlaceholder", defaultValue: "Item text"),
                     fontSize: 11 * fontScale,
                     onCommit: { commitItemEdit(item.id, text: $0) },
                     onCancel: cancelItemEdit,
-                    selectsAllOnFocus: true,
                     textColor: NSColor(primaryColor)
                 )
-                .frame(height: 11 * fontScale + 4)
+                .id(editFieldFocusGeneration)
+                .frame(height: ChecklistInputField.height(for: editingText, fontSize: 11 * fontScale))
                 .accessibilityIdentifier("SidebarChecklistEditItemField")
             } else {
                 // No `lineLimit` — items wrap across multiple lines. The
@@ -405,7 +408,6 @@ struct SidebarWorkspaceChecklistSection: View {
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
                     .contentShape(Rectangle())
-                    .onTapGesture { beginItemEdit(item) }
             }
             Spacer(minLength: 0)
             WorkspaceChecklistAttachmentMenu(
@@ -422,6 +424,7 @@ struct SidebarWorkspaceChecklistSection: View {
                 .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + firstLineCenterOffset }
         }
         .contentShape(Rectangle())
+        .onTapGesture { handleChecklistRowTap(item) }
         // `.onContinuousHover` rather than `.onHover`: `.onHover` only fires
         // on the `mouseEntered`/`mouseExited` edge, so if this row's backing
         // view gets recreated (e.g. a sidebar re-render under this section)
@@ -517,7 +520,7 @@ struct SidebarWorkspaceChecklistSection: View {
                 // reliably (a SwiftUI TextField / floating popover does not win
                 // focus from the terminal).
                 ChecklistInputField(
-                    initialText: "",
+                    text: $pendingInlineAddText,
                     placeholder: String(localized: "sidebar.checklist.addItemPlaceholder", defaultValue: "New checklist item"),
                     fontSize: 11 * fontScale,
                     onCommit: { commitInlineAdd($0) },
@@ -525,7 +528,7 @@ struct SidebarWorkspaceChecklistSection: View {
                     textColor: NSColor(primaryColor)
                 )
                 .id(inlineAddGeneration)
-                .frame(height: 11 * fontScale + 4)
+                .frame(height: ChecklistInputField.height(for: pendingInlineAddText, fontSize: 11 * fontScale))
                 .accessibilityIdentifier("SidebarChecklistAddItemField")
             }
         } else {
@@ -553,6 +556,7 @@ struct SidebarWorkspaceChecklistSection: View {
     /// (a fresh, focused, empty add field) for the next item.
     private func commitInlineAdd(_ text: String) {
         inlineAddGeneration += 1
+        pendingInlineAddText = ""
         onConsumeAddFieldActivation()
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         actions.addItem(text)
@@ -561,13 +565,24 @@ struct SidebarWorkspaceChecklistSection: View {
     /// Esc dismisses the add field.
     private func cancelPendingItem() {
         isAddingItem = false
+        pendingInlineAddText = ""
         onConsumeAddFieldActivation()
     }
 
     // MARK: Item text editing
 
+    private func handleChecklistRowTap(_ item: WorkspaceChecklistItem) {
+        if editingItemId == item.id {
+            editFieldFocusGeneration += 1
+        } else {
+            beginItemEdit(item)
+        }
+    }
+
     private func beginItemEdit(_ item: WorkspaceChecklistItem) {
         editingItemId = item.id
+        editingText = item.text
+        editFieldFocusGeneration += 1
     }
 
     /// Enter commits the trimmed replacement text; empty keeps the old text.
@@ -579,5 +594,6 @@ struct SidebarWorkspaceChecklistSection: View {
 
     private func cancelItemEdit() {
         editingItemId = nil
+        editingText = ""
     }
 }
