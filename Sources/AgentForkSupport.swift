@@ -73,7 +73,7 @@ enum AgentForkSupport {
         private var processIdentifier: pid_t?
         private var outputPipeHandles: Set<UInt64> = []
         private var processExitSource: DispatchSourceProcess?
-        private var outputReadHandle: FileHandle?
+        private var outputDrain: CommandOutputDrain?
         private var outputDrainTask: Task<Data, Never>?
         private var timeoutTimer: DispatchSourceTimer?
         private var killTimer: DispatchSourceTimer?
@@ -122,11 +122,18 @@ enum AgentForkSupport {
             }
             processIdentifier = spawned.processIdentifier
             outputPipeHandles = spawned.outputPipeHandles
-            outputReadHandle = spawned.readHandle
-            let drain = CommandOutputDrain(
-                readHandle: spawned.readHandle,
+            guard let drain = CommandOutputDrain(
+                readFileDescriptor: spawned.readFileDescriptor,
                 maximumBytes: AgentForkSupport.commandOutputMaximumBytes
-            )
+            ) else {
+                close(spawned.readFileDescriptor)
+                signalProcessGroup(SIGKILL)
+                _ = probeProcessExitCode(processIdentifier: spawned.processIdentifier)
+                processIdentifier = nil
+                markFailedBeforeLaunch()
+                return
+            }
+            outputDrain = drain
             outputDrainTask = Task.detached(priority: .utility) {
                 await drain.run()
             }
@@ -161,7 +168,7 @@ enum AgentForkSupport {
 
         private func spawnProcessGroup() -> (
             processIdentifier: pid_t,
-            readHandle: FileHandle,
+            readFileDescriptor: Int32,
             outputPipeHandles: Set<UInt64>
         )? {
             var outputFDs: [Int32] = [-1, -1]
@@ -241,8 +248,7 @@ enum AgentForkSupport {
             outputFDs[1] = -1
             let readFD = outputFDs[0]
             outputFDs[0] = -1
-            let readHandle = FileHandle(fileDescriptor: readFD, closeOnDealloc: true)
-            return (processIdentifier, readHandle, outputPipeHandles)
+            return (processIdentifier, readFD, outputPipeHandles)
         }
 
         private func processDidExit() {
@@ -368,7 +374,7 @@ enum AgentForkSupport {
 
         private func complete(returning result: String?) {
             let continuation: CheckedContinuation<String?, Never>?
-            let outputReadHandle: FileHandle?
+            let outputDrain: CommandOutputDrain?
             let outputDrainTask: Task<Data, Never>?
             let processExitSource: DispatchSourceProcess?
             let timeoutTimer: DispatchSourceTimer?
@@ -379,8 +385,8 @@ enum AgentForkSupport {
             waitingForOutputDrain = false
             continuation = self.continuation
             self.continuation = nil
-            outputReadHandle = self.outputReadHandle
-            self.outputReadHandle = nil
+            outputDrain = self.outputDrain
+            self.outputDrain = nil
             outputDrainTask = self.outputDrainTask
             self.outputDrainTask = nil
             processExitSource = self.processExitSource
@@ -395,61 +401,144 @@ enum AgentForkSupport {
             timeoutTimer?.cancel()
             killTimer?.cancel()
             processExitSource?.cancel()
+            outputDrain?.cancel()
             outputDrainTask?.cancel()
-            try? outputReadHandle?.close()
             continuation?.resume(returning: result)
         }
     }
 
     /// Drains one probe process output pipe off Swift's cooperative executor.
-    /// `@unchecked Sendable` is safe here because instances are immutable after
-    /// initialization, and the shared mutable state is the kernel file
-    /// descriptor closed by the owning process runner to interrupt a read.
-    private final class CommandOutputDrain: @unchecked Sendable {
+    /// The actor owns descriptor close state, while the blocking `poll/read`
+    /// loop runs on a GCD queue so the actor remains available for cancellation.
+    private actor CommandOutputDrain {
         private static let queue = DispatchQueue(
             label: "com.cmux.agent-fork-support.output-drain",
             qos: .utility,
             attributes: .concurrent
         )
-        private let readHandle: FileHandle
+        private let readFileDescriptor: Int32
+        private let wakeReadFileDescriptor: Int32
+        private let wakeWriteFileDescriptor: Int32
         private let maximumBytes: Int
+        private var didCloseFileDescriptors = false
 
-        init(readHandle: FileHandle, maximumBytes: Int) {
-            self.readHandle = readHandle
+        init?(readFileDescriptor: Int32, maximumBytes: Int) {
+            var wakeFDs: [Int32] = [-1, -1]
+            guard Darwin.pipe(&wakeFDs) == 0 else { return nil }
+            guard wakeFDs.allSatisfy({ $0 > 2 }) else {
+                for fileDescriptor in wakeFDs where fileDescriptor >= 0 {
+                    close(fileDescriptor)
+                }
+                return nil
+            }
+            for fileDescriptor in wakeFDs {
+                _ = fcntl(fileDescriptor, F_SETFD, FD_CLOEXEC)
+            }
+            self.readFileDescriptor = readFileDescriptor
+            self.wakeReadFileDescriptor = wakeFDs[0]
+            self.wakeWriteFileDescriptor = wakeFDs[1]
             self.maximumBytes = maximumBytes
         }
 
         func run() async -> Data {
-            await withCheckedContinuation { continuation in
-                Self.queue.async { [readHandle, maximumBytes] in
+            let readFileDescriptor = self.readFileDescriptor
+            let wakeReadFileDescriptor = self.wakeReadFileDescriptor
+            let maximumBytes = self.maximumBytes
+            let output = await withCheckedContinuation { continuation in
+                Self.queue.async {
                     continuation.resume(
                         returning: Self.drainOutput(
-                            readHandle: readHandle,
+                            readFileDescriptor: readFileDescriptor,
+                            wakeReadFileDescriptor: wakeReadFileDescriptor,
                             maximumBytes: maximumBytes
                         )
                     )
                 }
             }
+            closeFileDescriptors()
+            return output
         }
 
-        private static func drainOutput(readHandle: FileHandle, maximumBytes: Int) -> Data {
+        nonisolated func cancel() {
+            Task {
+                await requestCancel()
+            }
+        }
+
+        private func requestCancel() {
+            guard !didCloseFileDescriptors else { return }
+            var byte: UInt8 = 1
+            _ = withUnsafePointer(to: &byte) { pointer in
+                Darwin.write(wakeWriteFileDescriptor, pointer, 1)
+            }
+        }
+
+        private static func drainOutput(
+            readFileDescriptor: Int32,
+            wakeReadFileDescriptor: Int32,
+            maximumBytes: Int
+        ) -> Data {
             var output = Data()
-            do {
-                while true {
-                    guard let chunk = try readHandle.read(upToCount: 4096),
-                          !chunk.isEmpty else {
-                        break
+            var pollDescriptors = [
+                pollfd(
+                    fd: readFileDescriptor,
+                    events: Int16(POLLIN | POLLHUP | POLLERR),
+                    revents: 0
+                ),
+                pollfd(
+                    fd: wakeReadFileDescriptor,
+                    events: Int16(POLLIN | POLLHUP | POLLERR),
+                    revents: 0
+                ),
+            ]
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            while true {
+                let pollResult = Darwin.poll(&pollDescriptors, 2, -1)
+                if pollResult < 0 {
+                    if errno == EINTR {
+                        continue
                     }
+                    output.removeAll(keepingCapacity: false)
+                    break
+                }
+                if pollDescriptors[1].revents != 0 {
+                    break
+                }
+                if pollDescriptors[0].revents & Int16(POLLIN | POLLHUP | POLLERR) == 0 {
+                    continue
+                }
+                let bytesRead = buffer.withUnsafeMutableBytes { rawBuffer in
+                    Darwin.read(readFileDescriptor, rawBuffer.baseAddress, buffer.count)
+                }
+                if bytesRead > 0 {
                     let remaining = maximumBytes - output.count
                     if remaining > 0 {
-                        output.append(contentsOf: chunk.prefix(remaining))
+                        output.append(buffer.prefix(min(Int(bytesRead), remaining)))
                     }
+                } else if bytesRead == 0 {
+                    break
+                } else if errno != EINTR {
+                    output.removeAll(keepingCapacity: false)
+                    break
                 }
-            } catch {
-                output.removeAll(keepingCapacity: false)
             }
-            try? readHandle.close()
             return output
+        }
+
+        private func closeFileDescriptors() {
+            guard !didCloseFileDescriptors else { return }
+            didCloseFileDescriptors = true
+            close(readFileDescriptor)
+            close(wakeReadFileDescriptor)
+            close(wakeWriteFileDescriptor)
+        }
+
+        deinit {
+            if !didCloseFileDescriptors {
+                close(readFileDescriptor)
+                close(wakeReadFileDescriptor)
+                close(wakeWriteFileDescriptor)
+            }
         }
     }
 

@@ -11,6 +11,13 @@ final class SharedLiveAgentIndex {
         let isRemoteContext: Bool
     }
 
+    private typealias ForkExecutableWatchKey = [String]
+    private typealias ForkExecutableWatchRecord = (
+        generation: UUID,
+        probeKeys: Set<ForkProbeKey>,
+        sources: [DispatchSourceFileSystemObject]
+    )
+
     private struct ForkSupportValidation {
         let identity: String
         let refreshBeforeReuse: Bool
@@ -35,7 +42,8 @@ final class SharedLiveAgentIndex {
     private var refreshTask: Task<Void, Never>?
     private var forkAvailabilityRefreshTask: Task<Void, Never>?
     private var validatedForkSupport: [ForkProbeKey: ForkSupportValidation] = [:]
-    private var forkExecutableWatchSources: [ForkProbeKey: [DispatchSourceFileSystemObject]] = [:]
+    private var forkExecutableWatchRecords: [ForkExecutableWatchKey: ForkExecutableWatchRecord] = [:]
+    private var forkExecutableWatchKeysByProbeKey: [ForkProbeKey: ForkExecutableWatchKey] = [:]
     private var forkExecutableWatchGenerations: [ForkProbeKey: UUID] = [:]
     private var validatedForkPanels = Set<RestorableAgentSessionIndex.PanelKey>()
     private var validatedMissingForkPanels: [RestorableAgentSessionIndex.PanelKey: Date] = [:]
@@ -105,8 +113,8 @@ final class SharedLiveAgentIndex {
         forkAvailabilityRefreshTask?.cancel()
         deferredReloadTimer?.cancel()
         directoryWatchSource?.cancel()
-        for sources in forkExecutableWatchSources.values {
-            for source in sources {
+        for record in forkExecutableWatchRecords.values {
+            for source in record.sources {
                 source.cancel()
             }
         }
@@ -723,7 +731,6 @@ final class SharedLiveAgentIndex {
                         }
                         watchGeneration = await updateForkExecutableWatch(
                             for: resolvedProbeKey,
-                            notificationPanelKey: panelKey,
                             lookupPath: lookupPath,
                             realPath: realPath,
                             watchDirectories: executableResolutionBeforeProbe.watchDirectories
@@ -913,7 +920,48 @@ final class SharedLiveAgentIndex {
 
     private func clearForkExecutableWatch(for probeKey: ForkProbeKey) {
         forkExecutableWatchGenerations.removeValue(forKey: probeKey)
-        forkExecutableWatchSources.removeValue(forKey: probeKey)?.forEach { $0.cancel() }
+        guard let watchKey = forkExecutableWatchKeysByProbeKey.removeValue(forKey: probeKey),
+              var record = forkExecutableWatchRecords[watchKey] else {
+            return
+        }
+        record.probeKeys.remove(probeKey)
+        if record.probeKeys.isEmpty {
+            removeForkExecutableWatchRecord(for: watchKey)
+        } else {
+            forkExecutableWatchRecords[watchKey] = record
+        }
+    }
+
+    private func removeForkExecutableWatchRecord(for watchKey: ForkExecutableWatchKey) {
+        guard let record = forkExecutableWatchRecords.removeValue(forKey: watchKey) else {
+            return
+        }
+        for probeKey in record.probeKeys {
+            forkExecutableWatchKeysByProbeKey.removeValue(forKey: probeKey)
+            forkExecutableWatchGenerations.removeValue(forKey: probeKey)
+        }
+        for source in record.sources {
+            source.cancel()
+        }
+    }
+
+    private func invalidateForkExecutableWatchRecord(
+        for watchKey: ForkExecutableWatchKey,
+        generation: UUID
+    ) {
+        guard let record = forkExecutableWatchRecords[watchKey],
+              record.generation == generation else {
+            return
+        }
+        let probeKeys = record.probeKeys
+        removeForkExecutableWatchRecord(for: watchKey)
+        for probeKey in probeKeys {
+            validatedForkSupport.removeValue(forKey: probeKey)
+        }
+        NotificationCenter.default.post(
+            name: .sharedLiveAgentIndexDidChange,
+            object: self
+        )
     }
 
     private static func forkExecutableResolutionMatches(
@@ -945,28 +993,41 @@ final class SharedLiveAgentIndex {
 
     private func updateForkExecutableWatch(
         for probeKey: ForkProbeKey,
-        notificationPanelKey: RestorableAgentSessionIndex.PanelKey,
         lookupPath: String?,
         realPath: String?,
         watchDirectories: [String]
     ) async -> UUID? {
-        forkExecutableWatchSources.removeValue(forKey: probeKey)?.forEach { $0.cancel() }
-        forkExecutableWatchGenerations.removeValue(forKey: probeKey)
+        clearForkExecutableWatch(for: probeKey)
         guard let lookupPath, let realPath else { return nil }
-        let generation = UUID()
-        let openedFileDescriptors = await Task.detached(priority: .utility) {
-            Self.openForkExecutableWatchFileDescriptors(
+        let resolvedWatchPaths = await Task.detached(priority: .utility) {
+            Self.forkExecutableWatchPaths(
                 lookupPath: lookupPath,
                 realPath: realPath,
                 watchDirectories: watchDirectories
             )
         }.value
+        guard let watchPaths = resolvedWatchPaths else {
+            return nil
+        }
+        let watchKey: ForkExecutableWatchKey = watchPaths
+        if var record = forkExecutableWatchRecords[watchKey] {
+            record.probeKeys.insert(probeKey)
+            forkExecutableWatchRecords[watchKey] = record
+            forkExecutableWatchKeysByProbeKey[probeKey] = watchKey
+            forkExecutableWatchGenerations[probeKey] = record.generation
+            return record.generation
+        }
+
+        let generation = UUID()
+        let openedFileDescriptors = await Task.detached(priority: .utility) {
+            Self.openForkExecutableWatchFileDescriptors(watchPaths: watchPaths)
+        }.value
         guard let openedFileDescriptors else {
             return nil
         }
         pruneExpiredForkSupportValidations(now: dateProvider())
-        let activeWatchCount = forkExecutableWatchSources.reduce(0) { partial, item in
-            item.key == probeKey ? partial : partial + item.value.count
+        let activeWatchCount = forkExecutableWatchRecords.values.reduce(0) { partial, record in
+            partial + record.sources.count
         }
         guard activeWatchCount + openedFileDescriptors.count <= Self.maximumForkExecutableWatchSourceCount else {
             openedFileDescriptors.forEach { Darwin.close($0) }
@@ -982,18 +1043,9 @@ final class SharedLiveAgentIndex {
             )
             source.setEventHandler { [weak self] in
                 Task { @MainActor [weak self] in
-                    guard let self,
-                          self.forkExecutableWatchGenerations[probeKey] == generation else {
-                        return
-                    }
-                    self.removeForkSupportValidation(for: probeKey)
-                    NotificationCenter.default.post(
-                        name: .sharedLiveAgentIndexDidChange,
-                        object: self,
-                        userInfo: [
-                            "workspaceId": notificationPanelKey.workspaceId,
-                            "panelId": notificationPanelKey.panelId,
-                        ]
+                    self?.invalidateForkExecutableWatchRecord(
+                        for: watchKey,
+                        generation: generation
                     )
                 }
             }
@@ -1002,19 +1054,24 @@ final class SharedLiveAgentIndex {
             }
             sources.append(source)
         }
+        forkExecutableWatchRecords[watchKey] = (
+            generation: generation,
+            probeKeys: [probeKey],
+            sources: sources
+        )
+        forkExecutableWatchKeysByProbeKey[probeKey] = watchKey
         forkExecutableWatchGenerations[probeKey] = generation
-        forkExecutableWatchSources[probeKey] = sources
         for source in sources {
             source.resume()
         }
         return generation
     }
 
-    nonisolated private static func openForkExecutableWatchFileDescriptors(
+    nonisolated private static func forkExecutableWatchPaths(
         lookupPath: String,
         realPath: String,
         watchDirectories: [String]
-    ) -> [Int32]? {
+    ) -> [String]? {
         var watchPaths = Set<String>()
         watchPaths.insert(realPath)
         let lookupDirectory = URL(fileURLWithPath: lookupPath).deletingLastPathComponent().path
@@ -1041,6 +1098,12 @@ final class SharedLiveAgentIndex {
             return nil
         }
 
+        return watchPaths.sorted()
+    }
+
+    nonisolated private static func openForkExecutableWatchFileDescriptors(
+        watchPaths: [String]
+    ) -> [Int32]? {
         var openedFileDescriptors: [Int32] = []
         for watchPath in watchPaths {
             let fileDescriptor = Darwin.open(watchPath, O_EVTONLY)

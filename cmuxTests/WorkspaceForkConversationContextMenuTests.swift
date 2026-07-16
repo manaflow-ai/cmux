@@ -2154,6 +2154,54 @@ struct WorkspaceForkConversationContextMenuTests {
     }
 
     @Test
+    func sharedForkProbeSharesExecutableWatchAcrossPanelsWithSameExecutable() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-fork-shared-watch-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        try fm.createDirectory(at: root.appendingPathComponent(".cmuxterm", isDirectory: true), withIntermediateDirectories: true)
+
+        let executable = root.appendingPathComponent("pi", isDirectory: false)
+        try writeExecutableFixture(at: executable, output: "pi 0.80.6")
+        let probeCount = OSAllocatedUnfairLock(initialState: 0)
+        let sharedIndex = SharedLiveAgentIndex(
+            forkSupportProvider: { _, _ in
+                probeCount.withLock { $0 += 1 }
+                return true
+            },
+            hookStoreDirectoryProvider: {
+                root.appendingPathComponent(".cmuxterm", isDirectory: true).path
+            }
+        )
+
+        for _ in 0..<130 {
+            let workspaceId = UUID()
+            let panelId = UUID()
+            let snapshot = makePiFamilySnapshot(
+                launcher: "pi",
+                workspaceRoot: root.path,
+                executablePath: executable.path
+            )
+
+            await sharedIndex.refreshForkAvailabilityNow(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                fallbackSnapshot: snapshot
+            )
+            #expect(
+                sharedIndex.forkSupportProbeAccepted(
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    fallbackSnapshot: snapshot
+                ),
+                "Panels that resolve the same Pi executable should share one filesystem watch record instead of exhausting the global source budget."
+            )
+        }
+
+        #expect(probeCount.withLock { $0 } == 130)
+    }
+
+    @Test
     func sharedForkProbeEvictsExpiredExecutableWatchesBeforeBudgetCheck() async throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
