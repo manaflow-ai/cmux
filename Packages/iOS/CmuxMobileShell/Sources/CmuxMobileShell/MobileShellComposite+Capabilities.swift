@@ -1,4 +1,6 @@
 extension MobileShellComposite {
+    /// Whether the connected Mac supports workspace changes summaries and diffs.
+    public var workspaceChangesCapable: Bool { supportedHostCapabilities.contains(Self.workspaceChangesCapability) }
     /// Whether the Mac supports workspace close requests.
     public var supportsWorkspaceCloseActions: Bool { supportedHostCapabilities.contains(Self.workspaceCloseCapability) }
     /// Whether the Mac supports workspace move/reorder requests.

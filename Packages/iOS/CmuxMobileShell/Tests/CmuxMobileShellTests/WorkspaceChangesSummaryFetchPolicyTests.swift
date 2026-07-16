@@ -1,0 +1,56 @@
+import Foundation
+import Testing
+
+@testable import CmuxMobileShell
+
+@Suite struct WorkspaceChangesSummaryFetchPolicyTests {
+    @Test func batchesAtSixtyFourWithoutDroppingIDs() {
+        let policy = WorkspaceChangesSummaryFetchPolicy()
+        let workspaceIDs = (0..<130).map { "workspace-\($0)" }
+
+        let batches = policy.batches(
+            workspaceIDs: workspaceIDs,
+            fetchedAtByWorkspaceID: [:],
+            now: Date(timeIntervalSince1970: 1_000),
+            force: false
+        )
+
+        #expect(batches.map(\.count) == [64, 64, 2])
+        #expect(batches.flatMap { $0 } == workspaceIDs)
+        #expect(batches.allSatisfy { $0.count <= 64 })
+    }
+
+    @Test func skipsFreshIDsAndRefetchesAtReuseBoundary() {
+        let policy = WorkspaceChangesSummaryFetchPolicy()
+        let now = Date(timeIntervalSince1970: 1_000)
+        let batches = policy.batches(
+            workspaceIDs: ["fresh", "boundary", "stale", "new"],
+            fetchedAtByWorkspaceID: [
+                "fresh": now.addingTimeInterval(-14.999),
+                "boundary": now.addingTimeInterval(-15),
+                "stale": now.addingTimeInterval(-30),
+            ],
+            now: now,
+            force: false
+        )
+
+        #expect(batches == [["boundary", "stale", "new"]])
+    }
+
+    @Test func forceBypassesReuseAndDeduplicatesInInputOrder() {
+        let policy = WorkspaceChangesSummaryFetchPolicy(maximumBatchSize: 2)
+        let now = Date(timeIntervalSince1970: 1_000)
+        let batches = policy.batches(
+            workspaceIDs: ["one", "one", "two", "", "three"],
+            fetchedAtByWorkspaceID: [
+                "one": now,
+                "two": now,
+                "three": now,
+            ],
+            now: now,
+            force: true
+        )
+
+        #expect(batches == [["one", "two"], ["three"]])
+    }
+}

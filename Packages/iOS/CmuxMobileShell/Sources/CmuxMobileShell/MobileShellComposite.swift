@@ -89,6 +89,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let terminalReplayCapability = "terminal.replay.v1"
     static let maxTerminalReplayBarrierDroppedOutputBeforeFailOpen: UInt64 = 256
     static let workspaceActionsCapability = "workspace.actions.v1"
+    static let workspaceChangesCapability = "workspace.changes.v1"
     static let workspaceReadStateCapability = "workspace.read_state.v1"
     static let workspaceCloseCapability = "workspace.close.v1"
     static let workspaceMoveCapability = "workspace.move.v1"
@@ -137,8 +138,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard oldValue != connectionState else { return }
             if connectionState == .connected {
                 restartTerminalLanesForMountedSurfaces()
+                scheduleWorkspaceChangesSummaryRefresh()
             } else {
                 deactivateAllTerminalLanes()
+                resetWorkspaceChangesState()
             }
             // Intentional teardown (sign-out, forget, switch) must not look like
             // a network outage: swallow this edge and reset the throttle so a
@@ -322,7 +325,27 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// The connected Mac's `mobile.host.status` capabilities. Feature gates are
     /// computed from this set so version-skew checks cannot drift from the raw
     /// host payload.
-    public internal(set) var supportedHostCapabilities: Set<String> = []
+    public internal(set) var supportedHostCapabilities: Set<String> = [] {
+        didSet {
+            guard oldValue != supportedHostCapabilities else { return }
+            if workspaceChangesCapable {
+                scheduleWorkspaceChangesSummaryRefresh()
+            } else {
+                resetWorkspaceChangesState()
+            }
+        }
+    }
+    /// Published workspace-list chip snapshots keyed by Mac-local workspace id.
+    ///
+    /// Like ``workspaces``, this is a materialized immutable-value surface on the
+    /// `@Observable` composite; list rows receive copied values, never the store.
+    public private(set) var workspaceChangeChipsByWorkspaceID: [String: MobileWorkspaceChangesChip] = [:]
+
+    func setWorkspaceChangeChipsByWorkspaceID(
+        _ chips: [String: MobileWorkspaceChangesChip]
+    ) {
+        workspaceChangeChipsByWorkspaceID = chips
+    }
     /// A truthful released-Mac-update recommendation for the connected host.
     public internal(set) var macUpdateHint: MobileMacUpdateHint?
     @ObservationIgnored var macUpdateHintSessionState = MacUpdateHintSessionState()
@@ -723,6 +746,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var createWorkspaceTaskGroupID: MobileWorkspaceGroupPreview.ID?
     private var createTerminalTask: Task<Void, Never>?
     private var workspaceListRefreshTask: Task<Void, Never>?
+    @ObservationIgnored var workspaceChangesSummaryRefreshTask: Task<Void, Never>?
+    @ObservationIgnored var workspaceChangesSummaryRefreshTaskID: UUID?
+    @ObservationIgnored var workspaceChangesSummaryRefreshForce = false
+    @ObservationIgnored var workspaceChangesSummaryFetchedAtByWorkspaceID: [String: Date] = [:]
+    @ObservationIgnored let workspaceChangesSummaryFetchPolicy = WorkspaceChangesSummaryFetchPolicy()
     /// The user pull-to-refresh round-trip, kept on its own handle so the
     /// event-driven ``workspaceListRefreshTask`` cancel/restart can never truncate
     /// the spinner the pull is awaiting. Rapid pulls coalesce onto this single task.
@@ -1044,6 +1072,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         createWorkspaceTask?.cancel()
         createTerminalTask?.cancel()
         workspaceListRefreshTask?.cancel()
+        workspaceChangesSummaryRefreshTask?.cancel()
         pullToRefreshTask?.cancel()
         cancelAllTerminalReplayTasks()
         teardownSecondaryMacSubscriptions()
@@ -5064,6 +5093,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceListRefreshTask = nil
         pullToRefreshTask?.cancel()
         pullToRefreshTask = nil
+        workspaceChangesSummaryRefreshTask?.cancel()
+        workspaceChangesSummaryRefreshTask = nil
+        workspaceChangesSummaryRefreshTaskID = nil
+        workspaceChangesSummaryRefreshForce = false
         cancelAllTerminalReplayTasks()
     }
 
@@ -7210,6 +7243,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceListRefreshTask = Task { @MainActor [weak self] in
             defer { self?.workspaceListRefreshTask = nil }
             await self?.reloadWorkspaceListFromMac()
+            self?.scheduleWorkspaceChangesSummaryRefresh(force: true)
         }
     }
 
@@ -7304,6 +7338,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 )
         setForegroundWorkspaceState(
             workspaces: remoteWorkspaces, groups: groups, merge: mergeExistingWorkspaces)
+        scheduleWorkspaceChangesSummaryRefresh(
+            workspaceIDs: response.workspaces.map(\.id)
+        )
         if preferActiveTicketTarget, selectActiveTicketTargetIfAvailable() {
             return
         }

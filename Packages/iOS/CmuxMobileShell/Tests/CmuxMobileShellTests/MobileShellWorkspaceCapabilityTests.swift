@@ -6,6 +6,17 @@ import Testing
 
 @MainActor
 @Suite struct MobileShellWorkspaceCapabilityTests {
+    @Test func workspaceChangesCapabilityFollowsHostStatusSet() {
+        let store = MobileShellComposite.preview()
+        #expect(!store.workspaceChangesCapable)
+
+        store.supportedHostCapabilities = ["workspace.changes.v1"]
+        #expect(store.workspaceChangesCapable)
+
+        store.supportedHostCapabilities = ["workspace.actions.v1"]
+        #expect(!store.workspaceChangesCapable)
+    }
+
     @Test func workspaceMutationCapabilitiesAreVersionAndTicketGated() async throws {
         let oldMac = try await connectedStore(capabilities: [
             "events.v1",

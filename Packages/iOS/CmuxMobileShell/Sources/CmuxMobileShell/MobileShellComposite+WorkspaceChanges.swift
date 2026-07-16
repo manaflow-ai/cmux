@@ -1,0 +1,169 @@
+public import CmuxMobileRPC
+internal import CmuxMobileShellModel
+internal import Foundation
+
+extension MobileShellComposite {
+    /// Fetches summary chips in batches of at most 64 workspaces.
+    ///
+    /// A successful workspace fetch is reused for 15 seconds unless `force` is
+    /// true. Failures leave the last published chip snapshot intact.
+    /// - Parameters:
+    ///   - workspaceIDs: Mac-local workspace identifiers.
+    ///   - force: Whether to bypass the client-side reuse window.
+    public func fetchWorkspaceChangesSummaries(
+        workspaceIDs: [String],
+        force: Bool = false
+    ) async {
+        guard workspaceChangesCapable,
+              connectionState == .connected,
+              let client = remoteClient else { return }
+        let now = runtime?.now() ?? Date()
+        let batches = workspaceChangesSummaryFetchPolicy.batches(
+            workspaceIDs: workspaceIDs,
+            fetchedAtByWorkspaceID: workspaceChangesSummaryFetchedAtByWorkspaceID,
+            now: now,
+            force: force
+        )
+
+        for batch in batches {
+            guard !Task.isCancelled,
+                  remoteClient === client,
+                  connectionState == .connected else { return }
+            do {
+                let request = try MobileCoreRPCClient.requestData(
+                    method: "mobile.workspace.changes.summary",
+                    params: ["workspace_ids": batch]
+                )
+                let data = try await client.sendRequest(request)
+                let response = try MobileWorkspaceChangesSummariesResponse.decode(data)
+                guard remoteClient === client, connectionState == .connected else { return }
+
+                var chips = workspaceChangeChipsByWorkspaceID
+                for summary in response.summaries where !summary.workspaceID.isEmpty {
+                    if summary.isRepository, summary.filesChanged > 0 {
+                        chips[summary.workspaceID] = MobileWorkspaceChangesChip(
+                            filesChanged: summary.filesChanged,
+                            additions: summary.additions,
+                            deletions: summary.deletions
+                        )
+                    } else {
+                        chips.removeValue(forKey: summary.workspaceID)
+                    }
+                }
+                setWorkspaceChangeChipsByWorkspaceID(chips)
+                for workspaceID in batch {
+                    workspaceChangesSummaryFetchedAtByWorkspaceID[workspaceID] = now
+                }
+            } catch {
+                guard !Task.isCancelled, remoteClient === client else { return }
+                _ = disconnectForAuthorizationFailureIfNeeded(error)
+            }
+        }
+    }
+
+    /// Fetches the changed-file list for one workspace.
+    /// - Parameter workspaceID: Mac-local workspace identifier.
+    /// - Returns: The decoded changed-file response.
+    /// - Throws: A connection, authorization, RPC, or decoding error.
+    public func fetchChangedFiles(
+        workspaceID: String
+    ) async throws -> MobileWorkspaceChangedFilesResponse {
+        let client = try workspaceChangesClient()
+        let request = try MobileCoreRPCClient.requestData(
+            method: "mobile.workspace.changes.files",
+            params: ["workspace_id": workspaceID]
+        )
+        let data = try await client.sendRequest(request)
+        guard remoteClient === client, connectionState == .connected else {
+            throw CancellationError()
+        }
+        return try MobileWorkspaceChangedFilesResponse.decode(data)
+    }
+
+    /// Fetches the bounded unified diff for one changed path.
+    /// - Parameters:
+    ///   - workspaceID: Mac-local workspace identifier.
+    ///   - path: Repository-relative changed path.
+    /// - Returns: The decoded file-diff response.
+    /// - Throws: A connection, authorization, RPC, or decoding error.
+    public func fetchFileDiff(
+        workspaceID: String,
+        path: String
+    ) async throws -> MobileWorkspaceFileDiffResponse {
+        let client = try workspaceChangesClient()
+        let request = try MobileCoreRPCClient.requestData(
+            method: "mobile.workspace.changes.file_diff",
+            params: [
+                "workspace_id": workspaceID,
+                "path": path,
+            ]
+        )
+        let data = try await client.sendRequest(request)
+        guard remoteClient === client, connectionState == .connected else {
+            throw CancellationError()
+        }
+        return try MobileWorkspaceFileDiffResponse.decode(data)
+    }
+
+    func scheduleWorkspaceChangesSummaryRefresh(
+        workspaceIDs explicitWorkspaceIDs: [String]? = nil,
+        force: Bool = false
+    ) {
+        guard workspaceChangesCapable,
+              connectionState == .connected,
+              remoteClient != nil else { return }
+        let workspaceIDs = explicitWorkspaceIDs ?? foregroundWorkspaceChangesIDs
+        guard !workspaceIDs.isEmpty else { return }
+
+        workspaceChangesSummaryRefreshForce = workspaceChangesSummaryRefreshForce || force
+        workspaceChangesSummaryRefreshTask?.cancel()
+        let taskID = UUID()
+        workspaceChangesSummaryRefreshTaskID = taskID
+        workspaceChangesSummaryRefreshTask = Task { @MainActor [weak self] in
+            // A bounded, cancellable delay is the intended event/list debounce.
+            try? await ContinuousClock().sleep(for: .milliseconds(250))
+            guard !Task.isCancelled, let self else { return }
+            let shouldForce = self.workspaceChangesSummaryRefreshForce
+            self.workspaceChangesSummaryRefreshForce = false
+            await self.fetchWorkspaceChangesSummaries(
+                workspaceIDs: workspaceIDs,
+                force: shouldForce
+            )
+            self.clearWorkspaceChangesSummaryRefreshTask(id: taskID)
+        }
+    }
+
+    func resetWorkspaceChangesState() {
+        workspaceChangesSummaryRefreshTask?.cancel()
+        workspaceChangesSummaryRefreshTask = nil
+        workspaceChangesSummaryRefreshTaskID = nil
+        workspaceChangesSummaryRefreshForce = false
+        workspaceChangesSummaryFetchedAtByWorkspaceID = [:]
+        setWorkspaceChangeChipsByWorkspaceID([:])
+    }
+
+    private var foregroundWorkspaceChangesIDs: [String] {
+        workspaces.compactMap { workspace in
+            guard workspace.macDeviceID == nil || workspace.macDeviceID == foregroundMacDeviceID else {
+                return nil
+            }
+            return workspace.rpcWorkspaceID.rawValue
+        }
+    }
+
+    private func workspaceChangesClient() throws -> MobileCoreRPCClient {
+        guard workspaceChangesCapable else {
+            throw MobileShellConnectionError.invalidResponse
+        }
+        guard connectionState == .connected, let remoteClient else {
+            throw MobileShellConnectionError.connectionClosed
+        }
+        return remoteClient
+    }
+
+    private func clearWorkspaceChangesSummaryRefreshTask(id: UUID) {
+        guard workspaceChangesSummaryRefreshTaskID == id else { return }
+        workspaceChangesSummaryRefreshTask = nil
+        workspaceChangesSummaryRefreshTaskID = nil
+    }
+}
