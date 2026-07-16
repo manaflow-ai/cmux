@@ -80,6 +80,35 @@ struct KimiHookConfigLocationTests {
         #expect(migratedLegacy == legacyUserContent)
     }
 
+    @Test("Setup succeeds when the legacy Kimi config cannot be read")
+    func setupSucceedsWhenLegacyConfigCannotBeRead() throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let currentDirectory = fixture.root.appendingPathComponent("current-kimi", isDirectory: true)
+        let legacyDirectory = fixture.root.appendingPathComponent("legacy-kimi", isDirectory: true)
+        try FileManager.default.createDirectory(at: currentDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: legacyDirectory, withIntermediateDirectories: true)
+
+        let currentConfig = currentDirectory.appendingPathComponent("config.toml", isDirectory: false)
+        let legacyConfig = legacyDirectory.appendingPathComponent("config.toml", isDirectory: false)
+        try FileManager.default.createDirectory(at: legacyConfig, withIntermediateDirectories: true)
+
+        let result = try runCLI(
+            arguments: ["hooks", "setup", "kimi", "--yes"],
+            fixture: fixture,
+            environmentOverrides: [
+                "KIMI_SHARE_DIR": currentDirectory.path,
+                "KIMI_CODE_HOME": legacyDirectory.path,
+            ]
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.output))
+        #expect(result.status == 0, Comment(rawValue: result.output))
+        #expect(try String(contentsOf: currentConfig, encoding: .utf8).contains("cmux hooks kimi stop"))
+        #expect(result.output.contains(legacyConfig.path))
+    }
+
     @Test("Uninstall removes cmux blocks from current and legacy Kimi configs")
     func uninstallRemovesCurrentAndLegacyBlocks() throws {
         let fixture = try makeFixture()
