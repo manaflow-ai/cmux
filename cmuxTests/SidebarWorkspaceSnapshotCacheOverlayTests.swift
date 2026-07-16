@@ -10,6 +10,26 @@ import Testing
 @Suite
 struct SidebarWorkspaceSnapshotCacheOverlayTests {
     @Test
+    func rebuildsCachedValuesRejectedByCurrentRenderContext() {
+        let workspaceId = UUID()
+        var builtIds: [UUID] = []
+
+        let values = SidebarWorkspaceSnapshotCacheOverlay(
+            cachedValues: [workspaceId: "stale-presentation"]
+        ).values(
+            for: [workspaceId],
+            identifiedBy: { $0 },
+            isCachedValueValid: { _, value in value == "current-presentation" }
+        ) { id in
+            builtIds.append(id)
+            return "current-presentation"
+        }
+
+        #expect(values[workspaceId] == "current-presentation")
+        #expect(builtIds == [workspaceId])
+    }
+
+    @Test
     func preservesCachedValuesAndBuildsOnlyMissingRows() {
         let cachedId = UUID()
         let secondCachedId = UUID()
