@@ -145,6 +145,40 @@ struct ViewerNavigationTests {
     }
 
     @Test
+    func sidecarSupervisorDrainsRepeatedRepliesFromLongLivedProcess() async throws {
+        enum Timeout: Error { case elapsed }
+
+        let supervisor = DiffSidecarProcessSupervisor()
+        defer {
+            Task { await supervisor.shutdown() }
+        }
+
+        for index in 0..<64 {
+            let requestID = "repeated-sidecar-\(index)"
+            let request = try JSONSerialization.data(withJSONObject: [
+                "id": requestID,
+                "version": 1,
+                "method": "protocolHandshake",
+            ])
+            let response = try await withThrowingTaskGroup(of: Data.self) { group in
+                group.addTask {
+                    try await supervisor.run(request: request)
+                }
+                group.addTask {
+                    try await ContinuousClock().sleep(for: .seconds(2))
+                    throw Timeout.elapsed
+                }
+                let first = try await group.next()!
+                group.cancelAll()
+                return first
+            }
+            let object = try #require(JSONSerialization.jsonObject(with: response) as? [String: Any])
+            #expect(object["id"] as? String == requestID)
+            #expect(object["error"] is NSNull)
+        }
+    }
+
+    @Test
     func sidecarBridgeNormalizesViewerInstanceIdentity() {
         let identifier = UUID()
         let body: [String: Any] = [
