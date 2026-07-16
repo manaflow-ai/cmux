@@ -31385,7 +31385,7 @@ export default CMUXSessionRestore;
                 ?? mapped?.activePromptTurnIds?.compactMap({ normalizedHookValue($0) }).last
                 ?? normalizedHookValue(mapped?.activePromptTurnId)
                 ?? normalizedHookValue(mapped?.lastPromptTurnId)
-            let codexCriticalFingerprint = stopNotificationStatus == .error
+            let codexCriticalFingerprint = def.name == "codex" && stopNotificationStatus == .error
                 ? AgentHookNotificationPolicy.codexCriticalFingerprint(
                     sessionId: sessionId,
                     turnId: codexCriticalTurnId,

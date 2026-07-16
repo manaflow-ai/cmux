@@ -100,6 +100,7 @@ final class TerminalNotificationQueueTests: XCTestCase {
         let firstWorkspace = UUID()
         let secondWorkspace = UUID()
         let surface = UUID()
+        let secondSurface = UUID()
         let dedupeKey = "codex-critical:\(UUID().uuidString)"
 
         XCTAssertTrue(bus.enqueueNotification(
@@ -118,9 +119,17 @@ final class TerminalNotificationQueueTests: XCTestCase {
             body: "Try again later",
             dedupeKey: dedupeKey
         ))
-        XCTAssertTrue(bus.enqueueNotification(
+        XCTAssertFalse(bus.enqueueNotification(
             tabId: secondWorkspace,
             surfaceId: surface,
+            title: "Codex",
+            subtitle: "Error",
+            body: "Stopped",
+            dedupeKey: dedupeKey
+        ))
+        XCTAssertTrue(bus.enqueueNotification(
+            tabId: secondWorkspace,
+            surfaceId: secondSurface,
             title: "Codex",
             subtitle: "Error",
             body: "Stopped",

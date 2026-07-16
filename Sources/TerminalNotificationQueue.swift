@@ -203,8 +203,8 @@ final class TerminalMutationBus: @unchecked Sendable {
             let now = Date().timeIntervalSince1970
             recentNotificationDedupeKeys = recentNotificationDedupeKeys.filter { now - $0.value <= 30 }
             let scopedKey = [
-                notification.key.tabId.uuidString,
-                notification.key.surfaceId?.uuidString ?? "",
+                notification.key.surfaceId.map { "surface:\($0.uuidString)" }
+                    ?? "workspace:\(notification.key.tabId.uuidString)",
                 dedupeKey,
             ].joined(separator: "|")
             guard recentNotificationDedupeKeys[scopedKey] == nil else {
