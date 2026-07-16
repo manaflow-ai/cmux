@@ -153,6 +153,13 @@ final class MobileHostConnectionRegistry: @unchecked Sendable {
         return connections.values.map(\.connection)
     }
 
+    /// Returns one connection for connection-scoped event delivery.
+    func connection(id: UUID) -> MobileHostConnection? {
+        lock.lock()
+        defer { lock.unlock() }
+        return connections[id]?.connection
+    }
+
     func snapshot(irohBindingID: String) -> [MobileHostConnection] {
         lock.lock()
         defer { lock.unlock() }

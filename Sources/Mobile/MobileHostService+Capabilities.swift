@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 
 extension MobileHostService {
@@ -16,6 +17,7 @@ extension MobileHostService {
     /// data plane enforces.
     nonisolated static var mobileHostCapabilities: [String] {
         let capabilities = [
+            MobileBrowserStreamCapability.identifier,
             "events.v1",
             "notification.badge.v1",
             "notification.dismiss.v1",
