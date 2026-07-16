@@ -138,6 +138,81 @@ struct KimiHookConfigLocationTests {
         #expect(installed.contains("hooks kimi stop"), Comment(rawValue: result.output))
     }
 
+    @Test("Declining setup previews and preserves both Kimi configs")
+    func decliningSetupPreviewsAndPreservesBothConfigs() throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let currentDirectory = fixture.root.appendingPathComponent("current-kimi", isDirectory: true)
+        let legacyDirectory = fixture.root.appendingPathComponent("legacy-kimi", isDirectory: true)
+        try FileManager.default.createDirectory(at: currentDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: legacyDirectory, withIntermediateDirectories: true)
+
+        let currentContent = Self.userHookContent(command: "vibe-island")
+        let legacyContent = Self.installingCmuxBlock(in: Self.userHookContent(command: "orca"))
+        let currentConfig = currentDirectory.appendingPathComponent("config.toml", isDirectory: false)
+        let legacyConfig = legacyDirectory.appendingPathComponent("config.toml", isDirectory: false)
+        try currentContent.write(to: currentConfig, atomically: true, encoding: .utf8)
+        try legacyContent.write(to: legacyConfig, atomically: true, encoding: .utf8)
+
+        let result = try runCLI(
+            arguments: ["hooks", "setup", "kimi"],
+            fixture: fixture,
+            environmentOverrides: [
+                "KIMI_SHARE_DIR": currentDirectory.path,
+                "KIMI_CODE_HOME": legacyDirectory.path,
+            ],
+            standardInput: "n\n"
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.output))
+        #expect(result.status == 0, Comment(rawValue: result.output))
+        #expect(try String(contentsOf: currentConfig, encoding: .utf8) == currentContent)
+        #expect(try String(contentsOf: legacyConfig, encoding: .utf8) == legacyContent)
+        #expect(result.output.contains(currentConfig.path))
+        #expect(result.output.contains(legacyConfig.path))
+    }
+
+    @Test("Declining legacy cleanup preserves an up-to-date active Kimi config")
+    func decliningLegacyCleanupPreservesCurrentConfigs() throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let currentDirectory = fixture.root.appendingPathComponent("current-kimi", isDirectory: true)
+        let legacyDirectory = fixture.root.appendingPathComponent("legacy-kimi", isDirectory: true)
+        try FileManager.default.createDirectory(at: currentDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: legacyDirectory, withIntermediateDirectories: true)
+
+        let currentConfig = currentDirectory.appendingPathComponent("config.toml", isDirectory: false)
+        let legacyConfig = legacyDirectory.appendingPathComponent("config.toml", isDirectory: false)
+        let environment = [
+            "KIMI_SHARE_DIR": currentDirectory.path,
+            "KIMI_CODE_HOME": legacyDirectory.path,
+        ]
+        let seedResult = try runCLI(
+            arguments: ["hooks", "setup", "kimi", "--yes"],
+            fixture: fixture,
+            environmentOverrides: environment
+        )
+        #expect(seedResult.status == 0, Comment(rawValue: seedResult.output))
+        let currentContent = try String(contentsOf: currentConfig, encoding: .utf8)
+        let legacyContent = Self.installingCmuxBlock(in: Self.userHookContent(command: "orca"))
+        try legacyContent.write(to: legacyConfig, atomically: true, encoding: .utf8)
+
+        let result = try runCLI(
+            arguments: ["hooks", "setup", "kimi"],
+            fixture: fixture,
+            environmentOverrides: environment,
+            standardInput: "n\n"
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.output))
+        #expect(result.status == 0, Comment(rawValue: result.output))
+        #expect(try String(contentsOf: currentConfig, encoding: .utf8) == currentContent)
+        #expect(try String(contentsOf: legacyConfig, encoding: .utf8) == legacyContent)
+        #expect(result.output.contains(legacyConfig.path))
+    }
+
     @Test("Uninstall removes cmux blocks from current and legacy Kimi configs")
     func uninstallRemovesCurrentAndLegacyBlocks() throws {
         let fixture = try makeFixture()
@@ -195,10 +270,12 @@ struct KimiHookConfigLocationTests {
     private func runCLI(
         arguments: [String],
         fixture: Fixture,
-        environmentOverrides: [String: String] = [:]
+        environmentOverrides: [String: String] = [:],
+        standardInput: String? = nil
     ) throws -> ProcessResult {
         let process = Process()
         let output = Pipe()
+        let input = standardInput == nil ? nil : Pipe()
         process.executableURL = URL(
             fileURLWithPath: try BundledCLITestSupport.bundledCLIPath(
                 for: KimiHookConfigLocationBundleToken.self
@@ -218,12 +295,20 @@ struct KimiHookConfigLocationTests {
         environment.merge(environmentOverrides) { _, override in override }
 
         process.environment = environment
-        process.standardInput = FileHandle.nullDevice
+        if let input {
+            process.standardInput = input
+        } else {
+            process.standardInput = FileHandle.nullDevice
+        }
         process.standardOutput = output
         process.standardError = output
         let exitSignal = DispatchSemaphore(value: 0)
         process.terminationHandler = { _ in exitSignal.signal() }
         try process.run()
+        if let standardInput, let input {
+            input.fileHandleForWriting.write(Data(standardInput.utf8))
+            try input.fileHandleForWriting.close()
+        }
         let timedOut = exitSignal.wait(timeout: .now() + 10) == .timedOut
         if timedOut {
             process.terminate()
