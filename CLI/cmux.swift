@@ -25693,6 +25693,7 @@ struct CMUXCLI {
         let statusValue: String
         let subtitle: String
         let body: String
+        let codexErrorInfo: String?
     }
 
     private struct CodexHookFailureCandidate {
@@ -26425,7 +26426,8 @@ struct CMUXCLI {
         return CodexHookFailureSummary(
             statusValue: statusValue,
             subtitle: subtitle,
-            body: truncate(normalizedSingleLine(detail), maxLength: 220)
+            body: truncate(normalizedSingleLine(detail), maxLength: 220),
+            codexErrorInfo: candidate.codexErrorInfo
         )
     }
 
