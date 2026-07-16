@@ -1441,6 +1441,28 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A6AC71020000000000000001 /* SidebarAgentActivityIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC71030000000000000001 /* SidebarAgentActivityIndicator.swift */; };
 		A6AC71040000000000000001 /* SidebarAgentActivitySummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC71050000000000000001 /* SidebarAgentActivitySummary.swift */; };
 		211A75777F433ED8BA5AE208 /* SidebarAppearanceSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 243632BA1DBBA36FD46E0610 /* SidebarAppearanceSupport.swift */; };
+		5BA771000000000000000001 /* SidebarAppKitBadgeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BA770000000000000000001 /* SidebarAppKitBadgeView.swift */; };
+		5BA771000000000000000002 /* SidebarAppKitCellSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BA770000000000000000002 /* SidebarAppKitCellSupport.swift */; };
+		5BA771000000000000000014 /* SidebarAppKitChecklistController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BA770000000000000000014 /* SidebarAppKitChecklistController.swift */; };
+		5BA771000000000000000003 /* SidebarAppKitConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BA770000000000000000003 /* SidebarAppKitConfiguration.swift */; };
+		5BA771000000000000000004 /* SidebarAppKitContextMenuController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BA770000000000000000004 /* SidebarAppKitContextMenuController.swift */; };
+		5BA771000000000000000005 /* SidebarAppKitDragCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BA770000000000000000005 /* SidebarAppKitDragCoordinator.swift */; };
+		5BA771000000000000000006 /* SidebarAppKitFooterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BA770000000000000000006 /* SidebarAppKitFooterView.swift */; };
+		5BA771000000000000000007 /* SidebarAppKitGroupCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BA770000000000000000007 /* SidebarAppKitGroupCellView.swift */; };
+		5BA771000000000000000008 /* SidebarAppKitHeaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BA770000000000000000008 /* SidebarAppKitHeaderView.swift */; };
+		5BA771000000000000000009 /* SidebarAppKitHelpMenuController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BA770000000000000000009 /* SidebarAppKitHelpMenuController.swift */; };
+		5BA77100000000000000000A /* SidebarAppKitInteractionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BA77000000000000000000A /* SidebarAppKitInteractionCoordinator.swift */; };
+		5BA77100000000000000000B /* SidebarAppKitModifierMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BA77000000000000000000B /* SidebarAppKitModifierMonitor.swift */; };
+		5BA77100000000000000000C /* SidebarAppKitProjectionSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BA77000000000000000000C /* SidebarAppKitProjectionSource.swift */; };
+		5BA77100000000000000000D /* SidebarAppKitRuntimeHostRepresentable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BA77000000000000000000D /* SidebarAppKitRuntimeHostRepresentable.swift */; };
+		5BA77100000000000000000E /* SidebarAppKitShortcutMenuController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BA77000000000000000000E /* SidebarAppKitShortcutMenuController.swift */; };
+		5BA77100000000000000000F /* SidebarAppKitSnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BA77000000000000000000F /* SidebarAppKitSnapshotStore.swift */; };
+		5BA773000000000000000001 /* SidebarAppKitSnapshotStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BA772000000000000000001 /* SidebarAppKitSnapshotStoreTests.swift */; };
+		5BA771000000000000000010 /* SidebarAppKitTableView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BA770000000000000000010 /* SidebarAppKitTableView.swift */; };
+		5BA771000000000000000011 /* SidebarAppKitViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BA770000000000000000011 /* SidebarAppKitViewController.swift */; };
+		5BA773000000000000000002 /* SidebarAppKitViewControllerScaleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BA772000000000000000002 /* SidebarAppKitViewControllerScaleTests.swift */; };
+		5BA771000000000000000012 /* SidebarAppKitWorkspaceCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BA770000000000000000012 /* SidebarAppKitWorkspaceCellView.swift */; };
+		5BA771000000000000000015 /* SidebarAppKitWorkspaceDetailsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BA770000000000000000015 /* SidebarAppKitWorkspaceDetailsView.swift */; };
 		D7AB34310000000000000003 /* SidebarBonsplitTabDropDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB34310000000000000004 /* SidebarBonsplitTabDropDelegate.swift */; };
 		D7AB34300000000000000003 /* SidebarBonsplitTabWorkspaceDropOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB34300000000000000004 /* SidebarBonsplitTabWorkspaceDropOverlay.swift */; };
 		D7AB34310000000000000001 /* SidebarBonsplitWorkspaceRowDropModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB34310000000000000002 /* SidebarBonsplitWorkspaceRowDropModifier.swift */; };
@@ -1835,6 +1857,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		F76550060000000000000001 /* VaultObservedAgentProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = F76550060000000000000002 /* VaultObservedAgentProcess.swift */; };
 		F7216001000000000000001 /* VerticalTabsSidebar+EmptyAreasAndFooter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7216001000000000000002 /* VerticalTabsSidebar+EmptyAreasAndFooter.swift */; };
 		C9A57209C9A57209C9A57209 /* VerticalTabsSidebar+WorkspaceGroups.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A5720AC9A5720AC9A5720A /* VerticalTabsSidebar+WorkspaceGroups.swift */; };
+		5BA771000000000000000013 /* VerticalTabsSidebarAppKitRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BA770000000000000000013 /* VerticalTabsSidebarAppKitRouter.swift */; };
 		A28B087F0000000000000005 /* ViewerNavigationKeyRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A28B087F0000000000000006 /* ViewerNavigationKeyRouter.swift */; };
 		A3340002A3340002A3340002 /* ViewerNavigationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3340001A3340001A3340001 /* ViewerNavigationTests.swift */; };
 		ACE4FE1A8F1CC6C0B6A673AB /* VMClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CEC6EF35B71AE59FA45BA69 /* VMClient.swift */; };
@@ -3406,6 +3429,28 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A6AC71030000000000000001 /* SidebarAgentActivityIndicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarAgentActivityIndicator.swift; sourceTree = "<group>"; };
 		A6AC71050000000000000001 /* SidebarAgentActivitySummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarAgentActivitySummary.swift; sourceTree = "<group>"; };
 		243632BA1DBBA36FD46E0610 /* SidebarAppearanceSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarAppearanceSupport.swift; sourceTree = "<group>"; };
+		5BA770000000000000000001 /* SidebarAppKitBadgeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKit/SidebarAppKitBadgeView.swift; sourceTree = "<group>"; };
+		5BA770000000000000000002 /* SidebarAppKitCellSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKit/SidebarAppKitCellSupport.swift; sourceTree = "<group>"; };
+		5BA770000000000000000014 /* SidebarAppKitChecklistController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKit/SidebarAppKitChecklistController.swift; sourceTree = "<group>"; };
+		5BA770000000000000000003 /* SidebarAppKitConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKit/SidebarAppKitConfiguration.swift; sourceTree = "<group>"; };
+		5BA770000000000000000004 /* SidebarAppKitContextMenuController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKit/SidebarAppKitContextMenuController.swift; sourceTree = "<group>"; };
+		5BA770000000000000000005 /* SidebarAppKitDragCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKit/SidebarAppKitDragCoordinator.swift; sourceTree = "<group>"; };
+		5BA770000000000000000006 /* SidebarAppKitFooterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKit/SidebarAppKitFooterView.swift; sourceTree = "<group>"; };
+		5BA770000000000000000007 /* SidebarAppKitGroupCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKit/SidebarAppKitGroupCellView.swift; sourceTree = "<group>"; };
+		5BA770000000000000000008 /* SidebarAppKitHeaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKit/SidebarAppKitHeaderView.swift; sourceTree = "<group>"; };
+		5BA770000000000000000009 /* SidebarAppKitHelpMenuController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKit/SidebarAppKitHelpMenuController.swift; sourceTree = "<group>"; };
+		5BA77000000000000000000A /* SidebarAppKitInteractionCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKit/SidebarAppKitInteractionCoordinator.swift; sourceTree = "<group>"; };
+		5BA77000000000000000000B /* SidebarAppKitModifierMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKit/SidebarAppKitModifierMonitor.swift; sourceTree = "<group>"; };
+		5BA77000000000000000000C /* SidebarAppKitProjectionSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKit/SidebarAppKitProjectionSource.swift; sourceTree = "<group>"; };
+		5BA77000000000000000000D /* SidebarAppKitRuntimeHostRepresentable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKit/SidebarAppKitRuntimeHostRepresentable.swift; sourceTree = "<group>"; };
+		5BA77000000000000000000E /* SidebarAppKitShortcutMenuController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKit/SidebarAppKitShortcutMenuController.swift; sourceTree = "<group>"; };
+		5BA77000000000000000000F /* SidebarAppKitSnapshotStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKit/SidebarAppKitSnapshotStore.swift; sourceTree = "<group>"; };
+		5BA772000000000000000001 /* SidebarAppKitSnapshotStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarAppKitSnapshotStoreTests.swift; sourceTree = "<group>"; };
+		5BA770000000000000000010 /* SidebarAppKitTableView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKit/SidebarAppKitTableView.swift; sourceTree = "<group>"; };
+		5BA770000000000000000011 /* SidebarAppKitViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKit/SidebarAppKitViewController.swift; sourceTree = "<group>"; };
+		5BA772000000000000000002 /* SidebarAppKitViewControllerScaleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarAppKitViewControllerScaleTests.swift; sourceTree = "<group>"; };
+		5BA770000000000000000012 /* SidebarAppKitWorkspaceCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKit/SidebarAppKitWorkspaceCellView.swift; sourceTree = "<group>"; };
+		5BA770000000000000000015 /* SidebarAppKitWorkspaceDetailsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKit/SidebarAppKitWorkspaceDetailsView.swift; sourceTree = "<group>"; };
 		D7AB34310000000000000004 /* SidebarBonsplitTabDropDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarBonsplitTabDropDelegate.swift; sourceTree = "<group>"; };
 		D7AB34300000000000000004 /* SidebarBonsplitTabWorkspaceDropOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarBonsplitTabWorkspaceDropOverlay.swift; sourceTree = "<group>"; };
 		D7AB34310000000000000002 /* SidebarBonsplitWorkspaceRowDropModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarBonsplitWorkspaceRowDropModifier.swift; sourceTree = "<group>"; };
@@ -3792,6 +3837,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		F76550060000000000000002 /* VaultObservedAgentProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultObservedAgentProcess.swift; sourceTree = "<group>"; };
 		F7216001000000000000002 /* VerticalTabsSidebar+EmptyAreasAndFooter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VerticalTabsSidebar+EmptyAreasAndFooter.swift"; sourceTree = "<group>"; };
 		C9A5720AC9A5720AC9A5720A /* VerticalTabsSidebar+WorkspaceGroups.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VerticalTabsSidebar+WorkspaceGroups.swift"; sourceTree = "<group>"; };
+		5BA770000000000000000013 /* VerticalTabsSidebarAppKitRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKit/VerticalTabsSidebarAppKitRouter.swift; sourceTree = "<group>"; };
 		A28B087F0000000000000006 /* ViewerNavigationKeyRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ViewerNavigationKeyRouter.swift; sourceTree = "<group>"; };
 		A3340001A3340001A3340001 /* ViewerNavigationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewerNavigationTests.swift; sourceTree = "<group>"; };
 		9CEC6EF35B71AE59FA45BA69 /* VMClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VMClient.swift; sourceTree = "<group>"; };
@@ -4420,6 +4466,27 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D36A00070000000000000002 /* RendererRealizationReclaimTrigger.swift */,
 				7490D00F7490D00F7490D00F /* TaskVMInfoMemoryPressureFootprintSampler.swift */,
 				243632BA1DBBA36FD46E0610 /* SidebarAppearanceSupport.swift */,
+				5BA770000000000000000001 /* SidebarAppKitBadgeView.swift */,
+				5BA770000000000000000002 /* SidebarAppKitCellSupport.swift */,
+				5BA770000000000000000003 /* SidebarAppKitConfiguration.swift */,
+				5BA770000000000000000004 /* SidebarAppKitContextMenuController.swift */,
+				5BA770000000000000000014 /* SidebarAppKitChecklistController.swift */,
+				5BA770000000000000000005 /* SidebarAppKitDragCoordinator.swift */,
+				5BA770000000000000000006 /* SidebarAppKitFooterView.swift */,
+				5BA770000000000000000007 /* SidebarAppKitGroupCellView.swift */,
+				5BA770000000000000000008 /* SidebarAppKitHeaderView.swift */,
+				5BA770000000000000000009 /* SidebarAppKitHelpMenuController.swift */,
+				5BA77000000000000000000A /* SidebarAppKitInteractionCoordinator.swift */,
+				5BA77000000000000000000B /* SidebarAppKitModifierMonitor.swift */,
+				5BA77000000000000000000C /* SidebarAppKitProjectionSource.swift */,
+				5BA77000000000000000000D /* SidebarAppKitRuntimeHostRepresentable.swift */,
+				5BA77000000000000000000E /* SidebarAppKitShortcutMenuController.swift */,
+				5BA77000000000000000000F /* SidebarAppKitSnapshotStore.swift */,
+				5BA770000000000000000010 /* SidebarAppKitTableView.swift */,
+				5BA770000000000000000011 /* SidebarAppKitViewController.swift */,
+				5BA770000000000000000012 /* SidebarAppKitWorkspaceCellView.swift */,
+				5BA770000000000000000015 /* SidebarAppKitWorkspaceDetailsView.swift */,
+				5BA770000000000000000013 /* VerticalTabsSidebarAppKitRouter.swift */,
 				D50D9BCE46701FBA91C2EFB6 /* SidebarWorkspaceSnapshotRefreshPolicy.swift */,
 				AABBCC00000000000000020B /* SidebarInlineRenameAction.swift */,
 				AABBCC00000000000000020D /* SidebarInlineRenameCommit.swift */,
@@ -5734,6 +5801,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C9A57514C9A57514C9A57514 /* SidebarScrollViewConfiguratorTests.swift */,
 				C9A57506C9A57506C9A57506 /* SidebarWorkspaceScrollLayoutTests.swift */,
 				D41A7C02D41A7C02D41A7C02 /* SidebarLazyLayoutScaleTests.swift */,
+				5BA772000000000000000001 /* SidebarAppKitSnapshotStoreTests.swift */,
+				5BA772000000000000000002 /* SidebarAppKitViewControllerScaleTests.swift */,
 				6707F0186707F0186707F018 /* SidebarWorkspaceContextMenuWindowTargetsTests.swift */,
 				6707F0246707F0246707F024 /* SidebarWorkspaceNotificationIndexTests.swift */,
 				43BEE8C1CB174E3AB4F89EDE /* CoalesceLatestPublisherDemandTests.swift */,
@@ -7332,6 +7401,26 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A6AC71020000000000000001 /* SidebarAgentActivityIndicator.swift in Sources */,
 				A6AC71040000000000000001 /* SidebarAgentActivitySummary.swift in Sources */,
 				211A75777F433ED8BA5AE208 /* SidebarAppearanceSupport.swift in Sources */,
+				5BA771000000000000000001 /* SidebarAppKitBadgeView.swift in Sources */,
+				5BA771000000000000000002 /* SidebarAppKitCellSupport.swift in Sources */,
+				5BA771000000000000000014 /* SidebarAppKitChecklistController.swift in Sources */,
+				5BA771000000000000000003 /* SidebarAppKitConfiguration.swift in Sources */,
+				5BA771000000000000000004 /* SidebarAppKitContextMenuController.swift in Sources */,
+				5BA771000000000000000005 /* SidebarAppKitDragCoordinator.swift in Sources */,
+				5BA771000000000000000006 /* SidebarAppKitFooterView.swift in Sources */,
+				5BA771000000000000000007 /* SidebarAppKitGroupCellView.swift in Sources */,
+				5BA771000000000000000008 /* SidebarAppKitHeaderView.swift in Sources */,
+				5BA771000000000000000009 /* SidebarAppKitHelpMenuController.swift in Sources */,
+				5BA77100000000000000000A /* SidebarAppKitInteractionCoordinator.swift in Sources */,
+				5BA77100000000000000000B /* SidebarAppKitModifierMonitor.swift in Sources */,
+				5BA77100000000000000000C /* SidebarAppKitProjectionSource.swift in Sources */,
+				5BA77100000000000000000D /* SidebarAppKitRuntimeHostRepresentable.swift in Sources */,
+				5BA77100000000000000000E /* SidebarAppKitShortcutMenuController.swift in Sources */,
+				5BA77100000000000000000F /* SidebarAppKitSnapshotStore.swift in Sources */,
+				5BA771000000000000000010 /* SidebarAppKitTableView.swift in Sources */,
+				5BA771000000000000000011 /* SidebarAppKitViewController.swift in Sources */,
+				5BA771000000000000000012 /* SidebarAppKitWorkspaceCellView.swift in Sources */,
+				5BA771000000000000000015 /* SidebarAppKitWorkspaceDetailsView.swift in Sources */,
 				D7AB34310000000000000003 /* SidebarBonsplitTabDropDelegate.swift in Sources */,
 				D7AB34300000000000000003 /* SidebarBonsplitTabWorkspaceDropOverlay.swift in Sources */,
 				D7AB34310000000000000001 /* SidebarBonsplitWorkspaceRowDropModifier.swift in Sources */,
@@ -7621,6 +7710,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F76550060000000000000001 /* VaultObservedAgentProcess.swift in Sources */,
 				F7216001000000000000001 /* VerticalTabsSidebar+EmptyAreasAndFooter.swift in Sources */,
 				C9A57209C9A57209C9A57209 /* VerticalTabsSidebar+WorkspaceGroups.swift in Sources */,
+				5BA771000000000000000013 /* VerticalTabsSidebarAppKitRouter.swift in Sources */,
 				A28B087F0000000000000005 /* ViewerNavigationKeyRouter.swift in Sources */,
 				ACE4FE1A8F1CC6C0B6A673AB /* VMClient.swift in Sources */,
 				ACE4FE2A8F1CC6C0B6A673AB /* VMClientSocketCommands.swift in Sources */,
@@ -8273,6 +8363,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				6042A0016042A0016042A001 /* ShortcutHintModifierPolicyTests.swift in Sources */,
 				F6001000A1B2C3D4E5F60718 /* ShortcutUnbindingTests.swift in Sources */,
 				C3467AB10000000000000001 /* ShortcutWhenClauseTests.swift in Sources */,
+				5BA773000000000000000001 /* SidebarAppKitSnapshotStoreTests.swift in Sources */,
+				5BA773000000000000000002 /* SidebarAppKitViewControllerScaleTests.swift in Sources */,
 				51D800000000000000000001 /* SidebarIdentifierFormattingTests.swift in Sources */,
 				AABBCC000000000000000206 /* SidebarInlineRenameKeyResolverTests.swift in Sources */,
 				D41A7C01D41A7C01D41A7C01 /* SidebarLazyLayoutScaleTests.swift in Sources */,

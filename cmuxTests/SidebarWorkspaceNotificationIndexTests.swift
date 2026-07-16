@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import CmuxCore
 import CmuxWorkspaces
 import Testing
@@ -105,6 +106,76 @@ struct SidebarWorkspaceNotificationIndexTests {
             body: "",
             createdAt: Date(timeIntervalSince1970: timestamp),
             isRead: false
+        )
+    }
+}
+
+@MainActor
+@Suite
+struct SidebarUnreadModelKeyedChangeTests {
+    @Test
+    func lateSubscriberReceivesOnlyChangedSummaryKeys() throws {
+        let model = SidebarUnreadModel()
+        let workspaceIds = (0..<1_000).map { _ in UUID() }
+        let initial = Dictionary(uniqueKeysWithValues: workspaceIds.map {
+            ($0, SidebarWorkspaceUnreadSummary(unreadCount: 1, latestNotificationText: "initial"))
+        })
+        Self.apply(initial, to: model)
+
+        var changeBatches: [[SidebarWorkspaceUnreadSummaryChange]] = []
+        let changeCancellable = model.summaryChangesPublisher.sink {
+            changeBatches.append($0)
+        }
+        var publishedSnapshots: [[UUID: SidebarWorkspaceUnreadSummary]] = []
+        let publishedCancellable = model.$summaryByWorkspaceId.sink {
+            publishedSnapshots.append($0)
+        }
+
+        #expect(changeBatches.isEmpty)
+        #expect(publishedSnapshots == [initial])
+
+        let targetId = try #require(workspaceIds.last)
+        var updated = initial
+        let targetSummary = SidebarWorkspaceUnreadSummary(
+            unreadCount: 2,
+            latestNotificationText: "updated"
+        )
+        updated[targetId] = targetSummary
+        Self.apply(updated, to: model)
+
+        #expect(changeBatches == [[SidebarWorkspaceUnreadSummaryChange(
+            workspaceId: targetId,
+            summary: targetSummary
+        )]])
+        #expect(publishedSnapshots.count == 2)
+        #expect(publishedSnapshots.last == updated)
+
+        Self.apply(updated, to: model)
+        #expect(changeBatches.count == 1)
+        #expect(publishedSnapshots.count == 2)
+
+        updated.removeValue(forKey: targetId)
+        Self.apply(updated, to: model)
+        #expect(changeBatches.last == [SidebarWorkspaceUnreadSummaryChange(
+            workspaceId: targetId,
+            summary: nil
+        )])
+        #expect(publishedSnapshots.count == 3)
+        #expect(model.summaryByWorkspaceId == updated)
+
+        withExtendedLifetime((changeCancellable, publishedCancellable)) {}
+    }
+
+    private static func apply(
+        _ summaries: [UUID: SidebarWorkspaceUnreadSummary],
+        to model: SidebarUnreadModel
+    ) {
+        model.apply(
+            totalUnreadCount: summaries.values.reduce(0) { $0 + $1.unreadCount },
+            summaries: summaries,
+            unreadSurfaceKeys: [],
+            focusedReadIndicatorByWorkspaceId: [:],
+            manualUnreadWorkspaceIds: []
         )
     }
 }

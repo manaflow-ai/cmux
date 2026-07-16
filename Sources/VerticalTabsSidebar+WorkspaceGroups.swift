@@ -4,7 +4,7 @@ import SwiftUI
 import CmuxSettings
 import CmuxWorkspaces
 
-extension VerticalTabsSidebar {
+extension LegacyVerticalTabsSidebar {
     func sidebarWorkspaceGroupRowSnapshot(
         group: WorkspaceGroup,
         memberWorkspaceIds: [UUID],
