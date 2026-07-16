@@ -18,7 +18,7 @@ struct CmuxResizePolicyTests {
     }
 
     @Test
-    func unchangedMeasuredGridAcceptsForeignResizeWithoutPingPong() {
+    func unchangedLocalGridIgnoresSharedResizeWithoutPingPong() {
         let action = policy.action(
             lastSent: CmuxSurfaceSize(cols: 100, rows: 38),
             incomingResized: CmuxSurfaceSize(cols: 46, rows: 16),
@@ -26,6 +26,17 @@ struct CmuxResizePolicyTests {
         )
 
         #expect(action == .none)
+    }
+
+    @Test
+    func initialGridIsReportedEvenWhenSharedSurfaceAlreadyMatches() {
+        let action = policy.action(
+            lastSent: nil,
+            incomingResized: CmuxSurfaceSize(cols: 100, rows: 38),
+            measurement: measurement(width: 1_000, height: 760)
+        )
+
+        #expect(action == .resize(CmuxSurfaceSize(cols: 100, rows: 38)))
     }
 
     @Test

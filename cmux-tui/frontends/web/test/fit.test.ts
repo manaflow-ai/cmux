@@ -22,14 +22,16 @@ describe("nextFitSize", () => {
     expect(nextFitSize({ cols: 316, rows: 80 }, { cols: 88, rows: 24 })).toEqual({ cols: 88, rows: 24 });
   });
 
-  it("is a no-op when the terminal already matches the proposal", () => {
-    // A server `resized` echo of the size we just pushed changes nothing, so
-    // no second resize-surface is sent: no echo loop.
+  it("is a no-op when this client already reported the proposal", () => {
     expect(nextFitSize({ cols: 88, rows: 24 }, { cols: 88, rows: 24 })).toBeNull();
   });
 
+  it("reports the initial fit even when the shared surface already matches", () => {
+    expect(nextFitSize(null, { cols: 88, rows: 24 })).toEqual({ cols: 88, rows: 24 });
+  });
+
   it("is a no-op when the fit addon cannot propose dimensions yet", () => {
-    expect(nextFitSize({ cols: 88, rows: 24 }, undefined)).toBeNull();
+    expect(nextFitSize(null, undefined)).toBeNull();
   });
 
   it("rejects non-finite proposals", () => {
