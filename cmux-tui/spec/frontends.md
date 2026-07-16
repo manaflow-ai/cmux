@@ -8,7 +8,7 @@ For a local native frontend, connect to the Unix socket described in [`transport
 
 For a browser or remote-capable frontend, the server must be started with `--ws <addr>` or `server.ws`. Send one complete JSON request per WebSocket text frame and treat every received text frame as one complete JSON response or event. Do not add newline framing. The TypeScript SDK exposes `WebSocketTransport` for browsers and compatible Node WebSocket implementations.
 
-If the WebSocket listener has a token, its first frame must be the transport preamble below. It is not a command and the server sends no acknowledgement:
+The WebSocket listener requires a token, and its first frame must be the transport preamble below. It is not a command and the server sends no acknowledgement:
 
 ```json
 {"auth":{"token":"replace-with-a-secret"}}
@@ -62,7 +62,7 @@ Call [`list-agents`](commands.md#list-agents) to read current agent records, opt
 
 ## End-to-End WebSocket Transcript
 
-Each line below is one WebSocket text frame. `C>` is client-to-server and `S>` is server-to-client. The auth line is present only when `--ws-token` or `server.ws_token` is configured.
+Each line below is one WebSocket text frame. `C>` is client-to-server and `S>` is server-to-client. The auth line is always required.
 
 ```text
 C> {"auth":{"token":"secret"}}

@@ -24,20 +24,19 @@ cd ../../frontends/web && npm ci
 Start these in two terminals from this directory:
 
 ```bash
-~/.local/bin/cmux-tui --headless --session webfront --ws 127.0.0.1:7681
+~/.local/bin/cmux-tui --headless --session webfront --ws 127.0.0.1:7681 --ws-token change-me
 ```
 
 ```bash
 npm run dev
 ```
 
-Open `http://localhost:5173`, keep the default WebSocket URL, and connect. Add
-`--ws-token <token>` to the server command and enter the same token in the
-connect screen to exercise the SDK authentication preamble.
+Open `http://localhost:5173`, keep the default WebSocket URL, enter `change-me`
+as the token, and connect.
 
 ## Remote access and one-tap links
 
-When the page is served from a non-localhost host, the WebSocket URL defaults to `wss://<hostname>:8443` — the convention is to serve the WS endpoint with TLS on port 8443 next to the app (for example with `tailscale serve --https=8443 <ws-port>`). Query parameters `?ws=<url>&token=<token>` prefill and auto-consume the connect form, enabling one-tap links; both are stripped from the address bar immediately so the token never persists in history, and the token is kept in memory only. The last-used WebSocket URL (never the token) is remembered in `localStorage`.
+When the page is served from a non-localhost host, the WebSocket URL defaults to `wss://<hostname>:8443`. Serve the WebSocket endpoint with TLS on port 8443 next to the app, for example with `tailscale serve --https=8443 <ws-port>`. A link shaped as `?ws=<url>#token=<token>` prefills and consumes the form. The fragment never enters the HTTP request, and both values are stripped from the address bar immediately. The last-used WebSocket URL, never the token, is remembered in `localStorage`.
 
 ## Screenshot
 
@@ -46,7 +45,7 @@ When the page is served from a non-localhost host, the WebSocket URL defaults to
 
 ## What this demonstrates
 
-- `CmuxClient` and `WebSocketTransport` from `cmux/browser`, including optional
+- `CmuxClient` and `WebSocketTransport` from `cmux/browser`, including mandatory
   transport-level token authentication.
 - Subscribe-before-snapshot reconciliation for interleaved events and command
   responses.

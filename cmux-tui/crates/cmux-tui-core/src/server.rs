@@ -32,10 +32,9 @@ use ghostty_vt::{KeyEncoder, key_input_from_chord};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use tungstenite::protocol::CloseFrame;
-use tungstenite::protocol::Role;
 use tungstenite::protocol::frame::coding::CloseCode;
-use tungstenite::{Message, accept};
+use tungstenite::protocol::{CloseFrame, Role, WebSocketConfig};
+use tungstenite::{Message, accept_with_config};
 
 use crate::model::{Screen, State};
 use crate::platform::{self, transport};
@@ -438,6 +437,8 @@ const WEBSOCKET_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 #[cfg(test)]
 const WEBSOCKET_HANDSHAKE_TIMEOUT: Duration = Duration::from_millis(100);
 const MAX_SERVER_CONNECTIONS: usize = 256;
+const WEBSOCKET_AUTH_MAX_BYTES: usize = 4 * 1024;
+const WEBSOCKET_MESSAGE_MAX_BYTES: usize = 16 * 1024 * 1024;
 const OUTBOUND_CAPACITY: usize = 256;
 const OUTBOUND_CONTROL_RESERVE: usize = 256;
 const OUTBOUND_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
@@ -1142,6 +1143,9 @@ pub fn serve_websocket(
     if !addr.ip().is_loopback() && !allow_insecure_bind {
         anyhow::bail!("refusing non-loopback WebSocket bind {addr} without --ws-insecure-bind");
     }
+    let token = token.filter(|value| !value.trim().is_empty()).ok_or_else(|| {
+        anyhow::anyhow!("WebSocket control requires --ws-token or server.ws_token")
+    })?;
     let listener = TcpListener::bind(addr)?;
     let local_addr = listener.local_addr()?;
     let shutdown = Arc::new(AtomicBool::new(false));
@@ -1180,7 +1184,7 @@ pub fn serve_websocket(
                 .name("mux-ws-conn".into())
                 .spawn(move || {
                     let _permit = permit;
-                    handle_websocket_connection(mux, stream, token.as_deref());
+                    handle_websocket_connection(mux, stream, &token);
                     connections.lock().unwrap().remove(&id);
                 })
                 .is_err()
@@ -1251,28 +1255,35 @@ fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
     let _ = writer_thread.join();
 }
 
-fn handle_websocket_connection(mux: Arc<Mux>, stream: TcpStream, token: Option<&str>) {
+fn handle_websocket_connection(mux: Arc<Mux>, stream: TcpStream, token: &str) {
     let stream = SynchronizedTcpStream::new(stream);
     if stream.set_read_timeout(Some(WEBSOCKET_HANDSHAKE_TIMEOUT)).is_err()
         || stream.set_write_timeout(Some(WEBSOCKET_HANDSHAKE_TIMEOUT)).is_err()
     {
         return;
     }
-    let Ok(mut websocket) = accept(stream) else { return };
+    let auth_config = WebSocketConfig::default()
+        .read_buffer_size(8 * 1024)
+        .write_buffer_size(8 * 1024)
+        .max_write_buffer_size(WEBSOCKET_MESSAGE_MAX_BYTES)
+        .max_message_size(Some(WEBSOCKET_AUTH_MAX_BYTES))
+        .max_frame_size(Some(WEBSOCKET_AUTH_MAX_BYTES));
+    let Ok(mut websocket) = accept_with_config(stream, Some(auth_config)) else { return };
 
-    if let Some(expected) = token {
-        let authenticated = match websocket.read() {
-            Ok(Message::Text(text)) => auth_token(&text)
-                .is_some_and(|provided| constant_time_eq(provided.as_bytes(), expected.as_bytes())),
-            _ => false,
-        };
-        if !authenticated {
-            let frame =
-                CloseFrame { code: CloseCode::Policy, reason: "authentication failed".into() };
-            let _ = websocket.close(Some(frame));
-            return;
-        }
+    let authenticated = match websocket.read() {
+        Ok(Message::Text(text)) => auth_token(&text)
+            .is_some_and(|provided| constant_time_eq(provided.as_bytes(), token.as_bytes())),
+        _ => false,
+    };
+    if !authenticated {
+        let frame = CloseFrame { code: CloseCode::Policy, reason: "authentication failed".into() };
+        let _ = websocket.close(Some(frame));
+        return;
     }
+    websocket.set_config(|config| {
+        config.max_message_size = Some(WEBSOCKET_MESSAGE_MAX_BYTES);
+        config.max_frame_size = Some(WEBSOCKET_MESSAGE_MAX_BYTES);
+    });
     let _ = websocket.get_mut().set_read_timeout(None);
     let _ = websocket.get_mut().set_write_timeout(Some(STREAM_WRITE_TIMEOUT));
     let Ok(writer_stream) = websocket.get_ref().try_clone() else { return };
@@ -2770,7 +2781,7 @@ mod tests {
         let (server, _) = listener.accept().unwrap();
         let (done, finished) = std::sync::mpsc::channel();
         let handler = std::thread::spawn(move || {
-            handle_websocket_connection(test_mux(), server, None);
+            handle_websocket_connection(test_mux(), server, "secret");
             done.send(()).unwrap();
         });
 
@@ -2788,7 +2799,7 @@ mod tests {
         let (server, _) = listener.accept().unwrap();
         let (done, finished) = std::sync::mpsc::channel();
         let handler = std::thread::spawn(move || {
-            handle_websocket_connection(test_mux(), server, Some("secret"));
+            handle_websocket_connection(test_mux(), server, "secret");
             done.send(()).unwrap();
         });
         let (client, _) = tungstenite::client("ws://localhost/", client_stream).unwrap();

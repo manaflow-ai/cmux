@@ -2,13 +2,17 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
+use std::sync::mpsc::{Receiver, Sender, SyncSender, TryRecvError, channel};
 use std::sync::{Arc, Mutex, Weak};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
 use serde_json::{Value, json};
 use tungstenite::client::IntoClientRequest;
 use tungstenite::{Error as WsError, Message, WebSocket, client};
+
+pub const CDP_EVENT_QUEUE_CAPACITY: usize = 64;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScreencastFrame {
@@ -81,14 +85,14 @@ pub struct CdpClient {
 struct Inner {
     outbound: Sender<String>,
     pending: Mutex<HashMap<u64, Sender<Result<Value, String>>>>,
-    events: Sender<CdpEvent>,
+    events: SyncSender<CdpEvent>,
     next_id: AtomicU64,
     closed: AtomicBool,
     timeout: Duration,
 }
 
 impl CdpClient {
-    pub fn connect(web_socket_url: &str, events: Sender<CdpEvent>) -> anyhow::Result<Self> {
+    pub fn connect(web_socket_url: &str, events: SyncSender<CdpEvent>) -> anyhow::Result<Self> {
         let endpoint = WsEndpoint::parse(web_socket_url)?;
         let mut addrs = (endpoint.host.as_str(), endpoint.port).to_socket_addrs()?;
         let addr = addrs.next().ok_or_else(|| {
@@ -537,7 +541,18 @@ fn ack_screencast_frame(inner: &Arc<Inner>, target_session: &str, frame_session:
 }
 
 fn screencast_frame(params: &Value, session_id: &str) -> Option<ScreencastFrame> {
-    let data_b64 = params.get("data")?.as_str()?.to_string();
+    const MAX_ENCODED_FRAME_BYTES: usize = 16 * 1024 * 1024;
+    const MAX_DECODED_FRAME_BYTES: usize = 12 * 1024 * 1024;
+
+    let supplied = params.get("data")?.as_str()?;
+    if supplied.len() > MAX_ENCODED_FRAME_BYTES {
+        return None;
+    }
+    let image = STANDARD.decode(supplied).ok()?;
+    if image.len() > MAX_DECODED_FRAME_BYTES {
+        return None;
+    }
+    let data_b64 = STANDARD.encode(image);
     let ack_id = params.get("sessionId")?.as_u64()?;
     let metadata = params.get("metadata").unwrap_or(&Value::Null);
     let css_width = metadata
@@ -640,19 +655,47 @@ fn fetch_json_version(host: &str, port: u16) -> anyhow::Result<String> {
 }
 
 fn read_http_response(stream: &mut TcpStream) -> anyhow::Result<String> {
+    read_http_response_with_limits(stream, 64 * 1024, Duration::from_secs(2))
+}
+
+fn read_http_response_with_limits(
+    stream: &mut TcpStream,
+    max_bytes: usize,
+    timeout: Duration,
+) -> anyhow::Result<String> {
+    let deadline = Instant::now() + timeout;
     let mut bytes = Vec::new();
     let mut buf = [0u8; 1024];
     loop {
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .ok_or_else(|| anyhow::anyhow!("CDP discovery deadline exceeded"))?;
+        stream.set_read_timeout(Some(remaining.min(Duration::from_millis(500))))?;
         match stream.read(&mut buf) {
             Ok(0) => break,
             Ok(n) => {
+                let new_len = bytes
+                    .len()
+                    .checked_add(n)
+                    .ok_or_else(|| anyhow::anyhow!("CDP discovery response size overflow"))?;
+                if new_len > max_bytes {
+                    anyhow::bail!("CDP discovery response exceeds size limit");
+                }
                 bytes.extend_from_slice(&buf[..n]);
-                if complete_http_response(&bytes) {
+                if complete_http_response(&bytes, max_bytes)? {
                     break;
                 }
             }
             Err(e) if !bytes.is_empty() && e.kind() == std::io::ErrorKind::ConnectionReset => {
                 break;
+            }
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) && Instant::now() >= deadline =>
+            {
+                anyhow::bail!("CDP discovery deadline exceeded")
             }
             Err(e) => return Err(e.into()),
         }
@@ -660,18 +703,28 @@ fn read_http_response(stream: &mut TcpStream) -> anyhow::Result<String> {
     Ok(String::from_utf8(bytes)?)
 }
 
-fn complete_http_response(bytes: &[u8]) -> bool {
+fn complete_http_response(bytes: &[u8], max_bytes: usize) -> anyhow::Result<bool> {
     let Some(header_end) = bytes.windows(4).position(|window| window == b"\r\n\r\n") else {
-        return false;
+        return Ok(false);
     };
     let headers = String::from_utf8_lossy(&bytes[..header_end]);
     let Some(content_len) = headers.lines().find_map(|line| {
         let (name, value) = line.split_once(':')?;
         name.eq_ignore_ascii_case("content-length").then(|| value.trim().parse::<usize>().ok())?
     }) else {
-        return false;
+        return Ok(false);
     };
-    bytes.len() >= header_end + 4 + content_len
+    if content_len > max_bytes {
+        anyhow::bail!("CDP discovery response exceeds size limit");
+    }
+    let expected_len = header_end
+        .checked_add(4)
+        .and_then(|length| length.checked_add(content_len))
+        .ok_or_else(|| anyhow::anyhow!("CDP discovery response size overflow"))?;
+    if expected_len > max_bytes {
+        anyhow::bail!("CDP discovery response exceeds size limit");
+    }
+    Ok(bytes.len() >= expected_len)
 }
 
 impl WsEndpoint {
@@ -712,6 +765,17 @@ mod tests {
     }
 
     #[test]
+    fn screencast_frame_canonicalizes_valid_base64() {
+        let params = json!({
+            "data": "aGk=",
+            "sessionId": 7,
+            "metadata": {"deviceWidth": 80, "deviceHeight": 24}
+        });
+
+        assert_eq!(screencast_frame(&params, "session-1").unwrap().data_b64, "aGk=");
+    }
+
+    #[test]
     fn http_discovery_rejects_response_over_limit() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
@@ -724,6 +788,30 @@ mod tests {
 
         let error = read_http_response(&mut stream).unwrap_err();
         assert!(error.to_string().contains("exceeds size limit"), "{error:#}");
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn http_discovery_enforces_absolute_deadline() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            for byte in b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n" {
+                if stream.write_all(&[*byte]).is_err() {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(20));
+            }
+        });
+        let mut stream = TcpStream::connect(addr).unwrap();
+
+        let started = Instant::now();
+        let error =
+            read_http_response_with_limits(&mut stream, 64 * 1024, Duration::from_millis(100))
+                .unwrap_err();
+        assert!(error.to_string().contains("deadline exceeded"), "{error:#}");
+        assert!(started.elapsed() < Duration::from_millis(500));
         server.join().unwrap();
     }
 
@@ -798,7 +886,7 @@ mod tests {
             assert_eq!(responses, CALLS);
         });
 
-        let (event_tx, _event_rx) = channel();
+        let (event_tx, _event_rx) = std::sync::mpsc::sync_channel(64);
         let client =
             CdpClient::connect(&format!("ws://{addr}/devtools/browser/fake"), event_tx).unwrap();
         let barrier = Arc::new(Barrier::new(CALLS));

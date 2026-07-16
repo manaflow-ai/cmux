@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use cmux_tui_cdp::{
-    CdpClient, CdpEvent, CdpKeyEvent, Chrome, ChromeLaunchOptions, TargetCreated,
-    discover_browser_ws_url, resolve_browser_ws_url,
+    CDP_EVENT_QUEUE_CAPACITY, CdpClient, CdpEvent, CdpKeyEvent, Chrome, ChromeLaunchOptions,
+    TargetCreated, discover_browser_ws_url, resolve_browser_ws_url,
 };
 
 use crate::platform;
@@ -224,8 +224,8 @@ pub struct BrowserRuntime {
 
 #[derive(Default)]
 struct Routes {
-    by_session: HashMap<String, Sender<CdpEvent>>,
-    by_target: HashMap<String, Sender<CdpEvent>>,
+    by_session: HashMap<String, SyncSender<CdpEvent>>,
+    by_target: HashMap<String, SyncSender<CdpEvent>>,
 }
 
 pub struct BrowserSurface {
@@ -269,7 +269,7 @@ impl BrowserRuntime {
         chrome: Option<Chrome>,
         source: BrowserSource,
     ) -> anyhow::Result<Arc<Self>> {
-        let (event_tx, event_rx) = std::sync::mpsc::channel();
+        let (event_tx, event_rx) = sync_channel(CDP_EVENT_QUEUE_CAPACITY);
         let client = CdpClient::connect(web_socket_url, event_tx)?;
         client.set_discover_targets(true)?;
         let stealth_user_agent = if source == BrowserSource::Launched {
@@ -315,7 +315,7 @@ impl BrowserRuntime {
             BrowserBootstrap::ExistingTarget { target_id, url } => (target_id, normalize_url(&url)),
         };
         let session_id = self.client.attach_to_target(&target_id)?;
-        let (event_tx, event_rx) = std::sync::mpsc::channel();
+        let (event_tx, event_rx) = sync_channel(CDP_EVENT_QUEUE_CAPACITY);
         self.register(&target_id, &session_id, event_tx);
 
         let setup_result =
@@ -362,7 +362,7 @@ impl BrowserRuntime {
         Ok(())
     }
 
-    fn register(&self, target_id: &str, session_id: &str, tx: Sender<CdpEvent>) {
+    fn register(&self, target_id: &str, session_id: &str, tx: SyncSender<CdpEvent>) {
         let mut routes = self.routes.lock().unwrap();
         routes.by_session.insert(session_id.to_string(), tx.clone());
         routes.by_target.insert(target_id.to_string(), tx);

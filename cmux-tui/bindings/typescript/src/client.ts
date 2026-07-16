@@ -61,9 +61,16 @@ export interface CmuxClientOptions {
   transport: Transport;
   timeoutMs?: number;
   allowProtocolV6Attach?: boolean;
+  /** Maximum events retained for a stream whose consumer falls behind. */
+  maxBufferedEvents?: number;
+  /** Maximum encoded characters accepted in one attach replay or output event. */
+  maxAttachEncodedChars?: number;
   /** Creates dedicated subscribe/attach transports when supplied. */
   streamTransportFactory?: () => Transport;
 }
+
+export const DEFAULT_MAX_BUFFERED_EVENTS = 256;
+export const DEFAULT_MAX_ATTACH_ENCODED_CHARS = 16 * 1024 * 1024;
 
 export type NewTabOptions = CmuxRequestParams<"new-tab">;
 export type NewBrowserTabOptions = Omit<CmuxRequestParams<"new-browser-tab">, "url">;
@@ -185,10 +192,12 @@ export class CmuxStream<T extends { event: string }> implements AsyncIterable<T>
   private readonly waiters: StreamWaiter<T>[] = [];
   private closed = false;
   private endsAfterDrain = false;
+  private terminalError: Error | null = null;
 
   constructor(
     private readonly timeoutMs: number,
     private readonly cleanup: () => void,
+    private readonly maxBufferedEvents = DEFAULT_MAX_BUFFERED_EVENTS,
   ) {}
 
   async next(timeoutMs = this.timeoutMs): Promise<T> {
@@ -197,6 +206,7 @@ export class CmuxStream<T extends { event: string }> implements AsyncIterable<T>
       if (this.endsAfterDrain && this.buffered.length === 0) this.finish();
       return event;
     }
+    if (this.terminalError) throw this.terminalError;
     if (this.closed) throw new CmuxConnectionError("stream is closed");
 
     const waiter: StreamWaiter<T> = {
@@ -207,6 +217,8 @@ export class CmuxStream<T extends { event: string }> implements AsyncIterable<T>
     const event = await new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
         waiter.active = false;
+        const index = this.waiters.indexOf(waiter);
+        if (index >= 0) this.waiters.splice(index, 1);
         reject(new CmuxTimeoutError("stream did not produce an event"));
       }, timeoutMs);
       waiter.resolve = (value) => {
@@ -225,6 +237,7 @@ export class CmuxStream<T extends { event: string }> implements AsyncIterable<T>
 
   close(): void {
     if (this.closed) return;
+    this.buffered.length = 0;
     this.finish();
     this.rejectWaiters(new CmuxConnectionError("stream is closed"));
   }
@@ -239,18 +252,34 @@ export class CmuxStream<T extends { event: string }> implements AsyncIterable<T>
       delivered = true;
       break;
     }
-    if (!delivered) this.buffered.push(event);
+    if (!delivered) {
+      if (this.buffered.length >= this.maxBufferedEvents) {
+        this.fail(new CmuxProtocolError("stream event buffer overflow"));
+        return;
+      }
+      this.buffered.push(event);
+    }
     if (terminal) this.endsAfterDrain = true;
   }
 
   fail(error: Error): void {
     if (this.closed) return;
+    this.terminalError = error;
+    this.buffered.length = 0;
     this.finish();
     this.rejectWaiters(error);
   }
 
+  get error(): Error | null {
+    return this.terminalError;
+  }
+
   async *[Symbol.asyncIterator](): AsyncIterator<T> {
-    while (!this.closed) yield await this.next();
+    try {
+      while (!this.closed) yield await this.next();
+    } finally {
+      this.close();
+    }
   }
 
   private finish(): void {
@@ -271,6 +300,8 @@ export class CmuxStream<T extends { event: string }> implements AsyncIterable<T>
 export class CmuxClient {
   readonly timeoutMs: number;
   readonly allowProtocolV6Attach: boolean;
+  readonly maxBufferedEvents: number;
+  readonly maxAttachEncodedChars: number;
   private readonly transport: Transport;
   private readonly router: MessageRouter;
   private readonly streamTransportFactory?: () => Transport;
@@ -282,6 +313,16 @@ export class CmuxClient {
     this.transport = options.transport;
     this.timeoutMs = options.timeoutMs ?? 10_000;
     this.allowProtocolV6Attach = options.allowProtocolV6Attach ?? true;
+    this.maxBufferedEvents = this.securityLimit(
+      "maxBufferedEvents",
+      options.maxBufferedEvents,
+      DEFAULT_MAX_BUFFERED_EVENTS,
+    );
+    this.maxAttachEncodedChars = this.securityLimit(
+      "maxAttachEncodedChars",
+      options.maxAttachEncodedChars,
+      DEFAULT_MAX_ATTACH_ENCODED_CHARS,
+    );
     this.streamTransportFactory = options.streamTransportFactory;
     this.router = new MessageRouter(this.transport);
   }
@@ -462,6 +503,7 @@ export class CmuxClient {
     const router = dedicated ? new MessageRouter(transport) : this.router;
     let eventSubscription: Unsubscribe = () => undefined;
     let terminalSubscription: Unsubscribe = () => undefined;
+    let streamError: Error | null = null;
     const stream = new CmuxStream<T>(this.timeoutMs, () => {
       eventSubscription();
       terminalSubscription();
@@ -469,14 +511,18 @@ export class CmuxClient {
         this.sharedSubscriptionActive = false;
       }
       if (dedicated) transport.close();
-    });
+    }, this.maxBufferedEvents);
     eventSubscription = router.onEvent((event) => {
       if (!accept(event, dedicated)) return;
       try {
         const mapped = map(event);
         stream.push(mapped, terminal(mapped));
+        streamError ??= stream.error;
       } catch (error) {
-        stream.fail(new CmuxProtocolError(`invalid stream event: ${(error as Error).message}`));
+        streamError = error instanceof CmuxProtocolError
+          ? error
+          : new CmuxProtocolError(`invalid stream event: ${(error as Error).message}`);
+        stream.fail(streamError);
       }
     });
     terminalSubscription = router.onTerminal((error) => stream.fail(error));
@@ -484,7 +530,7 @@ export class CmuxClient {
     const payload = this.dropUndefined({ id: this.nextId(), ...request });
     const response = await router.send(payload, this.timeoutMs).catch((error) => {
       stream.fail(error as Error);
-      throw error;
+      throw streamError ?? error;
     });
     if (!response.ok) {
       stream.close();
@@ -496,21 +542,30 @@ export class CmuxClient {
   private decodeAttachEvent(event: AttachEvent): DecodedAttachEvent {
     switch (event.event) {
       case "vt-state": {
-        if (typeof event.data !== "string") throw new Error("vt-state data is not base64 text");
-        return { ...event, data: decodeBase64(event.data) } as DecodedAttachEvent;
+        return { ...event, data: this.decodeAttachData(event.data, "vt-state") } as DecodedAttachEvent;
       }
       case "output": {
-        if (typeof event.data !== "string") throw new Error("output data is not base64 text");
-        return { ...event, data: decodeBase64(event.data) } as DecodedAttachEvent;
+        return { ...event, data: this.decodeAttachData(event.data, "output") } as DecodedAttachEvent;
       }
       case "resized": {
         const encoded = typeof event.data === "string" ? event.data : event.replay;
-        if (typeof encoded !== "string") throw new Error("resized data is not base64 text");
-        const data = decodeBase64(encoded);
+        const data = this.decodeAttachData(encoded, "resized");
         return { ...event, data, replay: data } as DecodedAttachEvent;
       }
       default: return event as DecodedAttachEvent;
     }
+  }
+
+  private decodeAttachData(value: unknown, eventName: string): Uint8Array {
+    if (typeof value !== "string") {
+      throw new CmuxProtocolError(`${eventName} data is not base64 text`);
+    }
+    if (value.length > this.maxAttachEncodedChars) {
+      throw new CmuxProtocolError(
+        `${eventName} data exceeds ${this.maxAttachEncodedChars} encoded characters`,
+      );
+    }
+    return decodeBase64(value);
   }
 
   private matchesAttachEvent(event: UnknownEvent, surface: Id): boolean {
@@ -543,6 +598,14 @@ export class CmuxClient {
 
   private dropUndefined(value: Record<string, unknown>): JsonObject {
     return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as JsonObject;
+  }
+
+  private securityLimit(name: string, value: number | undefined, maximum: number): number {
+    const limit = value ?? maximum;
+    if (!Number.isSafeInteger(limit) || limit <= 0 || limit > maximum) {
+      throw new RangeError(`${name} must be an integer from 1 through ${maximum}`);
+    }
+    return limit;
   }
 
   private nextId(): number {

@@ -101,19 +101,19 @@ This framing exactly matches the TypeScript SDK's `WebSocketTransport`: `send(js
 
 ### Authentication Preamble
 
-Authentication is optional. Set it with `--ws-token <token>` or `server.ws_token`; the command-line flag takes precedence over config:
+Authentication is mandatory whenever WebSocket control is enabled. Set the secret with `--ws-token <token>` or `server.ws_token`; the command-line flag takes precedence over config:
 
 ```json
 {"server":{"ws":"127.0.0.1:7681","ws_token":"replace-with-a-secret"}}
 ```
 
-When a token is configured, the first WebSocket frame must be this transport-level preamble:
+The first WebSocket frame must be this transport-level preamble:
 
 ```json
 {"auth":{"token":"replace-with-a-secret"}}
 ```
 
-The preamble is not a protocol command, has no `id`, and receives no success response. After sending it, the client may immediately send normal protocol requests. A missing, malformed, or incorrect preamble closes the connection with WebSocket policy code `1008` before dispatch. When no token is configured, the first text frame is a normal protocol request.
+The preamble is not a protocol command, has no `id`, and receives no success response. After sending it, the client may immediately send normal protocol requests. A missing, malformed, oversized, or incorrect preamble closes the connection before command dispatch. Listener startup fails when the token is missing or blank.
 
 ### Bind Security
 

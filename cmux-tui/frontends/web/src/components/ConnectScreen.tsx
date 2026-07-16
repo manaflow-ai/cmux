@@ -12,18 +12,20 @@ interface ConnectScreenProps {
 export function ConnectScreen({ connecting, error, onConnect }: ConnectScreenProps) {
   const [initial] = useState(() => {
     const config = initialConnectionConfig(window.location, window.localStorage);
-    // Credentials must not linger in the address bar / history / bookmarks:
-    // consume ?ws= and ?token= once, then replace with the cleaned URL. The
-    // token lives in memory only from here on.
+    // Consume the one-tap socket query and credential fragment once. The token
+    // never enters the HTTP request and lives in memory only from here on.
     const params = new URLSearchParams(window.location.search);
-    if (params.has("ws") || params.has("token")) {
+    const fragment = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    if (params.has("ws") || params.has("token") || fragment.has("token")) {
       params.delete("ws");
       params.delete("token");
+      fragment.delete("token");
       const search = params.toString();
+      const hash = fragment.toString();
       window.history.replaceState(
         null,
         "",
-        window.location.pathname + (search ? `?${search}` : "") + window.location.hash,
+        window.location.pathname + (search ? `?${search}` : "") + (hash ? `#${hash}` : ""),
       );
     }
     return config;
@@ -67,6 +69,7 @@ export function ConnectScreen({ connecting, error, onConnect }: ConnectScreenPro
             autoCorrect="off"
             spellCheck={false}
             enterKeyHint="go"
+            required
           />
         </label>
         {error && <div className="inline-error" role="alert">{error || t("unknownError")}</div>}

@@ -10,7 +10,15 @@ use cmux_tui_core::{Mux, MuxEvent, SurfaceOptions, server};
 use serde_json::{Value, json};
 use tungstenite::{Message, WebSocket, client};
 
+const TEST_TOKEN: &str = "test-websocket-token";
+
 fn connect(addr: SocketAddr) -> WebSocket<TcpStream> {
+    let mut websocket = connect_raw(addr);
+    send_json(&mut websocket, json!({"auth": {"token": TEST_TOKEN}}));
+    websocket
+}
+
+fn connect_raw(addr: SocketAddr) -> WebSocket<TcpStream> {
     let stream = TcpStream::connect(addr).unwrap();
     stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
     client(format!("ws://{addr}/"), stream).unwrap().0
@@ -89,7 +97,7 @@ fn websocket_rejects_oversized_authentication_frames() {
     )
     .unwrap();
 
-    let mut websocket = connect(server.local_addr());
+    let mut websocket = connect_raw(server.local_addr());
     send_json(&mut websocket, json!({"auth": {"token": oversized_token}}));
     assert!(
         matches!(websocket.read(), Ok(Message::Close(_)) | Err(_)),
@@ -113,7 +121,7 @@ fn websocket_auth_accepts_exact_preamble_and_rejects_missing_or_wrong_tokens() {
     for first_frame in
         [json!({"id": 1, "cmd": "identify"}), json!({"auth": {"token": "wrong battery"}})]
     {
-        let mut websocket = connect(server.local_addr());
+        let mut websocket = connect_raw(server.local_addr());
         send_json(&mut websocket, first_frame);
         assert!(matches!(
             websocket.read(),
@@ -123,7 +131,7 @@ fn websocket_auth_accepts_exact_preamble_and_rejects_missing_or_wrong_tokens() {
         ));
     }
 
-    let mut websocket = connect(server.local_addr());
+    let mut websocket = connect_raw(server.local_addr());
     send_json(&mut websocket, json!({"auth": {"token": "correct horse"}}));
     send_json(&mut websocket, json!({"id": 7, "cmd": "identify"}));
     let identify = read_json(&mut websocket);
@@ -142,8 +150,13 @@ fn websocket_streams_subscribe_and_attach_and_survives_unclean_disconnect() {
         .run_command_surface(vec!["/bin/cat".to_string()], None, true, None, None, Some((80, 24)))
         .unwrap()
         .surface;
-    let server =
-        server::serve_websocket(mux.clone(), "127.0.0.1:0".parse().unwrap(), None, false).unwrap();
+    let server = server::serve_websocket(
+        mux.clone(),
+        "127.0.0.1:0".parse().unwrap(),
+        Some(TEST_TOKEN.to_string()),
+        false,
+    )
+    .unwrap();
 
     let mut websocket = connect(server.local_addr());
     send_json(&mut websocket, json!({"id": 1, "cmd": "subscribe"}));
@@ -199,8 +212,13 @@ fn clients_list_identify_resize_and_detach_across_transports() {
         .surface;
     let socket_path = unique_socket("client-presence");
     server::serve(mux.clone(), Some(socket_path.clone())).unwrap();
-    let websocket_server =
-        server::serve_websocket(mux.clone(), "127.0.0.1:0".parse().unwrap(), None, false).unwrap();
+    let websocket_server = server::serve_websocket(
+        mux.clone(),
+        "127.0.0.1:0".parse().unwrap(),
+        Some(TEST_TOKEN.to_string()),
+        false,
+    )
+    .unwrap();
 
     let unix = transport::connect(&socket_path).unwrap();
     unix.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
@@ -299,13 +317,23 @@ fn clients_list_identify_resize_and_detach_across_transports() {
 #[test]
 fn websocket_non_loopback_bind_requires_and_accepts_explicit_insecure_opt_in() {
     let mux = Mux::new("ws-bind", SurfaceOptions::default());
-    let error = server::serve_websocket(mux.clone(), "0.0.0.0:0".parse().unwrap(), None, false)
-        .err()
-        .expect("non-loopback bind should fail");
+    let error = server::serve_websocket(
+        mux.clone(),
+        "0.0.0.0:0".parse().unwrap(),
+        Some(TEST_TOKEN.to_string()),
+        false,
+    )
+    .err()
+    .expect("non-loopback bind should fail");
     assert!(error.to_string().contains("--ws-insecure-bind"));
 
-    let server =
-        server::serve_websocket(mux.clone(), "0.0.0.0:0".parse().unwrap(), None, true).unwrap();
+    let server = server::serve_websocket(
+        mux.clone(),
+        "0.0.0.0:0".parse().unwrap(),
+        Some(TEST_TOKEN.to_string()),
+        true,
+    )
+    .unwrap();
     let addr = SocketAddr::from(([127, 0, 0, 1], server.local_addr().port()));
     let mut websocket = connect(addr);
     send_json(&mut websocket, json!({"id": 1, "cmd": "identify"}));

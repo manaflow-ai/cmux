@@ -148,11 +148,12 @@ jobs:
           TAG: ${{ steps.version.outputs.tag }}
         run: git push origin "refs/tags/$TAG"
 
-      - name: Dispatch downstream build and PyPI publish
+      - name: Dispatch downstream build and registry publishers
         # The tag push above was made with the default GITHUB_TOKEN, which
         # never triggers other workflows' tag-push events. Dispatch them
         # explicitly against the new tag so the release actually builds and
-        # publishes. npm stays a deliberate manual dispatch (confirm gate).
+        # publishes. Registry publishers run from protected main and resolve
+        # the immutable tag commit before building packages.
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
@@ -160,8 +161,9 @@ jobs:
         run: |
           set -euo pipefail
           gh workflow run cmux-tui-release.yml --repo "$GITHUB_REPOSITORY" --ref "refs/tags/$TAG" -f version="$VERSION"
-          gh workflow run tui-publish-pypi.yml --repo "$GITHUB_REPOSITORY" --ref "refs/tags/$TAG" -f version="$VERSION"
+          gh workflow run tui-publish-pypi.yml --repo "$GITHUB_REPOSITORY" --ref main -f version="$VERSION"
+          gh workflow run tui-publish-npm.yml --repo "$GITHUB_REPOSITORY" --ref main -f version="$VERSION" -f confirm_tui_cmux=true
           {
-            echo "- Dispatched cmux-tui-release.yml and tui-publish-pypi.yml on $TAG"
-            echo "- npm publish: dispatch tui-publish-npm.yml with version=$VERSION and confirm_tui_cmux=true"
+            echo "- Dispatched cmux-tui-release.yml on $TAG"
+            echo "- Dispatched protected-main npm and PyPI publishers for $TAG"
           } >> "$GITHUB_STEP_SUMMARY"

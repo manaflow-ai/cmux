@@ -24,7 +24,9 @@ Attach payloads are decoded to `Uint8Array`, which xterm.js accepts directly.
 import { Terminal } from "@xterm/xterm";
 import { CmuxClient, WebSocketTransport } from "cmux";
 const terminal = new Terminal();
-const transport = new WebSocketTransport("ws://127.0.0.1:9000/api/v1/ws");
+const transport = new WebSocketTransport("ws://127.0.0.1:9000/api/v1/ws", {
+  authToken: "replace-with-a-secret",
+});
 const client = new CmuxClient({ transport });
 const info = await client.identify();
 console.log(`cmux protocol ${info.protocol}`);
@@ -43,9 +45,9 @@ void (async () => {
 await client.send(surface, { bytes: new TextEncoder().encode("ls\r") });
 ```
 
-For a server started with `--ws-token`, pass the token to the transport. It
-sends the required authentication preamble as the first frame, before any
-queued protocol request:
+WebSocket control requires `--ws-token` or `server.ws_token`. Pass that token
+to the transport. It sends the authentication preamble as the first frame,
+before any queued protocol request:
 
 ```ts
 const transport = new WebSocketTransport("ws://127.0.0.1:7681", {
@@ -84,6 +86,9 @@ the default session socket. Unix subscribe and attach streams retain dedicated
 connections. An injected transport can multiplex attach streams and one
 subscription on its main connection; concurrent subscriptions require a
 `streamTransportFactory` because overflow events are terminal to one stream.
+Each stream retains at most 256 unread events, and each encoded attach payload
+is limited to 16 MiB by default. `maxBufferedEvents` and
+`maxAttachEncodedChars` may lower those limits for constrained clients.
 
 ## Raw typed requests
 
