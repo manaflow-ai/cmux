@@ -46,20 +46,27 @@ import Testing
     }
 
     @Test func declaredIconTintsMeetContrastInEveryAppearance() throws {
-        try forEachAppearance { appearance, background in
+        try forEachAppearance { appearance, baseBackground in
             for style in FileExplorerStyle.allCases {
                 // Finder applies these colors as contrast-safe masks over AppKit's native icons;
                 // screenshot verification covers the rendered result.
+                let backgrounds = try rowBackgrounds(
+                    for: style,
+                    appearance: appearance,
+                    baseBackground: baseBackground
+                )
                 for (kind, tint) in [
                     ("file", style.fileIconTint),
                     ("folder", style.folderIconTint),
                 ] {
                     let foreground = try resolved(tint, in: appearance)
-                    let ratio = contrastRatio(foreground: foreground, background: background)
-                    #expect(
-                        ratio >= minimumIconContrast,
-                        "\(style.label) \(kind) icon contrast in \(appearance.name.rawValue) was \(ratio)"
-                    )
+                    for (rowState, background) in backgrounds {
+                        let ratio = contrastRatio(foreground: foreground, background: background)
+                        #expect(
+                            ratio >= minimumIconContrast,
+                            "\(style.label) \(kind) icon contrast in \(appearance.name.rawValue) \(rowState) row was \(ratio)"
+                        )
+                    }
                 }
             }
         }
