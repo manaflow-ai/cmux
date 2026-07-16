@@ -161,19 +161,28 @@ extension SimulatorPaneCoordinator {
                devices.contains(where: { $0.id == selectedDeviceID }) {
                 return
             }
-            let preferredDevice = preferredDeviceID.flatMap { preferredDeviceID in
-                devices.first(where: { $0.id == preferredDeviceID })
+            if let preferredDeviceID,
+               previousDeviceID == nil || previousDeviceID == preferredDeviceID,
+               !devices.contains(where: { $0.id == preferredDeviceID }) {
+                if previousDeviceID != nil {
+                    _ = await beginLocationRouteTeardown()?.value
+                    guard selectedDeviceID == previousDeviceID else { return }
+                }
+                selectActionHistory(deviceID: nil)
+                selectedDeviceID = nil
+                let unavailable = SimulatorFailure(
+                    code: "simulator_saved_device_unavailable",
+                    message: String(
+                        localized: "simulator.failure.savedDeviceUnavailable",
+                        defaultValue: "The saved Simulator is no longer available. Choose another device."
+                    ),
+                    isRecoverable: true
+                )
+                failure = unavailable
+                status = .failed(unavailable)
+                return
             }
-            let matchingFallback = devices.first { device in
-                let runtimeMatches = preferredRuntimeIdentifier == nil
-                    || device.runtimeIdentifier == preferredRuntimeIdentifier
-                let typeMatches = preferredDeviceTypeIdentifier == nil
-                    || device.deviceTypeIdentifier == preferredDeviceTypeIdentifier
-                return runtimeMatches && typeMatches
-            }
-            let nextDeviceID = preferredDevice?.id
-                ?? matchingFallback?.id
-                ?? devices.first(where: { $0.state == .booted })?.id
+            let nextDeviceID = devices.first(where: { $0.state == .booted })?.id
                 ?? devices.first?.id
             if previousDeviceID != nil, previousDeviceID != nextDeviceID {
                 _ = await beginLocationRouteTeardown()?.value

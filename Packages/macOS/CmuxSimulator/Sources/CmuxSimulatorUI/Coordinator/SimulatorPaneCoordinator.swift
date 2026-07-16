@@ -144,8 +144,8 @@ public final class SimulatorPaneCoordinator {
     /// - Parameters:
     ///   - client: The process-safe Simulator client implementation.
     ///   - preferredDeviceID: The persisted device identifier to restore first.
-    ///   - preferredRuntimeIdentifier: The persisted runtime fallback.
-    ///   - preferredDeviceTypeIdentifier: The persisted hardware-type fallback.
+    ///   - preferredRuntimeIdentifier: Persisted runtime metadata for the selected device.
+    ///   - preferredDeviceTypeIdentifier: Persisted hardware-type metadata for the selected device.
     ///   - filePicker: The native file-selection dependency.
     public convenience init(
         client: any SimulatorPaneClient,

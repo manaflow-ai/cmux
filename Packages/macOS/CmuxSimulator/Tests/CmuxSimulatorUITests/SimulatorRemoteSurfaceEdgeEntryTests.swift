@@ -97,6 +97,57 @@ struct SimulatorRemoteSurfaceEdgeEntryTests {
         #expect(harness.pointerEvents.isEmpty)
     }
 
+    @Test("Drag bursts retain only the latest pending move")
+    func dragMoveCoalescing() throws {
+        let harness = try SimulatorRemoteSurfaceEdgeEntryHarness()
+        defer { harness.close() }
+        harness.view.mouseDown(with: harness.mouseEvent(
+            type: .leftMouseDown,
+            location: CGPoint(x: 220, y: 200)
+        ))
+        for y in 201...800 {
+            harness.view.mouseDragged(with: harness.mouseEvent(
+                type: .leftMouseDragged,
+                location: CGPoint(x: 220, y: CGFloat(y))
+            ))
+        }
+
+        #expect(harness.pointerEvents.map(\.phase) == [.began])
+        harness.view.flushPendingInputMotion()
+        #expect(harness.pointerEvents.map(\.phase) == [.began, .moved])
+
+        harness.view.mouseUp(with: harness.mouseEvent(
+            type: .leftMouseUp,
+            location: CGPoint(x: 220, y: 800)
+        ))
+        #expect(harness.pointerEvents.map(\.phase) == [.began, .moved, .ended])
+    }
+
+    @Test("Discrete wheel bursts aggregate into one bounded message")
+    func discreteWheelCoalescing() throws {
+        let harness = try SimulatorRemoteSurfaceEdgeEntryHarness()
+        defer { harness.close() }
+        var wheelEvents: [SimulatorScrollWheelEvent] = []
+        harness.view.onMessage = { message in
+            guard case let .scrollWheel(event) = message else { return }
+            wheelEvents.append(event)
+        }
+        let anchor = SimulatorPoint(x: 0.5, y: 0.5)
+        for _ in 0..<1_000 {
+            harness.view.send([.scrollWheel(SimulatorScrollWheelEvent(
+                anchor: anchor,
+                deltaX: 0.001,
+                deltaY: -0.001
+            ))])
+        }
+
+        #expect(wheelEvents.isEmpty)
+        harness.view.flushPendingInputMotion()
+        #expect(wheelEvents.count == 1)
+        #expect(wheelEvents.first?.deltaX == 1)
+        #expect(wheelEvents.first?.deltaY == -1)
+    }
+
     @Test("The stage monitor passes events through while forwarding an entering drag")
     func stageMonitorForwardsDragWithoutConsumingEvents() throws {
         let harness = try SimulatorRemoteSurfaceEdgeEntryHarness()

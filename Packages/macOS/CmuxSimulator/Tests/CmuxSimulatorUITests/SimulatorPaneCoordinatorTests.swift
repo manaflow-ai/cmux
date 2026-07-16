@@ -348,8 +348,8 @@ struct SimulatorPaneCoordinatorTests {
         await eventually { completions.values() == [false] }
     }
 
-    @Test("Persistence falls back from UDID to the newest matching device type")
-    func persistenceFallback() async {
+    @Test("Persistence never rebinds a missing UDID to a matching device type")
+    func persistenceFailsClosed() async throws {
         let older = Self.device(
             id: "older",
             family: .iPhone,
@@ -376,8 +376,11 @@ struct SimulatorPaneCoordinatorTests {
 
         await coordinator.start()
 
-        #expect(coordinator.selectedDeviceID == "newer")
-        #expect(coordinator.selectedDevice?.deviceTypeIdentifier == "phone-pro")
+        let failure = try #require(coordinator.failure)
+        #expect(coordinator.selectedDeviceID == nil)
+        #expect(failure.code == "simulator_saved_device_unavailable")
+        #expect(coordinator.status == .failed(failure))
+        #expect(await client.activations().isEmpty)
     }
 
     @Test("Closing joins activation and prevents later worker restarts")

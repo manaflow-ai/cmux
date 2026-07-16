@@ -29,6 +29,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     private var hoveredChromeButton: SimulatorDeviceChromeProfile.Button?
     private var mouseTrackingArea: NSTrackingArea?
     var pendingPointerEntry: SimulatorPendingPointerEntry?
+    var pendingInputMotion: SimulatorWorkerInbound?
     var stageHaloPointerActive = false
     var stagePointerMonitor: Any?
     private(set) var isPointerInputEnabled = false
@@ -385,6 +386,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     }
 
     @objc private func displayLinkDidFire(_ link: CADisplayLink) {
+        flushPendingInputMotion()
         renderLatestFrame()
     }
 
@@ -405,7 +407,40 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     }
 
     func send(_ messages: [SimulatorWorkerInbound]) {
-        for message in messages { onMessage?(message) }
+        for message in messages {
+            switch message {
+            case let .pointer(event) where event.phase == .moved:
+                if case .pointer? = pendingInputMotion {
+                    pendingInputMotion = message
+                } else {
+                    flushPendingInputMotion()
+                    pendingInputMotion = message
+                }
+            case let .scrollWheel(event):
+                if case let .scrollWheel(pending)? = pendingInputMotion {
+                    pendingInputMotion = .scrollWheel(SimulatorScrollWheelEvent(
+                        id: pending.id,
+                        anchor: pending.anchor,
+                        deltaX: min(max(pending.deltaX + event.deltaX, -1), 1),
+                        deltaY: min(max(pending.deltaY + event.deltaY, -1), 1)
+                    ))
+                } else {
+                    flushPendingInputMotion()
+                    pendingInputMotion = message
+                }
+            default:
+                flushPendingInputMotion()
+                onMessage?(message)
+            }
+        }
+    }
+
+    func flushPendingInputMotion() {
+        guard let pendingInputMotion else { return }
+        self.pendingInputMotion = nil
+        if case let .scrollWheel(event) = pendingInputMotion,
+           event.deltaX == 0, event.deltaY == 0 { return }
+        onMessage?(pendingInputMotion)
     }
 
     private func cancelInputs() {
