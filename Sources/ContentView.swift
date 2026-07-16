@@ -1606,6 +1606,7 @@ struct ContentView: View {
                 )
             },
             observedWindow: observedWindow,
+            hiveScope: HiveSidebarScopeModel.scopeModel(for: tabManager),
             selection: $sidebarSelectionState.selection,
             selectedTabIds: $selectedTabIds, lastSidebarSelectionIndex: $lastSidebarSelectionIndex, sidebarRenderWorkerClient: $sidebarRenderWorkerClient
         )
@@ -9896,9 +9897,9 @@ struct VerticalTabsSidebar: View {
     var notificationStore: TerminalNotificationStore { .shared }
     @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
     // Computer scope for the workspace list (This Mac / All Computers / one
-    // device). Scope changes are rare and user-driven, so observing the
-    // shared model here does not add churn to typing-hot paths.
-    @ObservedObject var hiveScope = HiveSidebarScopeModel.shared
+    // device). Per-window (keyed by TabManager); scope changes are rare and
+    // user-driven, so observing here does not add churn to typing-hot paths.
+    @ObservedObject var hiveScope: HiveSidebarScopeModel
     @Binding var selection: SidebarSelection
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
@@ -10365,7 +10366,7 @@ struct VerticalTabsSidebar: View {
                 extensionSidebarScrollArea(renderContext: renderContext)
             }
             VStack(alignment: .leading, spacing: 4) {
-                HiveSidebarScopePicker(selection: $selection)
+                HiveSidebarScopePicker(selection: $selection, scopeModel: hiveScope)
                     .padding(.leading, 8)
                 SidebarFooter(
                     updateViewModel: updateViewModel,
