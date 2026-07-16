@@ -11309,6 +11309,9 @@ final class GhosttySurfaceScrollView: NSView {
         logDragGeometryChange(event: "surfaceOrigin", old: surfaceView.frame.origin, new: visibleRect.origin)
 #endif
         surfaceView.frame.origin = visibleRect.origin
+        // NSClipView minimizes scroll damage, so moving the viewport-sized Metal view
+        // must explicitly invalidate its new footprint instead of reusing copied pixels.
+        documentView.setNeedsDisplay(surfaceView.frame)
     }
 
     /// Match upstream Ghostty behavior: use content area width (excluding non-content
