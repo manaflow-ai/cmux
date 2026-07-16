@@ -77,6 +77,13 @@ if ! grep -Fq "if: needs.decide.outputs.should_build == 'true' && (github.event_
   exit 1
 fi
 
+R2_UPLOAD_LINE="$(grep -nF -- '- name: Upload nightly appcast to R2' "$WORKFLOW_FILE" | cut -d: -f1)"
+TAG_MOVE_LINE="$(grep -nF -- '- name: Move nightly tag to built commit' "$WORKFLOW_FILE" | cut -d: -f1)"
+if [ -z "$R2_UPLOAD_LINE" ] || [ -z "$TAG_MOVE_LINE" ] || [ "$TAG_MOVE_LINE" -le "$R2_UPLOAD_LINE" ]; then
+  echo "FAIL: the nightly tag completion marker must move only after GitHub and R2 publication succeed"
+  exit 1
+fi
+
 if ! awk '
   /^      - name: Bound Xcode compilation cache size/ { in_bound=1; next }
   in_bound && /^      - name:/ { in_bound=0 }
