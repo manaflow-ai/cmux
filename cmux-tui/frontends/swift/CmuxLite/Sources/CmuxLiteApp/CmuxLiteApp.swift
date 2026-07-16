@@ -59,6 +59,7 @@ final class CmuxLiteApp: NSObject, NSApplicationDelegate {
                 environment: environment,
                 homeDirectory: homeDirectory
             ).resolve(configPath: ghosttyConfigPath)
+            CmuxPalette.configure(with: ghosttyViewConfiguration)
             let controller = CmuxLiteWindowController(
                 frontend: frontend,
                 ghosttyViewConfiguration: ghosttyViewConfiguration
