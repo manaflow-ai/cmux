@@ -14,9 +14,9 @@
 # shared agent account (~/.secrets/cmux.env).
 #
 # Usage:
-#   scripts/mobile-dev-launch.sh --tag grid [--simulator "iPhone 17"] [--attach] [--detach]
-#   scripts/mobile-dev-launch.sh --tag grid --device [--device-id <id>] [--attach]
-#   scripts/mobile-dev-launch.sh --tag grid --agent  [--attach]
+#   scripts/mobile-dev-launch.sh --tag grid [--simulator "iPhone 17"] [--attach|--no-attach] [--detach]
+#   scripts/mobile-dev-launch.sh --tag grid --device [--device-id <id>] [--attach|--no-attach]
+#   scripts/mobile-dev-launch.sh --tag grid --agent  [--attach|--no-attach]
 #
 #   --attach   also pair to the running Mac. Mints a fresh target-specific,
 #              tag-scoped ticket directly against THIS tag's Mac debug socket
@@ -26,6 +26,8 @@
 #   --ensure-mac  imply --attach and, before minting, enable the tagged Mac app's
 #              pairing host + launch it if its debug socket is down. Lets a device
 #              reload auto-pair with no separately-running Mac app.
+#   --no-attach  launch signed in without pairing. Also cancels --ensure-mac.
+#              When attach flags are repeated, the last flag wins.
 #   --agent    sign in with the shared agent account instead of the dogfood one.
 #   --detach   simulator only: launch without attaching stdio, so the app keeps
 #              running after this script exits.
@@ -55,6 +57,7 @@ while [[ $# -gt 0 ]]; do
     --device) TARGET="device"; shift ;;
     --device-id) DEVICE_ID="${2:-}"; shift 2 ;;
     --attach) ATTACH=1; shift ;;
+    --no-attach) ATTACH=0; ENSURE_MAC=0; shift ;;
     # --ensure-mac: before minting, enable the tagged Mac app's pairing host and
     # launch it if its debug socket is down, so --attach can mint without a
     # separately-running Mac app. Implies --attach.

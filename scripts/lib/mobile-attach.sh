@@ -195,7 +195,6 @@ cmux_attach_ensure_mac() {
 # instead of launching an app that must reject the ticket as untrusted.
 cmux_attach_mint_url() {
   local tag="$1" ttl="$2" repo_root="$3" target="$4" max="${5:-20}" sock slug payload url node_status _i
-  local saw_non_iroh_routes=0
   case "$target" in
     simulator_injection|physical_device) ;;
     *) echo "error: invalid attach target '$target'" >&2; return 1 ;;
@@ -228,21 +227,21 @@ if (typeof payload.attach_url === "string") process.stdout.write(payload.attach_
 NODE
       )" || node_status=$?
       if [[ "$node_status" -eq 2 ]]; then
-        saw_non_iroh_routes=1
+        # The Mac returned a structurally valid target-specific ticket, so a
+        # missing Iroh route is a permanent compatibility result for this
+        # launch. Retrying cannot change an already-published route set and
+        # only delays the actionable error.
+        return 2
       fi
       if [[ -n "$url" ]]; then
         printf '%s' "$url"
         return 0
       fi
     fi
-    # A tagged Mac can publish its Tailscale route before its encrypted Iroh
-    # runtime finishes binding. Keep polling for the bounded readiness window;
-    # preserve the distinct outcome if Iroh never appears so callers can report
-    # the actual route failure instead of a generic socket or RPC failure.
+    # Empty output, an RPC failure, or malformed output is transient. Keep
+    # polling for the bounded readiness window, while a valid no-Iroh ticket
+    # above returns immediately as a typed compatibility result.
     sleep 0.5
   done
-  if [[ "$saw_non_iroh_routes" -eq 1 ]]; then
-    return 2
-  fi
   return 1
 }
