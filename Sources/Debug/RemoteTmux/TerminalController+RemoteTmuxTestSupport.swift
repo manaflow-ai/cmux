@@ -419,16 +419,105 @@ extension TerminalController {
             let connected = session.connection.connectionState == .connected
             connectionsConnected = connectionsConnected && connected
             let liveWindowIds = Set(session.connection.windowOrder)
+            // At most ONE mirror per session may own sizing — a workspace shows one
+            // tab at a time. This is checked at the SESSION level because it cannot
+            // be seen per-window: a mirror with a stale `visible == true` has
+            // on_screen == false, so the per-window checks below skip it by design
+            // (its panes are parked offscreen and judging their grids reports
+            // phantoms). That blind spot is exactly half the defect this judge exists
+            // for — the hide edge — so it is asserted here, where two owners are
+            // countable, rather than left to a check that structurally cannot fail.
+            // KNOWN GAP, stated rather than implied: a SOLE stale owner is not
+            // caught. If a mirror keeps visible_for_sizing while hidden and the tab
+            // now selected is a single-pane window (which has no mirror), the owner
+            // count is 1, no mirror is on screen, and nothing here fires. Closing it
+            // needs the workspace's selected tab as the authority — flag == (this
+            // mirror's panel is selected) — which this judge does not reach today.
+            // Two owners, and a shown mirror that owns nothing, ARE caught.
+            let owners = session.windowMirrorByWindowId
+                .filter { liveWindowIds.contains($0.key) && !$0.value.isTornDown }
+                .filter { $0.value.isVisibleForSizing }
+                .keys
+                .sorted()
+            if owners.count > 1 {
+                windows.append([
+                    "window": owners.first ?? -1,
+                    "claimed": "none",
+                    "settled": false,
+                    "mismatches": [
+                        "multiple mirrors own sizing: "
+                            + owners.map { "@\($0)" }.joined(separator: ",")
+                            + " — a switched-away mirror never released it",
+                    ],
+                ])
+            }
             for (windowId, mirror) in session.windowMirrorByWindowId {
                 // A window tmux no longer lists cannot settle and
                 // must not be judged; its mirror is mid-teardown.
                 guard liveWindowIds.contains(windowId) else { continue }
-                // Hidden mirrors stop tracking by design (they claim
-                // once and their surfaces report collapsed sizes);
-                // only the visible mirror's state is judgeable.
-                guard mirror.isEffectivelyVisibleForSizing else { continue }
+                guard !mirror.isTornDown else { continue }
+                // Never GATE on isVisibleForSizing. This judge used to open with
+                // `guard mirror.isEffectivelyVisibleForSizing else { continue }`,
+                // which ANDs the flag with the view state — and being an AND it
+                // could only SHRINK the judged set. A mirror whose flag lied was
+                // therefore dropped from the report instead of failing it: the
+                // defect blinded the judge rather than reddening it. Measured
+                // live: the one window actually on screen reported visible=0 and
+                // vanished from this list while a 125-iteration fuzz marathon
+                // read green.
+                //
+                // The two terms are still both needed — judging a mirror whose
+                // panes sit in the offscreen parking window reports phantom
+                // mismatches — so compare them and report the disagreement.
+                // Read view state HERE rather than through a mirror helper: the
+                // point is that this judge must not depend on the mirror's own
+                // notion of visibility, which is exactly the thing under test.
+                let onScreen = mirror.panelsByPaneId.values.contains { panel in
+                    let hostedView = panel.hostedView
+                    return hostedView.isVisibleInUI
+                        && !hostedView.isHidden
+                        && hostedView.superview != nil
+                        && hostedView.window?.isVisible == true
+                }
                 let claimed = mirror.connection?.lastWindowSizes[windowId]
                 var mismatches: [String] = []
+                // Directional on purpose. A window whose panes are ON SCREEN must
+                // own its sizing: if it does not, nothing derives its claim and it
+                // renders at whatever tmux last gave it — the defect this judge
+                // exists to catch.
+                //
+                // The converse is NOT a defect and must not be asserted:
+                // isVisibleForSizing tracks the tab being SELECTED within its
+                // window to be ordered in. A selected tab in a cmux window that
+                // sits behind another window is legitimately flag=1, on_screen=0.
+                // Asserting equality here reported that ordinary state as a
+                // contradiction on every iteration.
+                if onScreen, !mirror.isVisibleForSizing {
+                    mismatches.append(
+                        "on screen but not visible-for-sizing"
+                            + " container=\(mirror.containerSizePt.map { "\(Int($0.width))x\(Int($0.height))" } ?? "nil")"
+                            + " claimed=\(claimed.map { "\($0.0)x\($0.1)" } ?? "none")"
+                    )
+                }
+                // A window on screen with no claim can never render the grid
+                // tmux assigns it — report it rather than skipping it.
+                if onScreen, claimed == nil {
+                    mismatches.append("on screen but never claimed a size")
+                }
+                guard onScreen else {
+                    // Hidden mirrors stop tracking by design (their surfaces
+                    // report collapsed sizes), so their grids are not judgeable —
+                    // but a contradiction found above still reports.
+                    if !mismatches.isEmpty {
+                        windows.append([
+                            "window": windowId,
+                            "claimed": claimed.map { "\($0.0)x\($0.1)" } ?? "none",
+                            "settled": false,
+                            "mismatches": mismatches,
+                        ])
+                    }
+                    continue
+                }
                 // While zoomed, the visible tree is what panes render.
                 let tree = mirror.visibleLayout ?? mirror.layout
                 let leavesByPaneID = tree.leavesByPaneID
@@ -603,6 +692,23 @@ extension TerminalController {
                     "claimed": claimed.map { "\($0.0)x\($0.1)" } ?? "none",
                     "layout": "\(mirror.layout.width)x\(mirror.layout.height)",
                     "derivable": derivable.map { "\($0.columns)x\($0.rows)" } ?? "none",
+                    // The terms `settled` is made of. Without them an unsettled
+                    // window whose claim, derivable and layout all agreed with zero
+                    // mismatches gave no clue which one was false.
+                    "why": [
+                        "connected": connected,
+                        "publication_ready": publicationReady,
+                        "sizing_ready": sizingReady,
+                        "pass_scheduled": mirror.sizingPassScheduled,
+                        "completed_inputs": mirror.lastCompletedSizingInputs != nil,
+                        "native_geometry_ready": nativeGeometryReady,
+                        "portal_geometry_ready": portalGeometryReady,
+                        "grid_parity_ready": gridParityReady,
+                        "derivation_settled": derivationSettled,
+                        "window_grid": windowGrid.map { "\($0.width)x\($0.height)" } ?? "none",
+                        "visible_for_sizing": mirror.isVisibleForSizing,
+                        "on_screen": onScreen,
+                    ],
                     // The claim is a CLIENT size; `windowGrid` is the WINDOW tmux
                     // laid out. Columns agree exactly (tmux fits the window to the
                     // client width; dividers come out of panes, not the total), so
@@ -615,8 +721,18 @@ extension TerminalController {
                     // client==window; we settle on the panes rendering their
                     // assigned grids (gridParity, inside sizingReady) and the claim
                     // re-deriving from the current container (derivationSettled).
+                    // A mismatch must DECIDE this, not merely accompany it.
+                    // `settled` used to ignore `mismatches` entirely, so the
+                    // "on screen but not visible-for-sizing" report below was loud
+                    // in the payload and silent in the verdict: an on-screen mirror
+                    // whose flag read false — the exact defect this judge exists to
+                    // catch — settled GREEN, because `derivable` guards on that same
+                    // flag, returns nil, and `?? true` then forces
+                    // derivationSettled. The report has to be able to fail
+                    // something or it is decoration.
                     "settled": claimed.map { claim in
                         guard let windowGrid else { return false }
+                        guard mismatches.isEmpty else { return false }
                         return connected && publicationReady && sizingReady
                             && derivationSettled
                             && claim.0 == windowGrid.width
