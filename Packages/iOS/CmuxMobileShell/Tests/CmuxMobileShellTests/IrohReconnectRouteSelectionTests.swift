@@ -945,6 +945,51 @@ extension ReconnectRouteSelectionTests {
         #expect(store.activeRoute?.kind == .iroh)
     }
 
+    @Test func subscribeStartFailureRedialsPinnedIrohWithoutRawFallback() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let factory = KindRecordingTransportFactory(router: router, box: box)
+        await router.holdSubscribeRequest(number: 1)
+        defer {
+            Task { await router.releaseAllHeld() }
+        }
+        let store = try await makeReconnectStore(
+            routes: [try tailscale(), try iroh()],
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { clock.now },
+                supportedRouteKinds: [.iroh, .tailscale]
+            )
+        )
+
+        #expect(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        let firstTransport = try #require(box.get())
+        let firstSubscribeStarted = try await pollUntil {
+            await router.count(of: "mobile.events.subscribe") == 1
+        }
+        #expect(firstSubscribeStarted)
+
+        // Model the Mac restarting while the first subscription handshake is
+        // in flight. Recovery must discard this stale shell and authenticate a
+        // fresh Iroh session to the same persisted Mac without trying the
+        // secondary raw Tailscale route.
+        await firstTransport.close()
+
+        let recovered = try await pollUntil {
+            guard let replacement = box.get() else { return false }
+            let subscribeCount = await router.count(of: "mobile.events.subscribe")
+            let workspaceListCount = await router.count(of: "workspace.list")
+            return replacement !== firstTransport
+                && store.connectionState == .connected
+                && store.activeRoute?.kind == .iroh
+                && subscribeCount >= 2
+                && workspaceListCount >= 2
+        }
+        #expect(recovered)
+        #expect(factory.attemptedKinds() == [.iroh, .iroh])
+    }
+
     @Test func storedReconnectPinsIrohAndExcludesRawFallbacks() throws {
         let routes = MobileShellComposite.storedReconnectRoutes(
             [try loopback(), try tailscale(), try iroh()],
