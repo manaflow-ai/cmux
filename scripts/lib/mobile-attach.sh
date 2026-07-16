@@ -161,7 +161,7 @@ cmux_attach_ensure_mac() {
       return 1
     fi
     if [[ ! -d "$app" ]]; then
-      echo "warning: tagged Mac app for '$tag' is running but not ready, and there is no local build to relaunch; auto-pair unavailable (signing in only)." >&2
+      echo "warning: tagged Mac app for '$tag' is running but not ready, and there is no local build to relaunch; auto-pair unavailable (signing in only). Re-run without --attach for an intentionally unpaired launch." >&2
       return 1
     fi
     echo "==> relaunching tagged Mac app to bind the pairing listener ($tag) [CMUX_ATTACH_ALLOW_RELAUNCH=1]" >&2
@@ -194,7 +194,8 @@ cmux_attach_ensure_mac() {
 # Tailscale TCP cannot carry the phone's Stack credential, so fail closed here
 # instead of launching an app that must reject the ticket as untrusted.
 cmux_attach_mint_url() {
-  local tag="$1" ttl="$2" repo_root="$3" target="$4" max="${5:-20}" sock slug payload url _i
+  local tag="$1" ttl="$2" repo_root="$3" target="$4" max="${5:-20}" sock slug payload url node_status _i
+  local saw_non_iroh_routes=0
   case "$target" in
     simulator_injection|physical_device) ;;
     *) echo "error: invalid attach target '$target'" >&2; return 1 ;;
@@ -212,24 +213,36 @@ cmux_attach_mint_url() {
     payload="$(CMUX_TAG="$slug" "$repo_root/scripts/cmux-debug-cli.sh" rpc mobile.attach_ticket.create \
       "{\"ttl_seconds\":${ttl},\"scope\":\"mac\",\"target\":\"${target}\"}" 2>/dev/null || true)"
     if [[ -n "$payload" ]]; then
-      url="$(PAYLOAD="$payload" ATTACH_TARGET="$target" node --input-type=module <<'NODE' 2>/dev/null || true
+      node_status=0
+      url="$(
+        PAYLOAD="$payload" ATTACH_TARGET="$target" node --input-type=module <<'NODE' 2>/dev/null
 const payload = JSON.parse(process.env.PAYLOAD);
 const routes = payload?.ticket?.routes;
 if (
   process.env.ATTACH_TARGET === "physical_device" &&
   (!Array.isArray(routes) || !routes.some((route) => route?.kind === "iroh"))
 ) {
-  process.exit(1);
+  process.exit(2);
 }
 if (typeof payload.attach_url === "string") process.stdout.write(payload.attach_url);
 NODE
-)"
+      )" || node_status=$?
+      if [[ "$node_status" -eq 2 ]]; then
+        saw_non_iroh_routes=1
+      fi
       if [[ -n "$url" ]]; then
         printf '%s' "$url"
         return 0
       fi
     fi
+    # A tagged Mac can publish its Tailscale route before its encrypted Iroh
+    # runtime finishes binding. Keep polling for the bounded readiness window;
+    # preserve the distinct outcome if Iroh never appears so callers can report
+    # the actual route failure instead of a generic socket or RPC failure.
     sleep 0.5
   done
+  if [[ "$saw_non_iroh_routes" -eq 1 ]]; then
+    return 2
+  fi
   return 1
 }

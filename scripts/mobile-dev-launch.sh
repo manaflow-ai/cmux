@@ -105,11 +105,13 @@ fi
 # --- attach ticket ----------------------------------------------------------
 # ATTACH_URL stays empty unless attach was explicitly requested, so a stale
 # ambient CMUX_DOGFOOD_ATTACH_URL can NEVER auto-pair an unrequested launch
-# (e.g. --no-attach from the reload scripts leaves ATTACH=0). The URL is injected
+# (reload scripts that opt out simply leave ATTACH=0). The URL is injected
 # as CMUX_DOGFOOD_ATTACH_URL, the NOT-mock-gated var the app reads with the real
 # backend (CMUX_UITEST_MOCK_DATA=0).
 ATTACH_URL=""
 if [[ "$ATTACH" -eq 1 ]]; then
+  ATTACH_SOCKET_READY=0
+  ATTACH_MINT_STATUS=1
   if [[ "$ENSURE_MAC" -eq 1 ]]; then
     cmux_attach_ensure_mac "$TAG" "$REPO_ROOT" "$ATTACH_TARGET" || true
   fi
@@ -117,13 +119,26 @@ if [[ "$ATTACH" -eq 1 ]]; then
   # trust an ambient URL or the tag-agnostic QR server, either of which could
   # pair this app with another tagged Mac instance.
   if cmux_attach_mac_socket_ready "$TAG"; then
-    ATTACH_URL="$(cmux_attach_mint_url "$TAG" "$ATTACH_TTL_SECONDS" "$REPO_ROOT" "$ATTACH_TARGET" || true)"
+    ATTACH_SOCKET_READY=1
+    ATTACH_URL="$(cmux_attach_mint_url "$TAG" "$ATTACH_TTL_SECONDS" "$REPO_ROOT" "$ATTACH_TARGET")" \
+      || ATTACH_MINT_STATUS=$?
+    if [[ -n "$ATTACH_URL" ]]; then
+      ATTACH_MINT_STATUS=0
+    fi
   fi
   if [[ -z "$ATTACH_URL" ]]; then
     if [[ "$ATTACH_TARGET" == "physical_device" ]]; then
-      echo "error: could not mint a trusted physical-device attach ticket for '$TAG'" >&2
-      echo "error: the tagged Mac must advertise an encrypted Iroh route; Tailscale-only tickets are rejected because they cannot safely carry account credentials" >&2
-      echo "error: repair the tagged Mac's web/Iroh setup and re-run, or pass --no-attach for an intentionally unpaired launch" >&2
+      if [[ "$ATTACH_SOCKET_READY" -eq 0 ]]; then
+        echo "error: tagged Mac '$TAG' is not running or its debug socket is not ready" >&2
+        echo "error: start it and re-run with --ensure-mac, or re-run without --attach for an intentionally unpaired launch" >&2
+      elif [[ "$ATTACH_MINT_STATUS" -eq 2 ]]; then
+        echo "error: tagged Mac '$TAG' advertised routes, but no encrypted Iroh route became ready" >&2
+        echo "error: Tailscale-only tickets are rejected because they cannot safely carry account credentials" >&2
+        echo "error: repair the tagged Mac's web/Iroh setup and re-run, or re-run without --attach for an intentionally unpaired launch" >&2
+      else
+        echo "error: could not mint a trusted physical-device attach ticket for '$TAG'" >&2
+        echo "error: the Iroh route may still be binding or its backend policy may be unavailable; retry after repairing the tagged Mac, or re-run without --attach" >&2
+      fi
       exit 1
     elif [[ "$ENSURE_MAC" -eq 1 ]]; then
       echo "warning: could not mint an attach ticket (the tagged Mac app's pairing listener may still be binding, or the macOS Local Network prompt is unanswered; click Allow, then re-run); launching signed-in only" >&2
