@@ -54,7 +54,9 @@ extension WorkspaceListView {
     }
 
     var workspaceTable: WorkspaceListTable {
-        WorkspaceListTable(
+        let grouped = rendersGroupedSections
+        let enablesReorder = enablesWorkspaceReorder
+        return WorkspaceListTable(
             items: workspaceTableItems,
             workspacesByID: Dictionary(
                 workspaces.map { ($0.id, $0) },
@@ -86,6 +88,14 @@ extension WorkspaceListView {
                     defaultValue: "cmux could not finish restoring this session. Check that the selected cmux build is running, then retry or add this computer again."
                 )
                 : nil,
+            enablesReorder: enablesReorder,
+            moveRows: enablesReorder ? { sourceOffsets, destination in
+                if grouped {
+                    moveGroupedRows(from: sourceOffsets, to: destination)
+                } else {
+                    moveFlatRows(from: sourceOffsets, to: destination)
+                }
+            } : nil,
             selectWorkspace: { id in _ = selectWorkspaceFromList(id) },
             requestWorkspaceClose: requestWorkspaceClose,
             closeWorkspace: closeWorkspace,

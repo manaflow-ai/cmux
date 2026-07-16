@@ -6,7 +6,9 @@ import UIKit
 
 /// Diffable data source, exact sizing, and UIKit interactions for ``WorkspaceListTable``.
 @MainActor
-final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate {
+final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
+    UITableViewDragDelegate, UITableViewDropDelegate
+{
     private enum HeightKind: Hashable {
         case workspaceUniform
         case workspaceWrapped(id: MobileWorkspacePreview.ID, name: String, isSelected: Bool)
@@ -33,6 +35,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate {
     private var dataSource: UITableViewDiffableDataSource<Int, WorkspaceListTableItem>?
     private let sizingCell = UITableViewCell(style: .default, reuseIdentifier: nil)
     private var heightCache: [HeightCacheKey: CGFloat] = [:]
+    private var dropJustCompleted = false
 
     init(configuration: WorkspaceListTable) {
         self.configuration = configuration
@@ -41,6 +44,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate {
 
     func attach(to tableView: WorkspaceListUITableView) {
         tableView.delegate = self
+        tableView.dragDelegate = self
+        tableView.dropDelegate = self
+        tableView.dragInteractionEnabled = configuration.enablesReorder
         tableView.register(
             UITableViewCell.self,
             forCellReuseIdentifier: Self.cellReuseIdentifier
@@ -66,6 +72,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate {
     func update(configuration next: WorkspaceListTable, in tableView: UITableView) {
         let previous = previousConfiguration
         configuration = next
+        tableView.dragInteractionEnabled = next.enablesReorder
         updateRefreshControl(in: tableView)
 
         var snapshot = NSDiffableDataSourceSnapshot<Int, WorkspaceListTableItem>()
@@ -88,7 +95,83 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate {
             snapshot.reconfigureItems(changed)
         }
         previousConfiguration = next
-        dataSource?.apply(snapshot, animatingDifferences: tableView.window != nil)
+        let animatesSnapshot = tableView.window != nil && !dropJustCompleted
+        dropJustCompleted = false
+        dataSource?.apply(snapshot, animatingDifferences: animatesSnapshot)
+    }
+
+    func tableView(
+        _ tableView: UITableView,
+        itemsForBeginning session: UIDragSession,
+        at indexPath: IndexPath
+    ) -> [UIDragItem] {
+        guard
+            configuration.enablesReorder,
+            configuration.moveRows != nil,
+            let item = dataSource?.itemIdentifier(for: indexPath),
+            isMovable(item)
+        else { return [] }
+
+        let dragItem = UIDragItem(itemProvider: NSItemProvider())
+        dragItem.localObject = item
+        return [dragItem]
+    }
+
+    func tableView(
+        _ tableView: UITableView,
+        dropSessionDidUpdate session: UIDropSession,
+        withDestinationIndexPath destinationIndexPath: IndexPath?
+    ) -> UITableViewDropProposal {
+        guard
+            configuration.enablesReorder,
+            configuration.moveRows != nil,
+            session.localDragSession != nil,
+            session.items.count == 1
+        else {
+            return UITableViewDropProposal(operation: .cancel)
+        }
+        if let destinationIndexPath,
+           destinationIndexPath.row < chromePrefixCount {
+            return UITableViewDropProposal(operation: .forbidden)
+        }
+        return UITableViewDropProposal(
+            operation: .move,
+            intent: .insertAtDestinationIndexPath
+        )
+    }
+
+    func tableView(
+        _ tableView: UITableView,
+        performDropWith coordinator: UITableViewDropCoordinator
+    ) {
+        guard
+            configuration.enablesReorder,
+            let moveRows = configuration.moveRows,
+            coordinator.items.count == 1,
+            let dropItem = coordinator.items.first,
+            let sourceIndexPath = dropItem.sourceIndexPath,
+            let destinationIndexPath = coordinator.destinationIndexPath,
+            let draggedItem = dropItem.dragItem.localObject as? WorkspaceListTableItem,
+            configuration.items.indices.contains(sourceIndexPath.row),
+            configuration.items[sourceIndexPath.row] == draggedItem,
+            isMovable(draggedItem)
+        else { return }
+
+        let chromePrefixCount = chromePrefixCount
+        let source = sourceIndexPath.row - chromePrefixCount
+        let destination = destinationIndexPath.row - chromePrefixCount
+        let movableItemCount = configuration.items.count - chromePrefixCount
+        guard
+            source >= 0,
+            source < movableItemCount,
+            destination >= 0,
+            destination < movableItemCount
+        else { return }
+
+        let swiftUIDestination = destination > source ? destination + 1 : destination
+        dropJustCompleted = true
+        moveRows(IndexSet(integer: source), swiftUIDestination)
+        coordinator.drop(dropItem.dragItem, toRowAt: destinationIndexPath)
     }
 
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
@@ -222,6 +305,27 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate {
             let workspaceID = item.workspaceID
         else { return nil }
         return configuration.workspacesByID[workspaceID]
+    }
+
+    private var chromePrefixCount: Int {
+        configuration.items.prefix { item in
+            if case .chrome = item { return true }
+            return false
+        }.count
+    }
+
+    private func isMovable(_ item: WorkspaceListTableItem) -> Bool {
+        switch item {
+        case .workspace(let workspaceID, _):
+            configuration.workspacesByID[workspaceID]?
+                .actionCapabilities.supportsMoveActions == true
+        case .groupHeader(let groupID):
+            configuration.groupsByID[groupID]
+                .flatMap { configuration.workspacesByID[$0.anchorWorkspaceID] }?
+                .actionCapabilities.supportsMoveActions == true
+        case .chrome, .filterEmpty, .groupFooter:
+            false
+        }
     }
 
     private func configure(_ cell: UITableViewCell, for item: WorkspaceListTableItem) {

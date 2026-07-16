@@ -28,6 +28,8 @@ struct WorkspaceListTable: UIViewRepresentable {
     let isInitialConnectionLoading: Bool
     let initialConnectionTitle: String?
     let initialConnectionDescription: String?
+    let enablesReorder: Bool
+    let moveRows: ((IndexSet, Int) -> Void)?
 
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     let requestWorkspaceClose: ((MobileWorkspacePreview.ID) -> Void)?

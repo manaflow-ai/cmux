@@ -13,6 +13,7 @@ import SwiftUI
 public struct WorkspaceListLayoutPreviewView: View {
     @State private var selectedWorkspaceID: MobileWorkspacePreview.ID?
     @State private var macSelection: WorkspaceMacSelection = .all
+    @State private var workspaces: [MobileWorkspacePreview]
     // Safety: DEBUG screenshot-only presenter is owned by this preview view and
     // only mutates its fired flag from the SwiftUI task that requests the banner.
     private let notificationPresenter = ScreenshotNotificationPresenter()
@@ -26,13 +27,26 @@ public struct WorkspaceListLayoutPreviewView: View {
     public init() {
         let environment = ProcessInfo.processInfo.environment
         let seedCount = environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT"].flatMap(Int.init) ?? 0
+        let reorderEnabled = environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER"] == "1"
+        let initialWorkspaces: [MobileWorkspacePreview]
         if seedCount > 0 {
             let groupCount = environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS"].flatMap(Int.init) ?? 0
-            (workspaces, groups) = Self.seeded(count: seedCount, groupCount: groupCount)
+            (initialWorkspaces, groups) = Self.seeded(count: seedCount, groupCount: groupCount)
         } else {
-            workspaces = Self.defaultWorkspaces
+            initialWorkspaces = Self.defaultWorkspaces
             groups = []
         }
+        self.reorderEnabled = reorderEnabled
+        _workspaces = State(
+            initialValue: reorderEnabled
+                ? initialWorkspaces.map { workspace in
+                    var workspace = workspace
+                    workspace.windowID = "preview-window"
+                    workspace.actionCapabilities.supportsMoveActions = true
+                    return workspace
+                }
+                : initialWorkspaces
+        )
     }
 
     private var scrollMetricsEnabled: Bool {
@@ -43,8 +57,8 @@ public struct WorkspaceListLayoutPreviewView: View {
         ProcessInfo.processInfo.environment["CMUX_UITEST_SCROLL_SWEEP"] == "1"
     }
 
-    private let workspaces: [MobileWorkspacePreview]
     private let groups: [MobileWorkspaceGroupPreview]
+    private let reorderEnabled: Bool
 
     private static let defaultWorkspaces: [MobileWorkspacePreview] = [
         MobileWorkspacePreview(
@@ -165,7 +179,19 @@ public struct WorkspaceListLayoutPreviewView: View {
                         profilePictureSize: MobileDisplaySettings.defaultProfilePictureSize,
                         selectWorkspace: { selectedWorkspaceID = $0 },
                         createWorkspace: {},
-                        macSelection: $macSelection
+                        macSelection: $macSelection,
+                        moveWorkspace: reorderEnabled ? { id, groupID, beforeWorkspaceID, movesGroup in
+                            workspaces = workspaces.applyingWorkspaceMoveIntent(
+                                MobileWorkspaceMoveIntent(
+                                    groupID: groupID,
+                                    beforeWorkspaceID: beforeWorkspaceID,
+                                    movesGroup: movesGroup
+                                ),
+                                movedWorkspaceID: id,
+                                groups: groups
+                            )
+                            return true
+                        } : nil
                     )
                 }
                 .overlay(alignment: .bottomTrailing) {
