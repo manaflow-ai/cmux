@@ -56,6 +56,8 @@ final class CmuxAlertScrollableDetailsView: NSScrollView {
         if let layoutManager = textView.layoutManager,
            let textContainer = textView.textContainer {
             layoutManager.ensureLayout(for: textContainer)
+            textView.sizeToFit()
+            layoutManager.ensureLayout(for: textContainer)
             contentHeight = ceil(
                 layoutManager.usedRect(for: textContainer).height
                     + textView.textContainerInset.height * 2
