@@ -3073,13 +3073,18 @@ final class Workspace: Identifiable, ObservableObject {
         }
         bonsplitController.tabContextForkConversationAvailabilityProvider = { [weak self] tabId, _ in
             guard let self,
-                  let panelId = self.panelIdFromSurfaceId(tabId) else { return false }
-            return self.forkAgentConversationContextMenuAvailability(forPanelId: panelId).isAvailable
-        }
-        bonsplitController.tabContextForkConversationOpenAvailabilityProvider = { [weak self] tabId, _ in
-            guard let self,
-                  let panelId = self.panelIdFromSurfaceId(tabId) else { return false }
-            return self.forkAgentConversationContextMenuOpenAvailability(forPanelId: panelId).isAvailable
+                  let panelId = self.panelIdFromSurfaceId(tabId) else { return .hidden }
+            switch self.forkAgentConversationContextMenuPresentationAvailability(forPanelId: panelId) {
+            case .available:
+                return .available
+            case .agentIndexRefreshing:
+                return .refreshing
+            case .notTerminalPanel,
+                 .noAgentSnapshot,
+                 .unsupported,
+                 .requiresProbe:
+                return .hidden
+            }
         }
         bonsplitController.tabContextForkConversationDefaultActionProvider = { _, _ in
             AgentConversationForkDefaultSettings.current().tabContextAction
