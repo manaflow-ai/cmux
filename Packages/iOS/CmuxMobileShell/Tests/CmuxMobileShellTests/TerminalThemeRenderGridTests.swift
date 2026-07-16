@@ -177,9 +177,60 @@ import Testing
     let replay = try #require(String(data: delayedChunk.data, encoding: .utf8))
 
     #expect(replay.contains("history"))
-    #expect(replay.contains("rgb:f4/f0/df"))
     #expect(delayedChunk.terminalConfigTheme == newTheme)
     #expect(store.terminalTheme(for: surfaceID) == newTheme)
+}
+
+@MainActor
+@Test func staleThemeContentPreservesReverseAndSemanticCursorDefaults() async throws {
+    let surfaceID = "terminal-stale-theme-reverse"
+    let store = MobileShellComposite.preview()
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    var currentConfig = TerminalTheme.monokai
+    currentConfig.background = "#eeeeee"
+    currentConfig.foreground = "#111111"
+    currentConfig.cursorColorSemantic = .foreground
+    var currentEffective = currentConfig
+    currentEffective.background = currentConfig.foreground
+    currentEffective.foreground = currentConfig.background
+    currentEffective.cursor = currentEffective.foreground
+    let reverseMode = MobileTerminalRenderGridFrame.ModeSetting(code: 5, ansi: false, on: true)
+    let current = try MobileTerminalRenderGridFrame(
+        surfaceID: surfaceID,
+        stateSeq: 7,
+        columns: 4,
+        rows: 1,
+        rowSpans: [],
+        modes: [reverseMode],
+        terminalTheme: currentEffective,
+        terminalConfigTheme: currentConfig,
+        terminalThemeRevision: 2
+    )
+    let delayed = try MobileTerminalRenderGridFrame(
+        surfaceID: surfaceID,
+        stateSeq: 8,
+        columns: 4,
+        rows: 1,
+        rowSpans: [.init(row: 0, column: 0, styleID: 0, text: "late", cellWidth: 4)],
+        modes: [reverseMode],
+        terminalTheme: .monokai,
+        terminalConfigTheme: .monokai,
+        terminalThemeRevision: 1
+    )
+
+    #expect(store.deliverTerminalRenderGrid(current, surfaceID: surfaceID))
+    let currentChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: currentChunk.streamToken)
+
+    #expect(store.deliverTerminalRenderGrid(delayed, surfaceID: surfaceID))
+    let delayedChunk = try #require(await iterator.next())
+    let replay = try #require(String(data: delayedChunk.data, encoding: .utf8))
+
+    #expect(replay.contains("\u{1B}]110\u{1B}\\"))
+    #expect(replay.contains("\u{1B}]111\u{1B}\\"))
+    #expect(replay.contains("\u{1B}]112\u{1B}\\"))
+    #expect(!replay.contains("rgb:ee/ee/ee"))
+    #expect(delayedChunk.terminalConfigTheme == currentConfig)
 }
 
 @MainActor
