@@ -1,3 +1,4 @@
+import CmuxCore
 import CmuxSidebar
 import CmuxWorkspaces
 import Foundation

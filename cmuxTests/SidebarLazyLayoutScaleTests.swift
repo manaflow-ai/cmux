@@ -48,6 +48,7 @@ final class SidebarLazyLayoutScaleTests {
         var workspaceRowBodies = 0
         var groupHeaderBodies = 0
         var workspaceSnapshotBuilds = 0
+        var workspaceRowInputProjections = 0
         // Snapshot builds bracketed by workspaceRowBody/workspaceRowBodyEnd,
         // i.e. synchronous work inside a single TabItemView.body evaluation.
         // Builds outside the bracket (onAppear refresh, observation publishers)
@@ -59,6 +60,7 @@ final class SidebarLazyLayoutScaleTests {
             workspaceRowBodies = 0
             groupHeaderBodies = 0
             workspaceSnapshotBuilds = 0
+            workspaceRowInputProjections = 0
             insideWorkspaceRowBody = false
             snapshotBuildsInCurrentRowBody = 0
             maxSnapshotBuildsInOneRowBody = 0
@@ -180,6 +182,9 @@ final class SidebarLazyLayoutScaleTests {
                         counter.maxSnapshotBuildsInOneRowBody,
                         counter.snapshotBuildsInCurrentRowBody
                     )
+                },
+                workspaceRowInputProjection: {
+                    counter.workspaceRowInputProjections += 1
                 }
             )
         )
@@ -296,6 +301,69 @@ final class SidebarLazyLayoutScaleTests {
             A single TabItemView.body evaluation built the workspace snapshot \(worstBody) \
             times. Workspace snapshots must be built by VerticalTabsSidebar before the \
             LazyVStack realization closure and passed to rows as immutable values.
+            """
+        )
+    }
+
+    /// A simultaneous workspace-publisher burst must cross the parent snapshot
+    /// boundary once per batch. Re-projecting all 300 row inputs once per
+    /// emitting workspace is O(N²) main-actor work even though LazyVStack only
+    /// realizes the viewport rows.
+    @Test
+    @MainActor
+    func testWorkspacePublisherBatchProjectsParentListLinearly() async throws {
+        let harness = try await Self.mountSidebar(workspaceCount: Self.workspaceCount)
+        defer { harness.tearDown() }
+
+        await Self.drainMainRunLoop(for: harness.window)
+
+        // The default sidebar intentionally accepts the initial value from
+        // both workspace publisher families. Wait for those known initial
+        // projections before isolating the operation count for this burst.
+        // Initial mount builds fallback + owner snapshots, then each of the
+        // two keyed publisher families delivers its accepted initial value.
+        let initialObservationBuildFloor = Self.workspaceCount * 4
+        let initialDeadline = ProcessInfo.processInfo.systemUptime + 3
+        while harness.counter.workspaceSnapshotBuilds < initialObservationBuildFloor,
+              ProcessInfo.processInfo.systemUptime < initialDeadline {
+            Self.turnMainRunLoopOnce(layingOut: harness.window)
+            await Task.yield()
+        }
+        #expect(
+            harness.counter.workspaceSnapshotBuilds >= initialObservationBuildFloor,
+            "Initial keyed workspace publisher values did not reach the snapshot owner."
+        )
+
+        harness.counter.reset()
+        let targets = Array(harness.tabManager.tabs.suffix(80))
+        for (index, workspace) in targets.enumerated() {
+            workspace.statusEntries["issue-6707.batch"] = SidebarStatusEntry(
+                key: "issue-6707.batch",
+                value: "batch update \(index)",
+                icon: "bolt.fill"
+            )
+        }
+
+        let refreshDeadline = ProcessInfo.processInfo.systemUptime + 3
+        while harness.counter.workspaceSnapshotBuilds < targets.count,
+              ProcessInfo.processInfo.systemUptime < refreshDeadline {
+            Self.turnMainRunLoopOnce(layingOut: harness.window)
+            await Task.yield()
+        }
+        #expect(
+            harness.counter.workspaceSnapshotBuilds >= targets.count,
+            "The \(targets.count)-workspace publisher batch did not reach the snapshot owner."
+        )
+        await Self.drainMainRunLoop(for: harness.window)
+
+        let projections = harness.counter.workspaceRowInputProjections
+        #expect(projections > 0, "The parent row-input projection probe did not run.")
+        #expect(
+            projections <= Self.workspaceCount * 4,
+            """
+            \(projections) parent row-input projections ran for one \(targets.count)-workspace \
+            event batch at \(Self.workspaceCount) workspaces. The batch must cause O(N) parent \
+            projection work, not O(N²) work from one parent invalidation per emitter.
             """
         )
     }

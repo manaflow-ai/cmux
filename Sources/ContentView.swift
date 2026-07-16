@@ -9924,6 +9924,10 @@ struct VerticalTabsSidebar: View {
     // the sidebar). Held at the container so rows stay behind the snapshot
     // boundary.
     @State private var checklistPopoverWorkspaceId: UUID?
+    // Pending keyed refresh ids are intentionally non-observed. Workspace
+    // publisher bursts cross into SwiftUI once per run-loop batch instead of
+    // invalidating the full parent projection once per emitting workspace.
+    @State private var workspaceSnapshotRefreshCoalescer = SidebarWorkspaceSnapshotRefreshCoalescer()
     // Parent-owned immutable workspace projections. Workspace publishers and
     // async observation streams terminate here, above the LazyVStack; rows
     // receive only values and action closures. This is the ownership boundary
@@ -10626,20 +10630,20 @@ struct VerticalTabsSidebar: View {
             ids: renderContext.workspaceIds,
             models: renderContext.tabs.map(\.sidebarProcessTitleObservation)
         ) { workspaceId in
-            refreshWorkspaceSnapshot(workspaceId: workspaceId)
+            scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
         }
         .sidebarAgentRuntimeObservations(
             ids: renderContext.workspaceIds,
             models: renderContext.tabs.map(\.sidebarAgentRuntimeObservation)
         ) { workspaceId in
-            refreshWorkspaceSnapshot(workspaceId: workspaceId)
+            scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
         }
         .sidebarWorkspaceObservations(
             ids: renderContext.workspaceIds,
             workspaces: renderContext.tabs,
             debouncedInterval: Self.extensionSidebarObservationCoalesceInterval
         ) { workspaceId in
-            refreshWorkspaceSnapshot(workspaceId: workspaceId)
+            scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
         }
         .onAppear {
             refreshWorkspaceSnapshots()
@@ -10652,6 +10656,9 @@ struct VerticalTabsSidebar: View {
         }
         .onChange(of: renderContext.showsAgentActivity) { _, _ in
             refreshWorkspaceSnapshots()
+        }
+        .onDisappear {
+            workspaceSnapshotRefreshCoalescer.cancel()
         }
     }
 
@@ -10842,21 +10849,39 @@ struct VerticalTabsSidebar: View {
         extensionSidebarUpdateToken &+= 1
     }
 
-    private func refreshWorkspaceSnapshot(workspaceId: UUID) {
-        guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
-            workspaceSnapshotsById[workspaceId] = nil
-            return
+    private func scheduleWorkspaceSnapshotRefresh(workspaceId: UUID) {
+        workspaceSnapshotRefreshCoalescer.schedule(workspaceId: workspaceId) { workspaceIds in
+            refreshWorkspaceSnapshots(workspaceIds: workspaceIds)
         }
-        let next = makeWorkspaceSnapshot(
-            workspace: workspace,
-            settings: tabItemSettingsStore.snapshot,
-            showsAgentActivity: showAgentActivity && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled
-        )
-        guard workspaceSnapshotsById[workspaceId] != next else { return }
-        workspaceSnapshotsById[workspaceId] = next
+    }
+
+    private func refreshWorkspaceSnapshots(workspaceIds: Set<UUID>) {
+        guard !workspaceIds.isEmpty else { return }
+        let workspaceById = Dictionary(uniqueKeysWithValues: tabManager.tabs.map { ($0.id, $0) })
+        let settings = tabItemSettingsStore.snapshot
+        let showsAgentActivity = showAgentActivity && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled
+        var next = workspaceSnapshotsById
+        var changed = false
+        for workspaceId in workspaceIds {
+            guard let workspace = workspaceById[workspaceId] else {
+                changed = next.removeValue(forKey: workspaceId) != nil || changed
+                continue
+            }
+            let snapshot = makeWorkspaceSnapshot(
+                workspace: workspace,
+                settings: settings,
+                showsAgentActivity: showsAgentActivity
+            )
+            guard next[workspaceId] != snapshot else { continue }
+            next[workspaceId] = snapshot
+            changed = true
+        }
+        guard changed else { return }
+        workspaceSnapshotsById = next
     }
 
     private func refreshWorkspaceSnapshots() {
+        workspaceSnapshotRefreshCoalescer.cancel()
         let tabs = tabManager.tabs
         let liveIds = Set(tabs.map(\.id))
         let settings = tabItemSettingsStore.snapshot
@@ -12503,6 +12528,9 @@ struct VerticalTabsSidebar: View {
         renderContext: WorkspaceListRenderContext,
         unreadSummariesByWorkspaceId: [UUID: SidebarWorkspaceUnreadSummary]
     ) -> SidebarWorkspaceRowInput {
+#if DEBUG
+        sidebarLazyContractProbe.workspaceRowInputProjection?()
+#endif
         let signpost = SidebarProfilingSignposts.begin("sidebar-workspace-row", "index=\(renderContext.tabIndexById[tab.id] ?? -1) workspace=\(sidebarShortTabId(tab.id)) selected=\(tabManager.selectedTabId == tab.id)")
         let index = renderContext.tabIndexById[tab.id] ?? 0
         let usesSelectedContextMenuTargets = selectedTabIds.contains(tab.id)
