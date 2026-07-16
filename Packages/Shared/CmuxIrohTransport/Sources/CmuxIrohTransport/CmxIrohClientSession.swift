@@ -189,6 +189,16 @@ public actor CmxIrohClientSession {
         await connection.waitUntilClosed()
     }
 
+    /// Returns whether the admitted QUIC connection already closed.
+    ///
+    /// This closes the scheduler gap between Iroh publishing its close reason
+    /// and the pool's independent closure watcher evicting this session.
+    func isClosed() async -> Bool {
+        if closed { return true }
+        guard let connection else { return false }
+        return await connection.isClosed()
+    }
+
     /// Reads package-private path evidence from the exact admitted connection.
     func observedSelectedPath() async -> CmxIrohObservedConnectionPath {
         guard let connection = connection as? any CmxIrohConnectionPathInspecting else {

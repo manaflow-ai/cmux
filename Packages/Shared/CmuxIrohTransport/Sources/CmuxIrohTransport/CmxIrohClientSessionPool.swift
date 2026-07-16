@@ -55,8 +55,13 @@ actor CmxIrohClientSessionPool {
 
     func session(for request: CmxByteTransportRequest) async throws -> CmxIrohClientSession {
         let key = try sessionKey(for: request)
-        if let pooled = sessions[key] {
-            return pooled.session
+        while let pooled = sessions[key] {
+            let isClosed = await pooled.session.isClosed()
+            guard sessions[key]?.id == pooled.id else { continue }
+            if !isClosed {
+                return pooled.session
+            }
+            await invalidateSession(for: key, matching: pooled.id)
         }
 
         let revision = lifecycleRevision
@@ -174,8 +179,20 @@ actor CmxIrohClientSessionPool {
         lane: CmxIrohLane,
         priority: Int32
     ) async throws -> CmxIrohBidirectionalStream {
+        let key = try sessionKey(for: request)
         let session = try await session(for: request)
-        return try await session.openBidirectionalLane(lane, priority: priority)
+        do {
+            return try await session.openBidirectionalLane(lane, priority: priority)
+        } catch {
+            try Task.checkCancellation()
+            guard await session.isClosed() else { throw error }
+            await invalidateSession(for: key, matching: session)
+            let replacement = try await self.session(for: request)
+            return try await replacement.openBidirectionalLane(
+                lane,
+                priority: priority
+            )
+        }
     }
 
     func serverEventByteStream(
@@ -250,14 +267,31 @@ actor CmxIrohClientSessionPool {
     }
 
     private func invalidateSession(for key: SessionKey) async {
+        await invalidateSession(for: key, matching: Optional<UUID>.none)
+    }
+
+    private func invalidateSession(
+        for key: SessionKey,
+        matching expectedID: UUID?
+    ) async {
+        if let expectedID, sessions[key]?.id != expectedID { return }
         connectionTasks[key]?.task.cancel()
         connectionTasks[key] = nil
         let pooled = sessions.removeValue(forKey: key)
         sessionOrder.removeAll { $0 == key }
+        controlOwners[key] = nil
         pooled?.closureTask.cancel()
         pooled?.pathObservationTask.cancel()
         await pooled?.session.close()
         publishSelectedPathChange()
+    }
+
+    private func invalidateSession(
+        for key: SessionKey,
+        matching expectedSession: CmxIrohClientSession
+    ) async {
+        guard let pooled = sessions[key], pooled.session === expectedSession else { return }
+        await invalidateSession(for: key, matching: pooled.id)
     }
 
     private func publishSelectedPathChange() {
