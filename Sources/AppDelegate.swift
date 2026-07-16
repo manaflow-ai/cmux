@@ -512,6 +512,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var aboutTitlebarDebugStore: AboutTitlebarDebugStore { debugWindowsCoordinator.aboutTitlebarStore }
     /// Coordinates remote tmux (`ssh … tmux -CC`) mirroring; composition-root owned.
     let remoteTmuxController = RemoteTmuxController()
+    /// Coordinates the reversible app-wide Zen Mode session.
+    private let zenModeController = ZenModeController()
     private let systemAppearanceObserver = SystemAppearanceObserver()
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
     private static let cachedIsRunningUnderXCTest = detectRunningUnderXCTest(ProcessInfo.processInfo.environment)
@@ -1976,6 +1978,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationWillTerminate(_ notification: Notification) {
         StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
+        zenModeController.restoreForTermination()
         // Backstop for any terminate path that did not route through
         // prepareForConfirmedAppTermination() (idempotent with the primary arm).
         // Apple's promised-pasteboard observer can fire before this delegate
@@ -5868,6 +5871,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func unregisterMainWindowContext(for window: NSWindow) -> MainWindowContext? {
         guard let removed = contextForMainTerminalWindow(window, reindex: false) else { return nil }
+        _ = zenModeController.endIfTargeting(windowID: removed.windowId)
         removed.teardownWindowDock()
         let removedKeys = mainWindowContexts.compactMap { key, value in
             value === removed ? key : nil
@@ -5883,6 +5887,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     // Internal (not private): see notifyMainWindowContextsDidChange.
     func discardOrphanedMainWindowContext(_ context: MainWindowContext, allowWindowlessFallback: Bool = false) {
+        _ = zenModeController.endIfTargeting(windowID: context.windowId)
         context.teardownWindowDock()
         let contextKeys = mainWindowContexts.compactMap { key, value in
             value === context ? key : nil
@@ -6519,6 +6524,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
         return false
+    }
+
+    /// Toggles app-wide Zen Mode while restoring only state changed on entry.
+    @discardableResult
+    func toggleZenMode(preferredWindow: NSWindow? = nil) -> Bool {
+        if zenModeController.isActive {
+            guard let session = zenModeController.end() else { return false }
+            guard let context = mainWindowContexts.values.first(where: { $0.windowId == session.windowID }) else {
+                return true
+            }
+
+            if session.restoresSidebarVisibility, !context.sidebarState.isVisible {
+                context.sidebarState.isVisible = true
+            }
+            if session.exitsFullScreen,
+               let window = resolvedWindow(for: context),
+               window.styleMask.contains(.fullScreen) {
+                window.toggleFullScreen(nil)
+            }
+            return true
+        }
+
+        guard let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow),
+              let window = resolvedWindow(for: context),
+              let session = zenModeController.begin(
+                  windowID: context.windowId,
+                  isSidebarVisible: context.sidebarState.isVisible,
+                  isFullScreen: window.styleMask.contains(.fullScreen)
+              ) else {
+            return false
+        }
+
+        setActiveMainWindow(window)
+        if session.restoresSidebarVisibility {
+            context.sidebarState.isVisible = false
+        }
+        if session.exitsFullScreen {
+            window.toggleFullScreen(nil)
+        }
+        return true
     }
 
     @discardableResult
@@ -13357,6 +13402,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             targetWindow.toggleFullScreen(nil)
             return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .toggleZenMode) {
+            return toggleZenMode(preferredWindow: mainWindowForShortcutEvent(event))
         }
 
         if handleConfiguredCmuxShortcut(
