@@ -575,7 +575,7 @@ public struct GhosttyConfig {
                     if value.lowercased() == "bright" {
                         boldColor = "bright"
                     } else {
-                        boldColor = Self.parseGhosttyColor(value)?.hexString().lowercased()
+                        boldColor = parseGhosttyColor(value)?.hexString().lowercased()
                     }
                 case "cursor-color":
                     hasCursorColorDirective = true

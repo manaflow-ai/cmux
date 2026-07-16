@@ -3,7 +3,7 @@ import Foundation
 import GhosttyKit
 
 extension GhosttyConfig {
-    static func parseGhosttyColor(_ value: String) -> NSColor? {
+    func parseGhosttyColor(_ value: String) -> NSColor? {
         if let color = NSColor(hex: value) {
             return color
         }
