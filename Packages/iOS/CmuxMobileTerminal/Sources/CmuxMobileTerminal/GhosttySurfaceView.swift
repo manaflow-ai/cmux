@@ -1362,7 +1362,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private var artifactChipShouldBeVisible: Bool {
-        artifactChipHost.isRequestedVisible
+        // Feature flag: artifact chip visibility defaults to OFF. Server-side
+        // configuration can enable it when ready. See issue #8124.
+        let isArtifactChipEnabled = UserDefaults.standard.bool(
+            forKey: "cmux.ios.artifactChipEnabled"
+        )
+        return isArtifactChipEnabled
+            && artifactChipHost.isRequestedVisible
             && dockedToolbarShouldBeVisible
             && dockedToolbar?.isHidden == false
             && !zoomOverlayShown
