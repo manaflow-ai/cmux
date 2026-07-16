@@ -597,6 +597,44 @@ describe("Iroh trust broker database behavior", () => {
     expect(total).toBe("40");
   });
 
+  dbTest("scopes challenge burst quota to an exact device app instance", async () => {
+    const userId = "user-instance-scoped-challenges";
+    const deviceUuid = randomUUID();
+    const firstAppInstanceId = randomUUID();
+    const secondAppInstanceId = randomUUID();
+    const issue = (appInstanceId: string, index: number) => {
+      const suffix = index.toString(16).padStart(64, "0");
+      return Effect.runPromiseExit(requiredRepository().issueChallenge({
+        userId,
+        deviceUuid,
+        appInstanceId,
+        tag: appInstanceId === firstAppInstanceId ? "dev-first" : "dev-second",
+        endpointId: suffix,
+        identityGeneration: 1,
+        payloadSha256: suffix,
+        nonceHash: (index + 100).toString(16).padStart(64, "0"),
+        now: NOW,
+        expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
+        challengeQuota: { account: 10, device: 2, outstanding: 10 },
+      }));
+    };
+
+    expect((await issue(firstAppInstanceId, 1))._tag).toBe("Success");
+    expect((await issue(firstAppInstanceId, 2))._tag).toBe("Success");
+
+    const firstInstanceOverflow = await issue(firstAppInstanceId, 3);
+    expect(firstInstanceOverflow._tag).toBe("Failure");
+    const causeError = firstInstanceOverflow._tag === "Failure"
+      ? (firstInstanceOverflow.cause as unknown as { error?: unknown }).error
+      : undefined;
+    expect(causeError).toMatchObject({
+      _tag: "IrohQuotaExceededError",
+      code: "challenge_rate_limited",
+    });
+
+    expect((await issue(secondAppInstanceId, 4))._tag).toBe("Success");
+  });
+
   dbTest("enforces globally unique active EndpointIDs and app instances", async () => {
     const appInstanceId = randomUUID();
     const endpointId = "40".repeat(32);
