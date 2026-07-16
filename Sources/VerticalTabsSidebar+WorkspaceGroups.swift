@@ -10,7 +10,7 @@ extension VerticalTabsSidebar {
         memberWorkspaceIds: [UUID],
         renderContext: WorkspaceListRenderContext,
         unreadSummariesByWorkspaceId: [UUID: SidebarWorkspaceUnreadSummary],
-        notifications: [TerminalNotification],
+        notificationIndex: SidebarWorkspaceNotificationIndex,
         shouldCollectWorkspaceDropTargets: Bool,
         showModifierHoldHints: Bool
     ) -> SidebarWorkspaceGroupRowSnapshot {
@@ -40,7 +40,9 @@ extension VerticalTabsSidebar {
         let canMarkAnchorUnread = anchorIds.contains {
             (unreadSummariesByWorkspaceId[$0]?.unreadCount ?? 0) == 0
         }
-        let anchorHasLatestNotification = notifications.contains { $0.tabId == group.anchorWorkspaceId }
+        let anchorHasLatestNotification = notificationIndex.hasNotification(
+            workspaceId: group.anchorWorkspaceId
+        )
         // "Mark all workspaces in group" targets the contained workspaces only,
         // never the anchor: the anchor is the group's own row, whose read status
         // is owned by the separate "Mark Group as Read/Unread" actions.
@@ -192,10 +194,18 @@ extension VerticalTabsSidebar {
                 tabManager?.toggleWorkspaceGroupPinned(groupId: groupId)
             },
             onMarkRead: { [weak notificationStore, anchorId = snapshot.anchorWorkspaceId] in
-                notificationStore?.markRead(forTabId: anchorId)
+                guard let notificationStore,
+                      notificationStore.canMarkWorkspaceRead(forTabIds: [anchorId]) else {
+                    return
+                }
+                notificationStore.markRead(forTabId: anchorId)
             },
             onMarkUnread: { [weak notificationStore, anchorId = snapshot.anchorWorkspaceId] in
-                notificationStore?.markUnread(forTabId: anchorId)
+                guard let notificationStore,
+                      notificationStore.canMarkWorkspaceUnread(forTabIds: [anchorId]) else {
+                    return
+                }
+                notificationStore.markUnread(forTabId: anchorId)
             },
             onClearLatestNotifications: { [weak notificationStore, anchorId = snapshot.anchorWorkspaceId] in
                 notificationStore?.clearLatestNotification(forTabId: anchorId)

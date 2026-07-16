@@ -11892,10 +11892,12 @@ struct VerticalTabsSidebar: View {
         let signpost = SidebarProfilingSignposts.begin("sidebar-workspace-rows", "renderItems=\(renderContext.workspaceRenderItems.count) collectDropTargets=\(shouldCollectWorkspaceDropTargets)")
         let renderItems = renderContext.workspaceRenderItems
         // Reduce live models to cheap immutable values above the LazyVStack.
-        // Full row trees (context-menu notification filtering + row-specific
-        // closure binding) are built only when SwiftUI realizes an item.
+        // Shared notification/selection projections are built once here; full
+        // row trees and row-specific closure binding remain lazy.
         let unreadSummariesByWorkspaceId = sidebarUnread.summaryByWorkspaceId
-        let notifications = notificationStore.notifications
+        let notificationIndex = SidebarWorkspaceNotificationIndex(
+            notifications: notificationStore.notifications
+        )
         let workspaceRowInputsById = Dictionary(uniqueKeysWithValues: renderContext.tabs.map { workspace in
             (
                 workspace.id,
@@ -11915,7 +11917,7 @@ struct VerticalTabsSidebar: View {
                     memberWorkspaceIds: renderContext.memberWorkspaceIdsByGroupId[group.id] ?? [],
                     renderContext: renderContext,
                     unreadSummariesByWorkspaceId: unreadSummariesByWorkspaceId,
-                    notifications: notifications,
+                    notificationIndex: notificationIndex,
                     shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets,
                     showModifierHoldHints: showModifierHoldHints
                 )
@@ -11928,8 +11930,7 @@ struct VerticalTabsSidebar: View {
             anchorWorkspaceIds: Set(renderContext.workspaceGroups.map(\.anchorWorkspaceId)),
             workspaceGroupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
             canCreateEmptyGroup: tabManager.selectedTab?.isRemoteTmuxMirror != true,
-            unreadSummariesByWorkspaceId: unreadSummariesByWorkspaceId,
-            notifications: notifications
+            notificationIndex: notificationIndex
         )
         let actionFactory = makeWorkspaceRowActionFactory()
         let rows = LazyVStack(spacing: tabRowSpacing) {
@@ -12820,12 +12821,14 @@ struct VerticalTabsSidebar: View {
                 WorkspaceTodoActions.requestChecklistAddField(workspaceId: tabId)
             },
             markRead: { workspaceIds in
-                for workspaceId in workspaceIds {
+                for workspaceId in workspaceIds where
+                    notificationStore.canMarkWorkspaceRead(forTabIds: [workspaceId]) {
                     notificationStore.markRead(forTabId: workspaceId)
                 }
             },
             markUnread: { workspaceIds in
-                for workspaceId in workspaceIds {
+                for workspaceId in workspaceIds where
+                    notificationStore.canMarkWorkspaceUnread(forTabIds: [workspaceId]) {
                     notificationStore.markUnread(forTabId: workspaceId)
                 }
             },

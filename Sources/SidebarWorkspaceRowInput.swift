@@ -47,32 +47,7 @@ struct SidebarWorkspaceRowInput {
 
     @MainActor
     func rowSnapshot(list: SidebarWorkspaceRowsSnapshot) -> SidebarWorkspaceRowSnapshot {
-        let targetWorkspaceIds = isMultiSelected
-            ? list.selectedContextTargetIds
-            : [workspaceId]
-        let remoteTargetWorkspaceIds = targetWorkspaceIds.filter {
-            list.workspaceRowsById[$0]?.isRemoteContextMenuEligible == true
-        }
-        let allRemoteTargetsConnecting = !remoteTargetWorkspaceIds.isEmpty
-            && remoteTargetWorkspaceIds.allSatisfy {
-                guard let state = list.workspaceRowsById[$0]?.remoteConnectionState else { return false }
-                return state == .connecting || state == .reconnecting
-            }
-        let allRemoteTargetsDisconnected = !remoteTargetWorkspaceIds.isEmpty
-            && remoteTargetWorkspaceIds.allSatisfy {
-                list.workspaceRowsById[$0]?.remoteConnectionState == .disconnected
-            }
-        let eligibleGroupTargetIds = targetWorkspaceIds.filter {
-            !list.anchorWorkspaceIds.contains($0) && list.workspaceRowsById[$0] != nil
-        }
-        let eligibleGroupIds = eligibleGroupTargetIds.map { list.workspaceRowsById[$0]?.groupId }
-        let allEligibleTargetsGroupId: UUID? = {
-            guard let first = eligibleGroupIds.first,
-                  eligibleGroupIds.allSatisfy({ $0 == first }) else {
-                return nil
-            }
-            return first
-        }()
+        let targetAggregate = list.contextMenuTargetAggregate(for: self)
         return SidebarWorkspaceRowSnapshot(
             workspaceId: workspaceId,
             groupId: groupId,
@@ -103,27 +78,25 @@ struct SidebarWorkspaceRowInput {
             checklistAddFieldActivationToken: checklistAddFieldActivationToken,
             isChecklistPopoverPresented: isChecklistPopoverPresented,
             contextMenu: SidebarWorkspaceContextMenuSnapshot(
-                targetWorkspaceIds: targetWorkspaceIds,
-                remoteTargetWorkspaceIds: remoteTargetWorkspaceIds,
-                allRemoteTargetsConnecting: allRemoteTargetsConnecting,
-                allRemoteTargetsDisconnected: allRemoteTargetsDisconnected,
+                targetWorkspaceIds: targetAggregate.targetWorkspaceIds,
+                remoteTargetWorkspaceIds: targetAggregate.remoteTargetWorkspaceIds,
+                allRemoteTargetsConnecting: targetAggregate.allRemoteTargetsConnecting,
+                allRemoteTargetsDisconnected: targetAggregate.allRemoteTargetsDisconnected,
                 pinState: contextMenuPinState,
                 groupMenuSnapshot: list.workspaceGroupMenuSnapshot,
                 canCreateEmptyGroup: list.canCreateEmptyGroup,
-                eligibleGroupTargetIds: eligibleGroupTargetIds,
-                allEligibleTargetsGroupId: allEligibleTargetsGroupId,
-                hasGroupedEligibleTarget: eligibleGroupTargetIds.contains {
-                    list.workspaceRowsById[$0]?.groupId != nil
-                },
+                eligibleGroupTargetIds: targetAggregate.eligibleGroupTargetIds,
+                allEligibleTargetsGroupId: targetAggregate.allEligibleTargetsGroupId,
+                hasGroupedEligibleTarget: targetAggregate.hasGroupedEligibleTarget,
                 todoStatusLanes: WorkspaceTodoStatusLane.lanes(
                     inferred: inferredTaskStatus,
                     activeOverride: activeTodoOverride,
                     isHidden: isTodoStatusHidden
                 ),
-                canMarkRead: list.canMarkRead(workspaceIds: targetWorkspaceIds),
-                canMarkUnread: list.canMarkUnread(workspaceIds: targetWorkspaceIds),
-                hasLatestNotification: list.hasNotification(workspaceIds: targetWorkspaceIds),
-                notifications: list.contextMenuNotifications(workspaceIds: targetWorkspaceIds)
+                canMarkRead: targetAggregate.canMarkRead,
+                canMarkUnread: targetAggregate.canMarkUnread,
+                hasLatestNotification: targetAggregate.hasLatestNotification,
+                notifications: targetAggregate.notifications
             )
         )
     }

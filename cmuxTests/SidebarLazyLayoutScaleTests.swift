@@ -1,5 +1,6 @@
 import Testing
 import AppKit
+import CmuxSidebar
 import CmuxUpdater
 import SwiftUI
 

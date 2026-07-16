@@ -2,48 +2,55 @@ import Foundation
 
 /// Parent-owned immutable values consumed by the workspace sidebar's lazy rows.
 ///
-/// The dictionaries are cheap value projections built before `LazyVStack`.
-/// Notification filtering and row/action construction remain lazy and operate
-/// only on these copied values, never on observable stores.
+/// The dictionaries and shared selection aggregate are value projections built
+/// before `LazyVStack`. Row/action construction operates only on these copied
+/// values, never on observable stores.
 struct SidebarWorkspaceRowsSnapshot {
-    private static let contextMenuNotificationLimit = 50
-
     let workspaceRowsById: [UUID: SidebarWorkspaceRowInput]
     let groupRowsById: [UUID: SidebarWorkspaceGroupRowSnapshot]
-    let selectedContextTargetIds: [UUID]
-    let anchorWorkspaceIds: Set<UUID>
     let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
     let canCreateEmptyGroup: Bool
-    let unreadSummariesByWorkspaceId: [UUID: SidebarWorkspaceUnreadSummary]
-    let notifications: [TerminalNotification]
+    let selectedContextMenuTargetAggregate: SidebarWorkspaceContextMenuTargetAggregate
 
-    func canMarkRead(workspaceIds: [UUID]) -> Bool {
-        workspaceIds.contains { unreadCount(workspaceId: $0) > 0 }
-    }
-
-    func canMarkUnread(workspaceIds: [UUID]) -> Bool {
-        workspaceIds.contains { unreadCount(workspaceId: $0) == 0 }
-    }
-
-    func hasNotification(workspaceIds: [UUID]) -> Bool {
-        guard !workspaceIds.isEmpty else { return false }
-        let targetIds = Set(workspaceIds)
-        return notifications.contains { targetIds.contains($0.tabId) }
-    }
+    private let anchorWorkspaceIds: Set<UUID>
+    private let notificationIndex: SidebarWorkspaceNotificationIndex
 
     @MainActor
-    func contextMenuNotifications(workspaceIds: [UUID]) -> [TerminalNotification] {
-        guard !workspaceIds.isEmpty else { return [] }
-        let targetIds = Set(workspaceIds)
-        return Array(
-            notifications
-                .filter { targetIds.contains($0.tabId) }
-                .sorted(by: TerminalNotificationStore.notificationSortPrecedes)
-                .prefix(Self.contextMenuNotificationLimit)
+    init(
+        workspaceRowsById: [UUID: SidebarWorkspaceRowInput],
+        groupRowsById: [UUID: SidebarWorkspaceGroupRowSnapshot],
+        selectedContextTargetIds: [UUID],
+        anchorWorkspaceIds: Set<UUID>,
+        workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot,
+        canCreateEmptyGroup: Bool,
+        notificationIndex: SidebarWorkspaceNotificationIndex
+    ) {
+        self.workspaceRowsById = workspaceRowsById
+        self.groupRowsById = groupRowsById
+        self.workspaceGroupMenuSnapshot = workspaceGroupMenuSnapshot
+        self.canCreateEmptyGroup = canCreateEmptyGroup
+        self.anchorWorkspaceIds = anchorWorkspaceIds
+        self.notificationIndex = notificationIndex
+        selectedContextMenuTargetAggregate = SidebarWorkspaceContextMenuTargetAggregate(
+            targetWorkspaceIds: selectedContextTargetIds,
+            workspaceRowsById: workspaceRowsById,
+            anchorWorkspaceIds: anchorWorkspaceIds,
+            notificationIndex: notificationIndex
         )
     }
 
-    private func unreadCount(workspaceId: UUID) -> Int {
-        unreadSummariesByWorkspaceId[workspaceId]?.unreadCount ?? 0
+    @MainActor
+    func contextMenuTargetAggregate(
+        for input: SidebarWorkspaceRowInput
+    ) -> SidebarWorkspaceContextMenuTargetAggregate {
+        guard !input.isMultiSelected else {
+            return selectedContextMenuTargetAggregate
+        }
+        return SidebarWorkspaceContextMenuTargetAggregate(
+            targetWorkspaceIds: [input.workspaceId],
+            workspaceRowsById: workspaceRowsById,
+            anchorWorkspaceIds: anchorWorkspaceIds,
+            notificationIndex: notificationIndex
+        )
     }
 }
