@@ -130,6 +130,18 @@ extension Array where Element == CuratedSettingEntry {
                 synonyms: "terminal.runawayMemoryGuardrail.thresholdGB memory warning threshold gb gigabytes limit process tree pane"
             ),
             .init(section: .terminal, id: "resume-commands", title: "Resume Commands", synonyms: "terminal.resumeCommands surface resume command approvals prefixes auto restore prompt manual tmux hibernation"),
+            .init(
+                section: .terminal,
+                id: "session-content-width",
+                title: String(localized: "settings.terminal.sessionContentWidth", defaultValue: "Session Content Width"),
+                synonyms: String(localized: "settings.search.alias.setting.terminal.session-content-width", defaultValue: "terminal.sessionContentMaxWidth terminal agent chat max width readable line length points pt narrow wide")
+            ),
+            .init(
+                section: .terminal,
+                id: "session-content-alignment",
+                title: String(localized: "settings.terminal.sessionContentAlignment", defaultValue: "Session Content Alignment"),
+                synonyms: String(localized: "settings.search.alias.setting.terminal.session-content-alignment", defaultValue: "terminal.sessionContentAlignment terminal agent chat left center right alignment position")
+            ),
 
             // TextBox
             .init(section: .textBox, id: "show-textbox-new-terminals", title: "Show TextBox on New Terminals", synonyms: "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab beta"),
@@ -199,6 +211,19 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .betaFeatures, id: "dock", title: "Dock", synonyms: "dock right sidebar terminal controls tui beta unstable"),
             .init(section: .betaFeatures, id: "customSidebars", title: "Custom Sidebars", synonyms: "custom sidebars swift json interpreted vibe beta unstable"),
             .init(section: .betaFeatures, id: "remoteTmux", title: "Remote tmux", synonyms: "remote tmux ssh control mode -CC mirror session window pane sidebar workspace beta unstable"),
+            .init(
+                section: .betaFeatures,
+                id: "workspace-todos-checklist-style",
+                title: String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle", defaultValue: "Checklist Style"),
+                detailText: [
+                    String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle.subtitlePopover", defaultValue: "Clicking a row's checklist summary opens an anchored popover."),
+                    String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle.subtitleInline", defaultValue: "Clicking a row's checklist summary expands the items inline under the row."),
+                    String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle.popover", defaultValue: "Popover"),
+                    String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle.inline", defaultValue: "Inline"),
+                ].joined(separator: " "),
+                paths: ["sidebar.beta.workspaceTodos.checklistStyle"],
+                synonyms: String(localized: "settings.search.alias.setting.betaFeatures.workspace-todos-checklist-style", defaultValue: "sidebar.beta.workspaceTodos.checklistStyle workspace todo todos task status checklist popover inline presentation style beta")
+            ),
 
             // Automation
             .init(section: .automation, id: "socket-mode", title: "Socket Control Mode", synonyms: "automation.socketControlMode api socket unix domain control server auth allow password disabled"),
