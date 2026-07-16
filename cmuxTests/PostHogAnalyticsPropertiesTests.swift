@@ -82,6 +82,34 @@ struct PostHogAnalyticsPropertiesTests {
     }
 
     @MainActor
+    @Test("missing refresh clears a cached enable for a default-off flag")
+    func missingRefreshClearsCachedEnableForDefaultOffFlag() throws {
+        let flag = try #require(CmuxFeatureFlags.allFlags.first { !$0.defaultWhenUnavailable })
+        let suiteName = "cmux.feature.flags.missing-enable.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        var remoteValues: [String: Any] = [flag.key: true]
+        let flags = CmuxFeatureFlags(defaults: defaults) { key in
+            remoteValues[key]
+        }
+        flags.applyLoadedFlags()
+        #expect(flags.remoteValue(for: flag) == true)
+        #expect(flags.effectiveValue(for: flag))
+
+        remoteValues.removeValue(forKey: flag.key)
+        flags.applyLoadedFlags()
+        #expect(flags.remoteValue(for: flag) == nil)
+        #expect(!flags.effectiveValue(for: flag))
+
+        let offlineRelaunch = CmuxFeatureFlags(defaults: defaults) { _ in nil }
+        #expect(offlineRelaunch.remoteValue(for: flag) == nil)
+        #expect(!offlineRelaunch.effectiveValue(for: flag))
+    }
+
+    @MainActor
     @Test("feature flag overrides persist through UserDefaults")
     func featureFlagOverridePersistenceRoundTrip() throws {
         let flag = try #require(CmuxFeatureFlags.allFlags.first { $0.defaultWhenUnavailable })

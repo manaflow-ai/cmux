@@ -93,6 +93,46 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(params["pane_id"] as? String, paneID)
     }
 
+    func testSimulatorCommandRejectsStaleAmbientSurface() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("simstale")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceID = UUID().uuidString.lowercased()
+        let staleSurfaceID = UUID().uuidString.lowercased()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  payload["method"] as? String == "surface.list" else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+            return Self.v2Response(id: id, ok: true, result: ["surfaces": []])
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["simulator", "tap", "0.5", "0.5"],
+            environmentOverrides: [
+                "CMUX_WORKSPACE_ID": workspaceID,
+                "CMUX_SURFACE_ID": staleSurfaceID,
+            ]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertTrue(result.stderr.contains("caller surface is no longer available"), result.stderr)
+        XCTAssertFalse(state.commands.contains(where: {
+            Self.v2Payload(from: $0)?["method"] as? String == "simulator.tap"
+        }))
+    }
+
     func testSimulatorCommandPreservesExplicitWindowAndSurface() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("simwinsurf")
