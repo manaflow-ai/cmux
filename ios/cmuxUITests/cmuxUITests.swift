@@ -121,6 +121,54 @@ final class cmuxUITests: XCTestCase {
         add(attachment)
     }
 
+    @MainActor
+    func testNotificationFeedPreviewSupportsTriageInteractions() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.otherElements["MobileNotificationFeed"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.descendants(matching: .any)["MobilePrimaryTabNotifications"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["MobileNotificationFeedDayToday"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["MobileNotificationFeedDayYesterday"].exists)
+        XCTAssertTrue(app.staticTexts["Build Mac · Unavailable"].exists)
+
+        let unreadFilter = app.descendants(matching: .any)["MobileNotificationFeedFilterUnread"]
+        XCTAssertTrue(unreadFilter.waitForExistence(timeout: 3))
+        unreadFilter.tap()
+
+        let approvalRow = app.descendants(matching: .any)["MobileNotificationFeedRow-studio-codex-approval"]
+        XCTAssertTrue(approvalRow.waitForExistence(timeout: 3))
+        approvalRow.swipeLeft()
+        let markRead = app.descendants(matching: .any)["MobileNotificationFeedMarkReadSwipe-studio-codex-approval"]
+        XCTAssertTrue(markRead.waitForExistence(timeout: 3))
+        markRead.tap()
+        XCTAssertTrue(approvalRow.waitForNonExistence(timeout: 3))
+
+        let allFilter = app.descendants(matching: .any)["MobileNotificationFeedFilterAll"]
+        XCTAssertTrue(allFilter.waitForExistence(timeout: 3))
+        allFilter.tap()
+
+        let completedRow = app.descendants(matching: .any)["MobileNotificationFeedRow-macbook-tests-passed"]
+        XCTAssertTrue(completedRow.waitForExistence(timeout: 3))
+        completedRow.tap()
+        XCTAssertTrue(app.otherElements["MobileNotificationFeedPreviewOpenResponse"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["Opened Release"].exists)
+
+        let markAllRead = app.buttons["MobileNotificationFeedMarkAllRead"]
+        XCTAssertTrue(markAllRead.waitForExistence(timeout: 3))
+        markAllRead.tap()
+        XCTAssertTrue(markAllRead.waitForNonExistence(timeout: 3))
+
+        let workspacesTab = app.descendants(matching: .any)["MobilePrimaryTabWorkspaces"]
+        XCTAssertTrue(workspacesTab.waitForExistence(timeout: 3))
+        workspacesTab.tap()
+        XCTAssertTrue(app.staticTexts["Workspaces"].waitForExistence(timeout: 3))
+        app.descendants(matching: .any)["MobilePrimaryTabNotifications"].tap()
+        XCTAssertTrue(app.otherElements["MobileNotificationFeed"].waitForExistence(timeout: 3))
+    }
+
     /// Regression: fast pinch-zoom must not hang the main thread (the
     /// scene-update watchdog `0x8BADF00D` was killing the app because
     /// libghostty surface calls block on the main thread) and must not

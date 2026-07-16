@@ -22,6 +22,9 @@ struct WorkspaceShellView: View {
     @Environment(MobileDisplaySettings.self) private var displaySettings
     @State var compactNavigationPath: [MobileWorkspacePreview.ID] = []
     @State var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
+    #if os(iOS)
+    @State private var selectedPrimaryTab: MobilePrimaryTab = .workspaces
+    #endif
     @State private var hasPresentedSplitDetail = false
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var macSelection: WorkspaceMacSelection = .all
@@ -57,6 +60,35 @@ struct WorkspaceShellView: View {
     }
 
     var body: some View {
+        #if os(iOS)
+        MobilePrimaryTabScaffold(
+            selection: $selectedPrimaryTab,
+            notificationUnreadCount: store.notificationFeedUnreadCount
+        ) {
+            workspaceTabContent
+        } notifications: {
+            NotificationFeedStoreView(store: store)
+        }
+        .onChange(of: store.deeplinkWorkspaceNavigationRequest) { _, request in
+            guard request != nil else { return }
+            selectedPrimaryTab = .workspaces
+            consumeDeeplinkNavigationRequestIfNeeded()
+        }
+        .onAppear {
+            if store.deeplinkWorkspaceNavigationRequest != nil {
+                selectedPrimaryTab = .workspaces
+            }
+            consumeDeeplinkNavigationRequestIfNeeded()
+        }
+        #else
+        workspaceTabContent
+        .onAppear {
+            consumeDeeplinkNavigationRequestIfNeeded()
+        }
+        #endif
+    }
+
+    private var workspaceTabContent: some View {
         ZStack(alignment: .bottom) {
             layoutContent
             if let workspaceActionToast {
@@ -86,19 +118,6 @@ struct WorkspaceShellView: View {
                 return
             }
             compactNavigationPath = [selectedWorkspaceID]
-        }
-        // A notification-tap deep link must actually navigate, not just mark a
-        // selection: on the compact stack an empty path ignores selection
-        // changes by design (the attach-time auto-selection must not yank the
-        // user off the home list), so the deep link carries an explicit
-        // one-shot push intent. Consumed on change and on mount in case the
-        // request landed before this view appeared.
-        .onChange(of: store.deeplinkWorkspaceNavigationRequest) { _, request in
-            guard request != nil else { return }
-            consumeDeeplinkNavigationRequestIfNeeded()
-        }
-        .onAppear {
-            consumeDeeplinkNavigationRequestIfNeeded()
         }
         .accessibilityIdentifier("MobileWorkspaceShell")
     }
@@ -161,6 +180,9 @@ struct WorkspaceShellView: View {
                         action: popCompactStack
                     )
                 )
+                    #if os(iOS)
+                    .toolbarVisibility(.hidden, for: .tabBar)
+                    #endif
                     // Only on the pushed compact stack (where a back button
                     // exists): replace the system back button with a custom one
                     // that folds the unread-workspace count INTO the same button
@@ -265,6 +287,9 @@ struct WorkspaceShellView: View {
                 createWorkspace: createWorkspaceIfConnected,
                 safeAreaContext: splitColumnVisibility == .detailOnly ? .fullWidth : .splitSidebarVisible
             )
+            #if os(iOS)
+            .toolbarVisibility(splitColumnVisibility == .detailOnly ? .hidden : .visible, for: .tabBar)
+            #endif
         }
         .navigationSplitViewStyle(.balanced)
         .onAppear {

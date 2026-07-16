@@ -1,0 +1,490 @@
+import CmuxMobileRPC
+public import CmuxMobileShellModel
+import Foundation
+internal import OSLog
+
+private let notificationFeedLog = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "dev.cmux.ios",
+    category: "notification-feed"
+)
+
+@MainActor
+extension MobileShellComposite {
+    /// Refreshes the chronological feed from every currently connected capable Mac.
+    ///
+    /// A Mac that is offline keeps its last-known snapshot. Connected Macs that
+    /// predate `notification.feed.v1` are excluded without hiding snapshots from
+    /// newer or temporarily unavailable Macs.
+    public func refreshNotificationFeed() async {
+        let targets = notificationFeedTargets()
+        if targets.isEmpty {
+            recomputeNotificationFeedItems()
+            notificationFeedStatus = resolvedNotificationFeedStatus()
+            return
+        }
+
+        notificationFeedStatus = .loading
+        let tasks = targets.compactMap { target in
+            scheduleNotificationFeedRefresh(
+                macDeviceID: target.macDeviceID,
+                client: target.client,
+                displayName: target.displayName
+            )
+        }
+        for task in tasks {
+            await task.value
+        }
+        recomputeNotificationFeedItems()
+        notificationFeedStatus = resolvedNotificationFeedStatus()
+    }
+
+    /// Marks one notification read on its owning Mac and reconciles the local snapshot.
+    /// - Parameter item: The immutable feed item selected by the user.
+    public func markNotificationFeedItemRead(_ item: MobileNotificationFeedItem) async {
+        guard !item.isRead,
+              let target = notificationFeedTarget(for: item.macDeviceID) else { return }
+        do {
+            let request = try MobileCoreRPCClient.requestData(
+                method: "notification.feed.mark_read",
+                params: ["notification_ids": [item.notificationID]]
+            )
+            let data = try await target.client.sendRequest(request)
+            let response = try MobileNotificationFeedMutationResponse.decode(data)
+            guard notificationFeedClient(for: item.macDeviceID) === target.client else { return }
+            applyNotificationFeedReadMutation(
+                macDeviceID: item.macDeviceID,
+                notificationIDs: [item.notificationID],
+                revision: response.revision
+            )
+            _ = scheduleNotificationFeedRefresh(
+                macDeviceID: item.macDeviceID,
+                client: target.client,
+                displayName: target.displayName
+            )
+        } catch {
+            notificationFeedLog.error(
+                "mark read failed mac=\(item.macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .private)"
+            )
+        }
+    }
+
+    /// Marks every retained notification read on each currently connected capable Mac.
+    public func markAllNotificationFeedItemsRead() async {
+        let targets = notificationFeedTargets().filter { target in
+            notificationFeedSnapshotsByMac[target.macDeviceID]?.items.contains(where: { !$0.isRead }) == true
+        }
+        for target in targets {
+            await markAllNotificationFeedItemsRead(on: target)
+        }
+    }
+
+    /// Opens a feed item in its workspace and terminal, then marks it read.
+    /// - Parameter item: The immutable feed item selected by the user.
+    public func openNotificationFeedItem(_ item: MobileNotificationFeedItem) async {
+        if item.macDeviceID != normalizedForegroundNotificationFeedMacID() {
+            guard await switchToMac(macDeviceID: item.macDeviceID) else { return }
+        }
+        guard let workspaceID = workspaceID(
+            matchingRemoteWorkspaceID: item.remoteWorkspaceID,
+            macDeviceID: item.macDeviceID
+        ) else { return }
+
+        navigateToWorkspaceForDeeplink(workspaceID)
+        if let surfaceID = item.remoteSurfaceID,
+           workspace(workspaceID, containsSurfaceID: surfaceID) {
+            selectTerminal(MobileTerminalPreview.ID(rawValue: surfaceID))
+        }
+        await markNotificationFeedItemRead(item)
+    }
+
+    /// Handles a revision-only feed invalidation from one specific Mac.
+    func handleNotificationFeedChangedEvent(
+        _ event: MobileEventEnvelope,
+        macDeviceID: String,
+        client: MobileCoreRPCClient,
+        displayName: String
+    ) {
+        guard event.topic == "notification.feed.changed",
+              let payload = event.payloadJSON,
+              let changed = MobileNotificationFeedChangedEvent.decode(payload),
+              notificationFeedClient(for: macDeviceID) === client else { return }
+        let appliedRevision = notificationFeedSnapshotsByMac[macDeviceID]?.revision ?? -1
+        let knownRevision = notificationFeedKnownRevisionsByMac[macDeviceID] ?? -1
+        guard changed.revision > max(appliedRevision, knownRevision) else { return }
+        notificationFeedKnownRevisionsByMac[macDeviceID] = changed.revision
+        _ = scheduleNotificationFeedRefresh(
+            macDeviceID: macDeviceID,
+            client: client,
+            displayName: displayName
+        )
+    }
+
+    /// Starts an initial feed fetch after a capable foreground connection is established.
+    func scheduleForegroundNotificationFeedRefresh(client: MobileCoreRPCClient) {
+        guard let macDeviceID = normalizedForegroundNotificationFeedMacID(),
+              supportedHostCapabilities.contains(Self.notificationFeedCapability),
+              remoteClient === client else { return }
+        if notificationFeedStatus == .idle {
+            notificationFeedStatus = .loading
+        }
+        _ = scheduleNotificationFeedRefresh(
+            macDeviceID: macDeviceID,
+            client: client,
+            displayName: notificationFeedDisplayName(for: macDeviceID)
+        )
+    }
+
+    /// Starts an initial feed fetch after a capable secondary connection is established.
+    func scheduleSecondaryNotificationFeedRefresh(
+        macDeviceID: String,
+        client: MobileCoreRPCClient,
+        displayName: String?
+    ) {
+        guard secondaryMacSubscriptions[macDeviceID]?.client === client,
+              secondaryMacSubscriptions[macDeviceID]?.supportedHostCapabilities.contains(Self.notificationFeedCapability) == true else { return }
+        _ = scheduleNotificationFeedRefresh(
+            macDeviceID: macDeviceID,
+            client: client,
+            displayName: normalizedDisplayName(displayName, fallback: macDeviceID)
+        )
+    }
+
+    /// Cancels all feed work and removes account-scoped notification content.
+    func resetNotificationFeed() {
+        for task in notificationFeedRefreshTasksByMac.values {
+            task.cancel()
+        }
+        notificationFeedRefreshTasksByMac = [:]
+        notificationFeedRefreshTokensByMac = [:]
+        notificationFeedRefreshPendingMacIDs = []
+        notificationFeedKnownRevisionsByMac = [:]
+        notificationFeedSuccessfulMacIDs = []
+        notificationFeedSnapshotsByMac = [:]
+        notificationFeedItems = []
+        notificationFeedStatus = .idle
+    }
+
+    /// Removes one forgotten Mac's content and cancels work that could restore it.
+    /// - Parameter macDeviceID: The forgotten Mac's stable device id.
+    func removeNotificationFeedSnapshot(macDeviceID: String) {
+        notificationFeedRefreshTasksByMac[macDeviceID]?.cancel()
+        notificationFeedRefreshTasksByMac[macDeviceID] = nil
+        notificationFeedRefreshTokensByMac[macDeviceID] = nil
+        notificationFeedRefreshPendingMacIDs.remove(macDeviceID)
+        notificationFeedKnownRevisionsByMac[macDeviceID] = nil
+        notificationFeedSuccessfulMacIDs.remove(macDeviceID)
+        notificationFeedSnapshotsByMac[macDeviceID] = nil
+        recomputeNotificationFeedItems()
+        if notificationFeedItems.isEmpty, notificationFeedStatus == .ready {
+            notificationFeedStatus = resolvedNotificationFeedStatus()
+        }
+    }
+
+    /// Retains only a team-switch-safe foreground snapshot.
+    func retainForegroundNotificationFeedSnapshot() {
+        guard let foregroundMacDeviceID = normalizedForegroundNotificationFeedMacID() else {
+            resetNotificationFeed()
+            return
+        }
+        let removedIDs = notificationFeedSnapshotsByMac.keys.filter { $0 != foregroundMacDeviceID }
+        for id in removedIDs {
+            removeNotificationFeedSnapshot(macDeviceID: id)
+        }
+    }
+
+    /// Rebuilds connection-state projections and deterministic cross-Mac ordering.
+    func recomputeNotificationFeedItems() {
+        let projected = notificationFeedSnapshotsByMac.map { macDeviceID, snapshot in
+            let status = notificationFeedConnectionStatus(for: macDeviceID)
+            return snapshot.items.map { $0.updating(connectionStatus: status) }
+        }
+        notificationFeedItems = notificationFeedAggregation.items(from: projected)
+    }
+
+    /// Resolves the foreground Mac id for event routing without exposing RPC state to UI.
+    func normalizedForegroundNotificationFeedMacIDForEvent() -> String? {
+        normalizedForegroundNotificationFeedMacID()
+    }
+
+    /// Resolves a foreground Mac label for event-derived snapshots.
+    func notificationFeedDisplayNameForForeground(macDeviceID: String) -> String {
+        notificationFeedDisplayName(for: macDeviceID)
+    }
+
+    /// Resolves a secondary Mac label for event-derived snapshots.
+    func notificationFeedDisplayNameForSecondary(
+        macDeviceID: String,
+        fallback: String?
+    ) -> String {
+        let stored = notificationFeedDisplayName(for: macDeviceID)
+        return stored == macDeviceID
+            ? normalizedDisplayName(fallback, fallback: macDeviceID)
+            : stored
+    }
+
+    /// Applies a decoded snapshot if its revision is not stale.
+    ///
+    /// Kept internal so package tests can exercise the revision invariant without
+    /// constructing a transport. Production callers additionally validate client
+    /// identity before reaching this method.
+    @discardableResult
+    func applyNotificationFeedSnapshot(
+        _ response: MobileNotificationFeedListResponse,
+        macDeviceID: String,
+        displayName: String
+    ) -> Bool {
+        let currentRevision = notificationFeedSnapshotsByMac[macDeviceID]?.revision ?? -1
+        let minimumRevision = notificationFeedKnownRevisionsByMac[macDeviceID] ?? -1
+        guard response.revision >= minimumRevision else {
+            // An invalidation arrived while this list RPC was in flight. Keep one
+            // trailing pass armed so the newer revision cannot be lost when this
+            // stale response returns after the event.
+            notificationFeedRefreshPendingMacIDs.insert(macDeviceID)
+            return false
+        }
+        guard response.revision >= currentRevision else { return false }
+
+        let status = notificationFeedConnectionStatus(for: macDeviceID)
+        let items = response.notifications.compactMap { wire -> MobileNotificationFeedItem? in
+            let id = wire.id.trimmingCharacters(in: .whitespacesAndNewlines)
+            let workspaceID = wire.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !id.isEmpty, !workspaceID.isEmpty else { return nil }
+            return MobileNotificationFeedItem(
+                macDeviceID: macDeviceID,
+                notificationID: id,
+                macDisplayName: displayName,
+                remoteWorkspaceID: workspaceID,
+                remoteSurfaceID: normalizedOptional(wire.surfaceID),
+                title: wire.title,
+                subtitle: normalizedOptional(wire.subtitle),
+                body: wire.body,
+                createdAt: wire.createdAt,
+                isRead: wire.isRead,
+                workspaceTitle: normalizedOptional(wire.workspaceTitle),
+                surfaceTitle: normalizedOptional(wire.surfaceTitle),
+                connectionStatus: status
+            )
+        }
+        notificationFeedSnapshotsByMac[macDeviceID] = NotificationFeedMacSnapshot(
+            revision: response.revision,
+            items: items
+        )
+        notificationFeedKnownRevisionsByMac[macDeviceID] = response.revision
+        notificationFeedSuccessfulMacIDs.insert(macDeviceID)
+        recomputeNotificationFeedItems()
+        return true
+    }
+
+    private func scheduleNotificationFeedRefresh(
+        macDeviceID: String,
+        client: MobileCoreRPCClient,
+        displayName: String
+    ) -> Task<Void, Never>? {
+        guard notificationFeedClient(for: macDeviceID) === client,
+              notificationFeedClientSupportsCapability(macDeviceID: macDeviceID) else { return nil }
+        if let task = notificationFeedRefreshTasksByMac[macDeviceID] {
+            notificationFeedRefreshPendingMacIDs.insert(macDeviceID)
+            return task
+        }
+
+        let token = UUID()
+        notificationFeedRefreshTokensByMac[macDeviceID] = token
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            repeat {
+                self.notificationFeedRefreshPendingMacIDs.remove(macDeviceID)
+                await self.fetchNotificationFeed(
+                    macDeviceID: macDeviceID,
+                    client: client,
+                    displayName: displayName
+                )
+            } while !Task.isCancelled
+                && self.notificationFeedClient(for: macDeviceID) === client
+                && self.notificationFeedRefreshPendingMacIDs.contains(macDeviceID)
+            guard self.notificationFeedRefreshTokensByMac[macDeviceID] == token else { return }
+            self.notificationFeedRefreshTasksByMac[macDeviceID] = nil
+            self.notificationFeedRefreshTokensByMac[macDeviceID] = nil
+            self.notificationFeedRefreshPendingMacIDs.remove(macDeviceID)
+            let connectedTargetIDs = Set(self.notificationFeedTargets().map(\.macDeviceID))
+            let hasConnectedRefreshInFlight = self.notificationFeedRefreshTasksByMac.keys.contains {
+                connectedTargetIDs.contains($0)
+            }
+            if !hasConnectedRefreshInFlight {
+                self.notificationFeedStatus = self.resolvedNotificationFeedStatus()
+            }
+        }
+        notificationFeedRefreshTasksByMac[macDeviceID] = task
+        return task
+    }
+
+    private func fetchNotificationFeed(
+        macDeviceID: String,
+        client: MobileCoreRPCClient,
+        displayName: String
+    ) async {
+        do {
+            let request = try MobileCoreRPCClient.requestData(
+                method: "notification.feed.list",
+                params: [:]
+            )
+            let data = try await client.sendRequest(request)
+            let response = try MobileNotificationFeedListResponse.decode(data)
+            guard notificationFeedClient(for: macDeviceID) === client else { return }
+            _ = applyNotificationFeedSnapshot(
+                response,
+                macDeviceID: macDeviceID,
+                displayName: displayName
+            )
+        } catch {
+            guard notificationFeedClient(for: macDeviceID) === client else { return }
+            notificationFeedLog.error(
+                "list failed mac=\(macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .private)"
+            )
+        }
+    }
+
+    private func markAllNotificationFeedItemsRead(on target: NotificationFeedClientTarget) async {
+        do {
+            let request = try MobileCoreRPCClient.requestData(
+                method: "notification.feed.mark_all_read",
+                params: [:]
+            )
+            let data = try await target.client.sendRequest(request)
+            let response = try MobileNotificationFeedMutationResponse.decode(data)
+            guard notificationFeedClient(for: target.macDeviceID) === target.client else { return }
+            let ids = notificationFeedSnapshotsByMac[target.macDeviceID]?.items.map(\.notificationID) ?? []
+            applyNotificationFeedReadMutation(
+                macDeviceID: target.macDeviceID,
+                notificationIDs: ids,
+                revision: response.revision
+            )
+            _ = scheduleNotificationFeedRefresh(
+                macDeviceID: target.macDeviceID,
+                client: target.client,
+                displayName: target.displayName
+            )
+        } catch {
+            notificationFeedLog.error(
+                "mark all read failed mac=\(target.macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .private)"
+            )
+        }
+    }
+
+    /// Applies confirmed read flags without claiming that a mutation response is a full snapshot.
+    ///
+    /// A mutation revision can include notifications absent from the retained list, so callers
+    /// must schedule a list refresh after this optimistic projection.
+    func applyNotificationFeedReadMutation(
+        macDeviceID: String,
+        notificationIDs: [String],
+        revision: Int
+    ) {
+        guard var snapshot = notificationFeedSnapshotsByMac[macDeviceID],
+              revision >= snapshot.revision else { return }
+        let ids = Set(notificationIDs)
+        snapshot.items = snapshot.items.map { item in
+            ids.contains(item.notificationID) ? item.updating(isRead: true) : item
+        }
+        notificationFeedSnapshotsByMac[macDeviceID] = snapshot
+        notificationFeedKnownRevisionsByMac[macDeviceID] = max(
+            revision,
+            notificationFeedKnownRevisionsByMac[macDeviceID] ?? revision
+        )
+        recomputeNotificationFeedItems()
+    }
+
+    private func notificationFeedTargets() -> [NotificationFeedClientTarget] {
+        var targets: [NotificationFeedClientTarget] = []
+        if let client = remoteClient,
+           let macDeviceID = normalizedForegroundNotificationFeedMacID(),
+           supportedHostCapabilities.contains(Self.notificationFeedCapability) {
+            targets.append(NotificationFeedClientTarget(
+                macDeviceID: macDeviceID,
+                displayName: notificationFeedDisplayName(for: macDeviceID),
+                client: client
+            ))
+        }
+        for (macDeviceID, subscription) in secondaryMacSubscriptions
+        where subscription.supportedHostCapabilities.contains(Self.notificationFeedCapability) {
+            targets.append(NotificationFeedClientTarget(
+                macDeviceID: macDeviceID,
+                displayName: notificationFeedDisplayName(for: macDeviceID),
+                client: subscription.client
+            ))
+        }
+        return targets
+    }
+
+    private func notificationFeedTarget(for macDeviceID: String) -> NotificationFeedClientTarget? {
+        guard let client = notificationFeedClient(for: macDeviceID),
+              notificationFeedClientSupportsCapability(macDeviceID: macDeviceID) else { return nil }
+        return NotificationFeedClientTarget(
+            macDeviceID: macDeviceID,
+            displayName: notificationFeedDisplayName(for: macDeviceID),
+            client: client
+        )
+    }
+
+    private func notificationFeedClient(for macDeviceID: String) -> MobileCoreRPCClient? {
+        if normalizedForegroundNotificationFeedMacID() == macDeviceID {
+            return remoteClient
+        }
+        return secondaryMacSubscriptions[macDeviceID]?.client
+    }
+
+    private func notificationFeedClientSupportsCapability(macDeviceID: String) -> Bool {
+        if normalizedForegroundNotificationFeedMacID() == macDeviceID {
+            return supportedHostCapabilities.contains(Self.notificationFeedCapability)
+        }
+        return secondaryMacSubscriptions[macDeviceID]?.supportedHostCapabilities.contains(Self.notificationFeedCapability) == true
+    }
+
+    private func notificationFeedConnectionStatus(for macDeviceID: String) -> MobileMacConnectionStatus {
+        if normalizedForegroundNotificationFeedMacID() == macDeviceID {
+            return remoteClient == nil ? .unavailable : macConnectionStatus
+        }
+        if secondaryMacSubscriptions[macDeviceID] != nil {
+            return .connected
+        }
+        return workspacesByMac[macDeviceID]?.status ?? .unavailable
+    }
+
+    private func normalizedForegroundNotificationFeedMacID() -> String? {
+        let raw = foregroundMacDeviceID ?? activeTicket?.macDeviceID
+        return normalizedOptional(raw)
+    }
+
+    private func notificationFeedDisplayName(for macDeviceID: String) -> String {
+        let raw: String?
+        if normalizedForegroundNotificationFeedMacID() == macDeviceID {
+            raw = activeTicket?.macDisplayName ?? connectedHostName
+        } else {
+            raw = workspacesByMac[macDeviceID]?.displayName
+                ?? pairedMacs.first(where: { $0.macDeviceID == macDeviceID })?.displayName
+        }
+        return normalizedDisplayName(raw, fallback: macDeviceID)
+    }
+
+    private func resolvedNotificationFeedStatus() -> MobileNotificationFeedStatus {
+        let connectedClientCount = (remoteClient == nil ? 0 : 1) + secondaryMacSubscriptions.count
+        guard connectedClientCount > 0 else { return .unavailable }
+        let targets = notificationFeedTargets()
+        guard !targets.isEmpty else { return .requiresMacUpdate }
+        let targetIDs = Set(targets.map(\.macDeviceID))
+        if notificationFeedItems.isEmpty,
+           notificationFeedSuccessfulMacIDs.isDisjoint(with: targetIDs) {
+            return .unavailable
+        }
+        return targets.count < connectedClientCount ? .requiresMacUpdate : .ready
+    }
+
+    private func normalizedDisplayName(_ value: String?, fallback: String) -> String {
+        normalizedOptional(value) ?? fallback
+    }
+
+    private func normalizedOptional(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else { return nil }
+        return trimmed
+    }
+}

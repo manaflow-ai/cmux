@@ -158,6 +158,7 @@ extension MobileShellComposite {
                 subscription.cancel()
                 secondaryMacSubscriptions[id] = nil
             }
+            removeNotificationFeedSnapshot(macDeviceID: id)
             pruneWorkspaceStateForForgottenMac(id)
         }
         guard await isScopeCurrent(scope) else {

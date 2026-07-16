@@ -19,6 +19,7 @@ extension MobileHostService {
             "events.v1",
             "notification.badge.v1",
             "notification.dismiss.v1",
+            "notification.feed.v1",
             "notification.reconcile.v1",
             "terminal.bytes.v1",
             "terminal.render_grid.v1",
