@@ -2246,7 +2246,7 @@ private final class AcknowledgmentsWindowController: ReleasingWindowController {
             backing: .buffered,
             defer: false
         )
-        window.title = String(localized: "about.licenses.windowTitle", defaultValue: "Third-Party Licenses")
+        window.title = String(localized: "about.licenses", defaultValue: "Licenses")
         window.identifier = NSUserInterfaceItemIdentifier("cmux.licenses")
         window.center()
         window.contentView = NSHostingView(rootView: AcknowledgmentsView())
@@ -2264,13 +2264,7 @@ private final class AcknowledgmentsWindowController: ReleasingWindowController {
 }
 
 private struct AcknowledgmentsView: View {
-    private let content: String = {
-        if let url = Bundle.main.url(forResource: "THIRD_PARTY_LICENSES", withExtension: "md"),
-           let text = try? String(contentsOf: url) {
-            return text
-        }
-        return String(localized: "about.licenses.notFound", defaultValue: "Licenses file not found.")
-    }()
+    private let content = AboutLicenseContent.load(from: .main)
 
     var body: some View {
         ScrollView {
