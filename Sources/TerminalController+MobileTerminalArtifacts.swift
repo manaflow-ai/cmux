@@ -44,7 +44,7 @@ extension TerminalController {
         let visibleOnly = v2Bool(params, "visible_only") ?? false
         let countOnly = v2Bool(params, "count_only") ?? false
         let includeDirectories = v2Bool(params, "include_directories") ?? false
-        let resolution = mobileTerminalArtifactContext(
+        let resolution = await mobileTerminalArtifactContext(
             params: params,
             requiresPath: false,
             includeScrollback: !visibleOnly,
@@ -79,11 +79,16 @@ extension TerminalController {
         let response = await Task.detached(priority: .utility) {
             context.scan(includeDirectories: includeDirectories)
         }.value
+        await terminalArtifactAuthorizationStore.record(
+            workspaceID: context.workspaceID,
+            surfaceID: context.surfaceID,
+            canonicalPaths: Set(response.artifacts.map(\.path))
+        )
         return TerminalArtifactWire.result(response)
     }
 
     func v2MobileTerminalArtifactStat(params: [String: Any]) async -> V2CallResult {
-        let resolution = mobileTerminalArtifactContext(params: params, requiresPath: true)
+        let resolution = await mobileTerminalArtifactContext(params: params, requiresPath: true)
         guard case .success(let context) = resolution else {
             return resolution.failureResult
         }
@@ -107,7 +112,7 @@ extension TerminalController {
     }
 
     func v2MobileTerminalArtifactFetch(params: [String: Any]) async -> V2CallResult {
-        let resolution = mobileTerminalArtifactContext(params: params, requiresPath: true)
+        let resolution = await mobileTerminalArtifactContext(params: params, requiresPath: true)
         guard case .success(let context) = resolution else {
             return resolution.failureResult
         }
@@ -132,7 +137,7 @@ extension TerminalController {
     }
 
     func v2MobileTerminalArtifactThumbnail(params: [String: Any]) async -> V2CallResult {
-        let resolution = mobileTerminalArtifactContext(params: params, requiresPath: true)
+        let resolution = await mobileTerminalArtifactContext(params: params, requiresPath: true)
         guard case .success(let context) = resolution else {
             return resolution.failureResult
         }
@@ -155,7 +160,7 @@ extension TerminalController {
     }
 
     func v2MobileTerminalArtifactList(params: [String: Any]) async -> V2CallResult {
-        let resolution = mobileTerminalArtifactContext(params: params, requiresPath: true)
+        let resolution = await mobileTerminalArtifactContext(params: params, requiresPath: true)
         guard case .success(let context) = resolution else {
             return resolution.failureResult
         }
@@ -181,7 +186,7 @@ extension TerminalController {
         requiresPath: Bool,
         includeScrollback: Bool = true,
         includeTerminalText: Bool = true
-    ) -> TerminalArtifactContextResolution {
+    ) async -> TerminalArtifactContextResolution {
         guard let workspaceID = v2RawString(params, "workspace_id")?.trimmingCharacters(in: .whitespacesAndNewlines),
               let surfaceID = v2RawString(params, "surface_id")?.trimmingCharacters(in: .whitespacesAndNewlines),
               !workspaceID.isEmpty,
@@ -196,6 +201,12 @@ extension TerminalController {
                 data: nil
             ))
         }
+        let scanAuthorizedPaths = requiresPath
+            ? await terminalArtifactAuthorizationStore.authorizedPaths(
+                workspaceID: workspaceID,
+                surfaceID: surfaceID
+            )
+            : []
         let directoryAccessMode = mobileArtifactDirectoryAccessMode()
         return v2MainSync { () -> TerminalArtifactContextResolution in
             guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
@@ -219,10 +230,13 @@ extension TerminalController {
                 $0.currentOrMostRecentSessionRecord(surfaceID: resolvedSurfaceID.uuidString)?.sessionID
             }
             return .success(TerminalArtifactReadContext(
+                workspaceID: workspaceID,
+                surfaceID: surfaceID,
                 terminalText: terminalText,
                 workingDirectory: workingDirectory,
                 requestedPath: v2RawString(params, "path"),
                 sessionID: sessionID,
+                scanAuthorizedPaths: scanAuthorizedPaths,
                 directoryAccessMode: directoryAccessMode
             ))
         }
@@ -305,23 +319,32 @@ private struct TerminalArtifactReadContext: Sendable {
         case forbidden
     }
 
+    let workspaceID: String
+    let surfaceID: String
     private let terminalText: String
     private let workingDirectory: String?
     let requestedPath: String?
     let sessionID: String?
+    private let scanAuthorizedPaths: Set<String>
     private let directoryAccessMode: ChatArtifactScope.DirectoryAccessMode
 
     init(
+        workspaceID: String,
+        surfaceID: String,
         terminalText: String,
         workingDirectory: String?,
         requestedPath: String?,
         sessionID: String?,
+        scanAuthorizedPaths: Set<String>,
         directoryAccessMode: ChatArtifactScope.DirectoryAccessMode
     ) {
+        self.workspaceID = workspaceID
+        self.surfaceID = surfaceID
         self.terminalText = terminalText
         self.workingDirectory = workingDirectory
         self.requestedPath = requestedPath
         self.sessionID = sessionID
+        self.scanAuthorizedPaths = scanAuthorizedPaths
         self.directoryAccessMode = directoryAccessMode
     }
 
@@ -351,10 +374,19 @@ private struct TerminalArtifactReadContext: Sendable {
         _ operation: (ArtifactByteReader, String) throws -> T
     ) throws -> T {
         guard let requestedPath else { throw Error.forbidden }
+        let resolver = ChatArtifactScope.FoundationResolver()
+        let snapshotScope = ChatArtifactScope(
+            referencedPaths: scanAuthorizedPaths,
+            directoryAccessMode: directoryAccessMode,
+            resolver: resolver
+        )
+        if let canonicalPath = snapshotScope.canonicalFilePath(for: requestedPath) {
+            return try operation(ArtifactByteReader(), canonicalPath)
+        }
         let scope = TerminalArtifactScope(
             terminalText: terminalText,
             workingDirectory: workingDirectory,
-            resolver: ChatArtifactScope.FoundationResolver(),
+            resolver: resolver,
             directoryAccessMode: directoryAccessMode
         )
         guard let canonicalPath = scope.canonicalPath(for: requestedPath) else {
@@ -367,10 +399,19 @@ private struct TerminalArtifactReadContext: Sendable {
         _ operation: (ArtifactByteReader, String) throws -> T
     ) throws -> T {
         guard let requestedPath else { throw Error.forbidden }
+        let resolver = ChatArtifactScope.FoundationResolver()
+        let snapshotScope = ChatArtifactScope(
+            referencedPaths: scanAuthorizedPaths,
+            directoryAccessMode: directoryAccessMode,
+            resolver: resolver
+        )
+        if let canonicalPath = snapshotScope.canonicalDirectoryListPath(for: requestedPath) {
+            return try operation(ArtifactByteReader(), canonicalPath)
+        }
         let scope = TerminalArtifactScope(
             terminalText: terminalText,
             workingDirectory: workingDirectory,
-            resolver: ChatArtifactScope.FoundationResolver(),
+            resolver: resolver,
             directoryAccessMode: directoryAccessMode
         )
         guard let canonicalPath = scope.canonicalDirectoryListPath(for: requestedPath) else {
