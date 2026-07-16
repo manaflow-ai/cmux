@@ -715,6 +715,125 @@
         }
       }
     },
+    "mobile.browserStream.addressPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Search or enter address" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "検索またはアドレスを入力" } }
+      }
+    },
+    "mobile.browserStream.back": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Back" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "戻る" } }
+      }
+    },
+    "mobile.browserStream.close": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Close Stream" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ストリームを閉じる" } }
+      }
+    },
+    "mobile.browserStream.disconnected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Browser Disconnected" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザが切断されました" } }
+      }
+    },
+    "mobile.browserStream.disconnectedDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reconnect to the Mac to continue streaming." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ストリーミングを続けるにはMacに再接続してください。" } }
+      }
+    },
+    "mobile.browserStream.forward": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Forward" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "進む" } }
+      }
+    },
+    "mobile.browserStream.hideKeyboard": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Hide Keyboard" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "キーボードを隠す" } }
+      }
+    },
+    "mobile.browserStream.keyboard": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Show Keyboard" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "キーボードを表示" } }
+      }
+    },
+    "mobile.browserStream.loading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Loading" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "読み込み中" } }
+      }
+    },
+    "mobile.browserStream.menuTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Mac Browsers" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macのブラウザ" } }
+      }
+    },
+    "mobile.browserStream.noAddress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No address" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アドレスなし" } }
+      }
+    },
+    "mobile.browserStream.paused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Stream Paused" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ストリームは一時停止中" } }
+      }
+    },
+    "mobile.browserStream.pausedDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Return to cmux to resume the browser mirror." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmuxに戻るとブラウザのミラーリングが再開します。" } }
+      }
+    },
+    "mobile.browserStream.reload": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reload" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "再読み込み" } }
+      }
+    },
+    "mobile.browserStream.untitled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Browser" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザ" } }
+      }
+    },
+    "mobile.browserStream.waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Waiting for Browser" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザを待機中" } }
+      }
+    },
+    "mobile.browserStream.waitingDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The first frame will appear when the Mac is ready." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macの準備ができると最初のフレームが表示されます。" } }
+      }
+    },
     "mobile.browser.addressPlaceholder": {
       "extractionState": "manual",
       "localizations": {
@@ -3926,6 +4045,13 @@
             "value": "ワークスペース %d"
           }
         }
+      }
+    },
+    "mobile.macUpdateHint.browserStream": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Update cmux on your Mac to stream browser panes" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザペインをストリーミングするにはMacのcmuxを更新してください" } }
       }
     },
     "mobile.macUpdateHint.bodyFormat": {
