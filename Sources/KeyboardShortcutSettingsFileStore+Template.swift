@@ -153,6 +153,11 @@ extension CmuxSettingsFileStore {
                     "showProgress": SidebarWorkspaceDetailDefaults.showProgress,
                     "showAgentActivity": SidebarWorkspaceDetailDefaults.showAgentActivity,
                     "showCustomMetadata": SidebarWorkspaceDetailDefaults.showCustomMetadata,
+                    "stateIndicatorColors": [
+                        "running": NSNull(),
+                        "needsInput": NSNull(),
+                        "idle": NSNull(),
+                    ],
                 ],
             ],
             [

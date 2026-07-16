@@ -9440,6 +9440,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let notificationBadgePosition: SidebarIndicatorPosition
     let selectionColorHex: String?
     let notificationBadgeColorHex: String?
+    let stateIndicatorColors: SidebarStateIndicatorColors
     let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
     let iMessageModeEnabled: Bool
     let workspaceTodoChecklistStyle: WorkspaceTodoChecklistStyle
@@ -9498,6 +9499,11 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         notificationBadgePosition = settings.value(for: catalog.sidebar.notificationBadgePosition)
         selectionColorHex = defaults.string(forKey: "sidebarSelectionColorHex")
         notificationBadgeColorHex = defaults.string(forKey: "sidebarNotificationBadgeColorHex")
+        stateIndicatorColors = SidebarStateIndicatorColors(
+            runningHex: defaults.string(forKey: catalog.sidebar.stateIndicatorRunningColorHex.userDefaultsKey),
+            needsInputHex: defaults.string(forKey: catalog.sidebar.stateIndicatorNeedsInputColorHex.userDefaultsKey),
+            idleHex: defaults.string(forKey: catalog.sidebar.stateIndicatorIdleColorHex.userDefaultsKey)
+        )
         iMessageModeEnabled = IMessageModeSettings.isEnabled(defaults: defaults)
         workspaceTodoChecklistStyle = settings.value(for: catalog.betaFeatures.workspaceTodosChecklistStyle)
     }
@@ -13926,6 +13932,7 @@ struct TabItemView: View, Equatable {
                 if !metadataEntries.isEmpty {
                     SidebarMetadataRows(
                         entries: metadataEntries,
+                        overrideColors: workspaceSnapshot.metadataEntryOverrideColors,
                         isActive: usesInvertedActiveForeground,
                         activeForegroundColor: activeSecondaryColor(0.95),
                         activeSecondaryForegroundColor: activeSecondaryColor(0.65),
@@ -14675,6 +14682,8 @@ private extension String {
 
 private struct SidebarMetadataRows: View {
     let entries: [SidebarStatusEntry]
+    // `sidebar.stateIndicatorColors` hex overrides keyed by entry key.
+    let overrideColors: [String: String]
     let isActive: Bool
     let activeForegroundColor: Color
     let activeSecondaryForegroundColor: Color
@@ -14689,6 +14698,7 @@ private struct SidebarMetadataRows: View {
             ForEach(visibleEntries, id: \.key) { entry in
                 SidebarMetadataEntryRow(
                     entry: entry,
+                    overrideColorHex: overrideColors[entry.key],
                     isActive: isActive,
                     activeForegroundColor: activeForegroundColor,
                     fontScale: fontScale,
@@ -14732,6 +14742,9 @@ private struct SidebarMetadataRows: View {
 
 private struct SidebarMetadataEntryRow: View {
     let entry: SidebarStatusEntry
+    // Configured `sidebar.stateIndicatorColors` hex for this entry's current
+    // agent lifecycle state; nil when unconfigured or state is unknown.
+    let overrideColorHex: String?
     let isActive: Bool
     let activeForegroundColor: Color
     let fontScale: CGFloat
@@ -14773,6 +14786,12 @@ private struct SidebarMetadataEntryRow: View {
     }
 
     private var foregroundColor: Color {
+        // A configured per-state color wins everywhere, including the active
+        // (selected) row that otherwise flattens producer colors — per-state
+        // distinguishability is the point of `sidebar.stateIndicatorColors`.
+        if let overrideColorHex, let override = Color(hex: overrideColorHex) {
+            return override
+        }
         if isActive,
            let raw = entry.color,
            Color(hex: raw) != nil {

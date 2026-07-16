@@ -1,3 +1,4 @@
+import AppKit
 import CmuxFoundation
 import CmuxSettings
 import SwiftUI
@@ -32,6 +33,9 @@ public struct SidebarSection: View {
     @State var loadingSpinnerPosition: DefaultsValueModel<SidebarIndicatorPosition>
     @State var notificationBadgePosition: DefaultsValueModel<SidebarIndicatorPosition>
     @State private var showMetadata: DefaultsValueModel<Bool>
+    @State private var stateIndicatorRunningHex: DefaultsValueModel<String>
+    @State private var stateIndicatorNeedsInputHex: DefaultsValueModel<String>
+    @State private var stateIndicatorIdleHex: DefaultsValueModel<String>
     @State private var rightMaxWidth: DefaultsValueModel<Double>
     @State private var rememberedRightMaxWidth: DefaultsValueModel<Double>
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog, hostActions: SettingsHostActions) {
@@ -61,6 +65,9 @@ public struct SidebarSection: View {
         _loadingSpinnerPosition = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.loadingSpinnerPosition))
         _notificationBadgePosition = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.notificationBadgePosition))
         _showMetadata = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showCustomMetadata))
+        _stateIndicatorRunningHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.stateIndicatorRunningColorHex))
+        _stateIndicatorNeedsInputHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.stateIndicatorNeedsInputColorHex))
+        _stateIndicatorIdleHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.stateIndicatorIdleColorHex))
         _rightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rightMaxWidth))
         _rememberedRightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rememberedRightMaxWidth))
     }
@@ -95,6 +102,9 @@ public struct SidebarSection: View {
             loadingSpinnerPosition,
             notificationBadgePosition,
             showMetadata,
+            stateIndicatorRunningHex,
+            stateIndicatorNeedsInputHex,
+            stateIndicatorIdleHex,
             rightMaxWidth,
             rememberedRightMaxWidth,
         ]
@@ -482,7 +492,79 @@ public struct SidebarSection: View {
                     .controlSize(.small)
             }
             .disabled(hideAll.current)
+            SettingsCardDivider()
+
+            stateIndicatorColorRow(
+                title: String(localized: "settings.sidebar.stateIndicatorColors.running", defaultValue: "Running Status Color"),
+                subtitle: String(localized: "settings.sidebar.stateIndicatorColors.running.subtitle", defaultValue: "Color of agent status pills while the agent is running. Default keeps the agent-reported color."),
+                json: "sidebar.stateIndicatorColors.running",
+                model: stateIndicatorRunningHex
+            )
+            SettingsCardDivider()
+            stateIndicatorColorRow(
+                title: String(localized: "settings.sidebar.stateIndicatorColors.needsInput", defaultValue: "Needs Input Status Color"),
+                subtitle: String(localized: "settings.sidebar.stateIndicatorColors.needsInput.subtitle", defaultValue: "Color of agent status pills while the agent is waiting for input. Default keeps the agent-reported color."),
+                json: "sidebar.stateIndicatorColors.needsInput",
+                model: stateIndicatorNeedsInputHex
+            )
+            SettingsCardDivider()
+            stateIndicatorColorRow(
+                title: String(localized: "settings.sidebar.stateIndicatorColors.idle", defaultValue: "Idle Status Color"),
+                subtitle: String(localized: "settings.sidebar.stateIndicatorColors.idle.subtitle", defaultValue: "Color of agent status pills while the agent is idle. Default keeps the agent-reported color."),
+                json: "sidebar.stateIndicatorColors.idle",
+                model: stateIndicatorIdleHex
+            )
         }
+    }
+
+    /// One `sidebar.stateIndicatorColors.*` color override row: reset
+    /// button (when customized), hex color picker, and current-value label.
+    /// Mirrors `WorkspaceColorsSection`'s color rows.
+    @ViewBuilder
+    private func stateIndicatorColorRow(
+        title: String,
+        subtitle: String,
+        json: String,
+        model: DefaultsValueModel<String>
+    ) -> some View {
+        let isCustom = !model.current.isEmpty
+        SettingsCardRow(
+            configurationReview: .json(json),
+            title,
+            subtitle: subtitle
+        ) {
+            HStack(spacing: 8) {
+                if isCustom {
+                    Button(String(localized: "settings.sidebar.stateIndicatorColors.reset", defaultValue: "Reset")) { model.reset() }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                }
+                HexColorPicker(
+                    storedHex: model.current,
+                    fallback: Self.producerStatusPillColor(),
+                    reconcileRevision: model.revision
+                ) { hex in
+                    model.set(hex)
+                }
+                Text(isCustom ? model.current : String(localized: "settings.sidebarAppearance.defaultLabel", defaultValue: "Default"))
+                    .cmuxFont(size: 12, weight: .medium, design: .monospaced)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 76, alignment: .trailing)
+            }
+        }
+        .disabled(hideAll.current)
+    }
+
+    /// The `#4C8DFF` blue every agent integration reports for status pills;
+    /// used as the picker swatch fallback when a state has no override so
+    /// the swatch matches what the sidebar actually renders.
+    private static func producerStatusPillColor() -> Color {
+        Color(nsColor: NSColor(
+            srgbRed: 0x4C / 255.0,
+            green: 0x8D / 255.0,
+            blue: 0xFF / 255.0,
+            alpha: 1.0
+        ))
     }
 
     private func prLinksSubtitle(prVisible: Bool, prClickable: Bool, openInCmux: Bool) -> String {

@@ -194,6 +194,30 @@ extension Array where Element == CuratedSettingEntry {
                 synonyms: "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side"
             ),
             .init(section: .sidebarAppearance, id: "show-metadata", title: "Show Custom Metadata in Sidebar", synonyms: "sidebar.showCustomMetadata metadata meta report_meta status custom block"),
+            .init(
+                section: .sidebarAppearance,
+                id: "state-indicator-running-color",
+                title: String(localized: "settings.sidebar.stateIndicatorColors.running", defaultValue: "Running Status Color"),
+                detailText: String(localized: "settings.sidebar.stateIndicatorColors.running.subtitle", defaultValue: "Color of agent status pills while the agent is running. Default keeps the agent-reported color."),
+                paths: ["sidebar.stateIndicatorColors.running"],
+                synonyms: String(localized: "settings.search.alias.setting.sidebarAppearance.state-indicator-running-color", defaultValue: "sidebar.stateIndicatorColors.running agent status pill running color state indicator lifecycle claude codex bolt")
+            ),
+            .init(
+                section: .sidebarAppearance,
+                id: "state-indicator-needs-input-color",
+                title: String(localized: "settings.sidebar.stateIndicatorColors.needsInput", defaultValue: "Needs Input Status Color"),
+                detailText: String(localized: "settings.sidebar.stateIndicatorColors.needsInput.subtitle", defaultValue: "Color of agent status pills while the agent is waiting for input. Default keeps the agent-reported color."),
+                paths: ["sidebar.stateIndicatorColors.needsInput"],
+                synonyms: String(localized: "settings.search.alias.setting.sidebarAppearance.state-indicator-needs-input-color", defaultValue: "sidebar.stateIndicatorColors.needsInput agent status pill needs input waiting blocked color state indicator lifecycle bell")
+            ),
+            .init(
+                section: .sidebarAppearance,
+                id: "state-indicator-idle-color",
+                title: String(localized: "settings.sidebar.stateIndicatorColors.idle", defaultValue: "Idle Status Color"),
+                detailText: String(localized: "settings.sidebar.stateIndicatorColors.idle.subtitle", defaultValue: "Color of agent status pills while the agent is idle. Default keeps the agent-reported color."),
+                paths: ["sidebar.stateIndicatorColors.idle"],
+                synonyms: String(localized: "settings.search.alias.setting.sidebarAppearance.state-indicator-idle-color", defaultValue: "sidebar.stateIndicatorColors.idle agent status pill idle finished done color state indicator lifecycle")
+            ),
             .init(section: .sidebarAppearance, id: "right-max-width", title: "Dock Max Width", synonyms: "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit"),
 
             // Mobile
