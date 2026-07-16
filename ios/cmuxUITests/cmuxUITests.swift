@@ -235,11 +235,30 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["MobileNotificationFeedDayYesterday"].exists)
         XCTAssertTrue(app.staticTexts["Build Mac · Unavailable"].exists)
 
+        let approvalTitle = app.staticTexts["Codex needs approval"]
+        let approvalWorkspace = app.staticTexts["cmux iOS"]
+        let approvalSubtitle = app.staticTexts["Notification feed"]
+        XCTAssertTrue(approvalTitle.waitForExistence(timeout: 3))
+        XCTAssertTrue(approvalWorkspace.waitForExistence(timeout: 3))
+        XCTAssertTrue(approvalSubtitle.waitForExistence(timeout: 3))
+        XCTAssertLessThanOrEqual(approvalTitle.frame.maxY, approvalWorkspace.frame.minY)
+        XCTAssertLessThanOrEqual(approvalWorkspace.frame.minY - approvalTitle.frame.maxY, 8)
+        XCTAssertLessThanOrEqual(approvalWorkspace.frame.maxY, approvalSubtitle.frame.minY)
+        XCTAssertGreaterThan(approvalWorkspace.frame.height, approvalSubtitle.frame.height)
+
+        let approvalRow = app.descendants(matching: .any)["MobileNotificationFeedRow-studio-codex-approval"]
+        XCTAssertTrue(approvalRow.waitForExistence(timeout: 3))
+        let approvalValue = try XCTUnwrap(approvalRow.value as? String)
+        let workspaceRange = try XCTUnwrap(approvalValue.range(of: "cmux iOS"))
+        let subtitleRange = try XCTUnwrap(approvalValue.range(of: "Notification feed"))
+        let bodyRange = try XCTUnwrap(approvalValue.range(of: "The feed is ready"))
+        XCTAssertLessThan(workspaceRange.lowerBound, subtitleRange.lowerBound)
+        XCTAssertLessThan(workspaceRange.lowerBound, bodyRange.lowerBound)
+
         let unreadFilter = app.descendants(matching: .any)["MobileNotificationFeedFilterUnread"]
         XCTAssertTrue(unreadFilter.waitForExistence(timeout: 3))
         unreadFilter.tap()
 
-        let approvalRow = app.descendants(matching: .any)["MobileNotificationFeedRow-studio-codex-approval"]
         XCTAssertTrue(approvalRow.waitForExistence(timeout: 3))
         approvalRow.swipeLeft()
         let markRead = app.descendants(matching: .any)["MobileNotificationFeedMarkReadSwipe-studio-codex-approval"]
