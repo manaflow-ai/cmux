@@ -3,6 +3,187 @@ import Testing
 
 @Suite(.serialized)
 struct CLICodexHookTimeoutRegressionTests {
+    @Test func codexWrapperInjectionMigratesLegacyPersistentHooks() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-wrapper-migration-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        let hookURL = codexHome.appendingPathComponent("hooks.json", isDirectory: false)
+        let userCommand = "printf user-hook"
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let userHookJSON: [String: Any] = [
+            "hooks": [
+                "PreToolUse": [
+                    ["hooks": [["command": userCommand, "timeout": 5, "type": "command"]]],
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: userHookJSON, options: [.prettyPrinted, .sortedKeys])
+            .write(to: hookURL, options: .atomic)
+
+        let install = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "install", "--yes"],
+            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
+            timeout: 10
+        )
+        #expect(install.status == 0, Comment(rawValue: install.stderr))
+        #expect(try codexHookEntries(in: codexHome).count > 1)
+
+        try? FileManager.default.removeItem(
+            at: codexHome.appendingPathComponent(".cmux-persistent-hooks-opt-in", isDirectory: false)
+        )
+        let injection = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "inject-args"],
+            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
+            timeout: 10
+        )
+
+        #expect(injection.status == 0, Comment(rawValue: injection.stderr))
+        #expect(injection.stdout.contains("--enable\0hooks\0"))
+        let remainingHooks = try codexHookEntries(in: codexHome)
+        #expect(remainingHooks.count == 1)
+        #expect(remainingHooks.first?.command == userCommand)
+    }
+
+    @Test func codexWrapperInjectionDefersToExplicitPersistentHooks() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-wrapper-opt-in-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let install = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "install", "--yes"],
+            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
+            timeout: 10
+        )
+        #expect(install.status == 0, Comment(rawValue: install.stderr))
+        let installedHooks = try codexHookEntries(in: codexHome)
+        #expect(!installedHooks.isEmpty)
+
+        let injection = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "inject-args"],
+            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
+            timeout: 10
+        )
+
+        #expect(injection.status == 0, Comment(rawValue: injection.stderr))
+        #expect(injection.stdout == "--enable\0hooks\0")
+        #expect(try codexHookEntries(in: codexHome).count == installedHooks.count)
+    }
+
+    @Test func codexDefaultSetupLeavesCodexToTheWrapper() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-default-setup-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        let fakeCodex = binDir.appendingPathComponent("codex", isDirectory: false)
+        let hookURL = codexHome.appendingPathComponent("hooks.json", isDirectory: false)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+        try makeCodexHookExecutableShellFile(at: fakeCodex, lines: ["#!/bin/sh", "exit 0"])
+        try Data(#"{"hooks":{}}"#.utf8).write(to: hookURL, options: .atomic)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var environment = codexHookTestEnvironment(root: root, codexHome: codexHome)
+        environment["PATH"] = "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin"
+        let setup = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "setup", "--yes"],
+            environment: environment,
+            timeout: 10
+        )
+
+        #expect(setup.status == 0, Comment(rawValue: setup.stderr))
+        #expect(try codexHookEntries(in: codexHome).isEmpty)
+    }
+
+    @Test func codexWrapperSerializesBackgroundHookDelivery() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-wrapper-order-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux", isDirectory: false)
+        let deliveryLog = root.appendingPathComponent("delivery.log", isDirectory: false)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try makeCodexHookExecutableShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "cat >/dev/null",
+            "case \"$*\" in",
+            "  *pre-tool-use*) printf 'pre-start\\n' >> \"$CMUX_TEST_DELIVERY_LOG\"; sleep 1; printf 'pre-end\\n' >> \"$CMUX_TEST_DELIVERY_LOG\" ;;",
+            "  *post-tool-use*) printf 'post\\n' >> \"$CMUX_TEST_DELIVERY_LOG\" ;;",
+            "esac",
+        ])
+
+        let injection = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "inject-args"],
+            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
+            timeout: 10
+        )
+        #expect(injection.status == 0, Comment(rawValue: injection.stderr))
+
+        let arguments = injection.stdout
+            .split(separator: "\0", omittingEmptySubsequences: true)
+            .map(String.init)
+        func injectedCommand(for eventName: String) throws -> String {
+            let argument = try #require(arguments.first { $0.hasPrefix("hooks.\(eventName)=") })
+            let commandPrefix = "command='''"
+            let commandStart = try #require(argument.range(of: commandPrefix)?.upperBound)
+            let commandTail = argument[commandStart...]
+            let commandEnd = try #require(commandTail.range(of: "'''")?.lowerBound)
+            return String(commandTail[..<commandEnd])
+        }
+        let preToolUse = try injectedCommand(for: "PreToolUse")
+        let postToolUse = try injectedCommand(for: "PostToolUse")
+        let environment = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "TMPDIR": root.path,
+            "CMUX_SURFACE_ID": "surface-123",
+            "CMUX_SOCKET_PATH": "/tmp/cmux-test.sock",
+            "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
+            "CMUX_CODEX_PID": "4242",
+            "CMUX_TEST_DELIVERY_LOG": deliveryLog.path,
+        ]
+
+        let preRun = runCodexHookProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", preToolUse],
+            environment: environment,
+            standardInput: #"{"hook_event_name":"PreToolUse"}"#,
+            timeout: 2
+        )
+        #expect(preRun.status == 0, Comment(rawValue: preRun.stderr))
+        #expect(waitForFile(deliveryLog, containing: "pre-start", timeout: 2))
+
+        let postRun = runCodexHookProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", postToolUse],
+            environment: environment,
+            standardInput: #"{"hook_event_name":"PostToolUse"}"#,
+            timeout: 2
+        )
+        #expect(postRun.status == 0, Comment(rawValue: postRun.stderr))
+        #expect(waitForFile(deliveryLog, containing: "post", timeout: 4))
+        #expect(waitForFile(deliveryLog, containing: "pre-end", timeout: 4))
+
+        let deliveries = try String(contentsOf: deliveryLog, encoding: .utf8)
+            .split(separator: "\n")
+            .map(String.init)
+        #expect(deliveries == ["pre-start", "pre-end", "post"])
+    }
+
     @Test func codexHookInstallReplacesSynchronousBundledHook() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
