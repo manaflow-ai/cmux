@@ -148,6 +148,48 @@ struct MobileShellNotificationFeedStateTests {
         #expect(store.consumeDeeplinkWorkspaceNavigationRequest() == "workspace-row")
     }
 
+    @Test("Open follows a retargetable surface to its current workspace")
+    func openFollowsRetargetedSurfaceOwner() async {
+        var capturedWorkspace = MobileWorkspacePreview(
+            id: "workspace-captured-row",
+            macDeviceID: "mac",
+            name: "Captured",
+            terminals: [MobileTerminalPreview(id: "surface-other", name: "other")]
+        )
+        capturedWorkspace.remoteWorkspaceID = "workspace-captured"
+        var liveWorkspace = MobileWorkspacePreview(
+            id: "workspace-live-row",
+            macDeviceID: "mac",
+            name: "Live",
+            terminals: [MobileTerminalPreview(id: "surface-retargeted", name: "agent")]
+        )
+        liveWorkspace.remoteWorkspaceID = "workspace-live"
+        let store = MobileShellComposite(
+            connectionState: .connected,
+            workspaces: [capturedWorkspace, liveWorkspace]
+        )
+        store.foregroundMacDeviceID = "mac"
+        let item = MobileNotificationFeedItem(
+            macDeviceID: "mac",
+            notificationID: "notification",
+            macDisplayName: "Mac",
+            remoteWorkspaceID: "workspace-captured",
+            remoteSurfaceID: "surface-retargeted",
+            title: "Approval needed",
+            body: "Allow the command?",
+            createdAt: Date(),
+            isRead: true,
+            connectionStatus: .connected
+        )
+
+        await store.openNotificationFeedItem(item)
+
+        #expect(store.selectedWorkspaceID == "workspace-live-row")
+        #expect(store.selectedTerminalID == "surface-retargeted")
+        #expect(store.deeplinkWorkspaceNavigationRequest?.origin == .notificationFeed)
+        #expect(store.consumeDeeplinkWorkspaceNavigationRequest() == "workspace-live-row")
+    }
+
     private func response(
         revision: Int,
         id: String,
