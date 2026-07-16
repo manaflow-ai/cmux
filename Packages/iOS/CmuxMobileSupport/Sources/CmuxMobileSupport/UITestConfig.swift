@@ -97,6 +97,25 @@ public struct UITestConfig {
         #endif
     }
 
+    /// The standalone notification-feed preview variant (`1` or `empty`).
+    public static var notificationFeedPreview: String? {
+        notificationFeedPreview(from: ProcessInfo.processInfo.environment)
+    }
+
+    /// Resolves the standalone notification-feed preview from an explicit environment.
+    /// - Parameter env: The environment dictionary to inspect.
+    /// - Returns: `1` or `empty` when selected; otherwise `nil`.
+    public static func notificationFeedPreview(from env: [String: String]) -> String? {
+        #if DEBUG
+        let value = env["CMUX_UITEST_NOTIFICATION_FEED_PREVIEW"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return value == "1" || value == "empty" ? value : nil
+        #else
+        return nil
+        #endif
+    }
+
     /// Whether the workspace detail delayed-terminal lifecycle preview is enabled.
     ///
     /// When `CMUX_UITEST_WORKSPACE_DETAIL_DELAYED_TERMINAL=1`, the root view renders

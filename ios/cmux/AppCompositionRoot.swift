@@ -33,6 +33,8 @@ final class AppCompositionRoot {
     /// auto-pair attach URL is active, so neither path is wedged behind the
     /// one-time onboarding screen.
     let onboardingStore: MobileOnboardingStore
+    /// First-open notification-feed education-card persistence.
+    let notificationFeedIntroStore: MobileNotificationFeedIntroStore
     /// The process-wide tailnet detector behind the shell UI's read-only
     /// observing port, injected down so pairing and disconnected surfaces can
     /// explain a Tailscale-off phone.
@@ -116,6 +118,10 @@ final class AppCompositionRoot {
         self.onboardingStore = MobileOnboardingStore(
             defaults: .standard,
             forceSeen: bypassOnboarding
+        )
+        self.notificationFeedIntroStore = MobileNotificationFeedIntroStore(
+            defaults: .standard,
+            forceDismissed: bypassOnboarding
         )
         self.tailscaleStatusMonitor = TailscaleStatusMonitorAdapter(monitor: TailscaleStatusMonitor())
         #if DEBUG

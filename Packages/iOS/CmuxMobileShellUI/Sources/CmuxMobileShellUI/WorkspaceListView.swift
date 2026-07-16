@@ -65,6 +65,8 @@ struct WorkspaceListView: View {
     /// The shell store, forwarded to Settings to drive the multi-Mac switcher.
     /// `nil` in previews.
     var store: CMUXMobileShellStore?
+    /// Injected persistence for the first-open notification-feed intro card.
+    var notificationFeedIntroStore: MobileNotificationFeedIntroStore? = nil
 
     /// Optional: rename a workspace on the Mac. When present, each row offers a
     /// Rename context-menu action.
@@ -103,6 +105,7 @@ struct WorkspaceListView: View {
     @State private var searchText = ""
     @State private var showingShortcutsSettings = false
     @State private var showingSettings = false
+    @State private var showingNotificationFeed = false
     @State private var showingDeviceTree = false
     /// The active row filter (All / Unread), shared-model state behind the
     /// toolbar ``WorkspaceListFilterMenu``. Session-transient like a search.
@@ -350,6 +353,13 @@ struct WorkspaceListView: View {
                 signOut: signOut,
                 store: store
             )
+        }
+        .sheet(isPresented: $showingNotificationFeed) {
+            if let store, let notificationFeedIntroStore {
+                NotificationFeedScreen(store: store, introStore: notificationFeedIntroStore)
+                    .presentationDetents([.large])
+                    .presentationDragIndicator(.visible)
+            }
         }
         // Present the device tree at the workspace-list level (a single sheet,
         // not nested under Settings), so selecting a workspace dismisses straight

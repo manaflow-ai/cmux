@@ -2,6 +2,12 @@ import Testing
 @testable import CmuxMobileSupport
 
 @Suite struct UITestConfigTests {
+    @Test func notificationFeedPreviewAcceptsOnlySupportedVariants() {
+        #expect(UITestConfig.notificationFeedPreview(from: ["CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "1"]) == "1")
+        #expect(UITestConfig.notificationFeedPreview(from: ["CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": " EMPTY "]) == "empty")
+        #expect(UITestConfig.notificationFeedPreview(from: ["CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "yes"]) == nil)
+    }
+
     @Test func explicitDisableWinsOverTestHost() {
         let env = [
             "CMUX_UITEST_MOCK_DATA": "0",

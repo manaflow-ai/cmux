@@ -18,6 +18,7 @@ struct WorkspaceShellView: View {
     /// Present the add-device (pairing) flow from the Computers screen. `nil`
     /// hides the add affordance.
     var showAddDevice: (() -> Void)?
+    var notificationFeedIntroStore: MobileNotificationFeedIntroStore? = nil
     let compactNavigationPolicy = WorkspaceShellCompactNavigationPolicy()
     @Environment(MobileDisplaySettings.self) private var displaySettings
     @State var compactNavigationPath: [MobileWorkspacePreview.ID] = []
@@ -137,6 +138,7 @@ struct WorkspaceShellView: View {
                 reconnect: reconnectClosure,
                 showAddDevice: showAddDevice,
                 store: store,
+                notificationFeedIntroStore: notificationFeedIntroStore,
                 renameWorkspace: renameWorkspaceClosure,
                 setPinned: setWorkspacePinnedClosure,
                 setUnread: setWorkspaceUnreadClosure,
@@ -244,6 +246,7 @@ struct WorkspaceShellView: View {
                 reconnect: reconnectClosure,
                 showAddDevice: showAddDevice,
                 store: store,
+                notificationFeedIntroStore: notificationFeedIntroStore,
                 renameWorkspace: renameWorkspaceClosure,
                 setPinned: setWorkspacePinnedClosure,
                 setUnread: setWorkspaceUnreadClosure,
