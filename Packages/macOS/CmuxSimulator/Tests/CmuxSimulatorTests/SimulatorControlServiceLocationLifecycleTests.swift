@@ -8,7 +8,10 @@ struct SimulatorControlServiceLocationLifecycleTests {
     @Test("Same-device location mutations remain serialized")
     func sameDeviceMutationsAreSerialized() async throws {
         let commands = BlockingLocationCommandRunner()
-        let service = SimulatorControlService(commands: commands)
+        let service = SimulatorControlService(
+            commands: commands,
+            locationOwnershipScope: SimulatorLocationOwnershipScope()
+        )
         let deviceID = UUID().uuidString
         let first = Task {
             try await service.setLocation(
@@ -38,6 +41,7 @@ struct SimulatorControlServiceLocationLifecycleTests {
         let sleeper = LocationLifecycleSleepGate()
         let service = SimulatorControlService(
             commands: commands,
+            locationOwnershipScope: SimulatorLocationOwnershipScope(),
             routeSleep: { duration in try await sleeper.sleep(for: duration) }
         )
         let route = Self.route()
@@ -81,7 +85,10 @@ struct SimulatorControlServiceLocationLifecycleTests {
             let commands = LocationLifecycleCommandRunner(
                 failureInvocationIndices: [failureInvocationIndex]
             )
-            let service = SimulatorControlService(commands: commands)
+            let service = SimulatorControlService(
+                commands: commands,
+                locationOwnershipScope: SimulatorLocationOwnershipScope()
+            )
             let route = Self.route()
             try await service.startLocationRoute(deviceID: "DEVICE", route: route)
 
@@ -108,6 +115,46 @@ struct SimulatorControlServiceLocationLifecycleTests {
                 #expect(arguments.count == 2)
             }
         }
+    }
+
+    @Test("A newer client prevents an older looping route from replaying")
+    func newerClientOwnsLocationMutation() async throws {
+        let deviceID = UUID().uuidString
+        let scope = SimulatorLocationOwnershipScope()
+        let oldCommands = LocationLifecycleCommandRunner()
+        let oldSleeper = LocationLifecycleSleepGate()
+        let oldService = SimulatorControlService(
+            commands: oldCommands,
+            locationOwnershipScope: scope,
+            routeSleep: { duration in try await oldSleeper.sleep(for: duration) }
+        )
+        let newCommands = LocationLifecycleCommandRunner()
+        let newService = SimulatorControlService(
+            commands: newCommands,
+            locationOwnershipScope: scope
+        )
+        let baseRoute = Self.route()
+        let loop = SimulatorLocationRoute(
+            waypoints: baseRoute.waypoints,
+            speed: baseRoute.speed,
+            updateDistance: baseRoute.updateDistance,
+            updateInterval: baseRoute.updateInterval,
+            loops: true
+        )
+
+        try await oldService.startLocationRoute(deviceID: deviceID, route: loop)
+        await oldSleeper.waitForStartCount(1)
+        try await newService.setLocation(
+            deviceID: deviceID,
+            coordinate: SimulatorLocationCoordinate(latitude: 40, longitude: -73)
+        )
+        await oldSleeper.advance()
+        for _ in 0..<200 { await Task.yield() }
+
+        #expect(await oldCommands.arguments().count == 1)
+        #expect(await newCommands.arguments() == [
+            ["simctl", "location", deviceID, "set", "40.0,-73.0"],
+        ])
     }
 
     private static func route() -> SimulatorLocationRoute {

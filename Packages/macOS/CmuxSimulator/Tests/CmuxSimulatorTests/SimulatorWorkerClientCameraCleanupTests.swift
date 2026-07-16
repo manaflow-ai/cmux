@@ -4,6 +4,48 @@ import Testing
 @testable import CmuxSimulator
 
 extension SimulatorWorkerClientTests {
+    @Test("A newer camera owner waits until older cleanup finishes mutating its app")
+    func newerCameraOwnerWaitsForCleanup() async {
+        let coordinator = SimulatorCameraCleanupCoordinator()
+        let control = BlockingCameraCleanupControl()
+        let deviceIdentifier = UUID().uuidString
+        let bundleIdentifier = "com.example.camera"
+        let oldOwner = await coordinator.claim(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier
+        )
+        let cleanup = await coordinator.enqueue {
+            await cleanSimulatorCameraInjections(
+                deviceIdentifier: deviceIdentifier,
+                bundleIdentifiers: [bundleIdentifier],
+                simulatorControl: control,
+                ownershipTokens: [bundleIdentifier: oldOwner],
+                cleanupCoordinator: coordinator
+            )
+        }
+        for _ in 0..<1_000 {
+            if await control.isBlocked { break }
+            await Task.yield()
+        }
+
+        let newClaim = Task {
+            await coordinator.claim(
+                deviceIdentifier: deviceIdentifier,
+                bundleIdentifier: bundleIdentifier
+            )
+        }
+        for _ in 0..<100 { await Task.yield() }
+        #expect(await control.actions.count == 1)
+        await control.release()
+        await cleanup.value
+        _ = await newClaim.value
+
+        #expect(await control.actions == cameraCleanupActions(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifiers: [bundleIdentifier]
+        ))
+    }
+
     @Test("A replacement client cannot pass an older client's camera cleanup")
     func replacementClientWaitsForSharedCameraCleanup() async throws {
         let cleanupCoordinator = SimulatorCameraCleanupCoordinator()
