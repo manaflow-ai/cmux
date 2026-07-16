@@ -172,11 +172,16 @@ private final class SimulatorInheritedProcessTree: @unchecked Sendable {
 
     @discardableResult
     func signal(_ signal: Int32) -> Bool {
-        let discovered = Self.descendantsChildFirst(
-            of: rootProcessIdentifier,
-            limit: Self.maximumDescendants
-        )
-        let discoveredIdentities = Set(discovered.compactMap(SimulatorRetainedProcessIdentity.init))
+        let discoveredIdentities: Set<SimulatorRetainedProcessIdentity>
+        if let rootProcessIdentity,
+           SimulatorRetainedProcessIdentity(pid: rootProcessIdentifier) == rootProcessIdentity {
+            discoveredIdentities = Set(Self.descendantsChildFirst(
+                of: rootProcessIdentity,
+                limit: Self.maximumDescendants
+            ))
+        } else {
+            discoveredIdentities = []
+        }
         let descendants = lock.withLock { () -> [SimulatorRetainedProcessIdentity] in
             retainedDescendants.formUnion(discoveredIdentities)
             return Array(retainedDescendants)
@@ -197,20 +202,23 @@ private final class SimulatorInheritedProcessTree: @unchecked Sendable {
     }
 
     private static func descendantsChildFirst(
-        of root: pid_t,
+        of root: SimulatorRetainedProcessIdentity,
         limit: Int
-    ) -> [pid_t] {
-        var result: [pid_t] = []
-        var visited: Set<pid_t> = []
-        var pending: [(processIdentifier: pid_t, expanded: Bool)] = [(root, false)]
+    ) -> [SimulatorRetainedProcessIdentity] {
+        var result: [SimulatorRetainedProcessIdentity] = []
+        var visited: Set<SimulatorRetainedProcessIdentity> = []
+        var pending: [(identity: SimulatorRetainedProcessIdentity, expanded: Bool)] = [
+            (root, false)
+        ]
         while let next = pending.popLast(), result.count < limit {
             if next.expanded {
-                if next.processIdentifier != root { result.append(next.processIdentifier) }
+                if next.identity != root { result.append(next.identity) }
                 continue
             }
-            guard visited.insert(next.processIdentifier).inserted else { continue }
-            pending.append((next.processIdentifier, true))
-            for child in directChildren(of: next.processIdentifier).reversed()
+            guard SimulatorRetainedProcessIdentity(pid: next.identity.pid) == next.identity,
+                  visited.insert(next.identity).inserted else { continue }
+            pending.append((next.identity, true))
+            for child in directChildren(of: next.identity).reversed()
                 where visited.count + pending.count <= limit {
                 pending.append((child, false))
             }
@@ -218,22 +226,30 @@ private final class SimulatorInheritedProcessTree: @unchecked Sendable {
         return result
     }
 
-    private static func directChildren(of parent: pid_t) -> [pid_t] {
+    private static func directChildren(
+        of parent: SimulatorRetainedProcessIdentity
+    ) -> [SimulatorRetainedProcessIdentity] {
+        guard SimulatorRetainedProcessIdentity(pid: parent.pid) == parent else { return [] }
         var capacity = 16
         let stride = MemoryLayout<pid_t>.stride
-        var lastResult: [pid_t] = []
+        var lastResult: [SimulatorRetainedProcessIdentity] = []
         for _ in 0..<4 {
             var children = Array(repeating: pid_t(), count: capacity)
             let returned = children.withUnsafeMutableBufferPointer { buffer in
                 proc_listchildpids(
-                    parent,
+                    parent.pid,
                     buffer.baseAddress,
                     Int32(buffer.count * stride)
                 )
             }
             guard returned >= 0 else { return lastResult }
             let count = min(children.count, Int(returned))
-            lastResult = children.prefix(count).filter { $0 > 1 }
+            lastResult = children.prefix(count).compactMap { childPID in
+                guard let snapshot = simulatorProcessSnapshot(pid: childPID),
+                      snapshot.parentPID == parent.pid else { return nil }
+                return snapshot.identity
+            }
+            guard SimulatorRetainedProcessIdentity(pid: parent.pid) == parent else { return [] }
             if Int(returned) < children.count { return lastResult }
             capacity = max(capacity * 2, Int(returned) + 16)
         }
@@ -246,6 +262,12 @@ private struct SimulatorRetainedProcessIdentity: Hashable, Sendable {
     let startSeconds: UInt64
     let startMicroseconds: UInt64
 
+    init(pid: pid_t, startSeconds: UInt64, startMicroseconds: UInt64) {
+        self.pid = pid
+        self.startSeconds = startSeconds
+        self.startMicroseconds = startMicroseconds
+    }
+
     init?(pid: pid_t) {
         guard pid > 1 else { return nil }
         var info = proc_bsdinfo()
@@ -256,4 +278,22 @@ private struct SimulatorRetainedProcessIdentity: Hashable, Sendable {
         startSeconds = info.pbi_start_tvsec
         startMicroseconds = info.pbi_start_tvusec
     }
+}
+
+private func simulatorProcessSnapshot(
+    pid: pid_t
+) -> (identity: SimulatorRetainedProcessIdentity, parentPID: pid_t)? {
+    guard pid > 1 else { return nil }
+    var info = proc_bsdinfo()
+    let expectedSize = MemoryLayout<proc_bsdinfo>.stride
+    let size = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(expectedSize))
+    guard size == expectedSize else { return nil }
+    return (
+        SimulatorRetainedProcessIdentity(
+            pid: pid,
+            startSeconds: info.pbi_start_tvsec,
+            startMicroseconds: info.pbi_start_tvusec
+        ),
+        pid_t(info.pbi_ppid)
+    )
 }
