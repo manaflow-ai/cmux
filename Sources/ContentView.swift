@@ -3092,6 +3092,7 @@ struct ContentView: View {
                 isResizerDragging = false
                 sidebarDragStartWidth = nil
             }
+            cancelCommandPaletteForkableAgentProbeResultExpiryRefresh()
             removeSidebarResizerPointerMonitor()
         })
 
@@ -6120,8 +6121,18 @@ struct ContentView: View {
             var indexSnapshot = indexEntry?.snapshot
             let snapshot = indexSnapshot ?? fallbackSnapshot
             let validationFallbackSnapshot = indexSnapshot == nil ? fallbackSnapshot : nil
-            let executableFingerprintBefore: String?
+            let snapshotAvailability: CommandPaletteForkSnapshotAvailability
             if let snapshot {
+                snapshotAvailability = Self.commandPaletteSnapshotForkAvailability(
+                    snapshot,
+                    isRemoteTerminal: isRemoteTerminal
+                )
+            } else {
+                snapshotAvailability = .unsupported
+            }
+            let requiresCapabilityProbe = snapshotAvailability == .requiresProbe
+            let executableFingerprintBefore: String?
+            if requiresCapabilityProbe, let snapshot {
                 executableFingerprintBefore = await Self.commandPaletteForkProbeExecutableFingerprint(
                     snapshot,
                     isRemoteTerminal: isRemoteTerminal
@@ -6130,7 +6141,7 @@ struct ContentView: View {
                 executableFingerprintBefore = nil
             }
             let executableFingerprintAfter: String?
-            if let snapshot {
+            if requiresCapabilityProbe, let snapshot {
                 executableFingerprintAfter = await Self.commandPaletteForkProbeExecutableFingerprint(
                     snapshot,
                     isRemoteTerminal: isRemoteTerminal
@@ -6141,15 +6152,19 @@ struct ContentView: View {
             let executableFingerprint = executableFingerprintBefore == executableFingerprintAfter
                 ? executableFingerprintAfter
                 : nil
-            let sharedProbeAccepted = if snapshot != nil {
-                SharedLiveAgentIndex.shared.forkSupportProbeAccepted(
+            let sharedProbeAccepted: Bool
+            switch snapshotAvailability {
+            case .supportedWithoutProbe:
+                sharedProbeAccepted = true
+            case .requiresProbe:
+                sharedProbeAccepted = SharedLiveAgentIndex.shared.forkSupportProbeAccepted(
                     workspaceId: workspaceId,
                     panelId: panelId,
                     isRemoteContext: isRemoteTerminal,
                     fallbackSnapshot: validationFallbackSnapshot
                 )
-            } else {
-                false
+            case .unsupported:
+                sharedProbeAccepted = false
             }
             let supportsFork = sharedProbeAccepted
 #if DEBUG
@@ -6199,6 +6214,12 @@ struct ContentView: View {
                     commandPaletteForkableAgentAvailabilityTasksByPanelKey.removeValue(forKey: panelKey)
                     return
                 }
+                let acceptedSnapshotRequiresProbe = acceptedSnapshot.map {
+                    Self.commandPaletteSnapshotForkAvailability(
+                        $0,
+                        isRemoteTerminal: isRemoteTerminal
+                    ) == .requiresProbe
+                } ?? false
                 let wasSupported = commandPaletteForkableAgentSupportedPanelKeys.contains(panelKey)
                 let wasRejected = commandPaletteForkableAgentRejectedPanelKeys.contains(panelKey)
                 let hadCachedSnapshot = commandPaletteForkableAgentSnapshotsByPanelKey[panelKey] != nil
@@ -6224,7 +6245,11 @@ struct ContentView: View {
                     }
                     commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey] =
                         acceptedIndexSnapshot == nil && fallbackSnapshot != nil
-                    commandPaletteForkableAgentValidatedAtByPanelKey[panelKey] = Date()
+                    if acceptedSnapshotRequiresProbe {
+                        commandPaletteForkableAgentValidatedAtByPanelKey[panelKey] = Date()
+                    } else {
+                        commandPaletteForkableAgentValidatedAtByPanelKey.removeValue(forKey: panelKey)
+                    }
                 } else {
                     shouldRefreshResults = wasSupported || hadCachedSnapshot
                     commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
@@ -6247,7 +6272,11 @@ struct ContentView: View {
                     commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] = isRemoteTerminal
                     commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey] =
                         acceptedIndexSnapshot == nil && fallbackSnapshot != nil
-                    commandPaletteForkableAgentValidatedAtByPanelKey[panelKey] = Date()
+                    if requiresCapabilityProbe {
+                        commandPaletteForkableAgentValidatedAtByPanelKey[panelKey] = Date()
+                    } else {
+                        commandPaletteForkableAgentValidatedAtByPanelKey.removeValue(forKey: panelKey)
+                    }
                 }
                 commandPaletteForkableAgentProbeIDsByPanelKey.removeValue(forKey: panelKey)
                 commandPaletteForkableAgentProbeFingerprintsByPanelKey.removeValue(forKey: panelKey)
