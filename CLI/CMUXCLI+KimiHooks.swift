@@ -2,12 +2,6 @@ import CMUXAgentLaunch
 import Foundation
 
 extension CMUXCLI {
-    private struct KimiConfigEdit {
-        let url: URL
-        let oldContent: String
-        let newContent: String
-    }
-
     private static let kimiLifecycleHookTimeoutSeconds = 10
     private static let kimiFeedHookTimeoutSeconds = 120
     private static let legacyKimiConfigDirectory = ".kimi-code"
@@ -55,11 +49,9 @@ extension CMUXCLI {
 
         let oldString = try readAgentHookConfig(filePath: filePath, displayName: def.displayName)
         let newString = KimiCodeHookConfig.installing(events: kimiCodeHookEvents(def: def), in: oldString)
-        let activeEdit = oldString == newString ? nil : KimiConfigEdit(
-            url: activeConfigURL,
-            oldContent: oldString,
-            newContent: newString
-        )
+        let activeEdit: (url: URL, oldContent: String, newContent: String)? = oldString == newString
+            ? nil
+            : (url: activeConfigURL, oldContent: oldString, newContent: newString)
         if activeEdit == nil {
             print(String.localizedStringWithFormat(
                 String(
@@ -71,7 +63,7 @@ extension CMUXCLI {
             ))
         }
 
-        var legacyEdit: KimiConfigEdit?
+        var legacyEdit: (url: URL, oldContent: String, newContent: String)?
         var legacyCleanupFailed = false
         if Self.canonicalKimiConfigURL(activeConfigURL) != Self.canonicalKimiConfigURL(legacyConfigURL) {
             do {
@@ -81,7 +73,7 @@ extension CMUXCLI {
                 )
                 let legacyNewString = KimiCodeHookConfig.uninstalling(from: legacyOldString)
                 if legacyOldString != legacyNewString {
-                    legacyEdit = KimiConfigEdit(
+                    legacyEdit = (
                         url: legacyConfigURL,
                         oldContent: legacyOldString,
                         newContent: legacyNewString
