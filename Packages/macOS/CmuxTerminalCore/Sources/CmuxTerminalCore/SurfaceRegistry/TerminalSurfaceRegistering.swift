@@ -15,6 +15,13 @@ public import GhosttyKit
 /// that touch the native surface. Implementations guard their tables with a
 /// lock instead of actor isolation for exactly that reason.
 public protocol TerminalSurfaceRegistering: AnyObject, Sendable {
+    /// Monotonically increasing revision of the registered surface topology.
+    ///
+    /// Consumers that cache per-surface state can compare this value before
+    /// enumerating ``allSurfaces()`` instead of rescanning on every terminal
+    /// output event.
+    var topologyGeneration: UInt64 { get }
+
     /// Registers a live surface and records its focus placement.
     func register(_ surface: any TerminalSurfacing)
 

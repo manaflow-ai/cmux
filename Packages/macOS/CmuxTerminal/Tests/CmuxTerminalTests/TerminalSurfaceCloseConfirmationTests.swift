@@ -66,6 +66,24 @@ private func setGhosttyCloseState(_ needsConfirm: Bool, _ foregroundPID: UInt64,
         #expect(surface.needsConfirmClose())
     }
 
+    @Test func runtimeGenerationAdvancesWhenAllocatorReusesPointer() {
+        let surface = makeSurface()
+        let runtimeSurface = fakeRuntimeSurface()
+        let initialGeneration = surface.runtimeSurfaceGeneration
+
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        let firstLifetime = surface.runtimeSurfaceGeneration
+        surface.releaseSurfaceForTesting()
+        let releasedLifetime = surface.runtimeSurfaceGeneration
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        let reusedPointerLifetime = surface.runtimeSurfaceGeneration
+        surface.releaseSurfaceForTesting()
+
+        #expect(firstLifetime == initialGeneration &+ 1)
+        #expect(releasedLifetime == firstLifetime &+ 1)
+        #expect(reusedPointerLifetime == releasedLifetime &+ 1)
+    }
+
     private func makeSurface(initialCommand: String? = nil) -> TerminalSurface {
         let nativeView = FakeTerminalSurfaceNativeView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
