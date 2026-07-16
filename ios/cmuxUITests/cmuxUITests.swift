@@ -128,7 +128,8 @@ final class cmuxUITests: XCTestCase {
         ])
         defer { app.terminate() }
 
-        XCTAssertTrue(app.otherElements["MobileNotificationFeed"].waitForExistence(timeout: 8))
+        let feed = app.descendants(matching: .any)["MobileNotificationFeed"]
+        XCTAssertTrue(feed.waitForExistence(timeout: 8))
         XCTAssertTrue(app.descendants(matching: .any)["MobilePrimaryTabNotifications"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["MobileNotificationFeedDayToday"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["MobileNotificationFeedDayYesterday"].exists)
@@ -166,7 +167,7 @@ final class cmuxUITests: XCTestCase {
         workspacesTab.tap()
         XCTAssertTrue(app.staticTexts["Workspaces"].waitForExistence(timeout: 3))
         app.descendants(matching: .any)["MobilePrimaryTabNotifications"].tap()
-        XCTAssertTrue(app.otherElements["MobileNotificationFeed"].waitForExistence(timeout: 3))
+        XCTAssertTrue(feed.waitForExistence(timeout: 3))
     }
 
     /// Regression: fast pinch-zoom must not hang the main thread (the
