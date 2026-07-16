@@ -381,6 +381,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DE49870000000000000001 /* BrowserWebContentProcessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE49870000000000000002 /* BrowserWebContentProcessTests.swift */; };
 		C0DE58990000000000000003 /* BrowserWebKitKeyDownDispatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE58990000000000000001 /* BrowserWebKitKeyDownDispatch.swift */; };
 		B13020000000000000000005 /* BrowserWebNotificationMessageHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = B13020000000000000000006 /* BrowserWebNotificationMessageHandler.swift */; };
+		B13020000000000000000009 /* BrowserWebNotificationNativeAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1302000000000000000000A /* BrowserWebNotificationNativeAdapter.swift */; };
 		B13020000000000000000003 /* BrowserWebNotificationPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = B13020000000000000000004 /* BrowserWebNotificationPayload.swift */; };
 		B13020000000000000000007 /* BrowserWebNotificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B13020000000000000000008 /* BrowserWebNotificationTests.swift */; };
 		8054B0010000000000000001 /* BrowserWebViewLifecycleState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8054B0020000000000000002 /* BrowserWebViewLifecycleState.swift */; };
@@ -2483,6 +2484,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0DE49870000000000000002 /* BrowserWebContentProcessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWebContentProcessTests.swift; sourceTree = "<group>"; };
 		C0DE58990000000000000001 /* BrowserWebKitKeyDownDispatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebKitKeyDownDispatch.swift; sourceTree = "<group>"; };
 		B13020000000000000000006 /* BrowserWebNotificationMessageHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebNotificationMessageHandler.swift; sourceTree = "<group>"; };
+		B1302000000000000000000A /* BrowserWebNotificationNativeAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebNotificationNativeAdapter.swift; sourceTree = "<group>"; };
 		B13020000000000000000004 /* BrowserWebNotificationPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebNotificationPayload.swift; sourceTree = "<group>"; };
 		B13020000000000000000008 /* BrowserWebNotificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWebNotificationTests.swift; sourceTree = "<group>"; };
 		8054B0020000000000000002 /* BrowserWebViewLifecycleState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebViewLifecycleState.swift; sourceTree = "<group>"; };
@@ -5202,6 +5204,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A500MX00 /* BrowserPanel+MediaPlayback.swift */,
 				B13020000000000000000004 /* BrowserWebNotificationPayload.swift */,
 				B13020000000000000000006 /* BrowserWebNotificationMessageHandler.swift */,
+				B1302000000000000000000A /* BrowserWebNotificationNativeAdapter.swift */,
 				B13020000000000000000002 /* BrowserPanel+WebNotifications.swift */,
 				B1F0C0050000000000000002 /* BrowserDeveloperToolsDockControlNormalizer.swift */,
 				D7632B14A1B2C3D4E5F60718 /* WKWebView+CmuxPrintOperation.swift */,
@@ -6963,6 +6966,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A50100000000000000000022 /* BrowserWebAuthnUserDescriptor.swift in Sources */,
 				C0DE58990000000000000003 /* BrowserWebKitKeyDownDispatch.swift in Sources */,
 				B13020000000000000000005 /* BrowserWebNotificationMessageHandler.swift in Sources */,
+				B13020000000000000000009 /* BrowserWebNotificationNativeAdapter.swift in Sources */,
 				B13020000000000000000003 /* BrowserWebNotificationPayload.swift in Sources */,
 				8054B0010000000000000001 /* BrowserWebViewLifecycleState.swift in Sources */,
 				A5001534 /* BrowserWindowPortal.swift in Sources */,

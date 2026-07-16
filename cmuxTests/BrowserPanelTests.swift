@@ -697,7 +697,8 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
 
         BrowserPanel.configureWebViewConfiguration(
             config,
-            websiteDataStore: .nonPersistent()
+            websiteDataStore: .nonPersistent(),
+            profileID: UUID(uuidString: "11111111-2222-3333-4444-555555555555")!
         )
 
         XCTAssertNotNil(config.urlSchemeHandler(forURLScheme: CmuxDiffViewerURLSchemeHandler.scheme))

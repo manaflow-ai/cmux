@@ -1,6 +1,18 @@
 import Foundation
 
+enum TerminalNotificationSource: Hashable, Sendable {
+    case terminal
+    case website(profileID: UUID, origin: URL, isBackground: Bool)
+}
+
+enum TerminalNotificationTarget: Hashable, Sendable {
+    case workspace(tabId: UUID)
+    case global
+}
+
 struct TerminalNotification: Identifiable, Hashable, Sendable {
+    static let globalTargetSentinel = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+
     let id: UUID
     let tabId: UUID
     let surfaceId: UUID?
@@ -14,6 +26,8 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
     var paneFlash: Bool = true
     var scrollPosition: TerminalNotificationScrollPosition?
     var clickAction: TerminalNotificationClickAction?
+    let source: TerminalNotificationSource
+    let target: TerminalNotificationTarget
 
     init(
         id: UUID,
@@ -28,7 +42,9 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
         isRead: Bool,
         paneFlash: Bool = true,
         scrollPosition: TerminalNotificationScrollPosition? = nil,
-        clickAction: TerminalNotificationClickAction? = nil
+        clickAction: TerminalNotificationClickAction? = nil,
+        source: TerminalNotificationSource = .terminal,
+        target: TerminalNotificationTarget? = nil
     ) {
         self.id = id
         self.tabId = tabId
@@ -43,7 +59,11 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
         self.paneFlash = paneFlash
         self.scrollPosition = scrollPosition
         self.clickAction = clickAction
+        self.source = source
+        self.target = target ?? .workspace(tabId: tabId)
     }
+
+    var isGlobal: Bool { target == .global }
 
     func matches(tabId targetTabId: UUID, surfaceId targetSurfaceId: UUID?) -> Bool {
         guard tabId == targetTabId else { return false }

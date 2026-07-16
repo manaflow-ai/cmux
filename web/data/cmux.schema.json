@@ -1379,9 +1379,9 @@
         },
         "forwardWebNotifications": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "descriptionKey": "schemaDescriptions.browser.forwardWebNotifications",
-          "description": "Forward page-created website notifications through cmux after the website grants notification permission."
+          "description": "Forward website notifications through cmux after the website grants per-profile origin permission. Native-capable runtimes also support service-worker notifications while cmux is running."
         },
         "discardHiddenWebViews": {
           "type": "boolean",

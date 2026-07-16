@@ -60,17 +60,17 @@ Use `Cmd+Shift+U` to jump to the latest unread notification. Use `Ctrl+Cmd+U` to
 
 ## Website notifications
 
-Pages open in the cmux browser can forward foreground `new Notification(...)` calls into the same sidebar and macOS notification pipeline. The website must first have notification permission, and **Settings > Browser > Forward Website Notifications** must also be enabled. The cmux setting defaults to on and can be changed without reloading the page:
+Pages open in the cmux browser can forward website notifications into the same notification history and macOS notification pipeline. The website must first have notification permission, and **Settings > Browser > Forward Website Notifications** must also be enabled. The cmux setting defaults to off. Its compatibility fallback is installed only when a new browser web view is created, so reload or reopen existing browser panes after changing it:
 
 ```json
 {
   "browser": {
-    "forwardWebNotifications": true
+    "forwardWebNotifications": false
   }
 }
 ```
 
-This bridge covers notifications created by a running page. It does not provide service-worker Web Push or background delivery after the page or cmux has stopped.
+cmux uses WebKit's native notification provider when the running macOS WebKit supports it. That path covers foreground notifications and service-worker notifications while cmux is running. Background notifications appear in global, session-only notification history and do not run workspace hooks, reorder workspaces, flash panes, or forward to iPhone. On runtimes without the foreground provider, cmux falls back to a page-only compatibility bridge; service-worker notifications are unavailable there. Notification delivery stops when cmux is not running.
 
 ## Suppress only the focused surface
 

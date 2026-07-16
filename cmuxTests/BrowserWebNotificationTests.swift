@@ -1,3 +1,5 @@
+import CmuxBrowser
+import CmuxFoundation
 import CmuxSettings
 import Foundation
 import Testing
@@ -18,6 +20,32 @@ private final class BrowserWebNotificationContractProbe: NSObject, WKScriptMessa
     ) {
         guard let body = message.body as? [String: String] else { return }
         bodies.append(body)
+    }
+}
+
+@MainActor
+private final class BrowserWebNotificationLoadProbe: NSObject, WKNavigationDelegate {
+    private var continuation: CheckedContinuation<Void, Error>?
+
+    func load(_ html: String, in webView: WKWebView, baseURL: URL) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            self.continuation = continuation
+            webView.loadHTMLString(html, baseURL: baseURL)
+        }
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        continuation?.resume()
+        continuation = nil
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        didFailProvisionalNavigation navigation: WKNavigation!,
+        withError error: Error
+    ) {
+        continuation?.resume(throwing: error)
+        continuation = nil
     }
 }
 
@@ -146,7 +174,7 @@ struct BrowserWebNotificationTests {
             })();
             """
         ) as? [String: Any])
-        #expect(denied["permission"] as? String == "denied")
+        #expect(denied["permission"] as? String == "default")
         #expect(denied["requestPermissionIsFunction"] as? Bool == true)
         #expect(denied["samePrototype"] as? Bool == true)
         #expect(denied["nativeReturn"] as? Bool == true)
@@ -171,6 +199,7 @@ struct BrowserWebNotificationTests {
             "__setNotificationPermission('granted'); new Notification('Granted', { body: 'Forward me' });"
         )
         #expect(probe.bodies == [[
+            "type": "notification",
             "token": token,
             "title": "Granted",
             "body": "Forward me",
@@ -189,6 +218,69 @@ struct BrowserWebNotificationTests {
             """
         ) as? [String: String])
         #expect(nativeError == ["name": "TypeError", "message": "native boom"])
+    }
+
+    @Test func nativeProviderGrantsAndDeliversOnSupportedMacOS() async throws {
+        guard ProcessInfo.processInfo.operatingSystemVersion.majorVersion > 14 else { return }
+        #expect(BrowserWebNotificationNativeAdapter.shared.shouldInstallForegroundFallback == false)
+
+        let setting = SettingCatalog().browser.forwardWebNotifications
+        let defaults = UserDefaults.standard
+        let previousSetting = defaults.object(forKey: setting.userDefaultsKey)
+        let profileID = BrowserProfileRepository.builtInDefaultProfileID
+        let origin = try #require(URL(string: "https://example.com"))
+        let repository = BrowserProfileStore.shared.notificationPermissions
+        let previousDecision = repository.decision(for: origin, profileID: profileID)
+        defer {
+            repository.setDecision(previousDecision, for: origin, profileID: profileID)
+            if let previousSetting { defaults.set(previousSetting, forKey: setting.userDefaultsKey) }
+            else { defaults.removeObject(forKey: setting.userDefaultsKey) }
+        }
+
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            profileID: profileID,
+            renderInitialNavigation: false
+        )
+        defer { panel.close() }
+        setting.set(true, in: defaults)
+        repository.setDecision(.allowed, for: origin, profileID: profileID)
+        panel.replaceWebViewPreservingState(
+            from: panel.webView,
+            websiteDataStore: panel.webView.configuration.websiteDataStore,
+            reason: "test_native_web_notification_provider_setup"
+        )
+
+        var delivered: (title: String, subtitle: String, body: String)?
+        panel.deliverWebNotification = { _, _, title, subtitle, body in
+            delivered = (title, subtitle, body)
+        }
+        let webView = panel.webView
+        let loadProbe = BrowserWebNotificationLoadProbe()
+        webView.navigationDelegate = loadProbe
+        defer { webView.navigationDelegate = nil }
+        try await loadProbe.load(
+            "<!doctype html><html><body>native notification probe</body></html>",
+            in: webView,
+            baseURL: origin
+        )
+
+        let permission = try await webView.callAsyncJavaScript(
+            "return await Notification.requestPermission()",
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        ) as? String
+        #expect(permission == "granted")
+        _ = try await webView.evaluateJavaScript(
+            "new Notification('Native probe', { body: 'Ready' }); true"
+        )
+        for _ in 0..<100 where delivered == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(delivered?.title == "Native probe")
+        #expect(delivered?.subtitle == "example.com")
+        #expect(delivered?.body == "Ready")
     }
 
     @Test func settingAppliesLiveAndRoutesToTheOriginatingSurface() throws {
@@ -217,18 +309,11 @@ struct BrowserWebNotificationTests {
         let workspaceID = UUID()
         let panel = BrowserPanel(workspaceId: workspaceID, renderInitialNavigation: false)
         defer { panel.close() }
-        panel.deliverWebNotification = { workspaceId, surfaceId, title, subtitle, body in
-            store.addNotification(
-                tabId: workspaceId,
-                surfaceId: surfaceId,
-                title: title,
-                subtitle: subtitle,
-                body: body,
-                retargetsToLiveSurfaceOwner: false
-            )
-        }
-
         let payload = BrowserWebNotificationPayload(title: "Deploy", body: "Finished", hostname: "example.com")
+        panel.handleWebNotificationPayload(payload, fromWebViewInstanceID: panel.webViewInstanceID)
+        #expect(store.notifications.isEmpty)
+
+        setting.set(true, in: defaults)
         panel.handleWebNotificationPayload(payload, fromWebViewInstanceID: panel.webViewInstanceID)
 
         let notification = try #require(store.notifications.first)
@@ -251,8 +336,25 @@ struct BrowserWebNotificationTests {
     }
 
     @Test func replacementRotatesTokenAndRemovesOldHandler() async throws {
+        let setting = SettingCatalog().browser.forwardWebNotifications
+        let defaults = UserDefaults.standard
+        let previous = defaults.object(forKey: setting.userDefaultsKey)
+        BrowserWebNotificationNativeAdapter.shared.forceForegroundFallbackForTesting = true
+        defer {
+            BrowserWebNotificationNativeAdapter.shared.forceForegroundFallbackForTesting = false
+            if let previous { defaults.set(previous, forKey: setting.userDefaultsKey) }
+            else { defaults.removeObject(forKey: setting.userDefaultsKey) }
+        }
         let panel = BrowserPanel(workspaceId: UUID(), renderInitialNavigation: false)
         defer { panel.close() }
+        // BrowserPanel performs one-time settings-file bootstrap during init,
+        // so opt in afterward before creating the generation under test.
+        setting.set(true, in: defaults)
+        panel.replaceWebViewPreservingState(
+            from: panel.webView,
+            websiteDataStore: panel.webView.configuration.websiteDataStore,
+            reason: "test_web_notification_bridge_setup"
+        )
         let oldWebView = panel.webView
         let oldInstanceID = panel.webViewInstanceID
         let oldToken = try #require(panel.webNotificationBridgeToken)
@@ -279,7 +381,7 @@ struct BrowserWebNotificationTests {
                 (() => {
                   try {
                     window.webkit.messageHandlers.\(BrowserWebNotificationMessageHandler.name).postMessage({
-                      token: \(encodedJavaScriptString(oldToken)), title: "Late", body: "Old"
+                      type: "notification", token: \(oldToken.javaScriptStringLiteral ?? "\"\""), title: "Late", body: "Old"
                     });
                     return true;
                   } catch (_) {
@@ -294,17 +396,52 @@ struct BrowserWebNotificationTests {
         #expect(oldHandlerStillCallable == false)
     }
 
+    @Test func backgroundWebsiteNotificationsUseTheGlobalSessionTarget() throws {
+        let store = TerminalNotificationStore.shared
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+        }
+
+        let profileID = UUID()
+        let origin = try #require(URL(string: "https://example.com"))
+        let id = store.addGlobalWebsiteNotification(
+            title: "Background",
+            subtitle: "example.com",
+            body: "Ready",
+            profileID: profileID,
+            origin: origin
+        )
+        let notification = try #require(store.notifications.first(where: { $0.id == id }))
+        #expect(notification.target == .global)
+        #expect(notification.tabId == TerminalNotification.globalTargetSentinel)
+        #expect(notification.paneFlash == false)
+        #expect(notification.source == .website(profileID: profileID, origin: origin, isBackground: true))
+    }
+
     @Test func settingsFileAndGeneratedTemplateExposeForwardingToggle() throws {
         let setting = SettingCatalog().browser.forwardWebNotifications
         let defaults = UserDefaults.standard
         let previous = defaults.object(forKey: setting.userDefaultsKey)
+        let backupsKey = "cmux.settingsFile.backups.v1"
+        let importedDefaultsKey = "cmux.settingsFile.importedManagedDefaults.v1"
+        let previousBackups = defaults.data(forKey: backupsKey)
+        let previousImportedDefaults = defaults.data(forKey: importedDefaultsKey)
         defer {
             if let previous {
                 defaults.set(previous, forKey: setting.userDefaultsKey)
             } else {
                 defaults.removeObject(forKey: setting.userDefaultsKey)
             }
+            if let previousBackups { defaults.set(previousBackups, forKey: backupsKey) }
+            else { defaults.removeObject(forKey: backupsKey) }
+            if let previousImportedDefaults { defaults.set(previousImportedDefaults, forKey: importedDefaultsKey) }
+            else { defaults.removeObject(forKey: importedDefaultsKey) }
         }
+        defaults.removeObject(forKey: backupsKey)
+        defaults.removeObject(forKey: importedDefaultsKey)
 
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-web-notification-tests-\(UUID().uuidString)", isDirectory: true)
@@ -332,11 +469,4 @@ struct BrowserWebNotificationTests {
             || CmuxSettingsFileStore.defaultTemplate().contains("\"forwardWebNotifications\": false"))
     }
 
-    private func encodedJavaScriptString(_ value: String) -> String {
-        guard let data = try? JSONEncoder().encode(value),
-              let string = String(data: data, encoding: .utf8) else {
-            return "\"\""
-        }
-        return string
-    }
 }
