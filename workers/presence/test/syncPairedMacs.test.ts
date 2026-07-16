@@ -88,6 +88,20 @@ describe("parsePairedMacBackup", () => {
     expect(parsed.ops[1]).toEqual({ kind: "delete", id: "gone" });
   });
 
+  it("keys tagged operations by physical Mac plus app-instance tag", () => {
+    const tagged = { ...record("mac-a", "10.0.0.1", 22), instanceTag: "nightly" };
+    const parsed = parsePairedMacBackup({
+      ops: [
+        { macDeviceID: "mac-a", instanceTag: "nightly", record: tagged },
+        { macDeviceID: "mac-a", instanceTag: "stable", deleted: true },
+      ],
+    });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.ops[0]).toMatchObject({ kind: "upsert", id: "mac-a\u001fnightly" });
+    expect(parsed.ops[1]).toEqual({ kind: "delete", id: "mac-a\u001fstable" });
+  });
+
   it("rejects a non-array ops, missing id, and bad timestamps", () => {
     expect(parsePairedMacBackup({ ops: "nope" }).ok).toBe(false);
     expect(parsePairedMacBackup({ ops: [{ record: record("x", "h", 1) }] }).ok).toBe(false);
@@ -611,6 +625,33 @@ describe("applyBackupOps", () => {
     const live = await listLiveBackup(storage, "user-1");
     expect(live.filter((r) => r.isActive).map((r) => r.macDeviceID)).toEqual(["mac-b"]);
     expect(live.find((r) => r.macDeviceID === "mac-a")?.isActive).toBe(false);
+  });
+
+  it("stores and deletes two tagged instances on one physical Mac independently", async () => {
+    const storage = new FakeStorage();
+    const stable = { ...record("mac-a", "10.0.0.1", 22), instanceTag: "stable" };
+    const nightly = {
+      ...record("mac-a", "10.0.0.2", 22),
+      instanceTag: "nightly",
+      lastSeenAt: T0 + 1000,
+    };
+    await applyBackupOps(storage, "user-1", [
+      { kind: "upsert", id: "mac-a\u001fstable", record: stable },
+      { kind: "upsert", id: "mac-a\u001fnightly", record: nightly },
+    ], T0);
+
+    let snapshot = await listBackupSnapshot(storage, "user-1");
+    expect(snapshot.records.map((item) => item.instanceTag).sort()).toEqual(["nightly", "stable"]);
+
+    await applyBackupOps(
+      storage,
+      "user-1",
+      [{ kind: "delete", id: "mac-a\u001fstable" }],
+      T0 + 2000,
+    );
+    snapshot = await listBackupSnapshot(storage, "user-1");
+    expect(snapshot.records.map((item) => item.instanceTag)).toEqual(["nightly"]);
+    expect(snapshot.deletedMacDeviceIDs).toEqual(["mac-a\u001fstable"]);
   });
 
   it("a customization-only change syncs (not a same-shape no-op)", async () => {

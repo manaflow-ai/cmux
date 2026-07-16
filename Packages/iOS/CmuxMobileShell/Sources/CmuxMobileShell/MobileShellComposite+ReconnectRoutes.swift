@@ -108,7 +108,11 @@ extension MobileShellComposite {
             ), let self else { return }
             await self.performSerializedPairedMacWrite(ifStillCurrent: nil) {
                 guard await self.isScopeCurrent(scope),
-                      await !self.isForgottenMacDeviceID(macDeviceID, scope: scope) else { return }
+                      await !self.isForgottenMacDeviceID(
+                        macDeviceID,
+                        instanceTag: capturedInstanceTag,
+                        scope: scope
+                      ) else { return }
                 let activeMac: MobilePairedMac?
                 do {
                     activeMac = try await pairedMacStore.activeMac(
@@ -120,7 +124,11 @@ extension MobileShellComposite {
                     return
                 }
                 guard await self.isScopeCurrent(scope),
-                      await !self.isForgottenMacDeviceID(macDeviceID, scope: scope),
+                      await !self.isForgottenMacDeviceID(
+                        macDeviceID,
+                        instanceTag: capturedInstanceTag,
+                        scope: scope
+                      ),
                       DeviceRegistryService.shouldApplyRegistryRefresh(
                         isSignedIn: self.isSignedIn,
                         capturedUserID: scope.userID,
@@ -146,9 +154,14 @@ extension MobileShellComposite {
                     reconnectRouteLog.debug("registry refresh upsert failed: \(String(describing: error), privacy: .public)")
                     return
                 }
-                if await self.isForgottenMacDeviceID(macDeviceID, scope: scope) {
+                if await self.isForgottenMacDeviceID(
+                    macDeviceID,
+                    instanceTag: capturedInstanceTag,
+                    scope: scope
+                ) {
                     try? await pairedMacStore.remove(
                         macDeviceID: macDeviceID,
+                        instanceTag: capturedInstanceTag,
                         stackUserID: scope.userID,
                         teamID: scope.teamID
                     )
@@ -272,10 +285,18 @@ extension MobileShellComposite {
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         guard let snapshot,
               await isScopeCurrent(scope),
-              await !isForgottenMacDeviceID(mac.macDeviceID, scope: scope),
+              await !isForgottenMacDeviceID(
+                  mac.macDeviceID,
+                  instanceTag: mac.instanceTag,
+                  scope: scope
+              ),
               let currentMac = snapshot.currentMac(for: mac),
               await isScopeCurrent(scope),
-              await !isForgottenMacDeviceID(mac.macDeviceID, scope: scope) else {
+              await !isForgottenMacDeviceID(
+                  mac.macDeviceID,
+                  instanceTag: mac.instanceTag,
+                  scope: scope
+              ) else {
             return .inconclusive
         }
         let localRoutes = Self.storedReconnectRoutes(

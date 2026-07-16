@@ -72,6 +72,14 @@ export const MAX_DISPLAY_NAME_LENGTH = 128;
 export const MAX_INSTANCE_TAG_LENGTH = 64;
 export const MAX_CLIENT_SCOPE_LENGTH = 128;
 const SYNC_HEAD_PREFIX = "synchead:";
+const PAIRED_MAC_INSTANCE_SEPARATOR = "\u001f";
+
+/** Storage identity for one physical Mac app instance. Legacy untagged records
+ * keep their historical physical-device id. */
+export function pairedMacBackupID(macDeviceID: string, instanceTag?: string | null): string {
+  const tag = trimmedString(instanceTag);
+  return tag ? `${macDeviceID}${PAIRED_MAC_INSTANCE_SEPARATOR}${tag}` : macDeviceID;
+}
 /** Route bounds mirror validate.ts so the backup payload can't exceed what a
  * heartbeat could push. */
 export const MAX_ROUTES = 16;
@@ -217,8 +225,13 @@ export function parsePairedMacBackup(body: Record<string, unknown>): PairedMacBa
       return { ok: false, error: "invalid_op" };
     }
     const e = entry as Record<string, unknown>;
-    const id = trimmedString(e.macDeviceID);
-    if (!id || id.length > MAX_MAC_ID_LENGTH) return { ok: false, error: "invalid_mac_id" };
+    const macDeviceID = trimmedString(e.macDeviceID);
+    if (!macDeviceID || macDeviceID.length > MAX_MAC_ID_LENGTH) return { ok: false, error: "invalid_mac_id" };
+    const opInstanceTag = trimmedString(e.instanceTag);
+    if (opInstanceTag.length > MAX_INSTANCE_TAG_LENGTH) {
+      return { ok: false, error: "invalid_instance_tag" };
+    }
+    const id = pairedMacBackupID(macDeviceID, opInstanceTag);
     // The last op for an id wins within a request, but a single request should
     // not carry the same id twice; dedup defensively, keeping the last.
     if (seen.has(id)) {
@@ -245,6 +258,9 @@ export function parsePairedMacBackup(body: Record<string, unknown>): PairedMacBa
     const instanceTag = trimmedString(r.instanceTag);
     if (instanceTag.length > MAX_INSTANCE_TAG_LENGTH) {
       return { ok: false, error: "invalid_instance_tag" };
+    }
+    if (opInstanceTag && opInstanceTag !== instanceTag) {
+      return { ok: false, error: "instance_tag_mismatch" };
     }
     const rawInstanceTagWriteMode = r.instanceTagWriteMode;
     if (
@@ -300,7 +316,7 @@ export function parsePairedMacBackup(body: Record<string, unknown>): PairedMacBa
       instanceTagWriteMode: rawInstanceTagWriteMode,
       allowTombstoneRevive: e.reviveDeleted === true,
       record: {
-        macDeviceID: id,
+        macDeviceID,
         displayName: displayName || undefined,
         instanceTag: instanceTag || undefined,
         routes: sanitizePublishedRoutes(routes) ?? [],
@@ -416,9 +432,27 @@ export async function applyBackupOps(
       }
       continue;
     }
-    const existing = await readRecord<PairedMacBackupRecord>(storage, collection, op.id);
+    const exactExisting = await readRecord<PairedMacBackupRecord>(storage, collection, op.id);
+    let existing = exactExisting;
+    let migratingLegacyID: string | null = null;
+    if (existing === undefined && op.id !== op.record.macDeviceID) {
+      const legacy = await readRecord<PairedMacBackupRecord>(
+        storage,
+        collection,
+        op.record.macDeviceID,
+      );
+      if (
+        legacy !== undefined &&
+        !legacy.deleted &&
+        (legacy.payload.instanceTag ?? "") === (op.record.instanceTag ?? "")
+      ) {
+        existing = legacy;
+        migratingLegacyID = op.record.macDeviceID;
+      }
+    }
     const isBrandNew = existing === undefined;
-    const isReviving = existing !== undefined && existing.deleted;
+    const isReviving = exactExisting !== undefined && exactExisting.deleted;
+    const createsStorageSlot = exactExisting === undefined;
     if (isReviving && op.allowTombstoneRevive !== true) {
       // A delete tombstone is the authoritative "forget" operation. Stale
       // devices can republish ordinary upserts with newer lastSeenAt values, so
@@ -433,7 +467,7 @@ export async function applyBackupOps(
       // mirroring the preferred-first leniency elsewhere. Existing records update.
       continue;
     }
-    if (isBrandNew && totalCount >= MAX_PAIRED_MAC_RECORDS_PER_USER) {
+    if (createsStorageSlot && totalCount >= MAX_PAIRED_MAC_RECORDS_PER_USER) {
       // At the cumulative (live + retained-tombstone) cap: refuse a truly-new id
       // until GC frees tombstones, so create/delete churn cannot amplify storage.
       continue;
@@ -498,8 +532,14 @@ export async function applyBackupOps(
     );
     if (res.delta !== null) {
       if (addsLive) liveCount += 1;
-      if (isBrandNew) totalCount += 1;
+      if (createsStorageSlot) totalCount += 1;
       deltas.push(relabelDelta(res.delta));
+    }
+    if (migratingLegacyID !== null) {
+      const retired = await tombstoneRecord(storage, collection, migratingLegacyID, nowMs);
+      if (retired.delta !== null) {
+        deltas.push(relabelDelta(retired.delta));
+      }
     }
   }
 
