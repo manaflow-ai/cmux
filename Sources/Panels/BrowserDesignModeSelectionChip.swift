@@ -48,29 +48,32 @@ struct BrowserDesignModeSelectionChip: View {
             Text(selection.tagName)
                 .cmuxFont(size: 12.5, weight: .medium)
                 .lineLimit(1)
-            if isHovered {
-                Button(action: onRemove) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 7.5, weight: .bold))
-                        .foregroundStyle(.white.opacity(0.85))
-                        .frame(width: 13, height: 13)
-                        .background(Circle().fill(Color.white.opacity(0.16)))
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .safeHelp(
-                    String(
-                        localized: "browser.designMode.composer.removeSelection",
-                        defaultValue: "Remove selected element"
-                    )
-                )
-                .accessibilityLabel(
-                    String(
-                        localized: "browser.designMode.composer.removeSelection",
-                        defaultValue: "Remove selected element"
-                    )
-                )
+            // Always laid out, faded in on hover: revealing it must not change
+            // the chip's width, or the whole composer row reflows under the
+            // pointer.
+            Button(action: onRemove) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 7.5, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .frame(width: 13, height: 13)
+                    .background(Circle().fill(Color.white.opacity(0.16)))
+                    .contentShape(Circle())
             }
+            .buttonStyle(.plain)
+            .opacity(isHovered ? 1 : 0)
+            .allowsHitTesting(isHovered)
+            .safeHelp(
+                String(
+                    localized: "browser.designMode.composer.removeSelection",
+                    defaultValue: "Remove selected element"
+                )
+            )
+            .accessibilityLabel(
+                String(
+                    localized: "browser.designMode.composer.removeSelection",
+                    defaultValue: "Remove selected element"
+                )
+            )
         }
         .foregroundStyle(Self.chipBlue)
         .padding(.horizontal, 4)
