@@ -207,7 +207,9 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
             workspaceGitCleanIndexContentSignatureByKey.removeAll()
             workspaceGitHeadSignatureByKey.removeAll()
             pullRequestProbing.resetWorkspacePullRequestRefreshState()
-            host?.clearAllSidebarGitMetadata()
+            if activity == .disabled {
+                host?.clearAllSidebarGitMetadata()
+            }
             return
         }
 

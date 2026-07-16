@@ -160,8 +160,9 @@ actor GitHubPullRequestRequestCoordinator {
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("cmux-workspace-pr-poller", forHTTPHeaderField: "User-Agent")
         request.setValue(authHeader, forHTTPHeaderField: "Authorization")
-        if let etag = cachedResponseByRequestKey[requestKey]?.etag {
-            request.setValue(etag, forHTTPHeaderField: "If-None-Match")
+        let cachedResponse = cachedResponseByRequestKey[requestKey]
+        if let cachedResponse {
+            request.setValue(cachedResponse.etag, forHTTPHeaderField: "If-None-Match")
         }
 
         do {
@@ -174,8 +175,7 @@ actor GitHubPullRequestRequestCoordinator {
                 authorizationFingerprint: requestKey.authorizationFingerprint
             )
 
-            if httpResponse.statusCode == 304,
-               let cachedResponse = cachedResponseByRequestKey[requestKey] {
+            if httpResponse.statusCode == 304, let cachedResponse {
                 return WorkspacePullRequestHTTPResponse(statusCode: 200, data: cachedResponse.data)
             }
 
