@@ -10263,7 +10263,6 @@ struct VerticalTabsSidebar: View {
         let workspaceGroupById: [UUID: WorkspaceGroup]
         let memberWorkspaceIdsByGroupId: [UUID: [UUID]]
         let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
-        let windowMoveTargets: [SidebarWorkspaceWindowMoveTarget]
         let workspaceRenderItems: [SidebarWorkspaceRenderItem]
         let visibleWorkspaceRowIds: [UUID]
 
@@ -10308,16 +10307,6 @@ struct VerticalTabsSidebar: View {
         let workspaceGroupMenuSnapshot = WorkspaceGroupMenuSnapshot(
             items: workspaceGroups.map { WorkspaceGroupMenuSnapshot.Item(id: $0.id, name: $0.name) }
         )
-        let referenceWindowId = AppDelegate.shared?.windowId(for: tabManager)
-        let windowMoveTargets = AppDelegate.shared?
-            .windowMoveTargets(referenceWindowId: referenceWindowId)
-            .map {
-                SidebarWorkspaceWindowMoveTarget(
-                    windowId: $0.windowId,
-                    label: $0.label,
-                    isCurrentWindow: $0.isCurrentWindow
-                )
-            } ?? []
         let workspaceRenderItems = SidebarWorkspaceRenderItem.renderItems(
             tabs: tabs,
             groupsById: workspaceGroupById
@@ -10355,7 +10344,6 @@ struct VerticalTabsSidebar: View {
             workspaceGroupById: workspaceGroupById,
             memberWorkspaceIdsByGroupId: memberWorkspaceIdsByGroupId,
             workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot,
-            windowMoveTargets: windowMoveTargets,
             workspaceRenderItems: workspaceRenderItems,
             visibleWorkspaceRowIds: visibleWorkspaceRowIds
         )
@@ -11941,8 +11929,7 @@ struct VerticalTabsSidebar: View {
             workspaceGroupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
             canCreateEmptyGroup: tabManager.selectedTab?.isRemoteTmuxMirror != true,
             unreadSummariesByWorkspaceId: unreadSummariesByWorkspaceId,
-            notifications: notifications,
-            windowMoveTargets: renderContext.windowMoveTargets
+            notifications: notifications
         )
         let actionFactory = makeWorkspaceRowActionFactory()
         let rows = LazyVStack(spacing: tabRowSpacing) {
@@ -12724,6 +12711,18 @@ struct VerticalTabsSidebar: View {
             moveTargetsToTop: { targetIds in
                 tabManager.moveTabsToTop(Set(targetIds))
                 syncWorkspaceRowSelectionAfterMutation()
+            },
+            currentWindowMoveTargets: {
+                let referenceWindowId = AppDelegate.shared?.windowId(for: tabManager)
+                return AppDelegate.shared?
+                    .windowMoveTargets(referenceWindowId: referenceWindowId)
+                    .map {
+                        SidebarWorkspaceWindowMoveTarget(
+                            windowId: $0.windowId,
+                            label: $0.label,
+                            isCurrentWindow: $0.isCurrentWindow
+                        )
+                    } ?? []
             },
             moveTargetsToWindow: { targetIds, windowId in
                 moveWorkspaceRows(targetIds, toWindow: windowId)

@@ -73,7 +73,7 @@ struct SidebarWorkspaceRowInput {
             }
             return first
         }()
-        SidebarWorkspaceRowSnapshot(
+        return SidebarWorkspaceRowSnapshot(
             workspaceId: workspaceId,
             groupId: groupId,
             index: index,
@@ -123,8 +123,7 @@ struct SidebarWorkspaceRowInput {
                 canMarkRead: list.canMarkRead(workspaceIds: targetWorkspaceIds),
                 canMarkUnread: list.canMarkUnread(workspaceIds: targetWorkspaceIds),
                 hasLatestNotification: list.hasNotification(workspaceIds: targetWorkspaceIds),
-                notifications: list.contextMenuNotifications(workspaceIds: targetWorkspaceIds),
-                windowMoveTargets: list.windowMoveTargets
+                notifications: list.contextMenuNotifications(workspaceIds: targetWorkspaceIds)
             )
         )
     }

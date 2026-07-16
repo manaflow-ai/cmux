@@ -22,5 +22,4 @@ struct SidebarWorkspaceContextMenuSnapshot: Equatable {
     let canMarkUnread: Bool
     let hasLatestNotification: Bool
     let notifications: [TerminalNotification]
-    let windowMoveTargets: [SidebarWorkspaceWindowMoveTarget]
 }

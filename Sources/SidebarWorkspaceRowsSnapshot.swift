@@ -16,7 +16,6 @@ struct SidebarWorkspaceRowsSnapshot {
     let canCreateEmptyGroup: Bool
     let unreadSummariesByWorkspaceId: [UUID: SidebarWorkspaceUnreadSummary]
     let notifications: [TerminalNotification]
-    let windowMoveTargets: [SidebarWorkspaceWindowMoveTarget]
 
     func canMarkRead(workspaceIds: [UUID]) -> Bool {
         workspaceIds.contains { unreadCount(workspaceId: $0) > 0 }

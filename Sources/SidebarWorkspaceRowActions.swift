@@ -17,6 +17,8 @@ struct SidebarWorkspaceRowActions {
     let closeWorkspace: () -> Void
     let moveBy: (Int) -> Void
     let moveTargetsToTop: ([UUID]) -> Void
+    /// Resolves volatile app-window topology when the deferred menu is presented.
+    let currentWindowMoveTargets: () -> [SidebarWorkspaceWindowMoveTarget]
     let moveTargetsToWindow: ([UUID], UUID) -> Void
     let moveTargetsToNewWindow: ([UUID]) -> Void
     let closeTargets: ([UUID], Bool) -> Void

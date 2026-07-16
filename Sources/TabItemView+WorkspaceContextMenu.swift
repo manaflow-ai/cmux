@@ -71,6 +71,7 @@ extension TabItemView {
         let renameWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .renameWorkspace)
         let editWorkspaceDescriptionShortcut = KeyboardShortcutSettings.shortcut(for: .editWorkspaceDescription)
         let closeWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .closeWorkspace)
+        let windowMoveTargets = actions.currentWindowMoveTargets()
         let moveMenuTitle = targetIds.count > 1
             ? String(localized: "contextMenu.moveWorkspacesToWindow", defaultValue: "Move Workspaces to Window")
             : String(localized: "contextMenu.moveWorkspaceToWindow", defaultValue: "Move Workspace to Window")
@@ -203,11 +204,11 @@ extension TabItemView {
             }
             .disabled(targetIds.isEmpty)
 
-            if !context.windowMoveTargets.isEmpty {
+            if !windowMoveTargets.isEmpty {
                 Divider()
             }
 
-            ForEach(context.windowMoveTargets) { target in
+            ForEach(windowMoveTargets) { target in
                 Button(target.label) {
                     actions.moveTargetsToWindow(targetIds, target.windowId)
                 }
