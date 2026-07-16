@@ -1841,6 +1841,26 @@ enum BrowserInsecureHTTPNavigationResolution {
     }
 }
 
+@MainActor
+final class DiffViewerSchemeTaskLifecycle {
+    private var activeTasks: Set<ObjectIdentifier> = []
+
+    func register(_ taskID: ObjectIdentifier) {
+        activeTasks.insert(taskID)
+    }
+
+    @discardableResult
+    func deliver(_ taskID: ObjectIdentifier, _ callback: () -> Void) -> Bool {
+        guard activeTasks.contains(taskID) else { return false }
+        callback()
+        return activeTasks.contains(taskID)
+    }
+
+    func stop(_ taskID: ObjectIdentifier) {
+        activeTasks.remove(taskID)
+    }
+}
+
 final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     static let scheme = "cmux-diff-viewer"
     static let shared = CmuxDiffViewerURLSchemeHandler()
@@ -1877,19 +1897,12 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         }
     }
 
-    private final class SchemeTaskState: @unchecked Sendable {
-        let condition = NSCondition()
-        var isStopped = false
-        var callbacksInFlight = 0
-    }
-
     private let lock = NSLock()
     private var sessions: [String: Session] = [:]
-    private var activeSchemeTasks: [ObjectIdentifier: SchemeTaskState] = [:]
-    private let streamQueue = DispatchQueue(label: "com.manaflow.cmux.diff-viewer-stream", qos: .userInitiated)
+    private let taskLifecycle = DiffViewerSchemeTaskLifecycle()
     // Branch picker routes shell out to the bundled CLI (git). Run them on a
-    // dedicated concurrent queue, NOT the serial file-serving streamQueue, so a
-    // slow/hung git invocation cannot stall restored diff-viewer file serving.
+    // dedicated concurrent queue so a slow Git invocation cannot stall asset
+    // reads or another picker request.
     private let pickerQueue = DispatchQueue(
         label: "com.manaflow.cmux.diff-viewer-picker",
         qos: .userInitiated,
@@ -2131,10 +2144,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         // stopped and every later callback (failure or success) no-ops instead of
         // touching a torn-down WKURLSchemeTask.
         let taskID = ObjectIdentifier(urlSchemeTask as AnyObject)
-        let state = SchemeTaskState()
-        lock.lock()
-        activeSchemeTasks[taskID] = state
-        lock.unlock()
+        taskLifecycle.register(taskID)
 
         pickerQueue.async { [weak self] in
             guard let self else { return }
@@ -2178,10 +2188,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         // makes every later callback no-op instead of crashing on a torn-down
         // task.
         let taskID = ObjectIdentifier(urlSchemeTask as AnyObject)
-        let state = SchemeTaskState()
-        lock.lock()
-        activeSchemeTasks[taskID] = state
-        lock.unlock()
+        taskLifecycle.register(taskID)
 
         pickerQueue.async { [weak self] in
             guard let self else { return }
@@ -2239,11 +2246,9 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         }
     }
 
-    /// Responds to a scheme task that is ALREADY registered in
-    /// `activeSchemeTasks` (the caller registers it before dispatching the async
-    /// picker work). Every WebKit callback is routed through the guarded
-    /// `performSchemeTaskCallback`, so a task stopped/cancelled while the bundled
-    /// CLI ran is never touched.
+    /// Responds to a scheme task that is already registered with
+    /// `taskLifecycle`. WebKit delivery is serialized on the main actor, so stop
+    /// can synchronously remove the task without waiting for background work.
     private func respondScheme(
         urlSchemeTask: WKURLSchemeTask,
         requestURL: URL,
@@ -2262,30 +2267,34 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             headerFields: responseHeaders
         ) ?? URLResponse(url: requestURL, mimeType: headers["Content-Type"], expectedContentLength: body.count, textEncodingName: "utf-8")
 
-        guard performSchemeTaskCallback(taskID, { urlSchemeTask.didReceive(response) }) else { return }
-        guard performSchemeTaskCallback(taskID, { urlSchemeTask.didReceive(body) }) else { return }
-        guard performSchemeTaskCallback(taskID, { urlSchemeTask.didFinish() }) else { return }
-        finishSchemeTask(taskID)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard taskLifecycle.deliver(taskID, { urlSchemeTask.didReceive(response) }) else { return }
+            guard taskLifecycle.deliver(taskID, { urlSchemeTask.didReceive(body) }) else { return }
+            guard taskLifecycle.deliver(taskID, { urlSchemeTask.didFinish() }) else { return }
+            taskLifecycle.stop(taskID)
+        }
     }
 
-    /// Fails an ALREADY-registered scheme task through the guarded callback path,
-    /// then clears it from `activeSchemeTasks`. A no-op if the task was already
-    /// stopped/cancelled, so a `didFailWithError` is never delivered to a task
-    /// WebKit already tore down.
+    /// Fails an already-registered task on the main actor. A stopped task has
+    /// already been removed, so the late failure becomes a no-op.
     private func failSchemeTask(
         _ taskID: ObjectIdentifier,
         _ urlSchemeTask: WKURLSchemeTask,
         code: Int
     ) {
-        _ = performSchemeTaskCallback(taskID, {
-            urlSchemeTask.didFailWithError(NSError(domain: NSURLErrorDomain, code: code))
-        })
-        finishSchemeTask(taskID)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            _ = taskLifecycle.deliver(taskID, {
+                urlSchemeTask.didFailWithError(NSError(domain: NSURLErrorDomain, code: code))
+            })
+            taskLifecycle.stop(taskID)
+        }
     }
 
     func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
         let taskID = ObjectIdentifier(urlSchemeTask as AnyObject)
-        stopSchemeTask(taskID)
+        taskLifecycle.stop(taskID)
     }
 
     static func registeredFile(from object: [String: Any]) -> RegisteredFile? {
@@ -2465,27 +2474,23 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         urlSchemeTask: WKURLSchemeTask
     ) {
         let taskID = ObjectIdentifier(urlSchemeTask as AnyObject)
-        let state = SchemeTaskState()
-        lock.lock()
-        activeSchemeTasks[taskID] = state
-        lock.unlock()
+        taskLifecycle.register(taskID)
+        let lifecycle = taskLifecycle
+        let response = HTTPURLResponse(
+            url: requestURL,
+            statusCode: 200,
+            httpVersion: "HTTP/1.1",
+            headerFields: responseHeaders(for: file)
+        ) ?? URLResponse(
+            url: requestURL,
+            mimeType: file.mimeType,
+            expectedContentLength: Self.fileSize(for: file.fileURL),
+            textEncodingName: "utf-8"
+        )
 
-        streamQueue.async { [weak self] in
-            guard let self else { return }
+        Task.detached(priority: .userInitiated) {
             do {
-                let response = HTTPURLResponse(
-                    url: requestURL,
-                    statusCode: 200,
-                    httpVersion: "HTTP/1.1",
-                    headerFields: self.responseHeaders(for: file)
-                ) ?? URLResponse(
-                    url: requestURL,
-                    mimeType: file.mimeType,
-                    expectedContentLength: Self.fileSize(for: file.fileURL),
-                    textEncodingName: "utf-8"
-                )
-
-                guard self.performSchemeTaskCallback(taskID, {
+                guard await lifecycle.deliver(taskID, {
                     urlSchemeTask.didReceive(response)
                 }) else { return }
 
@@ -2494,83 +2499,27 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
                     try? reader.close()
                 }
 
-                while self.isSchemeTaskActive(taskID) {
+                while true {
                     let data = try reader.read(upToCount: 64 * 1024)
                     if data.isEmpty {
                         break
                     }
-                    guard self.performSchemeTaskCallback(taskID, {
+                    guard await lifecycle.deliver(taskID, {
                         urlSchemeTask.didReceive(data)
                     }) else { return }
                 }
 
-                guard self.performSchemeTaskCallback(taskID, {
+                guard await lifecycle.deliver(taskID, {
                     urlSchemeTask.didFinish()
                 }) else { return }
-                self.finishSchemeTask(taskID)
+                await lifecycle.stop(taskID)
             } catch {
-                guard self.performSchemeTaskCallback(taskID, {
+                guard await lifecycle.deliver(taskID, {
                     urlSchemeTask.didFailWithError(error)
                 }) else { return }
-                self.finishSchemeTask(taskID)
+                await lifecycle.stop(taskID)
             }
         }
-    }
-
-    private func isSchemeTaskActive(_ taskID: ObjectIdentifier) -> Bool {
-        lock.lock()
-        let state = activeSchemeTasks[taskID]
-        lock.unlock()
-        guard let state else { return false }
-
-        state.condition.lock()
-        let active = !state.isStopped
-        state.condition.unlock()
-        return active
-    }
-
-    private func performSchemeTaskCallback(_ taskID: ObjectIdentifier, _ callback: () -> Void) -> Bool {
-        lock.lock()
-        let state = activeSchemeTasks[taskID]
-        lock.unlock()
-        guard let state else { return false }
-
-        state.condition.lock()
-        guard !state.isStopped else {
-            state.condition.unlock()
-            return false
-        }
-        state.callbacksInFlight += 1
-        state.condition.unlock()
-
-        callback()
-
-        state.condition.lock()
-        state.callbacksInFlight -= 1
-        if state.callbacksInFlight == 0 {
-            state.condition.broadcast()
-        }
-        let active = !state.isStopped
-        state.condition.unlock()
-        return active
-    }
-
-    private func finishSchemeTask(_ taskID: ObjectIdentifier) {
-        stopSchemeTask(taskID)
-    }
-
-    private func stopSchemeTask(_ taskID: ObjectIdentifier) {
-        lock.lock()
-        let state = activeSchemeTasks.removeValue(forKey: taskID)
-        lock.unlock()
-        guard let state else { return }
-
-        state.condition.lock()
-        state.isStopped = true
-        while state.callbacksInFlight > 0 {
-            state.condition.wait()
-        }
-        state.condition.unlock()
     }
 
     private static func fileSize(for url: URL) -> Int {
