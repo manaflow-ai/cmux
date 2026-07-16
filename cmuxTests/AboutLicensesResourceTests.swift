@@ -40,11 +40,14 @@ struct AboutLicensesResourceTests {
         #expect(url.absoluteString == "https://github.com/manaflow-ai/cmux/tree/v0.64.19")
     }
 
-    @Test("Development builds link corresponding source to their commit")
-    func developmentBuildUsesCommit() {
+    @Test(
+        "Non-stable builds link corresponding source to their commit",
+        arguments: ["com.cmuxterm.app.debug.licpkg", "com.cmuxterm.app.nightly"]
+    )
+    func nonStableBuildUsesCommit(bundleIdentifier: String) {
         let url = AboutLicenseContent.correspondingSourceURL(
             version: "0.64.19",
-            bundleIdentifier: "com.cmuxterm.app.debug.licpkg",
+            bundleIdentifier: bundleIdentifier,
             commit: "abcdef123"
         )
 
