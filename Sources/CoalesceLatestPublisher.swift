@@ -31,7 +31,8 @@ extension Publisher where Failure == Never {
     ///   next window.
     ///
     /// Not thread-safe: intended for main-thread streams with `RunLoop.main`.
-    /// Downstream demand is ignored (sink-style subscribers only).
+    /// Demand-limited subscribers receive the latest ready value only after
+    /// requesting it, so this operator is safe to bridge into `AsyncSequence`.
     func coalesceLatest<Context: Scheduler>(
         for interval: Context.SchedulerTimeType.Stride,
         scheduler: Context
@@ -71,6 +72,9 @@ private final class CoalesceLatestInner<Downstream: Subscriber, Context: Schedul
     private var hasReceivedReplay = false
     private var windowStart: Context.SchedulerTimeType?
     private var pendingValue: Input?
+    private var readyValue: Input?
+    private var downstreamDemand: Subscribers.Demand = .none
+    private var isDelivering = false
     private var trailingScheduled = false
     private var isCancelled = false
 
@@ -83,6 +87,10 @@ private final class CoalesceLatestInner<Downstream: Subscriber, Context: Schedul
     func receive(subscription: Subscription) {
         upstreamSubscription = subscription
         downstream.receive(subscription: self)
+        guard !isCancelled else {
+            subscription.cancel()
+            return
+        }
         subscription.request(.unlimited)
     }
 
@@ -90,7 +98,7 @@ private final class CoalesceLatestInner<Downstream: Subscriber, Context: Schedul
         guard !isCancelled else { return .none }
         if !hasReceivedReplay {
             hasReceivedReplay = true
-            _ = downstream.receive(input)
+            enqueueForDelivery(input)
             return .none
         }
         let now = scheduler.now
@@ -104,7 +112,7 @@ private final class CoalesceLatestInner<Downstream: Subscriber, Context: Schedul
             // callback cannot emit it out of order after this value.
             pendingValue = nil
             windowStart = now
-            _ = downstream.receive(input)
+            enqueueForDelivery(input)
         }
         return .none
     }
@@ -113,9 +121,15 @@ private final class CoalesceLatestInner<Downstream: Subscriber, Context: Schedul
         guard !isCancelled else { return }
         if let value = pendingValue {
             pendingValue = nil
-            _ = downstream.receive(value)
+            enqueueForDelivery(value)
         }
+        guard !isCancelled else { return }
+        // Combine completion is not demand-gated. If no demand remains, the
+        // buffered latest value cannot legally precede completion and drops.
+        readyValue = nil
+        isCancelled = true
         downstream.receive(completion: completion)
+        upstreamSubscription = nil
     }
 
     private func scheduleTrailingEmission(at deadline: Context.SchedulerTimeType) {
@@ -141,17 +155,41 @@ private final class CoalesceLatestInner<Downstream: Subscriber, Context: Schedul
         }
         pendingValue = nil
         windowStart = scheduler.now
-        _ = downstream.receive(value)
+        enqueueForDelivery(value)
     }
 
     func request(_ demand: Subscribers.Demand) {
-        // Downstream demand is intentionally ignored; this operator backs
-        // sink-style Void observation streams with unlimited demand.
+        guard !isCancelled, demand > .none else { return }
+        downstreamDemand += demand
+        drainReadyValue()
+    }
+
+    private func enqueueForDelivery(_ value: Input) {
+        readyValue = value
+        drainReadyValue()
+    }
+
+    private func drainReadyValue() {
+        guard !isDelivering else { return }
+        isDelivering = true
+        defer { isDelivering = false }
+
+        while !isCancelled,
+              downstreamDemand > .none,
+              let value = readyValue {
+            readyValue = nil
+            downstreamDemand -= .max(1)
+            let additionalDemand = downstream.receive(value)
+            guard !isCancelled else { return }
+            downstreamDemand += additionalDemand
+        }
     }
 
     func cancel() {
         isCancelled = true
         pendingValue = nil
+        readyValue = nil
+        downstreamDemand = .none
         upstreamSubscription?.cancel()
         upstreamSubscription = nil
     }
