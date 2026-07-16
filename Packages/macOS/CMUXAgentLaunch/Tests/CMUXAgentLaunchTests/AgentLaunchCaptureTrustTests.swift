@@ -242,4 +242,30 @@ struct AgentLaunchCaptureTrustTests {
             )
         )
     }
+
+    @Test func exactLauncherRejectsTruncatedInterpreterCapture() {
+        #expect(
+            !AgentLaunchCaptureTrust.capturedArgumentsDescribeKind(
+                launcher: "gemini",
+                executablePath: "/Users/alice/.hermes/node/bin/node",
+                arguments: [
+                    "/Users/alice/.hermes/node/bin/node",
+                    "--max-old-space-size=65536",
+                ],
+                kind: "gemini"
+            )
+        )
+        #expect(
+            AgentLaunchCaptureTrust.capturedArgumentsDescribeKind(
+                launcher: "gemini",
+                executablePath: "/Users/alice/.hermes/node/bin/node",
+                arguments: [
+                    "/Users/alice/.hermes/node/bin/node",
+                    "--max-old-space-size=65536",
+                    "/Users/alice/.bun/bin/gemini",
+                ],
+                kind: "gemini"
+            )
+        )
+    }
 }
