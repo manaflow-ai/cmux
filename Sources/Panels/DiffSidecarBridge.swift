@@ -239,7 +239,7 @@ actor DiffSidecarProcessSupervisor {
     private var readiness: Pipe?
     private var startupTask: Task<Void, Error>?
     private var outputTask: Task<Void, Never>?
-    private var stderrTask: Task<Void, Never>?
+    private var outputContinuation: AsyncStream<Data>.Continuation?
     private var generation: UInt64 = 0
     private var pending: [String: PendingRequest] = [:]
 
@@ -313,34 +313,52 @@ actor DiffSidecarProcessSupervisor {
         try await Self.waitForProcessGroupReady(from: readiness.fileHandleForReading)
 
         let outputHandle = output.fileHandleForReading
-        outputTask = Task.detached(priority: .userInitiated) { [weak self] in
-            do {
-                var frame = Data()
-                for try await byte in outputHandle.bytes {
+        let outputStream = AsyncStream.makeStream(
+            of: Data.self,
+            bufferingPolicy: .unbounded
+        )
+        outputContinuation = outputStream.continuation
+        outputHandle.readabilityHandler = { handle in
+            let data = handle.availableData
+            if data.isEmpty {
+                handle.readabilityHandler = nil
+                outputStream.continuation.finish()
+            } else {
+                outputStream.continuation.yield(data)
+            }
+        }
+        outputTask = Task { [weak self] in
+            var frame = Data()
+            for await data in outputStream.stream {
+                for byte in data {
                     if byte == UInt8(ascii: "\n") {
                         await self?.receive(frame: frame, generation: launchGeneration)
                         frame.removeAll(keepingCapacity: true)
                     } else {
                         frame.append(byte)
                         if frame.count > Self.maximumResponseBytes {
-                            throw SupervisorError.invalidResponse
+                            await self?.transportDidFail(
+                                generation: launchGeneration,
+                                error: SupervisorError.invalidResponse
+                            )
+                            return
                         }
                     }
                 }
-                if !frame.isEmpty {
-                    throw SupervisorError.invalidResponse
-                }
-                await self?.outputDidEnd(generation: launchGeneration)
-            } catch {
-                await self?.transportDidFail(generation: launchGeneration, error: error)
             }
+            if !frame.isEmpty {
+                await self?.transportDidFail(
+                    generation: launchGeneration,
+                    error: SupervisorError.invalidResponse
+                )
+                return
+            }
+            await self?.outputDidEnd(generation: launchGeneration)
         }
         let readinessHandle = readiness.fileHandleForReading
-        stderrTask = Task.detached(priority: .utility) {
-            do {
-                for try await _ in readinessHandle.bytes {}
-            } catch {
-                // Process termination closes the diagnostic stream.
+        readinessHandle.readabilityHandler = { handle in
+            if handle.availableData.isEmpty {
+                handle.readabilityHandler = nil
             }
         }
     }
@@ -418,7 +436,7 @@ actor DiffSidecarProcessSupervisor {
     }
 
     private func outputDidEnd(generation: UInt64) {
-        guard generation == self.generation, process?.isRunning != true else { return }
+        guard generation == self.generation else { return }
         stopProcess(error: SupervisorError.processExited(process?.terminationStatus ?? -1))
     }
 
@@ -431,10 +449,12 @@ actor DiffSidecarProcessSupervisor {
         generation &+= 1
         startupTask?.cancel()
         startupTask = nil
+        output?.fileHandleForReading.readabilityHandler = nil
+        readiness?.fileHandleForReading.readabilityHandler = nil
+        outputContinuation?.finish()
+        outputContinuation = nil
         outputTask?.cancel()
         outputTask = nil
-        stderrTask?.cancel()
-        stderrTask = nil
         try? input?.fileHandleForWriting.close()
         try? output?.fileHandleForReading.close()
         try? readiness?.fileHandleForReading.close()
