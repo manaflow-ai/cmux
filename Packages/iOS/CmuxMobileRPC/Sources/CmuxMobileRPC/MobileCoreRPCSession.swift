@@ -74,20 +74,9 @@ actor MobileCoreRPCSession {
         abandonedConnectCleanupTimeoutNanoseconds: UInt64 = 1_000_000_000,
         lateAbandonedConnectCloseTimeoutNanoseconds: UInt64 = 5_000_000_000,
         makeTransport: @escaping TransportFactory,
-35:             makeTransport: { [runtime, transportRequest] in
-                try runtime.transportFactory.makeTransport(for: transportRequest)
-            },
-            makeIndependentEventByteStream: independentEventFactory,
-            transportConnectObserver: transportConnectObserver
-36:         makeIndependentEventByteStream: IndependentEventByteStreamFactory? = nil,
+        makeIndependentEventByteStream: IndependentEventByteStreamFactory? = nil,
         didReceiveConnectedCandidate: ConnectedCandidateHook? = nil,
         transportConnectObserver: TransportConnectObserver? = nil
-37:             mobileShellLog.info("pairing trying route kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private)")
-            let attemptIndex = routeIndex + 1
-            let routeID = route.id
-            let routeKind = route.kind.rawValue
-            let endpointSummary = Self.mobileDialEndpointSummary(route.endpoint)
-            let dialLog = dialLog
     ) {
         self.connectAttemptKey = connectAttemptKey
         self.connectAttemptRegistry = connectAttemptRegistry
@@ -244,24 +233,14 @@ actor MobileCoreRPCSession {
                 connectLease = .untracked
             }
             let connectStartedAt = ContinuousClock.now
-            await transportConnectObserver?(.attempt)
-            let candidate: any CmxByteTransport
-            do {
-                candidate = try makeTransport()
-            } catch {
-                await transportConnectObserver?(
-                    .failed(
-                        error: error,
-                        elapsedMilliseconds: Self.elapsedMilliseconds(since: connectStartedAt)
-                    )
-                )
-                await connectAttemptRegistry.clearFinishedConnect(lease: connectLease)
-                throw error
-            }
-            connectionID = UUID()
+            let makeTransport = makeTransport
             let transportConnectObserver = transportConnectObserver
+            connectionID = UUID()
             task = Task.detached {
+                await transportConnectObserver?(.attempt)
                 do {
+                    try Task.checkCancellation()
+                    let candidate = try makeTransport()
                     let connected = try await withTaskCancellationHandler {
                         try await candidate.connect()
                         return candidate

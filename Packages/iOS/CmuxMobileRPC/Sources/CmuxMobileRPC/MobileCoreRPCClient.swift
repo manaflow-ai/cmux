@@ -73,20 +73,11 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             connectAttemptRegistry: connectAttemptRegistry,
             abandonedConnectCleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
             lateAbandonedConnectCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds,
-35:             makeTransport: { [runtime, transportRequest] in
+            makeTransport: { [runtime, transportRequest] in
                 try runtime.transportFactory.makeTransport(for: transportRequest)
             },
             makeIndependentEventByteStream: independentEventFactory,
             transportConnectObserver: transportConnectObserver
-36:         makeIndependentEventByteStream: IndependentEventByteStreamFactory? = nil,
-        didReceiveConnectedCandidate: ConnectedCandidateHook? = nil,
-        transportConnectObserver: TransportConnectObserver? = nil
-37:             mobileShellLog.info("pairing trying route kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private)")
-            let attemptIndex = routeIndex + 1
-            let routeID = route.id
-            let routeKind = route.kind.rawValue
-            let endpointSummary = Self.mobileDialEndpointSummary(route.endpoint)
-            let dialLog = dialLog
         )
     }
 

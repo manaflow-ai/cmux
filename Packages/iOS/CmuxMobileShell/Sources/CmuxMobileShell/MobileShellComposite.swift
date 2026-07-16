@@ -4890,8 +4890,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     nonisolated private static func mobileDialEndpointSummary(_ endpoint: CmxAttachEndpoint) -> String {
         switch endpoint {
-        case let .hostPort(host, port):
-            return "\(host):\(port)"
+        case let .hostPort(_, port):
+            return "host_port:redacted,port:\(port)"
         case let .peer(identity, pathHints):
             let endpointPrefix = String(identity.endpointID.prefix(8))
             return "peer:\(endpointPrefix),hints:\(pathHints.count)"

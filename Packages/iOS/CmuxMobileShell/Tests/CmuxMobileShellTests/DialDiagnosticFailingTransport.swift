@@ -4,7 +4,7 @@ import Foundation
 
 actor DialDiagnosticFailingTransport: CmxByteTransport {
     func connect() async throws {
-        throw CmxIrohByteTransportError.connectionFailed("sensitive transport detail", .hostUnreachable)
+        throw CmxNetworkByteTransportError.connectionFailed("sensitive transport detail", .hostUnreachable)
     }
 
     func receive() async throws -> Data? { nil }
