@@ -8686,7 +8686,10 @@ struct ContentView: View {
         commandPaletteScrollTargetIndex = nil
         commandPaletteScrollTargetAnchor = nil
         commandPaletteShouldFocusWorkspaceDescriptionEditor = false
-        scheduleCommandPaletteResultsRefresh(forceSearchCorpusRefresh: true)
+        // Reuse the immutable command corpus and Nucleo index across presentations.
+        // The context/config fingerprint below still rebuilds them when any command
+        // title, enablement, shortcut, or handler context can change.
+        scheduleCommandPaletteResultsRefresh()
         syncCommandPaletteOverlayCommandListState()
         resetCommandPaletteSearchFocus()
         syncCommandPaletteDebugStateForObservedWindow()
@@ -8780,7 +8783,6 @@ struct ContentView: View {
         }
 #endif
         cancelCommandPaletteSearch()
-        cancelCommandPaletteSearchIndexBuild()
         cancelCommandPaletteForkableAgentAvailabilityProbe()
         commandPaletteForkableAgentActivePanelKey = nil
         commandPaletteSearchRequestID &+= 1
@@ -8798,17 +8800,11 @@ struct ContentView: View {
         isCommandPaletteSearchFocused = false
         isCommandPaletteRenameFocused = false
         commandPaletteRestoreFocusTarget = nil
-        commandPaletteSearchCorpus = []
-        commandPaletteSearchCorpusByID = [:]
-        commandPaletteSearchCommandsByID = [:]
-        commandPaletteNucleoSearchIndex = nil
         cachedCommandPaletteResults = []
         commandPaletteVisibleResults = []
         commandPaletteVisibleResultsScope = nil
         commandPaletteVisibleResultsFingerprint = nil
         commandPaletteVisibleResultsVersion &+= 1
-        cachedCommandPaletteScope = nil
-        cachedCommandPaletteFingerprint = nil
         commandPalettePendingTextSelectionBehavior = nil
         commandPaletteResolvedSearchRequestID = commandPaletteSearchRequestID
         commandPaletteResolvedSearchScope = nil

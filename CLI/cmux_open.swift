@@ -3049,19 +3049,7 @@ extension CMUXCLI {
            !diffViewerUsesTypedSidecar(runtime: target.runtime) {
             throw CLIError(message: "Last-turn diffs require the Rust diff sidecar.")
         }
-        if selectedSource != .lastTurn,
-           !diffViewerUsesTypedSidecar(runtime: target.runtime) {
-            return try writeOpeningGitDiffViewerHTMLSet(
-                selectedSource: selectedSource,
-                titleOverride: titleOverride,
-                layout: layout,
-                layoutSource: layoutSource,
-                appearance: appearance,
-                context: context,
-                target: target
-            )
-        }
-        return try writeCompleteGitDiffViewerHTMLSet(
+        return try writeOpeningGitDiffViewerHTMLSet(
             selectedSource: selectedSource,
             titleOverride: titleOverride,
             layout: layout,
@@ -6624,7 +6612,9 @@ extension CMUXCLI {
 
     func ensureDiffViewerAssets(nextTo viewerURL: URL, runtime: URL? = nil) throws -> DiffViewerAssets {
         let sourceDirectory = try diffViewerBundledAssetDirectory(runtime: runtime)
-        let assetDirectoryName = "pierre-diffs-1.2.7-trees-1.0.0-beta.4"
+        let assetManifest = diffViewerBundledAssetManifest(in: sourceDirectory)
+        let assetDirectoryName = "pierre-diffs-1.2.7-trees-1.0.0-beta.4" +
+            (assetManifest.map { "-" + String($0.contentKey.prefix(12)) } ?? "")
         let targetDirectory = viewerURL.deletingLastPathComponent()
             .appendingPathComponent("assets", isDirectory: true)
             .appendingPathComponent(assetDirectoryName, isDirectory: true)
@@ -6644,17 +6634,24 @@ extension CMUXCLI {
               assetPaths.contains("worker-pool/worker-portable.js") else {
             throw CLIError(message: "Bundled diff viewer entry assets not found")
         }
-        let copiedAssetURLs = try assetPaths.map {
-            try copyDiffViewerAsset(relativePath: $0, from: sourceDirectory, to: targetDirectory)
-        }
+        let copiedAssetURLs = try prepareDiffViewerAssets(
+            relativePaths: assetPaths,
+            manifest: assetManifest,
+            from: sourceDirectory,
+            to: targetDirectory
+        )
 
+        let appAssetManifest = diffViewerBundledAssetManifest(in: appAssets.sourceDirectory)
         let appAssetPaths = try diffViewerBundledAssetRelativePaths(in: appAssets.sourceDirectory)
         guard appAssetPaths.contains("main.mjs") else {
             throw CLIError(message: "Bundled cmux diff viewer app entry asset not found")
         }
-        let copiedAppAssetURLs = try appAssetPaths.map {
-            try copyDiffViewerAsset(relativePath: $0, from: appAssets.sourceDirectory, to: targetAppDirectory)
-        }
+        let copiedAppAssetURLs = try prepareDiffViewerAssets(
+            relativePaths: appAssetPaths,
+            manifest: appAssetManifest,
+            from: appAssets.sourceDirectory,
+            to: targetAppDirectory
+        )
 
         return DiffViewerAssets(
             appModuleURL: "./assets/\(appAssetDirectoryName)/main.mjs",
@@ -6664,6 +6661,49 @@ extension CMUXCLI {
             workerModuleURL: "./assets/\(assetDirectoryName)/worker-pool/worker-portable.js",
             files: copiedAssetURLs + copiedAppAssetURLs
         )
+    }
+
+    private func prepareDiffViewerAssets(
+        relativePaths: [String],
+        manifest: DiffViewerBundledAssetManifest?,
+        from sourceDirectory: URL,
+        to targetDirectory: URL
+    ) throws -> [URL] {
+        let storedPathsByLogicalPath = Dictionary(
+            uniqueKeysWithValues: manifest?.files.map { ($0.logicalPath, $0.storedPath) } ?? []
+        )
+        let targetURLs = try relativePaths.map { relativePath -> URL in
+            if let storedPath = storedPathsByLogicalPath[relativePath] {
+                return targetDirectory.appendingPathComponent(storedPath, isDirectory: false)
+            }
+            let sourceURL = try diffViewerBundledAssetFileURL(
+                relativePath: relativePath,
+                in: sourceDirectory
+            )
+            let storedPath = sourceURL.path.hasSuffix(".deflate")
+                ? relativePath + ".deflate"
+                : relativePath
+            return targetDirectory.appendingPathComponent(storedPath, isDirectory: false)
+        }
+
+        if let manifest {
+            let markerURL = targetDirectory.appendingPathComponent(".cmux-assets.complete", isDirectory: false)
+            if let cachedKey = try? String(contentsOf: markerURL, encoding: .utf8),
+               cachedKey == manifest.contentKey {
+                return targetURLs
+            }
+
+            let copied = try relativePaths.map {
+                try copyDiffViewerAsset(relativePath: $0, from: sourceDirectory, to: targetDirectory)
+            }
+            try manifest.contentKey.write(to: markerURL, atomically: true, encoding: .utf8)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: markerURL.path)
+            return copied
+        }
+
+        return try relativePaths.map {
+            try copyDiffViewerAsset(relativePath: $0, from: sourceDirectory, to: targetDirectory)
+        }
     }
 
     private func diffViewerBundledAppAssetDirectory(
@@ -6695,6 +6735,9 @@ extension CMUXCLI {
     }
 
     private func diffViewerAppAssetContentKey(directory: URL) throws -> String {
+        if let manifest = diffViewerBundledAssetManifest(in: directory) {
+            return String(manifest.contentKey.prefix(12))
+        }
         var hasher = SHA256()
         for relativePath in try diffViewerBundledAssetRelativePaths(in: directory).sorted() {
             hasher.update(data: Data(relativePath.utf8))
@@ -6728,7 +6771,12 @@ extension CMUXCLI {
             isDirectory: false
         )
         do {
-            try fileManager.copyItem(at: sourceURL, to: temporaryURL)
+            // Bundled assets are immutable. A hard link makes the cold cache fill
+            // metadata-only on the normal same-volume app + /tmp layout; copying
+            // remains the portable fallback for cross-volume or restricted files.
+            if Darwin.link(sourceURL.path, temporaryURL.path) != 0 {
+                try fileManager.copyItem(at: sourceURL, to: temporaryURL)
+            }
             if rename(temporaryURL.path, targetURL.path) != 0 {
                 let code = Int(errno)
                 throw NSError(domain: NSPOSIXErrorDomain, code: code)
