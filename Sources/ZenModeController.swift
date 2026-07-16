@@ -109,6 +109,8 @@ final class ZenModeController {
     func consumeInterruptedSidebarVisibilityRecovery(windowID: UUID) -> Bool {
         guard interruptedSidebarRecoveryWindowID == windowID else { return false }
         interruptedSidebarRecoveryWindowID = nil
+        defaults.removeObject(forKey: Self.recoverySidebarVisibilityChangedKey)
+        defaults.removeObject(forKey: Self.recoveryWindowIDKey)
         return true
     }
 
@@ -147,13 +149,16 @@ final class ZenModeController {
     }
 
     private func restoreInterruptedSettingsIfNeeded(captureSidebarRecovery: Bool) {
-        guard defaults.bool(forKey: Self.recoveryActiveKey) else { return }
-
+        var capturedSidebarRecovery = false
         if captureSidebarRecovery,
            defaults.bool(forKey: Self.recoverySidebarVisibilityChangedKey),
-           let rawWindowID = defaults.string(forKey: Self.recoveryWindowIDKey) {
-            interruptedSidebarRecoveryWindowID = UUID(uuidString: rawWindowID)
+           let rawWindowID = defaults.string(forKey: Self.recoveryWindowIDKey),
+           let windowID = UUID(uuidString: rawWindowID) {
+            interruptedSidebarRecoveryWindowID = windowID
+            capturedSidebarRecovery = true
         }
+
+        guard defaults.bool(forKey: Self.recoveryActiveKey) else { return }
 
         if defaults.bool(forKey: Self.recoveryPresentationModeChangedKey),
            WorkspacePresentationModeSettings.isMinimal(defaults: defaults) {
@@ -178,7 +183,7 @@ final class ZenModeController {
             }
         }
 
-        clearRecoveryState()
+        clearRecoveryState(preservingSidebarRecovery: capturedSidebarRecovery)
     }
 
     private func restorePreviousValue(key: String, wasPresentKey: String, valueKey: String) {
@@ -189,8 +194,8 @@ final class ZenModeController {
         }
     }
 
-    private func clearRecoveryState() {
-        [
+    private func clearRecoveryState(preservingSidebarRecovery: Bool = false) {
+        var keys = [
             Self.recoveryActiveKey,
             Self.recoveryPresentationModeChangedKey,
             Self.recoveryPresentationModeWasPresentKey,
@@ -199,8 +204,11 @@ final class ZenModeController {
             Self.recoveryContentWidthWasPresentKey,
             Self.recoveryContentWidthValueKey,
             Self.recoveryAppliedContentWidthKey,
-            Self.recoverySidebarVisibilityChangedKey,
-            Self.recoveryWindowIDKey,
-        ].forEach(defaults.removeObject(forKey:))
+        ]
+        if !preservingSidebarRecovery {
+            keys.append(Self.recoverySidebarVisibilityChangedKey)
+            keys.append(Self.recoveryWindowIDKey)
+        }
+        keys.forEach(defaults.removeObject(forKey:))
     }
 }

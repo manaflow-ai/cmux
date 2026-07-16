@@ -105,7 +105,7 @@ final class ZenModeControllerTests {
         let interruptedController = ZenModeController(defaults: defaults)
         _ = interruptedController.begin(windowID: windowID, isSidebarVisible: true, isFullScreen: false)
 
-        let recoveredController = ZenModeController(defaults: defaults)
+        _ = ZenModeController(defaults: defaults)
 
         #expect(
             defaults.string(forKey: WorkspacePresentationModeSettings.modeKey) ==
@@ -115,8 +115,13 @@ final class ZenModeControllerTests {
             defaults.double(forKey: SessionContentWidthSettings.maxWidthKey) ==
                 SessionContentWidthSettings.noMaximumWidth
         )
-        #expect(recoveredController.consumeInterruptedSidebarVisibilityRecovery(windowID: windowID))
-        #expect(!recoveredController.consumeInterruptedSidebarVisibilityRecovery(windowID: windowID))
+
+        // A second startup crash before session restoration must not lose the
+        // pending sidebar repair.
+        let secondRecoveredController = ZenModeController(defaults: defaults)
+        #expect(secondRecoveredController.consumeInterruptedSidebarVisibilityRecovery(windowID: windowID))
+        #expect(!secondRecoveredController.consumeInterruptedSidebarVisibilityRecovery(windowID: windowID))
+        #expect(!ZenModeController(defaults: defaults).consumeInterruptedSidebarVisibilityRecovery(windowID: windowID))
     }
 
     @Test
