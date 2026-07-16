@@ -1328,6 +1328,28 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: legacyStoreURL.path))
         let header = try Data(contentsOf: indexedStoreURL, options: .mappedIfSafe).prefix(16)
         XCTAssertEqual(String(data: header, encoding: .utf8), "SQLite format 3\0")
+
+        let downgradedWorkspaceId = UUID().uuidString.lowercased()
+        try writeDiffBaselineStore(
+            stateDirectoryURL: stateURL,
+            repoURL: repoURL,
+            workspaceId: downgradedWorkspaceId,
+            surfaceId: surfaceId,
+            baseCommit: baseCommit
+        )
+        let afterDowngrade = try runDiffCLIAndReadHTML(
+            cliPath: cliPath,
+            arguments: ["diff", "--last-turn"],
+            environmentOverrides: [
+                "CMUX_AGENT_HOOK_STATE_DIR": stateURL.path,
+                "CMUX_WORKSPACE_ID": downgradedWorkspaceId,
+                "CMUX_SURFACE_ID": surfaceId,
+                "CMUX_SESSION_ID": "session-1"
+            ],
+            currentDirectoryURL: repoURL
+        )
+        XCTAssertTrue(afterDowngrade.patch.contains("+after"), afterDowngrade.patch)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacyStoreURL.path))
     }
 
     func testAgentTurnDiffBaselineStoresUntrackedSnapshotsOutsideGit() throws {

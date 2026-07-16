@@ -3195,9 +3195,6 @@ extension CMUXCLI {
         )
         do {
             var shouldRemoveNewSnapshot = untrackedSnapshot.snapshotId != nil
-            if let snapshotId = untrackedSnapshot.snapshotId {
-                try publishAgentTurnDiffBaselineSnapshot(snapshotId: snapshotId, storePath: storePath)
-            }
             let database = try CMUXAgentTurnDiffBaselineDatabase(
                 path: storePath,
                 legacyJSONPath: CMUXAgentTurnDiffBaselineFile.legacyJSONPath(env: env)
@@ -3205,8 +3202,12 @@ extension CMUXCLI {
             let update = try database.update(
                 with: record,
                 preserveExistingTurnBaseline: preserveExistingTurnBaseline
-            )
-            shouldRemoveNewSnapshot = !update.storedRecord && untrackedSnapshot.snapshotId != nil
+            ) {
+                if let snapshotId = untrackedSnapshot.snapshotId {
+                    try publishAgentTurnDiffBaselineSnapshot(snapshotId: snapshotId, storePath: storePath)
+                    shouldRemoveNewSnapshot = false
+                }
+            }
             pruneAgentTurnDiffBaselineArtifacts(
                 storePath: storePath,
                 removedRecords: update.removedRecords,

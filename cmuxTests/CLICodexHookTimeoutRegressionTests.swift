@@ -686,6 +686,8 @@ struct CLICodexHookTimeoutRegressionTests {
         let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
         let fakeBin = root.appendingPathComponent("bin", isDirectory: true)
         let fakeGit = fakeBin.appendingPathComponent("git", isDirectory: false)
+        let slowGitStarted = root.appendingPathComponent("slow-git-started", isDirectory: false)
+        let slowGitGate = root.appendingPathComponent("slow-git-gate", isDirectory: false)
         let slowGitDone = root.appendingPathComponent("slow-git-done", isDirectory: false)
         let baselineStore = root.appendingPathComponent("agent-turn-diff-baselines.sqlite3", isDirectory: false)
         let socketPath = makeCodexHookSocketPath("slow-diff")
@@ -695,6 +697,9 @@ struct CLICodexHookTimeoutRegressionTests {
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: fakeBin, withIntermediateDirectories: true)
+        guard Darwin.mkfifo(slowGitGate.path, mode_t(S_IRUSR | S_IWUSR)) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
@@ -705,7 +710,7 @@ struct CLICodexHookTimeoutRegressionTests {
             "#!/bin/sh",
             "case \" $* \" in",
             "  *\" rev-parse --show-toplevel \"*) printf '%s\\n' \"$CMUX_TEST_REPO_ROOT\" ;;",
-            "  *\" stash create \"*) sleep 3; printf done > \"$CMUX_TEST_SLOW_GIT_DONE\"; exit 1 ;;",
+            "  *\" stash create \"*) printf started > \"$CMUX_TEST_SLOW_GIT_STARTED\"; cat \"$CMUX_TEST_SLOW_GIT_GATE\" >/dev/null; printf done > \"$CMUX_TEST_SLOW_GIT_DONE\"; exit 1 ;;",
             "  *\" rev-parse HEAD \"*) printf '%040d\\n' 0 ;;",
             "  *) exit 0 ;;",
             "esac",
@@ -743,6 +748,8 @@ struct CLICodexHookTimeoutRegressionTests {
             "CMUX_BUNDLED_CLI_PATH": cliPath,
             "CMUX_CODEX_PID": "4242",
             "CMUX_TEST_REPO_ROOT": root.path,
+            "CMUX_TEST_SLOW_GIT_STARTED": slowGitStarted.path,
+            "CMUX_TEST_SLOW_GIT_GATE": slowGitGate.path,
             "CMUX_TEST_SLOW_GIT_DONE": slowGitDone.path,
         ]
         let run = runCodexHookProcess(
@@ -756,13 +763,20 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(!run.timedOut, Comment(rawValue: run.stderr))
         #expect(run.status == 0, Comment(rawValue: run.stderr))
         #expect(run.stdout == "{}\n")
+        #expect(waitForFile(slowGitStarted, containing: "started", timeout: 5))
         #expect(
-            waitForCondition(timeout: 1) {
-                !FileManager.default.fileExists(atPath: slowGitDone.path)
-                    && commands.snapshot().contains { $0.hasPrefix(expectedCommandPrefix) }
-            },
-            "\(subcommand) must publish its sidebar state before the turn-diff baseline finishes"
+            commands.snapshot().contains { $0.hasPrefix(expectedCommandPrefix) },
+            "\(subcommand) must publish its sidebar state before starting the blocked turn-diff baseline"
         )
+        let gateDescriptor = Darwin.open(slowGitGate.path, O_WRONLY)
+        #expect(gateDescriptor >= 0)
+        if gateDescriptor >= 0 {
+            var byte: UInt8 = 1
+            _ = withUnsafeBytes(of: &byte) { buffer in
+                Darwin.write(gateDescriptor, buffer.baseAddress, buffer.count)
+            }
+            Darwin.close(gateDescriptor)
+        }
         #expect(waitForFile(slowGitDone, containing: "done", timeout: 5))
         #expect(waitForCondition(timeout: 2) {
             FileManager.default.fileExists(atPath: baselineStore.path)

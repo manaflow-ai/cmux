@@ -4,7 +4,6 @@ import SQLite3
 
 struct CMUXAgentTurnDiffBaselineDatabaseUpdate {
     var removedRecords: [CMUXAgentTurnDiffBaselineRecord]
-    var storedRecord: Bool
 }
 
 final class CMUXAgentTurnDiffBaselineDatabase {
@@ -40,13 +39,12 @@ final class CMUXAgentTurnDiffBaselineDatabase {
             nil
         )
         guard openResult == SQLITE_OK, let openedDatabase else {
-            let message = Self.sqliteMessage(openedDatabase) ?? "unknown SQLite open failure"
             sqlite3_close(openedDatabase)
-            throw CLIError(message: "Failed to open diff baseline database: \(message)")
+            throw Self.databaseError()
         }
         database = openedDatabase
         sqlite3_extended_result_codes(openedDatabase, 1)
-        _ = sqlite3_busy_timeout(openedDatabase, 5_000)
+        _ = sqlite3_busy_timeout(openedDatabase, 250)
 
         do {
             try configureSchema()
@@ -92,7 +90,7 @@ final class CMUXAgentTurnDiffBaselineDatabase {
                 return nil
             }
             guard result == SQLITE_ROW else {
-                throw sqliteError("Failed to read latest diff baseline", code: result)
+                throw Self.databaseError()
             }
             return try record(from: statement, includeUntrackedPaths: true)
         }
@@ -126,7 +124,7 @@ final class CMUXAgentTurnDiffBaselineDatabase {
                     return roots
                 }
                 guard result == SQLITE_ROW else {
-                    throw sqliteError("Failed to read diff baseline repositories", code: result)
+                    throw Self.databaseError()
                 }
                 if let root = text(from: statement, at: 0) {
                     roots.append(root)
@@ -137,7 +135,8 @@ final class CMUXAgentTurnDiffBaselineDatabase {
 
     func update(
         with rawRecord: CMUXAgentTurnDiffBaselineRecord,
-        preserveExistingTurnBaseline: Bool
+        preserveExistingTurnBaseline: Bool,
+        publishSnapshot: () throws -> Void
     ) throws -> CMUXAgentTurnDiffBaselineDatabaseUpdate {
         var record = rawRecord
         record.repoRoot = canonicalRepoRoot(record.repoRoot)
@@ -158,6 +157,7 @@ final class CMUXAgentTurnDiffBaselineDatabase {
             preserveExistingTurnBaseline && record.turnId != nil && existing != nil
         )
         if shouldStore {
+            try publishSnapshot()
             if let existing {
                 removedRecords.append(existing)
             }
@@ -171,8 +171,7 @@ final class CMUXAgentTurnDiffBaselineDatabase {
         try execute("COMMIT")
         committed = true
         return CMUXAgentTurnDiffBaselineDatabaseUpdate(
-            removedRecords: deduplicatedRecords(removedRecords),
-            storedRecord: shouldStore
+            removedRecords: deduplicatedRecords(removedRecords)
         )
     }
 
@@ -185,7 +184,7 @@ final class CMUXAgentTurnDiffBaselineDatabase {
                     return snapshotIds
                 }
                 guard result == SQLITE_ROW else {
-                    throw sqliteError("Failed to read retained diff snapshots", code: result)
+                    throw Self.databaseError()
                 }
                 if let snapshotId = text(from: statement, at: 0) {
                     snapshotIds.insert(snapshotId)
@@ -213,10 +212,10 @@ final class CMUXAgentTurnDiffBaselineDatabase {
                     return hashes
                 }
                 guard result == SQLITE_ROW else {
-                    throw sqliteError("Failed to read retained untracked hashes", code: result)
+                    throw Self.databaseError()
                 }
-                if let data = data(from: statement, at: 0),
-                   let decoded = try? JSONDecoder().decode([String: String].self, from: data) {
+                if let data = data(from: statement, at: 0) {
+                    let decoded = try JSONDecoder().decode([String: String].self, from: data)
                     hashes.formUnion(decoded.values)
                 }
             }
@@ -262,18 +261,13 @@ final class CMUXAgentTurnDiffBaselineDatabase {
     }
 
     private func migrateLegacyJSONIfNeeded() throws {
-        if try metadataValue(for: "legacy_json_imported") == "1" {
-            if FileManager.default.fileExists(atPath: legacyJSONPath) {
-                try withLegacyJSONLock {
-                    try? FileManager.default.removeItem(atPath: legacyJSONPath)
-                }
-            }
+        let legacyExists = FileManager.default.fileExists(atPath: legacyJSONPath)
+        if try metadataValue(for: "legacy_json_imported") == "1", !legacyExists {
             return
         }
 
         let lockPath = legacyJSONPath + ".lock"
-        if FileManager.default.fileExists(atPath: legacyJSONPath)
-            || FileManager.default.fileExists(atPath: lockPath) {
+        if legacyExists || FileManager.default.fileExists(atPath: lockPath) {
             try withLegacyJSONLock {
                 try migrateLegacyJSONWhileLocked()
             }
@@ -283,18 +277,15 @@ final class CMUXAgentTurnDiffBaselineDatabase {
     }
 
     private func migrateLegacyJSONWhileLocked() throws {
-        if try metadataValue(for: "legacy_json_imported") == "1" {
-            try? FileManager.default.removeItem(atPath: legacyJSONPath)
+        guard FileManager.default.fileExists(atPath: legacyJSONPath) else {
+            if try metadataValue(for: "legacy_json_imported") != "1" {
+                try migrateLegacyStore(CMUXAgentTurnDiffBaselineStore())
+            }
             return
         }
         let legacyURL = URL(fileURLWithPath: legacyJSONPath, isDirectory: false)
-        let legacyStore: CMUXAgentTurnDiffBaselineStore
-        if FileManager.default.fileExists(atPath: legacyURL.path) {
-            let data = try Data(contentsOf: legacyURL)
-            legacyStore = try JSONDecoder().decode(CMUXAgentTurnDiffBaselineStore.self, from: data)
-        } else {
-            legacyStore = CMUXAgentTurnDiffBaselineStore()
-        }
+        let data = try Data(contentsOf: legacyURL)
+        let legacyStore = try JSONDecoder().decode(CMUXAgentTurnDiffBaselineStore.self, from: data)
         try migrateLegacyStore(legacyStore)
         try? FileManager.default.removeItem(atPath: legacyJSONPath)
     }
@@ -307,7 +298,7 @@ final class CMUXAgentTurnDiffBaselineDatabase {
                 try? execute("ROLLBACK")
             }
         }
-        if try metadataValue(for: "legacy_json_imported") != "1" {
+        if try metadataValue(for: "legacy_json_imported") != "1" || !legacyStore.records.isEmpty {
             for record in legacyStore.records.sorted(by: { $0.capturedAt < $1.capturedAt }) {
                 try upsert(record)
             }
@@ -327,14 +318,14 @@ final class CMUXAgentTurnDiffBaselineDatabase {
             mode_t(S_IRUSR | S_IWUSR)
         )
         guard descriptor >= 0 else {
-            throw CLIError(message: "Failed to open legacy diff baseline lock: \(lockPath)")
+            throw Self.databaseError()
         }
         defer { Darwin.close(descriptor) }
         guard Darwin.fchmod(descriptor, mode_t(S_IRUSR | S_IWUSR)) == 0 else {
-            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            throw Self.databaseError()
         }
         guard flock(descriptor, LOCK_EX) == 0 else {
-            throw CLIError(message: "Failed to lock legacy diff baseline store: \(legacyJSONPath)")
+            throw Self.databaseError()
         }
         defer { _ = flock(descriptor, LOCK_UN) }
         return try body()
@@ -362,7 +353,7 @@ final class CMUXAgentTurnDiffBaselineDatabase {
                 return nil
             }
             guard result == SQLITE_ROW else {
-                throw sqliteError("Failed to read existing diff baseline", code: result)
+                throw Self.databaseError()
             }
             return try self.record(from: statement, includeUntrackedPaths: false)
         }
@@ -400,11 +391,11 @@ final class CMUXAgentTurnDiffBaselineDatabase {
             try bindOptional(encodedHashes(record.untrackedPathHashes), at: 10, in: statement)
             try bindOptional(record.untrackedSnapshotId, at: 11, in: statement)
             guard sqlite3_bind_double(statement, 12, record.capturedAt) == SQLITE_OK else {
-                throw sqliteError("Failed to bind diff baseline timestamp")
+                throw Self.databaseError()
             }
             let result = sqlite3_step(statement)
             guard result == SQLITE_DONE else {
-                throw sqliteError("Failed to store diff baseline", code: result)
+                throw Self.databaseError()
             }
         }
     }
@@ -415,12 +406,12 @@ final class CMUXAgentTurnDiffBaselineDatabase {
                    base_commit, untracked_paths, untracked_path_hashes, snapshot_id, captured_at
             FROM baselines
             WHERE captured_at < ?1 OR id NOT IN (
-                SELECT id FROM baselines ORDER BY captured_at DESC LIMIT \(Self.recordLimit)
+                SELECT id FROM baselines ORDER BY captured_at DESC, id DESC LIMIT \(Self.recordLimit)
             )
             """
         return try withStatement(sql) { statement in
             guard sqlite3_bind_double(statement, 1, cutoff) == SQLITE_OK else {
-                throw sqliteError("Failed to bind diff baseline retention cutoff")
+                throw Self.databaseError()
             }
             var records: [CMUXAgentTurnDiffBaselineRecord] = []
             while true {
@@ -429,7 +420,7 @@ final class CMUXAgentTurnDiffBaselineDatabase {
                     return records
                 }
                 guard result == SQLITE_ROW else {
-                    throw sqliteError("Failed to read pruned diff baselines", code: result)
+                    throw Self.databaseError()
                 }
                 records.append(try record(from: statement, includeUntrackedPaths: false))
             }
@@ -440,16 +431,16 @@ final class CMUXAgentTurnDiffBaselineDatabase {
         let sql = """
             DELETE FROM baselines
             WHERE captured_at < ?1 OR id NOT IN (
-                SELECT id FROM baselines ORDER BY captured_at DESC LIMIT \(Self.recordLimit)
+                SELECT id FROM baselines ORDER BY captured_at DESC, id DESC LIMIT \(Self.recordLimit)
             )
             """
         try withStatement(sql) { statement in
             guard sqlite3_bind_double(statement, 1, cutoff) == SQLITE_OK else {
-                throw sqliteError("Failed to bind diff baseline retention cutoff")
+                throw Self.databaseError()
             }
             let result = sqlite3_step(statement)
             guard result == SQLITE_DONE else {
-                throw sqliteError("Failed to prune diff baselines", code: result)
+                throw Self.databaseError()
             }
         }
     }
@@ -464,7 +455,7 @@ final class CMUXAgentTurnDiffBaselineDatabase {
               let agent = text(from: statement, at: 4),
               let repoRoot = text(from: statement, at: 5),
               let baseCommit = text(from: statement, at: 6) else {
-            throw CLIError(message: "Diff baseline database contains an invalid record")
+            throw Self.databaseError()
         }
         let paths = includeUntrackedPaths ? decodedPaths(data(from: statement, at: 7)) : nil
         let hashes = try decodedHashes(data(from: statement, at: 8))
@@ -543,7 +534,7 @@ final class CMUXAgentTurnDiffBaselineDatabase {
                 return nil
             }
             guard result == SQLITE_ROW else {
-                throw sqliteError("Failed to read diff baseline metadata", code: result)
+                throw Self.databaseError()
             }
             return text(from: statement, at: 0)
         }
@@ -557,7 +548,7 @@ final class CMUXAgentTurnDiffBaselineDatabase {
             try bind(value, at: 2, in: statement)
             let result = sqlite3_step(statement)
             guard result == SQLITE_DONE else {
-                throw sqliteError("Failed to store diff baseline metadata", code: result)
+                throw Self.databaseError()
             }
         }
     }
@@ -572,7 +563,7 @@ final class CMUXAgentTurnDiffBaselineDatabase {
                 return true
             }
             guard result == SQLITE_DONE else {
-                throw sqliteError("Failed to query diff baseline references", code: result)
+                throw Self.databaseError()
             }
             return false
         }
@@ -583,13 +574,13 @@ final class CMUXAgentTurnDiffBaselineDatabase {
         body: (OpaquePointer) throws -> T
     ) throws -> T {
         guard let database else {
-            throw CLIError(message: "Diff baseline database is closed")
+            throw Self.databaseError()
         }
         var statement: OpaquePointer?
         let prepareResult = sqlite3_prepare_v2(database, sql, -1, &statement, nil)
         guard prepareResult == SQLITE_OK, let statement else {
             sqlite3_finalize(statement)
-            throw sqliteError("Failed to prepare diff baseline query", code: prepareResult)
+            throw Self.databaseError()
         }
         defer { sqlite3_finalize(statement) }
         return try body(statement)
@@ -597,23 +588,20 @@ final class CMUXAgentTurnDiffBaselineDatabase {
 
     private func execute(_ sql: String) throws {
         guard let database else {
-            throw CLIError(message: "Diff baseline database is closed")
+            throw Self.databaseError()
         }
         var errorMessage: UnsafeMutablePointer<CChar>?
         let result = sqlite3_exec(database, sql, nil, nil, &errorMessage)
         if result != SQLITE_OK {
-            let message = errorMessage.map { String(cString: $0) }
-                ?? Self.sqliteMessage(database)
-                ?? "SQLite error \(result)"
             sqlite3_free(errorMessage)
-            throw CLIError(message: "Diff baseline database error: \(message)")
+            throw Self.databaseError()
         }
     }
 
     private func bind(_ value: String, at index: Int32, in statement: OpaquePointer) throws {
         let result = sqlite3_bind_text(statement, index, value, -1, Self.transientDestructor)
         guard result == SQLITE_OK else {
-            throw sqliteError("Failed to bind diff baseline text", code: result)
+            throw Self.databaseError()
         }
     }
 
@@ -621,7 +609,7 @@ final class CMUXAgentTurnDiffBaselineDatabase {
         guard let value else {
             let result = sqlite3_bind_null(statement, index)
             guard result == SQLITE_OK else {
-                throw sqliteError("Failed to bind null diff baseline text", code: result)
+                throw Self.databaseError()
             }
             return
         }
@@ -632,7 +620,7 @@ final class CMUXAgentTurnDiffBaselineDatabase {
         guard let value else {
             let result = sqlite3_bind_null(statement, index)
             guard result == SQLITE_OK else {
-                throw sqliteError("Failed to bind null diff baseline data", code: result)
+                throw Self.databaseError()
             }
             return
         }
@@ -640,7 +628,7 @@ final class CMUXAgentTurnDiffBaselineDatabase {
             sqlite3_bind_blob(statement, index, buffer.baseAddress, Int32(buffer.count), Self.transientDestructor)
         }
         guard result == SQLITE_OK else {
-            throw sqliteError("Failed to bind diff baseline data", code: result)
+            throw Self.databaseError()
         }
     }
 
@@ -668,13 +656,10 @@ final class CMUXAgentTurnDiffBaselineDatabase {
         }
     }
 
-    private func sqliteError(_ context: String, code: Int32? = nil) -> CLIError {
-        let suffix = Self.sqliteMessage(database) ?? code.map { "SQLite error \($0)" } ?? "unknown SQLite error"
-        return CLIError(message: "\(context): \(suffix)")
-    }
-
-    private static func sqliteMessage(_ database: OpaquePointer?) -> String? {
-        guard let database, let message = sqlite3_errmsg(database) else { return nil }
-        return String(cString: message)
+    private static func databaseError() -> CLIError {
+        CLIError(message: CMUXDiffViewerLocalization.string(
+            "diffViewer.lastTurnHistoryUnavailable",
+            defaultValue: "Unable to access last-turn history."
+        ))
     }
 }
