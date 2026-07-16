@@ -1121,6 +1121,7 @@ jobs:
             CMUXAuthCore
             CmuxCanvasUI
             CmuxCore
+            CmuxCopyReflow
             CmuxRemoteDaemon
             CmuxRemoteWorkspace
             CmuxRemoteSession

@@ -66,9 +66,52 @@ extension TerminalPasteboardService: TerminalClipboardReading {
     public func fallbackPlainTextContents(from pasteboard: NSPasteboard) -> String? {
         plainTextContents(from: pasteboard)
     }
+
+    /// Rewrites the terminal's text representations after copy reflow.
+    ///
+    /// Existing plain-text flavor availability is retained. HTML, RTF, and RTFD
+    /// are dropped because preserving their styling would require synchronously
+    /// requesting potentially lazy source payloads before AppKit invalidates the
+    /// source item. Publishing regenerated rich flavors would silently discard
+    /// the terminal's original attributes.
+    ///
+    /// - Parameters:
+    ///   - string: The transformed text to publish through every text flavor.
+    ///   - pasteboard: The terminal pasteboard whose existing flavors are updated.
+    /// - Returns: `true` when the transformed text was published.
+    @discardableResult
+    public func rewriteTextRepresentations(_ string: String, in pasteboard: NSPasteboard) -> Bool {
+        guard let items = pasteboard.pasteboardItems,
+              items.count == 1,
+              let replacementItem = rewrittenPasteboardItem(items[0], text: string) else {
+            return false
+        }
+
+        pasteboard.clearContents()
+        if pasteboard.writeObjects([replacementItem]) { return true }
+        pasteboard.clearContents()
+        return pasteboard.setString(string, forType: .string)
+    }
 }
 
 extension TerminalPasteboardService {
+    private func rewrittenPasteboardItem(
+        _ source: NSPasteboardItem,
+        text: String
+    ) -> NSPasteboardItem? {
+        let rewritten = NSPasteboardItem()
+        let sourceTypes = source.types
+        let plainTextTypes = sourceTypes.filter(isPlainTextType)
+        for type in plainTextTypes {
+            guard rewritten.setString(text, forType: type) else { return nil }
+        }
+        if !plainTextTypes.contains(.string),
+           !rewritten.setString(text, forType: .string) {
+            return nil
+        }
+        return rewritten
+    }
+
     private func attributedStringContents(
         from pasteboard: NSPasteboard,
         type: NSPasteboard.PasteboardType,

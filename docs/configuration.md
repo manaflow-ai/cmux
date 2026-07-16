@@ -61,6 +61,13 @@ Values: `right`, `left`, `top`, `bottom`, `newTab`, `newWorkspace`.
 
 Default: `right`.
 
+## `terminal.reflowCopy`
+
+When `terminal.reflowCopy` is `true`, Cmd+C rejoins hard-wrapped terminal copy
+selections into continuous text. Raw terminal copy remains available as
+`shortcuts.bindings.copyRaw`, defaulting to Cmd+Shift+C. Set
+`terminal.reflowCopy` to `false` to make Cmd+C copy selections verbatim.
+
 ## `ui.newWorkspace.menuSectionOrder`
 
 Controls the section order in the titlebar `+` button menu. The Cloud VM section is built in; the custom section comes from `ui.newWorkspace.contextMenu`.

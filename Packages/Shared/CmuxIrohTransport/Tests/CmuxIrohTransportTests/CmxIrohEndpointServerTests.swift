@@ -183,8 +183,10 @@ struct CmxIrohEndpointServerTests {
         )
         _ = try await supervisor.activate()
         let clock = EndpointServerManualClock()
+        let admissionGate = EndpointServerHandlerBlocker()
         let blocker = EndpointServerHandlerBlocker()
         let recorder = EndpointServerRecorder()
+        let admittedRecorder = EndpointServerRecorder()
         let server = CmxIrohEndpointServer(
             supervisor: supervisor,
             admissionTimeout: 15,
@@ -194,7 +196,12 @@ struct CmxIrohEndpointServerTests {
                 identity: await connection.remoteIdentity(),
                 generation: generation
             )
+            await admissionGate.wait()
             #expect(await markAdmitted())
+            await admittedRecorder.record(
+                identity: await connection.remoteIdentity(),
+                generation: generation
+            )
             await blocker.wait()
         }
         let connection = TestIrohConnection(
@@ -207,6 +214,8 @@ struct CmxIrohEndpointServerTests {
         await endpoint.enqueue(connection)
         #expect(await recorder.next().identity == remoteIdentity)
         await clock.waitUntilSleeping()
+        await admissionGate.releaseAll()
+        #expect(await admittedRecorder.next().identity == remoteIdentity)
         await clock.fire()
 
         #expect(await connection.observedCloseCallCount() == 0)

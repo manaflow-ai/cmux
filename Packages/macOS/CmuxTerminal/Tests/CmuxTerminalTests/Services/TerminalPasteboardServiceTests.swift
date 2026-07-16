@@ -96,6 +96,125 @@ struct PasteboardTextContentsTests {
         #expect(!service.hasString(for: ghostty_clipboard_e(rawValue: 99)))
         #expect(service.pasteboard(for: ghostty_clipboard_e(rawValue: 99)) == nil)
     }
+
+    @Test func rewritingTextDropsRichRepresentationsRatherThanLosingAttributes() throws {
+        let scratch = ScratchPasteboard()
+        let service = TerminalPasteboardService()
+        let originalAttributed = NSMutableAttributedString(string: "hard\nwrapped")
+        let originalLink = try #require(URL(string: "https://example.com/reflow"))
+        originalAttributed.addAttribute(
+            .link,
+            value: originalLink,
+            range: NSRange(location: 0, length: 4)
+        )
+        let originalHTML = try originalAttributed.data(
+            from: NSRange(location: 0, length: originalAttributed.length),
+            documentAttributes: [.documentType: NSAttributedString.DocumentType.html]
+        )
+        let originalRTF = try originalAttributed.data(
+            from: NSRange(location: 0, length: originalAttributed.length),
+            documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]
+        )
+        let item = NSPasteboardItem()
+        #expect(item.setString("hard\nwrapped", forType: .string))
+        #expect(item.setData(originalHTML, forType: .html))
+        #expect(item.setData(originalRTF, forType: .rtf))
+        #expect(scratch.pasteboard.writeObjects([item]))
+
+        #expect(service.rewriteTextRepresentations("hard wrapped", in: scratch.pasteboard))
+
+        #expect(scratch.pasteboard.string(forType: .string) == "hard wrapped")
+        let types = try #require(scratch.pasteboard.types)
+        #expect(!types.contains(.html))
+        #expect(!types.contains(.rtf))
+    }
+
+    @Test func rewritingTextDropsStaleRTFDRepresentation() throws {
+        let scratch = ScratchPasteboard()
+        let service = TerminalPasteboardService()
+        let item = NSPasteboardItem()
+        #expect(item.setString("hard\nwrapped", forType: .string))
+        #expect(item.setData(Data("stale hard-wrapped RTFD".utf8), forType: .rtfd))
+        #expect(scratch.pasteboard.writeObjects([item]))
+
+        #expect(service.rewriteTextRepresentations("hard wrapped", in: scratch.pasteboard))
+
+        #expect(scratch.pasteboard.string(forType: .string) == "hard wrapped")
+        let types = try #require(scratch.pasteboard.types)
+        #expect(!types.contains(.rtfd))
+    }
+
+    @Test func rewritingTextDoesNotReadAdvertisedSourceRichPayloads() throws {
+        let scratch = ScratchPasteboard()
+        let service = TerminalPasteboardService()
+        let provider = PasteboardRepresentationReadProbe()
+        let item = NSPasteboardItem()
+        #expect(item.setString("hard\nwrapped", forType: .string))
+        item.setDataProvider(provider, forTypes: [.html, .rtf, .rtfd])
+        #expect(scratch.pasteboard.writeObjects([item]))
+        provider.reset()
+
+        #expect(service.rewriteTextRepresentations("hard wrapped", in: scratch.pasteboard))
+
+        #expect(provider.requestedTypes.isEmpty)
+        #expect(scratch.pasteboard.string(forType: .string) == "hard wrapped")
+        let types = try #require(scratch.pasteboard.types)
+        #expect(!types.contains(.html))
+        #expect(!types.contains(.rtf))
+        #expect(!types.contains(.rtfd))
+    }
+
+    @Test func largeRichRewriteDropsRichFlavorsWithinLatencyBound() throws {
+        let scratch = ScratchPasteboard()
+        let service = TerminalPasteboardService()
+        let prefix = String(repeating: "hard wrapped token ", count: 8_000)
+        let original = prefix + "\ncontinuation"
+        let rewritten = prefix + " continuation"
+        #expect(rewritten.utf8.count > 64 * 1024)
+
+        let originalAttributed = NSAttributedString(string: original)
+        let originalHTML = try originalAttributed.data(
+            from: NSRange(location: 0, length: originalAttributed.length),
+            documentAttributes: [.documentType: NSAttributedString.DocumentType.html]
+        )
+        let originalRTF = try originalAttributed.data(
+            from: NSRange(location: 0, length: originalAttributed.length),
+            documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]
+        )
+        let item = NSPasteboardItem()
+        #expect(item.setString(original, forType: .string))
+        #expect(item.setData(originalHTML, forType: .html))
+        #expect(item.setData(originalRTF, forType: .rtf))
+        #expect(scratch.pasteboard.writeObjects([item]))
+
+        let clock = ContinuousClock()
+        let start = clock.now
+        #expect(service.rewriteTextRepresentations(rewritten, in: scratch.pasteboard))
+        let elapsed = start.duration(to: clock.now)
+
+        #expect(elapsed < .seconds(1), "large clipboard rewrite took \(elapsed)")
+        #expect(scratch.pasteboard.string(forType: .string) == rewritten)
+        let types = try #require(scratch.pasteboard.types)
+        #expect(!types.contains(.html))
+        #expect(!types.contains(.rtf))
+    }
+
+    @Test func unsupportedMultiItemRewriteLeavesPasteboardUnchanged() throws {
+        let scratch = ScratchPasteboard()
+        let service = TerminalPasteboardService()
+        let first = NSPasteboardItem()
+        let second = NSPasteboardItem()
+        #expect(first.setString("first item", forType: .string))
+        #expect(second.setString("second item", forType: .string))
+        #expect(scratch.pasteboard.writeObjects([first, second]))
+
+        #expect(!service.rewriteTextRepresentations("rewritten", in: scratch.pasteboard))
+
+        let items = try #require(scratch.pasteboard.pasteboardItems)
+        #expect(items.count == 2)
+        #expect(items[0].string(forType: .string) == "first item")
+        #expect(items[1].string(forType: .string) == "second item")
+    }
 }
 
 @Suite("Clipboard write capture")

@@ -79,6 +79,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case reopenClosedBrowserPanel
     case newSurface
     case toggleTerminalCopyMode
+    /// Copies the focused terminal selection verbatim, bypassing copy reflow.
+    case copyRaw
     case focusTextBoxInput
     /// Cycles the TextBox submit button to the next configured action.
     case cycleTextBoxSubmitAction
@@ -191,7 +193,7 @@ extension ShortcutAction {
              .selectWorkspaceByNumber, .renameTab, .renameWorkspace,
              .editWorkspaceDescription, .markWorkspaceDone, .cycleWorkspaceStatus, .toggleChecklistItemComplete, .closeTab, .closeOtherTabsInPane, .closeWorkspace,
              .newWorkspaceGroup, .groupSelectedWorkspaces, .toggleFocusedWorkspaceGroupCollapsed,
-             .reopenClosedBrowserPanel, .newSurface, .toggleTerminalCopyMode,
+             .reopenClosedBrowserPanel, .newSurface, .toggleTerminalCopyMode, .copyRaw,
              .focusTextBoxInput, .cycleTextBoxSubmitAction, .attachTextBoxFile, .sendCtrlFToTerminal,
              .clearScreenKeepScrollback:
             return .navigation
@@ -287,7 +289,7 @@ extension ShortcutAction {
             return .atom(.sidebarFocus)
         case .commandPaletteNext, .commandPalettePrevious:
             return .key(ShortcutContextKnownKey.commandPaletteVisible.rawValue)
-        case .renameTab, .renameWorkspace:
+        case .renameTab, .renameWorkspace, .copyRaw:
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
         case .sendCtrlFToTerminal, .clearScreenKeepScrollback:
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
@@ -388,6 +390,7 @@ extension ShortcutAction {
         case .reopenClosedBrowserPanel: return "Reopen Last Closed"
         case .newSurface: return "New Surface"
         case .toggleTerminalCopyMode: return "Toggle Terminal Copy Mode"
+        case .copyRaw: return String(localized: "terminalContextMenu.copyRaw", defaultValue: "Copy Raw")
         case .focusTextBoxInput: return "Focus TextBox Input"
         case .cycleTextBoxSubmitAction:
             return String(localized: "shortcut.cycleTextBoxSubmitAction.label", defaultValue: "Cycle TextBox Submit Action")

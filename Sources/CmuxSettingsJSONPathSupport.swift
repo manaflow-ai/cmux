@@ -203,6 +203,8 @@ enum NotificationSettingsFileMapping {
 }
 
 enum TerminalSettingsFileMapping {
+    private static let terminal = TerminalCatalogSection()
+
     static let booleanSettings: [SettingsFileBooleanMapping] = [
         .init(
             jsonKey: "showScrollBar",
@@ -213,6 +215,11 @@ enum TerminalSettingsFileMapping {
             jsonKey: "copyOnSelect",
             defaultsKey: TerminalCopyOnSelectSettings.copyOnSelectKey,
             invalidPath: "terminal.copyOnSelect"
+        ),
+        .init(
+            jsonKey: "reflowCopy",
+            defaultsKey: terminal.reflowCopy.userDefaultsKey,
+            invalidPath: "terminal.reflowCopy"
         ),
         .init(
             jsonKey: "autoResumeAgentSessions",
@@ -406,6 +413,7 @@ extension CmuxSettingsFileStore {
         "terminal.showScrollBar",
         "terminal.scrollSpeed",
         "terminal.copyOnSelect",
+        "terminal.reflowCopy",
         "terminal.autoResumeAgentSessions",
         "terminal.showTextBoxOnNewTerminals",
         "terminal.focusTextBoxOnNewTerminals",

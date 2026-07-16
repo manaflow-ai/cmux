@@ -1,0 +1,210 @@
+import Foundation
+
+extension ReflowOptions {
+    /// Whether a physical row ends within the configured tolerance of the grid edge.
+    func reachesTerminalWidth(lineLength: Int, terminalWidth: Int?) -> Bool {
+        guard let terminalWidth, terminalWidth > 0 else { return false }
+        let difference = lineLength >= terminalWidth
+            ? lineLength - terminalWidth
+            : terminalWidth - lineLength
+        return difference <= max(0, widthTolerance)
+    }
+
+    /// True when the first non-whitespace character is a letter from a script
+    /// without case. Uniformly indented, full-width paragraphs use this as the
+    /// counterpart to the lowercase Latin continuation signal.
+    func startsCaselessLetter(_ s: String) -> Bool {
+        guard let first = s.first(where: { $0 != " " && $0 != "\t" }) else { return false }
+        return first.isLetter && !first.isLowercase && !first.isUppercase
+    }
+
+    func containsCaselessLetter(_ s: String) -> Bool {
+        s.contains { $0.isLetter && !$0.isLowercase && !$0.isUppercase }
+    }
+
+    /// Single-token paths, filenames, hashes, and values are structured rows,
+    /// not prose continuations. A plain alphabetic word remains eligible so a
+    /// genuinely wrapped one-word tail can still rejoin.
+    func looksLikeOpaqueTokenRow(_ s: String) -> Bool {
+        let trimmed = s.trimmingLeadingWhitespaceForReflow()
+        guard !trimmed.isEmpty,
+              !trimmed.contains(where: { $0 == " " || $0 == "\t" }) else {
+            return false
+        }
+        if trimmed.count >= 7, trimmed.allSatisfy({ $0.hexDigitValue != nil }) {
+            return true
+        }
+        return trimmed.contains { !$0.isLetter }
+    }
+
+    /// Command-token continuations need syntax from the preceding row that is
+    /// unlikely to occur in ordinary status prose.
+    func hasShellCommandEvidence(_ s: String) -> Bool {
+        let trimmed = s.trimmingLeadingWhitespaceForReflow()
+        guard trimmed.first?.isLowercase == true else { return false }
+        if trimmed.contains(" | ") || trimmed.contains(" && ") || trimmed.contains(" || ") {
+            return true
+        }
+        return trimmed.split(whereSeparator: { $0 == " " || $0 == "\t" })
+            .dropFirst()
+            .contains { token in
+                guard token.first == "-" else { return false }
+                return token.drop(while: { $0 == "-" }).first?.isLetter == true
+            }
+    }
+
+    /// Width-only prose joins are intentionally narrower than command/relative-
+    /// indent joins: uniform indentation also occurs in line-oriented terminal
+    /// output, so require a sentence-continuation shape.
+    func hasProseContinuationEvidence(
+        previous: String,
+        current: String,
+        alreadyJoined: Bool
+    ) -> Bool {
+        if alreadyJoined { return true }
+        if let word = lastWord(in: previous), Self.continuationTailWords.contains(word) {
+            return true
+        }
+        if let word = firstWord(in: current), Self.continuationHeadWords.contains(word) {
+            return true
+        }
+        return false
+    }
+
+    /// Known status starts always break; a repeated leading word only blocks
+    /// before the paragraph has established a valid wrap join.
+    func startsIndependentRecord(
+        _ current: String,
+        after previous: String,
+        alreadyJoined: Bool
+    ) -> Bool {
+        guard let currentFirst = firstWord(in: current) else { return false }
+        if Self.recordStartWords.contains(currentFirst) { return true }
+        return !alreadyJoined && currentFirst == firstWord(in: previous)
+    }
+
+    /// Option/help rows are line-oriented records even when they are long and
+    /// start with command-looking tokens.
+    func startsOptionLikeRow(_ s: String) -> Bool {
+        let trimmed = s.trimmingLeadingWhitespaceForReflow()
+        if trimmed.hasPrefix("--") {
+            let rest = trimmed.dropFirst(2)
+            return rest.first?.isLetter == true
+        }
+        if trimmed.hasPrefix("-") {
+            let rest = trimmed.dropFirst()
+            return rest.first?.isLetter == true
+        }
+        return false
+    }
+
+    /// Indented code/traceback records use indentation structurally, not as
+    /// paragraph wrap continuation.
+    func looksLikeStructuredIndentedCode(_ current: String, after previous: String) -> Bool {
+        lineLooksLikeStructuredCode(previous) || lineLooksLikeStructuredCode(current)
+    }
+
+    /// A continuation boundary is code-shaped when either physical line has
+    /// syntax that uses indentation structurally. Checking both sides prevents
+    /// a plain-looking continuation from absorbing a code-shaped lead line.
+    func lineLooksLikeStructuredCode(_ s: String) -> Bool {
+        let trimmed = s.trimmingLeadingWhitespaceForReflow()
+        guard !trimmed.isEmpty else { return false }
+        if startsStackTraceFrame(trimmed) { return true }
+        if startsCodeKeyword(trimmed) { return true }
+        return containsCodeOperator(trimmed)
+    }
+
+    func startsStackTraceFrame(_ s: String) -> Bool {
+        let trimmed = s.trimmingLeadingWhitespaceForReflow()
+        return trimmed.hasPrefix("File \"")
+            || trimmed.hasPrefix("Traceback ")
+            || trimmed.hasPrefix("at ")
+    }
+
+    func startsCodeKeyword(_ s: String) -> Bool {
+        guard let word = firstWord(in: s) else { return false }
+        return Self.codeStartWords.contains(word)
+    }
+
+    func containsCodeOperator(_ s: String) -> Bool {
+        for marker in Self.codeOperatorMarkers {
+            if s.contains(marker) { return true }
+        }
+        return false
+    }
+
+    static let continuationTailWords: Set<String> = [
+        "a", "an", "and", "are", "as", "at", "be", "because", "been", "being",
+        "but", "by", "can", "could", "did", "do", "does", "for", "from", "had",
+        "has", "have", "if", "in", "into", "is", "less", "may", "might", "more",
+        "most", "must", "not", "of", "on", "onto", "or", "over", "should", "so",
+        "than", "that", "the", "then", "to", "too", "under", "very", "was",
+        "were", "when", "where", "which", "while", "who", "whose", "will",
+        "with", "within", "without", "would"
+    ]
+
+    static let continuationHeadWords: Set<String> = [
+        "and", "as", "because", "but", "for", "if", "in", "nor", "or", "so",
+        "than", "that", "then", "though", "to", "unless", "until", "when",
+        "where", "which", "while", "who", "whose", "yet"
+    ]
+
+    static let recordStartWords: Set<String> = [
+        "created", "debug", "deleted", "done", "error", "failed", "failure",
+        "fatal", "info", "notice", "ok", "processing", "queued", "retrying",
+        "running", "skipping", "started", "starting", "stopped", "stopping",
+        "success", "trace", "updated", "warn", "warning"
+    ]
+
+    static let codeStartWords: Set<String> = [
+        "await", "case", "catch", "class", "const", "def", "else", "enum", "final",
+        "for", "func", "function", "guard", "if", "import", "let", "private",
+        "public", "return", "static", "struct", "switch", "throw", "try", "var",
+        "while"
+    ]
+
+    static let codeOperatorMarkers = [
+        " = ", " == ", " != ", " += ", " -= ", " *= ", " /= ", " %= ", " => ",
+        " -> ", " && ", " || "
+    ]
+
+    func firstWord(in s: String) -> String? {
+        let trimmed = s.trimmingLeadingWhitespaceForReflow()
+        var end = trimmed.startIndex
+        while end < trimmed.endIndex,
+              trimmed[end].isLetter || trimmed[end].isNumber {
+            end = trimmed.index(after: end)
+        }
+        guard end > trimmed.startIndex else { return nil }
+        return String(trimmed[..<end]).lowercased()
+    }
+
+    func lastWord(in s: String) -> String? {
+        var end = s.endIndex
+        while end > s.startIndex {
+            let previous = s.index(before: end)
+            if s[previous].isLetter || s[previous].isNumber {
+                break
+            }
+            end = previous
+        }
+        guard end > s.startIndex else { return nil }
+
+        var start = end
+        while start > s.startIndex {
+            let previous = s.index(before: start)
+            if !s[previous].isLetter && !s[previous].isNumber {
+                break
+            }
+            start = previous
+        }
+        return String(s[start..<end]).lowercased()
+    }
+}
+
+private extension String {
+    func trimmingLeadingWhitespaceForReflow() -> String {
+        String(drop { $0 == " " || $0 == "\t" })
+    }
+}
