@@ -1279,6 +1279,56 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(lastTurnOption["selected"] as? Bool, true, html)
     }
 
+    func testAgentTurnDiffBaselineMigratesLegacyJSONToIndexedStore() throws {
+        let cliPath = try bundledCLIPath()
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let repoURL = rootURL.appendingPathComponent("repo", isDirectory: true)
+        let stateURL = rootURL.appendingPathComponent("state", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: stateURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        try runGit(["init"], in: repoURL)
+        try runGit(["config", "user.name", "cmux tests"], in: repoURL)
+        try runGit(["config", "user.email", "cmux@example.invalid"], in: repoURL)
+        let storyURL = repoURL.appendingPathComponent("story.txt", isDirectory: false)
+        try "before\n".write(to: storyURL, atomically: true, encoding: .utf8)
+        try runGit(["add", "story.txt"], in: repoURL)
+        try runGit(["commit", "-m", "initial"], in: repoURL)
+
+        let workspaceId = UUID().uuidString.lowercased()
+        let surfaceId = UUID().uuidString.lowercased()
+        let baseCommit = try runGitStdout(["rev-parse", "HEAD"], in: repoURL)
+        try writeDiffBaselineStore(
+            stateDirectoryURL: stateURL,
+            repoURL: repoURL,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            baseCommit: baseCommit
+        )
+        try "after\n".write(to: storyURL, atomically: true, encoding: .utf8)
+
+        let lastTurn = try runDiffCLIAndReadHTML(
+            cliPath: cliPath,
+            arguments: ["diff", "--last-turn"],
+            environmentOverrides: [
+                "CMUX_AGENT_HOOK_STATE_DIR": stateURL.path,
+                "CMUX_WORKSPACE_ID": workspaceId,
+                "CMUX_SURFACE_ID": surfaceId,
+                "CMUX_SESSION_ID": "session-1"
+            ],
+            currentDirectoryURL: repoURL
+        )
+        XCTAssertTrue(lastTurn.patch.contains("+after"), lastTurn.patch)
+
+        let legacyStoreURL = stateURL.appendingPathComponent("agent-turn-diff-baselines.json")
+        let indexedStoreURL = stateURL.appendingPathComponent("agent-turn-diff-baselines.sqlite3")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacyStoreURL.path))
+        let header = try Data(contentsOf: indexedStoreURL, options: .mappedIfSafe).prefix(16)
+        XCTAssertEqual(String(data: header, encoding: .utf8), "SQLite format 3\0")
+    }
+
     func testAgentTurnDiffBaselineStoresUntrackedSnapshotsOutsideGit() throws {
         let cliPath = try bundledCLIPath()
         let rootURL = FileManager.default.temporaryDirectory
