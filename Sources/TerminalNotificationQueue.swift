@@ -201,7 +201,7 @@ final class TerminalMutationBus: @unchecked Sendable {
         lock.lock()
         if let dedupeKey {
             let now = Date().timeIntervalSince1970
-            recentNotificationDedupeKeys = recentNotificationDedupeKeys.filter { now - $0.value <= 30 }
+            recentNotificationDedupeKeys = recentNotificationDedupeKeys.filter { now - $0.value <= 2 * 60 }
             let scopedKey = [
                 notification.key.surfaceId.map { "surface:\($0.uuidString)" }
                     ?? "workspace:\(notification.key.tabId.uuidString)",
