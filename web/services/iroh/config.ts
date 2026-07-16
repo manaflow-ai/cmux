@@ -16,6 +16,12 @@ export type IrohBindingQuota = {
   readonly staleAfterMs: number | null;
 };
 
+export type IrohChallengeQuota = {
+  readonly account: number;
+  readonly device: number;
+  readonly outstanding: number;
+};
+
 export type IrohTrustBrokerConfigShape = {
   readonly lanDiscoverySecretBase64?: string;
   readonly accountSubjectSecretBase64?: string;
@@ -97,6 +103,20 @@ export function bindingQuotaForUser(
     ),
     baselineDevice: DEFAULT_IROH_DEVICE_BINDING_LIMIT,
     staleAfterMs: DEFAULT_IROH_DEV_BINDING_STALE_AFTER_MS,
+  };
+}
+
+export function challengeQuotaForUser(
+  config: IrohTrustBrokerConfigShape,
+  authenticatedUserId: string,
+): IrohChallengeQuota {
+  if (!developmentBindingQuotaAllowed(config, authenticatedUserId)) {
+    return { account: 120, device: 6, outstanding: 32 };
+  }
+  return {
+    account: Math.max(120, config.developmentAccountBindingLimit),
+    device: Math.max(6, config.developmentDeviceBindingLimit),
+    outstanding: Math.max(32, config.developmentAccountBindingLimit),
   };
 }
 

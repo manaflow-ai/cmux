@@ -22,7 +22,7 @@ import {
   IrohQuotaExceededError,
 } from "./errors";
 import type { PairGrantPeer } from "./crypto";
-import type { IrohBindingQuota } from "./config";
+import type { IrohBindingQuota, IrohChallengeQuota } from "./config";
 import {
   nextPathHintExpiry,
   parseIrohPathHint,
@@ -81,6 +81,7 @@ export type IrohRepositoryShape = {
     readonly nonceHash: string;
     readonly now: Date;
     readonly expiresAt: Date;
+    readonly challengeQuota?: IrohChallengeQuota;
   }) => Effect.Effect<IrohChallengeRecord, RepositoryError>;
   readonly findChallenge: (
     userId: string,
@@ -177,6 +178,11 @@ function makeLiveRepository(): IrohRepositoryShape {
     issueChallenge: (input) => repositoryEffect("issue_challenge", async () => {
       const db = cloudDb();
       return await db.transaction(async (tx) => {
+        const challengeQuota = input.challengeQuota ?? {
+          account: IROH_ACCOUNT_CHALLENGE_LIMIT,
+          device: 6,
+          outstanding: 32,
+        };
         await assertIrohUserMutationAllowed(tx, input.userId);
         await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:challenge:${input.userId}`}, 0))`);
         const tenMinutesAgo = new Date(input.now.getTime() - 10 * 60 * 1_000);
@@ -187,7 +193,7 @@ function makeLiveRepository(): IrohRepositoryShape {
             eq(irohRegistrationChallenges.userId, input.userId),
             gt(irohRegistrationChallenges.createdAt, tenMinutesAgo),
           ));
-        if ((recentForAccount?.total ?? 0) >= IROH_ACCOUNT_CHALLENGE_LIMIT) {
+        if ((recentForAccount?.total ?? 0) >= challengeQuota.account) {
           throw new IrohQuotaExceededError({
             code: "challenge_account_rate_limited",
             retryAfterSeconds: 600,
@@ -201,7 +207,7 @@ function makeLiveRepository(): IrohRepositoryShape {
             eq(irohRegistrationChallenges.deviceUuid, input.deviceUuid),
             gt(irohRegistrationChallenges.createdAt, tenMinutesAgo),
           ));
-        if ((recentForDevice?.total ?? 0) >= 6) {
+        if ((recentForDevice?.total ?? 0) >= challengeQuota.device) {
           throw new IrohQuotaExceededError({ code: "challenge_rate_limited", retryAfterSeconds: 600 });
         }
         const [outstanding] = await tx
@@ -212,7 +218,7 @@ function makeLiveRepository(): IrohRepositoryShape {
             isNull(irohRegistrationChallenges.consumedAt),
             gt(irohRegistrationChallenges.expiresAt, input.now),
           ));
-        if ((outstanding?.total ?? 0) >= 32) {
+        if ((outstanding?.total ?? 0) >= challengeQuota.outstanding) {
           throw new IrohQuotaExceededError({ code: "too_many_outstanding_challenges", retryAfterSeconds: 300 });
         }
         const [challenge] = await tx

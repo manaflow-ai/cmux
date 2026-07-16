@@ -3,6 +3,7 @@ import { generateKeyPairSync, randomUUID, sign } from "node:crypto";
 import * as Effect from "effect/Effect";
 import {
   bindingQuotaForUser,
+  challengeQuotaForUser,
   developmentBindingQuotaAllowed,
   type IrohTrustBrokerConfigShape,
 } from "../services/iroh/config";
@@ -611,6 +612,16 @@ describe("developer binding override", () => {
       device: 8,
       baselineDevice: 8,
       staleAfterMs: null,
+    });
+    expect(challengeQuotaForUser(base, USER_A)).toEqual({
+      account: 256,
+      device: 128,
+      outstanding: 256,
+    });
+    expect(challengeQuotaForUser(base, USER_B)).toEqual({
+      account: 120,
+      device: 6,
+      outstanding: 32,
     });
   });
 

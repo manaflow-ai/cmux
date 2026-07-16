@@ -20,6 +20,7 @@ import {
 } from "./crypto";
 import {
   bindingQuotaForUser,
+  challengeQuotaForUser,
   IrohTrustBrokerConfig,
   IrohTrustBrokerConfigLive,
   type IrohTrustBrokerConfigShape,
@@ -202,6 +203,7 @@ export function makeIrohTrustBroker(
         nonceHash: nonceHash(nonce),
         now,
         expiresAt: new Date(now.getTime() + IROH_CHALLENGE_LIFETIME_MS),
+        challengeQuota: challengeQuotaForUser(config, userId),
       });
       return {
         challenge_id: challenge.id,
