@@ -1,5 +1,6 @@
 import CmuxFoundation
 import AppKit
+import Combine
 import Foundation
 import os
 import UserNotifications
@@ -2208,6 +2209,14 @@ struct SidebarWorkspaceUnreadSummary: Equatable {
     var latestNotificationText: String?
 }
 
+/// One keyed summary mutation emitted alongside the coalesced unread snapshot.
+/// The AppKit sidebar consumes these changes directly so it never has to diff
+/// the complete workspace-summary dictionary after every notification update.
+struct SidebarWorkspaceUnreadSummaryChange: Equatable {
+    let workspaceId: UUID
+    let summary: SidebarWorkspaceUnreadSummary?
+}
+
 /// Workspace + surface pair used to mirror the store's per-surface unread set.
 struct SidebarSurfaceUnreadKey: Hashable {
     var workspaceId: UUID
@@ -2231,6 +2240,19 @@ final class SidebarUnreadModel: ObservableObject {
     @Published private(set) var focusedReadIndicatorByWorkspaceId: [UUID: UUID] = [:]
     @Published private(set) var manualUnreadWorkspaceIds: Set<UUID> = []
 
+    /// Synchronously emitted on the main actor after `summaryByWorkspaceId` is
+    /// assigned. Existing `@Published` behavior is preserved for legacy users.
+    private let summaryChangesSubject = PassthroughSubject<
+        [SidebarWorkspaceUnreadSummaryChange],
+        Never
+    >()
+    var summaryChangesPublisher: AnyPublisher<
+        [SidebarWorkspaceUnreadSummaryChange],
+        Never
+    > {
+        summaryChangesSubject.eraseToAnyPublisher()
+    }
+
     func apply(
         totalUnreadCount: Int,
         summaries: [UUID: SidebarWorkspaceUnreadSummary],
@@ -2241,8 +2263,13 @@ final class SidebarUnreadModel: ObservableObject {
         if self.totalUnreadCount != totalUnreadCount {
             self.totalUnreadCount = totalUnreadCount
         }
-        if summaryByWorkspaceId != summaries {
+        let summaryChanges = Self.summaryChanges(
+            from: summaryByWorkspaceId,
+            to: summaries
+        )
+        if !summaryChanges.isEmpty {
             summaryByWorkspaceId = summaries
+            summaryChangesSubject.send(summaryChanges)
         }
         if self.unreadSurfaceKeys != unreadSurfaceKeys {
             self.unreadSurfaceKeys = unreadSurfaceKeys
@@ -2273,6 +2300,31 @@ final class SidebarUnreadModel: ObservableObject {
 
     func hasManualUnread(forWorkspaceId id: UUID) -> Bool {
         manualUnreadWorkspaceIds.contains(id)
+    }
+
+    private static func summaryChanges(
+        from previous: [UUID: SidebarWorkspaceUnreadSummary],
+        to next: [UUID: SidebarWorkspaceUnreadSummary]
+    ) -> [SidebarWorkspaceUnreadSummaryChange] {
+        var changes: [SidebarWorkspaceUnreadSummaryChange] = []
+        changes.reserveCapacity(abs(next.count - previous.count) + 1)
+
+        for (workspaceId, previousSummary) in previous {
+            let nextSummary = next[workspaceId]
+            if nextSummary != previousSummary {
+                changes.append(SidebarWorkspaceUnreadSummaryChange(
+                    workspaceId: workspaceId,
+                    summary: nextSummary
+                ))
+            }
+        }
+        for (workspaceId, nextSummary) in next where previous[workspaceId] == nil {
+            changes.append(SidebarWorkspaceUnreadSummaryChange(
+                workspaceId: workspaceId,
+                summary: nextSummary
+            ))
+        }
+        return changes
     }
 
     func hasUnreadNotification(forWorkspaceId id: UUID, surfaceId: UUID?) -> Bool {

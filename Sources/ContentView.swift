@@ -1604,6 +1604,9 @@ struct ContentView: View {
                 )
             },
             observedWindow: observedWindow,
+            tabManager: tabManager,
+            sidebarUnread: sidebarUnread,
+            cmuxConfigStore: cmuxConfigStore,
             selection: $sidebarSelectionState.selection,
             selectedTabIds: $selectedTabIds, lastSidebarSelectionIndex: $lastSidebarSelectionIndex, sidebarRenderWorkerClient: $sidebarRenderWorkerClient
         )
@@ -9865,11 +9868,9 @@ extension SidebarDragState {
     }
 }
 
-/// Freezes `showsModifierShortcutHints` for the row whose context menu is open,
-/// so pressing/releasing the modifier key while the menu is up does not flip
-/// the underlying row's shortcut badges (which would be visible around the
-/// open context menu). All other rows transition live.
-struct VerticalTabsSidebar: View {
+/// Existing SwiftUI sidebar retained as the default during the staged AppKit
+/// rollout and as the host for custom and installed extension providers.
+struct LegacyVerticalTabsSidebar: View {
     var updateViewModel: UpdateStateModel
     @ObservedObject var fileExplorerState: FileExplorerState
     let windowId: UUID
@@ -10270,9 +10271,6 @@ struct VerticalTabsSidebar: View {
     }
 
     var body: some View {
-#if DEBUG
-        let _ = { minimalModeInvalidationProbe.verticalTabsSidebarBody?() }()
-#endif
         let signpost = SidebarProfilingSignposts.begin("vertical-sidebar-body", "workspaces=\(tabManager.tabs.count) selected=\(sidebarShortTabId(tabManager.selectedTabId))")
         let tabs = tabManager.tabs
         let workspaceCount = tabs.count

@@ -10,9 +10,9 @@ import SwiftUI
 @testable import cmux
 #endif
 
-/// Behavioral gate for the workspace sidebar's lazy-layout contract: layout
-/// and diff work must stay O(visible rows) no matter how many workspaces are
-/// open, and updates must converge (no self-sustaining invalidation).
+/// Behavioral gate for the feature-flagged AppKit sidebar's virtualization
+/// contract: resolver and keyed-update work must stay O(visible rows) no matter
+/// how many workspaces are open, and updates must converge.
 ///
 /// The contract has regressed five times through five different mechanisms —
 /// per-row anchorPreference aggregation (#5323), per-row String ids (#5764),
@@ -21,18 +21,17 @@ import SwiftUI
 /// shipped to stable before being detected, because nothing exercised the
 /// sidebar at the 100+ workspace scale where O(N) per pass becomes a
 /// main-thread livelock (issue #2586). These tests mount the real
-/// `VerticalTabsSidebar` at that scale and count actual row body evaluations
-/// through `SidebarLazyContractProbe`, so ANY future mechanism that realizes
-/// the whole list or loops the AttributeGraph fails here instead of on a
-/// user's machine. `scripts/check-sidebar-lazy-layout.py` bans the known
-/// source shapes; this is the mechanism-independent backstop.
+/// `VerticalTabsSidebar` at that scale, discover its native controller, and
+/// count resolver calls through `SidebarLazyContractProbe`. They also prove
+/// that the enabled AppKit path never executes retained SwiftUI workspace/group
+/// row bodies.
 @Suite(.serialized)
 final class SidebarLazyLayoutScaleTests {
-    static let workspaceCount = 300
-    /// Generous ceiling for "how many rows may be realized for one viewport".
-    /// A 640pt window shows ~20 rows; LazyVStack prefetch and a second layout
-    /// pass can multiply that, but a virtualization defeat realizes all 300.
-    private static let realizedRowCeiling = 150
+    static let workspaceCount = 1_000
+    /// Generous ceiling for native snapshot resolvers in one 640pt viewport.
+    /// The table shows roughly 20 rows; a virtualization defeat resolves all
+    /// 1,000 workspace/group rows.
+    private static let nativeResolverCeiling = 150
 
     final class InjectableMouseLocationWindow: NSWindow {
         var injectedMouseLocation = NSPoint.zero
@@ -43,8 +42,8 @@ final class SidebarLazyLayoutScaleTests {
     }
 
     // Plain class (not @MainActor) so the probe's nonisolated `() -> Void`
-    // closures can mutate it; bodies only run on the main thread. Same shape
-    // as MinimalModeBodyProbeCounts in WorkspaceContentViewVisibilityTests.
+    // closures can mutate it; all callbacks run on the main thread. The row
+    // body counters must remain zero for the enabled AppKit sidebar.
     final class RowBodyCounter {
         var workspaceRowBodies = 0
         var groupHeaderBodies = 0
@@ -76,16 +75,99 @@ final class SidebarLazyLayoutScaleTests {
         let window: InjectableMouseLocationWindow
         let defaultsSuiteName: String
 
+        func nativeSidebarController() -> SidebarAppKitViewController? {
+            guard let contentView = window.contentView else { return nil }
+            return Self.findSidebarController(in: contentView)
+        }
+
+        func sidebarController() throws -> SidebarAppKitViewController {
+            return try #require(
+                nativeSidebarController(),
+                "The enabled AppKit sidebar mounted without its native table controller."
+            )
+        }
+
+        func visibleNonAnchorWorkspace(
+            in controller: SidebarAppKitViewController
+        ) throws -> Workspace {
+            let visibleRows = Self.visibleRows(in: controller.tableView)
+            let anchorWorkspaceIds = Set(
+                tabManager.workspaceGroups.map(\.anchorWorkspaceId)
+            )
+            let workspace = tabManager.tabs.first { workspace in
+                guard !anchorWorkspaceIds.contains(workspace.id),
+                      let groupId = workspace.groupId,
+                      let workspaceRow = controller.rowIndex(
+                        for: .workspace(workspace.id)
+                      ),
+                      let groupRow = controller.rowIndex(for: .group(groupId)) else {
+                    return false
+                }
+                return visibleRows.contains(workspaceRow)
+                    && visibleRows.contains(groupRow)
+            }
+            return try #require(
+                workspace,
+                "No visible non-anchor workspace and group header were found."
+            )
+        }
+
+        func offscreenWorkspace(
+            in controller: SidebarAppKitViewController
+        ) throws -> Workspace {
+            let visibleRows = Self.visibleRows(in: controller.tableView)
+            let anchorWorkspaceIds = Set(
+                tabManager.workspaceGroups.map(\.anchorWorkspaceId)
+            )
+            let workspace = tabManager.tabs.reversed().first { workspace in
+                guard !anchorWorkspaceIds.contains(workspace.id),
+                      let row = controller.rowIndex(for: .workspace(workspace.id)) else {
+                    return false
+                }
+                return !visibleRows.contains(row)
+            }
+            return try #require(
+                workspace,
+                "No offscreen non-anchor workspace was found."
+            )
+        }
+
         func tearDown() {
             window.contentView = nil
             window.close()
             UserDefaults(suiteName: defaultsSuiteName)?
                 .removePersistentDomain(forName: defaultsSuiteName)
         }
+
+        private static func findSidebarController(
+            in view: NSView
+        ) -> SidebarAppKitViewController? {
+            if let tableView = view as? SidebarAppKitTableView,
+               let controller = tableView.delegate as? SidebarAppKitViewController {
+                return controller
+            }
+            for subview in view.subviews {
+                if let controller = findSidebarController(in: subview) {
+                    return controller
+                }
+            }
+            return nil
+        }
+
+        private static func visibleRows(in tableView: NSTableView) -> IndexSet {
+            let range = tableView.rows(in: tableView.visibleRect)
+            guard range.location != NSNotFound, range.length > 0 else { return [] }
+            let upperBound = min(tableView.numberOfRows, range.location + range.length)
+            guard range.location < upperBound else { return [] }
+            return IndexSet(integersIn: range.location..<upperBound)
+        }
     }
 
     @MainActor
-    static func mountSidebar(workspaceCount: Int) async throws -> Harness {
+    static func mountSidebar(
+        workspaceCount: Int,
+        appKitSidebarEnabled: Bool = true
+    ) async throws -> Harness {
         _ = NSApplication.shared
 
         // Hermetic defaults: VerticalTabsSidebar picks between the workspace
@@ -151,10 +233,14 @@ final class SidebarLazyLayoutScaleTests {
             onToggleSidebar: {},
             onNewTab: {},
             observedWindow: nil,
+            tabManager: tabManager,
+            sidebarUnread: unread,
+            cmuxConfigStore: CmuxConfigStore(),
             selection: .constant(.tabs),
             selectedTabIds: .constant([]),
             lastSidebarSelectionIndex: .constant(nil),
-            sidebarRenderWorkerClient: .constant(nil)
+            sidebarRenderWorkerClient: .constant(nil),
+            appKitSidebarEnabledOverride: appKitSidebarEnabled
         )
         .frame(width: 280)
         .environmentObject(tabManager)
@@ -234,146 +320,132 @@ final class SidebarLazyLayoutScaleTests {
         }
     }
 
-
-    /// Mounting the sidebar with 300 workspaces must realize only the rows a
-    /// single viewport needs. Realizing all of them is the #5323/#6210 defeat:
-    /// at scale, every subsequent update pays an O(N) layout pass and the main
-    /// thread livelocks.
     @Test
     @MainActor
-    func testMountRealizesOnlyViewportRowsAt300Workspaces() async throws {
-        let harness = try await Self.mountSidebar(workspaceCount: Self.workspaceCount)
-        defer { harness.tearDown() }
+    func testAppKitSidebarFeatureFlagDefaultsOff() throws {
+        let suiteName = "cmux.feature.flags.appkit-sidebar.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        await Self.drainMainRunLoop(for: harness.window)
-
-        let realized = harness.counter.workspaceRowBodies
-        #expect(realized > 0, "Sidebar mounted but no workspace row body ran; harness is broken.")
-        #expect(
-            realized < Self.realizedRowCeiling,
-            """
-            \(realized) workspace row bodies evaluated for a single ~20-row viewport with \
-            \(Self.workspaceCount) workspaces. The LazyVStack is being defeated (all rows \
-            realized per pass) — the #2586 sidebar livelock class. Look for per-row geometry \
-            feedback (GeometryReader/@State height, anchorPreference aggregation) or a \
-            force-measuring Layout; see scripts/check-sidebar-lazy-layout.py.
-            """
+        let flags = CmuxFeatureFlags(
+            defaults: defaults,
+            remoteFlagValueProvider: { _ in nil }
         )
 
-        let headerRealized = harness.counter.groupHeaderBodies
-        #expect(
-            headerRealized > 0,
-            """
-            Groups were created at the top of the list but no group-header body ran; the \
-            grouped-workspace coverage is broken.
-            """
-        )
-        #expect(
-            headerRealized < Self.realizedRowCeiling,
-            """
-            \(headerRealized) group-header bodies evaluated for 5 groups in one viewport. \
-            The group-header row wrapper (sidebarWorkspaceGroupRow) is defeating \
-            virtualization or re-evaluating without bound — the #4385 regression site.
-            """
-        )
+        #expect(!flags.isAppKitSidebarEnabled)
     }
 
-    /// TabItemView.body must never build a workspace snapshot. The parent owns
-    /// the full per-workspace projection (bonsplit tree walk, git summaries,
-    /// PR rows) and passes the resulting value across the LazyVStack boundary.
-    /// Building it while a row is being realized would read the live workspace
-    /// graph from inside SwiftUI layout and recreate the #6707 reentry path.
     @Test
     @MainActor
-    func testRowBodyEvaluationNeverBuildsWorkspaceSnapshot() async throws {
-        let harness = try await Self.mountSidebar(workspaceCount: Self.workspaceCount)
+    func testDisabledAppKitSidebarFlagKeepsLegacyDefaultSidebar() async throws {
+        let harness = try await Self.mountSidebar(
+            workspaceCount: 20,
+            appKitSidebarEnabled: false
+        )
         defer { harness.tearDown() }
 
         await Self.drainMainRunLoop(for: harness.window)
 
-        #expect(
-            harness.counter.workspaceSnapshotBuilds > 0,
-            "Sidebar mounted but no workspace snapshot was built; the probe wiring is broken."
-        )
-        let worstBody = harness.counter.maxSnapshotBuildsInOneRowBody
-        #expect(
-            worstBody == 0,
-            """
-            A single TabItemView.body evaluation built the workspace snapshot \(worstBody) \
-            times. Workspace snapshots must be built by VerticalTabsSidebar before the \
-            LazyVStack realization closure and passed to rows as immutable values.
-            """
-        )
+        #expect(harness.nativeSidebarController() == nil)
+        #expect(harness.counter.workspaceRowBodies > 0)
     }
 
-    /// A simultaneous workspace-publisher burst must cross the parent snapshot
-    /// boundary once per batch. Re-projecting all 300 row inputs once per
-    /// emitting workspace is O(N²) main-actor work even though LazyVStack only
-    /// realizes the viewport rows.
+
+    /// Mounting the sidebar with 1,000 workspaces must resolve only the rows a
+    /// single native viewport needs. Resolving all rows makes every subsequent
+    /// update pay O(total workspaces) on the main actor.
     @Test
     @MainActor
-    func testWorkspacePublisherBatchProjectsParentListLinearly() async throws {
+    func testMountResolvesOnlyViewportRowsAt1000Workspaces() async throws {
+        let harness = try await Self.mountSidebar(workspaceCount: Self.workspaceCount)
+        defer { harness.tearDown() }
+
+        await Self.drainMainRunLoop(for: harness.window)
+        let controller = try harness.sidebarController()
+        let counts = controller.resolverInvocationCounts
+        let nativeSnapshotResolutions = counts.workspaceSnapshots + counts.groupSnapshots
+
+        #expect(controller.tableView.numberOfRows == Self.workspaceCount)
+        #expect(
+            counts.workspaceSnapshots > 0,
+            "Sidebar mounted but no native workspace snapshot resolver ran."
+        )
+        #expect(
+            counts.groupSnapshots > 0,
+            "Grouped rows were visible but no native group snapshot resolver ran."
+        )
+        #expect(
+            nativeSnapshotResolutions < Self.nativeResolverCeiling,
+            """
+            \(nativeSnapshotResolutions) native row snapshots resolved for one viewport with \
+            \(Self.workspaceCount) workspaces. The AppKit table must resolve only visible rows.
+            """
+        )
+        #expect(
+            harness.counter.workspaceRowInputProjections == counts.workspaceSnapshots
+        )
+        #expect(counts.workspaceActions == counts.workspaceSnapshots)
+        #expect(counts.groupActions == counts.groupSnapshots)
+    }
+
+    /// The enabled AppKit provider must remain fully native below its representable.
+    /// Executing a retained SwiftUI workspace or group row would reintroduce
+    /// AttributeGraph invalidation into the hot list path.
+    @Test
+    @MainActor
+    func testEnabledAppKitSidebarExecutesNoSwiftUIWorkspaceOrGroupRowBodies() async throws {
         let harness = try await Self.mountSidebar(workspaceCount: Self.workspaceCount)
         defer { harness.tearDown() }
 
         await Self.drainMainRunLoop(for: harness.window)
 
-        // The default sidebar intentionally accepts the initial value from
-        // both workspace publisher families. Wait for those known initial
-        // projections before isolating the operation count for this burst.
-        // Initial mount builds fallback + owner snapshots, then each of the
-        // two keyed publisher families delivers its accepted initial value.
-        let initialObservationBuildFloor = Self.workspaceCount * 4
-        let initialDeadline = ProcessInfo.processInfo.systemUptime + 3
-        while harness.counter.workspaceSnapshotBuilds < initialObservationBuildFloor,
-              ProcessInfo.processInfo.systemUptime < initialDeadline {
-            Self.turnMainRunLoopOnce(layingOut: harness.window)
-            await Task.yield()
-        }
+        _ = try harness.sidebarController()
+        #expect(harness.counter.workspaceRowBodies == 0)
+        #expect(harness.counter.groupHeaderBodies == 0)
+        #expect(harness.counter.workspaceSnapshotBuilds == 0)
+        #expect(harness.counter.maxSnapshotBuildsInOneRowBody == 0)
+    }
+
+    /// Offscreen workspaces have no native cell and no live row observation.
+    /// Their publishers must not project or reload any row.
+    @Test
+    @MainActor
+    func testOffscreenWorkspacePublisherChangeProjectsNoRows() async throws {
+        let harness = try await Self.mountSidebar(workspaceCount: Self.workspaceCount)
+        defer { harness.tearDown() }
+
+        await Self.drainMainRunLoop(for: harness.window)
+        let controller = try harness.sidebarController()
+        let target = try harness.offscreenWorkspace(in: controller)
+        let targetRow = try #require(controller.rowIndex(for: .workspace(target.id)))
         #expect(
-            harness.counter.workspaceSnapshotBuilds >= initialObservationBuildFloor,
-            "Initial keyed workspace publisher values did not reach the snapshot owner."
+            controller.tableView.rowView(
+                atRow: targetRow,
+                makeIfNecessary: false
+            ) == nil
         )
 
         harness.counter.reset()
-        let targets = Array(harness.tabManager.tabs.suffix(80))
-        for (index, workspace) in targets.enumerated() {
-            workspace.statusEntries["issue-6707.batch"] = SidebarStatusEntry(
-                key: "issue-6707.batch",
-                value: "batch update \(index)",
-                icon: "bolt.fill"
-            )
-        }
-
-        let refreshDeadline = ProcessInfo.processInfo.systemUptime + 3
-        while harness.counter.workspaceSnapshotBuilds < targets.count,
-              ProcessInfo.processInfo.systemUptime < refreshDeadline {
-            Self.turnMainRunLoopOnce(layingOut: harness.window)
-            await Task.yield()
-        }
-        #expect(
-            harness.counter.workspaceSnapshotBuilds >= targets.count,
-            "The \(targets.count)-workspace publisher batch did not reach the snapshot owner."
+        controller.resetResolverInvocationCounts()
+        target.statusEntries["issue-6707.offscreen"] = SidebarStatusEntry(
+            key: "issue-6707.offscreen",
+            value: "offscreen update",
+            icon: "bolt.fill"
         )
         await Self.drainMainRunLoop(for: harness.window)
 
-        let projections = harness.counter.workspaceRowInputProjections
-        #expect(projections > 0, "The parent row-input projection probe did not run.")
-        #expect(
-            projections <= Self.workspaceCount * 4,
-            """
-            \(projections) parent row-input projections ran for one \(targets.count)-workspace \
-            event batch at \(Self.workspaceCount) workspaces. The batch must cause O(N) parent \
-            projection work, not O(N²) work from one parent invalidation per emitter.
-            """
-        )
+        #expect(harness.counter.workspaceRowInputProjections == 0)
+        #expect(controller.resolverInvocationCounts.workspaceSnapshots == 0)
+        #expect(controller.resolverInvocationCounts.groupSnapshots == 0)
+        #expect(controller.resolverInvocationCounts.workspaceActions == 0)
+        #expect(controller.resolverInvocationCounts.groupActions == 0)
+        #expect(harness.counter.workspaceRowBodies == 0)
+        #expect(harness.counter.groupHeaderBodies == 0)
     }
 
-    /// A burst of unread-model updates (the agent-notification churn path,
-    /// the sidebar's highest-frequency whole-body invalidation) must cost
-    /// O(changed rows), and the sidebar must go quiet when the burst stops.
-    /// Unbounded or non-converging row re-evaluation here is the exact
-    /// signature of the #6556 GeometryReader → @State feedback livelock.
+    /// A burst of unread-model updates must stay keyed to one visible
+    /// non-anchor workspace and its group header. The native table must stop
+    /// resolving rows when the burst stops.
     @Test
     @MainActor
     func testUnreadStormStaysRowScopedAndConverges() async throws {
@@ -381,16 +453,17 @@ final class SidebarLazyLayoutScaleTests {
         defer { harness.tearDown() }
 
         await Self.drainMainRunLoop(for: harness.window)
+        let controller = try harness.sidebarController()
+        let target = try harness.visibleNonAnchorWorkspace(in: controller)
         harness.counter.reset()
+        controller.resetResolverInvocationCounts()
 
-        let stormTargets = Array(harness.tabManager.tabs.prefix(3).map(\.id))
         let storms = 40
         for i in 1...storms {
-            let target = stormTargets[i % stormTargets.count]
             harness.unread.apply(
                 totalUnreadCount: i,
                 summaries: [
-                    target: SidebarWorkspaceUnreadSummary(
+                    target.id: SidebarWorkspaceUnreadSummary(
                         unreadCount: i,
                         latestNotificationText: "agent update \(i)"
                     )
@@ -403,34 +476,41 @@ final class SidebarLazyLayoutScaleTests {
         }
         await Self.drainMainRunLoop(for: harness.window)
 
-        let stormEvals = harness.counter.workspaceRowBodies
+        let counts = controller.resolverInvocationCounts
+        let workspaceProjections = harness.counter.workspaceRowInputProjections
+        #expect(workspaceProjections > 0)
         #expect(
-            stormEvals < storms * 10,
+            workspaceProjections <= storms * 2,
             """
-            \(stormEvals) workspace row bodies evaluated for \(storms) single-workspace unread \
-            updates. Updates must invalidate only the changed rows (TabItemView.== + \
-            .equatable()), not re-evaluate the list. \(Self.workspaceCount) workspaces × \
-            \(storms) updates re-realizing per pass is the #2586 livelock at scale.
+            \(workspaceProjections) workspace snapshots resolved for \(storms) unread updates. \
+            Native updates must stay keyed to the changed visible workspace.
             """
         )
+        #expect(counts.workspaceSnapshots == workspaceProjections)
+        #expect(counts.groupSnapshots > 0)
+        #expect(counts.groupSnapshots <= storms * 2)
+        #expect(counts.workspaceActions == counts.workspaceSnapshots)
+        #expect(counts.groupActions == counts.groupSnapshots)
+        #expect(harness.counter.workspaceRowBodies == 0)
+        #expect(harness.counter.groupHeaderBodies == 0)
 
-        harness.counter.reset()
+        // Drain pending delivery first, then observe a fresh quiet interval.
         await Self.drainMainRunLoop(for: harness.window, iterations: 30)
-        let quietEvals = harness.counter.workspaceRowBodies + harness.counter.groupHeaderBodies
-        #expect(
-            quietEvals < 20,
-            """
-            \(quietEvals) row bodies (workspace + group header) evaluated with no state \
-            changes at all. The sidebar is re-invalidating itself — a layout/state feedback \
-            loop (the #6556 signature). This livelocks the main thread at scale.
-            """
-        )
+        harness.counter.reset()
+        controller.resetResolverInvocationCounts()
+        await Self.drainMainRunLoop(for: harness.window, iterations: 30)
+        #expect(harness.counter.workspaceRowInputProjections == 0)
+        #expect(controller.resolverInvocationCounts.workspaceSnapshots == 0)
+        #expect(controller.resolverInvocationCounts.groupSnapshots == 0)
+        #expect(controller.resolverInvocationCounts.workspaceActions == 0)
+        #expect(controller.resolverInvocationCounts.groupActions == 0)
+        #expect(harness.counter.workspaceRowBodies == 0)
+        #expect(harness.counter.groupHeaderBodies == 0)
     }
 
-    /// A value change owned by one workspace must not rebuild presentation
-    /// inputs for every workspace. Viewport virtualization alone is
-    /// insufficient: projecting all 300 inputs before the lazy boundary still
-    /// makes each notification update O(total workspaces) on the main actor.
+    /// Regression test for one unread change. A visible non-anchor workspace
+    /// must resolve only its native workspace row and group header, independent
+    /// of the total workspace count.
     @Test
     @MainActor
     func testSingleUnreadChangeProjectsOnlyTheChangedWorkspace() async throws {
@@ -438,13 +518,15 @@ final class SidebarLazyLayoutScaleTests {
         defer { harness.tearDown() }
 
         await Self.drainMainRunLoop(for: harness.window)
+        let controller = try harness.sidebarController()
+        let target = try harness.visibleNonAnchorWorkspace(in: controller)
         harness.counter.reset()
+        controller.resetResolverInvocationCounts()
 
-        let target = try #require(harness.tabManager.tabs.first?.id)
         harness.unread.apply(
             totalUnreadCount: 1,
             summaries: [
-                target: SidebarWorkspaceUnreadSummary(
+                target.id: SidebarWorkspaceUnreadSummary(
                     unreadCount: 1,
                     latestNotificationText: "one changed workspace"
                 )
@@ -463,15 +545,22 @@ final class SidebarLazyLayoutScaleTests {
         await Self.drainMainRunLoop(for: harness.window)
 
         let projections = harness.counter.workspaceRowInputProjections
+        let counts = controller.resolverInvocationCounts
         #expect(projections > 0, "The unread change never reached the sidebar projection owner.")
         #expect(
-            projections <= 4,
+            projections <= 2,
             """
-            One workspace unread change projected \(projections) workspace inputs at a scale of \
-            \(Self.workspaceCount). Non-structural changes must be keyed to the changed workspace; \
-            rebuilding the full list makes high-frequency sidebar updates O(total workspaces).
+            One visible non-anchor unread change resolved \(projections) workspace snapshots at \
+            a scale of \(Self.workspaceCount). The update must remain keyed to that workspace.
             """
         )
+        #expect(counts.workspaceSnapshots == projections)
+        #expect(counts.groupSnapshots > 0)
+        #expect(counts.groupSnapshots <= 2)
+        #expect(counts.workspaceActions == counts.workspaceSnapshots)
+        #expect(counts.groupActions == counts.groupSnapshots)
+        #expect(harness.counter.workspaceRowBodies == 0)
+        #expect(harness.counter.groupHeaderBodies == 0)
     }
 
 

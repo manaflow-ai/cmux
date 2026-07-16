@@ -46,6 +46,7 @@ final class CmuxFeatureFlags {
     #endif
     private static let agentChatUIDefault = false
     private static let sidebarWorkspaceAgentSpinnerDefault = false
+    private static let appKitSidebarDefault = false
 
     private static let overrideKeyPrefix = "cmux.flags.override."
 
@@ -132,6 +133,24 @@ final class CmuxFeatureFlags {
                 ),
                 defaultWhenUnavailable: CmuxFeatureFlags.sidebarWorkspaceAgentSpinnerDefault
             ),
+
+            // FLAG(key: appkit-sidebar-enabled-experiment, owner: lawrencecchen,
+            //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+            // Routes the built-in workspace sidebar to its native AppKit
+            // implementation. The existing sidebar remains the default until
+            // the native implementation finishes staged dogfood.
+            CmuxFeatureFlagDefinition(
+                key: "appkit-sidebar-enabled-experiment",
+                title: String(
+                    localized: "featureFlags.appKitSidebar.title",
+                    defaultValue: "AppKit sidebar"
+                ),
+                flagDescription: String(
+                    localized: "featureFlags.appKitSidebar.description",
+                    defaultValue: "Uses the native AppKit implementation for the built-in workspace sidebar."
+                ),
+                defaultWhenUnavailable: CmuxFeatureFlags.appKitSidebarDefault
+            ),
         ]
     }()
 
@@ -153,6 +172,10 @@ final class CmuxFeatureFlags {
 
     var isSidebarWorkspaceAgentSpinnerEnabled: Bool {
         effectiveValue(for: Self.allFlags[4])
+    }
+
+    var isAppKitSidebarEnabled: Bool {
+        effectiveValue(for: Self.allFlags[5])
     }
 
     @ObservationIgnored

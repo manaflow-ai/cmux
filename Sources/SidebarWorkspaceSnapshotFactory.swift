@@ -15,6 +15,21 @@ struct SidebarWorkspaceSnapshotFactory {
     let workspace: Workspace
     let settings: SidebarTabItemSettingsSnapshot
     let showsAgentActivity: Bool
+    /// The AppKit sidebar resolves checklist items lazily only after the user
+    /// opens the native checklist. Legacy SwiftUI rows still receive the array.
+    let includesChecklistItems: Bool
+
+    init(
+        workspace: Workspace,
+        settings: SidebarTabItemSettingsSnapshot,
+        showsAgentActivity: Bool,
+        includesChecklistItems: Bool = true
+    ) {
+        self.workspace = workspace
+        self.settings = settings
+        self.showsAgentActivity = showsAgentActivity
+        self.includesChecklistItems = includesChecklistItems
+    }
 
     func makeSnapshot() -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         let detailVisibility = settings.visibleAuxiliaryDetails
@@ -102,7 +117,7 @@ struct SidebarWorkspaceSnapshotFactory {
             finderDirectoryPath: WorkspaceFinderDirectoryResolver.path(for: workspace),
             mediaActivity: workspace.browserMediaActivity,
             taskStatus: taskStatusResolution?.effective,
-            checklistItems: workspace.todoState.checklist,
+            checklistItems: includesChecklistItems ? workspace.todoState.checklist : [],
             checklistCompletedCount: checklistProgress.completedCount,
             checklistTotalCount: checklistProgress.totalCount,
             checklistFirstUncheckedText: checklistProgress.firstUncheckedText
