@@ -130,7 +130,7 @@ final class cmuxUITests: XCTestCase {
 
         let feed = app.descendants(matching: .any)["MobileNotificationFeed"]
         XCTAssertTrue(feed.waitForExistence(timeout: 8))
-        XCTAssertTrue(app.descendants(matching: .any)["MobilePrimaryTabNotifications"].exists)
+        XCTAssertTrue(app.tabBars.buttons["Notifications"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["MobileNotificationFeedDayToday"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["MobileNotificationFeedDayYesterday"].exists)
         XCTAssertTrue(app.staticTexts["Build Mac · Unavailable"].exists)
@@ -154,7 +154,10 @@ final class cmuxUITests: XCTestCase {
         let completedRow = app.descendants(matching: .any)["MobileNotificationFeedRow-macbook-tests-passed"]
         XCTAssertTrue(completedRow.waitForExistence(timeout: 3))
         completedRow.tap()
-        XCTAssertTrue(app.otherElements["MobileNotificationFeedPreviewOpenResponse"].waitForExistence(timeout: 3))
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileNotificationFeedPreviewOpenResponse"]
+                .waitForExistence(timeout: 3)
+        )
         XCTAssertTrue(app.staticTexts["Opened Release"].exists)
 
         let markAllRead = app.buttons["MobileNotificationFeedMarkAllRead"]
@@ -162,11 +165,11 @@ final class cmuxUITests: XCTestCase {
         markAllRead.tap()
         XCTAssertTrue(markAllRead.waitForNonExistence(timeout: 3))
 
-        let workspacesTab = app.descendants(matching: .any)["MobilePrimaryTabWorkspaces"]
+        let workspacesTab = app.tabBars.buttons["Workspaces"]
         XCTAssertTrue(workspacesTab.waitForExistence(timeout: 3))
         workspacesTab.tap()
         XCTAssertTrue(app.staticTexts["Workspaces"].waitForExistence(timeout: 3))
-        app.descendants(matching: .any)["MobilePrimaryTabNotifications"].tap()
+        app.tabBars.buttons["Notifications"].tap()
         XCTAssertTrue(feed.waitForExistence(timeout: 3))
     }
 
