@@ -2149,6 +2149,56 @@ mod tests {
     }
 
     #[test]
+    fn discovery_events_are_drained_before_the_discovery_response() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::Builder::new()
+            .name("browser-discovery-backpressure-fake-cdp".into())
+            .spawn(move || {
+                let (stream, _) = listener.accept().unwrap();
+                let mut ws = accept(stream).unwrap();
+                let request = read_ws_json(&mut ws);
+                assert_eq!(request["method"], "Target.setDiscoverTargets");
+                for index in 0..=cmux_tui_cdp::CDP_EVENT_QUEUE_CAPACITY {
+                    write_ws_json(
+                        &mut ws,
+                        json!({
+                            "method": "Target.targetCreated",
+                            "params": {
+                                "targetInfo": {
+                                    "targetId": format!("target-{index}"),
+                                    "type": "page",
+                                    "title": "",
+                                    "url": "about:blank"
+                                }
+                            }
+                        }),
+                    );
+                }
+                write_ws_json(&mut ws, json!({"id": request["id"], "result": {}}));
+            })
+            .unwrap();
+        let (done_tx, done_rx) = mpsc::sync_channel(1);
+        let connect = thread::spawn(move || {
+            done_tx
+                .send(super::BrowserRuntime::connect_to_endpoint(
+                    &format!("ws://{addr}/devtools/browser/fake"),
+                    None,
+                    BrowserSource::External,
+                ))
+                .unwrap();
+        });
+
+        let runtime = done_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("discovery events blocked the response")
+            .unwrap();
+        runtime.shutdown();
+        connect.join().unwrap();
+        server.join().unwrap();
+    }
+
+    #[test]
     fn external_runtime_does_not_query_or_override_user_agent() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();

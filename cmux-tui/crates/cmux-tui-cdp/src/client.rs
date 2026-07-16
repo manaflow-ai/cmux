@@ -816,6 +816,24 @@ mod tests {
     }
 
     #[test]
+    fn http_discovery_retries_idle_timeout_before_absolute_deadline() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.write_all(b"HTTP/1.1 200 OK\r\n").unwrap();
+            thread::sleep(Duration::from_millis(600));
+            stream.write_all(b"Content-Length: 2\r\n\r\n{}").unwrap();
+        });
+        let mut stream = TcpStream::connect(addr).unwrap();
+
+        let response =
+            read_http_response_with_limits(&mut stream, 64 * 1024, Duration::from_secs(2)).unwrap();
+        assert!(response.ends_with("{}"));
+        server.join().unwrap();
+    }
+
+    #[test]
     fn concurrent_calls_complete_while_reader_receives_events() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();

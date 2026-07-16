@@ -86,19 +86,32 @@ fn websocket_server_requires_a_nonempty_token() {
 }
 
 #[test]
+fn websocket_server_rejects_tokens_that_cannot_fit_the_auth_limit() {
+    let mux = Mux::new("ws-token-size", SurfaceOptions::default());
+    let result = server::serve_websocket(
+        mux.clone(),
+        "127.0.0.1:0".parse().unwrap(),
+        Some("x".repeat(8 * 1024)),
+        false,
+    );
+
+    assert!(result.is_err(), "WebSocket listener accepted an unusably large token");
+    mux.shutdown();
+}
+
+#[test]
 fn websocket_rejects_oversized_authentication_frames() {
     let mux = Mux::new("ws-auth-frame-limit", SurfaceOptions::default());
-    let oversized_token = "x".repeat(8 * 1024);
     let server = server::serve_websocket(
         mux.clone(),
         "127.0.0.1:0".parse().unwrap(),
-        Some(oversized_token.clone()),
+        Some(TEST_TOKEN.to_string()),
         false,
     )
     .unwrap();
 
     let mut websocket = connect_raw(server.local_addr());
-    send_json(&mut websocket, json!({"auth": {"token": oversized_token}}));
+    websocket.send(Message::Text("x".repeat(8 * 1024).into())).unwrap();
     assert!(
         matches!(websocket.read(), Ok(Message::Close(_)) | Err(_)),
         "oversized pre-authentication frame remained accepted"
