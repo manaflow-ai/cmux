@@ -75,7 +75,7 @@ extension SidebarGitMetadataService {
                 }
                 clearWorkspaceGitMetadata(for: probeKey)
             }
-            guard sidebarGitMetadataWatchEnabled else {
+            guard sidebarGitMetadataActivePollingEnabled else {
                 if !clearsMetadataBeforeRefresh {
                     clearWorkspaceGitMetadata(for: probeKey)
                 }

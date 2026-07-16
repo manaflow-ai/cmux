@@ -126,7 +126,7 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
         updateWorkspaceGitMetadataFallbackTimer()
     }
 
-    var sidebarGitMetadataWatchEnabled: Bool {
+    var sidebarGitMetadataActivePollingEnabled: Bool {
         host?.gitMetadataActivity.performsActivePolling ?? false
     }
 
@@ -137,7 +137,7 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     // MARK: Fallback timer
 
     func updateWorkspaceGitMetadataFallbackTimer() {
-        guard sidebarGitMetadataWatchEnabled,
+        guard sidebarGitMetadataActivePollingEnabled,
               !workspaceGitTrackedDirectoryByKey.isEmpty else {
             workspaceGitMetadataFallbackTask?.cancel()
             workspaceGitMetadataFallbackTask = nil

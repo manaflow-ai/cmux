@@ -8,7 +8,7 @@ extension SidebarGitMetadataService {
         for key: WorkspaceGitProbeKey,
         directory: String
     ) {
-        guard sidebarGitMetadataWatchEnabled else {
+        guard sidebarGitMetadataActivePollingEnabled else {
             stopWorkspaceGitMetadataWatcher(for: key)
             return
         }
@@ -56,7 +56,7 @@ extension SidebarGitMetadataService {
         }
         workspaceGitMetadataWatcherDescriptorRequestsByKey.removeValue(forKey: key)
 
-        guard sidebarGitMetadataWatchEnabled,
+        guard sidebarGitMetadataActivePollingEnabled,
               workspaceGitTrackedDirectoryByKey[key] == request.directory,
               let watchedPaths else {
             stopWorkspaceGitMetadataWatcher(for: key)
