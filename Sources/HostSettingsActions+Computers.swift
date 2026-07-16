@@ -84,7 +84,13 @@ extension HostSettingsActions {
                     HiveViewerWindowController.shared.show(deviceID: deviceID)
                     return
                 }
-                context.sidebarSelectionState.selection = .computer(deviceID: deviceID)
+                // Native mirrors: the computer's workspaces join the main
+                // sidebar as real workspaces.
+                context.sidebarSelectionState.selection = .tabs
+                _ = await HiveComputerMirrorController.shared.attach(
+                    deviceID: deviceID,
+                    into: context.tabManager
+                )
                 context.window?.makeKeyAndOrderFront(nil)
             case .windows:
                 HiveViewerWindowController.shared.show(deviceID: deviceID)
