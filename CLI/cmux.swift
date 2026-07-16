@@ -26962,9 +26962,9 @@ struct CMUXCLI {
         }
 
         // Dispatch handlers communicate only by signaling. No mutable value is
-        // shared across queues, and the waiting monitor owns both semaphores.
+        // shared across queues, and the waiting monitor owns both signals.
         let semaphore = DispatchSemaphore(value: 0)
-        let processExit = DispatchSemaphore(value: 0)
+        let processExit = DispatchWorkItem {}
         var sources: [DispatchSourceFileSystemObject] = []
         var processSource: DispatchSourceProcess?
 
@@ -26998,14 +26998,15 @@ struct CMUXCLI {
                 queue: DispatchQueue.global(qos: .utility)
             )
             source.setEventHandler {
-                processExit.signal()
+                processExit.perform()
                 semaphore.signal()
             }
             source.resume()
             processSource = source
             if codexMonitorProcessIsGone(pid: codexPID) {
-                processExit.signal()
-                semaphore.signal()
+                sources.forEach { $0.cancel() }
+                source.cancel()
+                return true
             }
         }
 
@@ -27017,7 +27018,7 @@ struct CMUXCLI {
         _ = semaphore.wait(timeout: .now() + timeout)
         sources.forEach { $0.cancel() }
         processSource?.cancel()
-        return processExit.wait(timeout: .now()) == .success
+        return processExit.isFinished
     }
 
     private func codexMonitorProcessIsGone(pid: Int) -> Bool {
