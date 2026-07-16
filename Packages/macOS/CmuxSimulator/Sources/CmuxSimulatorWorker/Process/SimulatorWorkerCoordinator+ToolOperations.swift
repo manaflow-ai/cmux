@@ -62,16 +62,13 @@ extension SimulatorWorkerCoordinator {
     func cancelToolOperations() async {
         let activeLanes = Set(toolOperationTasks.keys)
         let tasks = Array(toolOperationTasks.values)
-        failOutstandingToolOperations()
+        failQueuedToolOperations()
         toolOperationQueues.removeAll()
-        toolOperationGenerations.removeAll()
-        toolOperationCurrentRequestIdentifiers.removeAll()
         toolOperationDeadlineTasks.values.forEach { $0.cancel() }
         toolOperationDeadlineTasks.removeAll()
         toolOperationCancellationGraceTasks.values.forEach { $0.cancel() }
         toolOperationCancellationGraceTasks.removeAll()
         timedOutToolOperationGenerations.removeAll()
-        committedToolOperationGenerations.removeAll()
         cancelingToolOperationLanes.formUnion(activeLanes)
         tasks.forEach { $0.cancel() }
         guard await toolOperationsDrainBeforeCancellationGrace(tasks) else {
@@ -83,16 +80,13 @@ extension SimulatorWorkerCoordinator {
     }
 
     func cancelToolOperationsWithoutWaiting() {
-        failOutstandingToolOperations()
+        failQueuedToolOperations()
         toolOperationQueues.removeAll()
-        toolOperationGenerations.removeAll()
-        toolOperationCurrentRequestIdentifiers.removeAll()
         toolOperationDeadlineTasks.values.forEach { $0.cancel() }
         toolOperationDeadlineTasks.removeAll()
         toolOperationCancellationGraceTasks.values.forEach { $0.cancel() }
         toolOperationCancellationGraceTasks.removeAll()
         timedOutToolOperationGenerations.removeAll()
-        committedToolOperationGenerations.removeAll()
         cancelingToolOperationLanes.formUnion(toolOperationTasks.keys)
         toolOperationTasks.values.forEach { $0.cancel() }
     }
@@ -127,9 +121,15 @@ extension SimulatorWorkerCoordinator {
             self.toolOperationDeadlineTasks.removeValue(forKey: lane)
             self.toolOperationCancellationGraceTasks.removeValue(forKey: lane)?.cancel()
             if self.cancelingToolOperationLanes.remove(lane) != nil {
+                if !self.committedToolOperationGenerations.contains(generation),
+                   let requestIdentifier = self.toolOperationCurrentRequestIdentifiers[lane] {
+                    self.sendToolOperationCancellation(requestIdentifier: requestIdentifier)
+                }
                 self.timedOutToolOperationGenerations.remove(generation)
                 self.committedToolOperationGenerations.remove(generation)
+                self.toolOperationGenerations.removeValue(forKey: lane)
                 self.toolOperationTasks.removeValue(forKey: lane)
+                self.toolOperationCurrentRequestIdentifiers.removeValue(forKey: lane)
                 self.startNextToolOperationIfNeeded(in: lane)
                 return
             }
@@ -192,22 +192,26 @@ extension SimulatorWorkerCoordinator {
         ))
     }
 
-    private func failOutstandingToolOperations() {
-        let identifiers = Array(toolOperationCurrentRequestIdentifiers.values)
-            + toolOperationQueues.values.flatMap { $0.map(\.requestIdentifier) }
-        for requestIdentifier in identifiers {
-            send(.requestFailure(
-                requestID: requestIdentifier,
-                SimulatorFailure(
-                    code: "worker_operation_cancelled",
-                    message: String(
-                        localized: "simulator.failure.workerOperationCancelled",
-                        defaultValue: "The Simulator changed while this tool operation was running."
-                    ),
-                    isRecoverable: true
-                )
-            ))
+    private func failQueuedToolOperations() {
+        for requestIdentifier in toolOperationQueues.values.flatMap({
+            $0.map(\.requestIdentifier)
+        }) {
+            sendToolOperationCancellation(requestIdentifier: requestIdentifier)
         }
+    }
+
+    private func sendToolOperationCancellation(requestIdentifier: UUID) {
+        send(.requestFailure(
+            requestID: requestIdentifier,
+            SimulatorFailure(
+                code: "worker_operation_cancelled",
+                message: String(
+                    localized: "simulator.failure.workerOperationCancelled",
+                    defaultValue: "The Simulator changed while this tool operation was running."
+                ),
+                isRecoverable: true
+            )
+        ))
     }
 
     private func toolOperationsDrainBeforeCancellationGrace(
