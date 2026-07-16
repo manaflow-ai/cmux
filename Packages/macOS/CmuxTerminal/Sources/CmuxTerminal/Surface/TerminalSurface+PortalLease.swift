@@ -7,13 +7,6 @@ internal import CMUXDebugLog
 
 // MARK: - Portal-host leases (which pane host currently owns the surface)
 
-struct TerminalPortalHostAuthority {
-    let hostId: ObjectIdentifier
-    let paneId: UUID
-    let instanceSerial: UInt64
-    let ownershipGeneration: UInt64
-}
-
 extension TerminalSurface {
     /// The current portal lifecycle generation (bumped on ownership and close transitions).
     public func portalBindingGeneration() -> UInt64 {
