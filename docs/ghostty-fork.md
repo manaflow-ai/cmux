@@ -21,6 +21,36 @@ The corresponding universal ReleaseFast GhosttyKit archive is published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-bb30526cdab8f5fb08ae43e404e3aacc40d3ffc3-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
+### Pending manual-mirror IO mode for custom frontends
+
+- Local candidate commit: `581dbf264` (`embedded: add manual mirror IO mode`)
+- Base: current fork `main` commit `bb30526cd`
+- Status: checked out only in the dedicated cmux integration worktree. Do not
+  commit the parent submodule pointer until this commit has been reviewed and
+  pushed to `manaflow-ai/ghostty` `main`.
+- Files:
+  - `include/ghostty.h`
+  - `src/Surface.zig`
+  - `src/apprt/embedded.zig`
+  - `src/termio/Manual.zig`
+  - `src/termio/Options.zig`
+  - `src/termio/Termio.zig`
+  - `src/termio/stream_handler.zig`
+- Summary:
+  - Adds ABI value `GHOSTTY_SURFACE_IO_MANUAL_MIRROR = 2` without growing the
+    120-byte embedded surface config.
+  - Reuses manual IO for embedder-owned input while suppressing every
+    parser-generated terminal reply, including allocating reply messages.
+    The authoritative cmux-tui terminal core therefore remains the only side
+    that responds to DA, DSR, OSC, size, color-scheme, and focus queries.
+  - Preserves encoded keyboard, committed UTF-8 text, SGR mouse, and bracketed
+    paste bytes through `io_write_cb`.
+  - Verified in the filtered Linux-musl embedded test binary: all 71 tests pass.
+- Conflict note: future additions to `termio.Message` that write back to the
+  PTY must be classified in `suppressTerminalResponse`. State-changing parser
+  messages must continue through; reply/write variants must be dropped, and
+  owned buffers must be freed.
+
 ### Authoritative sprite-font shaping runs
 
 - Commits:
