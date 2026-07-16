@@ -55,6 +55,23 @@ struct SidebarWorkspaceSnapshotFactory {
             guard detailVisibility.showsPullRequests, let orderedPanelIds else { return [] }
             return pullRequestDisplays(orderedPanelIds: orderedPanelIds)
         }()
+        let ghprEntries = detailVisibility.showsPullRequests && !pullRequestRows.isEmpty
+            ? workspace.ghprEntries
+            : []
+        let ghprJiraEntry = ghprEntries.first {
+            $0.key == SidebarWorkspaceSnapshotBuilder.ghprJiraStatusKey
+        }
+        let ghprBadgeOrder = SidebarWorkspaceSnapshotBuilder.ghprBadgeOrder
+        let ghprBadges = ghprEntries
+            .filter { $0.key != SidebarWorkspaceSnapshotBuilder.ghprJiraStatusKey }
+            .sorted { lhs, rhs in
+                let lhsIndex = ghprBadgeOrder.firstIndex(of: lhs.key) ?? Int.max
+                let rhsIndex = ghprBadgeOrder.firstIndex(of: rhs.key) ?? Int.max
+                if lhsIndex == rhsIndex {
+                    return lhs.key < rhs.key
+                }
+                return lhsIndex < rhsIndex
+            }
         let todoControlsEnabled = WorkspaceTodoFeature.isEnabled
         let workspaceStatusVisible = todoControlsEnabled && !workspace.todoState.statusHidden
         let inferredTaskStatus = workspaceStatusVisible ? workspace.inferredTaskStatus : nil
@@ -95,6 +112,8 @@ struct SidebarWorkspaceSnapshotFactory {
             metadataBlocks: detailVisibility.showsMetadata
                 ? workspace.sidebarMetadataBlocksInDisplayOrder()
                 : [],
+            ghprBadges: ghprBadges,
+            ghprJiraEntry: ghprJiraEntry,
             latestLog: detailVisibility.showsLog ? workspace.logEntries.last : nil,
             progress: detailVisibility.showsProgress ? workspace.progress : nil,
             activeCodingAgentCount: SidebarAgentActivitySummary.visibleActiveCodingAgentCount(

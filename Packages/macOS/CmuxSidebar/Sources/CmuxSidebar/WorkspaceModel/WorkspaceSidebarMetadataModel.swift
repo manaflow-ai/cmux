@@ -72,6 +72,11 @@ public final class WorkspaceSidebarMetadataModel {
     public var panelPullRequests: [UUID: SidebarPullRequestState] = [:] {
         didSet { panelPullRequestsSubject.send(panelPullRequests) }
     }
+    /// PRDashboard badges for the first pull request displayed by this workspace.
+    public var ghprEntries: [SidebarStatusEntry] = [] {
+        didSet { ghprEntriesSubject.send(ghprEntries) }
+    }
+
 
     /// Per-panel directory display labels keyed by panel id, reported via
     /// `report_pwd <label> --path=<real-path>`. Display-only sidebar text:
@@ -100,6 +105,8 @@ public final class WorkspaceSidebarMetadataModel {
     private lazy var pullRequestSubject = CurrentValueSubject<SidebarPullRequestState?, Never>(pullRequest)
     @ObservationIgnored
     private lazy var panelPullRequestsSubject = CurrentValueSubject<[UUID: SidebarPullRequestState], Never>(panelPullRequests)
+    @ObservationIgnored
+    private lazy var ghprEntriesSubject = CurrentValueSubject<[SidebarStatusEntry], Never>(ghprEntries)
     @ObservationIgnored
     private lazy var panelDirectoryDisplayLabelsSubject = CurrentValueSubject<[UUID: String], Never>(panelDirectoryDisplayLabels)
 
@@ -158,6 +165,11 @@ public final class WorkspaceSidebarMetadataModel {
     public var panelPullRequestsPublisher: AnyPublisher<[UUID: SidebarPullRequestState], Never> {
         panelPullRequestsSubject.eraseToAnyPublisher()
     }
+    /// Emits the current PRDashboard badge projection on subscription and change.
+    public var ghprEntriesPublisher: AnyPublisher<[SidebarStatusEntry], Never> {
+        ghprEntriesSubject.eraseToAnyPublisher()
+    }
+
 
     /// Emits the current per-panel directory display labels on subscription,
     /// then on every change (feeds the sidebar observation pipeline so

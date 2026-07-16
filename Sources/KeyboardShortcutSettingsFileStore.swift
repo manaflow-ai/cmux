@@ -371,6 +371,9 @@ final class CmuxSettingsFileStore {
         if let automationSection = root["automation"] as? [String: Any] {
             parseAutomationSection(automationSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
+        if let digestSection = root["digest"] as? [String: Any] {
+            parseDigestSection(digestSection, sourcePath: sourcePath, snapshot: &snapshot)
+        }
         if let browserSection = root["browser"] as? [String: Any] {
             parseBrowserSection(browserSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
@@ -883,6 +886,46 @@ final class CmuxSettingsFileStore {
                 return
             }
             snapshot.managedUserDefaults[AutomationSettings.portRangeKey] = .int(value)
+        }
+    }
+
+    private func parseDigestSection(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        guard let ghpr = section["ghpr"] as? [String: Any] else {
+            if section.keys.contains("ghpr") {
+                logInvalid("digest.ghpr", sourcePath: sourcePath)
+            }
+            return
+        }
+        let catalog = SettingCatalog().digest
+        if let value = jsonBool(ghpr["enabled"]) {
+            snapshot.managedUserDefaults[catalog.ghprEnabled.userDefaultsKey] = .bool(value)
+        } else if ghpr.keys.contains("enabled") {
+            logInvalid("digest.ghpr.enabled", sourcePath: sourcePath)
+        }
+        if let raw = jsonString(ghpr["socketPath"]) {
+            snapshot.managedUserDefaults[catalog.ghprSocketPath.userDefaultsKey] = .string(
+                raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        } else if ghpr.keys.contains("socketPath") {
+            logInvalid("digest.ghpr.socketPath", sourcePath: sourcePath)
+        }
+        if let values = jsonStringArray(ghpr["displayItems"]) {
+            snapshot.managedUserDefaults[catalog.ghprDisplayItems.userDefaultsKey] = .string(
+                values.joined(separator: ", ")
+            )
+        } else if ghpr.keys.contains("displayItems") {
+            logInvalid("digest.ghpr.displayItems", sourcePath: sourcePath)
+        }
+        if let raw = jsonString(ghpr["jiraBaseURL"]) {
+            snapshot.managedUserDefaults[catalog.ghprJiraBaseURL.userDefaultsKey] = .string(
+                raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        } else if ghpr.keys.contains("jiraBaseURL") {
+            logInvalid("digest.ghpr.jiraBaseURL", sourcePath: sourcePath)
         }
     }
 

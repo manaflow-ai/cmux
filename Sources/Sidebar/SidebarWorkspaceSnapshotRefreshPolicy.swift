@@ -53,6 +53,8 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             latestConversationMessage: latestConversationMessage,
             metadataEntries: metadataEntries,
             metadataBlocks: metadataBlocks,
+            ghprBadges: ghprBadges,
+            ghprJiraEntry: ghprJiraEntry,
             latestLog: latestLog,
             progress: progress,
             // The loading spinner is a leading row glyph like mediaActivity, so

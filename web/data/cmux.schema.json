@@ -1242,6 +1242,70 @@
         }
       }
     },
+    "digest": {
+      "title": "digest",
+      "descriptionKey": "schemaDescriptions.digest.description",
+      "description": "Integrations that enrich cmux sidebar metadata.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ghpr": {
+          "title": "ghpr",
+          "descriptionKey": "schemaDescriptions.digest.ghpr.description",
+          "description": "Optional PRDashboard socket integration for sidebar pull requests.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "descriptionKey": "schemaDescriptions.digest.ghpr.enabled",
+              "description": "Show PRDashboard CI, review, conflict, and Jira metadata for sidebar pull requests."
+            },
+            "socketPath": {
+              "type": "string",
+              "default": "",
+              "descriptionKey": "schemaDescriptions.digest.ghpr.socketPath",
+              "description": "PRDashboard Unix socket path. Leave empty to use the per-user default."
+            },
+            "displayItems": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "pr",
+                  "title",
+                  "ci",
+                  "review",
+                  "unresolved",
+                  "jira",
+                  "draft",
+                  "conflicts",
+                  "updated",
+                  "author",
+                  "pinned"
+                ]
+              },
+              "uniqueItems": true,
+              "default": [
+                "ci",
+                "review",
+                "unresolved",
+                "jira"
+              ],
+              "descriptionKey": "schemaDescriptions.digest.ghpr.displayItems",
+              "description": "PRDashboard metadata items displayed under sidebar pull requests."
+            },
+            "jiraBaseURL": {
+              "type": "string",
+              "default": "",
+              "descriptionKey": "schemaDescriptions.digest.ghpr.jiraBaseURL",
+              "description": "Optional Jira base URL. Use {ticket} for a custom ticket URL template."
+            }
+          }
+        }
+      }
+    },
     "automation": {
       "title": "automation",
       "description": "Socket control and automation settings from Settings > Automation.",

@@ -125,6 +125,7 @@ final class RecordingPullRequestProbing: PullRequestProbing {
         trackedPanelIdsByWorkspace[workspaceId, default: []].insert(panelId)
     }
     func refreshTrackedWorkspacePullRequestsIfNeeded(reason: String) {}
+    func forceRefreshAllWorkspacePullRequests() {}
     func sidebarPullRequestPollingSettingsDidChange() {}
     func handleWorkspacePullRequestCommandHint(workspaceId: UUID, panelId: UUID, action: String, target: String?) {}
     func clearWorkspacePullRequestTracking(workspaceId: UUID, panelId: UUID) {

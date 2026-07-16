@@ -1,7 +1,9 @@
+import Darwin
 import Foundation
 import CmuxGit
 import CmuxSidebarGit
 import CmuxSidebar
+import CmuxSettings
 
 // MARK: - SidebarGitHosting conformance
 //
@@ -134,7 +136,9 @@ extension TabManager: SidebarGitHosting {
     }
 
     func updatePanelPullRequest(workspaceId: UUID, panelId: UUID, badge: SidebarPullRequestBadge) {
-        tabs.first(where: { $0.id == workspaceId })?.updatePanelPullRequest(
+        guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return }
+        let previousReference = ghprReference(in: workspace)
+        workspace.updatePanelPullRequest(
             panelId: panelId,
             number: badge.number,
             label: badge.label,
@@ -144,10 +148,18 @@ extension TabManager: SidebarGitHosting {
             branch: badge.branch,
             isStale: badge.isStale
         )
+        if ghprReference(in: workspace) != previousReference {
+            ghprMetadataService.requestRefresh(workspaceId: workspaceId)
+        }
     }
 
     func clearPanelPullRequest(workspaceId: UUID, panelId: UUID) {
-        tabs.first(where: { $0.id == workspaceId })?.clearPanelPullRequest(panelId: panelId)
+        guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return }
+        let previousReference = ghprReference(in: workspace)
+        workspace.clearPanelPullRequest(panelId: panelId)
+        if ghprReference(in: workspace) != previousReference {
+            ghprMetadataService.requestRefresh(workspaceId: workspaceId)
+        }
     }
 
     func schedulePanelGitMetadataProbe(workspaceId: UUID, panelId: UUID, reason: String) {
@@ -187,6 +199,11 @@ extension TabManager: SidebarGitHosting {
     func mobileHostQuietDelay(for interval: TimeInterval) -> TimeInterval {
         MobileHostRequestActivity.quietDelay(for: interval)
     }
+    private func ghprReference(in workspace: Workspace) -> GHPRPullRequestReference? {
+        guard let pullRequest = workspace.sidebarPullRequestsInDisplayOrder().first else { return nil }
+        return GHPRPullRequestReference(pullRequestURL: pullRequest.url, number: pullRequest.number)
+    }
+
 }
 
 extension SidebarPullRequestState {
@@ -201,5 +218,83 @@ extension SidebarPullRequestState {
             branch: branch,
             isStale: isStale
         )
+    }
+}
+
+// MARK: - GHPRMetadataHosting conformance
+
+extension TabManager: GHPRMetadataHosting {
+    var ghprConfiguration: GHPRConfiguration {
+        let defaults = UserDefaults.standard
+        let catalog = SettingCatalog().digest
+        let socketPath = defaults.string(forKey: catalog.ghprSocketPath.userDefaultsKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayItemsText = defaults.string(forKey: catalog.ghprDisplayItems.userDefaultsKey) ?? ""
+        let displayItems = GHPRDisplayItem.parse(displayItemsText)
+        let jiraBaseURL = defaults.string(forKey: catalog.ghprJiraBaseURL.userDefaultsKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedSocketPath = socketPath.flatMap { $0.isEmpty ? nil : $0 }
+            ?? "/tmp/com.xiaocang.PRDashboard.\(getuid()).sock"
+        return GHPRConfiguration(
+            enabled: (defaults.object(forKey: catalog.ghprEnabled.userDefaultsKey) as? Bool)
+                ?? catalog.ghprEnabled.defaultValue,
+            socketPath: resolvedSocketPath,
+            displayItems: displayItems.isEmpty ? GHPRDisplayItem.defaultItems : displayItems,
+            jiraBaseURL: jiraBaseURL.flatMap { $0.isEmpty ? nil : $0 }
+        )
+    }
+
+    func trackedGHPRPullRequests() -> [GHPRTrackedPullRequest] {
+        tabs.compactMap { workspace in
+            guard let pullRequest = workspace.sidebarPullRequestsInDisplayOrder().first,
+                  let reference = GHPRPullRequestReference(
+                    pullRequestURL: pullRequest.url,
+                    number: pullRequest.number
+                  ) else {
+                return nil
+            }
+            return GHPRTrackedPullRequest(workspaceId: workspace.id, reference: reference)
+        }
+    }
+
+    func applyGHPRBadges(_ badges: [GHPRBadge], workspaceId: UUID) {
+        guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return }
+        let entries = badges.map { badge in
+            SidebarStatusEntry(
+                key: badge.key,
+                value: badge.value,
+                icon: badge.icon,
+                color: badge.colorHex,
+                url: badge.url,
+                timestamp: .distantPast
+            )
+        }
+        if workspace.ghprEntries != entries {
+            workspace.ghprEntries = entries
+        }
+    }
+
+    func clearGHPRBadges(workspaceId: UUID) {
+        guard let workspace = tabs.first(where: { $0.id == workspaceId }),
+              !workspace.ghprEntries.isEmpty else {
+            return
+        }
+        workspace.ghprEntries = []
+    }
+
+    func reconcileGHPRBadges(trackedWorkspaceIds: Set<UUID>) {
+        for workspace in tabs where !trackedWorkspaceIds.contains(workspace.id) && !workspace.ghprEntries.isEmpty {
+            workspace.ghprEntries = []
+        }
+    }
+
+    func clearAllGHPRBadges() {
+        for workspace in tabs where !workspace.ghprEntries.isEmpty {
+            workspace.ghprEntries = []
+        }
+    }
+
+    func ghprRefreshStateDidChange(_ state: GHPRRefreshState) {
+        updateGHPRRefreshState(state)
     }
 }

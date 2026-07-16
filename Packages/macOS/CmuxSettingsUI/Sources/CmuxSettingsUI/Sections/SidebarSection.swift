@@ -20,6 +20,10 @@ public struct SidebarSection: View {
     @State var notificationMessageLineLimit: DefaultsValueModel<Int>
     @State private var showBranchDir: DefaultsValueModel<Bool>
     @State private var showPR: DefaultsValueModel<Bool>
+    @State private var ghprEnabled: DefaultsValueModel<Bool>
+    @State private var ghprSocketPath: DefaultsValueModel<String>
+    @State private var ghprDisplayItems: DefaultsValueModel<String>
+    @State private var ghprJiraBaseURL: DefaultsValueModel<String>
     @State private var watchGit: DefaultsValueModel<Bool>
     @State private var prClickable: DefaultsValueModel<Bool>
     @State private var prLinks: DefaultsValueModel<Bool>
@@ -49,6 +53,10 @@ public struct SidebarSection: View {
         _notificationMessageLineLimit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.notificationMessageLineLimit))
         _showBranchDir = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showBranchDirectory))
         _showPR = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showPullRequests))
+        _ghprEnabled = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.digest.ghprEnabled))
+        _ghprSocketPath = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.digest.ghprSocketPath))
+        _ghprDisplayItems = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.digest.ghprDisplayItems))
+        _ghprJiraBaseURL = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.digest.ghprJiraBaseURL))
         _watchGit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.watchGitStatus))
         _prClickable = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.makePullRequestsClickable))
         _prLinks = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.openPullRequestLinksInCmuxBrowser))
@@ -83,6 +91,10 @@ public struct SidebarSection: View {
             stackBranchDir,
             pathLastOnly, showNotification, notificationMessageLineLimit, showBranchDir,
             showPR,
+            ghprEnabled,
+            ghprSocketPath,
+            ghprDisplayItems,
+            ghprJiraBaseURL,
             watchGit,
             prClickable,
             prLinks,
@@ -369,6 +381,74 @@ public struct SidebarSection: View {
             }
             .disabled(hideAll.current)
             SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("digest.ghpr.enabled"),
+                String(localized: "settings.digest.ghpr.enabled", defaultValue: "Enable PRDashboard Integration"),
+                subtitle: String(
+                    localized: "settings.digest.ghpr.enabled.subtitle",
+                    defaultValue: "Show CI, review, conflict, and Jira metadata for sidebar pull requests."
+                )
+            ) {
+                Toggle("", isOn: Binding(get: { ghprEnabled.current }, set: { ghprEnabled.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("digest.ghpr.socketPath"),
+                String(localized: "settings.digest.ghpr.socketPath", defaultValue: "PRDashboard Socket Path"),
+                subtitle: String(
+                    localized: "settings.digest.ghpr.socketPath.subtitle",
+                    defaultValue: "Leave empty to use PRDashboard’s per-user default Unix socket."
+                ),
+                controlWidth: 260
+            ) {
+                TextField(
+                    String(localized: "settings.digest.ghpr.socketPath.placeholder", defaultValue: "Default PRDashboard socket"),
+                    text: Binding(get: { ghprSocketPath.current }, set: { ghprSocketPath.set($0) })
+                )
+                .textFieldStyle(.roundedBorder)
+            }
+            .disabled(!ghprEnabled.current)
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("digest.ghpr.displayItems"),
+                String(localized: "settings.digest.ghpr.displayItems", defaultValue: "PRDashboard Display Items"),
+                subtitle: String(
+                    localized: "settings.digest.ghpr.displayItems.subtitle",
+                    defaultValue: "Comma-separated badges: ci, review, unresolved, jira, draft, conflicts, and more."
+                ),
+                controlWidth: 220
+            ) {
+                TextField(
+                    String(localized: "settings.digest.ghpr.displayItems.placeholder", defaultValue: "ci, review, unresolved, jira"),
+                    text: Binding(get: { ghprDisplayItems.current }, set: { ghprDisplayItems.set($0) })
+                )
+                .textFieldStyle(.roundedBorder)
+            }
+            .disabled(!ghprEnabled.current)
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("digest.ghpr.jiraBaseURL"),
+                String(localized: "settings.digest.ghpr.jiraBaseURL", defaultValue: "Jira Base URL"),
+                subtitle: String(
+                    localized: "settings.digest.ghpr.jiraBaseURL.subtitle",
+                    defaultValue: "Optional Jira base URL. Use {ticket} for a custom ticket URL template."
+                ),
+                controlWidth: 260
+            ) {
+                TextField(
+                    String(localized: "settings.digest.ghpr.jiraBaseURL.placeholder", defaultValue: "https://jira.example.com"),
+                    text: Binding(get: { ghprJiraBaseURL.current }, set: { ghprJiraBaseURL.set($0) })
+                )
+                .textFieldStyle(.roundedBorder)
+            }
+            .disabled(!ghprEnabled.current)
+            SettingsCardDivider()
+
 
             SettingsCardRow(
                 configurationReview: .json("sidebar.watchGitStatus"),

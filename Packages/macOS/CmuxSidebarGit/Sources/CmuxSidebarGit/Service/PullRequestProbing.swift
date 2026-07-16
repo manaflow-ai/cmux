@@ -18,6 +18,8 @@ public protocol PullRequestProbing: AnyObject {
     func scheduleWorkspacePullRequestRefresh(workspaceId: UUID, panelId: UUID, reason: String)
     /// Runs one refresh pass over every tracked panel whose deadline is due.
     func refreshTrackedWorkspacePullRequestsIfNeeded(reason: String)
+    /// User-triggered refresh that bypasses cooldowns and the repository cache.
+    func forceRefreshAllWorkspacePullRequests()
     /// Reacts to the pull-request polling setting toggling.
     func sidebarPullRequestPollingSettingsDidChange()
     /// Applies a `gh pr merge/close/reopen` command hint optimistically and

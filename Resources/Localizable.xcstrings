@@ -267835,6 +267835,363 @@
           }
         }
       }
+    },
+    "settings.digest.ghpr.displayItems": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ghpr Display Items"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ghpr 表示項目"
+          }
+        }
+      }
+    },
+    "settings.digest.ghpr.displayItems.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ci, review, unresolved, jira"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ci, review, unresolved, jira"
+          }
+        }
+      }
+    },
+    "settings.digest.ghpr.displayItems.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comma-separated sidebar items, such as ci, review, unresolved, jira, title, draft, conflicts."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーに表示する項目をカンマ区切りで指定します。例: ci, review, unresolved, jira, title, draft, conflicts。"
+          }
+        }
+      }
+    },
+    "settings.digest.ghpr.enabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable ghpr Integration"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ghpr 連携を有効化"
+          }
+        }
+      }
+    },
+    "settings.digest.ghpr.enabled.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Read PRDashboard's local socket for read-only PR context and feed it into Workspace Digest."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PRDashboard のローカルソケットから読み取り専用の PR コンテキストを取得し、Workspace Digest に渡します。"
+          }
+        }
+      }
+    },
+    "settings.digest.ghpr.jiraBaseURL": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jira Base URL"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jira ベース URL"
+          }
+        }
+      }
+    },
+    "settings.digest.ghpr.jiraBaseURL.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://jira.example.com"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://jira.example.com"
+          }
+        }
+      }
+    },
+    "settings.digest.ghpr.jiraBaseURL.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optional Jira base, for example https://jira.example.com. Use {ticket} for custom URL templates."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任意の Jira ベース URL です。例: https://jira.example.com。カスタム URL テンプレートには {ticket} を使えます。"
+          }
+        }
+      }
+    },
+    "settings.digest.ghpr.socketPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ghpr Socket Path"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ghpr ソケットパス"
+          }
+        }
+      }
+    },
+    "settings.digest.ghpr.socketPath.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default PRDashboard socket"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PRDashboard のデフォルトソケット"
+          }
+        }
+      }
+    },
+    "settings.digest.ghpr.socketPath.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unix socket used by PRDashboard. Leave the default unless you run a custom socket."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PRDashboard が使用する Unix ソケットです。カスタムソケットを使う場合以外は既定値のままにしてください。"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.sidebarAppearance.ghpr-display-items": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "digest.ghpr.displayItems ghpr display items ci review unresolved jira title draft conflicts sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "digest.ghpr.displayItems ghpr display items ci review unresolved jira title draft conflicts sidebar 表示 項目 レビュー 未解決 競合"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.sidebarAppearance.ghpr-enabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "digest.ghpr.enabled ghpr pr pull request prdashboard socket integration sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "digest.ghpr.enabled ghpr pr pull request prdashboard socket integration sidebar 連携 サイドバー"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.sidebarAppearance.ghpr-jira-base-url": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "digest.ghpr.jiraBaseURL ghpr jira base url ticket link sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "digest.ghpr.jiraBaseURL ghpr jira base url ticket link sidebar チケット リンク"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.sidebarAppearance.ghpr-socket-path": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "digest.ghpr.socketPath ghpr socket path unix prdashboard sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "digest.ghpr.socketPath ghpr socket path unix prdashboard sidebar ソケット パス"
+          }
+        }
+      }
+    },
+    "sidebar.ghpr.badge.accessibility": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：%2$@"
+          }
+        }
+      }
+    },
+    "sidebar.ghpr.badge.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PRDashboard status: %1$@ — %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PRDashboard ステータス：%1$@ — %2$@"
+          }
+        }
+      }
+    },
+    "sidebar.ghpr.refresh.error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR status refresh failed: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR ステータスの更新に失敗しました：%@"
+          }
+        }
+      }
+    },
+    "sidebar.workspace.refresh.button": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh sidebar status"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーの状態を更新"
+          }
+        }
+      }
+    },
+    "sidebar.workspace.refresh.error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR status refresh failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR ステータスの更新に失敗しました"
+          }
+        }
+      }
+    },
+    "sidebar.workspace.refresh.status": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refreshing PR status"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR ステータスを更新中"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -43,6 +43,7 @@ const sectionOrder = [
   "workspaceGroups",
   "workspaceColors",
   "sidebarAppearance",
+  "digest",
   "automation",
   "actions",
   "ui",
@@ -94,6 +95,15 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //   "customSearchEngineURLTemplate": "https://search.example.com/?q={query}",
   //   "openTerminalLinksInCmuxBrowser": true,
   //   "hostsToOpenInEmbeddedBrowser": ["localhost", "*.internal.example"]
+  // },
+
+  // "digest": {
+  //   "ghpr": {
+  //     "enabled": false,
+  //     "socketPath": "",
+  //     "displayItems": ["ci", "review", "unresolved", "jira"],
+  //     "jiraBaseURL": ""
+  //   }
   // },
 
   // "markdown": {

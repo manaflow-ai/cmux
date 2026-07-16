@@ -47,6 +47,8 @@ public struct SettingCatalog: SettingCatalogSection {
     public let customSidebars = CustomSidebarsCatalogSection()
     public let shortcuts = KeyboardShortcutsCatalogSection()
     public let integrations = IntegrationsCatalogSection()
+    /// Retained PRDashboard integration settings (`digest.ghpr.*`).
+    public let digest = DigestCatalogSection()
     public let account = AccountCatalogSection()
 
     public init() {}

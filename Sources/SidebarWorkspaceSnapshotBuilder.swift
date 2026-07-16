@@ -45,6 +45,8 @@ struct SidebarWorkspaceSnapshotBuilder {
         let latestConversationMessage: String?
         let metadataEntries: [SidebarStatusEntry]
         let metadataBlocks: [SidebarMetadataBlock]
+        let ghprBadges: [SidebarStatusEntry]
+        let ghprJiraEntry: SidebarStatusEntry?
         let latestLog: SidebarLogEntry?
         let progress: SidebarProgressState?
         let activeCodingAgentCount: Int
@@ -69,4 +71,18 @@ struct SidebarWorkspaceSnapshotBuilder {
         let checklistTotalCount: Int
         let checklistFirstUncheckedText: String?
     }
+    static let ghprJiraStatusKey = "ghpr.jira"
+    static let ghprBadgeOrder = [
+        "ghpr.ci",
+        "ghpr.review",
+        "ghpr.unresolved",
+        "ghpr.conflicts",
+        "ghpr.draft",
+        "ghpr.pinned",
+        "ghpr.author",
+        "ghpr.updated",
+        "ghpr.title",
+        "ghpr.pr",
+    ]
+
 }

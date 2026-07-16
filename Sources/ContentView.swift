@@ -17,6 +17,7 @@ import CmuxSidebarProviderKit
 import CmuxExtensionSidebarExamples
 import CmuxSettingsUI
 import CmuxSidebar
+import CmuxSidebarGit
 import CmuxSidebarRemoteRender
 import CmuxSwiftRender
 import CmuxSwiftRenderUI
@@ -10892,6 +10893,124 @@ extension SidebarDragState {
     }
 }
 
+private struct WorkspaceSidebarStatusHeader: View {
+    let refreshState: GHPRRefreshState
+    let onRefresh: () -> Void
+    @State private var showsRefreshing = false
+    @State private var rotationStartedAt = Date()
+    @State private var minimumRotationStartedAt: ContinuousClock.Instant?
+    @State private var stopSpinnerTask: Task<Void, Never>?
+
+    private static let rotationDuration: TimeInterval = 0.8
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(String(localized: "sidebar.workspaceTab.title", defaultValue: "Workspaces"))
+                .cmuxFont(size: 11, weight: .semibold)
+                .foregroundColor(.secondary)
+            Spacer(minLength: 0)
+            Button(action: onRefresh) {
+                Group {
+                    if showsRefreshing {
+                        TimelineView(.animation) { context in
+                            let elapsed = max(0, context.date.timeIntervalSince(rotationStartedAt))
+                            Image(systemName: "arrow.clockwise")
+                                .cmuxFont(size: 9, weight: .semibold)
+                                .rotationEffect(
+                                    .degrees(
+                                        (elapsed.truncatingRemainder(dividingBy: Self.rotationDuration)
+                                            / Self.rotationDuration) * 360
+                                    )
+                                )
+                        }
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                            .cmuxFont(size: 9, weight: .semibold)
+                    }
+                }
+                .foregroundColor(refreshState.error == nil ? .primary.opacity(0.7) : .red)
+                .frame(width: 22, height: 20)
+                .background(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(Color.primary.opacity(0.07))
+                )
+            }
+            .buttonStyle(.plain)
+            .safeHelp(refreshHelp)
+            .accessibilityIdentifier("SidebarRefreshStatusButton")
+        }
+        .padding(.horizontal, 8)
+        .onAppear {
+            updateSpinner(refreshState.isRefreshing)
+        }
+        .onChange(of: refreshState.isRefreshing) { isRefreshing in
+            updateSpinner(isRefreshing)
+        }
+        .onDisappear {
+            stopSpinnerTask?.cancel()
+        }
+    }
+
+    private func updateSpinner(_ isRefreshing: Bool) {
+        stopSpinnerTask?.cancel()
+        stopSpinnerTask = nil
+
+        if isRefreshing {
+            rotationStartedAt = Date()
+            minimumRotationStartedAt = ContinuousClock.now
+            showsRefreshing = true
+            return
+        }
+
+        guard showsRefreshing, let startedAt = minimumRotationStartedAt else { return }
+        let remaining = Duration.seconds(Self.rotationDuration) - (ContinuousClock.now - startedAt)
+        guard remaining > .zero else {
+            stopSpinner()
+            return
+        }
+
+        stopSpinnerTask = Task { @MainActor in
+            // Bounded, cancellable UI dwell: preserves one complete refresh rotation.
+            do {
+                try await Task.sleep(for: remaining)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            stopSpinner()
+        }
+    }
+
+    private func stopSpinner() {
+        showsRefreshing = false
+        minimumRotationStartedAt = nil
+        stopSpinnerTask = nil
+    }
+
+    private var refreshHelp: String {
+        switch refreshState.error {
+        case .socketUnavailable:
+            String(
+                localized: "sidebar.ghpr.refresh.socketUnavailable",
+                defaultValue: "PRDashboard is not running. Start it, then refresh pull request status."
+            )
+        case .incompatibleResponse:
+            String(
+                localized: "sidebar.ghpr.refresh.incompatibleResponse",
+                defaultValue: "PRDashboard returned an incompatible response."
+            )
+        case .requestFailed:
+            String(
+                localized: "sidebar.ghpr.refresh.requestFailed",
+                defaultValue: "Couldn’t refresh PRDashboard pull request status."
+            )
+        case nil:
+            String(localized: "sidebar.workspaceTab.refreshStatus", defaultValue: "Refresh pull request status")
+        }
+    }
+
+}
+
 /// Freezes `showsModifierShortcutHints` for the row whose context menu is open,
 /// so pressing/releasing the modifier key while the menu is up does not flip
 /// the underlying row's shortcut badges (which would be visible around the
@@ -11645,6 +11764,11 @@ struct VerticalTabsSidebar: View, Equatable {
         unreadSnapshot: SidebarUnreadSnapshot
     ) -> some View {
         let scrollInsets = SidebarWorkspaceScrollInsets.workspaceList
+        let statusHeaderHeight: CGFloat = 30
+        let contentInsets = SidebarWorkspaceScrollInsets(
+            top: scrollInsets.top + statusHeaderHeight,
+            bottom: scrollInsets.bottom
+        )
         return GeometryReader { viewport in
             // Keep viewport geometry as a downward-only layout input. Writing
             // this value into @State from onGeometryChange feeds an
@@ -11652,7 +11776,7 @@ struct VerticalTabsSidebar: View, Equatable {
             // scrolling plus row-height churn can then prevent convergence.
             let contentMinHeight = SidebarWorkspaceScrollLayout.contentMinHeight(
                 viewportHeight: viewport.size.height,
-                insets: scrollInsets
+                insets: contentInsets
             )
             ScrollViewReader { scrollProxy in
                 ScrollView(.vertical) {
@@ -11673,14 +11797,14 @@ struct VerticalTabsSidebar: View, Equatable {
                 .frame(width: 0, height: 0)
             )
             .safeAreaInset(edge: .top, spacing: 0) {
-                Color.clear.frame(height: scrollInsets.top).allowsHitTesting(false)
+                Color.clear.frame(height: contentInsets.top).allowsHitTesting(false)
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 Color.clear.frame(height: scrollInsets.bottom).allowsHitTesting(false)
             }
             .mask(
                 SidebarWorkspaceScrollEdgeFadeMask(
-                    topHeight: sidebarTopScrimHeight,
+                    topHeight: sidebarTopScrimHeight + statusHeaderHeight,
                     bottomHeight: sidebarBottomScrimHeight
                 )
             )
@@ -11695,15 +11819,27 @@ struct VerticalTabsSidebar: View, Equatable {
                 minimalModeSidebarTitlebarControlsOverlay()
             }
             .overlay(alignment: .top) {
+                WorkspaceSidebarStatusHeader(
+                    refreshState: tabManager.ghprRefreshState,
+                    onRefresh: {
+                        tabManager.pullRequestProbing.forceRefreshAllWorkspacePullRequests()
+                        tabManager.ghprMetadataService.refreshAll()
+                    }
+                )
+                .frame(height: statusHeaderHeight)
+                .padding(.top, scrollInsets.top)
+            }
+            .overlay(alignment: .top) {
                 workspaceReorderDropOverlay(
                     renderContext: renderContext,
-                    pointOffset: CGSize(width: 0, height: -scrollInsets.top)
+                    pointOffset: CGSize(width: 0, height: -contentInsets.top)
                 )
                 .frame(maxWidth: .infinity)
-                .frame(height: scrollInsets.top)
+                .frame(height: contentInsets.top)
             }
             .background(Color.clear)
             .modifier(ClearScrollBackground())
+
             .onAppear {
                 requestSelectedWorkspaceScroll(scrollProxy, renderContext: renderContext)
             }
@@ -16115,6 +16251,25 @@ struct TabItemView: View, Equatable {
                             rowContent.accessibilityElement(children: .combine).accessibilityIdentifier("SidebarPullRequestRow")
                         }
                     }
+                    if !workspaceSnapshot.ghprBadges.isEmpty {
+                        SidebarGHPRBadgesRow(
+                            entries: workspaceSnapshot.ghprBadges,
+                            isActive: usesInvertedActiveForeground,
+                            fontScale: fontScale,
+                            onFocus: { updateSelection() },
+                            openURL: { openPullRequestLink($0) }
+                        )
+                    }
+                    if let jiraEntry = workspaceSnapshot.ghprJiraEntry {
+                        SidebarGHPRBadge(
+                            entry: jiraEntry,
+                            isActive: usesInvertedActiveForeground,
+                            fontScale: fontScale,
+                            underlinesLinkText: true,
+                            onFocus: { updateSelection() },
+                            openURL: { openPullRequestLink($0) }
+                        )
+                    }
                 }
             }
 
@@ -16769,6 +16924,138 @@ private struct SidebarMetadataEntryRow: View {
                 .underline(underlined)
                 .foregroundColor(foregroundColor)
         }
+    }
+}
+
+private struct SidebarGHPRBadgesRow: View {
+    let entries: [SidebarStatusEntry]
+    let isActive: Bool
+    let fontScale: CGFloat
+    let onFocus: () -> Void
+    let openURL: (URL) -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(entries, id: \.key) { entry in
+                SidebarGHPRBadge(
+                    entry: entry,
+                    isActive: isActive,
+                    fontScale: fontScale,
+                    onFocus: onFocus,
+                    openURL: openURL
+                )
+            }
+            Spacer(minLength: 0)
+        }
+        .lineLimit(1)
+    }
+}
+
+private struct SidebarGHPRBadge: View {
+    let entry: SidebarStatusEntry
+    let isActive: Bool
+    let fontScale: CGFloat
+    var underlinesLinkText = false
+    let onFocus: () -> Void
+    let openURL: (URL) -> Void
+
+    var body: some View {
+        Group {
+            if let url = entry.url {
+                Button {
+                    openURL(url)
+                } label: {
+                    badgeContent(linked: true)
+                }
+                .buttonStyle(.plain)
+                .safeHelp(tooltip)
+            } else {
+                badgeContent(linked: false)
+                    .contentShape(Rectangle())
+                    .onTapGesture { onFocus() }
+                    .safeHelp(tooltip)
+            }
+        }
+    }
+
+    private func badgeContent(linked: Bool) -> some View {
+        HStack(spacing: 2) {
+            iconView
+            if !displayValue.isEmpty {
+                Text(displayValue)
+                    .cmuxFont(size: 10 * fontScale, weight: .medium)
+                    .underline(linked && underlinesLinkText)
+                    .foregroundColor(foregroundColor)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var iconView: some View {
+        let raw = entry.icon?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if raw.hasPrefix("emoji:") {
+            Text(String(raw.dropFirst("emoji:".count))).cmuxFont(size: 11 * fontScale)
+        } else if raw.hasPrefix("text:") {
+            Text(String(raw.dropFirst("text:".count)))
+                .cmuxFont(size: 9 * fontScale, weight: .semibold)
+                .foregroundColor(foregroundColor)
+        } else if !raw.isEmpty {
+            let symbol = raw.hasPrefix("sf:") ? String(raw.dropFirst("sf:".count)) : raw
+            CmuxSystemSymbolImage(magnified: symbol, pointSize: 9 * fontScale, weight: .medium)
+                .foregroundColor(foregroundColor)
+        }
+    }
+
+    private var foregroundColor: Color {
+        if let raw = entry.color, let explicit = Color(hex: raw) {
+            return isActive ? explicit.opacity(0.95) : explicit
+        }
+        return isActive ? .white.opacity(0.85) : .secondary
+    }
+
+    private var displayValue: String {
+        let value = entry.value.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch (entry.key, value.lowercased()) {
+        case ("ghpr.ci", "ok"):
+            return String(localized: "sidebar.ghpr.value.ok", defaultValue: "OK")
+        case ("ghpr.draft", _):
+            return String(localized: "sidebar.ghpr.value.draft", defaultValue: "Draft")
+        case ("ghpr.conflicts", _):
+            return String(localized: "sidebar.ghpr.value.conflict", defaultValue: "Conflict")
+        case ("ghpr.pinned", _):
+            return String(localized: "sidebar.ghpr.value.pinned", defaultValue: "Pinned")
+        case ("ghpr.review", "approved"):
+            return String(localized: "sidebar.ghpr.value.approved", defaultValue: "Approved")
+        case ("ghpr.review", "changes_requested"):
+            return String(localized: "sidebar.ghpr.value.changesRequested", defaultValue: "Changes requested")
+        case ("ghpr.review", "review_required"):
+            return String(localized: "sidebar.ghpr.value.reviewRequired", defaultValue: "Review required")
+        default:
+            return value
+        }
+    }
+
+    private var tooltip: String {
+        let label: String = switch entry.key {
+        case "ghpr.pr": String(localized: "sidebar.ghpr.label.pullRequest", defaultValue: "Pull request")
+        case "ghpr.title": String(localized: "sidebar.ghpr.label.title", defaultValue: "Title")
+        case "ghpr.ci": String(localized: "sidebar.ghpr.label.ci", defaultValue: "CI")
+        case "ghpr.review": String(localized: "sidebar.ghpr.label.review", defaultValue: "Review")
+        case "ghpr.unresolved": String(localized: "sidebar.ghpr.label.unresolved", defaultValue: "Unresolved comments")
+        case "ghpr.jira": String(localized: "sidebar.ghpr.label.jira", defaultValue: "Jira")
+        case "ghpr.draft": String(localized: "sidebar.ghpr.label.draft", defaultValue: "Draft")
+        case "ghpr.conflicts": String(localized: "sidebar.ghpr.label.conflicts", defaultValue: "Conflicts")
+        case "ghpr.updated": String(localized: "sidebar.ghpr.label.updated", defaultValue: "Updated")
+        case "ghpr.author": String(localized: "sidebar.ghpr.label.author", defaultValue: "Author")
+        case "ghpr.pinned": String(localized: "sidebar.ghpr.label.pinned", defaultValue: "Pinned")
+        default: String(localized: "sidebar.ghpr.label.status", defaultValue: "Pull request status")
+        }
+        guard !displayValue.isEmpty else { return label }
+        return String(
+            format: String(localized: "sidebar.ghpr.badge.tooltip", defaultValue: "%1$@: %2$@"),
+            label,
+            displayValue
+        )
     }
 }
 

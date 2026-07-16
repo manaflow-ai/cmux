@@ -331,4 +331,14 @@ public final class PullRequestPollService: PullRequestProbing {
 #endif
         refreshTrackedWorkspacePullRequestsIfNeeded(reason: reason)
     }
+    public func forceRefreshAllWorkspacePullRequests() {
+        for key in Array(workspacePullRequestNextPollAtByKey.keys) {
+            workspacePullRequestNextPollAtByKey[key] = .distantPast
+        }
+        workspacePullRequestFollowUpShouldBypassRepoCache = true
+        refreshTrackedWorkspacePullRequestsIfNeeded(
+            reason: "userForce",
+            allowCachedResultsOverride: false
+        )
+    }
 }

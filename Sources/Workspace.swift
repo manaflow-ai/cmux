@@ -2511,6 +2511,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         get { sidebarMetadata.panelPullRequests }
         set { sidebarMetadata.panelPullRequests = newValue }
     }
+    var ghprEntries: [SidebarStatusEntry] {
+        get { sidebarMetadata.ghprEntries }
+        set { sidebarMetadata.ghprEntries = newValue }
+    }
     @Published var surfaceListeningPorts: [UUID: [Int]] = [:]
     var agentListeningPorts: [Int] = []
     @Published var remoteConfiguration: WorkspaceRemoteConfiguration?
@@ -5479,6 +5483,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         if pullRequest != nil {
             pullRequest = nil
         }
+        if !ghprEntries.isEmpty {
+            ghprEntries.removeAll()
+        }
     }
 
     func clearSidebarGitMetadata() {
@@ -5505,6 +5512,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         panelGitBranches.removeAll()
         pullRequest = nil
         panelPullRequests.removeAll()
+        ghprEntries.removeAll()
         surfaceListeningPorts.removeAll()
         listeningPorts.removeAll()
         metadataBlocks.removeAll()
