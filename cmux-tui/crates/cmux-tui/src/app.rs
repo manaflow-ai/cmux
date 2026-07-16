@@ -1645,6 +1645,7 @@ impl MenuItem {
 /// spans the full inner row including those padding cells.
 pub struct ContextMenu {
     pub items: Vec<MenuItem>,
+    all_items: Vec<MenuItem>,
     pub selected: usize,
     right_press: (u16, u16),
     right_drag_moved: bool,
@@ -1672,6 +1673,7 @@ impl ContextMenu {
         let width = label_w + 2 + Self::PAD * 2 + 2;
         let height = items.len() as u16 + 2;
         ContextMenu {
+            all_items: items.clone(),
             items,
             selected: 0,
             right_press: (x, y),
@@ -1697,6 +1699,32 @@ impl ContextMenu {
 
     fn selected_action(&self) -> Option<MenuAction> {
         self.items.get(self.selected).and_then(|item| item.action())
+    }
+
+    /// Keep every action row visible when separators are the only reason the
+    /// menu exceeds the available height. Full grouping returns after a resize.
+    pub fn fit_to_rows(&mut self, max_rows: usize) {
+        let selected_action = self.selected_action();
+        let action_count = self.all_items.iter().filter(|item| item.action().is_some()).count();
+        let mut separator_budget = max_rows.saturating_sub(action_count);
+        self.items = self
+            .all_items
+            .iter()
+            .copied()
+            .filter(|item| match item {
+                MenuItem::Action(_) => true,
+                MenuItem::Separator if separator_budget > 0 => {
+                    separator_budget -= 1;
+                    true
+                }
+                MenuItem::Separator => false,
+            })
+            .collect();
+        self.selected = selected_action
+            .and_then(|action| self.items.iter().position(|item| item.action() == Some(action)))
+            .or_else(|| self.items.iter().position(|item| item.action().is_some()))
+            .unwrap_or(0);
+        self.rect.height = self.items.len() as u16 + 2;
     }
 
     fn select_previous(&mut self) {
@@ -6758,6 +6786,30 @@ mod tests {
                 MenuAction::BrowserActivate(pane),
             ]
         );
+    }
+
+    #[test]
+    fn context_menu_drops_only_overflowing_separators_and_restores_them_after_resize() {
+        let pane = 7;
+        let mut menu = ContextMenu::at(10, 5, pane_context_menu_groups(pane, true, true));
+        menu.selected = menu
+            .items
+            .iter()
+            .position(|item| item.action() == Some(MenuAction::CopyPaneId(pane)))
+            .unwrap();
+
+        assert_eq!(menu.items.len(), 19);
+        assert_eq!(menu.items.iter().filter(|item| **item == MenuItem::Separator).count(), 4);
+        menu.fit_to_rows(18);
+        assert_eq!(menu.items.len(), 18);
+        assert_eq!(menu.items.iter().filter(|item| **item == MenuItem::Separator).count(), 3);
+        assert_eq!(menu.selected_action(), Some(MenuAction::CopyPaneId(pane)));
+        assert_eq!(menu.rect.height, 20);
+
+        menu.fit_to_rows(19);
+        assert_eq!(menu.items.len(), 19);
+        assert_eq!(menu.items.iter().filter(|item| **item == MenuItem::Separator).count(), 4);
+        assert_eq!(menu.selected_action(), Some(MenuAction::CopyPaneId(pane)));
     }
 
     #[test]

@@ -114,6 +114,7 @@ pub fn draw_prompt(app: &mut App, frame: &mut Frame) {
 pub fn draw_menu(app: &mut App, frame: &mut Frame) {
     let screen = frame.area();
     let Some(menu) = app.menu.as_mut() else { return };
+    menu.fit_to_rows(screen.height.saturating_sub(2) as usize);
 
     // Clamp to the screen and write the final rect back so click and
     // hover hit-testing match what is drawn.
