@@ -58,6 +58,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         table.usesAutomaticRowHeights = false
         table.rowHeight = SidebarWorkspaceTableRowHeightCalculator().defaultWorkspaceHeight
         table.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
+        table.target = self
+        table.action = #selector(didClickTableRow)
+        table.doubleAction = #selector(didDoubleClickTableRow)
         table.setDraggingSourceOperationMask(.move, forLocal: true)
         table.setDraggingSourceOperationMask(.move, forLocal: false)
 
@@ -119,7 +122,16 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             previousRows.indices.contains(index)
                 && !previousRows[index].hasEquivalentContent(to: nextRows[index])
         })
-        let heightChanges = rowHeightCache.prepareHostedRows(nextRows, columnWidth: currentColumnWidth())
+        let width = currentColumnWidth()
+        var heightChanges = IndexSet()
+        if width == lastMeasuredWidth || lastMeasuredWidth == 0 {
+            heightChanges = rowHeightCache.prepareHostedRows(nextRows, columnWidth: width)
+            if width > 0 { lastMeasuredWidth = width }
+        } else {
+            // Divider drag in flight: keep last-width heights (text truncates
+            // live) and re-measure once the width settles.
+            scheduleWidthRemeasure()
+        }
         pumpHeightOverrides.removeAll(keepingCapacity: true)
         rows = nextRows
 
@@ -149,6 +161,32 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         updateDropTargets()
     }
 
+    /// Row clicks route through the table's action (NSTableView owns the
+    /// mouse tracking loop, so cell-level gesture recognizers never fire).
+    @objc private func didClickTableRow() {
+        guard let table = containerView?.tableView else { return }
+        let row = table.clickedRow
+#if DEBUG
+        cmuxDebugLog("sidebar.table.click row=\(row) rows=\(rows.count)")
+#endif
+        guard rows.indices.contains(row) else { return }
+        if let actions = rows[row].appKitWorkspaceRowActions {
+            actions.commands.updateSelection()
+        } else if let headerActions = rows[row].appKitGroupHeaderActions {
+            headerActions.onFocusAnchor()
+        }
+    }
+
+    @objc private func didDoubleClickTableRow() {
+        guard let table = containerView?.tableView else { return }
+        let row = table.clickedRow
+        guard rows.indices.contains(row),
+              rows[row].appKitWorkspaceRowModel != nil,
+              let cell = table.view(atColumn: 0, row: row, makeIfNecessary: false)
+                as? SidebarWorkspaceRowTableCellView else { return }
+        cell.beginInlineRename()
+    }
+
     func numberOfRows(in tableView: NSTableView) -> Int {
         rows.count
     }
@@ -159,7 +197,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         if let override = pumpHeightOverrides[configuration.id] {
             return override
         }
-        let columnWidth = currentColumnWidth()
+        let columnWidth = lastMeasuredWidth > 0 ? lastMeasuredWidth : currentColumnWidth()
         return rowHeightCache.height(
             for: configuration,
             columnWidth: columnWidth
@@ -291,14 +329,34 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     func viewportDidChange() {
-        if let changed = rowHeightCache.prepareHostedRowsIfWidthChanged(
-            rows,
-            columnWidth: currentColumnWidth()
-        ), !changed.isEmpty {
-            containerView?.tableView.noteHeightOfRows(withIndexesChanged: changed)
+        let width = currentColumnWidth()
+        if width > 0, width != lastMeasuredWidth {
+            scheduleWidthRemeasure()
         }
         recomputeHoveredRow()
         updateDropTargets()
+    }
+
+    private var lastMeasuredWidth: CGFloat = 0
+    private var widthRemeasureTask: Task<Void, Never>?
+
+    /// One trailing re-measure ~120ms after the sidebar width stops moving;
+    /// per-pixel divider drags otherwise re-measure every row every frame.
+    private func scheduleWidthRemeasure() {
+        widthRemeasureTask?.cancel()
+        widthRemeasureTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            guard let self, !Task.isCancelled else { return }
+            self.widthRemeasureTask = nil
+            let width = self.currentColumnWidth()
+            guard width > 0 else { return }
+            let changed = self.rowHeightCache.prepareHostedRows(self.rows, columnWidth: width)
+            self.lastMeasuredWidth = width
+            self.pumpHeightOverrides.removeAll(keepingCapacity: true)
+            if !changed.isEmpty {
+                self.containerView?.tableView.noteHeightOfRows(withIndexesChanged: changed)
+            }
+        }
     }
 
     private func currentColumnWidth() -> CGFloat {

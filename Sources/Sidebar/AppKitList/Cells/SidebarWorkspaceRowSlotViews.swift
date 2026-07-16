@@ -7,16 +7,16 @@ import CmuxSidebar
 /// only and draws without Auto Layout.
 
 /// Circle unread-count badge (parity with SidebarWorkspaceUnreadBadge).
+/// Draws the count directly so the glyph is optically centered — NSTextField
+/// intrinsic sizing carries asymmetric insets that shift small digits.
 @MainActor
 final class SidebarRowUnreadBadgeView: NSView {
-    private let label = NSTextField(labelWithString: "")
+    private var text: NSString = ""
+    private var textAttributes: [NSAttributedString.Key: Any] = [:]
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        label.alignment = .center
-        label.lineBreakMode = .byClipping
-        addSubview(label)
     }
 
     required init?(coder: NSCoder) {
@@ -24,21 +24,28 @@ final class SidebarRowUnreadBadgeView: NSView {
     }
 
     func configure(count: Int, fillColor: NSColor, textColor: NSColor, font: NSFont) {
-        label.stringValue = "\(count)"
-        label.font = font
-        label.textColor = textColor
+        text = NSString(string: "\(count)")
+        textAttributes = [.font: font, .foregroundColor: textColor]
         layer?.backgroundColor = fillColor.cgColor
+        needsDisplay = true
     }
 
     override func layout() {
         super.layout()
         layer?.cornerRadius = min(bounds.width, bounds.height) / 2
-        let size = label.intrinsicContentSize
-        label.frame = NSRect(
-            x: (bounds.width - size.width) / 2,
-            y: (bounds.height - size.height) / 2,
-            width: size.width,
-            height: size.height
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard text.length > 0, let font = textAttributes[.font] as? NSFont else { return }
+        let size = text.size(withAttributes: textAttributes)
+        // Center on the digit's cap-height band, not the full line box, so
+        // single digits sit optically centered in the circle.
+        let capCenterOffset = (font.ascender + font.descender) / 2
+        let y = bounds.midY - size.height / 2 + (size.height / 2 - font.ascender + capCenterOffset)
+        text.draw(
+            at: NSPoint(x: bounds.midX - size.width / 2, y: y),
+            withAttributes: textAttributes
         )
     }
 }

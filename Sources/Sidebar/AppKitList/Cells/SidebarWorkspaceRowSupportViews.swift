@@ -392,6 +392,8 @@ final class SidebarRowChecklistSection: NSView {
     private var actions: SidebarWorkspaceRowActions?
     private var showsExpandedList = false
     private var isAdding = false
+    private var usesPopoverStyle = false
+    private var popover: NSPopover?
 
     override var isFlipped: Bool { true }
 
@@ -419,6 +421,7 @@ final class SidebarRowChecklistSection: NSView {
         isHidden = !mounted
         guard mounted else { return }
 
+        usesPopoverStyle = model.settings.workspaceTodoChecklistStyle == .popover
         let primary = palette.secondary(0.9)
         let secondary = palette.secondary(0.65)
         let summaryFont = NSFont.monospacedDigitSystemFont(ofSize: model.scaled(10), weight: .semibold)
@@ -433,15 +436,25 @@ final class SidebarRowChecklistSection: NSView {
             }
             summaryButton.configure(
                 title: summary, font: summaryFont, color: primary, underlined: false,
-                toolTip: model.isChecklistExpanded
-                    ? String(localized: "sidebar.checklist.collapseTooltip", defaultValue: "Hide checklist")
-                    : String(localized: "sidebar.checklist.expandTooltip", defaultValue: "Show checklist")
+                toolTip: usesPopoverStyle
+                    ? String(localized: "sidebar.checklist.popoverTooltip", defaultValue: "Show checklist")
+                    : (model.isChecklistExpanded
+                        ? String(localized: "sidebar.checklist.collapseTooltip", defaultValue: "Hide checklist")
+                        : String(localized: "sidebar.checklist.expandTooltip", defaultValue: "Show checklist"))
             ) { [weak self] in
-                self?.actions?.onToggleChecklistExpansion()
+                guard let self else { return }
+                if self.usesPopoverStyle {
+                    self.toggleChecklistPopover()
+                } else {
+                    self.actions?.onToggleChecklistExpansion()
+                }
             }
         }
 
-        showsExpandedList = model.isChecklistExpanded || snapshot.checklistTotalCount == 0
+        usesPopoverStyle = model.settings.workspaceTodoChecklistStyle == .popover
+        // Popover style never expands inline; the summary opens an NSPopover.
+        showsExpandedList = !usesPopoverStyle
+            && (model.isChecklistExpanded || snapshot.checklistTotalCount == 0)
         let items = showsExpandedList ? Array(snapshot.checklistItems.prefix(6)) : []
         SidebarWorkspaceRowTableCellView.publicPool(&itemLines, count: items.count, parent: self) {
             SidebarRowChecklistItemLine()
@@ -494,6 +507,21 @@ final class SidebarRowChecklistSection: NSView {
         _ = model
         // Arm via the same activation-token path the context menu uses.
         WorkspaceTodoActions.requestChecklistAddField(workspaceId: model.workspaceId)
+    }
+
+    private func toggleChecklistPopover() {
+        if let popover, popover.isShown {
+            popover.close()
+            self.popover = nil
+            return
+        }
+        guard let model, let actions else { return }
+        let content = SidebarRowChecklistPopoverController(model: model, actions: actions)
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.contentViewController = content
+        popover.show(relativeTo: summaryButton.frame, of: self, preferredEdge: .maxY)
+        self.popover = popover
     }
 
     func measuredHeight(width: CGFloat) -> CGFloat {
@@ -656,5 +684,62 @@ extension SidebarWorkspaceRowTableCellView {
         for (index, view) in views.enumerated() {
             view.isHidden = index >= count
         }
+    }
+}
+
+/// NSPopover content for popover-style checklists: the same AppKit item lines
+/// as the inline section, in a fixed-width transient panel.
+@MainActor
+final class SidebarRowChecklistPopoverController: NSViewController {
+    private let model: SidebarWorkspaceRowModel
+    private let actions: SidebarWorkspaceRowActions
+    private var itemLines: [SidebarRowChecklistItemLine] = []
+
+    init(model: SidebarWorkspaceRowModel, actions: SidebarWorkspaceRowActions) {
+        self.model = model
+        self.actions = actions
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func loadView() {
+        let palette = SidebarRowPalette(model: model)
+        let width: CGFloat = 260
+        let rowHeight = 11 * model.fontScale + 8
+        let padding: CGFloat = 12
+        let items = model.snapshot.checklistItems
+        let container = NSView(frame: NSRect(
+            x: 0, y: 0,
+            width: width,
+            height: padding * 2 + CGFloat(max(1, items.count)) * (rowHeight + 2)
+        ))
+        var y = container.bounds.height - padding - rowHeight
+        let itemFont = NSFont.systemFont(ofSize: model.scaled(11))
+        for item in items {
+            let line = SidebarRowChecklistItemLine(frame: NSRect(
+                x: padding, y: y, width: width - padding * 2, height: rowHeight
+            ))
+            line.configure(
+                item,
+                font: itemFont,
+                primary: .labelColor,
+                secondary: .secondaryLabelColor,
+                model: model,
+                onToggle: { [actions] in
+                    let next: WorkspaceChecklistItem.State = item.state == .completed ? .pending : .completed
+                    actions.checklistSetItemState(item.id, next)
+                },
+                onRemove: { [actions] in
+                    actions.checklistRemoveItem(item.id)
+                }
+            )
+            container.addSubview(line)
+            y -= rowHeight + 2
+        }
+        _ = palette
+        view = container
     }
 }

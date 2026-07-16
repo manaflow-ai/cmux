@@ -260,18 +260,19 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             )
         }
 
-        let nameAvailable = (plusButton.frame.minX - 4) - x
-            - (badgeSize.width > 0 ? badgeSize.width + 6 : 0)
-        let nameSize = nameField.intrinsicContentSize
-        let nameWidth = max(0, min(ceil(nameSize.width), nameAvailable))
+        let nameAvailable = max(0, (plusButton.frame.minX - 4) - x
+            - (badgeSize.width > 0 ? badgeSize.width + 6 : 0))
+        let nameSize = nameField.attributedStringValue.size()
+        // The field owns ALL remaining width (truncation only when genuinely
+        // out of space); the badge tracks the measured text width instead.
         nameField.frame = NSRect(
             x: x,
-            y: midY - nameSize.height / 2,
-            width: nameWidth,
-            height: nameSize.height
+            y: midY - ceil(nameSize.height) / 2,
+            width: nameAvailable,
+            height: ceil(nameSize.height)
         )
         if !unreadBadgeView.isHidden {
-            let badgeX = nameField.frame.maxX + 6
+            let badgeX = x + min(ceil(nameSize.width), nameAvailable) + 6
             unreadBadgeView.frame = NSRect(
                 x: badgeX,
                 y: midY - badgeSize.height / 2,

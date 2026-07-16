@@ -9922,6 +9922,7 @@ struct VerticalTabsSidebar: View {
     // boundary.
     @State private var bonsplitWorkspaceDropTargetBridge = SidebarBonsplitTabWorkspaceDropOverlay.TargetBridge()
     @State private var workspaceReorderDropTargetBridge = SidebarWorkspaceReorderDropOverlay.TargetBridge()
+    @State private var appKitRowSnapshotCache = SidebarRowSnapshotCache()
     @State private var pendingSelectedWorkspaceScrollId: UUID?
     @State private var workspaceScrollContentMinHeight: CGFloat = 0
     @State private var checklistPopoverWorkspaceId: UUID?
@@ -11071,6 +11072,7 @@ struct VerticalTabsSidebar: View {
                 workspaceTableRowConfiguration(workspace, renderContext: renderContext)
             }
         }
+        appKitRowSnapshotCache.prune(keeping: Set(renderContext.workspaceIds))
         let selectedScrollTargetWorkspaceId: UUID? = tabManager.selectedTabId.map { selectedId in
             let group = renderContext.workspaceById[selectedId]?.groupId
                 .flatMap { renderContext.workspaceGroupById[$0] }
@@ -12790,6 +12792,13 @@ struct VerticalTabsSidebar: View {
             : nil
         let settingsSnapshot = renderContext.tabItemSettings
         let environment = renderContext.environment
+        let snapshotCache = appKitRowSnapshotCache
+        snapshotCache.resetIfSettingsChanged(settingsSnapshot)
+        let computeSnapshot: @MainActor () -> SidebarWorkspaceSnapshotBuilder.Snapshot = { [seedRow, tabId = tab.id] in
+            let fresh = seedRow.tableRowSnapshot()
+            snapshotCache.store(fresh, for: tabId)
+            return fresh
+        }
         let buildModel: @MainActor () -> SidebarWorkspaceRowModel = { [
             tab, index, settingsSnapshot, environment,
             canClose = renderContext.canCloseWorkspace,
@@ -12807,7 +12816,7 @@ struct VerticalTabsSidebar: View {
             SidebarWorkspaceRowModel(
                 workspaceId: tab.id,
                 index: index,
-                snapshot: seedRow.tableRowSnapshot(),
+                snapshot: snapshotCache.value(for: tab.id) ?? computeSnapshot(),
                 settings: settingsSnapshot,
                 isActive: isActive,
                 isMultiSelected: isMultiSelected,
@@ -12896,7 +12905,10 @@ struct VerticalTabsSidebar: View {
             groupId: tab.groupId,
             isPinned: tab.isPinned,
             environment: environment,
-            rebuild: buildModel
+            rebuild: {
+                _ = computeSnapshot()
+                return buildModel()
+            }
         )
     }
 

@@ -139,13 +139,6 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         addSubview(bottomDropIndicator)
         addSubview(hintPill)
 
-        let click = NSClickGestureRecognizer(target: self, action: #selector(didClickRow(_:)))
-        click.delaysPrimaryMouseButtonEvents = false
-        addGestureRecognizer(click)
-        let doubleClick = NSClickGestureRecognizer(target: self, action: #selector(didDoubleClickRow(_:)))
-        doubleClick.numberOfClicksRequired = 2
-        doubleClick.delaysPrimaryMouseButtonEvents = false
-        addGestureRecognizer(doubleClick)
     }
 
     required init?(coder: NSCoder) {
@@ -600,18 +593,6 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     }
 
     // MARK: Interaction
-
-    @objc private func didClickRow(_ recognizer: NSClickGestureRecognizer) {
-        guard !isEditing else { return }
-        let point = recognizer.location(in: self)
-        if !closeButton.isHidden, closeButton.frame.contains(point) { return }
-        actions?.commands.updateSelection()
-    }
-
-    @objc private func didDoubleClickRow(_ recognizer: NSClickGestureRecognizer) {
-        guard !isEditing else { return }
-        beginInlineRename()
-    }
 
     @objc private func didClickReconnect() {
         actions?.commands.reconnectRemoteConnection()
