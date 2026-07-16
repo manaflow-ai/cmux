@@ -66,6 +66,32 @@ public enum AgentLaunchCaptureTrust {
         return wrapperLaunchersByKind[normalizedKind]?.contains(normalizedLauncher) == true
     }
 
+    /// Validates argv captured under a declared launcher. Wrapper launchers
+    /// legitimately differ from the hook kind and retain their own sanitizer.
+    /// An exact launcher, however, must also have argv that identifies that
+    /// agent. This rejects interpreter-only prefixes such as `node --max-…`
+    /// after Node has hidden the script path from `KERN_PROCARGS2`.
+    public static func capturedArgumentsDescribeKind(
+        launcher: String?,
+        executablePath: String?,
+        arguments: [String],
+        kind: String
+    ) -> Bool {
+        guard launcherDescribesKind(launcher, kind: kind),
+              let normalizedLauncher = normalizedAgentName(launcher),
+              let normalizedKind = normalizedAgentName(kind) else {
+            return false
+        }
+        if normalizedLauncher != normalizedKind {
+            return true
+        }
+        return nativeProcessDescribesKind(
+            processName: executablePath,
+            arguments: arguments,
+            kind: normalizedKind
+        )
+    }
+
     /// True when a captured argv describes a shell dispatcher (`sh -c …`,
     /// `zsh -lc …`) rather than an agent launch. This happens when the
     /// launch-capture PID fallback resolves to the hook's own dispatch shell

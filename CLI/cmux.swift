@@ -27482,9 +27482,18 @@ struct CMUXCLI {
             envLauncher,
             kind: fallbackKind
         )
-        let envArguments = envCaptureIsTrusted
+        let decodedEnvArguments = envCaptureIsTrusted
             ? decodeNULSeparatedBase64(env["CMUX_AGENT_LAUNCH_ARGV_B64"])
             : nil
+        let envExecutablePath = normalizedHookValue(env["CMUX_AGENT_LAUNCH_EXECUTABLE"])
+        let envArguments = decodedEnvArguments.flatMap { arguments in
+            AgentLaunchCaptureTrust.capturedArgumentsDescribeKind(
+                launcher: envLauncher,
+                executablePath: envExecutablePath,
+                arguments: arguments,
+                kind: fallbackKind
+            ) ? arguments : nil
+        }
         var processArguments = fallbackPID.flatMap { fallbackPID -> [String]? in
             let pid = pid_t(fallbackPID)
             let candidate = self.processArguments(for: pid)
@@ -27503,6 +27512,8 @@ struct CMUXCLI {
         }
         let arguments = envArguments ?? processArguments
         let launcher = envCaptureIsTrusted ? (envLauncher ?? fallbackKind) : fallbackKind
+        let exactEnvironmentLauncher = normalizedHookValue(envLauncher)?.lowercased()
+            == normalizedHookValue(fallbackKind)?.lowercased()
         let workingDirectory = (envCaptureIsTrusted ? normalizedHookValue(env["CMUX_AGENT_LAUNCH_CWD"]) : nil)
             ?? normalizedHookValue(cwd)
             ?? normalizedHookValue(env["PWD"])
@@ -27520,7 +27531,13 @@ struct CMUXCLI {
         // the sanitizer guard below), so non-restorable invocations stay non-resumable.
         func environmentOnlyRecord() -> AgentHookLaunchCommandRecord? {
             guard !environment.isEmpty else {
-                return fallbackKind == "codex" ? AgentHookLaunchCommandRecord(launcher: launcher, executablePath: nil, arguments: [], workingDirectory: workingDirectory, environment: nil, capturedAt: Date().timeIntervalSince1970, source: "default") : nil
+                // An exact launcher is durable evidence for the built-in
+                // canonical resume verb even if its interpreter hid the real
+                // entrypoint from argv capture. Never replay the incomplete
+                // interpreter prefix itself.
+                return (fallbackKind == "codex" || exactEnvironmentLauncher)
+                    ? AgentHookLaunchCommandRecord(launcher: launcher, executablePath: nil, arguments: [], workingDirectory: workingDirectory, environment: nil, capturedAt: Date().timeIntervalSince1970, source: "default")
+                    : nil
             }
             return AgentHookLaunchCommandRecord(
                 launcher: launcher,
@@ -27537,7 +27554,7 @@ struct CMUXCLI {
             return environmentOnlyRecord()
         }
 
-        let executablePath = (envCaptureIsTrusted ? normalizedHookValue(env["CMUX_AGENT_LAUNCH_EXECUTABLE"]) : nil)
+        let executablePath = (envCaptureIsTrusted ? envExecutablePath : nil)
             ?? arguments.first
         guard let sanitizedArguments = sanitizedAgentLaunchArguments(
             arguments,
