@@ -18,6 +18,7 @@ struct TerminalPanelView: View {
     let paneId: PaneID
     let isFocused: Bool
     let isVisibleInUI: Bool
+    var portalPaneOwnershipResolver: (@MainActor () -> Bool)? = nil
     let portalPriority: Int
     let isSplit: Bool
     let appearance: PanelAppearance
@@ -71,6 +72,8 @@ struct TerminalPanelView: View {
                 paneId: paneId,
                 isActive: isFocused,
                 isVisibleInUI: isVisibleInUI,
+                ownershipGeneration: panel.portalHostOwnershipGeneration,
+                isCurrentPaneOwner: currentPortalPaneOwner,
                 portalZPriority: portalPriority,
                 showsInactiveOverlay: isSplit && !isFocused,
                 showsUnreadNotificationRing: hasUnreadNotification && notificationPaneRingEnabled,
@@ -149,6 +152,24 @@ struct TerminalPanelView: View {
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
             terminalFontSize = GhosttyConfig.load(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).fontSize
         }
+    }
+
+    @MainActor
+    private func currentPortalPaneOwner() -> Bool {
+        if let portalPaneOwnershipResolver {
+            return portalPaneOwnershipResolver()
+        }
+        guard let app = AppDelegate.shared,
+              let manager = app.tabManagerFor(tabId: panel.workspaceId),
+              let workspace = manager.tabs.first(where: { $0.id == panel.workspaceId }),
+              let livePanel = workspace.panels[panel.id],
+              livePanel === panel,
+              let currentPane = workspace.paneId(forPanelId: panel.id),
+              currentPane.id == paneId.id,
+              let tabId = workspace.surfaceIdFromPanelId(panel.id) else {
+            return false
+        }
+        return workspace.bonsplitController.selectedTab(inPane: currentPane)?.id == tabId
     }
 
     private var effectiveTerminalAgentContext: String {

@@ -721,6 +721,17 @@ final class TerminalPanel: Panel, ObservableObject {
         viewReattachToken &+= 1
     }
 
+    /// Monotonic model ownership epoch across container transfers and local
+    /// representable reattachments. This takes precedence over host creation
+    /// order when a move rolls back to an earlier view.
+    var portalHostOwnershipGeneration: UInt64 {
+        surface.currentPortalHostOwnershipGeneration() &+ viewReattachToken
+    }
+
+    func recordPortalHostOwnershipChange() {
+        requestViewReattach()
+    }
+
     // MARK: - Terminal-specific methods
 
     @discardableResult
