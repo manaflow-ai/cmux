@@ -1184,6 +1184,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         didFinishStoredMacReconnectAttempt = false
         replaceRemoteClient(with: nil)
         cancelRemoteOperationTasks()
+        terminalReorderGate.evictOwners(in: .all)
         // Tear down secondary-Mac aggregation at the account boundary: cancel any
         // in-flight aggregation pass and every live secondary subscription so the
         // previous user's Macs/workspaces cannot be re-seeded into the next
@@ -1262,11 +1263,29 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         teardownSecondaryMacSubscriptions()
         let foregroundKey = foregroundMacKey
         let removedFocusOwnerKeys = workspacesByMac.keys.filter { $0 != foregroundKey }
+        let removedHierarchyOwnerKeys = Set(removedFocusOwnerKeys)
+        let removedHierarchyWorkspaceIDs = hierarchyPresentationWorkspaceIDs(
+            ownerKeys: removedHierarchyOwnerKeys
+        )
+        let removedHierarchyMacDeviceIDs = removedHierarchyOwnerKeys.reduce(
+            into: Set<String>()
+        ) { macDeviceIDs, ownerKey in
+            let candidates = [ownerKey, workspacesByMac[ownerKey]?.macDeviceID]
+            for macDeviceID in candidates.compactMap({ $0 }) {
+                if !macDeviceID.isEmpty, macDeviceID != Self.foregroundAnonymousKey {
+                    macDeviceIDs.insert(macDeviceID)
+                }
+            }
+        }
         workspacesByMac = workspacesByMac.filter { $0.key == foregroundKey }
         pruneStableMacColorSlots(keepingForegroundKey: foregroundKey)
         for ownerKey in removedFocusOwnerKeys {
             removeWorkspaceFocusRevisions(ownerKey: ownerKey)
         }
+        terminalReorderGate.evictOwners(in: .owners(
+            macDeviceIDs: removedHierarchyMacDeviceIDs,
+            presentationWorkspaceIDs: removedHierarchyWorkspaceIDs
+        ))
         // Restore memo: invalidate so the next read re-restores for the new
         // (account, team) scope, and a suspended old-team restore can't resume.
         // Invalidate the shared boundary synchronously first; actor cleanup is
@@ -2865,7 +2884,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Backs the "Rescan QR" action.
     public func disconnectAndForgetActiveMac() {
         let staleMacID = activeTicket?.macDeviceID
+        let hierarchyOwnerEvictionScope = MobileTerminalReorderOwnerEvictionScope.owners(
+            macDeviceIDs: Set(staleMacID.map { [$0] } ?? []),
+            presentationWorkspaceIDs: hierarchyPresentationWorkspaceIDs(
+                ownerKeys: [foregroundMacKey]
+            )
+        )
         disconnectLiveConnection()
+        terminalReorderGate.evictOwners(in: hierarchyOwnerEvictionScope)
         // Forgetting the active Mac clears the restoring hint so the next launch
         // (and the current disconnected view) shows add-device immediately. Bump
         // the reconnect generation first so an in-flight reconnect can't re-set the
@@ -3361,6 +3387,34 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// The key the foreground Mac's state lives under in ``workspacesByMac``.
     var foregroundMacKey: String { foregroundMacDeviceID ?? Self.foregroundAnonymousKey }
+
+    /// Captures the currently published workspace row IDs for source owners
+    /// before their state is removed. Gate owners can be anonymous even when a
+    /// later ticket or paired-Mac row supplies a durable Mac ID, so callers must
+    /// carry these exact presentation IDs across the lifecycle boundary.
+    func hierarchyPresentationWorkspaceIDs(
+        ownerKeys: Set<String>
+    ) -> Set<MobileWorkspacePreview.ID> {
+        let usesScopedRowIDs = workspacesByMac.keys.contains { !$0.isEmpty }
+            && workspacesByMac.keys.filter { !$0.isEmpty }.count > 1
+        let visibleWorkspaceIDs = Set(workspaces.map(\.id))
+        return ownerKeys.reduce(into: Set<MobileWorkspacePreview.ID>()) { result, ownerKey in
+            guard let state = workspacesByMac[ownerKey] else { return }
+            for workspace in state.workspaces {
+                let ownerMacID = workspace.macDeviceID ?? state.macDeviceID
+                let remoteWorkspaceID = workspace.remoteWorkspaceID ?? workspace.id
+                let presentationWorkspaceID = usesScopedRowIDs && !ownerMacID.isEmpty
+                    ? workspaceAggregation.rowID(
+                        macDeviceID: ownerMacID,
+                        workspaceID: remoteWorkspaceID
+                    )
+                    : workspace.id
+                if visibleWorkspaceIDs.contains(presentationWorkspaceID) {
+                    result.insert(presentationWorkspaceID)
+                }
+            }
+        }
+    }
 
     private func updateForegroundWorkspaceActionCapabilities() {
         guard var state = workspacesByMac[foregroundMacKey] else { return }

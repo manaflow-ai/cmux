@@ -145,9 +145,21 @@ extension MobileShellComposite {
         let workspacesBeforeForget = workspacesByMac
         let focusRevisionsBeforeForget = workspaceFocusEventRevisionsByMac
         let foregroundMacDeviceIDBeforeForget = foregroundMacDeviceID
-        let isActiveMac = pairedMacsForIdentityMatching.contains {
-            targetIDSet.contains($0.macDeviceID) && $0.isActive
-        }
+        let activeTargetIDSet = Set(pairedMacsForIdentityMatching.compactMap { mac in
+            targetIDSet.contains(mac.macDeviceID) && mac.isActive ? mac.macDeviceID : nil
+        })
+        let isActiveMac = !activeTargetIDSet.isEmpty
+        let capturedHierarchyWorkspaceIDsByMac = Dictionary(
+            uniqueKeysWithValues: macDeviceIDs.map { id in
+                var ownerKeys: Set<String> = [id]
+                if foregroundMacDeviceID == id
+                    || activeTicket?.macDeviceID == id
+                    || activeTargetIDSet.contains(id) {
+                    ownerKeys.insert(foregroundMacKey)
+                }
+                return (id, hierarchyPresentationWorkspaceIDs(ownerKeys: ownerKeys))
+            }
+        )
         if pairedMacsForIdentityMatching.contains(where: { targetIDSet.contains($0.macDeviceID) }) {
             invalidateStoredMacReconnectAttempt()
         }
@@ -197,6 +209,15 @@ extension MobileShellComposite {
                 pruneWorkspaceStateForForgottenMac(id)
             }
         }
+        let capturedRemovedHierarchyWorkspaceIDs = removedIDs.reduce(
+            into: Set<MobileWorkspacePreview.ID>()
+        ) { workspaceIDs, removedID in
+            workspaceIDs.formUnion(capturedHierarchyWorkspaceIDsByMac[removedID] ?? [])
+        }
+        terminalReorderGate.evictOwners(in: .owners(
+            macDeviceIDs: removedIDs,
+            presentationWorkspaceIDs: capturedRemovedHierarchyWorkspaceIDs
+        ))
         await loadPairedMacs()
         clearSavedMacHintAfterDeletingLastVisibleMacIfNeeded()
     }

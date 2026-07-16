@@ -123,6 +123,55 @@ public final class MobileTerminalReorderGate {
         prunePresentationAliases()
     }
 
+    /// Evicts lifecycle and presentation state only after its owner crosses an
+    /// explicit Mac-forget or account boundary.
+    func evictOwners(in scope: MobileTerminalReorderOwnerEvictionScope) {
+        let capturedOwnerIdentities = Set(scope.presentationWorkspaceIDs.map { workspaceID in
+            workspaceOwnerIdentity(for: workspaceID)
+        })
+        let knownOwnerIdentities = Set(activeReservationsByOwner.keys)
+            .union(recoveringOwnerIdentities)
+            .union(refreshRequiredOwnerIdentities)
+            .union(ownerIdentityByPresentationWorkspaceID.values)
+            .union(currentPresentationWorkspaceIDByOwner.keys)
+            .union(lastPresentationWorkspaceIDByOwner.keys)
+            .union(canonicalOwnerIdentityByAlias.keys)
+            .union(canonicalOwnerIdentityByAlias.values)
+        let evictedCanonicalOwnerIdentities = Set(knownOwnerIdentities.compactMap {
+            ownerIdentity -> MobileWorkspaceOwnerIdentity? in
+            let canonicalOwnerIdentity = canonicalOwnerIdentity(for: ownerIdentity)
+            return scope.contains(
+                canonicalOwnerIdentity,
+                capturedOwnerIdentities: capturedOwnerIdentities
+            ) ? canonicalOwnerIdentity : nil
+        })
+        guard !evictedCanonicalOwnerIdentities.isEmpty else { return }
+
+        activeReservationsByOwner = activeReservationsByOwner.filter {
+            !evictedCanonicalOwnerIdentities.contains(canonicalOwnerIdentity(for: $0.key))
+        }
+        recoveringOwnerIdentities = recoveringOwnerIdentities.filter {
+            !evictedCanonicalOwnerIdentities.contains(canonicalOwnerIdentity(for: $0))
+        }
+        refreshRequiredOwnerIdentities = refreshRequiredOwnerIdentities.filter {
+            !evictedCanonicalOwnerIdentities.contains(canonicalOwnerIdentity(for: $0))
+        }
+        ownerIdentityByPresentationWorkspaceID = ownerIdentityByPresentationWorkspaceID.filter {
+            !evictedCanonicalOwnerIdentities.contains(canonicalOwnerIdentity(for: $0.value))
+        }
+        currentPresentationWorkspaceIDByOwner = currentPresentationWorkspaceIDByOwner.filter {
+            !evictedCanonicalOwnerIdentities.contains(canonicalOwnerIdentity(for: $0.key))
+        }
+        lastPresentationWorkspaceIDByOwner = lastPresentationWorkspaceIDByOwner.filter {
+            !evictedCanonicalOwnerIdentities.contains(canonicalOwnerIdentity(for: $0.key))
+        }
+        canonicalOwnerIdentityByAlias = canonicalOwnerIdentityByAlias.filter { alias, target in
+            !evictedCanonicalOwnerIdentities.contains(canonicalOwnerIdentity(for: alias))
+                && !evictedCanonicalOwnerIdentities.contains(canonicalOwnerIdentity(for: target))
+        }
+        prunePresentationAliases()
+    }
+
     func owns(_ reservation: MobileTerminalReorderReservation) -> Bool {
         activeReservationsByOwner[canonicalOwnerIdentity(for: reservation.ownerIdentity)]
             == reservation
