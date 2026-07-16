@@ -97,7 +97,7 @@ struct PasteboardTextContentsTests {
         #expect(service.pasteboard(for: ghostty_clipboard_e(rawValue: 99)) == nil)
     }
 
-    @Test func rewritingTextKeepsRichRepresentationsConsistent() throws {
+    @Test func rewritingTextDropsRichRepresentationsRatherThanLosingAttributes() throws {
         let scratch = ScratchPasteboard()
         let service = TerminalPasteboardService()
         let originalAttributed = NSMutableAttributedString(string: "hard\nwrapped")
@@ -124,23 +124,9 @@ struct PasteboardTextContentsTests {
         #expect(service.rewriteTextRepresentations("hard wrapped", in: scratch.pasteboard))
 
         #expect(scratch.pasteboard.string(forType: .string) == "hard wrapped")
-        let html = try #require(service.attributedString(
-            from: scratch.pasteboard,
-            type: .html,
-            documentType: .html
-        ))
-        let rtf = try #require(service.attributedString(
-            from: scratch.pasteboard,
-            type: .rtf,
-            documentType: .rtf
-        ))
-        #expect(html.string.trimmingCharacters(in: .newlines) == "hard wrapped")
-        #expect(rtf.string == "hard wrapped")
-        #expect(html.attribute(.link, at: 0, effectiveRange: nil) as? URL == originalLink)
-        #expect(rtf.attribute(.link, at: 0, effectiveRange: nil) as? URL == originalLink)
         let types = try #require(scratch.pasteboard.types)
-        #expect(types.contains(.html))
-        #expect(types.contains(.rtf))
+        #expect(!types.contains(.html))
+        #expect(!types.contains(.rtf))
     }
 
     @Test func rewritingTextDropsStaleRTFDRepresentation() throws {
@@ -173,12 +159,12 @@ struct PasteboardTextContentsTests {
         #expect(provider.requestedTypes.isEmpty)
         #expect(scratch.pasteboard.string(forType: .string) == "hard wrapped")
         let types = try #require(scratch.pasteboard.types)
-        #expect(types.contains(.html))
-        #expect(types.contains(.rtf))
+        #expect(!types.contains(.html))
+        #expect(!types.contains(.rtf))
         #expect(!types.contains(.rtfd))
     }
 
-    @Test func largeRichRewriteDropsExpensiveFlavorsWithinLatencyBound() throws {
+    @Test func largeRichRewriteDropsRichFlavorsWithinLatencyBound() throws {
         let scratch = ScratchPasteboard()
         let service = TerminalPasteboardService()
         let prefix = String(repeating: "hard wrapped token ", count: 8_000)
