@@ -53,31 +53,42 @@ extension TerminalSurface {
     }
 
     /// Exports the surface grid as a mobile render frame (optionally filtered
-    /// to changed rows).
+    /// to changed rows). Set `includeTheme` to `false` for ordinary live ticks
+    /// after the caller has cached this surface's theme; replay and invalidation
+    /// snapshots should retain the default complete theme payload.
     @MainActor
     public func mobileRenderGridFrame(
         stateSeq: UInt64,
         full: Bool = true,
         changedRows: Set<Int>? = nil,
-        scrollbackLines: Int = 0
+        scrollbackLines: Int = 0,
+        includeTheme: Bool = true
     ) -> (frame: MobileTerminalRenderGridFrame, rows: [String])? {
         guard let surface = liveSurfaceForGhosttyAccess(reason: "mobileRenderGrid") else { return nil }
         let surfaceID = id.uuidString
         let exported = surfaceID.withCString { ptr in
-            ghostty_surface_render_grid_json(
+            ghostty_surface_render_grid_json_with_theme(
                 surface,
                 ptr,
                 UInt(surfaceID.utf8.count),
                 stateSeq,
-                UInt(max(0, scrollbackLines))
+                UInt(max(0, scrollbackLines)),
+                includeTheme
             )
         }
         defer { ghostty_string_free(exported) }
         guard let ptr = exported.ptr, exported.len > 0 else { return nil }
 
         let data = Data(bytes: ptr, count: Int(exported.len))
-        guard let fullFrame = try? JSONDecoder().decode(MobileTerminalRenderGridFrame.self, from: data) else {
+        guard var fullFrame = try? JSONDecoder().decode(MobileTerminalRenderGridFrame.self, from: data) else {
             return nil
+        }
+        if fullFrame.modes.contains(where: { !$0.ansi && $0.code == 5 && $0.on }) {
+            // Ghostty exports renderer-effective defaults. Keep the v1 outer
+            // fields raw because older iOS clients replay DEC reverse separately.
+            let foreground = fullFrame.terminalForeground
+            fullFrame.terminalForeground = fullFrame.terminalBackground
+            fullFrame.terminalBackground = foreground
         }
         let frame: MobileTerminalRenderGridFrame
         if full, changedRows == nil {

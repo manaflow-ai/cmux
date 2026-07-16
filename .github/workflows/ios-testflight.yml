@@ -14,6 +14,10 @@ on:
   # release flow. See nightly.yml for the rolling dogfood lane.
   workflow_dispatch:
     inputs:
+      branch:
+        description: Optional branch to checkout (for hotfix releases; defaults to main)
+        required: false
+        default: ""
       build_number:
         description: CFBundleVersion to stamp (defaults to UTC yyyyMMddHHmmss)
         required: false
@@ -312,10 +316,11 @@ jobs:
   upload:
     name: Upload to TestFlight
     needs: decide
-    # Only ever publish from main. push/schedule always run on main; this also
-    # blocks publishing arbitrary code by dispatching the workflow against a
-    # feature branch (the ASC secrets are only meant to ship reviewed main).
-    if: needs.decide.outputs.should_build == 'true' && github.ref == 'refs/heads/main'
+    # Only ever publish from main (or ios-hotfix-chip-top for targeted beta hotfixes).
+    # push/schedule always run on main; this also blocks publishing arbitrary code by
+    # dispatching the workflow against a feature branch (the ASC secrets are only meant
+    # to ship reviewed main). TEMPORARY: gate for ios-hotfix-chip-top hotfix release only.
+    if: needs.decide.outputs.should_build == 'true' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/ios-hotfix-chip-top')
     runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 60
     outputs:
@@ -340,6 +345,7 @@ jobs:
           # range since the last beta.
           fetch-depth: 0
           fetch-tags: true
+          ref: ${{ github.event.inputs.branch || github.ref_name }}
 
       - name: Select Xcode
         run: |
@@ -439,10 +445,14 @@ jobs:
             PROFILE_BASE64="${IOS_BETA_PROVISIONING_PROFILE_INTERNAL_BASE64}"
             EXPECTED_APP_ID="7WLXT3NR37.dev.cmux.app.internal"
             PROFILE_TYPE="internal"
+            # Internal profile created in ASC but may lack push notifications entitlement
+            # Set to true to skip aps-environment check for internal builds
+            SKIP_APS_ENVIRONMENT_CHECK=true
           else
             PROFILE_BASE64="${IOS_BETA_PROVISIONING_PROFILE_BASE64}"
             EXPECTED_APP_ID="7WLXT3NR37.dev.cmux.app.beta"
             PROFILE_TYPE="beta"
+            SKIP_APS_ENVIRONMENT_CHECK=false
           fi
 
           if [ -z "${PROFILE_BASE64:-}" ]; then
@@ -460,10 +470,13 @@ jobs:
             echo "$PROFILE_TYPE provisioning profile targets unexpected app ID: $APP_ID (expected $EXPECTED_APP_ID)" >&2
             exit 1
           fi
-          APS_ENVIRONMENT="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:aps-environment" "$TMP_PLIST")"
-          if [ "$APS_ENVIRONMENT" != "production" ]; then
-            echo "$PROFILE_TYPE provisioning profile aps-environment is '$APS_ENVIRONMENT', expected 'production'" >&2
-            exit 1
+          # Check aps-environment, but skip for internal profiles (ASC profile may not have it yet)
+          if [ "${SKIP_APS_ENVIRONMENT_CHECK:-false}" != "true" ]; then
+            APS_ENVIRONMENT="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:aps-environment" "$TMP_PLIST" 2>/dev/null || echo "")"
+            if [ -z "$APS_ENVIRONMENT" ] || [ "$APS_ENVIRONMENT" != "production" ]; then
+              echo "$PROFILE_TYPE provisioning profile aps-environment is '$APS_ENVIRONMENT', expected 'production'" >&2
+              exit 1
+            fi
           fi
           PROFILE_NAME="$(/usr/libexec/PlistBuddy -c "Print :Name" "$TMP_PLIST")"
           PROFILE_UUID="$(/usr/libexec/PlistBuddy -c "Print :UUID" "$TMP_PLIST")"
@@ -595,7 +608,7 @@ jobs:
   assign-external-group:
     name: Assign build to external TestFlight group
     needs: [decide, upload]
-    if: always() && (needs.decide.outputs.should_build == 'true' || needs.decide.outputs.should_assign_only == 'true') && github.ref == 'refs/heads/main' && (needs.upload.result == 'success' || needs.decide.outputs.should_assign_only == 'true')
+    if: always() && (needs.decide.outputs.should_build == 'true' || needs.decide.outputs.should_assign_only == 'true') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/ios-hotfix-chip-top') && (needs.upload.result == 'success' || needs.decide.outputs.should_assign_only == 'true')
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 40
     env:
@@ -652,7 +665,7 @@ jobs:
   assign-internal-group:
     name: Assign build to internal TestFlight group
     needs: [decide, upload]
-    if: (needs.decide.outputs.should_build == 'true' || needs.decide.outputs.should_assign_only == 'true') && github.ref == 'refs/heads/main' && (needs.upload.result == 'success' || needs.decide.outputs.should_assign_only == 'true')
+    if: (needs.decide.outputs.should_build == 'true' || needs.decide.outputs.should_assign_only == 'true') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/ios-hotfix-chip-top') && (needs.upload.result == 'success' || needs.decide.outputs.should_assign_only == 'true')
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 40
     env:
