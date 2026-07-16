@@ -157,4 +157,68 @@ extension TerminalWindowPortalLifecycleTests {
         )
         withExtendedLifetime((leftSurface, rightSurface)) {}
     }
+
+    /// Regression for #8285: an intermediate shrink can reach the PTY while
+    /// the divider is moving, so the interaction's final grow must be flushed
+    /// even when its anchor notification was coalesced away.
+    @MainActor
+    func testDividerShrinkThenGrowFlushesFinalWiderSurfaceSize() throws {
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 760, height: 420)
+        )
+        let contentView = try XCTUnwrap(window.contentView)
+        let surface = makeTrackedTerminalSurface()
+        let initialAnchorFrame = NSRect(x: 40, y: 60, width: 420, height: 220)
+        let anchor = NSView(frame: initialAnchorFrame)
+        contentView.addSubview(anchor)
+
+        TerminalWindowPortalRegistry.bind(
+            hostedView: surface.hostedView,
+            to: anchor,
+            visibleInUI: true,
+            expectedSurfaceId: surface.id,
+            expectedGeneration: surface.portalBindingGeneration()
+        )
+        TerminalWindowPortalRegistry.synchronizeForAnchor(anchor)
+        realizeWindowLayout(window)
+        let initialPixelWidth = surface.debugCurrentPixelSize().width
+        XCTAssertGreaterThan(initialPixelWidth, 0)
+
+        anchor.postsFrameChangedNotifications = false
+        let dragOwner = NSObject()
+        TerminalWindowPortalRegistry.beginInteractiveGeometryResize(owner: dragOwner, in: window)
+        var dragIsActive = true
+        defer {
+            if dragIsActive {
+                TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: dragOwner)
+            }
+        }
+
+        anchor.frame.size.width = 180
+        TerminalWindowPortalRegistry.synchronizeForAnchor(anchor)
+        drainMainQueue()
+        drainMainQueue()
+        let narrowPixelWidth = surface.debugCurrentPixelSize().width
+        XCTAssertLessThan(
+            narrowPixelWidth,
+            initialPixelWidth,
+            "The fixture must deliver the intermediate narrow PTY width"
+        )
+
+        // The final anchor change emits no notification, matching a grow
+        // generation swallowed by interactive geometry coalescing.
+        anchor.frame = initialAnchorFrame
+        XCTAssertEqual(surface.debugCurrentPixelSize().width, narrowPixelWidth)
+
+        TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: dragOwner)
+        dragIsActive = false
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(
+            surface.debugCurrentPixelSize().width,
+            initialPixelWidth,
+            "Divider drag end must flush the final wider width after an intermediate shrink"
+        )
+    }
 }
