@@ -161,6 +161,151 @@ struct CmxIrohClientSessionPoolTests {
     }
 
     @Test
+    func knownClosedCachedSessionRedialsWithoutWaitingForClosureWatcher() async throws {
+        let fixture = try PoolFixture()
+        let firstConnection = TestIrohConnection(
+            remoteIdentity: fixture.remoteIdentity,
+            bidirectionalStreams: [fixture.controlStream()],
+            reportsClosureToWaiters: false
+        )
+        let secondConnection = TestIrohConnection(
+            remoteIdentity: fixture.remoteIdentity,
+            bidirectionalStreams: [
+                fixture.controlStream(),
+                CmxIrohBidirectionalStream(
+                    receiveStream: TestIrohReceiveStream(buffer: Data()),
+                    sendStream: TestIrohSendStream()
+                ),
+            ]
+        )
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: fixture.localIdentity,
+            dialResults: [
+                .connection(firstConnection),
+                .connection(secondConnection),
+            ]
+        )
+        let pool = try await fixture.pool(endpoint: endpoint, generation: 1)
+        let control = try CmxIrohByteTransportFactory(sessionPool: pool)
+            .makeTransport(for: fixture.request)
+        try await control.connect()
+        await firstConnection.close(errorCode: 99, reason: "timed_out")
+
+        _ = try await pool.openBidirectionalLane(
+            for: fixture.request,
+            lane: .terminal(
+                resourceID: CmxIrohResourceID("terminal:known-closed"),
+                cursor: nil
+            ),
+            priority: 50
+        )
+
+        #expect(await endpoint.observedDialedAddresses().count == 2)
+        #expect(await secondConnection.observedBidirectionalStreamOpenCount() == 2)
+        await pool.deactivate()
+    }
+
+    @Test
+    func concurrentLaneOpenFailureCoalescesOneAuthenticatedReplacementDial() async throws {
+        let fixture = try PoolFixture()
+        let concurrentLaneCount = 8
+        let firstConnection = TestIrohConnection(
+            remoteIdentity: fixture.remoteIdentity,
+            bidirectionalStreams: [fixture.controlStream()],
+            bidirectionalStreamFailureNumber: 2,
+            reportsClosureToWaiters: false
+        )
+        let replacementLaneStreams = (0 ..< concurrentLaneCount).map { _ in
+            CmxIrohBidirectionalStream(
+                receiveStream: TestIrohReceiveStream(buffer: Data()),
+                sendStream: TestIrohSendStream()
+            )
+        }
+        let secondConnection = TestIrohConnection(
+            remoteIdentity: fixture.remoteIdentity,
+            bidirectionalStreams: [fixture.controlStream()] + replacementLaneStreams
+        )
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: fixture.localIdentity,
+            dialResults: [
+                .connection(firstConnection),
+                .connection(secondConnection),
+            ]
+        )
+        let pool = try await fixture.pool(endpoint: endpoint, generation: 1)
+        let control = try CmxIrohByteTransportFactory(sessionPool: pool)
+            .makeTransport(for: fixture.request)
+        try await control.connect()
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for index in 0 ..< concurrentLaneCount {
+                group.addTask {
+                    _ = try await pool.openBidirectionalLane(
+                        for: fixture.request,
+                        lane: .terminal(
+                            resourceID: CmxIrohResourceID("terminal:\(index)"),
+                            cursor: UInt64(index)
+                        ),
+                        priority: Int32(index)
+                    )
+                }
+            }
+            try await group.waitForAll()
+        }
+
+        #expect(await endpoint.observedDialedAddresses().count == 2)
+        #expect(
+            await secondConnection.observedBidirectionalStreamOpenCount()
+                == concurrentLaneCount + 1
+        )
+        await pool.deactivate()
+    }
+
+    @Test
+    func laneFailureReplacementRevalidatesEndpointIdentity() async throws {
+        let fixture = try PoolFixture()
+        let substitutedIdentity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "ef", count: 32)
+        )
+        let firstConnection = TestIrohConnection(
+            remoteIdentity: fixture.remoteIdentity,
+            bidirectionalStreams: [fixture.controlStream()],
+            bidirectionalStreamFailureNumber: 2,
+            reportsClosureToWaiters: false
+        )
+        let substitutedConnection = TestIrohConnection(
+            remoteIdentity: substitutedIdentity,
+            bidirectionalStreams: [fixture.controlStream()]
+        )
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: fixture.localIdentity,
+            dialResults: [
+                .connection(firstConnection),
+                .connection(substitutedConnection),
+            ]
+        )
+        let pool = try await fixture.pool(endpoint: endpoint, generation: 1)
+        let control = try CmxIrohByteTransportFactory(sessionPool: pool)
+            .makeTransport(for: fixture.request)
+        try await control.connect()
+
+        await #expect(throws: CmxIrohClientSessionError.remoteIdentityMismatch) {
+            _ = try await pool.openBidirectionalLane(
+                for: fixture.request,
+                lane: .terminal(
+                    resourceID: CmxIrohResourceID("terminal:substitution"),
+                    cursor: nil
+                ),
+                priority: 0
+            )
+        }
+
+        #expect(await endpoint.observedDialedAddresses().count == 2)
+        #expect(await substitutedConnection.observedCloseCallCount() == 1)
+        await pool.deactivate()
+    }
+
+    @Test
     func endpointGenerationChangeClosesOldSessionBeforeRedial() async throws {
         let fixture = try PoolFixture()
         let firstConnection = TestIrohConnection(
