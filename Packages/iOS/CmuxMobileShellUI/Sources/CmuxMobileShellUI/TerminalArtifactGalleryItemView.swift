@@ -312,16 +312,10 @@ struct TerminalArtifactGalleryItemView: View {
     }
 
     private var symbolName: String {
-        switch artifact.kind {
-        case .image:
-            return "photo"
-        case .text:
-            return "doc.text"
-        case .binary:
-            return "doc.fill"
-        case .directory:
-            return "folder"
-        }
+        ChatArtifactGalleryClassifier().systemImageName(
+            for: artifact.kind,
+            path: artifact.path
+        )
     }
 
     private static let thumbnailDimension = 256

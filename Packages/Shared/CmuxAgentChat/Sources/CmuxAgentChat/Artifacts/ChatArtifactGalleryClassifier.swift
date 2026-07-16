@@ -3,10 +3,10 @@ import UniformTypeIdentifiers
 
 /// Classifies gallery artifacts into the dedicated sheet filter buckets.
 public struct ChatArtifactGalleryClassifier: Sendable {
-    private let logExtensions: Set<String> = ["log", "out", "txt"]
+    private let logExtensions: Set<String> = ["log", "out"]
     private let documentExtensions: Set<String> = [
         "doc", "docx", "key", "md", "markdown", "mdown", "mkd", "numbers",
-        "odp", "ods", "odt", "pages", "pdf", "ppt", "pptx", "rtf", "xls", "xlsx",
+        "odp", "ods", "odt", "pages", "pdf", "ppt", "pptx", "rtf", "txt", "xls", "xlsx",
     ]
 
     /// Creates an artifact classifier.
@@ -55,5 +55,41 @@ public struct ChatArtifactGalleryClassifier: Sendable {
     /// - Returns: A dedicated filter bucket, or `nil` for All-only artifacts.
     public func filter(for item: ChatArtifactGalleryItem) -> ChatArtifactGalleryFilter? {
         filter(for: item.kind, path: item.path)
+    }
+
+    /// Returns the shared SF Symbol for an artifact gallery row.
+    ///
+    /// PDF, Office, Markdown, plain-text, and otherwise generic files share
+    /// one document glyph. Only images, source code, logs, and folders use
+    /// distinct presentation.
+    ///
+    /// - Parameters:
+    ///   - kind: Preview kind assigned by the artifact host.
+    ///   - path: Artifact path whose extension supplements the preview kind.
+    /// - Returns: SF Symbol name for list and grid placeholders.
+    public func systemImageName(
+        for kind: ChatArtifactKind,
+        path: String
+    ) -> String {
+        switch kind {
+        case .image:
+            return "photo"
+        case .directory:
+            return "folder"
+        case .text, .binary:
+            break
+        }
+        switch filter(for: kind, path: path) {
+        case .code:
+            return "chevron.left.forwardslash.chevron.right"
+        case .logs:
+            return "text.alignleft"
+        case .images:
+            return "photo"
+        case .folders:
+            return "folder"
+        case .docs, .all, nil:
+            return "doc.text"
+        }
     }
 }
