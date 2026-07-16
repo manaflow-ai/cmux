@@ -43,11 +43,25 @@ public struct WorkspaceListLayoutPreviewView: View {
                     var workspace = workspace
                     workspace.windowID = "preview-window"
                     workspace.actionCapabilities.supportsMoveActions = true
+                    // Interactive fixture: light up every row affordance so
+                    // swipes, context menus, rename, and delete are
+                    // dogfoodable against local state without a paired Mac.
+                    workspace.actionCapabilities.supportsWorkspaceActions = true
+                    workspace.actionCapabilities.supportsReadStateActions = true
+                    workspace.actionCapabilities.supportsCloseActions = true
                     return workspace
                 }
                 : initialWorkspaces
         )
     }
+
+    /// Tap-to-open target in the interactive fixture: a trivial pushed detail
+    /// proving row selection navigates, without a real workspace shell.
+    private struct FixtureWorkspaceRoute: Identifiable, Hashable {
+        let id: MobileWorkspacePreview.ID
+    }
+
+    @State private var fixtureRoute: FixtureWorkspaceRoute?
 
     private var scrollMetricsEnabled: Bool {
         ProcessInfo.processInfo.environment["CMUX_UITEST_SCROLL_METRICS"] == "1"
@@ -177,9 +191,32 @@ public struct WorkspaceListLayoutPreviewView: View {
                         unreadIndicatorLeftShift: MobileDisplaySettings.defaultUnreadIndicatorLeftShift,
                         profilePictureLeftShift: MobileDisplaySettings.defaultProfilePictureLeftShift,
                         profilePictureSize: MobileDisplaySettings.defaultProfilePictureSize,
-                        selectWorkspace: { selectedWorkspaceID = $0 },
+                        selectWorkspace: { id in
+                            selectedWorkspaceID = id
+                            if reorderEnabled {
+                                fixtureRoute = FixtureWorkspaceRoute(id: id)
+                            }
+                        },
                         createWorkspace: {},
                         macSelection: $macSelection,
+                        renameWorkspace: reorderEnabled ? { id, newName in
+                            if let index = workspaces.firstIndex(where: { $0.id == id }) {
+                                workspaces[index].name = newName
+                            }
+                        } : nil,
+                        setPinned: reorderEnabled ? { id, pinned in
+                            if let index = workspaces.firstIndex(where: { $0.id == id }) {
+                                workspaces[index].isPinned = pinned
+                            }
+                        } : nil,
+                        setUnread: reorderEnabled ? { id, unread in
+                            if let index = workspaces.firstIndex(where: { $0.id == id }) {
+                                workspaces[index].hasUnread = unread
+                            }
+                        } : nil,
+                        closeWorkspace: reorderEnabled ? { id in
+                            workspaces.removeAll { $0.id == id }
+                        } : nil,
                         moveWorkspace: reorderEnabled ? { id, groupID, beforeWorkspaceID, movesGroup in
                             workspaces = workspaces.applyingWorkspaceMoveIntent(
                                 MobileWorkspaceMoveIntent(
@@ -193,6 +230,18 @@ public struct WorkspaceListLayoutPreviewView: View {
                             return true
                         } : nil
                     )
+                    .navigationDestination(item: $fixtureRoute) { route in
+                        VStack(spacing: 12) {
+                            Text(
+                                workspaces.first(where: { $0.id == route.id })?.name
+                                    ?? route.id.rawValue
+                            )
+                            .font(.title2)
+                            Text("Fixture workspace detail")
+                                .foregroundStyle(.secondary)
+                        }
+                        .accessibilityIdentifier("FixtureWorkspaceDetail")
+                    }
                 }
                 .overlay(alignment: .bottomTrailing) {
                     if scrollMetricsEnabled {

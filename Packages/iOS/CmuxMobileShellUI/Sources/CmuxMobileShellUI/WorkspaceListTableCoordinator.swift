@@ -173,17 +173,34 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         let swiftUIDestination = destination > source
             ? min(destination + 1, movableItemCount)
             : destination
+
+        // Apply the moved order synchronously so UIKit's drop animation lands
+        // in the final layout. The SwiftUI state update from moveRows arrives
+        // a runloop later; animating the drop against the stale layout leaves
+        // the lifted row ghosting at its old position until that snapshot
+        // applies. The follow-up authoritative snapshot has the same order, so
+        // it settles as a no-op (and dropJustCompleted suppresses its
+        // animation for the derived header/footer adjustments).
+        let swiftUIDestinationFull = swiftUIDestination + chromePrefixCount
+        let insertionRow = swiftUIDestinationFull > sourceIndexPath.row
+            ? swiftUIDestinationFull - 1
+            : swiftUIDestinationFull
+        var movedItems = configuration.items
+        let movedItem = movedItems.remove(at: sourceIndexPath.row)
+        movedItems.insert(movedItem, at: min(insertionRow, movedItems.count))
+        var localSnapshot = NSDiffableDataSourceSnapshot<Int, WorkspaceListTableItem>()
+        localSnapshot.appendSections([Self.section])
+        localSnapshot.appendItems(movedItems, toSection: Self.section)
+        dataSource?.apply(localSnapshot, animatingDifferences: false)
+
         dropJustCompleted = true
         moveRows(IndexSet(integer: source), swiftUIDestination)
-        // The drop animation needs a valid row; clamp the past-the-end slot to
-        // the last row of the section.
-        let animationRow = min(
-            destinationIndexPath.row,
-            max(configuration.items.count - 1, 0)
-        )
         coordinator.drop(
             dropItem.dragItem,
-            toRowAt: IndexPath(row: animationRow, section: destinationIndexPath.section)
+            toRowAt: IndexPath(
+                row: min(insertionRow, movedItems.count - 1),
+                section: destinationIndexPath.section
+            )
         )
     }
 
