@@ -7,6 +7,7 @@ import http.server
 import json
 import os
 import socketserver
+import struct
 import subprocess
 import sys
 import tempfile
@@ -144,6 +145,12 @@ def _local_test_server() -> str:
     <button id=\"btn\" role=\"button\">Click</button>
     <ul><li class=\"row\">row-a</li><li class=\"row\">row-b</li></ul>
     <div id=\"style-target\">style</div>
+    <input id=\"far-input\" style=\"position: fixed; left: 1080px; top: 580px; width: 140px; height: 40px\" />
+    <button id=\"far-button\" style=\"position: fixed; left: 1080px; top: 640px; width: 140px; height: 50px\">Far</button>
+    <script>
+      window.__farClicks = 0;
+      document.getElementById('far-button').addEventListener('click', () => window.__farClicks++);
+    </script>
   </body>
 </html>
 """.strip(),
@@ -278,7 +285,90 @@ def main() -> int:
         _must(str(saved.get("path") or "") == state_file, f"Expected saved state path via CLI: {saved}")
         _run_cli_json(cli, ["browser", surface, "state", "load", state_file])
 
-        _run_cli_expect_failure(cli, ["browser", surface, "viewport", "800", "600"], ["not_supported"])
+        focus_before_viewport = (_run_cli_json(cli, ["identify"]).get("focused") or {})
+        viewport = _run_cli_json(cli, ["browser", surface, "viewport", "1280", "720"])
+        _must(viewport.get("mode") == "emulated", f"Expected emulated viewport result: {viewport}")
+        _must(viewport.get("width") == 1280 and viewport.get("height") == 720, f"Expected effective viewport size: {viewport}")
+
+        metrics = _run_cli_json(
+            cli,
+            ["browser", surface, "eval", "({ width: innerWidth, height: innerHeight, wide: matchMedia('(min-width: 1000px)').matches })"],
+        ).get("value") or {}
+        _must(metrics.get("width") == 1280 and metrics.get("height") == 720, f"Expected exact WKWebView viewport: {metrics}")
+        _must(metrics.get("wide") is True, f"Expected responsive media query to use emulated viewport: {metrics}")
+
+        far_box = _run_cli_json(cli, ["browser", surface, "get", "box", "#far-input"]).get("value") or {}
+        _must(
+            far_box.get("left") == 1080 and far_box.get("top") == 580,
+            f"Expected far-edge control to retain logical viewport coordinates: {far_box}",
+        )
+        _run_cli_json(cli, ["browser", surface, "fill", "#far-input", "--text", "far-edge-ok"])
+        _run_cli_json(cli, ["browser", surface, "click", "#far-button"])
+        far_interaction = _run_cli_json(
+            cli,
+            [
+                "browser",
+                surface,
+                "eval",
+                "({ value: document.querySelector('#far-input').value, clicks: window.__farClicks, pointTag: document.elementFromPoint(1150, 665)?.id })",
+            ],
+        ).get("value") or {}
+        _must(far_interaction.get("value") == "far-edge-ok", f"Expected far-edge fill to persist: {far_interaction}")
+        _must(far_interaction.get("clicks") == 1, f"Expected far-edge click handler to fire once: {far_interaction}")
+        _must(far_interaction.get("pointTag") == "far-button", f"Expected viewport hit-testing at far coordinates: {far_interaction}")
+
+        with tempfile.TemporaryDirectory(prefix="cmux-cli-viewport-") as screenshot_dir:
+            viewport_screenshot = Path(screenshot_dir) / "viewport.png"
+            _run_cli_text(cli, ["browser", surface, "screenshot", "--out", str(viewport_screenshot)])
+            png_header = viewport_screenshot.read_bytes()[:24]
+            _must(png_header.startswith(b"\x89PNG\r\n\x1a\n"), "Expected viewport screenshot to be PNG")
+            screenshot_width, screenshot_height = struct.unpack(">II", png_header[16:24])
+            _must(
+                (screenshot_width, screenshot_height) == (1280, 720),
+                f"Expected screenshot to match emulated viewport, got {screenshot_width}x{screenshot_height}",
+            )
+
+        _run_cli_json(cli, ["browser", surface, "zoom", "in"])
+        zoomed_metrics = _run_cli_json(
+            cli,
+            ["browser", surface, "eval", "({ width: innerWidth, height: innerHeight })"],
+        ).get("value") or {}
+        _must(
+            zoomed_metrics.get("width") == 1280 and zoomed_metrics.get("height") == 720,
+            f"Expected page zoom to preserve the emulated CSS viewport: {zoomed_metrics}",
+        )
+        zoomed_viewport = _run_cli_json(cli, ["browser", surface, "viewport", "1280", "720"])
+        _must(
+            zoomed_viewport.get("exact") is True
+            and zoomed_viewport.get("width") == 1280
+            and zoomed_viewport.get("height") == 720,
+            f"Expected viewport RPC to report exact CSS dimensions at page zoom: {zoomed_viewport}",
+        )
+        with tempfile.TemporaryDirectory(prefix="cmux-cli-viewport-zoomed-") as screenshot_dir:
+            zoomed_viewport_screenshot = Path(screenshot_dir) / "viewport.png"
+            _run_cli_text(cli, ["browser", surface, "screenshot", "--out", str(zoomed_viewport_screenshot)])
+            zoomed_png_header = zoomed_viewport_screenshot.read_bytes()[:24]
+            _must(zoomed_png_header.startswith(b"\x89PNG\r\n\x1a\n"), "Expected zoomed viewport screenshot to be PNG")
+            zoomed_screenshot_size = struct.unpack(">II", zoomed_png_header[16:24])
+            _must(
+                zoomed_screenshot_size == (1280, 720),
+                f"Expected zoomed screenshot to retain CSS viewport pixels, got {zoomed_screenshot_size}",
+            )
+        reset_viewport = _run_cli_json(cli, ["browser", surface, "viewport", "reset"])
+        _must(reset_viewport.get("mode") == "native", f"Expected native viewport after reset: {reset_viewport}")
+        reset_metrics = _run_cli_json(
+            cli,
+            ["browser", surface, "eval", "({ width: innerWidth, height: innerHeight })"],
+        ).get("value") or {}
+        _must(
+            reset_viewport.get("width") == reset_metrics.get("width")
+            and reset_viewport.get("height") == reset_metrics.get("height"),
+            f"Expected native viewport result to match zoomed CSS dimensions: result={reset_viewport} metrics={reset_metrics}",
+        )
+        _run_cli_json(cli, ["browser", surface, "zoom", "reset"])
+
+        focus_after_viewport = (_run_cli_json(cli, ["identify"]).get("focused") or {})
+        _must(focus_after_viewport == focus_before_viewport, "browser viewport must preserve workspace and surface focus")
 
         legacy_new = _run_cli_text(cli, ["new-pane", "--type", "browser", "--direction", "right", "--url", page_url])
         _must("surface:" in legacy_new, f"Expected new-pane output to prefer short surface refs, got: {legacy_new!r}")

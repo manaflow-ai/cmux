@@ -14,8 +14,21 @@ final class MobileTerminalRenderObserver {
     private var observers: [NSObjectProtocol] = []
     private var pendingSurfaceIDs = Set<UUID>()
     private var hasPendingGlobalUpdate = false
+    private var hasPendingThemeInvalidation = false
+    private var pendingThemeSurfaceIDs = Set<UUID>()
     private var isEmitFlushScheduled = false
     private var renderGridStatesBySurfaceID: [UUID: MobileTerminalRenderGridEmissionState] = [:]
+    private var terminalThemesBySurfaceID: [UUID: TerminalTheme] = [:]
+    private var terminalConfigThemesBySurfaceID: [UUID: TerminalTheme] = [:]
+    private var runtimeSurfaceGenerationsBySurfaceID: [UUID: UInt64] = [:]
+    private var reconciledSurfaceTopologyGeneration: UInt64?
+    private var cachedTerminalTheme: TerminalTheme = .monokai
+    private var hasLoadedTerminalTheme = false
+    private var terminalThemeRevision: UInt64 = 0
+    private lazy var themeInvalidationScheduler = MobileTerminalThemeInvalidationScheduler {
+        [weak self] surfaceIDs in
+        self?.enqueueCoalescedThemeUpdates(surfaceIDs)
+    }
 
     private init() {}
 
@@ -57,6 +70,35 @@ final class MobileTerminalRenderObserver {
                 self?.enqueueTerminalUpdate(surfaceID: nil)
             }
         })
+        observers.append(NotificationCenter.default.addObserver(
+            forName: .ghosttyDefaultBackgroundDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.invalidateTerminalThemes()
+            }
+        })
+        observers.append(NotificationCenter.default.addObserver(
+            forName: .ghosttyConfigDidReload,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.invalidateTerminalThemes()
+            }
+        })
+        observers.append(NotificationCenter.default.addObserver(
+            forName: .ghosttySurfaceThemeDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            MainActor.assumeIsolated {
+                guard let surfaceID = notification.object as? UUID else { return }
+                guard MobileHostService.hasEventSubscribers(topic: "terminal.render_grid") else { return }
+                self?.themeInvalidationScheduler.schedule(surfaceID: surfaceID)
+            }
+        })
         refreshNotificationDemand()
     }
 
@@ -71,8 +113,15 @@ final class MobileTerminalRenderObserver {
         releaseTickDemand = nil
         pendingSurfaceIDs.removeAll()
         hasPendingGlobalUpdate = false
+        hasPendingThemeInvalidation = false
+        pendingThemeSurfaceIDs.removeAll()
+        themeInvalidationScheduler.cancel()
         isEmitFlushScheduled = false
         renderGridStatesBySurfaceID.removeAll()
+        terminalThemesBySurfaceID.removeAll()
+        terminalConfigThemesBySurfaceID.removeAll()
+        runtimeSurfaceGenerationsBySurfaceID.removeAll()
+        hasLoadedTerminalTheme = false
     }
 
     func noteTerminalBytes(surfaceID: UUID) {
@@ -100,6 +149,13 @@ final class MobileTerminalRenderObserver {
 
     private func refreshNotificationDemand() {
         let shouldRetainDemand = hasAnyRenderEventSubscribers
+        let hasRenderGridSubscribers = MobileHostService.hasEventSubscribers(topic: "terminal.render_grid")
+        if hasRenderGridSubscribers, !hasLoadedTerminalTheme {
+            refreshTerminalTheme()
+        } else if !hasRenderGridSubscribers {
+            clearRenderGridCaches()
+            hasLoadedTerminalTheme = false
+        }
         if shouldRetainDemand {
             if releaseFrameDemand == nil {
                 releaseFrameDemand = GhosttyNSView.retainRenderedFrameNotifications()
@@ -114,8 +170,11 @@ final class MobileTerminalRenderObserver {
             releaseTickDemand = nil
             pendingSurfaceIDs.removeAll()
             hasPendingGlobalUpdate = false
+            hasPendingThemeInvalidation = false
+            pendingThemeSurfaceIDs.removeAll()
+            themeInvalidationScheduler.cancel()
             isEmitFlushScheduled = false
-            renderGridStatesBySurfaceID.removeAll()
+            clearRenderGridCaches()
         }
     }
 
@@ -129,6 +188,17 @@ final class MobileTerminalRenderObserver {
         } else {
             hasPendingGlobalUpdate = true
         }
+        scheduleTerminalUpdateFlush()
+    }
+
+    private func enqueueCoalescedThemeUpdates(_ surfaceIDs: Set<UUID>) {
+        guard MobileHostService.hasEventSubscribers(topic: "terminal.render_grid") else { return }
+        pendingThemeSurfaceIDs.formUnion(surfaceIDs)
+        pendingSurfaceIDs.formUnion(surfaceIDs)
+        scheduleTerminalUpdateFlush()
+    }
+
+    private func scheduleTerminalUpdateFlush() {
         guard !isEmitFlushScheduled else { return }
         isEmitFlushScheduled = true
         Task { @MainActor [weak self] in
@@ -146,8 +216,12 @@ final class MobileTerminalRenderObserver {
         let shouldEmitRenderGridEvents = MobileHostService.hasEventSubscribers(topic: "terminal.render_grid")
         let surfaceIDs = pendingSurfaceIDs
         let shouldEmitGlobal = hasPendingGlobalUpdate
+        let shouldEmitAllThemes = hasPendingThemeInvalidation
+        let themeSurfaceIDs = pendingThemeSurfaceIDs
         pendingSurfaceIDs.removeAll()
         hasPendingGlobalUpdate = false
+        hasPendingThemeInvalidation = false
+        pendingThemeSurfaceIDs.removeAll()
 
         if shouldEmitUpdatedEvents, shouldEmitGlobal {
             MobileHostService.emitEvent(topic: "terminal.updated", payload: [:])
@@ -160,27 +234,78 @@ final class MobileTerminalRenderObserver {
             }
         }
 
-        guard shouldEmitRenderGridEvents else { return }
+        guard shouldEmitRenderGridEvents else {
+            clearRenderGridCaches()
+            return
+        }
+        reconcileRenderGridCachesIfSurfaceTopologyChanged()
         let renderSurfaceIDs: Set<UUID>
-        if surfaceIDs.isEmpty, shouldEmitGlobal {
+        if shouldEmitAllThemes || (surfaceIDs.isEmpty && shouldEmitGlobal) {
             renderSurfaceIDs = Set(GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id))
         } else {
-            renderSurfaceIDs = surfaceIDs
+            renderSurfaceIDs = surfaceIDs.union(themeSurfaceIDs)
         }
         for surfaceID in renderSurfaceIDs {
-            emitRenderGrid(surfaceID: surfaceID)
+            emitRenderGrid(
+                surfaceID: surfaceID,
+                forceIncludeTheme: shouldEmitAllThemes
+                    || themeSurfaceIDs.contains(surfaceID)
+            )
         }
     }
 
-    private func emitRenderGrid(surfaceID: UUID) {
+    private func emitRenderGrid(surfaceID: UUID, forceIncludeTheme: Bool) {
         let stateSeq = MobileTerminalByteTee.shared.currentSequence(surfaceID: surfaceID) ?? 0
         guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID),
-              let snapshot = surface.mobileRenderGridFrame(stateSeq: stateSeq, full: true) else {
-            renderGridStatesBySurfaceID.removeValue(forKey: surfaceID)
+              surface.surface != nil else {
+            clearRenderGridCache(surfaceID: surfaceID)
+            return
+        }
+        let runtimeGeneration = surface.runtimeSurfaceGeneration
+        let didReplaceRuntimeSurface = runtimeSurfaceGenerationsBySurfaceID[surfaceID]
+            .map { $0 != runtimeGeneration } ?? false
+        if didReplaceRuntimeSurface {
+            clearRenderGridCache(surfaceID: surfaceID)
+        }
+        let includeTheme = forceIncludeTheme
+            || renderGridStatesBySurfaceID[surfaceID]?.terminalTheme == nil
+            || didReplaceRuntimeSurface
+        guard let snapshot = surface.mobileRenderGridFrame(
+                stateSeq: stateSeq,
+                full: true,
+                includeTheme: includeTheme
+              ) else {
+            clearRenderGridCache(surfaceID: surfaceID)
             return
         }
 
-        guard let emission = try? snapshot.frame.renderGridEmission(
+        var themedFrame = snapshot.frame
+        let configTheme = MobileTerminalThemeEmissionDecision.resolveConfigTheme(
+            candidate: themedFrame.terminalConfigTheme,
+            cached: terminalConfigThemesBySurfaceID[surfaceID],
+            fallbackBoldColor: cachedTerminalTheme.boldColor
+        )
+        themedFrame.terminalConfigTheme = configTheme
+        if snapshot.frame.terminalConfigTheme != nil, let configTheme {
+            terminalConfigThemesBySurfaceID[surfaceID] = configTheme
+        }
+        let candidateTheme = (themedFrame.terminalTheme
+            ?? terminalThemesBySurfaceID[surfaceID]
+            ?? cachedTerminalTheme).applyingSurfaceColors(from: snapshot.frame)
+        let themeDecision = MobileTerminalThemeEmissionDecision.resolve(
+            candidate: candidateTheme,
+            cached: terminalThemesBySurfaceID[surfaceID],
+            forceCandidate: forceIncludeTheme || didReplaceRuntimeSurface
+        )
+        themedFrame.terminalTheme = themeDecision.theme
+        if themeDecision.shouldScheduleCandidate {
+            themeInvalidationScheduler.schedule(surfaceID: surfaceID)
+        } else {
+            terminalThemesBySurfaceID[surfaceID] = themeDecision.theme
+        }
+        runtimeSurfaceGenerationsBySurfaceID[surfaceID] = runtimeGeneration
+        themedFrame.terminalThemeRevision = nextTerminalThemeRevision()
+        guard let emission = try? themedFrame.renderGridEmission(
             comparedTo: renderGridStatesBySurfaceID[surfaceID]
         ) else { return }
         let frame = emission.frame
@@ -195,15 +320,72 @@ final class MobileTerminalRenderObserver {
         #endif
     }
 
-    #if DEBUG
-    func debugResetRenderGridCacheForTesting() {
+    private func refreshTerminalTheme() {
+        cachedTerminalTheme = TerminalTheme.currentMacTerminalThemeSnapshot()
+        hasLoadedTerminalTheme = true
+    }
+
+    func decorateReplayFrame(_ frame: MobileTerminalRenderGridFrame) -> MobileTerminalRenderGridFrame {
+        if !hasLoadedTerminalTheme { refreshTerminalTheme() }
+        var themedFrame = frame
+        themedFrame.terminalTheme = (frame.terminalTheme ?? cachedTerminalTheme)
+            .applyingSurfaceColors(from: frame)
+        themedFrame.terminalConfigTheme = MobileTerminalThemeEmissionDecision.resolveConfigTheme(
+            candidate: frame.terminalConfigTheme,
+            cached: nil,
+            fallbackBoldColor: cachedTerminalTheme.boldColor
+        )
+        themedFrame.terminalThemeRevision = nextTerminalThemeRevision()
+        return themedFrame
+    }
+
+    private func nextTerminalThemeRevision() -> UInt64 {
+        terminalThemeRevision &+= 1
+        return terminalThemeRevision
+    }
+
+    private func invalidateTerminalThemes() {
+        guard MobileHostService.hasEventSubscribers(topic: "terminal.render_grid") else {
+            hasLoadedTerminalTheme = false
+            return
+        }
+        refreshTerminalTheme()
+        hasPendingThemeInvalidation = true
+        enqueueTerminalUpdate(surfaceID: nil)
+    }
+
+    private func reconcileRenderGridCachesIfSurfaceTopologyChanged() {
+        let registry = GhosttyApp.terminalSurfaceRegistry
+        let generation = registry.topologyGeneration
+        guard reconciledSurfaceTopologyGeneration != generation else { return }
+        let liveSurfaceIDs = Set(registry.allSurfaces().map(\.id))
+        renderGridStatesBySurfaceID = renderGridStatesBySurfaceID.filter { liveSurfaceIDs.contains($0.key) }
+        terminalThemesBySurfaceID = terminalThemesBySurfaceID.filter { liveSurfaceIDs.contains($0.key) }
+        terminalConfigThemesBySurfaceID = terminalConfigThemesBySurfaceID.filter { liveSurfaceIDs.contains($0.key) }
+        runtimeSurfaceGenerationsBySurfaceID = runtimeSurfaceGenerationsBySurfaceID.filter {
+            liveSurfaceIDs.contains($0.key)
+        }
+        // Store the revision read before enumeration. If topology changed during
+        // the snapshot, the next flush observes a newer value and reconciles again.
+        reconciledSurfaceTopologyGeneration = generation
+    }
+
+    private func clearRenderGridCache(surfaceID: UUID) {
+        renderGridStatesBySurfaceID.removeValue(forKey: surfaceID)
+        terminalThemesBySurfaceID.removeValue(forKey: surfaceID)
+        terminalConfigThemesBySurfaceID.removeValue(forKey: surfaceID)
+        runtimeSurfaceGenerationsBySurfaceID.removeValue(forKey: surfaceID)
+    }
+
+    private func clearRenderGridCaches() {
         renderGridStatesBySurfaceID.removeAll()
+        terminalThemesBySurfaceID.removeAll()
+        terminalConfigThemesBySurfaceID.removeAll()
+        runtimeSurfaceGenerationsBySurfaceID.removeAll()
+        reconciledSurfaceTopologyGeneration = nil
     }
 
-    var debugRenderGridCacheCountForTesting: Int {
-        renderGridStatesBySurfaceID.count
-    }
-
+    #if DEBUG
     var debugIsRetainingNotificationDemandForTesting: Bool {
         releaseFrameDemand != nil && releaseTickDemand != nil
     }

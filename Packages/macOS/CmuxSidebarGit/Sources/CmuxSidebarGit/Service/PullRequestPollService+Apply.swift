@@ -11,7 +11,8 @@ extension PullRequestPollService {
         repoResults: [String: WorkspacePullRequestRepoFetchResult],
         requestedKeys: [WorkspaceGitProbeKey],
         now: Date,
-        reason: String
+        reason: String,
+        rateLimitRetryDate: Date? = nil
     ) {
         guard let host else { return }
         guard !host.mobileHostHasRecentActivity(within: mobileHostDeferral.quietInterval) else {
@@ -46,7 +47,8 @@ extension PullRequestPollService {
         var needsFollowUpPass = false
 
         defer {
-            if needsFollowUpPass {
+            if rateLimitRetryDate == nil,
+               needsFollowUpPass || workspacePullRequestFollowUpShouldBypassRepoCache {
                 let shouldBypassRepoCache = workspacePullRequestFollowUpShouldBypassRepoCache
                 workspacePullRequestFollowUpShouldBypassRepoCache = false
                 refreshTrackedWorkspacePullRequestsIfNeeded(
@@ -201,6 +203,15 @@ extension PullRequestPollService {
 #endif
         }
 
+        if let rateLimitRetryDate {
+            for key in requestedKeys {
+                guard workspacePullRequestProbeStateByKey[key] != nil,
+                      workspacePullRequestNextPollAtByKey[key, default: .distantPast] < rateLimitRetryDate else {
+                    continue
+                }
+                workspacePullRequestNextPollAtByKey[key] = rateLimitRetryDate
+            }
+        }
         updateWorkspacePullRequestPollTimer()
     }
 
