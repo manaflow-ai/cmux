@@ -69,7 +69,7 @@ public enum AgentLaunchSanitizer {
             guard let preserved = preservedCodexLaunchArguments(args: tail) else { return nil }
             return [executable, "codex-teams"] + preserved
         case "omo", "omo-slim", "omos":
-            let launcherName = launcher ?? "omo"
+            let launcherName = launcher
             if tail.first == launcherName {
                 tail.removeFirst()
             }

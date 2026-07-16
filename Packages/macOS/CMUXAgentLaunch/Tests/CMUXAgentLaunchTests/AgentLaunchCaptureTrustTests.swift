@@ -29,6 +29,7 @@ struct AgentLaunchCaptureTrustTests {
         for launcher in ["omo", "omo-slim", "omos"] {
             #expect(AgentLaunchCaptureTrust.launcherIsOpenCodeSessionWrapper(launcher))
         }
+        #expect(AgentLaunchCaptureTrust.launcherIsOpenCodeSessionWrapper("  OMOS  "))
         #expect(!AgentLaunchCaptureTrust.launcherIsOpenCodeSessionWrapper("opencode"))
         #expect(!AgentLaunchCaptureTrust.launcherIsOpenCodeSessionWrapper(nil))
     }
