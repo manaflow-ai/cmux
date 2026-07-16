@@ -15,6 +15,23 @@ function isEditable(target: EventTarget | null) {
 
 export function handleFeedNavigation(event: KeyboardEvent, root: HTMLElement) {
   if (event.key === "Tab" && !event.altKey && !event.ctrlKey && !event.metaKey) {
+    const activeElement = document.activeElement as HTMLElement | null;
+    const activeCard = activeElement?.closest<HTMLElement>(".feed-card");
+    if (activeCard) {
+      const cardControls = [...activeCard.querySelectorAll<HTMLElement>(
+        'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]',
+      )].filter((control) => control.tabIndex >= 0);
+      if (activeElement === activeCard && cardControls.length > 0) {
+        event.preventDefault();
+        cardControls[event.shiftKey ? cardControls.length - 1 : 0]?.focus();
+        return;
+      }
+      if (event.shiftKey && activeElement === cardControls[0]) {
+        event.preventDefault();
+        activeCard.focus({ preventScroll: true });
+        return;
+      }
+    }
     const controls = [...root.querySelectorAll<HTMLElement>(
       'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]',
     )].filter((control) => control !== root && control.tabIndex >= 0);

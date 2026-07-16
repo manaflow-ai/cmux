@@ -107,7 +107,7 @@ test("Feed React surface invokes the typed permission primitive", async () => {
   document.activeElement?.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { bubbles: true, key: "Tab" }));
   expect(document.activeElement?.textContent).toBe("Deny");
   document.activeElement?.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { bubbles: true, key: "Tab", shiftKey: true }));
-  expect(document.activeElement?.textContent).toBe("All Activity");
+  expect(document.activeElement?.classList.contains("feed-card")).toBe(true);
   const loadOlder = [...container.querySelectorAll<HTMLButtonElement>("button")]
     .find((button) => button.textContent === "Load older activity")!;
   loadOlder.focus();
