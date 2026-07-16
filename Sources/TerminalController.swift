@@ -34,7 +34,7 @@ extension Notification.Name {
 
 private struct SocketLineProcessingResult: Sendable {
     let response: String?
-    let authenticated: Bool
+    let passwordAuthorization: SocketPasswordAuthorization
 }
 // Agent notification gating types (AgentNotifyCategory / AgentTurnCompleteMode /
 // AgentNotificationMeta / agentNotificationShouldDeliver) live in AgentNotificationGate.swift.
@@ -126,7 +126,8 @@ class TerminalController {
     @MainActor private(set) var browserSignInFlow: HostBrowserSignInFlow?
     @MainActor var agentChatTranscriptService: AgentChatTranscriptService?
     // Sendable value type; injected at construction so socket auth never reaches a global.
-    private nonisolated let passwordStore: SocketControlPasswordStore
+    nonisolated let passwordStore: SocketControlPasswordStore
+    private nonisolated let socketPasswordFileWatcher: FileWatcher?
     nonisolated let socketClientCapabilityAuthority: SocketClientCapabilityAuthority
     private nonisolated let socketClientPreauthorizationLimiter: SocketClientPreauthorizationLimiter
     /// Process-wide proxy-tunnel broker (one shared tunnel per remote transport across all
@@ -355,6 +356,10 @@ class TerminalController {
         )
     ) {
         self.passwordStore = passwordStore
+        let socketPasswordFileWatcher = passwordStore.passwordFileURL.map {
+            FileWatcher(path: $0.path)
+        }
+        self.socketPasswordFileWatcher = socketPasswordFileWatcher
         self.socketClientCapabilityAuthority = Self.makeSocketClientCapabilityAuthority()
         self.socketClientPreauthorizationLimiter = socketClientPreauthorizationLimiter
         self.transport = transport
@@ -362,7 +367,11 @@ class TerminalController {
         let serverEventTarget = ServerEventTarget()
         let socketServer = SocketControlServer(
             transport: transport,
-            listenerPolicy: listenerPolicy,
+            listenerPolicy: listenerPolicy, notificationCenter: .default,
+            effectivePasswordProvider: {
+                passwordStore.configuredPassword(allowLazyKeychainFallback: true)
+            },
+            authorizationChangeSignals: socketPasswordFileWatcher?.events,
             events: Self.makeSocketServerEvents(target: serverEventTarget)
         )
         self.socketServer = socketServer
@@ -376,7 +385,12 @@ class TerminalController {
                     close(connection.socket)
                     continue
                 }
-                await controller.spawnClientHandler(socket: connection.socket, peerPid: connection.peerProcessID)
+                await controller.spawnClientHandler(
+                    socket: connection.socket,
+                    peerPid: connection.peerProcessID,
+                    authorizationGeneration: connection.authorizationGeneration,
+                    authorizationRevocationSignal: connection.authorizationRevocationSignal
+                )
             }
         }
         serverEventTarget.controller = self
@@ -394,19 +408,6 @@ class TerminalController {
             }
         }
     }
-    nonisolated func currentSocketPathForRemoteRestore() -> String? {
-        socketServer.currentSocketPathForRemoteRestore()
-    }
-
-    @discardableResult
-    func reserveStartupSocketPath(_ path: String) -> String {
-        socketServer.reserveStartupSocketPath(path)
-    }
-
-    nonisolated func activeSocketPath(preferredPath: String) -> String {
-        socketServer.activeSocketPath(preferredPath: preferredPath)
-    }
-
     nonisolated static func shouldSuppressSocketCommandActivation() -> Bool {
         !currentSocketCommandFocusAllowanceStack().isEmpty
     }
@@ -879,12 +880,7 @@ class TerminalController {
         AppDelegate.shared?.tabManagerFor(tabId: workspaceId)?.tabs.first { $0.id == workspaceId }
     }
 
-    nonisolated func socketListenerHealth(expectedSocketPath: String) -> SocketListenerHealth {
-        socketServer.listenerHealth(expectedSocketPath: expectedSocketPath)
-    }
-
     private func restartSocketListenerIfPathMissing(path: String, generation: UInt64) {
-        guard let tabManager else { return }
         let restartMode = socketServer.accessMode
         guard socketServer.shouldRestartForMissingPath(path: path, generation: generation) else { return }
 
@@ -898,102 +894,21 @@ class TerminalController {
                 "generation": generation
             ]
         )
-        stop()
-        start(tabManager: tabManager, socketPath: path, accessMode: restartMode)
-    }
+        if let appDelegate = AppDelegate.shared {
+            appDelegate.reconcileSocketListenerConfiguration(source: "path_monitor")
+            return
+        }
 
-    func stop() {
-        // Synchronous by contract: termination needs the unlink before exit.
-        socketServer.stop()
+        stop()
+        startSocketTransport(
+            SocketControlServerConfiguration(accessMode: restartMode, preferredSocketPath: path),
+            socketPath: path
+        )
     }
 
     private nonisolated func writeSocketResponse(_ response: String, to socket: Int32) -> Bool {
         let payload = response + "\n"
         return transport.writeAll(Data(payload.utf8), to: socket)
-    }
-
-    private nonisolated func passwordAuthRequiredResponse(for command: String) -> String {
-        let message = "Authentication required. Send auth <password> first."
-        guard command.hasPrefix("{"),
-              let data = command.data(using: .utf8),
-              let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] else {
-            return "ERROR: Authentication required — send auth <password> first"
-        }
-        let id = dict["id"]
-        return v2Error(id: id, code: "auth_required", message: message)
-    }
-
-    private nonisolated func passwordLoginV1ResponseIfNeeded(for command: String, authenticated: inout Bool) -> String? {
-        let lowered = command.lowercased()
-        guard lowered == "auth" || lowered.hasPrefix("auth ") else {
-            return nil
-        }
-        guard passwordStore.hasConfiguredPassword(allowLazyKeychainFallback: true) else {
-            return "ERROR: Password mode is enabled but no socket password is configured in Settings."
-        }
-
-        let provided: String
-        if lowered == "auth" {
-            provided = ""
-        } else {
-            provided = String(command.dropFirst(5))
-        }
-        guard !provided.isEmpty else {
-            return "ERROR: Missing password. Usage: auth <password>"
-        }
-        guard passwordStore.verify(password: provided, allowLazyKeychainFallback: true) else {
-            return "ERROR: Invalid password"
-        }
-        authenticated = true
-        return "OK: Authenticated"
-    }
-
-    private nonisolated func passwordLoginV2ResponseIfNeeded(for command: String, authenticated: inout Bool) -> String? {
-        guard command.hasPrefix("{"),
-              let data = command.data(using: .utf8),
-              let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] else {
-            return nil
-        }
-        let id = dict["id"]
-        let method = (dict["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard method == "auth.login" else {
-            return nil
-        }
-
-        guard let params = dict["params"] as? [String: Any],
-              let provided = params["password"] as? String else {
-            return v2Error(id: id, code: "invalid_params", message: "auth.login requires params.password")
-        }
-
-        guard passwordStore.hasConfiguredPassword(allowLazyKeychainFallback: true) else {
-            return v2Error(
-                id: id,
-                code: "auth_unconfigured",
-                message: "Password mode is enabled but no socket password is configured in Settings."
-            )
-        }
-
-        guard passwordStore.verify(password: provided, allowLazyKeychainFallback: true) else {
-            return v2Error(id: id, code: "auth_failed", message: "Invalid password")
-        }
-        authenticated = true
-        return v2Ok(id: id, result: ["authenticated": true])
-    }
-
-    private nonisolated func authResponseIfNeeded(for command: String, authenticated: inout Bool) -> String? {
-        guard socketServer.accessMode.requiresPasswordAuth else {
-            return nil
-        }
-        if let v2Response = passwordLoginV2ResponseIfNeeded(for: command, authenticated: &authenticated) {
-            return v2Response
-        }
-        if let v1Response = passwordLoginV1ResponseIfNeeded(for: command, authenticated: &authenticated) {
-            return v1Response
-        }
-        if !authenticated {
-            return passwordAuthRequiredResponse(for: command)
-        }
-        return nil
     }
 
     /// Interim bridged view of a decoded `ControlRequest` with Foundation
@@ -1381,9 +1296,13 @@ class TerminalController {
         case "remote.tmux.mirror": return v2RemoteTmuxMirror(id: request.id, params: request.params)
         case "remote.tmux.window": return v2RemoteTmuxWindow(id: request.id, params: request.params)
         case "remote.tmux.pane_grids": return v2RemoteTmuxPaneGrids(id: request.id, params: request.params)
+        case "remote.tmux.pane_surfaces":
+            return v2RemoteTmuxPaneSurfaces(id: request.id, params: request.params)
 #if DEBUG
         case "remote.tmux.test_exec": return v2RemoteTmuxTestExec(id: request.id, params: request.params)
         case "remote.tmux.test_set_frame": return v2RemoteTmuxTestSetFrame(id: request.id, params: request.params)
+        case "remote.tmux.test_perturb_divider": return v2RemoteTmuxTestPerturbDivider(id: request.id, params: request.params)
+        case "remote.tmux.root_frames": return v2RemoteTmuxRootFrames(id: request.id)
 #endif
         case "sidebar.custom.validate":
             return v2Result(id: request.id, v2CustomSidebarValidate(params: request.params))
@@ -1428,10 +1347,16 @@ class TerminalController {
         }
     }
 
-    private nonisolated func spawnClientHandler(socket clientSocket: Int32, peerPid: pid_t?) async {
+    private nonisolated func spawnClientHandler(
+        socket clientSocket: Int32,
+        peerPid: pid_t?,
+        authorizationGeneration: UInt64,
+        authorizationRevocationSignal: SocketAuthorizationRevocationSignal
+    ) async {
         let initialReadLimits = socketClientInitialReadLimits(peerProcessID: peerPid)
+        let preauthorizationLimiter = socketClientPreauthorizationLimiter
         let claimedPreauthorizationSlot = if initialReadLimits != nil {
-            await socketClientPreauthorizationLimiter.claim()
+            await preauthorizationLimiter.claim()
         } else {
             false
         }
@@ -1447,6 +1372,8 @@ class TerminalController {
             self.handleClient(
                 clientSocket,
                 peerPid: peerPid,
+                authorizationGeneration: authorizationGeneration,
+                authorizationRevocationSignal: authorizationRevocationSignal,
                 initialReadLimits: initialReadLimits,
                 holdsPreauthorizationSlot: claimedPreauthorizationSlot
             )
@@ -1456,6 +1383,8 @@ class TerminalController {
     private nonisolated func handleClient(
         _ socket: Int32,
         peerPid: pid_t? = nil,
+        authorizationGeneration: UInt64,
+        authorizationRevocationSignal: SocketAuthorizationRevocationSignal,
         initialReadLimits: ControlClientLineReadLimits? = nil,
         holdsPreauthorizationSlot initialSlotHeld: Bool = false
     ) {
@@ -1469,20 +1398,32 @@ class TerminalController {
                 Task { await preauthorizationLimiter.release() }
             }
         }
-        var authenticated = false
-        let lineReader = ControlClientLineReader(socket: socket, initialLimits: initialReadLimits)
-
-        while let line = lineReader.nextLine(shouldContinueReading: { socketServer.isRunning }) {
+        var passwordAuthorization = SocketPasswordAuthorization()
+        let lineReader = ControlClientLineReader(
+            socket: socket,
+            initialLimits: initialReadLimits,
+            authorizationRevocationSignal: authorizationRevocationSignal
+        )
+        while let line = lineReader.nextLine(shouldContinueReading: {
+            socketServer.isConnectionAuthorizationCurrent(authorizationGeneration)
+        }) {
             let receivedCommand = line.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !receivedCommand.isEmpty else { continue }
+            guard socketAuthorizationIsCurrent(
+                authorizationGeneration,
+                passwordAuthorization: &passwordAuthorization
+            ) else {
+                _ = writeSocketResponse(Self.socketClientAccessDeniedResponse, to: socket)
+                return
+            }
             guard let trimmed = authorizedSocketCommand(
                 receivedCommand,
                 peerProcessID: pid,
                 peerHasSameUID: peerHasSameUID
             ) else {
                 _ = writeSocketResponse(
-                    pid == nil ? "ERROR: Unable to verify client process"
-                        : "ERROR: Access denied — only processes started inside cmux can connect",
+                    pid == nil ? Self.socketClientVerificationFailedResponse
+                        : Self.socketClientAccessDeniedResponse,
                     to: socket
                 )
                 return
@@ -1496,19 +1437,31 @@ class TerminalController {
             var shouldCloseSocket = false
             autoreleasepool {
                 if isEventsStreamRequest(trimmed) {
-                    if let response = authResponseIfNeeded(for: trimmed, authenticated: &authenticated) {
+                    if let response = authResponseIfNeeded(
+                        for: trimmed,
+                        passwordAuthorization: &passwordAuthorization
+                    ) {
                         if !writeSocketResponse(response, to: socket) {
                             shouldCloseSocket = true
                         }
                         return
                     }
-                    handleEventsStreamRequest(trimmed, socket: socket)
+                    handleEventsStreamRequest(
+                        trimmed,
+                        socket: socket,
+                        authorizationGeneration: authorizationGeneration,
+                        authorizationRevocationSignal: authorizationRevocationSignal,
+                        passwordAuthorization: passwordAuthorization
+                    )
                     shouldCloseSocket = true
                     return
                 }
 
-                let result = processSocketLine(trimmed, authenticated: authenticated)
-                authenticated = result.authenticated
+                let result = processSocketLine(
+                    trimmed,
+                    passwordAuthorization: passwordAuthorization
+                )
+                passwordAuthorization = result.passwordAuthorization
                 if let response = result.response {
                     let didWriteResponse = writeSocketResponse(response, to: socket)
                     publishSocketEvents(command: trimmed, response: response)
@@ -1517,15 +1470,16 @@ class TerminalController {
                     }
                 }
             }
-            if shouldCloseSocket {
-                return
-            }
+            if shouldCloseSocket { return }
+        }
+        if !socketServer.isConnectionAuthorizationCurrent(authorizationGeneration) {
+            _ = writeSocketResponse(Self.socketClientAccessDeniedResponse, to: socket)
         }
     }
 
     private nonisolated func processSocketLine(
         _ command: String,
-        authenticated: Bool
+        passwordAuthorization: SocketPasswordAuthorization
     ) -> SocketLineProcessingResult {
 #if DEBUG
         let debugInfo = Self.socketCommandDebugInfo(command)
@@ -1538,8 +1492,11 @@ class TerminalController {
             )
         }
 #endif
-        var nextAuthenticated = authenticated
-        if let response = authResponseIfNeeded(for: command, authenticated: &nextAuthenticated) {
+        var nextPasswordAuthorization = passwordAuthorization
+        if let response = authResponseIfNeeded(
+            for: command,
+            passwordAuthorization: &nextPasswordAuthorization
+        ) {
 #if DEBUG
             Self.debugLogSocketCommandEndIfNeeded(
                 debugInfo: debugInfo,
@@ -1548,7 +1505,10 @@ class TerminalController {
                 loggingEnabled: debugLoggingEnabled
             )
 #endif
-            return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
+            return SocketLineProcessingResult(
+                response: response,
+                passwordAuthorization: nextPasswordAuthorization
+            )
         }
 
         let response = processCommandUsingSocketExecutionPolicy(command)
@@ -1562,7 +1522,10 @@ class TerminalController {
             )
         }
 #endif
-        return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
+        return SocketLineProcessingResult(
+            response: response,
+            passwordAuthorization: nextPasswordAuthorization
+        )
     }
 
 #if DEBUG
@@ -2413,7 +2376,7 @@ class TerminalController {
             "workspace.remote.status",
             "workspace.remote.pty_sessions", "workspace.remote.pty_close", "workspace.remote.pty_detach",
             "workspace.remote.pty_bridge", "workspace.remote.pty_resize", "workspace.remote.pty_attach_end",
-            "workspace.remote.terminal_session_end", "remote.tmux.sessions", "remote.tmux.attach", "remote.tmux.detach", "remote.tmux.state", "remote.tmux.mirror", "remote.tmux.window", "remote.tmux.pane_grids",
+            "workspace.remote.terminal_session_end", "remote.tmux.sessions", "remote.tmux.attach", "remote.tmux.detach", "remote.tmux.state", "remote.tmux.mirror", "remote.tmux.window", "remote.tmux.pane_grids", "remote.tmux.pane_surfaces",
             "session.restore_previous",
             "settings.open",
             "feedback.open",
@@ -3336,7 +3299,7 @@ class TerminalController {
         return result
     }
 
-    private nonisolated func v2Ok(id: Any?, result: Any) -> String {
+    nonisolated func v2Ok(id: Any?, result: Any) -> String {
         guard let idValue = Self.v2WireId(id),
               let payload = JSONValue(foundationObject: result) else {
             return ControlResponseEncoder.encodeFailureResponse
@@ -8283,27 +8246,37 @@ class TerminalController {
                     return
                 }
                 guard let context = dockResolution.context else { return }
-                let handled: Bool
+                let zoomResult: Result<Bool, BrowserAutomationViewportError>
                 switch direction {
-                case "in": handled = context.browserPanel.zoomIn()
-                case "out": handled = context.browserPanel.zoomOut()
-                default: handled = context.browserPanel.resetZoom()
+                case "in": zoomResult = context.browserPanel.zoomInResult()
+                case "out": zoomResult = context.browserPanel.zoomOutResult()
+                default: zoomResult = context.browserPanel.resetZoomResult()
                 }
-                result = .ok(v2WindowDockBrowserActionPayload(context, extra: ["handled": handled, "direction": direction]))
+                switch zoomResult {
+                case .success(let handled):
+                    result = .ok(v2WindowDockBrowserActionPayload(context, extra: ["handled": handled, "direction": direction]))
+                case .failure(let error):
+                    result = v2BrowserAutomationViewportError(error)
+                }
                 return
             }
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
                   let target = v2ResolveBrowserPanelForFocusedAction(workspace: ws, params: params) else { return }
-            let handled: Bool
+            let zoomResult: Result<Bool, BrowserAutomationViewportError>
             switch direction {
-            case "in": handled = target.panel.zoomIn()
-            case "out": handled = target.panel.zoomOut()
-            default: handled = target.panel.resetZoom()
+            case "in": zoomResult = target.panel.zoomInResult()
+            case "out": zoomResult = target.panel.zoomOutResult()
+            default: zoomResult = target.panel.resetZoomResult()
             }
-            result = .ok(v2BrowserActionPayload(
-                workspace: ws, surfaceId: target.surfaceId, tabManager: tabManager,
-                extra: ["handled": handled, "direction": direction]
-            ))
+            switch zoomResult {
+            case .success(let handled):
+                result = .ok(v2BrowserActionPayload(
+                    workspace: ws, surfaceId: target.surfaceId, tabManager: tabManager,
+                    extra: ["handled": handled, "direction": direction]
+                ))
+            case .failure(let error):
+                result = v2BrowserAutomationViewportError(error)
+            }
         }
         return result
     }
@@ -10167,8 +10140,8 @@ class TerminalController {
         }
     }
 
-    private func v2BrowserViewportSet(params _: [String: Any]) -> V2CallResult {
-        v2BrowserNotSupported("browser.viewport.set", details: "WKWebView does not provide a per-tab programmable viewport emulation API equivalent to CDP")
+    private func v2BrowserViewportSet(params: [String: Any]) -> V2CallResult {
+        v2BrowserViewportSetWKWebView(params: params)
     }
 
     private func v2BrowserGeolocationSet(params _: [String: Any]) -> V2CallResult {
