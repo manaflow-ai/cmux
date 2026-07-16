@@ -1432,6 +1432,10 @@ fn parse_resolved_ghostty_defaults(text: &str) -> DefaultColors {
 }
 
 fn apply_ghostty_default(defaults: &mut DefaultColors, key: &str, value: &str) {
+    let value = value
+        .strip_prefix('"')
+        .and_then(|value| value.strip_suffix('"'))
+        .unwrap_or(value);
     match key {
         "foreground" => {
             if let Some(color) = ghostty_vt::parse_color(value) {
