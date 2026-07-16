@@ -120,6 +120,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 && !previousRows[index].hasEquivalentContent(to: nextRows[index])
         })
         let heightChanges = rowHeightCache.prepareHostedRows(nextRows, columnWidth: currentColumnWidth())
+        pumpHeightOverrides.removeAll(keepingCapacity: true)
         rows = nextRows
 
         if hasStructuralChanges {
@@ -155,6 +156,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
         guard rows.indices.contains(row) else { return tableView.rowHeight }
         let configuration = rows[row]
+        if let override = pumpHeightOverrides[configuration.id] {
+            return override
+        }
         let columnWidth = currentColumnWidth()
         return rowHeightCache.height(
             for: configuration,
@@ -174,6 +178,14 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 owner: self
             ) as? SidebarGroupHeaderTableCellView ?? SidebarGroupHeaderTableCellView()
             configure(headerCell: cell, at: row)
+            return cell
+        }
+        if rows[row].appKitWorkspaceRowModel != nil {
+            let cell = tableView.makeView(
+                withIdentifier: SidebarWorkspaceRowTableCellView.reuseIdentifier,
+                owner: self
+            ) as? SidebarWorkspaceRowTableCellView ?? SidebarWorkspaceRowTableCellView()
+            configure(workspaceCell: cell, at: row)
             return cell
         }
         let cell = tableView.makeView(
@@ -323,12 +335,60 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             switch table.view(atColumn: 0, row: row, makeIfNecessary: false) {
             case let cell as SidebarGroupHeaderTableCellView:
                 configure(headerCell: cell, at: row)
+            case let cell as SidebarWorkspaceRowTableCellView:
+                configure(workspaceCell: cell, at: row)
             case let cell as SidebarWorkspaceTableCellView:
                 configure(cell: cell, at: row)
             default:
                 continue
             }
         }
+    }
+
+    private func configure(workspaceCell cell: SidebarWorkspaceRowTableCellView, at row: Int) {
+        let configuration = rows[row]
+        guard let model = configuration.appKitWorkspaceRowModel,
+              let actions = configuration.appKitWorkspaceRowActions else { return }
+        let rowId = configuration.id
+        cell.configure(
+            model: model,
+            actions: actions,
+            isPointerHovering: hoveredRowId == rowId && contextMenuRowId != rowId,
+            contextMenuDidOpen: { [weak self] in
+                self?.contextMenuDidOpen(rowId: rowId)
+            },
+            contextMenuDidClose: { [weak self] in
+                self?.contextMenuDidClose(rowId: rowId)
+            }
+        )
+        if let workspace = configuration.appKitWorkspaceRowWorkspace,
+           let rebuild = configuration.appKitWorkspaceRowRebuild {
+            cell.installPump(workspace: workspace) { [weak self, weak cell] in
+                guard let self, let cell else { return }
+                let fresh = rebuild()
+                cell.applyRebuiltModel(fresh)
+                self.noteRowHeightOverride(rowId: rowId, cell: cell, model: fresh)
+            }
+        }
+    }
+
+    /// Pump-driven height corrections between applies: heightOfRow consults
+    /// these before the equivalence-keyed cache (which only refreshes on the
+    /// next container apply).
+    private var pumpHeightOverrides: [SidebarWorkspaceRenderItemID: CGFloat] = [:]
+
+    private func noteRowHeightOverride(
+        rowId: SidebarWorkspaceRenderItemID,
+        cell: SidebarWorkspaceRowTableCellView,
+        model: SidebarWorkspaceRowModel
+    ) {
+        guard let table = containerView?.tableView,
+              let index = rows.firstIndex(where: { $0.id == rowId }) else { return }
+        let height = ceil(cell.layoutContent(model: model, width: currentColumnWidth(), apply: false))
+        let current = table.rect(ofRow: index).height
+        guard abs(height - current) >= 0.5 else { return }
+        pumpHeightOverrides[rowId] = height
+        table.noteHeightOfRows(withIndexesChanged: IndexSet(integer: index))
     }
 
     private func configure(headerCell cell: SidebarGroupHeaderTableCellView, at row: Int) {

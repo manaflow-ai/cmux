@@ -26,6 +26,7 @@ final class SidebarWorkspaceTableRowHeightCache {
 
     private var entries: [SidebarWorkspaceRenderItemID: Entry] = [:]
     private let prototypeView = NSHostingView(rootView: AnyView(EmptyView()))
+    private let prototypeRowView = SidebarWorkspaceRowTableCellView()
     private var preparedColumnWidth: CGFloat?
 
     func prepareHostedRows(
@@ -108,6 +109,17 @@ final class SidebarWorkspaceTableRowHeightCache {
         // hosted SwiftUI measurement path for them.
         if let headerModel = row.appKitGroupHeaderModel {
             return SidebarGroupHeaderTableCellView.preferredHeight(model: headerModel)
+        }
+        if let rowModel = row.appKitWorkspaceRowModel,
+           let actions = row.appKitWorkspaceRowActions {
+            prototypeRowView.configure(
+                model: rowModel,
+                actions: actions,
+                isPointerHovering: false,
+                contextMenuDidOpen: {},
+                contextMenuDidClose: {}
+            )
+            return prototypeRowView.layoutContent(model: rowModel, width: columnWidth, apply: false)
         }
         let contextMenuActions = SidebarWorkspaceTableContextMenuActions(
             didOpen: {},

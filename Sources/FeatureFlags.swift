@@ -46,6 +46,7 @@ final class CmuxFeatureFlags {
     #endif
     private static let agentChatUIDefault = false
     private static let sidebarWorkspaceAgentSpinnerDefault = false
+    private static let appKitSidebarListDefault = false
 
     private static let overrideKeyPrefix = "cmux.flags.override."
 
@@ -132,6 +133,24 @@ final class CmuxFeatureFlags {
                 ),
                 defaultWhenUnavailable: CmuxFeatureFlags.sidebarWorkspaceAgentSpinnerDefault
             ),
+
+            // FLAG(key: sidebar-appkit-list-experiment, owner: lawrencecchen,
+            //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+            // Renders the workspace sidebar with the AppKit NSTableView list
+            // (virtualized rows, measured-once heights) instead of the SwiftUI
+            // LazyVStack. Off by default while the rewrite soaks.
+            CmuxFeatureFlagDefinition(
+                key: "sidebar-appkit-list-experiment",
+                title: String(
+                    localized: "featureFlags.appKitSidebarList.title",
+                    defaultValue: "AppKit sidebar list"
+                ),
+                flagDescription: String(
+                    localized: "featureFlags.appKitSidebarList.description",
+                    defaultValue: "Renders the workspace sidebar with a native AppKit list for smoother scrolling with many workspaces."
+                ),
+                defaultWhenUnavailable: CmuxFeatureFlags.appKitSidebarListDefault
+            ),
         ]
     }()
 
@@ -153,6 +172,10 @@ final class CmuxFeatureFlags {
 
     var isSidebarWorkspaceAgentSpinnerEnabled: Bool {
         effectiveValue(for: Self.allFlags[4])
+    }
+
+    var isAppKitSidebarListEnabled: Bool {
+        effectiveValue(for: Self.allFlags[5])
     }
 
     @ObservationIgnored
