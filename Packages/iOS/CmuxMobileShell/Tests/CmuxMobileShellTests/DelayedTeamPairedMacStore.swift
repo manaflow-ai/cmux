@@ -214,6 +214,10 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
         }
     }
 
+    func didStartLoad(teamID: String?) -> Bool {
+        startedTeams.contains(teamID ?? "")
+    }
+
     func release(teamID: String?) {
         let key = teamID ?? ""
         blockers.removeValue(forKey: key)?.resume()
