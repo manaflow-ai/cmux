@@ -3963,7 +3963,8 @@ extension CMUXCLI {
         runtime: URL?
     ) throws -> DiffViewerWriteResult {
         let target = try makeDiffViewerGitHTMLSetTarget(runtime: runtime)
-        if selectedSource != .lastTurn {
+        if selectedSource != .lastTurn,
+           !diffViewerUsesTypedSidecar(runtime: target.runtime) {
             return try writeOpeningGitDiffViewerHTMLSet(
                 selectedSource: selectedSource,
                 titleOverride: titleOverride,
