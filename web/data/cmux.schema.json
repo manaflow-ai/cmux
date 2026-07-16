@@ -1377,6 +1377,12 @@
           "default": "system",
           "description": "Embedded browser theme."
         },
+        "forwardWebNotifications": {
+          "type": "boolean",
+          "default": true,
+          "descriptionKey": "schemaDescriptions.browser.forwardWebNotifications",
+          "description": "Forward page-created website notifications through cmux after the website grants notification permission."
+        },
         "discardHiddenWebViews": {
           "type": "boolean",
           "default": true,

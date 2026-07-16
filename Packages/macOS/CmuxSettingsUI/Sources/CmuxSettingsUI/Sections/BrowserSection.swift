@@ -23,6 +23,7 @@ public struct BrowserSection: View {
     @State private var customURL: DefaultsValueModel<String>
     @State private var suggestions: DefaultsValueModel<Bool>
     @State private var theme: DefaultsValueModel<BrowserThemeMode>
+    @State private var forwardWebNotifications: DefaultsValueModel<Bool>
     @State private var discardEnabled: DefaultsValueModel<Bool>
     @State private var discardDelay: DefaultsValueModel<Double>
     @State private var askWhereToSaveDownloads: DefaultsValueModel<Bool>
@@ -54,6 +55,7 @@ public struct BrowserSection: View {
         _customURL = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.customSearchEngineURLTemplate))
         _suggestions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.showSearchSuggestions))
         _theme = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.theme))
+        _forwardWebNotifications = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.forwardWebNotifications))
         _discardEnabled = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.discardHiddenWebViews))
         _discardDelay = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.hiddenWebViewDiscardDelaySeconds))
         _askWhereToSaveDownloads = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.askWhereToSaveDownloads))
@@ -85,7 +87,7 @@ public struct BrowserSection: View {
             Button(String(localized: "settings.browser.history.clearDialog.cancel", defaultValue: "Cancel"), role: .cancel) {}
         } message: {
             Text(String(localized: "settings.browser.history.clearDialog.message", defaultValue: "This removes visited-page suggestions from the browser omnibar."))
-        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, theme, discardEnabled, discardDelay, askWhereToSaveDownloads, openTermLinks, interceptOpen, hosts, external, httpAllowlist, importHint, reactGrab]) }
+        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, theme, forwardWebNotifications, discardEnabled, discardDelay, askWhereToSaveDownloads, openTermLinks, interceptOpen, hosts, external, httpAllowlist, importHint, reactGrab]) }
     }
 
     @ViewBuilder
@@ -173,6 +175,19 @@ public struct BrowserSection: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
+            }
+            SettingsCardDivider()
+
+            // Website Notifications
+            SettingsCardRow(
+                configurationReview: .json("browser.forwardWebNotifications"),
+                String(localized: "settings.browser.forwardWebNotifications", defaultValue: "Forward Website Notifications"),
+                subtitle: String(localized: "settings.browser.forwardWebNotifications.subtitle", defaultValue: "Website permission and cmux forwarding must both be enabled for notifications to appear.")
+            ) {
+                Toggle("", isOn: Binding(get: { forwardWebNotifications.current }, set: { forwardWebNotifications.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsBrowserForwardWebNotificationsToggle")
             }
             SettingsCardDivider()
 

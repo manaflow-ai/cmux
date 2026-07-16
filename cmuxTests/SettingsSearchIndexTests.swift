@@ -16,6 +16,7 @@ struct SettingsSearchIndexTests {
         assertSearch("sound file", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "notification-sound"))
         assertSearch("disable browser", contains: SettingsSearchIndex.settingID(for: .browser, idSuffix: "enable-browser"))
         assertSearch("http allowlist", contains: SettingsSearchIndex.settingID(for: .browser, idSuffix: "http-allowlist"))
+        assertSearch("website notifications", contains: SettingsSearchIndex.settingID(for: .browser, idSuffix: "forward-web-notifications"))
         assertSearch("claude executable", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "claude-path"))
         assertSearch("resume on reopen", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume"))
         assertSearch("workspace cwd", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "workspace-inherit-working-directory"))
@@ -63,6 +64,13 @@ struct SettingsSearchIndexTests {
         #expect(
             SettingsSearchIndex.anchorID(forSettingsPath: "browser.enabled")
                 == SettingsSearchIndex.settingID(for: .browser, idSuffix: "enable-browser")
+        )
+    }
+
+    @Test func settingsPathAnchorIncludesForwardWebNotifications() {
+        #expect(
+            SettingsSearchIndex.anchorID(forSettingsPath: "browser.forwardWebNotifications")
+                == SettingsSearchIndex.settingID(for: .browser, idSuffix: "forward-web-notifications")
         )
     }
 

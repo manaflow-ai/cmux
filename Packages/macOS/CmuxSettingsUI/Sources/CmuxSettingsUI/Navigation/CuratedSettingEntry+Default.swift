@@ -264,6 +264,13 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .browser, id: "search-engine", title: "Default Search Engine", synonyms: "browser.defaultSearchEngine omnibar address bar google duckduckgo bing kagi brave startpage perplexity exa yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider engine name url template"),
             .init(section: .browser, id: "search-suggestions", title: "Show Search Suggestions", synonyms: "browser.showSearchSuggestions suggest autocomplete address bar search suggestions"),
             .init(section: .browser, id: "theme", title: "Browser Theme", synonyms: "browser.theme web page theme color scheme light dark system"),
+            .init(
+                section: .browser,
+                id: "forward-web-notifications",
+                title: String(localized: "settings.browser.forwardWebNotifications", defaultValue: "Forward Website Notifications"),
+                detailText: String(localized: "settings.browser.forwardWebNotifications.subtitle", defaultValue: "Website permission and cmux forwarding must both be enabled for notifications to appear."),
+                synonyms: String(localized: "settings.search.alias.setting.browser.forward-web-notifications", defaultValue: "browser.forwardWebNotifications website web page notifications alerts banners sidebar permission")
+            ),
             .init(section: .browser, id: "hidden-webview-discard", title: "Browser Memory Saver", synonyms: "browser.discardHiddenWebViews memory hidden tabs webview discard unload reclaim"),
             .init(section: .browser, id: "hidden-webview-discard-delay", title: "Memory Saver Delay", synonyms: "browser.hiddenWebViewDiscardDelaySeconds memory hidden tabs delay seconds discard unload"),
             .init(

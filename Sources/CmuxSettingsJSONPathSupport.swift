@@ -334,6 +334,10 @@ enum AutomationSettingsFileMapping {
 enum BrowserSettingsFileMapping {
     static let booleanSettings: [SettingsFileBooleanMapping] = [
         .init(jsonKey: "showSearchSuggestions", defaultsKey: BrowserSearchSettingsStore.searchSuggestionsEnabledKey),
+        .init(
+            jsonKey: "forwardWebNotifications",
+            defaultsKey: SettingCatalog().browser.forwardWebNotifications.userDefaultsKey
+        ),
         .init(jsonKey: "discardHiddenWebViews", defaultsKey: BrowserHiddenWebViewDiscardPolicy.enabledKey),
         .init(
             jsonKey: "askWhereToSaveDownloads",
@@ -491,6 +495,7 @@ extension CmuxSettingsFileStore {
         "browser.customSearchEngineURLTemplate",
         "browser.showSearchSuggestions",
         "browser.theme",
+        "browser.forwardWebNotifications",
         "browser.discardHiddenWebViews",
         "browser.hiddenWebViewDiscardDelaySeconds",
         "browser.askWhereToSaveDownloads",
