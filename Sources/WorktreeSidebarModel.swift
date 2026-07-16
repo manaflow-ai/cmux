@@ -46,6 +46,7 @@ final class WorktreeSidebarModel {
     @ObservationIgnored private var worktreePaths: [String] = []
     @ObservationIgnored private var statusByPath: [String: WorktreeSidebarStatus] = [:]
     @ObservationIgnored private var rowIndexByPath: [String: Int] = [:]
+    @ObservationIgnored private var minimumListingRequestIDByRemovedPath: [String: UInt64] = [:]
     @ObservationIgnored private var visiblePaths: Set<String> = []
     @ObservationIgnored private var staleStatusRefreshPaths: Set<String> = []
     @ObservationIgnored private var statusScheduler: WorktreeSidebarStatusScheduler!
@@ -168,6 +169,7 @@ final class WorktreeSidebarModel {
     func openTerminal(for row: WorktreeSidebarRow) {
         guard !row.worktree.isPrunable,
               operationPhase != .removing(row.id),
+              minimumListingRequestIDByRemovedPath[row.worktree.path] == nil,
               worktreeByPath[row.worktree.path]?.id == row.worktree.id else {
             return
         }
@@ -217,6 +219,7 @@ final class WorktreeSidebarModel {
                     expected: inspection,
                     force: force
                 )
+                minimumListingRequestIDByRemovedPath[inspection.worktree.path] = listingRequestID &+ 1
                 workspaces.apply(closePlan)
                 if case .preserved(let name, let reason) = result.branch {
                     dialogs.presentPreservedBranch(name: name, reason: reason)
@@ -264,7 +267,7 @@ final class WorktreeSidebarModel {
                       listingRequestID == requestID else {
                     return
                 }
-                apply(worktrees: worktrees)
+                apply(worktrees: worktrees, requestID: requestID)
                 listingErrorDetails = nil
                 listingPhase = .loaded
             } catch {
@@ -289,10 +292,13 @@ final class WorktreeSidebarModel {
         }
     }
 
-    private func apply(worktrees: [WorktreeSidebarWorktree]) {
+    private func apply(worktrees: [WorktreeSidebarWorktree], requestID: UInt64) {
         self.worktrees = worktrees
         worktreeByPath = Dictionary(uniqueKeysWithValues: worktrees.map { ($0.path, $0) })
         worktreePaths = worktrees.map(\.path)
+        minimumListingRequestIDByRemovedPath = minimumListingRequestIDByRemovedPath.filter {
+            $0.value > requestID
+        }
         let validPaths = Set(worktrees.map(\.path))
         for path in visiblePaths.subtracting(validPaths) {
             stopStatusTracking(path: path)
