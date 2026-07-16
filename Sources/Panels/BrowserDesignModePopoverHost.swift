@@ -13,7 +13,12 @@ import SwiftUI
 /// through to the web content below. Same pattern as
 /// `BrowserPortalOmnibarSuggestionsHostingView`.
 final class BrowserDesignModeComposerHostingView: NSHostingView<BrowserDesignModePopoverHost> {
-    var cardFrameInTopLeftCoordinates: CGRect = .zero
+    var cardFrameInTopLeftCoordinates: CGRect = .zero {
+        didSet {
+            guard oldValue != cardFrameInTopLeftCoordinates else { return }
+            window?.invalidateCursorRects(for: self)
+        }
+    }
     /// Fired while the pointer moves within the card. SwiftUI's onHover does
     /// not fire reliably over the embedded AppKit token text view, so the
     /// page-side hover clear is driven from this tracking area instead.
@@ -54,7 +59,27 @@ final class BrowserDesignModeComposerHostingView: NSHostingView<BrowserDesignMod
             ? localPoint
             : NSPoint(x: localPoint.x, y: bounds.height - localPoint.y)
         guard cardFrameInTopLeftCoordinates.contains(topLeftPoint) else { return nil }
+        // hitTest runs for every event over the card — the one place the
+        // pointer provably sits on the composer — so the page-side hover
+        // clear hooks here (tracking-area mouseMoved alone proved unreliable
+        // over the embedded text view).
+        onPointerInsideCard?()
         return super.hitTest(point)
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        // The page shield advertises a crosshair; the composer must not.
+        // Deeper views (the token text view) still override with I-beam.
+        let cardRect = isFlipped
+            ? cardFrameInTopLeftCoordinates
+            : NSRect(
+                x: cardFrameInTopLeftCoordinates.minX,
+                y: bounds.height - cardFrameInTopLeftCoordinates.maxY,
+                width: cardFrameInTopLeftCoordinates.width,
+                height: cardFrameInTopLeftCoordinates.height
+            )
+        addCursorRect(cardRect, cursor: .arrow)
     }
 }
 

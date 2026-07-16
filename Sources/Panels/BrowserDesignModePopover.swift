@@ -48,9 +48,7 @@ struct BrowserDesignModePopover: View {
             }
             errorMessage
         }
-        .padding(.leading, 16)
-        .padding(.trailing, 8)
-        .padding(.vertical, 8)
+        .padding(10)
         .frame(width: 420)
         .background(cardBackground)
         .environment(\.colorScheme, .dark)
@@ -140,7 +138,9 @@ struct BrowserDesignModePopover: View {
                         ? AnyShapeStyle(.green)
                         : AnyShapeStyle(.white.opacity(controller.canCopy ? 0.85 : 0.3))
                 )
-                .frame(width: 24, height: 24)
+                // Same 26pt footprint as the mode toggle capsule so the
+                // left and right controls sit symmetrically in the card.
+                .frame(width: 26, height: 26)
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
@@ -183,9 +183,21 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
         textView.insertionPointColor = NSColor(calibratedRed: 0.35, green: 0.62, blue: 1.0, alpha: 1)
         textView.textContainerInset = NSSize(width: 0, height: 2)
         textView.textContainer?.lineFragmentPadding = 0
+        // Full wrap-and-grow recipe: without the unbounded max size and
+        // container height, pills past the first line clip instead of
+        // wrapping onto new lines.
+        textView.minSize = NSSize(width: 0, height: 0)
+        textView.maxSize = NSSize(
+            width: CGFloat.greatestFiniteMagnitude,
+            height: CGFloat.greatestFiniteMagnitude
+        )
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
+        textView.textContainer?.containerSize = NSSize(
+            width: 0,
+            height: CGFloat.greatestFiniteMagnitude
+        )
         textView.textContainer?.widthTracksTextView = true
         textView.setAccessibilityLabel(
             String(
@@ -201,7 +213,9 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
         scrollView.hasVerticalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.verticalScrollElasticity = .none
+        scrollView.hasHorizontalScroller = false
         scrollView.documentView = textView
+        textView.frame = NSRect(origin: .zero, size: scrollView.contentSize)
         context.coordinator.textView = textView
         context.coordinator.sync(selections: selections, requestedChange: controller.requestedChange)
         DispatchQueue.main.async {
