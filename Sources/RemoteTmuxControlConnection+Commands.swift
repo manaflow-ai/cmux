@@ -11,6 +11,29 @@ extension RemoteTmuxControlConnection {
         sendInternal(command, kind: .other)
     }
 
+    /// Sends a command and reports how its `%begin`/`%end` block resolved:
+    /// `true` on `%end`, `false` on `%error` — or `false` if the stream resets
+    /// before the block arrives, since a fresh control stream can never answer
+    /// it. A `false` RETURN means the command never left; the completion is
+    /// then not called. Callers get exactly one edge either way, so state
+    /// machines can anchor on the block resolution instead of a timer.
+    @discardableResult
+    func sendTracked(_ command: String, completion: @escaping (Bool) -> Void) -> Bool {
+        let token = UUID()
+        trackedSendCompletions[token] = completion
+        guard sendInternal(command, kind: .tracked(token)) else {
+            trackedSendCompletions.removeValue(forKey: token)
+            return false
+        }
+        return true
+    }
+
+    func failPendingTrackedSends() {
+        let completions = Array(trackedSendCompletions.values)
+        trackedSendCompletions.removeAll()
+        completions.forEach { $0(false) }
+    }
+
     /// Atomically enqueues a window-reorder batch and its result correlation.
     func sendWindowReorder(
         _ commands: [String],
@@ -161,18 +184,48 @@ extension RemoteTmuxControlConnection {
         // after capture-pane so it applies on top of the painted rows (the seed
         // escapes are built in `paneStateSeedSequence`). See the doc comment for why
         // restoring this matters.
-        sendInternal(
-            "display-message -p -t %\(paneId) -F \""
-                + "cursor_x=#{cursor_x},cursor_y=#{cursor_y},"
-                + "scroll_region_upper=#{scroll_region_upper},scroll_region_lower=#{scroll_region_lower},"
-                + "cursor_flag=#{cursor_flag},insert_flag=#{insert_flag},"
-                + "keypad_cursor_flag=#{keypad_cursor_flag},keypad_flag=#{keypad_flag},"
-                + "wrap_flag=#{wrap_flag},origin_flag=#{origin_flag},pane_height=#{pane_height},"
-                + "mouse_all_flag=#{mouse_all_flag},mouse_button_flag=#{mouse_button_flag},"
-                + "mouse_standard_flag=#{mouse_standard_flag},"
-                + "mouse_sgr_flag=#{mouse_sgr_flag},mouse_utf8_flag=#{mouse_utf8_flag}\"",
-            kind: .paneState(paneId)
-        )
+        sendInternal(Self.paneStateQueryCommand(paneId: paneId), kind: .paneState(paneId))
+    }
+
+    /// Repaints ONE mirrored pane from tmux's current visible screen, for cells a
+    /// grid grow just granted.
+    ///
+    /// tmux repaints only on change, so cells granted after tmux already streamed
+    /// their rows hold nothing: the surface clipped that content while its grid was
+    /// short. tmux's own grid HAS the rows — only the mirror lost them — so the
+    /// repair is to read tmux's screen, not to make tmux or the remote re-render.
+    /// That is why this replaces the shrink→restore size kick here: the kick forced
+    /// a SIGWINCH by moving the CLIENT size, which made tmux re-round an odd split
+    /// and hand a stacked pane a different row count, which grew a pane again and
+    /// re-fired the kick — an unbounded loop (23k kicks in one fuzz iteration).
+    /// `capture-pane` and `display-message` are reads: no client size moves, tmux
+    /// re-rounds nothing, so this can fire on EVERY genuine grow with no loop and
+    /// no need to ration it.
+    ///
+    /// No `-S`: the seed's scrollback history is already in the surface, and
+    /// re-emitting it would stack a second copy into the mirror's scrollback. The
+    /// visible screen is exactly what a clipped grow lost. The reply paints
+    /// home+clear+rows (see the `.capturePane` result), so this REPLACES the
+    /// visible screen rather than appending, and the `.paneState` seed that follows
+    /// restores the cursor and scroll region on top.
+    func repaintPaneVisibleScreen(paneId: Int) {
+        sendInternal("capture-pane -p -e -t %\(paneId)", kind: .capturePane(paneId))
+        sendInternal(Self.paneStateQueryCommand(paneId: paneId), kind: .paneState(paneId))
+    }
+
+    /// The `display-message` line that reads a pane's terminal state (cursor,
+    /// scroll region, DEC modes) for the `.paneState` seed. Shared by the attach
+    /// seed and ``repaintPaneVisibleScreen(paneId:)`` so the two cannot drift.
+    static func paneStateQueryCommand(paneId: Int) -> String {
+        "display-message -p -t %\(paneId) -F \""
+            + "cursor_x=#{cursor_x},cursor_y=#{cursor_y},"
+            + "scroll_region_upper=#{scroll_region_upper},scroll_region_lower=#{scroll_region_lower},"
+            + "cursor_flag=#{cursor_flag},insert_flag=#{insert_flag},"
+            + "keypad_cursor_flag=#{keypad_cursor_flag},keypad_flag=#{keypad_flag},"
+            + "wrap_flag=#{wrap_flag},origin_flag=#{origin_flag},pane_height=#{pane_height},"
+            + "mouse_all_flag=#{mouse_all_flag},mouse_button_flag=#{mouse_button_flag},"
+            + "mouse_standard_flag=#{mouse_standard_flag},"
+            + "mouse_sgr_flag=#{mouse_sgr_flag},mouse_utf8_flag=#{mouse_utf8_flag}\""
     }
 
     /// Seeds (or re-seeds) a mirrored pane in the one canonical sequence: reflow
@@ -198,6 +251,13 @@ extension RemoteTmuxControlConnection {
         // must reset with it, or requests matching pre-drop sends would be
         // suppressed against a server that no longer has them.
         sentWindowSizes.removeAll()
+        // Parity episodes are per connection too: a re-arm budget spent
+        // against the old transport must not suppress re-arms when this
+        // reseed's own resends get lost or raced the same way.
+        windowClaimParityRearmsSpent.removeAll()
+        // The border-status watches were dropped at `beginReconnecting()` — before
+        // this reseed's own list-windows restage, which is what re-issues them.
+        // Clearing them here would be too late: the restage has already run.
         if let size = lastClientSize {
             send("refresh-client -C \(size.columns)x\(size.rows)")
         }
