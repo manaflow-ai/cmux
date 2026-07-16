@@ -189,6 +189,75 @@ import Testing
         #expect(try await transport.sentRequests().map(\.id) == ["second-after-connect-cancellation"])
     }
 
+    @Test func callerCancellationClosedErrorDoesNotEmitFailedAndAllowsRetry() async throws {
+        let transport = FirstConnectClosedErrorThenSucceedsTransport()
+        let (connectEvents, connectEventContinuation) =
+            AsyncStream<MobileRPCTransportConnectEvent>.makeStream()
+        let session = MobileCoreRPCSession(
+            makeTransport: { transport },
+            transportConnectObserver: { event in
+                connectEventContinuation.yield(event)
+            }
+        )
+        let first = try MobileCoreRPCClient.requestData(
+            method: "mobile.host.status",
+            params: [:],
+            id: "cancelled-closed-connect"
+        )
+        let second = try MobileCoreRPCClient.requestData(
+            method: "mobile.host.status",
+            params: [:],
+            id: "retry-after-closed-connect"
+        )
+        let deadline = DispatchTime.now().uptimeNanoseconds + 60 * 1_000_000_000
+        let firstTask = Task {
+            try await session.send(
+                payload: first,
+                requestID: "cancelled-closed-connect",
+                deadlineUptimeNanoseconds: deadline
+            )
+        }
+
+        await transport.waitUntilFirstConnectStarted()
+        firstTask.cancel()
+        do {
+            _ = try await firstTask.value
+            Issue.record("Expected first RPC request to throw CancellationError")
+        } catch is CancellationError {
+        } catch {
+            Issue.record("Expected CancellationError, got \(error)")
+        }
+        await transport.waitUntilFirstConnectFinished()
+
+        let data = try await session.send(
+            payload: second,
+            requestID: "retry-after-closed-connect",
+            deadlineUptimeNanoseconds: deadline
+        )
+        let response = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
+        #expect(response["status"] == "ok")
+        #expect(await transport.connectCount() == 2)
+        #expect(try await transport.sentRequests().map(\.id) == ["retry-after-closed-connect"])
+
+        connectEventContinuation.finish()
+        var attemptCount = 0
+        var connectedCount = 0
+        var failedCount = 0
+        for await event in connectEvents {
+            switch event {
+            case .attempt:
+                attemptCount += 1
+            case .connected:
+                connectedCount += 1
+            case .failed:
+                failedCount += 1
+            }
+        }
+        #expect(attemptCount == 2)
+        #expect(connectedCount == 1)
+        #expect(failedCount == 0)
+    }
+
     @Test func repeatedConnectTimeoutsDoNotFanOutWhileCleanupIsStuck() async throws {
         let transport = CancellationIgnoringConnectTransport()
         let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59127)
