@@ -5,10 +5,19 @@ final class TCCUsageDescriptionUITests: XCTestCase {
     func testBuiltAppDeclaresUsageDescriptionsForTerminalDescendants() throws {
         let appBundle = try XCTUnwrap(Bundle(url: builtAppBundleURL()))
         let requiredKeys = [
+            "NSAppBundlesUsageDescription",
+            "NSAppDataUsageDescription",
+            "NSDesktopFolderUsageDescription",
+            "NSDocumentsFolderUsageDescription",
+            "NSDownloadsFolderUsageDescription",
+            "NSFileProviderDomainUsageDescription",
+            "NSNetworkVolumesUsageDescription",
+            "NSRemovableVolumesUsageDescription",
             "NSCalendarsUsageDescription",
             "NSContactsUsageDescription",
             "NSRemindersUsageDescription",
             "NSLocationUsageDescription",
+            "NSLocationWhenInUseUsageDescription",
             "NSSpeechRecognitionUsageDescription",
             "NSSystemAdministrationUsageDescription",
             "NSPhotoLibraryUsageDescription",
