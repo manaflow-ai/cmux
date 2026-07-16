@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import Foundation
 import Testing
 
@@ -274,9 +275,11 @@ struct GhosttyTitleUpdateDispatcherTests {
 
     @Test func retirementDropsPendingTitle() async {
         var published: [GhosttyTitleUpdate] = []
-        let dispatcher = GhosttyTitleUpdateDispatcher(schedule: { _, _ in
-            {}
-        }) { updates in
+        let attachmentGeneration = AtomicUInt64Generation()
+        let dispatcher = GhosttyTitleUpdateDispatcher(
+            attachmentGeneration: attachmentGeneration,
+            schedule: { _, _ in {} }
+        ) { updates in
             published.append(contentsOf: updates)
         }
         let surfaceId = UUID()
@@ -288,13 +291,35 @@ struct GhosttyTitleUpdateDispatcherTests {
             title: "pending",
             sourceSurfaceIdentifier: sourceIdentifier
         ))
-        await dispatcher.retire(GhosttyTitleUpdateSurfaceKey(
-            surfaceId: surfaceId,
-            sourceSurfaceIdentifier: sourceIdentifier
-        ))
+        await dispatcher.retireUpdates(before: attachmentGeneration.advanceRelaxed())
         await dispatcher.flushNow()
 
         #expect(published.isEmpty)
+    }
+
+    @Test func newGenerationSurvivesLateRetirementCleanup() async {
+        var published: [GhosttyTitleUpdate] = []
+        let attachmentGeneration = AtomicUInt64Generation()
+        let dispatcher = GhosttyTitleUpdateDispatcher(
+            attachmentGeneration: attachmentGeneration,
+            schedule: { _, _ in {} }
+        ) { updates in
+            published.append(contentsOf: updates)
+        }
+        let generation = attachmentGeneration.advanceRelaxed()
+        let update = GhosttyTitleUpdate(
+            tabId: UUID(),
+            surfaceId: UUID(),
+            title: "reattached",
+            sourceSurfaceIdentifier: ObjectIdentifier(NSObject()),
+            attachmentGeneration: generation
+        )
+
+        await dispatcher.receive(update)
+        await dispatcher.retireUpdates(before: generation)
+        await dispatcher.flushNow()
+
+        #expect(published == [update])
     }
 
     @Test func workspaceMoveKeepsOneSurfaceLifetimeAndLatestRoute() async {
@@ -364,10 +389,7 @@ struct GhosttyTitleUpdateIngressTests {
             sourceSurface: source,
             title: "stable"
         ))
-        ingress.retire(GhosttyTitleUpdateSurfaceKey(
-            surfaceId: surfaceId,
-            sourceSurface: source
-        ))
+        ingress.retireCurrentAttachment()
         #expect(ingress.submit(
             tabId: tabId,
             surfaceId: surfaceId,
