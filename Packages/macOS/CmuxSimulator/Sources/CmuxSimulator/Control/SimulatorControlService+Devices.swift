@@ -90,9 +90,7 @@ extension SimulatorControlService {
     }
 
     func parseDate(_ value: String) -> Date? {
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+        fractionalDateFormatter.date(from: value) ?? internetDateFormatter.date(from: value)
     }
 
     func runtimeName(from identifier: String) -> String {

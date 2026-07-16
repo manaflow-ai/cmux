@@ -19,6 +19,8 @@ public struct SimulatorOperationDeadlines: Sendable {
     public let permissionMutation: TimeInterval
     /// Maximum duration for resetting all Simulator permissions.
     public let permissionResetAll: TimeInterval
+    /// Additional time for a text command to start and attach its pane worker.
+    public let textInputReadiness: TimeInterval
     /// Additional time allowed for the CLI transport to receive a completed receipt.
     public let clientReceiptMargin: TimeInterval
 
@@ -32,6 +34,7 @@ public struct SimulatorOperationDeadlines: Sendable {
         inspectionRead: TimeInterval = 35,
         permissionMutation: TimeInterval = 70,
         permissionResetAll: TimeInterval = 190,
+        textInputReadiness: TimeInterval = 35,
         clientReceiptMargin: TimeInterval = 10
     ) {
         self.selectDevice = selectDevice
@@ -42,6 +45,7 @@ public struct SimulatorOperationDeadlines: Sendable {
         self.inspectionRead = inspectionRead
         self.permissionMutation = permissionMutation
         self.permissionResetAll = permissionResetAll
+        self.textInputReadiness = textInputReadiness
         self.clientReceiptMargin = clientReceiptMargin
     }
 

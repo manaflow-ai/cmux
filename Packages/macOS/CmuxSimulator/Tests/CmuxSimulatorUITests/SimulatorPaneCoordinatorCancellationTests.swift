@@ -72,7 +72,64 @@ struct SimulatorPaneCoordinatorCancellationTests {
         catch { Issue.record("Unexpected error: \(error)") }
 
         #expect(await client.activationCancellationCount() == 1)
+        #expect(coordinator.selectedDeviceID == nil)
         #expect(coordinator.status == .idle)
         await coordinator.close()
+    }
+
+    @Test("Cancelled explicit selection restores the prior device binding")
+    func cancelledSelectionRestoresPriorBinding() async {
+        let phone = SimulatorDevice(
+            id: "phone",
+            name: "iPhone",
+            runtimeIdentifier: "runtime",
+            runtimeName: "iOS 26.5",
+            deviceTypeIdentifier: "phone-type",
+            family: .iPhone,
+            state: .booted,
+            isAvailable: true,
+            lastBootedAt: nil
+        )
+        let pad = SimulatorDevice(
+            id: "pad",
+            name: "iPad",
+            runtimeIdentifier: "runtime",
+            runtimeName: "iOS 26.5",
+            deviceTypeIdentifier: "pad-type",
+            family: .iPad,
+            state: .shutdown,
+            isAvailable: true,
+            lastBootedAt: nil
+        )
+        let client = SimulatorPaneClientSpy(
+            devices: [phone, pad],
+            delaysActivation: true
+        )
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        coordinator.devices = [phone, pad]
+        coordinator.selectedDeviceID = phone.id
+        coordinator.status = .streaming
+
+        let selection = Task { @MainActor in
+            try await coordinator.selectDeviceAndWait(id: pad.id)
+        }
+        await waitForActivation(pad.id, client: client)
+        selection.cancel()
+        _ = await selection.result
+
+        #expect(coordinator.selectedDeviceID == phone.id)
+        await waitForActivation(phone.id, client: client)
+        await coordinator.close()
+    }
+
+    private func waitForActivation(
+        _ deviceID: String,
+        client: SimulatorPaneClientSpy
+    ) async {
+        for _ in 0..<1_000 {
+            if await client.activations().contains(where: { $0.id == deviceID }) { return }
+            await Task.yield()
+        }
+        Issue.record("Expected activation for \(deviceID)")
     }
 }

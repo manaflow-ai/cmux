@@ -475,12 +475,18 @@ extension CMUXCLI {
         let responseTimeout: TimeInterval?
         switch subcommand {
         case "type":
-            params["text"] = try simulatorSourceValue(
+            let text = try simulatorSourceValue(
                 parsed,
                 maximumBytes: Self.simulatorTextLimit
             )
+            let deliveryTimeout = (try? SimulatorUSKeyboardTextEncoder().encode(text))?
+                .completionTimeoutSeconds ?? 120
+            params["text"] = text
             method = "simulator.type"
-            responseTimeout = 130
+            responseTimeout = simulatorOperationDeadlines.clientTimeout(
+                for: deliveryTimeout
+                    + simulatorOperationDeadlines.textInputReadiness
+            )
         case "targets":
             try requireNoSimulatorSource(parsed, subcommand: subcommand)
             method = "simulator.web_inspector.targets"

@@ -63,7 +63,8 @@ extension TerminalController: ControlSimulatorContext {
             return .started(
                 surfaceID: panel.id,
                 characterCount: sequence.characterCount,
-                completionTimeoutSeconds: sequence.completionTimeoutSeconds + 35,
+                completionTimeoutSeconds: sequence.completionTimeoutSeconds
+                    + simulatorOperationDeadlines.textInputReadiness,
                 receipt: receipt
             )
         }

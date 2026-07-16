@@ -294,7 +294,17 @@ extension SimulatorPaneCoordinator {
 
     /// Selects one discovered device and waits for its attachment to finish.
     public func selectDeviceAndWait(id: String) async throws {
+        let previousDeviceID = selectedDeviceID
         await reloadDevices()
+        do {
+            try Task.checkCancellation()
+        } catch {
+            restoreSelectionAfterCancellation(
+                previousDeviceID: previousDeviceID,
+                generation: selectionGeneration
+            )
+            throw CancellationError()
+        }
         guard devices.contains(where: { $0.id == id }) else {
             throw SimulatorFailure(
                 code: "simulator_device_not_found",
@@ -309,7 +319,16 @@ extension SimulatorPaneCoordinator {
         let selectionTask = activationTask
         let generation = selectionGeneration
         if let selectionTask {
-            try await awaitActivationTask(selectionTask, generation: generation)
+            do {
+                try await awaitActivationTask(selectionTask, generation: generation)
+            } catch is CancellationError {
+                if selectedDeviceID == id, status == .streaming { return }
+                restoreSelectionAfterCancellation(
+                    previousDeviceID: previousDeviceID,
+                    generation: generation
+                )
+                throw CancellationError()
+            }
         }
         guard selectedDeviceID == id, status == .streaming else {
             throw failure ?? SimulatorFailure(
@@ -321,6 +340,24 @@ extension SimulatorPaneCoordinator {
                 isRecoverable: true
             )
         }
+    }
+
+    private func restoreSelectionAfterCancellation(
+        previousDeviceID: String?,
+        generation: UInt64
+    ) {
+        guard selectionGeneration == generation, selectedDeviceID != previousDeviceID else { return }
+        if let previousDeviceID,
+           devices.contains(where: { $0.id == previousDeviceID }) {
+            selectDevice(id: previousDeviceID)
+            return
+        }
+        selectionGeneration &+= 1
+        activationTask?.cancel()
+        activationTask = nil
+        selectActionHistory(deviceID: nil)
+        selectedDeviceID = nil
+        status = .idle
     }
 
     /// Reboots the worker connection for the selected device.

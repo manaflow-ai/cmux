@@ -17,6 +17,8 @@ public actor SimulatorControlService: SimulatorControlling {
     let makeUUID: @Sendable () -> UUID
     let now: @Sendable () -> Date
     let routeSleep: @Sendable (Duration) async throws -> Void
+    let fractionalDateFormatter: ISO8601DateFormatter
+    let internetDateFormatter: ISO8601DateFormatter
     let mutationGate = SimulatorMutationGate()
     var activeLocationRoutes: [String: ActiveLocationRoute] = [:]
     var locationRouteInitialCoordinates: [String: SimulatorLocationCoordinate] = [:]
@@ -60,6 +62,10 @@ public actor SimulatorControlService: SimulatorControlling {
         self.makeUUID = makeUUID
         self.now = now
         self.routeSleep = routeSleep
+        let fractionalDateFormatter = ISO8601DateFormatter()
+        fractionalDateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        self.fractionalDateFormatter = fractionalDateFormatter
+        self.internetDateFormatter = ISO8601DateFormatter()
     }
 
     deinit {
