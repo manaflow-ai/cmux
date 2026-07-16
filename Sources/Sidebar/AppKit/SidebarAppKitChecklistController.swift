@@ -669,13 +669,13 @@ private final class SidebarAppKitChecklistItemCellView: NSTableCellView, NSTextF
         addMenuItem(
             to: menu,
             title: String(localized: "contextMenu.moveUp", defaultValue: "Move Up"),
-            action: #selector(moveUp),
+            action: #selector(moveChecklistItemUp),
             enabled: canMoveUp
         )
         addMenuItem(
             to: menu,
             title: String(localized: "contextMenu.moveDown", defaultValue: "Move Down"),
-            action: #selector(moveDown),
+            action: #selector(moveChecklistItemDown),
             enabled: canMoveDown
         )
         menu.addItem(.separator())
@@ -739,11 +739,19 @@ private final class SidebarAppKitChecklistItemCellView: NSTableCellView, NSTextF
         itemField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         itemField.setAccessibilityIdentifier("SidebarChecklistAppKitEditItemField")
 
-        configureImageButton(moveUpButton, symbolName: "chevron.up", action: #selector(moveUp))
+        configureImageButton(
+            moveUpButton,
+            symbolName: "chevron.up",
+            action: #selector(moveChecklistItemUp)
+        )
         moveUpButton.toolTip = String(localized: "contextMenu.moveUp", defaultValue: "Move Up")
         moveUpButton.setAccessibilityLabel(moveUpButton.toolTip)
 
-        configureImageButton(moveDownButton, symbolName: "chevron.down", action: #selector(moveDown))
+        configureImageButton(
+            moveDownButton,
+            symbolName: "chevron.down",
+            action: #selector(moveChecklistItemDown)
+        )
         moveDownButton.toolTip = String(localized: "contextMenu.moveDown", defaultValue: "Move Down")
         moveDownButton.setAccessibilityLabel(moveDownButton.toolTip)
 
@@ -868,11 +876,11 @@ private final class SidebarAppKitChecklistItemCellView: NSTableCellView, NSTextF
         itemField.selectText(nil)
     }
 
-    @objc private func moveUp() {
+    @objc private func moveChecklistItemUp() {
         onMove?(-1)
     }
 
-    @objc private func moveDown() {
+    @objc private func moveChecklistItemDown() {
         onMove?(1)
     }
 

@@ -46,6 +46,7 @@ final class SidebarAppKitDragCoordinator {
     }
 
     /// Immutable model and synthetic row geometry used by one drag session.
+    @MainActor
     private struct SessionSnapshot {
         let workspaces: [SidebarWorkspaceReorderWorkspaceSnapshot]
         let workspaceById: [UUID: SidebarWorkspaceReorderWorkspaceSnapshot]

@@ -478,7 +478,7 @@ final class SidebarAppKitGroupCellView: NSTableCellView {
     private func configureAccessibility(snapshot: SidebarWorkspaceGroupRowSnapshot) {
         setAccessibilityIdentifier("sidebarWorkspaceGroup.\(snapshot.groupId.uuidString)")
         setAccessibilityLabel(snapshot.name)
-        setAccessibilityHint(String(
+        setAccessibilityHelp(String(
             localized: "workspaceGroup.focusAnchor.a11y",
             defaultValue: "Focus the group’s anchor workspace"
         ))

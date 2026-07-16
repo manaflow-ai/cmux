@@ -1,5 +1,7 @@
 import AppKit
 import CmuxSettings
+import CmuxSettingsUI
+import CmuxSidebarInterpreterClient
 import CmuxSidebarRemoteRender
 import CmuxUpdater
 import SwiftUI

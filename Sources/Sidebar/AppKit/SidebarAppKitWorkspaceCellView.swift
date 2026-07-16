@@ -1171,7 +1171,7 @@ final class SidebarAppKitWorkspaceCellView: NSTableCellView, NSTextFieldDelegate
         )
         setAccessibilityIdentifier("sidebarWorkspace.\(snapshot.workspaceId.uuidString)")
         setAccessibilityLabel(title)
-        setAccessibilityHint(String(
+        setAccessibilityHelp(String(
             localized: "sidebar.workspace.accessibilityHint",
             defaultValue: "Activate to focus this workspace. Drag to reorder, or use Move Up and Move Down actions."
         ))

@@ -13,6 +13,22 @@ import Foundation
 /// rather than the total number of workspaces.
 @MainActor
 final class SidebarAppKitProjectionSource {
+    private final class VisibleWorkspaceObservation {
+        var cancellables: Set<AnyCancellable> = []
+        var tasks: [Task<Void, Never>] = []
+
+        func cancel() {
+            for cancellable in cancellables { cancellable.cancel() }
+            cancellables.removeAll()
+            for task in tasks { task.cancel() }
+            tasks.removeAll()
+        }
+
+        deinit {
+            cancel()
+        }
+    }
+
     private struct GroupAggregate {
         var totalUnreadCount = 0
         var nonAnchorMemberCount = 0
@@ -67,7 +83,7 @@ final class SidebarAppKitProjectionSource {
 
     private var detailSnapshotByWorkspaceId: [UUID: SidebarWorkspaceSnapshotBuilder.Snapshot] = [:]
     private var visibleWorkspaceIds: Set<UUID> = []
-    private var visibleObservationTasks: [UUID: Task<Void, Never>] = [:]
+    private var visibleObservations: [UUID: VisibleWorkspaceObservation] = [:]
     private var modelObservationTasks: [Task<Void, Never>] = []
     private var unreadSummaryChangesCancellable: AnyCancellable?
     private var settingsObservers: [NSObjectProtocol] = []
@@ -106,7 +122,7 @@ final class SidebarAppKitProjectionSource {
 
     deinit {
         for task in modelObservationTasks { task.cancel() }
-        for task in visibleObservationTasks.values { task.cancel() }
+        for observation in visibleObservations.values { observation.cancel() }
         unreadSummaryChangesCancellable?.cancel()
         for observer in settingsObservers {
             NotificationCenter.default.removeObserver(observer)
@@ -157,11 +173,11 @@ final class SidebarAppKitProjectionSource {
         visibleWorkspaceIds = liveVisibleIds
 
         for id in removedIds {
-            visibleObservationTasks.removeValue(forKey: id)?.cancel()
+            visibleObservations.removeValue(forKey: id)?.cancel()
         }
         for id in addedIds {
             guard let workspace = workspaceById[id] else { continue }
-            visibleObservationTasks[id] = observeVisibleWorkspace(workspace)
+            visibleObservations[id] = observeVisibleWorkspace(workspace)
         }
     }
 
@@ -407,7 +423,7 @@ final class SidebarAppKitProjectionSource {
         let nextIds = nextTabs.map(\.id)
         let oldGroupIds = tabs.map(\.groupId)
         let nextGroupIds = nextTabs.map(\.groupId)
-        let replacedWorkspaceIds = nextTabs.compactMap { next in
+        let replacedWorkspaceIds: [UUID] = nextTabs.compactMap { next -> UUID? in
             guard let previous = previousWorkspaceById[next.id], previous !== next else {
                 return nil
             }
@@ -497,9 +513,9 @@ final class SidebarAppKitProjectionSource {
     /// unchanged visible-id set as a no-op.
     private func restartVisibleObservations(for workspaceIds: Set<UUID>) {
         for workspaceId in workspaceIds where visibleWorkspaceIds.contains(workspaceId) {
-            visibleObservationTasks.removeValue(forKey: workspaceId)?.cancel()
+            visibleObservations.removeValue(forKey: workspaceId)?.cancel()
             guard let workspace = workspaceById[workspaceId] else { continue }
-            visibleObservationTasks[workspaceId] = observeVisibleWorkspace(workspace)
+            visibleObservations[workspaceId] = observeVisibleWorkspace(workspace)
         }
     }
 
@@ -549,41 +565,40 @@ final class SidebarAppKitProjectionSource {
         groupAggregateById[groupId] = aggregate
     }
 
-    private func observeVisibleWorkspace(_ workspace: Workspace) -> Task<Void, Never> {
+    private func observeVisibleWorkspace(_ workspace: Workspace) -> VisibleWorkspaceObservation {
         let id = workspace.id
-        return Task { @MainActor [weak self, weak workspace] in
-            guard let workspace else { return }
-            await withTaskGroup(of: Void.self) { group in
-                group.addTask { @MainActor [weak self, weak workspace] in
-                    guard let workspace else { return }
-                    for await _ in workspace.sidebarImmediateObservationPublisher.values {
-                        guard !Task.isCancelled, let self else { return }
-                        invalidateDetail(workspaceId: id)
-                    }
-                }
-                group.addTask { @MainActor [weak self, weak workspace] in
-                    guard let workspace else { return }
-                    for await _ in workspace.sidebarObservationPublisher.values {
-                        guard !Task.isCancelled, let self else { return }
-                        invalidateDetail(workspaceId: id)
-                    }
-                }
-                group.addTask { @MainActor [weak self, weak workspace] in
-                    guard let workspace else { return }
-                    for await _ in workspace.sidebarProcessTitleObservation.changes() {
-                        guard !Task.isCancelled, let self else { return }
-                        invalidateDetail(workspaceId: id)
-                    }
-                }
-                group.addTask { @MainActor [weak self, weak workspace] in
-                    guard let workspace else { return }
-                    for await _ in workspace.sidebarAgentRuntimeObservation.changes() {
-                        guard !Task.isCancelled, let self else { return }
-                        invalidateDetail(workspaceId: id)
-                    }
-                }
+        let observation = VisibleWorkspaceObservation()
+
+        workspace.sidebarImmediateObservationPublisher.sink { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.invalidateDetail(workspaceId: id)
             }
-        }
+        }.store(in: &observation.cancellables)
+
+        workspace.sidebarObservationPublisher.sink { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.invalidateDetail(workspaceId: id)
+            }
+        }.store(in: &observation.cancellables)
+
+        observation.tasks = [
+            Task { @MainActor [weak self, weak workspace] in
+                guard let workspace else { return }
+                for await _ in workspace.sidebarProcessTitleObservation.changes() {
+                    guard !Task.isCancelled, let self else { return }
+                    invalidateDetail(workspaceId: id)
+                }
+            },
+            Task { @MainActor [weak self, weak workspace] in
+                guard let workspace else { return }
+                for await _ in workspace.sidebarAgentRuntimeObservation.changes() {
+                    guard !Task.isCancelled, let self else { return }
+                    invalidateDetail(workspaceId: id)
+                }
+            },
+        ]
+
+        return observation
     }
 
     private func invalidateDetail(workspaceId: UUID) {

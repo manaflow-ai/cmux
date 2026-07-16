@@ -75,7 +75,6 @@ final class SidebarAppKitWorkspaceDetailsView: NSStackView {
                 pointSize: max(7, descriptor.font.pointSize - 1),
                 weight: .medium
             )
-            maximumNumberOfLines = descriptor.maximumLines
             lineBreakMode = .byTruncatingTail
             cell?.wraps = descriptor.maximumLines > 1
             cell?.usesSingleLineMode = descriptor.maximumLines == 1

@@ -2,6 +2,7 @@ import AppKit
 import CmuxSettings
 import CmuxWorkspaces
 import Foundation
+import SwiftUI
 
 /// Builds native sidebar context menus from live state at menu-open time.
 ///
