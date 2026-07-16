@@ -6,6 +6,7 @@ final class SimulatorFramebufferPortFixtureDescriptor: NSObject {
     private var frameCallback: (() -> Void)?
     private var propertiesChangedCallback: (() -> Void)?
     private let properties: SimulatorFramebufferPortFixtureScreenProperties
+    private(set) var screenPropertiesReadCount = 0
 
     init(screenID: UInt32 = 0, screenType: UInt64 = 0, width: Int = 8, height: Int = 12) {
         surface = makeSimulatorFramebufferPortFixtureSurface(width: width, height: height)
@@ -17,7 +18,10 @@ final class SimulatorFramebufferPortFixtureDescriptor: NSObject {
     }
 
     @objc dynamic func framebufferSurface() -> AnyObject? { surface }
-    @objc dynamic func screenProperties() -> AnyObject { properties }
+    @objc dynamic func screenProperties() -> AnyObject {
+        screenPropertiesReadCount += 1
+        return properties
+    }
 
     @objc(registerScreenCallbacksWithUUID:callbackQueue:frameCallback:surfacesChangedCallback:propertiesChangedCallback:)
     dynamic func registerScreenCallbacks(

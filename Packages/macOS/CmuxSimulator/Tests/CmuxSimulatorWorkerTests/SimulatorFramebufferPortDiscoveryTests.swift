@@ -45,6 +45,24 @@ struct SimulatorFramebufferPortDiscoveryTests {
         #expect(metadata?.height == 12)
     }
 
+    @Test("Frame callbacks reuse the cached integrated display")
+    func frameCallbacksReuseIntegratedDisplay() async throws {
+        let fixture = SimulatorFramebufferPortFixture(displays: [
+            (screenID: 42, screenType: 0, width: 8, height: 12),
+            (screenID: 1, screenType: 1, width: 30, height: 20),
+        ])
+        let framebuffer = SimulatorFramebuffer(
+            onFrameTransportChange: { _ in },
+            onDisplayChange: { _ in }
+        )
+        try await framebuffer.start(device: fixture.device)
+        let readsAfterDiscovery = fixture.screenPropertiesReadCount
+
+        for _ in 0..<20 { fixture.publishFrame(width: 8, height: 12) }
+
+        #expect(fixture.screenPropertiesReadCount == readsAfterDiscovery)
+    }
+
     @Test("Auxiliary display property changes preserve built-in orientation")
     func auxiliaryOrientationIsIgnored() async throws {
         let fixture = SimulatorFramebufferPortFixture(displays: [

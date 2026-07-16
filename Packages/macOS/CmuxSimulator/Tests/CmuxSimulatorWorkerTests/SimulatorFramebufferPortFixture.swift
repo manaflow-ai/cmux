@@ -6,6 +6,9 @@ final class SimulatorFramebufferPortFixture {
     let device: NSObject
 
     var didRequestCurrentPorts: Bool { io.didRequestCurrentPorts }
+    var screenPropertiesReadCount: Int {
+        descriptors.reduce(0) { $0 + $1.screenPropertiesReadCount }
+    }
 
     init(
         displays: [(screenID: UInt32, screenType: UInt64, width: Int, height: Int)] = [

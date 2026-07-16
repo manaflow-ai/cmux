@@ -164,6 +164,29 @@ struct SimulatorBoundedCommandRunnerTests {
         #expect(Darwin.kill(pid, 0) != 0)
         #expect(errno == ESRCH)
     }
+
+    @Test("The synchronous CLI bridge bounds timeout and kills descendants")
+    func synchronousBridgeOwnsTimedOutDescendants() async throws {
+        let marker = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-owned-command-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: marker) }
+        let result = SimulatorOwnedCommandRunner.run(
+            executable: "/bin/sh",
+            arguments: [
+                "-c",
+                "(trap '' TERM; while :; do :; done) & echo $! > '\(marker.path)'; wait",
+            ],
+            currentDirectory: FileManager.default.currentDirectoryPath,
+            timeout: 0.05
+        )
+
+        #expect(result.timedOut)
+        #expect(result.status == 124)
+        let descendant = try await requireMarkerPID(marker)
+        await expectProcessExited(descendant)
+        #expect(Darwin.kill(descendant, 0) != 0)
+        #expect(errno == ESRCH)
+    }
 }
 
 private func requireMarkerPID(_ marker: URL) async throws -> Int32 {

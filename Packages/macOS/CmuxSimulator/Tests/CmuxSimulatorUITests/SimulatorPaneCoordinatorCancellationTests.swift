@@ -209,6 +209,31 @@ struct SimulatorPaneCoordinatorCancellationTests {
         await coordinator.close()
     }
 
+    @Test("Closing a pane cancels and joins one coalesced UI action")
+    func closeCancelsOwnedControlActions() async {
+        let client = SimulatorPaneClientSpy(devices: [])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        let probe = SimulatorScheduledActionProbe()
+
+        coordinator.scheduleControlAction("capture") { _ in
+            await probe.started()
+            do {
+                try await ContinuousClock().sleep(for: .seconds(30))
+            } catch {}
+            await probe.finished()
+        }
+        coordinator.scheduleControlAction("capture") { _ in
+            await probe.started()
+        }
+        await probe.waitUntilStarted()
+
+        await coordinator.close()
+
+        #expect(await probe.startCount == 1)
+        #expect(await probe.finishCount == 1)
+        #expect(coordinator.controlActionTasks.isEmpty)
+    }
+
     private func makeDevice(
         id: String,
         family: SimulatorDeviceFamily
@@ -235,6 +260,18 @@ struct SimulatorPaneCoordinatorCancellationTests {
             await Task.yield()
         }
         Issue.record("Expected activation for \(deviceID)")
+    }
+}
+
+private actor SimulatorScheduledActionProbe {
+    private(set) var startCount = 0
+    private(set) var finishCount = 0
+
+    func started() { startCount += 1 }
+    func finished() { finishCount += 1 }
+
+    func waitUntilStarted() async {
+        while startCount == 0 { await Task.yield() }
     }
 }
 

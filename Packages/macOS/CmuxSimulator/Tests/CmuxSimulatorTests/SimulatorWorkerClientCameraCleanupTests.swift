@@ -4,6 +4,42 @@ import Testing
 @testable import CmuxSimulator
 
 extension SimulatorWorkerClientTests {
+    @Test("A replacement client cannot pass an older client's camera cleanup")
+    func replacementClientWaitsForSharedCameraCleanup() async throws {
+        let cleanupCoordinator = SimulatorCameraCleanupCoordinator()
+        let gate = BlockingCameraCleanupControl()
+        _ = await cleanupCoordinator.enqueue {
+            _ = try? await gate.perform(.terminateApplication(
+                deviceID: "blocked-cleanup",
+                bundleIdentifier: "com.example.camera"
+            ))
+        }
+        for _ in 0..<1_000 {
+            if await gate.isBlocked { break }
+            await Task.yield()
+        }
+        let client = SimulatorWorkerClient(
+            executableURL: URL(fileURLWithPath: "/fake/cmux"),
+            arguments: [SimulatorWorkerClient.workerModeArgument],
+            environment: [:],
+            ackTimeout: .seconds(60),
+            simulatorControl: TestSimulatorControl(),
+            launcher: TestWorkerLauncher(),
+            sleeper: ImmediateWorkerSleeper(),
+            cameraCleanupCoordinator: cleanupCoordinator
+        )
+
+        #expect(!(await client.waitForCameraCleanup()))
+
+        await gate.release()
+        for _ in 0..<1_000 {
+            if await cleanupCoordinator.currentTask() == nil { break }
+            await Task.yield()
+        }
+        #expect(await client.waitForCameraCleanup())
+        await client.stop()
+    }
+
     @Test("A second worker crash cleans camera targets before explicit recovery")
     func cameraFuseCleanupPrecedesRecovery() async throws {
         let deviceIdentifier = "CAMERA-\(UUID().uuidString)"
