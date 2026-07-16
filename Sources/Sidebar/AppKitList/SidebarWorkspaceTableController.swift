@@ -168,6 +168,14 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         row: Int
     ) -> NSView? {
         guard rows.indices.contains(row) else { return nil }
+        if rows[row].appKitGroupHeaderModel != nil {
+            let cell = tableView.makeView(
+                withIdentifier: SidebarGroupHeaderTableCellView.reuseIdentifier,
+                owner: self
+            ) as? SidebarGroupHeaderTableCellView ?? SidebarGroupHeaderTableCellView()
+            configure(headerCell: cell, at: row)
+            return cell
+        }
         let cell = tableView.makeView(
             withIdentifier: SidebarWorkspaceTableCellView.reuseIdentifier,
             owner: self
@@ -312,12 +320,33 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private func reconfigureVisibleRows(_ indexes: IndexSet) {
         guard let table = containerView?.tableView else { return }
         for row in indexes where rows.indices.contains(row) {
-            guard let cell = table.view(atColumn: 0, row: row, makeIfNecessary: false)
-                    as? SidebarWorkspaceTableCellView else {
+            switch table.view(atColumn: 0, row: row, makeIfNecessary: false) {
+            case let cell as SidebarGroupHeaderTableCellView:
+                configure(headerCell: cell, at: row)
+            case let cell as SidebarWorkspaceTableCellView:
+                configure(cell: cell, at: row)
+            default:
                 continue
             }
-            configure(cell: cell, at: row)
         }
+    }
+
+    private func configure(headerCell cell: SidebarGroupHeaderTableCellView, at row: Int) {
+        let configuration = rows[row]
+        guard let model = configuration.appKitGroupHeaderModel,
+              let actions = configuration.appKitGroupHeaderActions else { return }
+        let rowId = configuration.id
+        cell.configure(
+            model: model,
+            actions: actions,
+            isPointerHovering: hoveredRowId == rowId && contextMenuRowId != rowId,
+            contextMenuDidOpen: { [weak self] in
+                self?.contextMenuDidOpen(rowId: rowId)
+            },
+            contextMenuDidClose: { [weak self] in
+                self?.contextMenuDidClose(rowId: rowId)
+            }
+        )
     }
 
     private func configure(cell: SidebarWorkspaceTableCellView, at row: Int) {

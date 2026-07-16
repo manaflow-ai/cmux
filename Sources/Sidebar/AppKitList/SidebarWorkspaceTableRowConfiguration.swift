@@ -19,6 +19,10 @@ struct SidebarWorkspaceTableRowConfiguration {
     let isGroupHeader: Bool
     let isPinned: Bool
     let makeContent: ContentFactory
+    /// Present when this row renders through the pure-AppKit group header cell
+    /// instead of a hosted SwiftUI cell.
+    let appKitGroupHeaderModel: SidebarGroupHeaderRowModel?
+    let appKitGroupHeaderActions: SidebarGroupHeaderRowActions?
 
     private let environment: SidebarWorkspaceTableEnvironmentSnapshot
     private let equivalenceValue: Any
@@ -41,10 +45,33 @@ struct SidebarWorkspaceTableRowConfiguration {
         self.isPinned = isPinned
         self.environment = environment
         self.makeContent = makeContent
+        self.appKitGroupHeaderModel = nil
+        self.appKitGroupHeaderActions = nil
         self.equivalenceValue = equivalenceValue
         self.isEquivalentValue = { value in
             guard let value = value as? Content else { return false }
             return value == equivalenceValue
+        }
+    }
+
+    init(
+        groupHeaderModel: SidebarGroupHeaderRowModel,
+        actions: SidebarGroupHeaderRowActions,
+        environment: SidebarWorkspaceTableEnvironmentSnapshot
+    ) {
+        self.id = .group(groupHeaderModel.groupId)
+        self.workspaceId = groupHeaderModel.anchorWorkspaceId
+        self.groupId = groupHeaderModel.groupId
+        self.isGroupHeader = true
+        self.isPinned = groupHeaderModel.isPinned
+        self.environment = environment
+        self.makeContent = { _, _ in AnyView(EmptyView()) }
+        self.appKitGroupHeaderModel = groupHeaderModel
+        self.appKitGroupHeaderActions = actions
+        self.equivalenceValue = groupHeaderModel
+        self.isEquivalentValue = { value in
+            guard let value = value as? SidebarGroupHeaderRowModel else { return false }
+            return value == groupHeaderModel
         }
     }
 
