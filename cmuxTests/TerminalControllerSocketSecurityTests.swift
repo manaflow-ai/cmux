@@ -1252,6 +1252,45 @@ final class TerminalControllerSocketSecurityTests {
         XCTAssertFalse(workspace.suppressesRawTerminalNotification(panelId: sourcePanelId))
     }
 
+    @Test func testSurfaceSplitAppliesProvidedTitleBeforeReturning() async throws {
+        let socketPath = makeSocketPath("surface-split-title")
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true)
+
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let expectedTitle = "sub: contract-tests"
+        let response = try await sendV2RequestAsync(
+            method: "surface.split",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": sourcePanelId.uuidString,
+                "direction": "right",
+                "title": expectedTitle,
+            ],
+            to: socketPath
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
+        let result = try XCTUnwrap(response["result"] as? [String: Any], "Unexpected JSON-RPC response: \(response)")
+        let newSurfaceIDString = try XCTUnwrap(result["surface_id"] as? String)
+        let newSurfaceID = try XCTUnwrap(UUID(uuidString: newSurfaceIDString))
+
+        XCTAssertEqual(workspace.panelCustomTitles[newSurfaceID], expectedTitle)
+    }
+
     @Test func testSurfaceRelayRPCsReturnResolvedFocusedSurfaceWhenSurfaceIDOmitted() async throws {
         let socketPath = makeSocketPath("relay-fallback")
         let manager = TabManager()
