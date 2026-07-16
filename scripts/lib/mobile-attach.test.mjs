@@ -12,11 +12,11 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../
 const validator = path.join(repoRoot, "scripts/lib/mobile-attach.sh");
 const reservedMessage = "reserved for the stable app instance";
 
-function run(command, args) {
+function run(command, args, extraEnv = {}) {
   return spawnSync(command, args, {
     cwd: repoRoot,
     encoding: "utf8",
-    env: { ...process.env },
+    env: { ...process.env, ...extraEnv },
   });
 }
 
@@ -137,7 +137,7 @@ test("macOS and iOS reloads share the dev API backend override", () => {
 
 test("physical-device mint rejects a ticket with only plaintext Tailscale routes", async () => {
   const result = await mintAttachURL("physical_device", attachPayload("tailscale"));
-  assert.notEqual(result.status, 0);
+  assert.equal(result.status, 2);
   assert.equal(result.stdout, "");
 });
 
@@ -153,6 +153,33 @@ test("simulator mint retains its loopback ticket behavior", async () => {
   const result = await mintAttachURL("simulator_injection", payload);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, payload.attach_url);
+});
+
+test("physical-device attach reports a missing tagged Mac before blaming Iroh", () => {
+  const tag = `missing-mac-${process.pid}`;
+  const result = run(
+    "bash",
+    [
+      "scripts/mobile-dev-launch.sh",
+      "--tag",
+      tag,
+      "--device",
+      "--device-id",
+      "not-used",
+      "--attach",
+      "--agent",
+    ],
+    {
+      CMUX_UITEST_STACK_EMAIL: "agent@example.com",
+      CMUX_UITEST_STACK_PASSWORD: "test-password",
+    },
+  );
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /tagged Mac.*not running|debug socket.*not ready/i);
+  assert.match(result.stderr, /--ensure-mac/);
+  assert.doesNotMatch(result.stderr, /must advertise an encrypted Iroh route/i);
+  assert.doesNotMatch(result.stderr, /--no-attach/);
 });
 
 for (const entrypoint of [

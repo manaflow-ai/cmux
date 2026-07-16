@@ -8,7 +8,11 @@ import { fileURLToPath } from "node:url";
 
 const scriptPath = fileURLToPath(new URL("./load-dev-env.sh", import.meta.url));
 
-function sourceDevEnv({ inheritedPrivateKey = "", keyFileContents }) {
+function sourceDevEnv({
+  downloadedKeyID = "",
+  inheritedPrivateKey = "",
+  keyFileContents,
+}) {
   const home = mkdtempSync(path.join(tmpdir(), "cmux-load-dev-env-"));
   const secrets = path.join(home, ".secrets");
   const envFile = path.join(secrets, "cmuxterm-dev.env");
@@ -17,7 +21,15 @@ function sourceDevEnv({ inheritedPrivateKey = "", keyFileContents }) {
     "cmux-staging-relay-policy-2026-08.pem",
   );
   mkdirSync(secrets, { recursive: true });
-  writeFileSync(envFile, "CMUX_RELAY_POLICY_PRIVATE_KEY_PEM=\n", { mode: 0o600 });
+  writeFileSync(
+    envFile,
+    [
+      `CMUX_RELAY_POLICY_KEY_ID=${downloadedKeyID}`,
+      "CMUX_RELAY_POLICY_PRIVATE_KEY_PEM=",
+      "",
+    ].join("\n"),
+    { mode: 0o600 },
+  );
   writeFileSync(keyFile, keyFileContents, { mode: 0o600 });
 
   try {
@@ -48,6 +60,17 @@ function sourceDevEnv({ inheritedPrivateKey = "", keyFileContents }) {
 test("blank downloaded relay secret falls back to the protected local key", () => {
   const privateKey = "-----BEGIN PRIVATE KEY-----\nlocal-dev\n-----END PRIVATE KEY-----\n";
   const [keyID, loadedPrivateKey] = sourceDevEnv({
+    keyFileContents: privateKey,
+  });
+
+  assert.equal(keyID, "cmux-staging-relay-policy-2026-08");
+  assert.equal(loadedPrivateKey, privateKey.trimEnd());
+});
+
+test("local fallback key replaces a stale downloaded key id", () => {
+  const privateKey = "-----BEGIN PRIVATE KEY-----\nlocal-dev\n-----END PRIVATE KEY-----\n";
+  const [keyID, loadedPrivateKey] = sourceDevEnv({
+    downloadedKeyID: "cmux-staging-relay-policy-2026-07",
     keyFileContents: privateKey,
   });
 
