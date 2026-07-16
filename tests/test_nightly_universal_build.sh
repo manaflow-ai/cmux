@@ -56,6 +56,7 @@ fi
 if ! awk '
   /^  refresh-compilation-cache:/ { in_refresh=1; next }
   in_refresh && /^  [a-zA-Z0-9_-]+:/ { in_refresh=0 }
+  in_refresh && /timeout-minutes: 45/ { saw_cold_build_timeout=1 }
   in_refresh && /if: github\.event_name == '\''schedule'\'' && github\.event\.schedule == '\''17 \*\/6 \* \* \*'\''/ { saw_schedule_gate=1 }
   in_refresh && /runs-on: \$\{\{ vars\.MACOS_RUNNER_26_RELEASE/ { saw_release_runner=1 }
   in_refresh && /CMUX_CI_XCODE_APP_MACOS_26/ { saw_release_xcode=1 }
@@ -68,14 +69,29 @@ if ! awk '
   in_refresh && /if: steps\.compilation-cache-lookup\.outputs\.cache-hit != '\''true'\''/ { saw_change_gate=1 }
   in_refresh && /-showBuildTimingSummary/ { saw_timing_summary=1 }
   in_refresh && /-quiet/ { saw_quiet=1 }
-  END { exit !(saw_schedule_gate && saw_release_runner && saw_release_xcode && saw_xcode_selection && saw_lookup && saw_restore_action && saw_lookup_only && saw_cache && saw_refresh && saw_change_gate && saw_timing_summary && !saw_quiet) }
+  END { exit !(saw_cold_build_timeout && saw_schedule_gate && saw_release_runner && saw_release_xcode && saw_xcode_selection && saw_lookup && saw_restore_action && saw_lookup_only && saw_cache && saw_refresh && saw_change_gate && saw_timing_summary && !saw_quiet) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: the six-hour schedule must warm the PR Release cache with the matching runner, Xcode, and visible timing output when main changes"
+  echo "FAIL: the six-hour schedule must allow 45 minutes for a cold cache build and use the matching runner, Xcode, and visible timing output"
   exit 1
 fi
 
 if ! grep -Fq "if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')" "$WORKFLOW_FILE"; then
   echo "FAIL: manual runs and the daily publish schedule must sign, notarize, and publish Nightly"
+  exit 1
+fi
+
+if ! awk '
+  /^      - name: Checkout build ref/ { in_checkout=1; next }
+  in_checkout && /^      - name:/ { in_checkout=0 }
+  in_checkout && /ref: \$\{\{ needs\.decide\.outputs\.head_sha \}\}/ { saw_fixed_sha=1 }
+  END { exit !saw_fixed_sha }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: Nightly must build the fixed source revision selected by the decide job"
+  exit 1
+fi
+
+if grep -Eq 'current_head_(prebuild|postbuild)|still_current' "$WORKFLOW_FILE"; then
+  echo "FAIL: main advancing after dispatch must not skip a fixed Nightly candidate or report false-green publication"
   exit 1
 fi
 
