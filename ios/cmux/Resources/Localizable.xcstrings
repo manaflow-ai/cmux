@@ -10160,7 +10160,126 @@
     "mobile.iroh.test.failed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Unreachable"}},"ja":{"stringUnit":{"state":"translated","value":"到達不可"}}}},
     "mobile.iroh.test.incomplete": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Test Unavailable"}},"ja":{"stringUnit":{"state":"translated","value":"テスト利用不可"}}}},
     "mobile.iroh.test.reachable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Reachable"}},"ja":{"stringUnit":{"state":"translated","value":"到達可能"}}}},
-    "mobile.iroh.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Iroh and Relays"}},"ja":{"stringUnit":{"state":"translated","value":"Iroh とリレー"}}}}
+    "mobile.iroh.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Iroh and Relays"}},"ja":{"stringUnit":{"state":"translated","value":"Iroh とリレー"}}}},
+    "mobile.surfaces.browserPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This browser pane is open on your Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このブラウザペインは Mac で開かれています。"
+          }
+        }
+      }
+    },
+    "mobile.surfaces.closeTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Tab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブを閉じる"
+          }
+        }
+      }
+    },
+    "mobile.surfaces.map": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace Map"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースマップ"
+          }
+        }
+      }
+    },
+    "mobile.surfaces.map.close": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Map"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マップを閉じる"
+          }
+        }
+      }
+    },
+    "mobile.surfaces.map.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap a pane to open it"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインをタップして開く"
+          }
+        }
+      }
+    },
+    "mobile.surfaces.newTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Tab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規タブ"
+          }
+        }
+      }
+    },
+    "mobile.surfaces.otherPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This pane is open on your Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このペインは Mac で開かれています。"
+          }
+        }
+      }
+    }
   },
   "version": "1.0"
 }

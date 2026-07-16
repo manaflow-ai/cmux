@@ -14,7 +14,7 @@ extension WorkspaceDetailView {
     /// store still has the last authoritative GUI-history snapshot for this
     /// workspace. Use that immediately so the toolbar does not flicker while the
     /// refresh task reconnects.
-    private var visibleChatSessions: [ChatSessionDescriptor] {
+    var visibleChatSessions: [ChatSessionDescriptor] {
         if chatSessionsWorkspaceID == workspace.id.rawValue {
             return chatSessions
         }
@@ -116,16 +116,17 @@ extension WorkspaceDetailView {
 
     @ViewBuilder
     var toolbarTrailingCluster: some View {
+        // The trailing cluster is chat-only now: tab switching lives in the
+        // always-visible surface strip, and the picker's utility actions
+        // moved into the leading workspace-title menu.
         HStack(spacing: 8) {
             if shouldShowChatToggle {
                 chatToggleButton
                     .frame(width: 44, height: 44)
                     .transition(.scale(scale: 0.82, anchor: .trailing).combined(with: .opacity))
             }
-            terminalPickerToolbarButton
-                .frame(width: 44, height: 44)
         }
-        .frame(width: shouldShowChatToggle ? 96 : 44, height: 44, alignment: .trailing)
+        .frame(width: shouldShowChatToggle ? 44 : 0, height: 44, alignment: .trailing)
         .animation(.snappy(duration: 0.25), value: shouldShowChatToggle)
     }
 

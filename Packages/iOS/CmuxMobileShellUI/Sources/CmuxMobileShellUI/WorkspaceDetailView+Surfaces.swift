@@ -17,17 +17,54 @@ extension WorkspaceDetailView {
             shouldAutoFocusTerminal: { store.shouldAutoFocusTerminalSurface($0) },
             isComposerPresented: store.isComposerPresented
         )
-        ZStack {
-            detailContent()
-                .opacity(surface == .terminal ? 1 : 0)
-                .allowsHitTesting(surface == .terminal)
-                .accessibilityHidden(surface != .terminal)
-            if surface == .chat, let session = chosenChatSession {
-                chatContent(session)
-                    .background(TerminalPalette.background)
-            } else if surface == .browser, let browser = activeBrowser {
-                browserContent(browser)
-                    .background(TerminalPalette.background)
+        let navigatorSnapshot = navigatorSnapshot
+        VStack(spacing: 0) {
+            // The surface strip stays visible across terminal/chat/browser
+            // modes: switching tabs is always one tap away.
+            SurfaceTabStrip(snapshot: navigatorSnapshot, actions: navigatorActions)
+                .background(TerminalPalette.background)
+            ZStack {
+                detailContent()
+                    .opacity(surface == .terminal ? 1 : 0)
+                    .allowsHitTesting(surface == .terminal)
+                    .accessibilityHidden(surface != .terminal)
+                if surface == .chat, let session = chosenChatSession {
+                    chatContent(session)
+                        .background(TerminalPalette.background)
+                } else if surface == .browser, let browser = activeBrowser {
+                    browserContent(browser)
+                        .background(TerminalPalette.background)
+                }
+            }
+        }
+        .overlay {
+            // The workspace map: the zoomed-out, geometry-true pane/tab
+            // overview. Overlays the whole detail so the zoom reads as the
+            // terminal receding into its pane slot.
+            if isWorkspaceMapPresented {
+                WorkspaceMapView(
+                    workspaceName: workspace.name,
+                    snapshot: navigatorSnapshot,
+                    openTab: { id in
+                        withAnimation(.snappy(duration: 0.3)) {
+                            isWorkspaceMapPresented = false
+                        }
+                        navigatorSelectTab(id)
+                    },
+                    fetchPreview: { id in
+                        await store.fetchTerminalPreviewGrid(
+                            workspaceID: workspace.id,
+                            surfaceID: id.rawValue
+                        )
+                    },
+                    dismiss: {
+                        withAnimation(.snappy(duration: 0.3)) {
+                            isWorkspaceMapPresented = false
+                        }
+                    }
+                )
+                .transition(.opacity.combined(with: .scale(scale: 1.06)))
+                .zIndex(2)
             }
         }
         .onChange(of: surface) { _, newSurface in

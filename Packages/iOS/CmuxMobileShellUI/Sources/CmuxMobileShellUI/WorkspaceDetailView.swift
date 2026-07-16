@@ -51,7 +51,12 @@ struct WorkspaceDetailView: View {
     @State private var contentWidth: CGFloat = 0
     /// Terminal captured for the current "View as Text" sheet presentation.
     @State private var textSheetSurfaceID: String?
-    @State var terminalPickerRows: [TerminalPickerMenuRow] = []
+    /// A non-terminal tab (browser/plugin pane on the Mac) the pager is
+    /// previewing. Nil whenever a terminal tab is current; the store's
+    /// terminal selection is intentionally untouched while previewing.
+    @State var previewedNonTerminalTabID: MobileTerminalPreview.ID?
+    /// Whether the workspace map (the zoomed-out pane/tab overview) is up.
+    @State var isWorkspaceMapPresented = false
     /// Chat-mode toggle for inline agent chat in place of the terminal.
     @State var isChatMode = false
     /// The session chat mode was entered on, pinned so sorting cannot swap the conversation
@@ -102,7 +107,6 @@ struct WorkspaceDetailView: View {
             .onChange(of: selectedTerminalID) { _, _ in
                 visibleArtifactCount = 0
                 refreshCachedChatToggleAnchor()
-                syncTerminalPickerRows(includeTitleChanges: true)
             }
             .onChange(of: store.supportsTerminalArtifacts) { _, supportsArtifacts in
                 visibleArtifactCount = 0
@@ -170,7 +174,9 @@ struct WorkspaceDetailView: View {
             hasBackButton: backButtonConfiguration != nil,
             hasTrailingCluster: true,
             hasChatToggle: shouldShowChatToggle,
-            isEnabled: hasTitleMenuActions,
+            // The menu always carries at least New Workspace / New Browser /
+            // Send Feedback since the picker's utility actions moved here.
+            isEnabled: true,
             menuContent: { titleMenuContent }
         ) {
             toolbarTitleLabel
@@ -206,8 +212,16 @@ struct WorkspaceDetailView: View {
         // height in the terminal grid.
         Group {
             #if os(iOS)
-            if let terminalID = selectedTerminal?.id.rawValue {
-                terminalArtifactSurface(terminalID: terminalID)
+            if !navigatorPageIDs.isEmpty {
+                // The workspace's surfaces in spatial order. The current page
+                // is the live terminal; its neighbors stay mounted so a swipe
+                // peeks REAL streaming panes.
+                SurfacePagerView(
+                    pageIDs: navigatorPageIDs,
+                    currentID: navigatorDisplayTabID?.rawValue,
+                    onPageSettled: { navigatorPageSettled($0) },
+                    page: { id, context in surfacePage(id: id, context: context) }
+                )
             } else {
                 TerminalPalette.background
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -324,7 +338,6 @@ struct WorkspaceDetailView: View {
     @ViewBuilder
     private var terminalToolbarButtons: some View {
         newWorkspaceToolbarButton
-        terminalPickerToolbarButton
     }
 
     #if os(iOS)
@@ -346,9 +359,21 @@ struct WorkspaceDetailView: View {
             canRenameWorkspace: renameWorkspace != nil,
             canToggleReadState: setWorkspaceUnread != nil,
             canCloseWorkspace: closeWorkspace != nil,
+            canCreateWorkspace: canCreateWorkspace,
+            hasActiveBrowser: activeBrowser != nil,
+            showsViewAsText: activeBrowser == nil && !isChatMode,
             presentRename: presentRenameFromMenu,
             toggleReadState: toggleWorkspaceReadStateFromMenu,
-            requestClose: requestCloseWorkspaceFromMenu
+            requestClose: requestCloseWorkspaceFromMenu,
+            createWorkspace: createWorkspaceFromToolbar,
+            openBrowser: openBrowserFromToolbar,
+            openTextSheet: openTextSheetFromMenu,
+            copyDebugLogs: {
+                #if DEBUG
+                copyDebugLogsFromMenu()
+                #endif
+            },
+            sendFeedback: openFeedbackComposerFromMenu
         )
     }
 
@@ -364,37 +389,6 @@ struct WorkspaceDetailView: View {
         .accessibilityIdentifier("MobileTerminalNewWorkspaceButton")
     }
 
-    // Native menu keeps press-drag-release selection and routes through
-    // `selectTerminalFromPicker`; keyboard-dismiss-on-open is unavailable.
-    var terminalPickerToolbarButton: some View {
-        TerminalPickerMenu(
-            value: TerminalPickerMenuValue(
-                liveTerminals: workspace.terminals,
-                snapshotRows: terminalPickerRows,
-                selectedID: store.selectedTerminalID,
-                canCreateWorkspace: canCreateWorkspace,
-                hasActiveBrowser: activeBrowser != nil,
-                isChatMode: isChatMode
-            ),
-            actions: TerminalPickerMenuActions(
-                selectTerminal: selectTerminalFromPicker,
-                createWorkspace: createWorkspaceFromToolbar,
-                createTerminal: createTerminalFromToolbar,
-                openBrowser: openBrowserFromToolbar,
-                openTextSheet: openTextSheetFromMenu,
-                copyDebugLogs: {
-                    #if DEBUG
-                    copyDebugLogsFromMenu()
-                    #endif
-                },
-                sendFeedback: openFeedbackComposerFromMenu
-            )
-        )
-        .equatable()
-        .simultaneousGesture(TapGesture().onEnded { syncTerminalPickerRows(includeTitleChanges: true) })
-        .onAppear { syncTerminalPickerRows(includeTitleChanges: true) }
-        .onChange(of: terminalPickerLiveMembership) { _, _ in syncTerminalPickerRows() }
-    }
 
     #if canImport(UIKit)
     #if DEBUG
@@ -597,34 +591,12 @@ struct WorkspaceDetailView: View {
     }
     #endif
 
-    private func createTerminalFromToolbar() {
-        dismissTerminalKeyboardForChrome()
-        // Creating a terminal from the (shared) chrome must surface it. If a
-        // browser pane is up, close it so `body` leaves the browser branch and
-        // shows the new terminal instead of staying on the browser.
-        browserStore.closeBrowser(for: workspace.id.rawValue)
-        createTerminal()
-    }
-
     private func openBrowserFromToolbar() {
         dismissTerminalKeyboardForChrome()
         // Opens (or reveals the existing) browser pane for this workspace. The
         // detail view flips to the browser because `activeBrowser` becomes
         // non-nil; the picker shows a check next to "New Browser" while it is up.
         browserStore.openBrowser(for: workspace.id.rawValue)
-    }
-
-    private func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {
-        dismissTerminalKeyboardForChrome()
-        // Choosing a terminal returns from the browser pane (if up) to the
-        // terminal. Closing the browser is enough to flip the detail view back.
-        browserStore.closeBrowser(for: workspace.id.rawValue)
-        // Switching from the picker is chrome, not a typing intent, so the
-        // newly-selected surface must not grab the keyboard on attach. The
-        // store suppresses the target's autofocus (and is a no-op when it is
-        // already selected). A push-notification deep link uses the plain
-        // `selectTerminal` path instead and is allowed to autofocus.
-        store.selectTerminalFromChrome(terminalID)
     }
 
     func dismissTerminalKeyboardForChrome() {
