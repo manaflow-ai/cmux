@@ -3,6 +3,37 @@ import Foundation
 enum CodexTeamsApprovalBridge {
     private typealias CodexPermissionCapabilities = (supportsOnce: Bool, supportsAlways: Bool, supportsAll: Bool)
 
+    static func subagentPaneTitle(label: String, depth: Int) -> String {
+        "sub: d\(depth) \(label)"
+    }
+
+    static func subagentSplitParams(
+        workspaceID: String,
+        targetSurfaceID: String,
+        direction: String,
+        title: String,
+        initialCommand: String,
+        tmuxStartCommand: String,
+        startupEnvironment: [String: String],
+        workingDirectory: String?
+    ) -> [String: Any] {
+        var params: [String: Any] = [
+            "workspace_id": workspaceID,
+            "surface_id": targetSurfaceID,
+            "direction": direction,
+            "focus": false,
+            "title": title,
+            "initial_command": initialCommand,
+            "tmux_start_command": tmuxStartCommand,
+            "startup_environment": startupEnvironment,
+        ]
+        if let workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !workingDirectory.isEmpty {
+            params["working_directory"] = workingDirectory
+        }
+        return params
+    }
+
     static func feedEvent(
         method: String,
         requestId: Any,

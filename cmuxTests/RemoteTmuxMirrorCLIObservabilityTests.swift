@@ -278,6 +278,7 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
                 initialCommand: nil,
                 tmuxStartCommand: nil,
                 remotePTYSessionID: nil,
+                title: nil,
                 remoteContextRaw: nil,
                 startupEnvironment: [:],
                 clientUnsupportedRemoteTmuxOptions: [],

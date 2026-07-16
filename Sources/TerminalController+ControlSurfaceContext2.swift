@@ -122,7 +122,8 @@ extension TerminalController {
                 tmuxStartCommand: inputs.tmuxStartCommand,
                 startupEnvironment: inputs.startupEnvironment,
                 initialDividerPosition: inputs.initialDividerPosition,
-                remotePTYSessionID: inputs.remotePTYSessionID
+                remotePTYSessionID: inputs.remotePTYSessionID,
+                title: inputs.title
             )
                 + inputs.clientUnsupportedRemoteTmuxOptions
             if !unsupported.isEmpty {
@@ -180,6 +181,11 @@ extension TerminalController {
 
         guard let newId else {
             return .createFailed
+        }
+        // Apply the title in the same MainActor turn as creation so the socket
+        // response cannot expose a surface that still has its default title.
+        if let title = inputs.title {
+            ws.setPanelCustomTitle(panelId: newId, title: title)
         }
         return .created(
             windowID: v2ResolveWindowId(tabManager: tabManager),

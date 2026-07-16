@@ -10,6 +10,25 @@ import CMUXAgentLaunch
 
 @Suite("Feed coordinator", .serialized)
 struct FeedCoordinatorTests {
+    @Test func codexTeamsSubagentSplitCarriesAtomicTitle() {
+        let title = CodexTeamsApprovalBridge.subagentPaneTitle(label: "contract-tests", depth: 2)
+        let params = CodexTeamsApprovalBridge.subagentSplitParams(
+            workspaceID: "workspace-id",
+            targetSurfaceID: "surface-id",
+            direction: "right",
+            title: title,
+            initialCommand: "/tmp/startup.sh",
+            tmuxStartCommand: "codex resume thread-id",
+            startupEnvironment: ["CMUX_AGENT_MANAGED_SUBAGENT": "1"],
+            workingDirectory: "  /tmp/cmux-review  "
+        )
+
+        #expect(title == "sub: d2 contract-tests")
+        #expect(params["title"] as? String == title)
+        #expect(params["working_directory"] as? String == "/tmp/cmux-review")
+        #expect(params["focus"] as? Bool == false)
+    }
+
     @Test func codexTeamsResolvesExplicitWorkingDirectoryFlags() {
         let base = "/tmp/cmux-base"
 
