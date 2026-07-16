@@ -46,13 +46,14 @@ public struct CmuxRenderRun: Codable, Sendable, Equatable {
     /// Estimates the grid width when the server omitted `width_hint`.
     public var estimatedCellWidth: Int {
         text.reduce(into: 0) { width, character in
-            width += Self.isWide(character) ? 2 : 1
+            width += Self.estimatedCellWidth(of: character)
         }
     }
 
-    private static func isWide(_ character: Character) -> Bool {
-        guard let scalar = character.unicodeScalars.first?.value else { return false }
-        return (0x1100...0x115F).contains(scalar)
+    /// Estimates the terminal-cell width of one grapheme cluster.
+    public static func estimatedCellWidth(of character: Character) -> Int {
+        guard let scalar = character.unicodeScalars.first?.value else { return 1 }
+        let wide = (0x1100...0x115F).contains(scalar)
             || (0x2329...0x232A).contains(scalar)
             || (0x2E80...0xA4CF).contains(scalar)
             || (0xAC00...0xD7A3).contains(scalar)
@@ -63,6 +64,7 @@ public struct CmuxRenderRun: Codable, Sendable, Equatable {
             || (0xFFE0...0xFFE6).contains(scalar)
             || (0x1F300...0x1FAFF).contains(scalar)
             || (0x20000...0x3FFFD).contains(scalar)
+        return wide ? 2 : 1
     }
 
     private enum CodingKeys: String, CodingKey {

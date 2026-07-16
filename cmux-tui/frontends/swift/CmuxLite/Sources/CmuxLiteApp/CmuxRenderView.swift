@@ -17,6 +17,7 @@ final class CmuxRenderView: NSView, @preconcurrency NSTextInputClient {
     private var blinkTimer: Timer?
     private var markedText = NSMutableAttributedString()
     private var selectedTextRange = NSRange(location: 0, length: 0)
+    private var glyphAdvances: [String: CGFloat] = [:]
 
     init(configuration: CmuxGhosttyViewConfiguration) {
         metrics = CmuxRenderFontMetrics(configuration: configuration)
@@ -66,8 +67,8 @@ final class CmuxRenderView: NSView, @preconcurrency NSTextInputClient {
     }
 
     var visibleRowCount: Int {
-        guard metrics.cellHeightPoints > 0 else { return 1 }
-        return max(1, Int(floor(bounds.height / metrics.cellHeightPoints)))
+        guard cellHeight > 0 else { return 1 }
+        return max(1, Int(floor(bounds.height / cellHeight)))
     }
 
     override func becomeFirstResponder() -> Bool {
@@ -134,7 +135,7 @@ final class CmuxRenderView: NSView, @preconcurrency NSTextInputClient {
 
     override func scrollWheel(with event: NSEvent) {
         let precise = event.hasPreciseScrollingDeltas
-        let divisor = precise ? max(1, metrics.cellHeightPoints) : 1
+        let divisor = precise ? max(1, cellHeight) : 1
         let raw = event.scrollingDeltaY / divisor
         let rows = raw == 0 ? 0 : (raw > 0 ? Int(ceil(raw)) : Int(floor(raw)))
         guard rows != 0 else { return }
@@ -175,6 +176,7 @@ final class CmuxRenderView: NSView, @preconcurrency NSTextInputClient {
         var column = 0
         var underlineSpans: [(style: CmuxRenderUnderline, column: Int, width: Int, color: NSColor)] = []
         for run in row.runs {
+            let runStart = column
             let style = run.attributes.style(underline: run.underline)
             var foreground = CmuxRenderColor(run.foreground)?.color ?? defaultForeground
             var background = CmuxRenderColor(run.background)?.color ?? defaultBackground
@@ -184,43 +186,89 @@ final class CmuxRenderView: NSView, @preconcurrency NSTextInputClient {
 
             let width = max(0, run.cellWidth)
             let rowRect = NSRect(
-                x: CGFloat(column) * metrics.cellWidthPoints,
-                y: CGFloat(displayIndex) * metrics.cellHeightPoints,
-                width: CGFloat(width) * metrics.cellWidthPoints,
-                height: metrics.cellHeightPoints
+                x: CGFloat(column) * cellWidth,
+                y: CGFloat(displayIndex) * cellHeight,
+                width: CGFloat(width) * cellWidth,
+                height: cellHeight
             )
             background.setFill()
             rowRect.fill()
 
-            var text = run.text
-            let estimated = run.estimatedCellWidth
-            if width > estimated {
-                text.append(String(repeating: " ", count: width - estimated))
+            let font = metrics.font(for: style)
+            for character in run.text {
+                let span = max(1, CmuxRenderRun.estimatedCellWidth(of: character))
+                append(String(character), cellSpan: span, font: font, foreground: foreground, style: style, to: line)
+                column += span
             }
-            var attributes: [NSAttributedString.Key: Any] = [
-                .font: metrics.font(for: style),
-                .foregroundColor: foreground,
-            ]
-            if style.strikethrough { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
-            line.append(NSAttributedString(string: text, attributes: attributes))
+            let runEnd = runStart + width
+            while column < runEnd {
+                append(" ", cellSpan: 1, font: font, foreground: foreground, style: style, to: line)
+                column += 1
+            }
             if let underline = style.underline {
-                underlineSpans.append((underline, column, width, foreground))
+                underlineSpans.append((underline, runStart, width, foreground))
             }
-            column += width
         }
 
-        let y = CGFloat(displayIndex) * metrics.cellHeightPoints
-            + max(0, metrics.baselinePoints - metrics.regularFont.ascender)
-        line.draw(at: NSPoint(x: 0, y: y))
+        let y = CGFloat(displayIndex) * cellHeight
+            + metrics.topToBaselinePoints(backingScale: backingScale)
+            - metrics.regularFont.ascender
+        drawTerminalLine(line, at: NSPoint(x: 0, y: y))
         for span in underlineSpans {
             drawUnderline(
                 span.style,
-                x: CGFloat(span.column) * metrics.cellWidthPoints,
-                y: CGFloat(displayIndex + 1) * metrics.cellHeightPoints - 2,
-                width: CGFloat(span.width) * metrics.cellWidthPoints,
+                x: CGFloat(span.column) * cellWidth,
+                y: CGFloat(displayIndex + 1) * cellHeight - 2,
+                width: CGFloat(span.width) * cellWidth,
                 color: span.color
             )
         }
+    }
+
+    private func append(
+        _ text: String,
+        cellSpan: Int,
+        font: NSFont,
+        foreground: NSColor,
+        style: CmuxRenderStyle,
+        to line: NSMutableAttributedString
+    ) {
+        let key = "\(font.fontName)\u{0}\(font.pointSize)\u{0}\(text)"
+        let advance: CGFloat
+        if let cached = glyphAdvances[key] {
+            advance = cached
+        } else {
+            advance = metrics.glyphAdvance(text, font: font)
+            glyphAdvances[key] = advance
+        }
+        var attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: foreground,
+            .kern: CGFloat(cellSpan) * cellWidth - advance,
+            .ligature: 0,
+        ]
+        if style.strikethrough {
+            attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+        }
+        line.append(NSAttributedString(string: text, attributes: attributes))
+    }
+
+    private func drawTerminalLine(_ line: NSAttributedString, at point: NSPoint) {
+        guard let context = NSGraphicsContext.current?.cgContext else {
+            line.draw(at: point)
+            return
+        }
+        context.saveGState()
+        defer { context.restoreGState() }
+        context.setAllowsFontSmoothing(true)
+        context.setShouldSmoothFonts(false)
+        context.setAllowsFontSubpixelPositioning(true)
+        context.setShouldSubpixelPositionFonts(true)
+        context.setAllowsFontSubpixelQuantization(false)
+        context.setShouldSubpixelQuantizeFonts(false)
+        context.setAllowsAntialiasing(true)
+        context.setShouldAntialias(true)
+        line.draw(at: point)
     }
 
     private func drawUnderline(
@@ -269,10 +317,10 @@ final class CmuxRenderView: NSView, @preconcurrency NSTextInputClient {
         guard cursor.visible else { return }
         let color = CmuxRenderColor(cursor.color)?.color ?? defaultForeground
         let cell = NSRect(
-            x: CGFloat(cursor.x) * metrics.cellWidthPoints,
-            y: CGFloat(cursor.y) * metrics.cellHeightPoints,
-            width: metrics.cellWidthPoints,
-            height: metrics.cellHeightPoints
+            x: CGFloat(cursor.x) * cellWidth,
+            y: CGFloat(cursor.y) * cellHeight,
+            width: cellWidth,
+            height: cellHeight
         )
         let focused = paneActive && window?.firstResponder === self && window?.isKeyWindow == true
         guard !focused || blinkPhase || !cursor.blink else { return }
@@ -291,6 +339,18 @@ final class CmuxRenderView: NSView, @preconcurrency NSTextInputClient {
             path.lineWidth = 1
             path.stroke()
         }
+    }
+
+    private var backingScale: CGFloat {
+        window?.backingScaleFactor ?? window?.screen?.backingScaleFactor ?? 2
+    }
+
+    private var cellWidth: CGFloat {
+        metrics.alignedCellWidthPoints(backingScale: backingScale)
+    }
+
+    private var cellHeight: CGFloat {
+        metrics.alignedCellHeightPoints(backingScale: backingScale)
     }
 
     private func updateBlinkTimer() {

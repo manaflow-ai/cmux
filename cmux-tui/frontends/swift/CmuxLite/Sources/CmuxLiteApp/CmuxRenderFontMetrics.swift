@@ -10,7 +10,6 @@ struct CmuxRenderFontMetrics {
     let boldItalicFont: NSFont
     let cellWidthPoints: CGFloat
     let cellHeightPoints: CGFloat
-    let baselinePoints: CGFloat
 
     init(configuration: CmuxGhosttyViewConfiguration) {
         let size = CGFloat(configuration.fontSize)
@@ -25,22 +24,34 @@ struct CmuxRenderFontMetrics {
             toHaveTrait: .italicFontMask
         )
 
-        let ctFont = regular as CTFont
-        var glyph = CTFontGetGlyphWithName(ctFont, "M" as CFString)
-        var advance = CGSize.zero
-        CTFontGetAdvancesForGlyphs(ctFont, .horizontal, &glyph, &advance, 1)
-        cellWidthPoints = max(1, ceil(advance.width * 64) / 64)
-        let rawHeight = regular.ascender - regular.descender + regular.leading
-        cellHeightPoints = max(1, ceil(rawHeight * 64) / 64)
-        baselinePoints = regular.ascender
+        cellWidthPoints = max(1, Self.printableASCIIWidth(font: regular as CTFont))
+        cellHeightPoints = max(1, regular.ascender - regular.descender + regular.leading)
     }
 
     func cellWidthPixels(backingScale: CGFloat) -> UInt32 {
-        UInt32(max(1, ceil(cellWidthPoints * backingScale)))
+        UInt32(max(1, (cellWidthPoints * backingScale).rounded()))
     }
 
     func cellHeightPixels(backingScale: CGFloat) -> UInt32 {
-        UInt32(max(1, ceil(cellHeightPoints * backingScale)))
+        UInt32(max(1, (cellHeightPoints * backingScale).rounded()))
+    }
+
+    func alignedCellWidthPoints(backingScale: CGFloat) -> CGFloat {
+        CGFloat(cellWidthPixels(backingScale: backingScale)) / backingScale
+    }
+
+    func alignedCellHeightPoints(backingScale: CGFloat) -> CGFloat {
+        CGFloat(cellHeightPixels(backingScale: backingScale)) / backingScale
+    }
+
+    func topToBaselinePoints(backingScale: CGFloat) -> CGFloat {
+        let cellHeight = CGFloat(cellHeightPixels(backingScale: backingScale))
+        let faceHeight = cellHeightPoints * backingScale
+        let faceBaselineFromBottom = (regularFont.leading / 2 - regularFont.descender) * backingScale
+        let cellBaselineFromBottom = (
+            faceBaselineFromBottom - (cellHeight - faceHeight) / 2
+        ).rounded()
+        return (cellHeight - cellBaselineFromBottom) / backingScale
     }
 
     func font(for style: CmuxRenderStyle) -> NSFont {
@@ -50,5 +61,20 @@ struct CmuxRenderFontMetrics {
         case (false, true): italicFont
         case (false, false): regularFont
         }
+    }
+
+    func glyphAdvance(_ text: String, font: NSFont) -> CGFloat {
+        let attributed = NSAttributedString(string: text, attributes: [.font: font])
+        let line = CTLineCreateWithAttributedString(attributed)
+        return CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+    }
+
+    private static func printableASCIIWidth(font: CTFont) -> CGFloat {
+        var characters = (32...126).map(UniChar.init)
+        var glyphs = Array(repeating: CGGlyph(), count: characters.count)
+        CTFontGetGlyphsForCharacters(font, &characters, &glyphs, characters.count)
+        var advances = Array(repeating: CGSize.zero, count: glyphs.count)
+        CTFontGetAdvancesForGlyphs(font, .horizontal, &glyphs, &advances, glyphs.count)
+        return advances.map(\.width).max() ?? 1
     }
 }
