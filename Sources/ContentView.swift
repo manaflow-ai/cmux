@@ -11883,6 +11883,10 @@ struct VerticalTabsSidebar: View {
         // evaluated this body. Overlay cache misses and stale presentation keys
         // above LazyVStack, so rows are complete and current for that transaction.
         // This value-only overlay does not publish or update the parent cache.
+        // The bounded O(N) cold/key-change pass is deliberate: deferring these
+        // builders into ForEach would retain live Workspace models across the
+        // lazy boundary and recreate #6707. Steady-state churn reuses the cache;
+        // complete row-input assembly remains limited to realized rows.
         let presentationKey = SidebarWorkspaceSnapshotFactory.presentationKey(
             settings: renderContext.tabItemSettings,
             showsAgentActivity: renderContext.showsAgentActivity
