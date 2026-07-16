@@ -272,6 +272,13 @@ enum Command {
         #[serde(default)]
         rows: Option<u16>,
     },
+    NewPane {
+        pane: PaneId,
+        #[serde(default)]
+        cols: Option<u16>,
+        #[serde(default)]
+        rows: Option<u16>,
+    },
     Split {
         pane: PaneId,
         /// "right" or "down"
@@ -2213,6 +2220,10 @@ fn handle_command(
         }
         Command::NewScreen { workspace, cols, rows } => {
             let surface = mux.new_screen(workspace, optional_surface_size(cols, rows))?;
+            Ok(json!({ "surface": surface.id }))
+        }
+        Command::NewPane { pane, cols, rows } => {
+            let surface = mux.new_pane(pane, optional_surface_size(cols, rows))?;
             Ok(json!({ "surface": surface.id }))
         }
         Command::Split { pane, dir, cols, rows } => {

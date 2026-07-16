@@ -866,6 +866,55 @@ Example:
 {"id":9,"ok":true,"data":{"surface":12}}
 ```
 
+### new-pane
+
+| Field | Value |
+| --- | --- |
+| name | `new-pane` |
+| status | implemented |
+| since | protocol 7 |
+
+Creates a PTY pane after the current panes in creation order, focuses it, and reapplies Zellij's default vertical auto-layout. Panes one through five use one full-height left column and up to four equal right-side rows. Later panes fill balanced columns of four. The new surface inherits the active surface working directory of `pane` when available.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `pane` | `Id` | required | Pane whose screen receives the new pane |
+| `cols` | `uint16` | default null | Paired with `rows`; final value clamped to at least 1 |
+| `rows` | `uint16` | default null | Paired with `cols`; final value clamped to at least 1 |
+
+Result:
+
+```text
+object{surface:Id}
+```
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `pane <id> not found` | Target pane is not in any screen tree |
+| spawn or PTY error string | PTY creation or child spawn fails |
+| `bad request: ...` | Missing fields or wrong JSON type |
+
+CLI mapping:
+
+| Item | Value |
+| --- | --- |
+| Verb | `new-pane` |
+| Flags | `--pane <id> [--cols <n> --rows <n>]` |
+| Plain stdout | new surface id followed by newline |
+| JSON stdout | exact result object |
+| Exit codes | common |
+
+Example:
+
+```json
+{"id":10,"cmd":"new-pane","pane":2}
+{"id":10,"ok":true,"data":{"surface":14}}
+```
+
 ### split
 
 | Field | Value |
@@ -2461,7 +2510,7 @@ The following v5 behaviors are awkward for generated bindings and should be norm
 
 | Area | v5 behavior | Proposed v6 normalization |
 | --- | --- | --- |
-| Create commands | `new-tab`, `new-browser-tab`, `new-screen`, `new-workspace`, and `split` return only `{surface}` | Return `{surface,pane,screen,workspace}` |
+| Create commands | `new-tab`, `new-browser-tab`, `new-screen`, `new-workspace`, `new-pane`, and `split` return only `{surface}` | Return `{surface,pane,screen,workspace}` |
 | Selection commands | `select-*` returns success for unknown targets, out-of-range indexes, and missing selector fields | Return a changed boolean or reject invalid target/index |
 | Resize command | `resize-surface` reports acceptance but not the final clamped size | Return `{accepted,cols,rows}` |
 | Ratio command | `set-ratio` silently clamps and does not return final ratio | Return `{ratio}` after clamping |

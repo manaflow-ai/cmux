@@ -18,6 +18,7 @@ use base64::Engine;
 use cmux_tui_core::{
     BrowserSource, BrowserStatus, MuxEvent, PaneId, Rect, SplitDir, SplitEdge, SurfaceId,
     SurfaceKind, WorkspaceId, layout_screen, split_for_pane_edge, split_sides,
+    zellij_default_pane_layout,
 };
 use crossterm::ExecutableCommand;
 use crossterm::event::{
@@ -1397,6 +1398,11 @@ impl OrderedSession {
         Ok(())
     }
 
+    pub fn new_pane(&self, pane: PaneId, size: Option<(u16, u16)>) -> anyhow::Result<()> {
+        self.enqueue_routing("create pane", move |session| session.new_pane(pane, size));
+        Ok(())
+    }
+
     pub fn set_ratio(&self, pane: PaneId, dir: SplitDir, ratio: f32) {
         self.set_ratio_deferred(pane, dir, ratio);
         self.settle_split_ratio();
@@ -2056,50 +2062,6 @@ fn sidebar_drag_width(config: &Config, content: Rect, sidebar_width: u16, x: u16
 fn content_size_for_rect(rect: Rect, scrollbar: ScrollbarPosition) -> Option<(u16, u16)> {
     let (_, _, content, _) = pane_parts_for_rect(rect, scrollbar, false);
     (content.width > 0 && content.height > 0).then_some((content.width, content.height))
-}
-
-fn cell_height_width_ratio(cell_pixels: (u16, u16)) -> u16 {
-    let (width, height) = cell_pixels;
-    if width == 0 || height == 0 {
-        return 4;
-    }
-    ((height as f32 / width as f32).round() as u16).max(1)
-}
-
-fn zellij_smart_direction(content: Rect, ratio: u16) -> Option<SplitDir> {
-    let rows = content.height as u32;
-    let cols = content.width as u32;
-    let ratio = ratio as u32;
-    if rows.saturating_mul(ratio) > cols && rows > 20 {
-        Some(SplitDir::Down)
-    } else if cols > 60 {
-        Some(SplitDir::Right)
-    } else {
-        None
-    }
-}
-
-fn smart_split_target(
-    areas: &[PaneArea],
-    focused: Option<PaneId>,
-    cell_pixels: (u16, u16),
-) -> Option<(PaneId, SplitDir)> {
-    let ratio = cell_height_width_ratio(cell_pixels);
-    if let Some(area) = focused.and_then(|pane| areas.iter().find(|area| area.pane == pane))
-        && let Some(dir) = zellij_smart_direction(area.content, ratio)
-    {
-        return Some((area.pane, dir));
-    }
-    areas
-        .iter()
-        .filter_map(|area| {
-            zellij_smart_direction(area.content, ratio).map(|dir| {
-                let area_score = area.content.width as u32 * area.content.height as u32;
-                (area_score, area.pane, dir)
-            })
-        })
-        .max_by_key(|(area_score, _, _)| *area_score)
-        .map(|(_, pane, dir)| (pane, dir))
 }
 
 fn browser_content_size_for_rect(rect: Rect, scrollbar: ScrollbarPosition) -> Option<(u16, u16)> {
@@ -3940,12 +3902,21 @@ impl App {
     }
 
     fn new_pane_smart(&mut self) -> anyhow::Result<()> {
-        let Some((pane, dir)) =
-            smart_split_target(&self.pane_areas, self.active_pane(), self.cell_pixels)
-        else {
+        let Some(pane) = self.active_pane() else {
             return Ok(());
         };
-        self.split_pane(pane, dir)
+        let hint = self.tree.active_screen().and_then(|screen| {
+            let mut panes = Vec::new();
+            screen.layout.pane_ids(&mut panes);
+            panes.push(PaneId::MAX);
+            let layout = zellij_default_pane_layout(&panes)?;
+            let rect = layout_screen(&layout, self.content_area).rect_of(PaneId::MAX)?;
+            self.size_of_rect(rect)
+        });
+        if !self.prepare_pty_input_before_mutation() {
+            return Ok(());
+        }
+        self.session.new_pane(pane, hint)
     }
 
     fn new_workspace(&mut self) -> anyhow::Result<()> {
@@ -6755,10 +6726,7 @@ mod tests {
         panes.sort_unstable();
         assert_eq!(panes.len(), 5);
 
-        let layout = layout_screen(
-            &screen.layout,
-            Rect { x: 0, y: 0, width: 200, height: 40 },
-        );
+        let layout = layout_screen(&screen.layout, Rect { x: 0, y: 0, width: 200, height: 40 });
         assert_eq!(
             layout.panes,
             vec![

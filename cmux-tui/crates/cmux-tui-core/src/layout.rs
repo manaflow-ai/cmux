@@ -164,6 +164,45 @@ pub fn layout_screen(root: &Node, area: Rect) -> LayoutResult {
     result
 }
 
+/// Reproduce Zellij's default `vertical` auto-layout family for panes in
+/// creation order through twelve panes. The first pane keeps a full-height
+/// column while the second column fills from one through four rows. Later
+/// panes fill columns of four from right to left.
+pub fn zellij_default_pane_layout(panes: &[PaneId]) -> Option<Node> {
+    match panes {
+        [] => None,
+        [pane] => Some(Node::Leaf(*pane)),
+        _ => {
+            let first_column_len = if panes.len() <= 5 {
+                1
+            } else {
+                let remainder = panes.len() % 4;
+                if remainder == 0 { 4 } else { remainder }
+            };
+            let mut columns = Vec::new();
+            columns.push(equal_split(&panes[..first_column_len], SplitDir::Down));
+            for column in panes[first_column_len..].chunks(4) {
+                columns.push(equal_split(column, SplitDir::Down));
+            }
+            Some(equal_nodes(columns, SplitDir::Right))
+        }
+    }
+}
+
+fn equal_split(panes: &[PaneId], dir: SplitDir) -> Node {
+    equal_nodes(panes.iter().copied().map(Node::Leaf).collect(), dir)
+}
+
+fn equal_nodes(mut nodes: Vec<Node>, dir: SplitDir) -> Node {
+    debug_assert!(!nodes.is_empty());
+    if nodes.len() == 1 {
+        return nodes.pop().unwrap();
+    }
+    let first = nodes.remove(0);
+    let ratio = 1.0 / (nodes.len() + 1) as f32;
+    Node::Split { dir, ratio, a: Box::new(first), b: Box::new(equal_nodes(nodes, dir)) }
+}
+
 fn walk(node: &Node, area: Rect, out: &mut LayoutResult) {
     match node {
         Node::Leaf(id) => out.panes.push((*id, area)),
@@ -301,6 +340,38 @@ mod tests {
         // Panes tile without gaps: every cell belongs to exactly one pane.
         assert_eq!(layout.pane_at(39, 0), Some(1));
         assert_eq!(layout.pane_at(40, 0), Some(2));
+    }
+
+    #[test]
+    fn zellij_default_layout_fills_right_column_before_adding_another() {
+        let root = zellij_default_pane_layout(&[1, 2, 3, 4, 5]).unwrap();
+        let layout = layout_screen(&root, Rect { x: 0, y: 0, width: 200, height: 40 });
+
+        assert_eq!(
+            layout.panes,
+            vec![
+                (1, Rect { x: 0, y: 0, width: 100, height: 40 }),
+                (2, Rect { x: 100, y: 0, width: 100, height: 10 }),
+                (3, Rect { x: 100, y: 10, width: 100, height: 10 }),
+                (4, Rect { x: 100, y: 20, width: 100, height: 10 }),
+                (5, Rect { x: 100, y: 30, width: 100, height: 10 }),
+            ]
+        );
+    }
+
+    #[test]
+    fn zellij_default_layout_balances_completed_columns_of_four() {
+        for count in [8, 12] {
+            let panes = (1..=count).collect::<Vec<_>>();
+            let root = zellij_default_pane_layout(&panes).unwrap();
+            let layout = layout_screen(
+                &root,
+                Rect { x: 0, y: 0, width: (count / 4 * 40) as u16, height: 40 },
+            );
+
+            assert_eq!(layout.panes.iter().map(|(pane, _)| *pane).collect::<Vec<_>>(), panes);
+            assert!(layout.panes.iter().all(|(_, rect)| rect.width == 40 && rect.height == 10));
+        }
     }
 
     #[test]

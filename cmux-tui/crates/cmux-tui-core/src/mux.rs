@@ -1276,6 +1276,62 @@ impl Mux {
         Ok(surface)
     }
 
+    /// Create a pane and reapply Zellij's default pane distribution to the
+    /// containing screen. Pane traversal order is the creation order maintained
+    /// by this layout family, so existing terminals keep stable positions as
+    /// later columns fill.
+    pub fn new_pane(
+        self: &Arc<Self>,
+        target: PaneId,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>> {
+        let cwd = self.pane_cwd(target);
+        let surface = self.spawn_surface(cwd, size)?;
+        let pane_id = self.next_id();
+        let active_at = self.next_active_at();
+        let mut changed_screen = None;
+        {
+            let mut state = self.state.lock().unwrap();
+            'outer: for ws in &mut state.workspaces {
+                for screen in &mut ws.screens {
+                    if !screen.root.contains(target) {
+                        continue;
+                    }
+                    let mut panes = Vec::new();
+                    screen.root.pane_ids(&mut panes);
+                    panes.push(pane_id);
+                    screen.root = crate::zellij_default_pane_layout(&panes)
+                        .expect("new pane layout always has at least one pane");
+                    screen.active_pane = pane_id;
+                    changed_screen = Some(screen.id);
+                    break 'outer;
+                }
+            }
+            if changed_screen.is_some() {
+                state.panes.insert(
+                    pane_id,
+                    Pane {
+                        id: pane_id,
+                        name: None,
+                        tabs: vec![surface.id],
+                        active_tab: 0,
+                        active_at,
+                    },
+                );
+            } else {
+                state.surfaces.remove(&surface.id);
+            }
+        }
+        let Some(screen) = changed_screen else {
+            surface.kill();
+            anyhow::bail!("pane {target} not found");
+        };
+        self.emit(MuxEvent::TreeChanged);
+        self.emit(MuxEvent::LayoutChanged(screen));
+        self.reap_if_dead(&surface);
+        Ok(surface)
+    }
+
     /// Close one tab. When it was the pane's last tab, the pane collapses
     /// out of its split tree (and emptied screens/workspaces are removed).
     pub fn close_surface(&self, target: SurfaceId) {

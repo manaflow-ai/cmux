@@ -69,6 +69,7 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | `new-browser-tab` | implemented | `--url <url>` | `--pane <id>`, `--cols <n> --rows <n>` | surface id |
 | `new-workspace` | implemented | none | `--name <name>`, `--cols <n> --rows <n>` | surface id |
 | `new-screen` | implemented | none | `--workspace <id>`, `--cols <n> --rows <n>` | surface id |
+| `new-pane` | implemented | `--pane <id>` | `--cols <n> --rows <n>` | surface id |
 | `split` | implemented | `--pane <id> --dir right|down` | `--cols <n> --rows <n>` | surface id |
 | `set-ratio` | implemented | `--pane <id> --dir right|down --ratio <n>` | none | none |
 | `pane-neighbor` | implemented | `--pane <id> --dir left|right|up|down` | none | pane id or `null` |
