@@ -180,6 +180,8 @@ extension TerminalWindowPortalLifecycleTests {
             expectedGeneration: surface.portalBindingGeneration()
         )
         TerminalWindowPortalRegistry.synchronizeForAnchor(anchor)
+        drainMainQueue()
+        drainMainQueue()
         realizeWindowLayout(window)
         let initialPixelWidth = surface.debugCurrentPixelSize().width
         XCTAssertGreaterThan(initialPixelWidth, 0)
