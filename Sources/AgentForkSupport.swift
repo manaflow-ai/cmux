@@ -313,24 +313,7 @@ enum AgentForkSupport {
                 return false
             }
             let fallbackExecutable = snapshot.registration?.defaultExecutable ?? snapshot.kind.rawValue
-            let capturedLauncher = snapshot.launchCommand?.launcher?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased()
-            let capturedExecutable = [
-                snapshot.launchCommand?.executablePath,
-                snapshot.launchCommand?.arguments.first,
-            ]
-                .compactMap { value in
-                    value.map { ($0 as NSString).lastPathComponent.lowercased() }
-                }
-                .first { $0 == "pi" || $0 == "omp" }
-            let capturedLauncherID = capturedLauncher.flatMap {
-                ["pi", "omp"].contains($0) ? $0 : nil
-            }
-            let agentID = capturedExecutable
-                ?? capturedLauncherID
-                ?? snapshot.registration?.id
-                ?? snapshot.kind.rawValue
+            let agentID = piFamilyProbeAgentID(snapshot)
             let probe = AgentResumeCommandBuilder.piFamilyVersionProbe(
                 launchCommand: snapshot.launchCommand,
                 fallbackExecutable: fallbackExecutable
@@ -368,6 +351,46 @@ enum AgentForkSupport {
         )
     }
 
+    static func forkValidationIdentity(
+        snapshot: SessionRestorableAgentSnapshot,
+        isRemoteContext: Bool = false
+    ) -> String? {
+        guard let command = snapshot.forkCommand else { return nil }
+        var parts = ["command", command]
+        if requiresLocalPiFamilyCapabilityProbe(snapshot) {
+            let fallbackExecutable = snapshot.registration?.defaultExecutable ?? snapshot.kind.rawValue
+            let agentID = piFamilyProbeAgentID(snapshot)
+            let probe = AgentResumeCommandBuilder.piFamilyVersionProbe(
+                launchCommand: snapshot.launchCommand,
+                fallbackExecutable: fallbackExecutable
+            )
+            parts.append(
+                localForkProbeValidationIdentity(
+                    probe: probe,
+                    snapshot: snapshot,
+                    discriminator: "pi-family-version:\(agentID)",
+                    probeFromDefaultDirectoryWhenWorkingDirectoryIsMissing: true
+                )
+            )
+        } else if snapshot.kind == .opencode {
+            parts.append("opencode")
+            parts.append("launcher=\(normalized(snapshot.launchCommand?.launcher) ?? "")")
+            if !isRemoteContext,
+               let probe = AgentResumeCommandBuilder.openCodeVersionProbe(
+                launchCommand: snapshot.launchCommand
+               ) {
+                parts.append(
+                    localForkProbeValidationIdentity(
+                        probe: probe,
+                        snapshot: snapshot,
+                        discriminator: "opencode-version"
+                    )
+                )
+            }
+        }
+        return parts.joined(separator: "\u{1f}")
+    }
+
     static func requiresLocalPiFamilyCapabilityProbe(
         _ snapshot: SessionRestorableAgentSnapshot
     ) -> Bool {
@@ -382,6 +405,27 @@ enum AgentForkSupport {
         default:
             return false
         }
+    }
+
+    private static func piFamilyProbeAgentID(_ snapshot: SessionRestorableAgentSnapshot) -> String {
+        let capturedLauncher = snapshot.launchCommand?.launcher?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let capturedExecutable = [
+            snapshot.launchCommand?.executablePath,
+            snapshot.launchCommand?.arguments.first,
+        ]
+            .compactMap { value in
+                value.map { ($0 as NSString).lastPathComponent.lowercased() }
+            }
+            .first { $0 == "pi" || $0 == "omp" }
+        let capturedLauncherID = capturedLauncher.flatMap {
+            ["pi", "omp"].contains($0) ? $0 : nil
+        }
+        return capturedExecutable
+            ?? capturedLauncherID
+            ?? snapshot.registration?.id
+            ?? snapshot.kind.rawValue
     }
 
     static func piFamilyVersionSupportsFork(_ output: String, agentID: String) -> Bool {
@@ -458,6 +502,38 @@ enum AgentForkSupport {
             await openCodeVersionProbeCache.store(supportsFork, for: cacheKey)
         }
         return supportsFork
+    }
+
+    private static func localForkProbeValidationIdentity(
+        probe: (executable: String, arguments: [String]),
+        snapshot: SessionRestorableAgentSnapshot,
+        discriminator: String,
+        probeFromDefaultDirectoryWhenWorkingDirectoryIsMissing: Bool = false
+    ) -> String {
+        let requestedWorkingDirectory = probeWorkingDirectory(snapshot: snapshot)
+        let workingDirectory = probeFromDefaultDirectoryWhenWorkingDirectoryIsMissing
+            && requestedWorkingDirectory.flatMap({ localDirectoryURL(path: $0) }) == nil
+            ? nil
+            : requestedWorkingDirectory
+        let decision = localForkProbeDecision(probe: probe, workingDirectory: workingDirectory)
+        let decisionPart: String
+        switch decision {
+        case .run:
+            decisionPart = "run"
+        case .skipRemoteLikeContext:
+            decisionPart = "skip-remote-like-context"
+        case .rejectMissingExecutable:
+            decisionPart = "reject-missing-executable"
+        }
+        return [
+            decisionPart,
+            forkProbeCacheKey(
+                probe: probe,
+                environment: snapshot.launchCommand?.environment,
+                workingDirectory: workingDirectory,
+                discriminator: discriminator
+            ),
+        ].joined(separator: "\u{1f}")
     }
 
     private static func forkProbeCacheKey(

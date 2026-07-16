@@ -12,7 +12,7 @@ final class SharedLiveAgentIndex {
     }
 
     private struct ForkSupportValidation {
-        let command: String
+        let identity: String
         let isSupported: Bool
         let completedAt: Date
     }
@@ -361,13 +361,16 @@ final class SharedLiveAgentIndex {
                     panelKey: validationKey,
                     isRemoteContext: probeKey.isRemoteContext
                 )
-                if let command = snapshot.forkCommand {
+                if let identity = AgentForkSupport.forkValidationIdentity(
+                    snapshot: snapshot,
+                    isRemoteContext: probeKey.isRemoteContext
+                ) {
                     let isSupported = await forkSupportProvider(
                         snapshot,
                         probeKey.isRemoteContext
                     )
                     validatedForkSupport[resolvedProbeKey] = ForkSupportValidation(
-                        command: command,
+                        identity: identity,
                         isSupported: isSupported,
                         completedAt: dateProvider()
                     )
@@ -383,7 +386,10 @@ final class SharedLiveAgentIndex {
         snapshot: SessionRestorableAgentSnapshot
     ) -> Bool {
         guard let validation = validatedForkSupport[probeKey],
-              validation.command == snapshot.forkCommand else {
+              validation.identity == AgentForkSupport.forkValidationIdentity(
+                snapshot: snapshot,
+                isRemoteContext: probeKey.isRemoteContext
+              ) else {
             return false
         }
         return dateProvider().timeIntervalSince(validation.completedAt) < Self.forkAvailabilityProbeTTL
