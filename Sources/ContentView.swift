@@ -11879,9 +11879,22 @@ struct VerticalTabsSidebar: View {
         // parent body. Complete row inputs are resolved only when LazyVStack
         // realizes a row, using cached presentation snapshots and value state.
         let unreadSummariesByWorkspaceId = sidebarUnread.summaryByWorkspaceId
+        // onAppear/onChange refreshes the parent cache after SwiftUI has already
+        // evaluated this body. Overlay only cache misses now, above LazyVStack,
+        // so initial and newly inserted rows never disappear for that transaction.
+        // This value-only overlay does not publish or update the parent cache.
+        let workspaceSnapshotsForRendering = SidebarWorkspaceSnapshotCacheOverlay(
+            cachedValues: workspaceSnapshotsById
+        ).values(for: renderContext.tabs, identifiedBy: \.id) { workspace in
+            makeWorkspaceSnapshot(
+                workspace: workspace,
+                settings: renderContext.tabItemSettings,
+                showsAgentActivity: renderContext.showsAgentActivity
+            )
+        }
         let rowInputProjection = SidebarWorkspaceRowInputProjection(
             modelSnapshotsById: renderContext.workspaceRowModelSnapshotsById,
-            workspaceSnapshotsById: workspaceSnapshotsById,
+            workspaceSnapshotsById: workspaceSnapshotsForRendering,
             unreadSummariesByWorkspaceId: unreadSummariesByWorkspaceId,
             tabIndexById: renderContext.tabIndexById,
             selectedContextTargetIds: renderContext.selectedContextTargetIds,
