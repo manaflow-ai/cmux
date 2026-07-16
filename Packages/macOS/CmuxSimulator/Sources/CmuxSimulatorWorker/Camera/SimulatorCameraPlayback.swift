@@ -69,11 +69,17 @@ struct SimulatorCameraPlayback: Sendable {
                 )
                 if presentationTime.isFinite {
                     if firstPresentationTime == nil { firstPresentationTime = presentationTime }
-                    let elapsed = max(0, presentationTime - (firstPresentationTime ?? presentationTime))
+                    guard let delayMilliseconds = Self.delayMilliseconds(
+                        firstPresentationTime: firstPresentationTime ?? presentationTime,
+                        presentationTime: presentationTime
+                    ) else {
+                        reader.cancelReading()
+                        return
+                    }
                     do {
                         try await timing.sleep(
                             until: playbackStart + .milliseconds(
-                                Int64((elapsed * 1_000).rounded())
+                                delayMilliseconds
                             ),
                             tolerance: .milliseconds(2)
                         )
@@ -90,6 +96,19 @@ struct SimulatorCameraPlayback: Sendable {
             reader.cancelReading()
             if !completed { return }
         } while loops && !Task.isCancelled
+    }
+
+    static func delayMilliseconds(
+        firstPresentationTime: Double,
+        presentationTime: Double
+    ) -> Int64? {
+        guard firstPresentationTime.isFinite, presentationTime.isFinite else { return nil }
+        let elapsed = max(0, presentationTime - firstPresentationTime)
+        let milliseconds = (elapsed * 1_000).rounded()
+        guard milliseconds.isFinite,
+              milliseconds >= 0,
+              milliseconds < Double(Int64.max) else { return nil }
+        return Int64(milliseconds)
     }
 
     private func makeReader(

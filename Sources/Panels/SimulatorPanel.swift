@@ -29,6 +29,7 @@ final class SimulatorPanel: Panel {
     private var isFeatureDisabled = false
     private var isClosed = false
     private var isVisibleInUI = false
+    private var canvasRendering: Bool?
 
     var displayTitle: String {
         String(localized: "simulator.pane.title", defaultValue: "Simulator")
@@ -124,16 +125,20 @@ final class SimulatorPanel: Panel {
                 preferredRuntimeIdentifier: self.preferredRuntimeIdentifier,
                 preferredDeviceTypeIdentifier: self.preferredDeviceTypeIdentifier
             )
-            self.coordinator.setPaneVisibility(self.isVisibleInUI)
-            if self.isVisibleInUI { self.startCoordinator() }
+            self.applyEffectiveVisibility()
         }
     }
 
     func setVisibleInUI(_ visible: Bool) {
         guard !isClosed else { return }
         isVisibleInUI = visible
-        coordinator.setPaneVisibility(visible)
-        if visible { startCoordinator() }
+        applyEffectiveVisibility()
+    }
+
+    func setCanvasRendering(_ rendering: Bool?) {
+        guard !isClosed else { return }
+        canvasRendering = rendering
+        applyEffectiveVisibility()
     }
 
     func close() {
@@ -222,9 +227,19 @@ final class SimulatorPanel: Panel {
     }
 
     private func startCoordinator() {
-        guard !isClosed, !isFeatureDisabled, isVisibleInUI, startupTask == nil else { return }
+        guard !isClosed, !isFeatureDisabled, isEffectivelyVisible, startupTask == nil else { return }
         let coordinator = self.coordinator
         startupTask = Task { await coordinator.start() }
+    }
+
+    private var isEffectivelyVisible: Bool {
+        isVisibleInUI && (canvasRendering ?? true)
+    }
+
+    private func applyEffectiveVisibility() {
+        let visible = isEffectivelyVisible
+        coordinator.setPaneVisibility(visible)
+        if visible { startCoordinator() }
     }
 
     private func reconcileRemoteFeatureFlag() {
