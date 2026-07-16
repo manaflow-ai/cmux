@@ -65,6 +65,14 @@ actor MobileCoreRPCSession {
     var isTearingDown: Bool = false
     private var writeQueue: AsyncStream<PendingWrite>.Continuation?
     private var writerTask: Task<Void, Never>?
+    private var activeWrite: (
+        connectionID: UUID,
+        requestID: String,
+        task: Task<Void, any Error>
+    )?
+    private var transportCloseTask: Task<Void, Never>?
+    private var transportCloseTaskID: UUID?
+    private var pendingTransportCloses: [any CmxByteTransport] = []
 
     init(
         connectAttemptKey: String? = nil,
@@ -89,7 +97,9 @@ actor MobileCoreRPCSession {
         readerTask?.cancel()
         independentEventPreparation?.task.cancel()
         independentEventReader?.task.cancel()
+        activeWrite?.task.cancel()
         writerTask?.cancel()
+        transportCloseTask?.cancel()
         writeQueue?.finish()
     }
 
@@ -185,15 +195,15 @@ actor MobileCoreRPCSession {
         }
         writeQueue?.finish()
         writeQueue = nil
+        activeWrite?.task.cancel()
+        activeWrite = nil
         writerTask?.cancel()
         writerTask = nil
         let connecting = connectionTask
         connecting?.task.cancel()
         connectionTask = nil
         installedConnectionID = nil
-        if let transport {
-            await transport.close()
-        }
+        let transportToClose = transport
         transport = nil
         readerTask?.cancel()
         readerTask = nil
@@ -201,6 +211,9 @@ actor MobileCoreRPCSession {
         independentEventPreparation = nil
         independentEventReader?.task.cancel()
         independentEventReader = nil
+        if let transportToClose {
+            enqueueTransportClose(transportToClose)
+        }
         if let connecting { await abandonConnectionTask(connecting) }
         isTearingDown = false
     }
@@ -216,6 +229,12 @@ actor MobileCoreRPCSession {
             throw MobileShellConnectionError.connectionClosed
         }
         if let transport { return transport }
+        // One active close plus one queued close is the cleanup capacity. A
+        // non-cooperative close can delay one later recovery, but cannot retain
+        // an unbounded chain of transports.
+        guard pendingTransportCloses.isEmpty else {
+            throw MobileShellConnectionError.connectionClosed
+        }
 
         let waiterID = UUID()
         let connectionID: UUID
@@ -319,12 +338,19 @@ actor MobileCoreRPCSession {
         transport = candidate
         await connectAttemptRegistry.recordSuccessfulConnect(lease: connectLease)
         readerTask = Task { [weak self] in
-            await self?.readLoop(transport: candidate)
+            await self?.readLoop(
+                transport: candidate,
+                connectionID: connectionID
+            )
         }
         let (stream, continuation) = AsyncStream<PendingWrite>.makeStream(bufferingPolicy: .unbounded)
         writeQueue = continuation
         writerTask = Task { [weak self] in
-            await self?.writeLoop(transport: candidate, frames: stream)
+            await self?.writeLoop(
+                transport: candidate,
+                connectionID: connectionID,
+                frames: stream
+            )
         }
         if callerCancelled {
             throw CancellationError()
@@ -404,40 +430,75 @@ actor MobileCoreRPCSession {
         }
     }
 
-    private func writeLoop(transport: any CmxByteTransport, frames: AsyncStream<PendingWrite>) async {
+    private func writeLoop(
+        transport: any CmxByteTransport,
+        connectionID: UUID,
+        frames: AsyncStream<PendingWrite>
+    ) async {
         for await write in frames {
             if Task.isCancelled { return }
             guard shouldSendQueuedWrite(write) else {
                 continue
             }
-            do {
+            let sendTask = Task {
                 try await transport.send(write.frame)
+            }
+            activeWrite = (connectionID, write.requestID, sendTask)
+            do {
+                try await sendTask.value
+                clearActiveWrite(
+                    connectionID: connectionID,
+                    requestID: write.requestID
+                )
             } catch {
-                await tearDown(error: .connectionClosed)
+                clearActiveWrite(
+                    connectionID: connectionID,
+                    requestID: write.requestID
+                )
+                await tearDownIfInstalled(
+                    connectionID: connectionID,
+                    error: .connectionClosed
+                )
                 return
             }
         }
     }
 
-    private func readLoop(transport: any CmxByteTransport) async {
+    private func readLoop(
+        transport: any CmxByteTransport,
+        connectionID: UUID
+    ) async {
         var buffer = Data()
         while !Task.isCancelled {
             let chunk: Data?
             do {
                 chunk = try await transport.receive()
             } catch {
-                await tearDown(error: .connectionClosed)
+                await tearDownIfInstalled(
+                    connectionID: connectionID,
+                    error: .connectionClosed
+                )
                 return
             }
             guard let chunk, !chunk.isEmpty else {
                 if chunk == nil {
-                    await tearDown(error: .connectionClosed)
+                    await tearDownIfInstalled(
+                        connectionID: connectionID,
+                        error: .connectionClosed
+                    )
                     return
                 }
                 continue
             }
+            guard !Task.isCancelled,
+                  installedConnectionID == connectionID else {
+                return
+            }
             guard chunk.count <= Self.maximumReceiveBufferByteCount - buffer.count else {
-                await tearDown(error: .invalidResponse)
+                await tearDownIfInstalled(
+                    connectionID: connectionID,
+                    error: .invalidResponse
+                )
                 return
             }
             buffer.append(chunk)
@@ -448,7 +509,10 @@ actor MobileCoreRPCSession {
                     maximumDecodedFrameCount: Self.maximumDecodedFrameCountPerRead
                 )
             } catch {
-                await tearDown(error: .invalidResponse)
+                await tearDownIfInstalled(
+                    connectionID: connectionID,
+                    error: .invalidResponse
+                )
                 return
             }
             for frame in frames {
@@ -462,22 +526,30 @@ actor MobileCoreRPCSession {
         requestTimeoutTasks.removeValue(forKey: requestID)?.cancel()
         cont.resume(returning: .failure(error))
     }
-    private func cancelPendingRequest(requestID: String) {
+    private func cancelPendingRequest(requestID: String) async {
         guard let cont = pending.removeValue(forKey: requestID) else { return }
         requestTimeoutTasks.removeValue(forKey: requestID)?.cancel()
         if let queuedWriteID = queuedWriteIDs.removeValue(forKey: requestID) {
             cancelledQueuedWriteIDs.insert(queuedWriteID)
         }
+        _ = await recycleTransportIfActiveWrite(requestID: requestID)
         cont.resume(returning: .failure(.requestTimedOut))
     }
 
-    private func timeoutPendingRequest(requestID: String) {
+    private func timeoutPendingRequest(requestID: String) async {
         guard let cont = pending.removeValue(forKey: requestID) else { return }
         requestTimeoutTasks.removeValue(forKey: requestID)?.cancel()
         if let queuedWriteID = queuedWriteIDs.removeValue(forKey: requestID) {
             cancelledQueuedWriteIDs.insert(queuedWriteID)
         }
-        cont.resume(returning: .failure(.requestTimedOut))
+        let error: MobileShellConnectionError = if await recycleTransportIfActiveWrite(
+            requestID: requestID
+        ) {
+            .transportWriteTimedOut
+        } else {
+            .requestTimedOut
+        }
+        cont.resume(returning: .failure(error))
     }
 
     private func shouldSendQueuedWrite(_ write: PendingWrite) -> Bool {
@@ -489,5 +561,51 @@ actor MobileCoreRPCSession {
         }
         queuedWriteIDs[write.requestID] = nil
         return pending[write.requestID] != nil
+    }
+
+    private func clearActiveWrite(connectionID: UUID, requestID: String) {
+        guard activeWrite?.connectionID == connectionID,
+              activeWrite?.requestID == requestID else { return }
+        activeWrite = nil
+    }
+
+    private func recycleTransportIfActiveWrite(requestID: String) async -> Bool {
+        guard activeWrite?.requestID == requestID else { return false }
+        activeWrite?.task.cancel()
+        activeWrite = nil
+        await tearDown(error: .connectionClosed)
+        return true
+    }
+
+    private func tearDownIfInstalled(
+        connectionID: UUID,
+        error: MobileShellConnectionError
+    ) async {
+        guard installedConnectionID == connectionID else { return }
+        await tearDown(error: error)
+    }
+
+    /// Serializes physical transport cleanup off this actor. Session state is
+    /// already detached, so a hanging close cannot block the replacement dial.
+    private func enqueueTransportClose(_ transport: any CmxByteTransport) {
+        guard transportCloseTask == nil else {
+            pendingTransportCloses.append(transport)
+            return
+        }
+        let taskID = UUID()
+        transportCloseTaskID = taskID
+        transportCloseTask = Task.detached { [weak self] in
+            await transport.close()
+            await self?.transportCloseDidFinish(taskID: taskID)
+        }
+    }
+
+    private func transportCloseDidFinish(taskID: UUID) {
+        guard transportCloseTaskID == taskID else { return }
+        transportCloseTask = nil
+        transportCloseTaskID = nil
+        guard !pendingTransportCloses.isEmpty else { return }
+        let nextTransport = pendingTransportCloses.removeFirst()
+        enqueueTransportClose(nextTransport)
     }
 }

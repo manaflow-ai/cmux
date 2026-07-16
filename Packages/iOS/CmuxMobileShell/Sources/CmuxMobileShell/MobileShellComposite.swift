@@ -1461,6 +1461,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         case liveness
         case eventStreamEnded
         case subscriptionStartFailed
+        case transportWriteTimedOut
 
         var reschedulesSecondaryAggregation: Bool { self != .presencePush }
 
@@ -1473,6 +1474,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             case .liveness: return "liveness"
             case .eventStreamEnded: return "eventStreamEnded"
             case .subscriptionStartFailed: return "subscriptionStartFailed"
+            case .transportWriteTimedOut: return "transportWriteTimedOut"
             }
         }
     }
@@ -5692,6 +5694,29 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         markMacConnectionUnavailable()
     }
 
+    /// Applies an availability failure only to the connection that produced it.
+    /// A blocked transport write is definitive and enters the single recovery
+    /// owner; an ordinary response timeout remains scoped to that one RPC.
+    func handleMacAvailabilityFailureIfCurrent(
+        after error: any Error,
+        expectedClient: MobileCoreRPCClient,
+        expectedGeneration: UUID
+    ) {
+        guard remoteClient === expectedClient,
+              connectionGeneration == expectedGeneration,
+              MobileShellMacAvailabilityFailureClassifier().isAvailabilityFailure(error) else {
+            return
+        }
+        if case MobileShellConnectionError.transportWriteTimedOut = error {
+            recoverDeadConnection(
+                trigger: .transportWriteTimedOut,
+                expectedClient: expectedClient
+            )
+        } else {
+            markMacConnectionUnavailable()
+        }
+    }
+
     func syncSelectedTerminalForWorkspace() {
         guard let selectedWorkspace else {
             selectedTerminalID = nil
@@ -5869,7 +5894,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } catch {
             guard generation == connectionGeneration, !Task.isCancelled else { return }
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
-            markMacConnectionUnavailableIfNeeded(after: error)
+            handleMacAvailabilityFailureIfCurrent(
+                after: error,
+                expectedClient: client,
+                expectedGeneration: generation
+            )
             applyOperationalError(error)
         }
     }
@@ -5946,7 +5975,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } catch {
             guard generation == connectionGeneration else { return }
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
-            markMacConnectionUnavailableIfNeeded(after: error)
+            handleMacAvailabilityFailureIfCurrent(
+                after: error,
+                expectedClient: client,
+                expectedGeneration: generation
+            )
             applyOperationalError(error)
         }
     }
@@ -6030,7 +6063,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } catch {
             guard generation == connectionGeneration else { return false }
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return false }
-            markMacConnectionUnavailableIfNeeded(after: error)
+            handleMacAvailabilityFailureIfCurrent(
+                after: error,
+                expectedClient: client,
+                expectedGeneration: generation
+            )
             applyOperationalError(error)
             return false
         }
@@ -6127,7 +6164,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } catch {
             guard generation == connectionGeneration else { return false }
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return false }
-            markMacConnectionUnavailableIfNeeded(after: error)
+            handleMacAvailabilityFailureIfCurrent(
+                after: error,
+                expectedClient: client,
+                expectedGeneration: generation
+            )
             applyOperationalError(error)
             return false
         }
@@ -7655,7 +7696,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 || normalizedMessage.contains("invalid token")
                 || normalizedMessage.contains("expired token")
                 || normalizedMessage.contains("token expired")
-        case .invalidResponse, .connectionClosed, .requestTimedOut, .insecureManualRoute:
+        case .invalidResponse, .connectionClosed, .requestTimedOut,
+             .transportWriteTimedOut, .insecureManualRoute:
             return false
         }
     }

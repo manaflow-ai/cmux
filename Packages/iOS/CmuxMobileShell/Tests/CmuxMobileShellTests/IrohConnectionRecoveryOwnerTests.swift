@@ -141,6 +141,55 @@ extension ReconnectRouteSelectionTests {
         #expect(attemptedKinds.allSatisfy { $0 == .iroh })
     }
 
+    @Test func responseTimeoutLeavesTheLiveIrohClientAlone() async throws {
+        let fixture = try await makeRecoveryOwnerFixture()
+        defer { fixture.release() }
+
+        #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        let client = try #require(fixture.store.remoteClient)
+        let generation = fixture.store.connectionGeneration
+
+        fixture.store.handleMacAvailabilityFailureIfCurrent(
+            after: MobileShellConnectionError.requestTimedOut,
+            expectedClient: client,
+            expectedGeneration: generation
+        )
+
+        #expect(fixture.store.remoteClient === client)
+        #expect(fixture.store.connectionState == .connected)
+        #expect(fixture.store.macConnectionStatus == .connected)
+        #expect(fixture.factory.attemptedKinds() == [.iroh])
+    }
+
+    @Test func stalledWriteRedialsExactCurrentIrohClientOnce() async throws {
+        let fixture = try await makeRecoveryOwnerFixture()
+        defer { fixture.release() }
+
+        #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        let client = try #require(fixture.store.remoteClient)
+        let generation = fixture.store.connectionGeneration
+
+        fixture.store.handleMacAvailabilityFailureIfCurrent(
+            after: MobileShellConnectionError.transportWriteTimedOut,
+            expectedClient: client,
+            expectedGeneration: generation
+        )
+
+        #expect(try await pollUntil {
+            guard let replacement = fixture.store.remoteClient else { return false }
+            let subscribeCount = await fixture.router.count(of: "mobile.events.subscribe")
+            return replacement !== client
+                && fixture.store.connectionState == .connected
+                && fixture.store.activeRoute?.kind == .iroh
+                && fixture.store.macConnectionStatus == .connected
+                && fixture.store.isRecoveringConnection == false
+                && subscribeCount >= 2
+        })
+        #expect(fixture.factory.attemptedKinds() == [.iroh, .iroh])
+    }
+
     private func makeRecoveryOwnerFixture(
         backup: (any PairedMacBackingUp)? = nil,
         heldConnectAttempts: Set<Int> = []

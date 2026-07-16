@@ -9,6 +9,8 @@ public enum MobileShellConnectionError: LocalizedError {
     case connectionClosed
     /// A request exceeded its timeout deadline.
     case requestTimedOut
+    /// A request timed out while its frame was blocked in the transport write.
+    case transportWriteTimedOut
     /// A manual host did not advertise a secure route.
     case insecureManualRoute
     /// The attach ticket expired and no fallback was available.
@@ -28,7 +30,7 @@ public enum MobileShellConnectionError: LocalizedError {
             return "Invalid mobile sync response"
         case .connectionClosed:
             return "Mobile sync connection closed"
-        case .requestTimedOut:
+        case .requestTimedOut, .transportWriteTimedOut:
             return "Mobile sync request timed out"
         case .insecureManualRoute:
             return "Manual host did not advertise a secure mobile sync route"
