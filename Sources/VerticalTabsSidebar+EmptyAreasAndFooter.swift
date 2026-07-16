@@ -28,13 +28,23 @@ enum HiveSidebarScope: Equatable {
     case device(String)
 }
 
-/// App-wide sidebar computer scope. Global (not per-window) in v1; scope
-/// changes are rare and user-driven.
+/// Per-window sidebar computer scope, registered by the window's TabManager
+/// so a computer's dedicated window can scope to that device while other
+/// windows keep their own scope.
 @MainActor
 final class HiveSidebarScopeModel: ObservableObject {
-    static let shared = HiveSidebarScopeModel()
     @Published var scope: HiveSidebarScope = .thisMac
-    private init() {}
+
+    private static var modelsByTabManager: [ObjectIdentifier: HiveSidebarScopeModel] = [:]
+
+    /// The scope model for one window's TabManager (created on first use).
+    static func scopeModel(for tabManager: TabManager) -> HiveSidebarScopeModel {
+        let key = ObjectIdentifier(tabManager)
+        if let existing = modelsByTabManager[key] { return existing }
+        let model = HiveSidebarScopeModel()
+        modelsByTabManager[key] = model
+        return model
+    }
 
     /// Whether `workspace` is visible under the current scope, given the
     /// device that owns it (`nil` for local workspaces).
@@ -57,7 +67,7 @@ struct HiveSidebarScopePicker: View {
     @LiveSetting(\.computers.presentation) private var presentation
     @State private var computers: [HiveScopeComputer] = []
 
-    @ObservedObject private var scopeModel = HiveSidebarScopeModel.shared
+    @ObservedObject var scopeModel: HiveSidebarScopeModel
 
     var body: some View {
         if presentation == .sidebar, !computers.isEmpty {

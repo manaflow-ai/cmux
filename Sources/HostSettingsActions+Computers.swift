@@ -93,7 +93,23 @@ extension HostSettingsActions {
                 )
                 context.window?.makeKeyAndOrderFront(nil)
             case .windows:
-                HiveViewerWindowController.shared.show(deviceID: deviceID)
+                // A real cmux window scoped to this computer: create a main
+                // window, scope its sidebar to the device, attach mirrors.
+                guard let appDelegate = AppDelegate.shared else { return }
+                let windowId = appDelegate.createMainWindow(shouldActivate: true)
+                var context = appDelegate.mainWindowContexts.values.first { $0.windowId == windowId }
+                var attempts = 0
+                while context == nil, attempts < 20 {
+                    try? await Task.sleep(for: .milliseconds(100))
+                    context = appDelegate.mainWindowContexts.values.first { $0.windowId == windowId }
+                    attempts += 1
+                }
+                guard let context else { return }
+                HiveSidebarScopeModel.scopeModel(for: context.tabManager).scope = .device(deviceID)
+                _ = await HiveComputerMirrorController.shared.attach(
+                    deviceID: deviceID,
+                    into: context.tabManager
+                )
             }
         }
     }
