@@ -82,11 +82,12 @@ import Testing
                 )
             }
 
-            for (kind, color, repeatedColor) in [
-                ("file", style.fileIconTint, style.fileIconTint),
-                ("folder", style.folderIconTint, style.folderIconTint),
-            ] {
-                #expect(color === repeatedColor)
+            let iconColors: [(String, NSColor, () -> NSColor)] = [
+                ("file", style.fileIconTint, { style.fileIconTint }),
+                ("folder", style.folderIconTint, { style.folderIconTint }),
+            ]
+            for (kind, color, repeatedLookup) in iconColors {
+                #expect(color === repeatedLookup())
                 let light = try resolved(color, in: lightAppearance)
                 let dark = try resolved(color, in: darkAppearance)
                 #expect(
