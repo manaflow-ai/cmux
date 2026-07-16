@@ -82,20 +82,27 @@ extension RemoteTmuxWindowMirror {
         )
     }
 
-    /// Sets the addressed tmux pane's width or height in terminal cells. This
-    /// is shared by CLI absolute resizing and native divider propagation.
-    @discardableResult
-    func requestResizePane(_ tmuxPaneID: Int, absoluteAxis: String, targetCells: Int) -> Bool {
-        guard targetCells > 0 else { return false }
+    /// The `resize-pane` line for an absolute width/height in cells, shared
+    /// by the fire-and-forget CLI path and the tracked divider send.
+    func resizePaneCommand(_ tmuxPaneID: Int, absoluteAxis: String, targetCells: Int) -> String? {
+        guard targetCells > 0 else { return nil }
         let flag: String
         switch absoluteAxis {
         case "horizontal": flag = "-x"
         case "vertical": flag = "-y"
-        default: return false
+        default: return nil
         }
-        return sendControlCommand(
-            "resize-pane -t @\(windowId).%\(tmuxPaneID) \(flag) \(targetCells)"
-        )
+        return "resize-pane -t @\(windowId).%\(tmuxPaneID) \(flag) \(targetCells)"
+    }
+
+    /// Sets the addressed tmux pane's width or height in terminal cells. This
+    /// is shared by CLI absolute resizing and native divider propagation.
+    @discardableResult
+    func requestResizePane(_ tmuxPaneID: Int, absoluteAxis: String, targetCells: Int) -> Bool {
+        guard let command = resizePaneCommand(
+            tmuxPaneID, absoluteAxis: absoluteAxis, targetCells: targetCells
+        ) else { return false }
+        return sendControlCommand(command)
     }
 
     /// Sets the addressed tmux pane's width or height as a percentage of the

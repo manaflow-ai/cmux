@@ -11,7 +11,8 @@ struct WorkspaceRemoteConfigurationSSHBatchCommandsTests {
             "StrictHostKeyChecking=accept-new",
         ],
         preserveAfterTerminalExit: Bool = false,
-        persistentDaemonSlot: String? = nil
+        persistentDaemonSlot: String? = nil,
+        relayPort: Int? = nil
     ) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
@@ -19,7 +20,7 @@ struct WorkspaceRemoteConfigurationSSHBatchCommandsTests {
             identityFile: "/Users/test/.ssh/id_ed25519",
             sshOptions: sshOptions,
             localProxyPort: nil,
-            relayPort: nil,
+            relayPort: relayPort,
             relayID: nil,
             relayToken: nil,
             localSocketPath: nil,
@@ -60,14 +61,24 @@ struct WorkspaceRemoteConfigurationSSHBatchCommandsTests {
     func daemonTransportArgumentsWithSlot() {
         let arguments = configuration(
             preserveAfterTerminalExit: true,
-            persistentDaemonSlot: "ws-1"
+            persistentDaemonSlot: "ws-1",
+            relayPort: 64_007
         ).daemonTransportArguments(remotePath: "/remote/cmuxd-remote")
-        let expectedCommand = #"sh -c 'exec '"'"'/remote/cmuxd-remote'"'"' '"'"'serve'"'"' '"'"'--stdio'"'"' '"'"'--persistent'"'"' '"'"'--slot'"'"' '"'"'ws-1'"'"''"#
+        let expectedCommand = #"sh -c 'exec '"'"'/remote/cmuxd-remote'"'"' '"'"'serve'"'"' '"'"'--stdio'"'"' '"'"'--persistent'"'"' '"'"'--slot'"'"' '"'"'ws-1'"'"' '"'"'--persistent-lease-port'"'"' '"'"'64007'"'"''"#
         #expect(
             arguments == ["-T", "-o", "RemoteCommand=none"]
                 + expectedBatchArguments
                 + ["-o", "RequestTTY=no", "cmux-macmini", expectedCommand]
         )
+    }
+
+    @Test("daemonTransportArguments keeps persistent transport compatible without a relay lease")
+    func daemonTransportArgumentsWithoutPersistentLeasePort() {
+        let arguments = configuration(
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "ws-1"
+        ).daemonTransportArguments(remotePath: "/remote/cmuxd-remote")
+        #expect(arguments.last?.contains("--persistent-lease-port") == false)
     }
 
     @Test("daemonTransportArguments injects accept-new and drops control master options")

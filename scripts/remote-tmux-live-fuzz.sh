@@ -87,7 +87,27 @@ fi
 
 t() { TMUX_TMPDIR="$TMPDIR_REMOTE" tmux "$@"; }
 fail=0
-note_fail() { echo "FUZZ FAIL seed=$SEED iter=$1: $2"; fail=$((fail + 1)); }
+EVIDENCE_DIR="${CMUX_FUZZ_EVIDENCE_DIR:-}"
+
+# The end-of-seed debug-log capture cannot cover a mid-seed failure: later
+# iterations churn the log past the failure window before the seed ends
+# (both stall captures from the last marathon held zero stall lines).
+# Snapshot the tail at the moment of failure instead, one file per failure.
+snapshot_debug_evidence() {
+  [ -f "$DEBUG_LOG" ] || return 0
+  if [ -z "$EVIDENCE_DIR" ]; then
+    EVIDENCE_DIR=$(mktemp -d "$LOCAL_TMP_ROOT/cmux-remote-tmux-fuzz-evidence.XXXXXXXX") \
+      || { EVIDENCE_DIR=""; return 0; }
+    echo "evidence dir: $EVIDENCE_DIR"
+  fi
+  tail -600 "$DEBUG_LOG" > "$EVIDENCE_DIR/seed-$SEED-iter-$1-fail$fail-debuglog.txt" 2>/dev/null
+}
+
+note_fail() {
+  echo "FUZZ FAIL seed=$SEED iter=$1: $2"
+  fail=$((fail + 1))
+  snapshot_debug_evidence "$1"
+}
 
 settlement_has_schema() {
   printf '%s' "$1" | jq -e '
@@ -151,20 +171,53 @@ capture_remote_screen() {
   REMOTE_SCREEN=$(printf '%s\n' "$raw" | normalize_screen)
 }
 
+# tmux pane id -> cmux surface id (plus whether that surface is on screen),
+# from `remote.tmux.pane_surfaces`. This map is what makes the text oracle
+# exact. Reading "the focused surface" cannot verify a NAMED pane: cmux does
+# not follow tmux's active pane or current window, so `select-pane` then read
+# returns whichever pane the app already showed — which matches the target's
+# capture whenever the two panes happen to share dimensions (the ruler prints
+# the same text at the same size) and mismatches when they do not. That read
+# the wrong pane and reported it as a mirror defect.
+PANE_SURFACES_JSON=""
+refresh_pane_surfaces() {
+  PANE_SURFACES_JSON=$("$TIMEOUT_BIN" 8 "$CLI" rpc remote.tmux.pane_surfaces \
+    "{\"host\":\"$HOST\",\"session\":\"$SESSION\"}" 2>/dev/null) || return 1
+  [ -n "$PANE_SURFACES_JSON" ] || return 1
+  printf '%s' "$PANE_SURFACES_JSON" | jq -e '.panes' >/dev/null 2>&1
+}
+
+# The surface id rendering $1, only when that surface is on screen (a hidden
+# tab holds its last render by design; judging it would report a designed lag).
+surface_for_pane() {
+  printf '%s' "$PANE_SURFACES_JSON" | jq -r --arg p "$1" '
+    .panes[]? | select(.pane_id == $p and .on_screen == true) | .surface_id
+  ' 2>/dev/null | head -1
+}
+
+# Panes the app is currently presenting, as tmux pane ids.
+on_screen_panes() {
+  printf '%s' "$PANE_SURFACES_JSON" | jq -r '
+    .panes[]? | select(.on_screen == true) | .pane_id
+  ' 2>/dev/null
+}
+
 capture_mirror_screen() {
-  local raw
-  raw=$("$TIMEOUT_BIN" 8 "$CLI" read-screen --window "$WINDOW_ID" 2>/dev/null) || return 1
-  MIRROR_SCREEN=$(printf '%s\n' "$raw" | normalize_screen)
+  local surface=$1 raw text
+  raw=$("$TIMEOUT_BIN" 8 "$CLI" rpc surface.read_text \
+    "{\"surface_id\":\"$surface\"}" 2>/dev/null) || return 1
+  text=$(printf '%s' "$raw" | jq -r '.result.text // .text // empty' 2>/dev/null) || return 1
+  [ -n "$text" ] || return 1
+  MIRROR_SCREEN=$(printf '%s\n' "$text" | normalize_screen)
 }
 
 compare_pane_screen() {
-  local pane=$1 deadline before after
-  t select-pane -t "$pane" >/dev/null 2>&1 || return 1
+  local pane=$1 surface=$2 deadline before after
   deadline=$((SECONDS + 6))
   while [ "$SECONDS" -lt "$deadline" ]; do
     if capture_remote_screen "$pane"; then
       before=$REMOTE_SCREEN
-      if capture_mirror_screen && capture_remote_screen "$pane"; then
+      if capture_mirror_screen "$surface" && capture_remote_screen "$pane"; then
         after=$REMOTE_SCREEN
         # The ruler redraws every two seconds. Accept the mirror matching the
         # remote capture immediately before OR after it, so a redraw between
@@ -180,54 +233,84 @@ compare_pane_screen() {
 }
 
 check_screen_oracle() {
-  local iter=$1 settled_json=$2 windows window panes pane remote_lines mirror_lines
-  windows=$(printf '%s' "$settled_json" | jq -r '
-    .windows[]?
-    | select(.settled == true)
-    | .window
-    | if type == "number" then tostring
-      elif type == "string" then ltrimstr("@")
-      else empty
-      end
-    | select(test("^[0-9]+$"))
-    | "@" + .
-  ' 2>/dev/null) || windows=""
-  if [ -z "$windows" ]; then
-    if settlement_has_reported_windows "$settled_json"; then
-      note_fail "$iter" "text oracle could not parse settled tmux window ids"
-      return
-    fi
-    # Single-pane mirrors are omitted from sizing_settled because they need no
-    # native split plan. The tmux session's active window is the visible tab.
-    windows=$(t display -t "$SESSION" -p '#{window_id}' 2>/dev/null) || windows=""
-  fi
-  if [ -z "$windows" ]; then
-    note_fail "$iter" "text oracle found no settled or active tmux window"
+  local iter=$1 panes pane surface checked remote_lines mirror_lines
+  # Judge exactly the panes the app is PRESENTING, each against its OWN
+  # surface. The app does not follow tmux's active pane or current window, so
+  # the set of on-screen panes comes from the app itself, not from tmux.
+  if ! refresh_pane_surfaces; then
+    note_fail "$iter" "text oracle could not read remote.tmux.pane_surfaces"
     return
   fi
-
-  while IFS= read -r window; do
-    [ -n "$window" ] || continue
-    panes=$(t list-panes -t "$window" -F '#{pane_id}' 2>/dev/null) || panes=""
-    if [ -z "$panes" ]; then
-      note_fail "$iter" "text oracle could not list panes for $window"
+  panes=$(on_screen_panes)
+  if [ -z "$panes" ]; then
+    note_fail "$iter" "text oracle found no on-screen mirrored pane"
+    return
+  fi
+  # The app chooses which panes it is presenting, so it also chooses this
+  # oracle's coverage — a pane the app quietly omitted would drop out of the
+  # comparison and the run would still read green. Hold the app to tmux's own
+  # census: every window with an on-screen pane is the VISIBLE window, so tmux's
+  # full pane list for it must be on screen. A missing pane is the app failing to
+  # render a pane of the visible window, which is a defect, not less coverage.
+  for window in $(printf '%s' "$PANE_SURFACES_JSON" | jq -r '
+    [.panes[]? | select(.on_screen == true) | .window_id] | unique[]
+  ' 2>/dev/null); do
+    tmux_panes=$(t list-panes -t "$window" -F '#{pane_id}' 2>/dev/null | sort) || continue
+    app_panes=$(printf '%s' "$PANE_SURFACES_JSON" | jq -r --arg w "$window" '
+      .panes[]? | select(.window_id == $w and .on_screen == true) | .pane_id
+    ' 2>/dev/null | sort)
+    missing=$(comm -23 <(printf '%s\n' "$tmux_panes") <(printf '%s\n' "$app_panes") | tr '\n' ' ')
+    if [ -n "${missing// /}" ]; then
+      note_fail "$iter" "visible $window: tmux panes [$missing] are not on screen in the app (coverage would silently drop them)"
+    fi
+  done
+  checked=0
+  while IFS= read -r pane; do
+    [ -n "$pane" ] || continue
+    surface=$(surface_for_pane "$pane")
+    if [ -z "$surface" ]; then
+      note_fail "$iter" "text oracle has no on-screen surface for pane $pane"
       continue
     fi
-    while IFS= read -r pane; do
-      [ -n "$pane" ] || continue
-      if compare_pane_screen "$pane"; then
-        continue
-      fi
-      note_fail "$iter" "pane $pane mirror read-screen differs from tmux capture-pane in $window"
-      remote_lines=$(printf '%s\n' "$REMOTE_SCREEN" | grep -c . || true)
-      mirror_lines=$(printf '%s\n' "$MIRROR_SCREEN" | grep -c . || true)
-      echo "  text evidence pane=$pane remote_lines=$remote_lines mirror_lines=$mirror_lines"
-      diff -u \
-        <(printf '%s\n' "$REMOTE_SCREEN") \
-        <(printf '%s\n' "$MIRROR_SCREEN") \
-        | head -40 | sed 's/^/  /' || true
-    done <<< "$panes"
-  done <<< "$windows"
+    # The pane may have been killed by the churn between the map read and now.
+    t list-panes -t "$pane" -F '#{pane_id}' >/dev/null 2>&1 || continue
+    checked=$((checked + 1))
+    if compare_pane_screen "$pane" "$surface"; then
+      continue
+    fi
+    note_fail "$iter" "pane $pane mirror surface $surface differs from tmux capture-pane"
+    remote_lines=$(printf '%s\n' "$REMOTE_SCREEN" | grep -c . || true)
+    mirror_lines=$(printf '%s\n' "$MIRROR_SCREEN" | grep -c . || true)
+    echo "  text evidence pane=$pane remote_lines=$remote_lines mirror_lines=$mirror_lines"
+    # Is the surface the size tmux assigned it? A content miss with a MATCHING
+    # grid is lost/stale output; a content miss with a SHORT grid is a sizing
+    # miss the grid oracle should have caught. Print both so the failure names
+    # which, instead of leaving it to inference (the ruler's lines are all
+    # identical, so the diff cannot say which line went missing).
+    echo "  tmux pane geometry: $(t display-message -p -t "$pane" '#{pane_width}x#{pane_height} win=#{window_width}x#{window_height} border=#{pane-border-status} zoom=#{window_zoomed_flag}' 2>/dev/null)"
+    echo "  tmux list-panes (id WxH top): $(t list-panes -t "$pane" -F '#{pane_id}=#{pane_width}x#{pane_height}@#{pane_top}' 2>/dev/null | tr '\n' ' ')"
+    echo "  app assigned (all panes of the window):"
+    "$TIMEOUT_BIN" 8 "$CLI" rpc remote.tmux.pane_grids \
+      "{\"host\":\"$HOST\",\"session\":\"$SESSION\"}" 2>/dev/null \
+      | jq -r --arg p "$pane" '
+          .windows[]? | select(.panes[]?.pane_id == $p)
+          | .panes[] | "    \(.pane_id)=\(.assigned.cols)x\(.assigned.rows) rendered=\(.rendered.cols // "?")x\(.rendered.rows // "?")"
+        ' 2>/dev/null || true
+    "$TIMEOUT_BIN" 8 "$CLI" rpc remote.tmux.pane_grids \
+      "{\"host\":\"$HOST\",\"session\":\"$SESSION\"}" 2>/dev/null \
+      | jq -c --arg p "$pane" '
+          .windows[]? | select(.panes[]?.pane_id == $p)
+          | {win: .window_id, base, pushed, zoomed, visible: .visible_for_sizing,
+             pane: (.panes[] | select(.pane_id == $p) | {assigned, rendered, match})}
+        ' 2>/dev/null | sed 's/^/  pane_grids: /' || true
+    diff -u \
+      <(printf '%s\n' "$REMOTE_SCREEN") \
+      <(printf '%s\n' "$MIRROR_SCREEN") \
+      | head -40 | sed 's/^/  /' || true
+  done <<< "$panes"
+  if [ "$checked" -eq 0 ]; then
+    note_fail "$iter" "text oracle checked no pane (every on-screen pane vanished mid-check)"
+  fi
 }
 
 # Fresh lab: 2 windows, random pane counts, ruler panes that redraw to their
@@ -240,18 +323,24 @@ fi
 FUZZ_SERVER_OWNED=1
 cat > "$RULER" <<'EOF'
 #!/bin/sh
+# Every line carries this pane's OWN id (tmux exports TMUX_PANE into the pane's
+# environment) as well as its size. Without the id, two panes of equal
+# dimensions print byte-identical screens, so a comparison that read the wrong
+# pane's surface would pass — which is exactly how a broken text oracle stayed
+# green. With the id, a wrong surface can never alias a right one.
 unset COLUMNS LINES
+id=${TMUX_PANE:-%?}
 while :; do
   sz=$(stty size 2>/dev/null); rows=${sz%% *}; cols=${sz##* }
   [ -n "$rows" ] || rows=24; [ -n "$cols" ] || cols=80
-  base=$(printf '%0.s0123456789' $(seq 1 60))
+  base=$(printf '%0.s0123456789' $(seq 1 400))
   printf '\033[2J\033[H'
   r=1
   while [ "$r" -lt "$rows" ]; do
-    printf '%s\n' "$(printf '%03dx%03d %s' "$cols" "$rows" "$base" | cut -c1-"$cols")"
+    printf '%s\n' "$(printf '%s %03dx%03d %s' "$id" "$cols" "$rows" "$base" | cut -c1-"$cols")"
     r=$((r+1))
   done
-  printf 'END %03dx%03d' "$cols" "$rows"
+  printf 'END %s %03dx%03d' "$id" "$cols" "$rows"
   sleep 2
 done
 EOF
@@ -315,74 +404,64 @@ check_iter() {
     exit 99
   fi
   # Ask the app whether everything has finished settling, instead of
-  # guessing with a timer. Poll up to 20s; a window that never settles is
-  # itself a failure, and any pane mismatch reported WHILE settled is a
-  # real rendering bug — no transition ambiguity.
-  local settled_json="" tries=0
-  while [ "$tries" -lt 10 ]; do
+  # guessing with a timer. The budget is a hard 8 seconds: a healthy full
+  # cycle (claim → tmux layout → imposition → rendered frames) settles in
+  # about 0.4s, so a window still unsettled at 8s is a liveness defect. The
+  # old ladder here (10x2s poll + 15x2s reconfirm, up to 50s) existed to
+  # avoid misreading transitions — and instead it hid stalls the app took
+  # tens of seconds to argue its way out of.
+  local settle_start=$SECONDS settled_json="" budget=8 settled=0
+  while :; do
     settled_json=$("$TIMEOUT_BIN" 8 "$CLI" rpc remote.tmux.sizing_settled 2>/dev/null)
     # A failed or timed-out RPC has no windows KEY at all — that is absence
-    # of evidence, not settledness. Keep polling; exhausting the loop
-    # reports it as never settled with whatever came back.
+    # of evidence, not settledness. Keep polling inside the budget.
     if ! settlement_has_schema "$settled_json"; then
-      tries=$((tries + 1))
-      sleep 2
-      continue
-    fi
+      :
     # An EMPTY window list is settled only when there is genuinely nothing
     # to judge: the visible tab mirrors a single-pane window. If the lab's
     # active window has several panes, empty means the fuzz mirror is not
     # the visible workspace — the gate would be blind, so re-select it and
-    # keep polling; exhausting the loop then reports the failure.
-    if ! settlement_has_reported_windows "$settled_json"; then
+    # keep polling; exhausting the budget then reports the failure.
+    elif ! settlement_has_reported_windows "$settled_json"; then
       local active_panes
       active_panes=$(t display -t $SESSION -p '#{window_panes}' 2>/dev/null || echo 1)
       if [ "${active_panes:-1}" -le 1 ]; then
+        settled=1
         break
       fi
       "$CLI" workspace select "$WORKSPACE_REF" >/dev/null 2>&1
-      tries=$((tries + 1))
-      sleep 2
-      continue
-    fi
     # A pane with no sizing sample yet is still in transition even when the
     # window's claim/layout dims agree — keep polling until every pane has
     # reported. A rendered-grid mismatch does NOT block the break: a pane
     # wrong AT settle is exactly the bug this harness exists to capture,
     # and waiting it out would misreport it as "never settled".
-    if settlement_ready "$settled_json"; then
+    elif settlement_ready "$settled_json"; then
+      settled=1
       break
     fi
-    tries=$((tries + 1))
-    sleep 2
+    if [ $((SECONDS - settle_start)) -ge "$budget" ]; then
+      break
+    fi
+    sleep 1
   done
-  # Re-confirm before failing: an end-of-seed relayout storm or a reconnect
-  # can leave a window a few seconds from convergence when the 20s poll
-  # expires, and a mismatch read mid-transition is not a mismatch at rest.
-  # Poll a final stretch; only a state that STAYS wrong is a defect. The
-  # extra convergence time is logged so slow-to-settle never hides — a
-  # window that needs the reconfirm every time is its own signal.
-  reconfirm_needed=0
-  if [ "$tries" -ge 10 ] || settlement_has_render_mismatch "$settled_json"; then
-    reconfirm_needed=1
+  echo "  settle $((SECONDS - settle_start))s (iter $iter)"
+  if [ "$settled" != 1 ]; then
+    note_fail "$iter" "settle exceeded ${budget}s budget (healthy baseline ~0.4s): $(printf '%s' "$settled_json" | tr -d '\n' | cut -c1-300)"
+  elif settlement_has_render_mismatch "$settled_json"; then
+    # Mismatch WHILE settled: re-read twice before failing, so a probe that
+    # raced the last frame of a transition cannot manufacture a defect.
+    # Only a state that stays wrong is one.
     rc_tries=0
-    while [ "$rc_tries" -lt 15 ]; do
-      sleep 2
+    while [ "$rc_tries" -lt 2 ]; do
+      sleep 1
       settled_json=$("$TIMEOUT_BIN" 8 "$CLI" rpc remote.tmux.sizing_settled 2>/dev/null)
       if settlement_clean "$settled_json"; then
-        echo "  reconfirm: converged after $(( (rc_tries + 1) * 2 ))s extra (iter $iter)"
-        reconfirm_needed=0
+        echo "  reconfirm: mismatch cleared after $((rc_tries + 1))s (iter $iter)"
         break
       fi
       rc_tries=$((rc_tries + 1))
     done
-  fi
-  if [ "$reconfirm_needed" = 1 ]; then
-    if ! settlement_has_schema "$settled_json" \
-       || ! settlement_has_reported_windows "$settled_json" \
-       || settlement_is_unsettled "$settled_json"; then
-      note_fail "$iter" "windows never settled after 50s: $(printf '%s' "$settled_json" | tr -d '\n' | cut -c1-300)"
-    else
+    if ! settlement_clean "$settled_json"; then
       note_fail "$iter" "settled with pane mismatches (persisted through reconfirm):"
       settlement_mismatch_lines "$settled_json" | sed 's/^/  /'
     fi
@@ -392,7 +471,7 @@ check_iter() {
   # control connection, pane-focus routing, Ghostty surface, and debug CLI;
   # sizing_settled alone cannot detect content corruption along that path.
   if settlement_has_schema "$settled_json" && ! settlement_is_unsettled "$settled_json"; then
-    check_screen_oracle "$iter" "$settled_json"
+    check_screen_oracle "$iter"
   fi
   # Ruler liveness: every ruler redrew to its actual pane size on the tmux side
   # (a stale ruler would make on-screen text look mangled without any
