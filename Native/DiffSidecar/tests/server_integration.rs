@@ -17,6 +17,74 @@ fn rpc_uses_stdio_without_server_state() {
 }
 
 #[test]
+fn rpc_keeps_one_process_alive_for_multiple_requests() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-diff-sidecar-persistent-rpc-test-{}-{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    std::fs::create_dir_all(&root).expect("create root");
+    #[cfg(unix)]
+    std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700))
+        .expect("secure root permissions");
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_cmux-diff-sidecar"))
+        .arg("rpc")
+        .arg("--root")
+        .arg(&root)
+        .arg("--cmux")
+        .arg(env!("CARGO_BIN_EXE_diff-sidecar-test-host"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .expect("start persistent sidecar");
+    let mut input = child.stdin.take().expect("sidecar stdin");
+    let output = child.stdout.take().expect("sidecar stdout");
+    let (response_sender, response_receiver) = std::sync::mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        for line in BufReader::new(output).lines().take(2) {
+            response_sender
+                .send(line.expect("read response line"))
+                .expect("send response line");
+        }
+    });
+
+    for id in ["first", "second"] {
+        writeln!(
+            input,
+            "{}",
+            serde_json::json!({
+                "id": id,
+                "version": 1,
+                "method": "protocolHandshake"
+            })
+        )
+        .expect("write request frame");
+        input.flush().expect("flush request frame");
+
+        let response = response_receiver.recv_timeout(std::time::Duration::from_secs(2));
+        let Ok(response) = response else {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = reader.join();
+            let _ = std::fs::remove_dir_all(&root);
+            panic!("sidecar did not reply before stdin closed: {response:?}");
+        };
+        let response: serde_json::Value =
+            serde_json::from_str(&response).expect("decode response");
+        assert_eq!(response["id"], id);
+        assert_eq!(response["result"]["type"], "handshake");
+        assert!(child.try_wait().expect("inspect sidecar").is_none());
+    }
+
+    drop(input);
+    assert!(child.wait().expect("wait for sidecar").success());
+    reader.join().expect("join response reader");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
 fn rpc_returns_typed_failure_for_malformed_request() {
     let output = run_stdio_rpc(br#"{"id": "unclosed"#);
     assert!(output.status.success());
