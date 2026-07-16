@@ -25,15 +25,33 @@ extension TerminalTheme {
         // cursor-text contrast automatically), so forwarding it would make the
         // phone emit an explicit `cursor-text` line the Mac never had and mis-
         // color the cursor label. `nil` here lets the phone derive contrast too.
-        let cursorText = config.hasParsedCursorTextColor ? config.cursorTextColor.hexString() : nil
+        let cursorColorSemantic = config.cursorColorSemantic.flatMap {
+            TerminalTheme.CellRelativeColor(rawValue: $0.rawValue)
+        }
+        let cursorTextSemantic = config.cursorTextColorSemantic.flatMap {
+            TerminalTheme.CellRelativeColor(rawValue: $0.rawValue)
+        }
+        let selectionBackgroundSemantic = config.selectionBackgroundSemantic.flatMap {
+            TerminalTheme.CellRelativeColor(rawValue: $0.rawValue)
+        }
+        let selectionForegroundSemantic = config.selectionForegroundSemantic.flatMap {
+            TerminalTheme.CellRelativeColor(rawValue: $0.rawValue)
+        }
+        let cursorText = config.hasParsedCursorTextColor && cursorTextSemantic == nil
+            ? config.cursorTextColor.hexString()
+            : nil
         self.init(
             background: config.backgroundColor.hexString(),
             foreground: config.foregroundColor.hexString(),
             boldColor: config.boldColor,
             cursor: config.cursorColor.hexString(),
+            cursorColorSemantic: cursorColorSemantic,
             cursorText: cursorText,
+            cursorTextSemantic: cursorTextSemantic,
             selectionBackground: config.selectionBackground.hexString(),
+            selectionBackgroundSemantic: selectionBackgroundSemantic,
             selectionForeground: config.selectionForeground.hexString(),
+            selectionForegroundSemantic: selectionForegroundSemantic,
             palette: palette
         )
     }
@@ -56,6 +74,18 @@ extension TerminalTheme {
         }
         if let boldColor {
             object["boldColor"] = boldColor
+        }
+        if let cursorColorSemantic {
+            object["cursorColorSemantic"] = cursorColorSemantic.rawValue
+        }
+        if let cursorTextSemantic {
+            object["cursorTextSemantic"] = cursorTextSemantic.rawValue
+        }
+        if let selectionBackgroundSemantic {
+            object["selectionBackgroundSemantic"] = selectionBackgroundSemantic.rawValue
+        }
+        if let selectionForegroundSemantic {
+            object["selectionForegroundSemantic"] = selectionForegroundSemantic.rawValue
         }
         return object
     }
