@@ -2891,6 +2891,7 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Used to keep omnibar text-field focus from being immediately stolen by panel focus.
     private var suppressWebViewFocusUntil: Date?
     private var suppressWebViewFocusForAddressBar: Bool = false
+    private(set) var hasDeferredWebViewFocus = false
     private let blankURLString = "about:blank"
 
     /// Owns the address-bar page-focus capture/restore subsystem.

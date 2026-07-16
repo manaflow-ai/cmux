@@ -1006,6 +1006,21 @@ final class BrowserPanelAddressBarFocusRequestTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelReactGrabBridgeTests: XCTestCase {
+    func testFocusDefersUntilWebViewCanAttachAndUnfocusCancelsIt() {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "https://example.com")!,
+            isRemoteWorkspace: false
+        )
+        defer { panel.close() }
+
+        panel.focus()
+        XCTAssertTrue(panel.hasDeferredWebViewFocus)
+
+        panel.unfocus()
+        XCTAssertFalse(panel.hasDeferredWebViewFocus)
+    }
+
     @MainActor
     func testExplicitWebViewFocusDoesNotSuppressOmnibarAutofocusWhenFocusFails() {
         let panel = BrowserPanel(workspaceId: UUID())
