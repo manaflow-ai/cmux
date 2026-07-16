@@ -119,6 +119,64 @@ import Testing
         #expect(firstCompletions.count == 1)
     }
 
+    @Test func signOutCancelsActiveCreateBeforeResettingHierarchyGate() async throws {
+        let router = RoutingHostRouter()
+        await router.setHoldFirstTerminalCreate(true)
+        let store = try await makeRoutingConnectedStore(
+            router: router,
+            connectionState: .connected
+        )
+        store.signIn()
+        let workspace = try #require(store.workspaces.first)
+        let ownerMacID = try #require(workspace.macDeviceID)
+        let paneID = try #require(workspace.resolvedPanes.first?.id)
+        var completions: [Result<Void, MobileWorkspaceMutationFailure>] = []
+
+        store.createTerminal(in: workspace.id, paneID: paneID) { result in
+            completions.append(result)
+        }
+        await router.awaitFirstTerminalCreateReached()
+        #expect(store.terminalCreationRequestOwner.isActive)
+
+        store.signOut()
+
+        #expect(!store.terminalCreationRequestOwner.isActive)
+        #expect(completions.count == 1)
+        guard completions.count == 1 else {
+            await router.releaseFirstTerminalCreate()
+            return
+        }
+        guard case .failure(.resultUnknownNeedsRefresh) = completions[0] else {
+            await router.releaseFirstTerminalCreate()
+            Issue.record("sign-out cancellation should report an unknown create result")
+            return
+        }
+
+        store.signIn()
+        store.setWorkspaceStatesForTesting(
+            [
+                ownerMacID: MacWorkspaceState(
+                    macDeviceID: ownerMacID,
+                    workspaces: [workspace]
+                ),
+            ],
+            foregroundMacDeviceID: ownerMacID
+        )
+        let replacementRowID = try #require(store.workspaces.first?.id)
+
+        #expect(store.terminalReorderGate.refreshRequiredWorkspaceIDs.isEmpty)
+        let reservation = try #require(store.terminalReorderGate.reserve(
+            workspaceID: replacementRowID,
+            paneID: paneID
+        ))
+        store.terminalReorderGate.finish(reservation)
+        #expect(store.terminalReorderGate.canMutate(workspaceID: replacementRowID))
+
+        await router.releaseFirstTerminalCreate()
+        await Task { @MainActor in }.value
+        #expect(completions.count == 1)
+    }
+
     @Test func toolbarCompletionWaitsForSuccessfulHierarchyRecovery() async throws {
         let router = RoutingHostRouter()
         await router.workspaceListGate.setHoldFirst(true)

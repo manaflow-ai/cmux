@@ -332,6 +332,94 @@ import Testing
         ])
     }
 
+    @Test func forgettingMacEvictsDirtyHierarchyOwnerBeforeReplacementPublishes() async throws {
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [
+                    try Self.pairedMac(
+                        id: "mac-a",
+                        displayName: "Desk Mac",
+                        host: "100.82.214.112",
+                        lastSeenAt: Date(timeIntervalSince1970: 10),
+                        isActive: false
+                    ),
+                ],
+            ],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" }
+        )
+        await store.loadPairedMacs()
+        let removedWorkspace = MobileWorkspacePreview(
+            id: "workspace-shared",
+            macDeviceID: "mac-a",
+            name: "Removed",
+            terminals: []
+        )
+        let survivorWorkspace = MobileWorkspacePreview(
+            id: "workspace-survivor",
+            macDeviceID: "mac-survivor",
+            name: "Survivor",
+            terminals: []
+        )
+        store.setWorkspaceStatesForTesting(
+            [
+                "mac-a": MacWorkspaceState(
+                    macDeviceID: "mac-a",
+                    workspaces: [removedWorkspace]
+                ),
+                "mac-survivor": MacWorkspaceState(
+                    macDeviceID: "mac-survivor",
+                    workspaces: [survivorWorkspace]
+                ),
+            ],
+            foregroundMacDeviceID: "mac-survivor"
+        )
+        let removedRowID = try #require(
+            store.workspaces.first(where: { $0.macDeviceID == "mac-a" })?.id
+        )
+        store.terminalReorderGate.requireRefresh(workspaceID: removedRowID)
+
+        await store.forgetMac(macDeviceID: "mac-a")
+
+        let replacementWorkspace = MobileWorkspacePreview(
+            id: "workspace-shared",
+            macDeviceID: "mac-b",
+            name: "Replacement",
+            terminals: []
+        )
+        store.setWorkspaceStatesForTesting(
+            [
+                "mac-b": MacWorkspaceState(
+                    macDeviceID: "mac-b",
+                    workspaces: [replacementWorkspace]
+                ),
+                "mac-survivor": MacWorkspaceState(
+                    macDeviceID: "mac-survivor",
+                    workspaces: [survivorWorkspace]
+                ),
+            ],
+            foregroundMacDeviceID: "mac-survivor"
+        )
+        let replacementRowID = try #require(
+            store.workspaces.first(where: { $0.macDeviceID == "mac-b" })?.id
+        )
+
+        #expect(removedRowID != replacementRowID)
+        #expect(store.terminalReorderGate.refreshRequiredWorkspaceIDs.isEmpty)
+        #expect(store.terminalReorderGate.canMutate(workspaceID: removedRowID))
+        let reservation = try #require(store.terminalReorderGate.reserve(
+            workspaceID: replacementRowID,
+            paneID: "pane-replacement"
+        ))
+        store.terminalReorderGate.finish(reservation)
+        #expect(store.terminalReorderGate.canMutate(workspaceID: replacementRowID))
+    }
+
     @Test func failedForgetRestoresMacVisibilityAndForgottenTombstone() async throws {
         let pairedStore = DelayedTeamPairedMacStore(
             recordsByTeam: [
