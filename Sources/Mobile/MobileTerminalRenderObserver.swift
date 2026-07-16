@@ -25,6 +25,7 @@ final class MobileTerminalRenderObserver {
     private var cachedTerminalTheme: TerminalTheme = .monokai
     private var hasLoadedTerminalTheme = false
     private var terminalThemeRevision: UInt64 = 0
+    private var byteFallbackFlushTask: Task<Void, Never>?
     private lazy var themeInvalidationScheduler = MobileTerminalThemeInvalidationScheduler {
         [weak self] surfaceIDs in
         self?.enqueueCoalescedThemeUpdates(surfaceIDs)
@@ -116,6 +117,8 @@ final class MobileTerminalRenderObserver {
         hasPendingThemeInvalidation = false
         pendingThemeSurfaceIDs.removeAll()
         themeInvalidationScheduler.cancel()
+        byteFallbackFlushTask?.cancel()
+        byteFallbackFlushTask = nil
         isEmitFlushScheduled = false
         renderGridStatesBySurfaceID.removeAll()
         terminalThemesBySurfaceID.removeAll()
@@ -132,6 +135,23 @@ final class MobileTerminalRenderObserver {
         // notification already fired. Schedule a fresh Ghostty tick so every
         // byte-backed pending surface gets one post-parser render-grid flush.
         GhosttyApp.shared.scheduleTick()
+        // Ghostty stops delivering tick/frame notifications while every cmux
+        // window sits on a sleeping or fully occluded display, so the scheduled
+        // tick may never fire even though PTY output keeps flowing. Without a
+        // fallback, pending surfaces starve and attached phones see frozen
+        // terminals until the display wakes. The delay also gives the VT parser
+        // time to consume the bytes the tee saw before it.
+        scheduleByteFallbackFlush()
+    }
+
+    private func scheduleByteFallbackFlush() {
+        guard byteFallbackFlushTask == nil else { return }
+        byteFallbackFlushTask = Task { @MainActor [weak self] in
+            try? await ContinuousClock().sleep(for: .milliseconds(120))
+            guard let self, !Task.isCancelled else { return }
+            self.byteFallbackFlushTask = nil
+            self.flushTerminalUpdates()
+        }
     }
 
     deinit {
