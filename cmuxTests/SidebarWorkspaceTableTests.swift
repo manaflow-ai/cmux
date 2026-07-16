@@ -350,7 +350,7 @@ struct SidebarWorkspaceTableTests {
     /// before performing the move.
     @Test
     @MainActor
-    func bonsplitNewWorkspaceDropTranslatesIndicatorToGlobalInsertionIndex() {
+    func bonsplitNewWorkspaceDropTranslatesIndicatorToGlobalInsertionIndex() throws {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
         let workspaceIds = (0..<4).map { _ in UUID() }
@@ -365,10 +365,14 @@ struct SidebarWorkspaceTableTests {
             selectedWorkspaceId: nil,
             selectedScrollTargetWorkspaceId: nil
         )
-        let transfer = BonsplitTabDragPayload.Transfer(
-            tab: BonsplitTabDragPayload.Transfer.TabInfo(id: UUID(), kind: nil),
-            sourcePaneId: UUID(),
-            sourceProcessId: 0
+        // Transfer only has its Decodable initializer (the explicit
+        // init(from:) suppresses the memberwise one), so build it the way
+        // production does: from a pasteboard JSON payload.
+        let transfer = try JSONDecoder().decode(
+            BonsplitTabDragPayload.Transfer.self,
+            from: Data("""
+            {"tab":{"id":"\(UUID().uuidString)"},"sourcePaneId":"\(UUID().uuidString)","sourceProcessId":0}
+            """.utf8)
         )
 
         // A subset-relative index of 0 with the indicator anchored at the
