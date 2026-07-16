@@ -454,6 +454,102 @@ struct WorkspaceForkConversationContextMenuTests {
     }
 
     @Test
+    func sharedForkProbeCacheInvalidatesWhenPiFamilyLauncherChanges() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-pi-family-shared-cache-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        try fm.createDirectory(at: root.appendingPathComponent(".cmuxterm", isDirectory: true), withIntermediateDirectories: true)
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let now = OSAllocatedUnfairLock(initialState: Date(timeIntervalSince1970: 0))
+        let snapshot = OSAllocatedUnfairLock(initialState: makePiFamilySnapshot(
+            launcher: "pi",
+            workspaceRoot: root.path
+        ))
+        let probedLaunchers = OSAllocatedUnfairLock(initialState: [String]())
+
+        func index(for snapshot: SessionRestorableAgentSnapshot) -> RestorableAgentSessionIndex {
+            RestorableAgentSessionIndex.load(
+                homeDirectory: root.path,
+                fileManager: fm,
+                registry: CmuxVaultAgentRegistry(registrations: [
+                    CmuxVaultAgentRegistration.builtInPi,
+                    CmuxVaultAgentRegistration.builtInOmp,
+                ]),
+                detectedSnapshots: [
+                    RestorableAgentSessionIndex.PanelKey(
+                        workspaceId: workspaceId,
+                        panelId: panelId
+                    ): (
+                        snapshot: snapshot,
+                        updatedAt: now.withLock { $0.timeIntervalSince1970 },
+                        processIDs: [],
+                        agentProcessIDs: [],
+                        sessionIDSource: .explicit
+                    ),
+                ]
+            )
+        }
+
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                let snapshot = snapshot.withLock { $0 }
+                return (
+                    index: index(for: snapshot),
+                    liveAgentProcessFingerprint: [],
+                    processScopeFingerprint: [snapshot.launchCommand?.launcher ?? ""],
+                    forkValidatedPanels: [
+                        RestorableAgentSessionIndex.PanelKey(
+                            workspaceId: workspaceId,
+                            panelId: panelId
+                        ),
+                    ]
+                )
+            },
+            forkSupportProvider: { snapshot, _ in
+                let launcher = snapshot.launchCommand?.launcher ?? ""
+                probedLaunchers.withLock { $0.append(launcher) }
+                return launcher == "pi"
+            },
+            hookStoreDirectoryProvider: {
+                root.appendingPathComponent(".cmuxterm", isDirectory: true).path
+            },
+            dateProvider: {
+                now.withLock { $0 }
+            }
+        )
+
+        await sharedIndex.refreshForkAvailabilityNow(workspaceId: workspaceId, panelId: panelId)
+        #expect(
+            sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId)?
+                .launchCommand?.launcher == "pi"
+        )
+        #expect(probedLaunchers.withLock { $0 } == ["pi"])
+
+        snapshot.withLock {
+            $0 = makePiFamilySnapshot(launcher: "omp", workspaceRoot: root.path)
+        }
+        now.withLock { $0 = Date(timeIntervalSince1970: 1) }
+        await sharedIndex.refreshForkAvailabilityNow()
+
+        #expect(
+            sharedIndex.snapshotForForkConversationCandidate(workspaceId: workspaceId, panelId: panelId)?
+                .launchCommand?.launcher == "omp"
+        )
+        #expect(
+            !sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId),
+            "A Pi probe result must not make an OMP snapshot fresh just because the rendered fork command is unchanged."
+        )
+        #expect(sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId) == nil)
+
+        await sharedIndex.refreshForkAvailabilityNow(workspaceId: workspaceId, panelId: panelId)
+        #expect(probedLaunchers.withLock { $0 } == ["pi", "omp"])
+        #expect(sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId) == nil)
+    }
+
+    @Test
     func builtInOmpRequiresProbeButProjectForkOverrideDoesNot() {
         let builtIn = SessionRestorableAgentSnapshot(
             kind: .custom("omp"),
@@ -958,6 +1054,28 @@ struct WorkspaceForkConversationContextMenuTests {
                 capturedAt: 123,
                 source: "process"
             )
+        )
+    }
+
+    private func makePiFamilySnapshot(
+        launcher: String,
+        workspaceRoot: String
+    ) -> SessionRestorableAgentSnapshot {
+        let registration: CmuxVaultAgentRegistration = launcher == "omp" ? .builtInOmp : .builtInPi
+        return SessionRestorableAgentSnapshot(
+            kind: .custom(launcher),
+            sessionId: "pi-family-session",
+            workingDirectory: workspaceRoot,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: launcher,
+                executablePath: "/usr/local/bin/agent-wrapper",
+                arguments: ["/usr/local/bin/agent-wrapper", "--session", "pi-family-session"],
+                workingDirectory: workspaceRoot,
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            ),
+            registration: registration
         )
     }
 
