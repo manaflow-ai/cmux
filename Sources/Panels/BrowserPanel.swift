@@ -3327,6 +3327,9 @@ final class BrowserPanel: Panel, ObservableObject {
                 allowBlankShellHeal: changed || isFirstVisibilityRecord
             )
             drainPendingInteractiveBrowserPromptsIfPossible(reason: "visible.\(reason)")
+            if hasDeferredWebViewFocus {
+                focus()
+            }
         } else if changed || isFirstVisibilityRecord || !hiddenWebViewDiscardManager.hasScheduledDiscard {
             scheduleHiddenWebViewDiscardIfNeeded(reason: reason, now: now)
         }
@@ -5387,19 +5390,25 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func focus() {
         if shouldSuppressWebViewFocus() {
+            hasDeferredWebViewFocus = false
             return
         }
 
-        guard let window = webView.window, !webView.isHiddenOrHasHiddenAncestor else { return }
+        guard let window = webView.window, !webView.isHiddenOrHasHiddenAncestor else {
+            hasDeferredWebViewFocus = true
+            return
+        }
 
         // If nothing meaningful is loaded yet, prefer letting the omnibar take focus.
         if !webView.isLoading {
             let urlString = Self.remoteProxyDisplayURL(for: webView.url)?.absoluteString ?? currentURL?.absoluteString
             if urlString == nil || urlString == "about:blank" {
+                hasDeferredWebViewFocus = false
                 return
             }
         }
 
+        hasDeferredWebViewFocus = false
         if Self.responderChainContains(window.firstResponder, target: webView) {
             noteWebViewFocused()
             return
@@ -5445,6 +5454,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func unfocus() {
+        hasDeferredWebViewFocus = false
         clearBrowserFocusMode(reason: "panelUnfocus")
         invalidateSearchFocusRequests(reason: "panelUnfocus")
         guard let window = webView.window else { return }
