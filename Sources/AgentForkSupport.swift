@@ -255,9 +255,8 @@ enum AgentForkSupport {
         func run() -> Data {
             var output = Data()
             while true {
-                guard let chunk = try? readHandle.read(upToCount: 4096),
-                      let chunk,
-                      !chunk.isEmpty else {
+                let chunk = readHandle.readData(ofLength: 4096)
+                guard !chunk.isEmpty else {
                     break
                 }
                 let remaining = maximumBytes - output.count
