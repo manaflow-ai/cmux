@@ -512,6 +512,173 @@ struct MobileWorkspaceListFidelityTests {
         #expect(boundedCluster.hasSuffix("\u{2026}"))
     }
 
+    @Test func panePayloadNormalizesOrdersFiltersAndFallsBackForZeroSize() throws {
+        let paneA = UUID(), paneB = UUID(), paneC = UUID()
+        let terminalA = UUID(), terminalC = UUID(), browser = UUID()
+        let surfaceA = UUID(), surfaceB = UUID(), surfaceC = UUID()
+        let snapshot = LayoutSnapshot(
+            containerFrame: PixelRect(x: 10, y: 20, width: 200, height: 100),
+            panes: [
+                PaneGeometry(
+                    paneId: paneC.uuidString,
+                    frame: PixelRect(x: 110, y: 20, width: 100, height: 100),
+                    selectedTabId: surfaceC.uuidString,
+                    tabIds: [surfaceC.uuidString]
+                ),
+                PaneGeometry(
+                    paneId: paneB.uuidString,
+                    frame: PixelRect(x: 60, y: 20, width: 50, height: 100),
+                    selectedTabId: surfaceB.uuidString,
+                    tabIds: [surfaceB.uuidString]
+                ),
+                PaneGeometry(
+                    paneId: paneA.uuidString,
+                    frame: PixelRect(x: 10, y: 20, width: 50, height: 100),
+                    selectedTabId: surfaceB.uuidString,
+                    tabIds: [surfaceA.uuidString, surfaceB.uuidString]
+                ),
+            ],
+            focusedPaneId: paneC.uuidString,
+            timestamp: 0
+        )
+        let mapping = [surfaceA: terminalA, surfaceB: browser, surfaceC: terminalC]
+        let result = TerminalController.mobilePanePayloads(
+            layoutSnapshot: snapshot,
+            spatiallyOrderedPaneIDs: [paneA, paneB, paneC],
+            panelIDBySurfaceID: mapping,
+            includedTerminalIDs: [terminalA, terminalC]
+        )
+
+        #expect(result.panes.compactMap { $0["id"] as? String } == [paneA.uuidString, paneC.uuidString])
+        #expect(result.panes[0]["tab_ids"] as? [String] == [terminalA.uuidString])
+        #expect(result.panes[0]["selected_tab_id"] is NSNull, "selected browser tab must serialize as null")
+        #expect(result.panes[1]["is_focused"] as? Bool == true)
+        let firstRect = try #require(result.panes[0]["rect"] as? [String: Double])
+        let lastRect = try #require(result.panes[1]["rect"] as? [String: Double])
+        #expect(firstRect == ["x": 0, "y": 0, "w": 0.25, "h": 1])
+        #expect(lastRect == ["x": 0.5, "y": 0, "w": 0.5, "h": 1])
+
+        let zeroSnapshot = LayoutSnapshot(
+            containerFrame: PixelRect(x: 0, y: 0, width: 0, height: 0),
+            panes: snapshot.panes,
+            focusedPaneId: paneA.uuidString,
+            timestamp: 0
+        )
+        let zero = TerminalController.mobilePanePayloads(
+            layoutSnapshot: zeroSnapshot,
+            spatiallyOrderedPaneIDs: [paneC, paneA, paneB],
+            panelIDBySurfaceID: mapping,
+            includedTerminalIDs: [terminalA, terminalC, browser]
+        ).panes
+        #expect(zero.compactMap { $0["id"] as? String } == [paneC.uuidString, paneA.uuidString, paneB.uuidString])
+        for (index, pane) in zero.enumerated() {
+            let rect = try #require(pane["rect"] as? [String: Double])
+            #expect(rect["x"] == Double(index) / 3.0)
+            #expect(rect["w"] == 1.0 / 3.0)
+            #expect(rect["y"] == 0 && rect["h"] == 1)
+        }
+    }
+
+    @Test func workspacePayloadStampsEveryTerminalWithItsPaneID() throws {
+        let (workspace, terminalIDs) = try makeWorkspaceWithSplitTerminals(count: 3)
+        workspace.bonsplitController.setContainerFrame(CGRect(x: 40, y: 30, width: 900, height: 600))
+        let payload = TerminalController.shared.mobileWorkspacePayload(
+            workspace: workspace,
+            isSelected: true,
+            requestedTerminalID: nil
+        )
+        let terminals = try #require(payload["terminals"] as? [[String: Any]])
+        let panes = try #require(payload["panes"] as? [[String: Any]])
+        #expect(terminals.count == 3 && panes.count == 3)
+        #expect(Set(terminals.compactMap { UUID(uuidString: $0["id"] as? String ?? "") }) == Set(terminalIDs))
+        for terminal in terminals {
+            let terminalID = try #require(terminal["id"] as? String)
+            let paneID = try #require(terminal["pane_id"] as? String)
+            let pane = try #require(panes.first { ($0["id"] as? String) == paneID })
+            #expect((pane["tab_ids"] as? [String])?.contains(terminalID) == true)
+        }
+    }
+
+    @Test(arguments: ["surface_id", "terminal_id", "tab_id"])
+    func terminalCloseUsesEveryInputAliasAndReturnsRefresh(alias: String) throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        defer { TerminalController.shared.setActiveTabManager(previousManager) }
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        let workspace = try #require(manager.selectedWorkspace)
+        let background = try #require(workspace.newTerminalSurfaceInFocusedPane(focus: false))
+
+        let result = TerminalController.shared.v2MobileTerminalClose(params: [
+            "workspace_id": workspace.id.uuidString,
+            alias: background.id.uuidString,
+        ])
+        guard case let .ok(rawPayload) = result,
+              let payload = rawPayload as? [String: Any] else {
+            Issue.record("terminal.close should accept \(alias)")
+            return
+        }
+        #expect(payload["closed"] as? Bool == true)
+        #expect(payload["surface_id"] as? String == background.id.uuidString)
+        #expect(payload["workspace_id"] as? String == workspace.id.uuidString)
+        #expect(payload["workspaces"] is [[String: Any]])
+        #expect(workspace.terminalPanel(for: background.id) == nil, "the background tab should close")
+    }
+
+    @Test func terminalCloseRefusesTheLastTerminal() throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        defer { TerminalController.shared.setActiveTabManager(previousManager) }
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        let workspace = try #require(manager.selectedWorkspace)
+        let terminal = try #require(workspace.focusedTerminalPanel)
+
+        let result = TerminalController.shared.v2MobileTerminalClose(params: [
+            "workspace_id": workspace.id.uuidString,
+            "surface_id": terminal.id.uuidString,
+        ])
+        guard case let .err(code, _, _) = result else {
+            Issue.record("closing the last terminal should fail")
+            return
+        }
+        #expect(code == "last_terminal")
+        #expect(workspace.terminalPanel(for: terminal.id) != nil)
+    }
+
+    @Test func terminalCreateTargetsNamedPaneAndRejectsUnknownPane() throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        defer { TerminalController.shared.setActiveTabManager(previousManager) }
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        let workspace = try #require(manager.selectedWorkspace)
+        let originalPanelID = try #require(workspace.focusedPanelId)
+        _ = try #require(workspace.newTerminalSplit(from: originalPanelID, orientation: .horizontal, focus: false))
+        let targetPane = try #require(workspace.paneId(forPanelId: originalPanelID))
+
+        let created = TerminalController.shared.v2MobileTerminalCreate(params: [
+            "workspace_id": workspace.id.uuidString,
+            "pane_id": targetPane.id.uuidString,
+        ])
+        guard case let .ok(rawPayload) = created,
+              let payload = rawPayload as? [String: Any],
+              let createdID = (payload["created_terminal_id"] as? String).flatMap(UUID.init(uuidString:)) else {
+            Issue.record("terminal.create should return a created terminal id")
+            return
+        }
+        #expect(workspace.paneId(forPanelId: createdID) == targetPane)
+
+        let countBeforeInvalid = TerminalController.shared.mobileTerminalPanels(in: workspace).count
+        let invalid = TerminalController.shared.v2MobileTerminalCreate(params: [
+            "workspace_id": workspace.id.uuidString,
+            "pane_id": UUID().uuidString,
+        ])
+        guard case let .err(code, _, _) = invalid else {
+            Issue.record("an unknown pane_id should fail")
+            return
+        }
+        #expect(code == "invalid_params")
+        #expect(TerminalController.shared.mobileTerminalPanels(in: workspace).count == countBeforeInvalid)
+    }
+
     private func sshRemoteConfiguration() -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "seepine@192.168.5.20",

@@ -3,7 +3,7 @@
 ///
 /// This domain serves the `mobile.*` / `terminal.*` methods the Mac exposes to
 /// the paired iOS client through the v2 control socket: host status, the
-/// mobile-shaped workspace/terminal list, terminal create, and the terminal
+/// mobile-shaped workspace/terminal list, terminal create/close, and the terminal
 /// input / replay / viewport / scroll / mouse data-plane verbs.
 ///
 /// Unlike the window domain, these bodies build deeply nested,
@@ -35,7 +35,7 @@
 ///
 /// This seam serves only the v2 control socket (`processV2Command`, sync,
 /// main-actor), dispatched by ``ControlCommandCoordinator/handleMobileHost(_:)``:
-/// the eight shared verbs plus `mobile.terminal.paste` / `terminal.paste` and the
+/// the shared mobile terminal verbs plus `mobile.terminal.paste` / `terminal.paste` and the
 /// local debug `chat.sessions.dump`. Every method is a thin pass-through; the app
 /// conformance runs the EXACT legacy body and bridges its Foundation payload to a
 /// ``JSONValue``.
@@ -73,6 +73,14 @@ public protocol ControlMobileHostContext: AnyObject {
     /// - Parameter params: The decoded request params.
     /// - Returns: The fully-built command result.
     func controlMobileTerminalCreate(params: [String: JSONValue]) -> ControlCallResult
+
+    /// `mobile.terminal.close` / `terminal.close` — close a non-last terminal
+    /// through the app's canonical non-interactive surface-close path, then
+    /// return the refreshed mobile workspace list.
+    ///
+    /// - Parameter params: The decoded request params.
+    /// - Returns: The fully-built command result.
+    func controlMobileTerminalClose(params: [String: JSONValue]) -> ControlCallResult
 
     /// `mobile.terminal.input` / `terminal.input` — forward typed text to the
     /// resolved terminal surface, applying any piggybacked viewport report.

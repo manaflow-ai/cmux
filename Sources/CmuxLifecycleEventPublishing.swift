@@ -2,6 +2,10 @@ import Foundation
 import AppKit
 import Bonsplit
 
+extension Notification.Name {
+    static let workspacePaneSelectionDidChange = Notification.Name("cmux.workspacePaneSelectionDidChange")
+}
+
 @MainActor
 private enum CmuxSelectionEventState {
     static var selectedSurfaceByWorkspacePane: [String: UUID] = [:]
@@ -167,8 +171,10 @@ extension Workspace {
         let paneKey = CmuxSelectionEventState.paneKey(workspaceId: id, paneId: paneId.id)
         let previousSelectedSurfaceId = CmuxSelectionEventState.selectedSurfaceByWorkspacePane[paneKey]
         let kind = panels[surfaceId].map(Self.cmuxEventSurfaceKind)
+        var paneSelectionChanged = false
 
         if previousSelectedSurfaceId != surfaceId {
+            paneSelectionChanged = true
             CmuxSelectionEventState.selectedSurfaceByWorkspacePane[paneKey] = surfaceId
             CmuxEventBus.shared.publishSurfaceSelected(
                 workspaceId: id,
@@ -182,6 +188,7 @@ extension Workspace {
         }
 
         if CmuxSelectionEventState.focusedPaneByWorkspace[id] != paneId.id {
+            paneSelectionChanged = true
             CmuxSelectionEventState.focusedPaneByWorkspace[id] = paneId.id
             CmuxEventBus.shared.publishPaneFocused(
                 workspaceId: id,
@@ -192,6 +199,7 @@ extension Workspace {
         }
 
         if CmuxSelectionEventState.focusedSurfaceByWorkspace[id] != surfaceId {
+            paneSelectionChanged = true
             CmuxSelectionEventState.focusedSurfaceByWorkspace[id] = surfaceId
             CmuxEventBus.shared.publishSurfaceFocused(
                 workspaceId: id,
@@ -200,6 +208,10 @@ extension Workspace {
                 kind: kind,
                 origin: origin
             )
+        }
+
+        if paneSelectionChanged {
+            NotificationCenter.default.post(name: .workspacePaneSelectionDidChange, object: self)
         }
     }
 

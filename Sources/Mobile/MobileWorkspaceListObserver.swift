@@ -258,10 +258,21 @@ final class MobileWorkspaceListObserver {
                     .map { _ in () }
                     .eraseToAnyPublisher(),
                 workspace.$activeRemoteTerminalSessionCount.map { _ in () }.eraseToAnyPublisher(),
-                // Pure drag-reorders change spatial order without changing the panel
-                // set; bonsplit selection state is not `@Published`, so this counter
-                // is the only signal the observer gets for a reorder.
+                // Pure drag-reorders change spatial order without changing the panel set.
                 workspace.paneLayoutVersionPublisher.map { _ in () }.eraseToAnyPublisher(),
+                // Bonsplit reports every split/close/move/reorder/final divider
+                // geometry through this workspace-scoped notification.
+                NotificationCenter.default.publisher(
+                    for: .workspacePaneGeometryDidChange,
+                    object: workspace
+                ).map { _ in () }.eraseToAnyPublisher(),
+                // Selection and pane focus do not necessarily change geometry or
+                // any @Published workspace field, so the shared selection action
+                // publishes this dedicated workspace-scoped tick after state settles.
+                NotificationCenter.default.publisher(
+                    for: .workspacePaneSelectionDidChange,
+                    object: workspace
+                ).map { _ in () }.eraseToAnyPublisher(),
             ]
             let merged = Publishers.MergeMany(publishers)
                 .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
@@ -294,11 +305,8 @@ final class MobileWorkspaceListObserver {
         MobileHostService.shared.emitEvent(topic: "workspace.updated", payload: [:])
     }
 
-    /// Stable hash of the iOS-facing shape: workspace ids + titles + their
-    /// panels in spatial order + each panel's displayed (custom-aware) title and
-    /// directory. Mutations that don't show up on the mobile list (pane geometry,
-    /// scrollback content, focus only) don't trip the event, so we don't fan out
-    /// on every keystroke.
+    /// Stable hash of the complete iOS-facing workspace-list shape, including
+    /// pane geometry, terminal tab order, per-pane selection, and pane focus.
     ///
     /// The panel ids are hashed in `orderedPanelIds` order (not the sorted set),
     /// so a pure drag-reorder, which changes the spatial order but not the id set,
@@ -350,6 +358,25 @@ final class MobileWorkspaceListObserver {
             for id in panelIDs {
                 hasher.combine(workspace.panelTitle(panelId: id))
                 hasher.combine(workspace.reportedPanelDirectory(panelId: id))
+            }
+            let terminalIDs = Set(workspace.panels.values.compactMap { panel in
+                (panel as? TerminalPanel)?.id
+            })
+            let panePayloads = TerminalController.mobilePanePayloads(
+                workspace: workspace,
+                includedTerminalIDs: terminalIDs
+            ).panes
+            hasher.combine(panePayloads.count)
+            for pane in panePayloads {
+                hasher.combine(pane["id"] as? String)
+                hasher.combine(pane["tab_ids"] as? [String])
+                hasher.combine(pane["selected_tab_id"] as? String)
+                hasher.combine(pane["is_focused"] as? Bool)
+                let rect = pane["rect"] as? [String: Double]
+                hasher.combine(rect?["x"])
+                hasher.combine(rect?["y"])
+                hasher.combine(rect?["w"])
+                hasher.combine(rect?["h"])
             }
             hasher.combine(workspace.presentedCurrentDirectory)
             // Todo mutations change the list-facing shape; without these the

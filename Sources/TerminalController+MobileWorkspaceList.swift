@@ -192,10 +192,14 @@ extension TerminalController {
         requestedTerminalID: UUID?,
         notificationStore: TerminalNotificationStore? = nil
     ) -> [String: Any] {
-        let terminals = mobileTerminalPanels(in: workspace).compactMap { terminal -> [String: Any]? in
-            if let requestedTerminalID, terminal.id != requestedTerminalID {
-                return nil
-            }
+        let terminalPanels = mobileTerminalPanels(in: workspace).filter { terminal in
+            requestedTerminalID == nil || terminal.id == requestedTerminalID
+        }
+        let panePayload = Self.mobilePanePayloads(
+            workspace: workspace,
+            includedTerminalIDs: Set(terminalPanels.map(\.id))
+        )
+        let terminals = terminalPanels.map { terminal -> [String: Any] in
             let terminalDirectory = workspace.effectivePanelDirectory(
                 panelId: terminal.id,
                 localFallback: mobileNonEmpty(terminal.directory) ?? mobileNonEmpty(terminal.requestedWorkingDirectory)
@@ -205,7 +209,8 @@ extension TerminalController {
                 "title": workspace.panelTitle(panelId: terminal.id) ?? terminal.displayTitle,
                 "current_directory": v2OrNull(terminalDirectory),
                 "is_ready": terminal.surface.surface != nil,
-                "is_focused": terminal.id == workspace.focusedPanelId
+                "is_focused": terminal.id == workspace.focusedPanelId,
+                "pane_id": v2OrNull(panePayload.paneIDByTerminalID[terminal.id]?.uuidString),
             ]
         }
 
@@ -237,7 +242,8 @@ extension TerminalController {
             // unread + manual/panel-derived/restored indicators) so the phone can
             // show an iMessage-style unread dot.
             "has_unread": store?.workspaceIsUnread(forTabId: workspace.id) ?? false,
-            "terminals": terminals
+            "terminals": terminals,
+            "panes": panePayload.panes,
         ]
     }
 

@@ -39,6 +39,8 @@ extension ControlCommandCoordinator {
             return context?.controlMobileWorkspaceList(params: request.params)
         case "mobile.terminal.create", "terminal.create":
             return context?.controlMobileTerminalCreate(params: request.params)
+        case "mobile.terminal.close", "terminal.close":
+            return context?.controlMobileTerminalClose(params: request.params)
         case "mobile.terminal.input", "terminal.input":
             return context?.controlMobileTerminalInput(params: request.params)
         case "mobile.terminal.replay", "terminal.replay":
