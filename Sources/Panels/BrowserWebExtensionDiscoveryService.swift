@@ -16,12 +16,33 @@ actor BrowserWebExtensionDiscoveryService {
     private var activePluginkitStdout: Pipe?
     private var activePluginkitTimeoutTimer: DispatchSourceTimer?
     private var activePluginkitDidTimeOut = false
+    private var inFlightDiscovery: (id: UUID, task: Task<[BrowserWebExtensionCandidate], Never>)?
 
     init(pluginkitRunner: PluginkitRunner? = nil) {
         self.pluginkitRunner = pluginkitRunner
     }
 
     func discoverInstalledSafariExtensions() async -> [BrowserWebExtensionCandidate] {
+        if let inFlightDiscovery {
+            return await inFlightDiscovery.task.value
+        }
+
+        let discoveryID = UUID()
+        // The subprocess has its own bounded deadline. Keeping this shared task
+        // independent prevents one cancelled waiter from cancelling discovery
+        // for every other settings view awaiting the same result.
+        let task = Task { [self] in
+            await performDiscovery()
+        }
+        inFlightDiscovery = (discoveryID, task)
+        let candidates = await task.value
+        if inFlightDiscovery?.id == discoveryID {
+            inFlightDiscovery = nil
+        }
+        return candidates
+    }
+
+    private func performDiscovery() async -> [BrowserWebExtensionCandidate] {
         let output: String
         do {
             if let pluginkitRunner {
