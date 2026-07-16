@@ -614,13 +614,13 @@ describe("developer binding override", () => {
       staleAfterMs: null,
     });
     expect(challengeQuotaForUser(base, USER_A)).toEqual({
-      account: 256,
-      device: 128,
+      account: 2_048,
+      deviceInstance: 128,
       outstanding: 256,
     });
     expect(challengeQuotaForUser(base, USER_B)).toEqual({
       account: 120,
-      device: 6,
+      deviceInstance: 6,
       outstanding: 32,
     });
   });

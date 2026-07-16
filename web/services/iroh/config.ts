@@ -18,7 +18,7 @@ export type IrohBindingQuota = {
 
 export type IrohChallengeQuota = {
   readonly account: number;
-  readonly device: number;
+  readonly deviceInstance: number;
   readonly outstanding: number;
 };
 
@@ -111,11 +111,19 @@ export function challengeQuotaForUser(
   authenticatedUserId: string,
 ): IrohChallengeQuota {
   if (!developmentBindingQuotaAllowed(config, authenticatedUserId)) {
-    return { account: 120, device: 6, outstanding: 32 };
+    return { account: 120, deviceInstance: 6, outstanding: 32 };
   }
   return {
-    account: Math.max(120, config.developmentAccountBindingLimit),
-    device: Math.max(6, config.developmentDeviceBindingLimit),
+    // Give every allowed dev binding the normal per-instance launch budget,
+    // while retaining one bounded account fence against a runaway client.
+    account: Math.max(
+      120,
+      Math.min(
+        MAX_IROH_CONFIGURED_BINDING_LIMIT,
+        config.developmentAccountBindingLimit * DEFAULT_IROH_DEVICE_BINDING_LIMIT,
+      ),
+    ),
+    deviceInstance: Math.max(6, config.developmentDeviceBindingLimit),
     outstanding: Math.max(32, config.developmentAccountBindingLimit),
   };
 }

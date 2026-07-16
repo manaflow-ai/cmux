@@ -583,7 +583,7 @@ describe("Iroh trust broker database behavior", () => {
         nonceHash: (index + 101).toString(16).padStart(64, "0"),
         now: NOW,
         expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
-        challengeQuota: { account: 256, device: 128, outstanding: 256 },
+        challengeQuota: { account: 2_048, deviceInstance: 128, outstanding: 256 },
       } as Parameters<IrohRepositoryShape["issueChallenge"]>[0];
       return Effect.runPromiseExit(requiredRepository().issueChallenge(input));
     }));
@@ -615,7 +615,7 @@ describe("Iroh trust broker database behavior", () => {
         nonceHash: (index + 100).toString(16).padStart(64, "0"),
         now: NOW,
         expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
-        challengeQuota: { account: 10, device: 2, outstanding: 10 },
+        challengeQuota: { account: 10, deviceInstance: 2, outstanding: 10 },
       }));
     };
 

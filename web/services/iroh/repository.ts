@@ -180,7 +180,7 @@ function makeLiveRepository(): IrohRepositoryShape {
       return await db.transaction(async (tx) => {
         const challengeQuota = input.challengeQuota ?? {
           account: IROH_ACCOUNT_CHALLENGE_LIMIT,
-          device: 6,
+          deviceInstance: 6,
           outstanding: 32,
         };
         await assertIrohUserMutationAllowed(tx, input.userId);
@@ -199,15 +199,16 @@ function makeLiveRepository(): IrohRepositoryShape {
             retryAfterSeconds: 600,
           });
         }
-        const [recentForDevice] = await tx
+        const [recentForDeviceInstance] = await tx
           .select({ total: count() })
           .from(irohRegistrationChallenges)
           .where(and(
             eq(irohRegistrationChallenges.userId, input.userId),
             eq(irohRegistrationChallenges.deviceUuid, input.deviceUuid),
+            eq(irohRegistrationChallenges.appInstanceId, input.appInstanceId),
             gt(irohRegistrationChallenges.createdAt, tenMinutesAgo),
           ));
-        if ((recentForDevice?.total ?? 0) >= challengeQuota.device) {
+        if ((recentForDeviceInstance?.total ?? 0) >= challengeQuota.deviceInstance) {
           throw new IrohQuotaExceededError({ code: "challenge_rate_limited", retryAfterSeconds: 600 });
         }
         const [outstanding] = await tx
