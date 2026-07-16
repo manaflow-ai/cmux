@@ -140,6 +140,26 @@ struct MobileHostServiceSettingsTests {
         #expect(route.endpoint == .hostPort(host: "studio-mac.corp.example", port: 61_234))
     }
 
+    @Test func routeResolverKeepsCanonicalPrioritiesWhenMagicDNSHostIsFiltered() throws {
+        // Production discovery prepends the MagicDNS name to the numeric
+        // Tailscale address; the resolver emits only the numeric host. The
+        // manual route's priority must continue the EMITTED sequence
+        // (10, 20, ...) or `CmxPairingQRCode.encodableRoutes` rejects the
+        // routes and the pairing QR silently degrades to the v1 payload.
+        let snapshot = MobileRouteResolver().routes(
+            port: 58_465,
+            tailscaleHosts: ["studio-mac.tail1234.ts.net", "100.82.214.112"],
+            manualHost: "studio-mac.corp.example"
+        )
+        let minimalRoutes = snapshot.routes.filter { $0.kind != .debugLoopback }
+        let tailscaleRoute = try #require(minimalRoutes.first { $0.kind == .tailscale })
+        let manualRoute = try #require(minimalRoutes.first { $0.kind == .manualHost })
+
+        #expect(minimalRoutes.count == 2)
+        #expect(tailscaleRoute.priority == 10)
+        #expect(manualRoute.priority == 20)
+    }
+
     @Test func routeResolverAdvertisesConfiguredIPv6ManualHost() throws {
         let suiteName = "MobileHostServiceSettingsTests.ManualHost.IPv6.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
