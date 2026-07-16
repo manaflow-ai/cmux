@@ -3,6 +3,32 @@ import Foundation
 import CMUXAgentLaunch
 import Darwin
 
+/// Coordinates cancellation with `Process.run()`: Foundation raises an
+/// Objective-C exception if termination APIs touch a task before launch.
+/// Callers own synchronization because the same gate is mutated with adjacent
+/// process cancellation state.
+struct ProcessTerminationGate: Sendable {
+    private var didLaunch = false
+    private var didFinish = false
+    private var terminationRequested = false
+
+    mutating func requestTermination() -> Bool {
+        guard !didFinish else { return false }
+        terminationRequested = true
+        return didLaunch
+    }
+
+    mutating func markLaunched() -> Bool {
+        guard !didFinish else { return false }
+        didLaunch = true
+        return terminationRequested
+    }
+
+    mutating func markFinished() {
+        didFinish = true
+    }
+}
+
 enum AgentForkSupport {
     static let minimumOpenCodeForkVersion = SemanticVersion(major: 1, minor: 14, patch: 50)
     // Pi v0.60.0 and OMP v13.15.0 are the first releases containing the
@@ -185,6 +211,8 @@ enum AgentForkSupport {
             self.continuation = nil
             pipe = self.pipe
             self.pipe = nil
+            // Safety: this actor is the only owner that clears and later touches
+            // the process reference during cleanup.
             outputDrainTask = self.outputDrainTask
             self.outputDrainTask = nil
             process = self.process
@@ -213,6 +241,8 @@ enum AgentForkSupport {
         }
     }
 
+    /// `@unchecked Sendable` is safe because the read handle is consumed by one
+    /// detached drain task after initialization and is never accessed elsewhere.
     private final class CommandOutputDrain: @unchecked Sendable {
         private let readHandle: FileHandle
         private let maximumBytes: Int

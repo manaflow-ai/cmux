@@ -5,38 +5,6 @@ import Foundation
 import QuartzCore
 import SwiftUI
 
-/// Coordinates cancellation with `Process.run()`: Foundation raises an
-/// Objective-C exception if termination APIs touch a task before launch.
-/// `@unchecked Sendable` is safe here because all mutable state is protected by `lock`.
-final class ProcessTerminationGate: @unchecked Sendable {
-    private let lock = NSLock()
-    private var didLaunch = false
-    private var didFinish = false
-    private var terminationRequested = false
-
-    func requestTermination() -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        guard !didFinish else { return false }
-        terminationRequested = true
-        return didLaunch
-    }
-
-    func markLaunched() -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        guard !didFinish else { return false }
-        didLaunch = true
-        return terminationRequested
-    }
-
-    func markFinished() {
-        lock.lock()
-        defer { lock.unlock() }
-        didFinish = true
-    }
-}
-
 // MARK: - Explorer Visual Style
 
 enum FileExplorerStyle: Int, CaseIterable {
@@ -512,7 +480,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         private let outPipe = Pipe()
         private let errPipe = Pipe()
         private let lock = NSLock()
-        private let terminationGate = ProcessTerminationGate()
+        private var terminationGate = ProcessTerminationGate()
         private var cancelled = false
 
         init(connection: SSHFileExplorerConnection, command: String) {
@@ -533,17 +501,22 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
             do {
                 try process.run()
             } catch {
+                lock.lock()
                 terminationGate.markFinished()
+                lock.unlock()
                 throw error
             }
 
             lock.lock()
             let shouldTerminate = cancelled
+            let shouldTerminateDeferredRequest = terminationGate.markLaunched()
             lock.unlock()
-            if terminationGate.markLaunched() || shouldTerminate {
+            if shouldTerminateDeferredRequest || shouldTerminate {
                 guard process.isRunning else {
                     process.waitUntilExit()
+                    lock.lock()
                     terminationGate.markFinished()
+                    lock.unlock()
                     throw CancellationError()
                 }
                 process.terminate()
@@ -552,8 +525,8 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
             let data = outPipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
             let stderrData = errPipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
             process.waitUntilExit()
-            terminationGate.markFinished()
             lock.lock()
+            terminationGate.markFinished()
             let cancelledAfterExit = cancelled
             lock.unlock()
             if cancelledAfterExit {
@@ -570,9 +543,10 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         func terminate() {
             lock.lock()
             cancelled = true
+            let shouldTerminate = terminationGate.requestTermination()
             lock.unlock()
 
-            guard terminationGate.requestTermination() else {
+            guard shouldTerminate else {
                 return
             }
             guard process.isRunning else {
@@ -588,7 +562,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         private let errPipe = Pipe()
         private let outputURL: URL
         private let lock = NSLock()
-        private let terminationGate = ProcessTerminationGate()
+        private var terminationGate = ProcessTerminationGate()
         private var cancelled = false
 
         init(connection: SSHFileExplorerConnection, command: String, outputURL: URL) {
@@ -618,17 +592,22 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
             do {
                 try process.run()
             } catch {
+                lock.lock()
                 terminationGate.markFinished()
+                lock.unlock()
                 throw error
             }
 
             lock.lock()
             let shouldTerminate = cancelled
+            let shouldTerminateDeferredRequest = terminationGate.markLaunched()
             lock.unlock()
-            if terminationGate.markLaunched() || shouldTerminate {
+            if shouldTerminateDeferredRequest || shouldTerminate {
                 guard process.isRunning else {
                     process.waitUntilExit()
+                    lock.lock()
                     terminationGate.markFinished()
+                    lock.unlock()
                     throw CancellationError()
                 }
                 process.terminate()
@@ -637,8 +616,8 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
             try outPipe.fileHandleForReading.copyDataToEndOfFile(to: outputHandle)
             let stderrData = errPipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
             process.waitUntilExit()
-            terminationGate.markFinished()
             lock.lock()
+            terminationGate.markFinished()
             let cancelledAfterExit = cancelled
             lock.unlock()
             if cancelledAfterExit {
@@ -655,9 +634,10 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         func terminate() {
             lock.lock()
             cancelled = true
+            let shouldTerminate = terminationGate.requestTermination()
             lock.unlock()
 
-            guard terminationGate.requestTermination() else {
+            guard shouldTerminate else {
                 return
             }
             guard process.isRunning else {
