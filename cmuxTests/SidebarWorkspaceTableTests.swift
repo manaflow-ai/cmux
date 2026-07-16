@@ -330,8 +330,13 @@ struct SidebarWorkspaceTableTests {
             container.tableView.view(atColumn: 0, row: 0, makeIfNecessary: true)
                 as? SidebarWorkspaceTableCellView
         )
+        container.tableView.layoutSubtreeIfNeeded()
+        #expect(cell.representedRowId == row.id)
+
+        // configure(cell:at:) rebinds the cell probe from the controller on
+        // every pass, so observe reconfigures at the controller level.
         var renders = 0
-        cell.reconfigurationProbe = { renders += 1 }
+        controller.reconfigurationProbe = { renders += 1 }
 
         // Opening drops the hovered flag on the menu's row immediately instead
         // of leaving it stale until the next unrelated apply().

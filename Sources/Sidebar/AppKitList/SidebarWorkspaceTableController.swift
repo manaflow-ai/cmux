@@ -18,6 +18,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var appKitDropIndicatorScope: SidebarWorkspaceReorderDropIndicatorScope = .raw
     private var appKitDropIndicatorIncludesRowTargets = false
     private var clipBoundsObserver: NSObjectProtocol?
+    private var isViewportMeasurementScheduled = false
     private let rowHeightCache = SidebarWorkspaceTableRowHeightCache()
     private let dropTargetGeometry = SidebarWorkspaceTableDropTargetGeometryGate()
 
@@ -286,16 +287,33 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     func viewportDidChange() {
-        if let changed = rowHeightCache.prepareHostedRowsForViewportChange(
-            rows,
-            columnWidth: currentColumnWidth(),
-            measurableRange: measurableRowRange(rowCount: rows.count),
-            visibleRange: visibleRowRange(rowCount: rows.count, overscanFactor: 0)
-        ), !changed.isEmpty {
-            containerView?.tableView.noteHeightOfRows(withIndexesChanged: changed)
-        }
+        scheduleViewportRowMeasurement()
         recomputeHoveredRow()
         updateDropTargets()
+    }
+
+    /// Bounds-change notifications arrive synchronously inside the table's
+    /// tiling pass, where measuring (which renders the prototype hosting
+    /// view) and noteHeightOfRows (which re-tiles) reenter NSHostingView
+    /// layout while cells are mid-render ("laid out reentrantly" runtime
+    /// fault). Coalesce the measurement onto the next main-actor turn
+    /// instead; scrolling never mutates the table from inside its own
+    /// layout.
+    private func scheduleViewportRowMeasurement() {
+        guard !isViewportMeasurementScheduled else { return }
+        isViewportMeasurementScheduled = true
+        Task { [weak self] in
+            guard let self else { return }
+            self.isViewportMeasurementScheduled = false
+            if let changed = self.rowHeightCache.prepareHostedRowsForViewportChange(
+                self.rows,
+                columnWidth: self.currentColumnWidth(),
+                measurableRange: self.measurableRowRange(rowCount: self.rows.count),
+                visibleRange: self.visibleRowRange(rowCount: self.rows.count, overscanFactor: 0)
+            ), !changed.isEmpty {
+                self.containerView?.tableView.noteHeightOfRows(withIndexesChanged: changed)
+            }
+        }
     }
 
     private func currentColumnWidth() -> CGFloat {
