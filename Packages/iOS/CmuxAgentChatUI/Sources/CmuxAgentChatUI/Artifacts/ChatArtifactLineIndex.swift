@@ -9,15 +9,19 @@ struct ChatArtifactLineIndex: Equatable, Sendable {
 
     /// Adds line starts from one newly decoded streaming chunk.
     mutating func append(_ text: String) {
+        append(ChatArtifactLineIndexBatch(text: text))
+    }
+
+    /// Applies a batch whose UTF-16 scan may have been computed off-main.
+    mutating func append(_ batch: ChatArtifactLineIndexBatch) {
         let baseOffset = loadedUTF16Length
-        var chunkOffset = 0
-        for codeUnit in text.utf16 {
-            chunkOffset += 1
-            if codeUnit == 0x0A {
-                lineStartOffsets.append(baseOffset + chunkOffset)
-            }
+        lineStartOffsets.reserveCapacity(
+            lineStartOffsets.count + batch.relativeLineStartOffsets.count
+        )
+        for relativeOffset in batch.relativeLineStartOffsets {
+            lineStartOffsets.append(baseOffset + relativeOffset)
         }
-        loadedUTF16Length += chunkOffset
+        loadedUTF16Length += batch.utf16Length
     }
 
     /// Clamps a one-based requested line to the range currently loaded.

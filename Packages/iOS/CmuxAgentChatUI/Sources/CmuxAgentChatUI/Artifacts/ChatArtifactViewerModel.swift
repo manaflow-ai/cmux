@@ -205,8 +205,13 @@ final class ChatArtifactViewerModel {
                 for (index, decoded) in decodedBatches.enumerated() {
                     try Task.checkCancellation()
                     let isFinalBatch = index == decodedBatches.index(before: decodedBatches.endIndex)
+                    let lineIndexBatch = await Task.detached(priority: .userInitiated) {
+                        ChatArtifactLineIndexBatch(text: decoded)
+                    }.value
+                    try Task.checkCancellation()
                     await self.receiveText(
                         decoded,
+                        lineIndexBatch: lineIndexBatch,
                         chunk: chunk,
                         path: path,
                         isMarkdown: isMarkdown,
@@ -222,6 +227,7 @@ final class ChatArtifactViewerModel {
 
     private func receiveText(
         _ text: String,
+        lineIndexBatch: ChatArtifactLineIndexBatch? = nil,
         chunk: ChatArtifactChunk,
         path: String,
         isMarkdown: Bool,
@@ -230,7 +236,11 @@ final class ChatArtifactViewerModel {
         guard path == activePath else { return }
         if !text.isEmpty {
             textChunks.append(text)
-            textLineIndex.append(text)
+            if let lineIndexBatch {
+                textLineIndex.append(lineIndexBatch)
+            } else {
+                textLineIndex.append(text)
+            }
         }
         if isFinalBatch {
             updateProgress(for: chunk)

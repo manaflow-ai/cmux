@@ -42,20 +42,20 @@ struct ChatArtifactTextView: UIViewRepresentable {
         context.coordinator.onFontSizeChanged = onFontSizeChanged
         let isNewDocument = context.coordinator.documentID != documentID
         if isNewDocument {
+            context.coordinator.resetStreamingText()
             context.coordinator.resetHighlighting()
             context.coordinator.resetSearch()
             context.coordinator.resetAccessibilityContent()
             textView.textStorage.setAttributedString(NSAttributedString())
             textView.selectedRange = NSRange(location: 0, length: 0)
             context.coordinator.documentID = documentID
-            context.coordinator.appliedChunkCount = 0
             context.coordinator.handledTopRequestID = topRequestID
             context.coordinator.handledBottomRequestID = bottomRequestID
             context.coordinator.handledGoToLineRequestID = goToLineRequestID
         }
 
         if context.coordinator.appliedChunkCount > chunks.count {
-            context.coordinator.appliedChunkCount = 0
+            context.coordinator.resetStreamingText()
             context.coordinator.resetHighlighting()
             context.coordinator.resetSearch()
             context.coordinator.resetAccessibilityContent()
@@ -74,83 +74,72 @@ struct ChatArtifactTextView: UIViewRepresentable {
             .font: font,
             .foregroundColor: textColor,
         ]
-        while context.coordinator.appliedChunkCount < chunks.count {
-            let chunk = chunks[context.coordinator.appliedChunkCount]
-            let contentOffset = textView.contentOffset
-            let selection = textView.selectedRange
-            textView.textStorage.beginEditing()
-            textView.textStorage.append(NSAttributedString(string: chunk, attributes: attributes))
-            textView.textStorage.endEditing()
-            textView.selectedRange = selection
-            textView.setContentOffset(contentOffset, animated: false)
-            context.coordinator.appliedChunkCount += 1
-            context.coordinator.appendAccessibilityContent(chunk)
+        if context.coordinator.appliedChunkCount < chunks.count {
+            context.coordinator.enqueueTextChunks(
+                chunks[context.coordinator.appliedChunkCount...],
+                attributes: attributes,
+                in: textView
+            )
         }
 
-        let updatePlan = ChatArtifactTextUpdatePlan(
-            reachedEOF: reachedEOF,
-            highlightDecision: highlightDecision,
-            searchQuery: searchQuery
-        )
-        let fullText = updatePlan.requiresFullTextSnapshot
-            ? textView.textStorage.string
-            : nil
-        context.coordinator.updateHighlighting(
-            in: textView,
-            documentID: documentID,
-            text: fullText,
-            reachedEOF: reachedEOF,
-            decision: highlightDecision,
-            theme: highlightTheme
-        )
-        context.coordinator.updateSearch(
-            in: textView,
-            documentID: documentID,
-            text: fullText,
-            textLength: textView.textStorage.length,
-            query: searchQuery,
-            reachedEOF: reachedEOF,
-            previousRequestID: previousSearchRequestID,
-            nextRequestID: nextSearchRequestID,
-            onSummaryChanged: onSearchSummaryChanged
-        )
-        containerView.updateLineNumbers(index: lineIndex, isVisible: showsLineNumbers)
+        let coordinator = context.coordinator
+        coordinator.schedulePostAppendWork { [weak coordinator, weak textView] in
+            guard let coordinator, let textView else { return }
+            let updatePlan = ChatArtifactTextUpdatePlan(
+                reachedEOF: reachedEOF,
+                highlightDecision: highlightDecision,
+                searchQuery: searchQuery
+            )
+            let fullText = updatePlan.requiresFullTextSnapshot
+                ? textView.textStorage.string
+                : nil
+            coordinator.updateHighlighting(
+                in: textView,
+                documentID: documentID,
+                text: fullText,
+                reachedEOF: reachedEOF,
+                decision: highlightDecision,
+                theme: highlightTheme
+            )
+            coordinator.updateSearch(
+                in: textView,
+                documentID: documentID,
+                text: fullText,
+                textLength: textView.textStorage.length,
+                query: searchQuery,
+                reachedEOF: reachedEOF,
+                previousRequestID: previousSearchRequestID,
+                nextRequestID: nextSearchRequestID,
+                onSummaryChanged: onSearchSummaryChanged
+            )
+        }
+        coordinator.updateLineNumbers(index: lineIndex, isVisible: showsLineNumbers)
         containerView.updateAccessibility(
             documentID: documentID,
             content: context.coordinator.accessibilityContent
         )
 
         if isNewDocument {
-            Self.scrollToTop(textView, animated: false)
+            coordinator.scrollToTop(in: textView, animated: false)
         } else {
-            if context.coordinator.handledTopRequestID != topRequestID {
-                context.coordinator.handledTopRequestID = topRequestID
-                Self.scrollToTop(textView, animated: true)
+            if coordinator.handledTopRequestID != topRequestID {
+                coordinator.handledTopRequestID = topRequestID
+                coordinator.scrollToTop(in: textView, animated: true)
             }
-            if context.coordinator.handledBottomRequestID != bottomRequestID {
-                context.coordinator.handledBottomRequestID = bottomRequestID
+            if coordinator.handledBottomRequestID != bottomRequestID {
+                coordinator.handledBottomRequestID = bottomRequestID
                 textView.scrollRangeToVisible(
                     NSRange(location: textView.textStorage.length, length: 0)
                 )
             }
-            if context.coordinator.handledGoToLineRequestID != goToLineRequestID {
-                context.coordinator.handledGoToLineRequestID = goToLineRequestID
+            if coordinator.handledGoToLineRequestID != goToLineRequestID {
+                coordinator.handledGoToLineRequestID = goToLineRequestID
                 textView.scrollRangeToVisible(NSRange(
                     location: min(max(goToLineUTF16Offset, 0), textView.textStorage.length),
                     length: 0
                 ))
             }
         }
-    }
-
-    private static func scrollToTop(_ textView: UITextView, animated: Bool) {
-        textView.setContentOffset(
-            CGPoint(
-                x: -textView.adjustedContentInset.left,
-                y: -textView.adjustedContentInset.top
-            ),
-            animated: animated
-        )
     }
 }
 #endif

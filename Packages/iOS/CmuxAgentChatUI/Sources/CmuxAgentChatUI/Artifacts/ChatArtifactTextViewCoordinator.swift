@@ -12,6 +12,11 @@ final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
     var handledGoToLineRequestID = 0
     var onFontSizeChanged: ((Double) -> Void)?
     private(set) var accessibilityContent = ChatArtifactTextAccessibilityContent()
+    private var appendPolicy = ChatArtifactTextAppendPolicy()
+    private var pendingTextChunks: [String] = []
+    private var pendingTextAttributes: [NSAttributedString.Key: Any] = [:]
+    private var pendingLineNumberUpdate: (index: ChatArtifactLineIndex, isVisible: Bool)?
+    private var latestPostAppendWork: (() -> Void)?
     private weak var containerView: ChatArtifactTextContainerView?
     private let syntaxHighlighter = ChatArtifactSyntaxHighlighter()
     private var highlightTask: Task<Void, Never>?
@@ -59,6 +64,151 @@ final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         containerView?.gutterView.setNeedsDisplay()
+    }
+
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        appendPolicy.beginTracking()
+        suspendTextStorageWork()
+    }
+
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        resumeDeferredUpdates(
+            releasedChunkCount: appendPolicy.endTracking(willDecelerate: decelerate),
+            in: scrollView as? UITextView
+        )
+    }
+
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        resumeDeferredUpdates(
+            releasedChunkCount: appendPolicy.endDecelerating(),
+            in: scrollView as? UITextView
+        )
+    }
+
+    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        resumeDeferredUpdates(
+            releasedChunkCount: appendPolicy.endProgrammaticAnimation(),
+            in: scrollView as? UITextView
+        )
+    }
+
+    func resetStreamingText() {
+        appendPolicy.reset()
+        pendingTextChunks.removeAll(keepingCapacity: false)
+        pendingTextAttributes.removeAll(keepingCapacity: false)
+        pendingLineNumberUpdate = nil
+        latestPostAppendWork = nil
+        appliedChunkCount = 0
+    }
+
+    func enqueueTextChunks(
+        _ chunks: ArraySlice<String>,
+        attributes: [NSAttributedString.Key: Any],
+        in textView: UITextView
+    ) {
+        guard !chunks.isEmpty else { return }
+        pendingTextChunks.append(contentsOf: chunks)
+        pendingTextAttributes = attributes
+        appliedChunkCount += chunks.count
+        for chunk in chunks {
+            appendAccessibilityContent(chunk)
+        }
+        let releasedChunkCount = appendPolicy.enqueue(chunkCount: chunks.count)
+        if releasedChunkCount > 0 {
+            flushPendingText(releasedChunkCount: releasedChunkCount, in: textView)
+        }
+    }
+
+    func updateLineNumbers(index: ChatArtifactLineIndex, isVisible: Bool) {
+        pendingLineNumberUpdate = (index, isVisible)
+        applyPendingLineNumbersIfReady()
+    }
+
+    func schedulePostAppendWork(_ work: @escaping () -> Void) {
+        latestPostAppendWork = work
+        runPostAppendWorkIfReady()
+    }
+
+    func scrollToTop(in textView: UITextView, animated: Bool) {
+        let target = CGPoint(
+            x: -textView.adjustedContentInset.left,
+            y: -textView.adjustedContentInset.top
+        )
+        let requiresAnimation = animated
+            && (abs(textView.contentOffset.x - target.x) > 0.5
+                || abs(textView.contentOffset.y - target.y) > 0.5)
+        if requiresAnimation {
+            appendPolicy.beginProgrammaticAnimation()
+            suspendTextStorageWork()
+        }
+        textView.setContentOffset(target, animated: requiresAnimation)
+    }
+
+    private func resumeDeferredUpdates(
+        releasedChunkCount: Int,
+        in textView: UITextView?
+    ) {
+        if releasedChunkCount > 0, let textView {
+            flushPendingText(releasedChunkCount: releasedChunkCount, in: textView)
+            return
+        }
+        applyPendingLineNumbersIfReady()
+        runPostAppendWorkIfReady()
+    }
+
+    private func flushPendingText(releasedChunkCount: Int, in textView: UITextView) {
+        guard !appendPolicy.isDeferring, !pendingTextChunks.isEmpty else { return }
+        assert(releasedChunkCount == pendingTextChunks.count)
+
+        let text = pendingTextChunks.joined()
+        pendingTextChunks.removeAll(keepingCapacity: true)
+        let attributes = pendingTextAttributes
+        pendingTextAttributes.removeAll(keepingCapacity: true)
+        let contentOffset = textView.contentOffset
+        let selection = textView.selectedRange
+
+        // TextKit can reset this optimization when its stack is rebuilt. Keep
+        // it explicit at the edit boundary so appends only lay out the viewport.
+        textView.layoutManager.allowsNonContiguousLayout = true
+        textView.textStorage.beginEditing()
+        textView.textStorage.append(NSAttributedString(string: text, attributes: attributes))
+        textView.textStorage.endEditing()
+        textView.selectedRange = selection
+        textView.setContentOffset(contentOffset, animated: false)
+
+        applyPendingLineNumbersIfReady()
+        runPostAppendWorkIfReady()
+    }
+
+    private func applyPendingLineNumbersIfReady() {
+        guard !appendPolicy.isDeferring,
+              pendingTextChunks.isEmpty,
+              let update = pendingLineNumberUpdate else { return }
+        pendingLineNumberUpdate = nil
+        containerView?.updateLineNumbers(index: update.index, isVisible: update.isVisible)
+    }
+
+    private func runPostAppendWorkIfReady() {
+        guard !appendPolicy.isDeferring,
+              pendingTextChunks.isEmpty else { return }
+        latestPostAppendWork?()
+    }
+
+    private func suspendTextStorageWork() {
+        highlightTask?.cancel()
+        highlightTask = nil
+        highlightGeneration += 1
+        pendingHighlightDocumentID = nil
+        pendingHighlightTextLength = 0
+        pendingHighlightLanguage = nil
+        pendingHighlightTheme = nil
+
+        searchTask?.cancel()
+        searchTask = nil
+        searchGeneration += 1
+        pendingSearchDocumentID = nil
+        pendingSearchTextLength = 0
+        pendingSearchQuery = ""
     }
 
     func updateFontSize(in textView: UITextView, pointSize: Double) {
