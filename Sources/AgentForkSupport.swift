@@ -378,6 +378,19 @@ enum AgentForkSupport {
     }
 
     private static func piFamilyProbeAgentID(_ snapshot: SessionRestorableAgentSnapshot) -> String {
+        if let registrationID = normalizedPiFamilyAgentID(snapshot.registration?.id) {
+            return registrationID
+        }
+        switch snapshot.kind {
+        case .pi:
+            return "pi"
+        case .custom(let agentID):
+            if let normalizedAgentID = normalizedPiFamilyAgentID(agentID) {
+                return normalizedAgentID
+            }
+        default:
+            break
+        }
         let capturedLauncher = snapshot.launchCommand?.launcher?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
@@ -392,10 +405,18 @@ enum AgentForkSupport {
         let capturedLauncherID = capturedLauncher.flatMap {
             ["pi", "omp"].contains($0) ? $0 : nil
         }
-        return capturedExecutable
-            ?? capturedLauncherID
+        return capturedLauncherID
+            ?? capturedExecutable
             ?? snapshot.registration?.id
             ?? snapshot.kind.rawValue
+    }
+
+    private static func normalizedPiFamilyAgentID(_ value: String?) -> String? {
+        let normalized = value?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard normalized == "pi" || normalized == "omp" else { return nil }
+        return normalized
     }
 
     static func piFamilyVersionSupportsFork(_ output: String, agentID: String) -> Bool {

@@ -304,6 +304,19 @@ extension CMUXCLIErrorOutputRegressionTests {
         }
     }
 
+    @Test func testSessionsListUsesRequestedPiFamilyAgentBeforeExecutableBasename() throws {
+        let session = try sessionsListDiagnosticSession(
+            agent: "omp",
+            launcher: "omp",
+            executablePath: "/tmp/pi",
+            arguments: ["/tmp/pi", "--session", "session-id"]
+        )
+
+        #expect(session["fork_command_available"] as? Bool == true)
+        #expect(session["fork_supported"] as? Bool == false)
+        #expect(session["fork_unavailable_reason"] as? String == "omp_version_unverified")
+    }
+
     @Test func testSessionsListForkStartupInputCountsSelectedEnvironment() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory

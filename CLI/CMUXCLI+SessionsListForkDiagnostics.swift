@@ -386,6 +386,14 @@ extension CMUXCLI {
         agent: String,
         launchCommand: AgentHookLaunchCommandRecord?
     ) -> String? {
+        let normalizedAgent = agent.lowercased()
+        if normalizedAgent == "pi" || normalizedAgent == "omp" {
+            return normalizedAgent
+        }
+        let launcher = sessionsListNormalized(launchCommand?.launcher)?.lowercased()
+        if launcher == "pi" || launcher == "omp" {
+            return launcher
+        }
         let capturedExecutable = [
             launchCommand?.executablePath,
             launchCommand?.arguments.first,
@@ -396,12 +404,7 @@ extension CMUXCLI {
         if let capturedExecutable {
             return capturedExecutable
         }
-        let launcher = sessionsListNormalized(launchCommand?.launcher)?.lowercased()
-        if launcher == "pi" || launcher == "omp" {
-            return launcher
-        }
-        let normalizedAgent = agent.lowercased()
-        return normalizedAgent == "pi" || normalizedAgent == "omp" ? normalizedAgent : nil
+        return nil
     }
 
     private func sessionsListOpenCodeLooksRemoteLike(

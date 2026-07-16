@@ -775,6 +775,23 @@ struct WorkspaceForkConversationContextMenuTests {
         sharedOmpSnapshot.launchCommand?.launcher = "omp"
         #expect(!(await AgentForkSupport.supportsFork(snapshot: sharedOmpSnapshot)))
 
+        let ompThroughPiNamedWrapper = SessionRestorableAgentSnapshot(
+            kind: .custom("omp"),
+            sessionId: "omp-session",
+            workingDirectory: root.appendingPathComponent("deleted-directory").path,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "omp",
+                executablePath: executable.path,
+                arguments: [executable.path, "--session", "omp-session"],
+                workingDirectory: root.appendingPathComponent("deleted-directory").path,
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            ),
+            registration: .builtInOmp
+        )
+        #expect(!(await AgentForkSupport.supportsFork(snapshot: ompThroughPiNamedWrapper)))
+
         let environmentWrapper = root.appendingPathComponent("environment-wrapper", isDirectory: false)
         try "#!/bin/sh\nif [ \"$PI_CONFIG_DIR\" = \"supported\" ]; then printf '%s\\n' '0.80.6'; else printf '%s\\n' '0.59.0'; fi\n"
             .write(to: environmentWrapper, atomically: true, encoding: .utf8)
