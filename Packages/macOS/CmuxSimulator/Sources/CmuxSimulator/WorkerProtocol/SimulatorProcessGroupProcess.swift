@@ -161,11 +161,13 @@ private final class SimulatorInheritedProcessTree: @unchecked Sendable {
     private static let maximumDescendants = 4_096
 
     private let rootProcessIdentifier: pid_t
+    private let rootProcessIdentity: SimulatorRetainedProcessIdentity?
     private let lock = NSLock()
-    private var retainedDescendants: Set<pid_t> = []
+    private var retainedDescendants: Set<SimulatorRetainedProcessIdentity> = []
 
     init(rootProcessIdentifier: pid_t) {
         self.rootProcessIdentifier = rootProcessIdentifier
+        rootProcessIdentity = SimulatorRetainedProcessIdentity(pid: rootProcessIdentifier)
     }
 
     @discardableResult
@@ -174,17 +176,21 @@ private final class SimulatorInheritedProcessTree: @unchecked Sendable {
             of: rootProcessIdentifier,
             limit: Self.maximumDescendants
         )
-        let descendants = lock.withLock { () -> [pid_t] in
-            retainedDescendants.formUnion(discovered)
-            return discovered + Array(retainedDescendants.subtracting(discovered))
+        let discoveredIdentities = Set(discovered.compactMap(SimulatorRetainedProcessIdentity.init))
+        let descendants = lock.withLock { () -> [SimulatorRetainedProcessIdentity] in
+            retainedDescendants.formUnion(discoveredIdentities)
+            return Array(retainedDescendants)
         }
         var signalled = false
-        for processIdentifier in descendants where processIdentifier > 1 {
-            if Darwin.kill(processIdentifier, signal) == 0 || errno == ESRCH {
+        for identity in descendants
+            where SimulatorRetainedProcessIdentity(pid: identity.pid) == identity {
+            if Darwin.kill(identity.pid, signal) == 0 || errno == ESRCH {
                 signalled = true
             }
         }
-        if Darwin.kill(rootProcessIdentifier, signal) == 0 || errno == ESRCH {
+        if let rootProcessIdentity,
+           SimulatorRetainedProcessIdentity(pid: rootProcessIdentifier) == rootProcessIdentity,
+           Darwin.kill(rootProcessIdentifier, signal) == 0 || errno == ESRCH {
             signalled = true
         }
         return signalled
@@ -232,5 +238,22 @@ private final class SimulatorInheritedProcessTree: @unchecked Sendable {
             capacity = max(capacity * 2, Int(returned) + 16)
         }
         return lastResult
+    }
+}
+
+private struct SimulatorRetainedProcessIdentity: Hashable, Sendable {
+    let pid: pid_t
+    let startSeconds: UInt64
+    let startMicroseconds: UInt64
+
+    init?(pid: pid_t) {
+        guard pid > 1 else { return nil }
+        var info = proc_bsdinfo()
+        let expectedSize = MemoryLayout<proc_bsdinfo>.stride
+        let size = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(expectedSize))
+        guard size == expectedSize else { return nil }
+        self.pid = pid
+        startSeconds = info.pbi_start_tvsec
+        startMicroseconds = info.pbi_start_tvusec
     }
 }

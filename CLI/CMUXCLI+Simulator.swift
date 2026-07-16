@@ -414,7 +414,7 @@ extension CMUXCLI {
             windowOverride: windowOverride
         )
         if let responseTimeout {
-            params["operation_timeout_seconds"] = max(0.1, responseTimeout - 6)
+            params["operation_timeout_seconds"] = min(550, max(0.1, responseTimeout - 6))
         }
         return try client.sendV2(
             method: "simulator.context",
