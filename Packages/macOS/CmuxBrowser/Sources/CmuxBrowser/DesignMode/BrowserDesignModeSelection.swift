@@ -6,6 +6,8 @@ public nonisolated struct BrowserDesignModeSelection: Codable, Equatable, Sendab
     public let selector: String
     /// Ordered fallback selectors used when an SPA replaces the selected node.
     public let selectors: [String]
+    /// Absolute XPath (id-anchored when possible); the primary human-facing identity.
+    public let xpath: String
     /// The lowercased DOM tag name.
     public let tagName: String
     /// A bounded outer-HTML snippet for the selected element.
@@ -28,6 +30,7 @@ public nonisolated struct BrowserDesignModeSelection: Codable, Equatable, Sendab
     private enum CodingKeys: String, CodingKey {
         case selector
         case selectors
+        case xpath
         case tagName = "tag_name"
         case domSnippet = "dom_snippet"
         case textContent = "text_content"
@@ -43,6 +46,7 @@ public nonisolated struct BrowserDesignModeSelection: Codable, Equatable, Sendab
         let container = try decoder.container(keyedBy: CodingKeys.self)
         selector = try container.decode(String.self, forKey: .selector)
         selectors = try container.decode([String].self, forKey: .selectors)
+        xpath = try container.decodeIfPresent(String.self, forKey: .xpath) ?? ""
         tagName = try container.decode(String.self, forKey: .tagName)
         domSnippet = try container.decode(String.self, forKey: .domSnippet)
         textContent = try container.decode(String.self, forKey: .textContent)
@@ -68,6 +72,7 @@ public nonisolated struct BrowserDesignModeSelection: Codable, Equatable, Sendab
     public init(
         selector: String,
         selectors: [String],
+        xpath: String = "",
         tagName: String,
         domSnippet: String,
         textContent: String,
@@ -80,6 +85,7 @@ public nonisolated struct BrowserDesignModeSelection: Codable, Equatable, Sendab
     ) {
         self.selector = selector
         self.selectors = selectors
+        self.xpath = xpath
         self.tagName = tagName
         self.domSnippet = domSnippet
         self.textContent = textContent

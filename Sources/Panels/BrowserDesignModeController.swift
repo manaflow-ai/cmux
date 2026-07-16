@@ -265,6 +265,29 @@ final class BrowserDesignModeController {
         isCopying = false
     }
 
+    /// Clears the page-side hover highlight (used when the pointer enters the
+    /// native composer card, which the page cannot observe).
+    func clearPageHover() async {
+        guard phase == .active, let webView else { return }
+        _ = try? await evaluate(
+            "return globalThis.__cmuxDesignMode?.clearHover();",
+            arguments: [:],
+            in: webView
+        )
+    }
+
+    /// Flashes the outline of the selection at `index` on the page.
+    func revealSelection(at index: Int) async {
+        guard phase == .active,
+              snapshot?.selections.indices.contains(index) == true,
+              let webView else { return }
+        _ = try? await evaluate(
+            "return globalThis.__cmuxDesignMode?.flashSelection(index);",
+            arguments: ["index": index],
+            in: webView
+        )
+    }
+
     func setInteractionMode(_ mode: BrowserDesignModeInteractionMode) async {
         guard phase == .active, mode != interactionMode, let webView else { return }
         interactionMode = mode

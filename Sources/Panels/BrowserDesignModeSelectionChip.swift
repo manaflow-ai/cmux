@@ -6,8 +6,17 @@ import SwiftUI
 struct BrowserDesignModeSelectionChip: View {
     let selection: BrowserDesignModeSelection
     let onRemove: () -> Void
+    var onReveal: () -> Void = {}
 
     @State private var isHovered = false
+
+    /// Middle-truncates the element identity for tooltips.
+    private var identityHelp: String {
+        let identity = selection.xpath.isEmpty ? selection.selector : selection.xpath
+        let max = 120
+        guard identity.count > max else { return identity }
+        return "\(identity.prefix(max / 2 - 1))…\(identity.suffix(max / 2))"
+    }
 
     private static let chipBlue = Color(red: 0.35, green: 0.62, blue: 1.0)
 
@@ -70,8 +79,10 @@ struct BrowserDesignModeSelectionChip: View {
             RoundedRectangle(cornerRadius: 5, style: .continuous)
                 .fill(isHovered ? Color.white.opacity(0.08) : Color.clear)
         )
+        .contentShape(Rectangle())
+        .onTapGesture { onReveal() }
         .onHover { isHovered = $0 }
-        .safeHelp(selection.selector)
+        .safeHelp(identityHelp)
         .accessibilityElement(children: .combine)
     }
 }

@@ -34,6 +34,13 @@ struct BrowserDesignModePopover: View {
         .frame(width: 420)
         .background(cardBackground)
         .environment(\.colorScheme, .dark)
+        .onHover { hovering in
+            // The page cannot see the pointer while it is over the native
+            // card; clear its hover highlight so no stale target lingers.
+            if hovering {
+                Task { @MainActor in await controller.clearPageHover() }
+            }
+        }
         .onExitCommand { controller.dismissComposer() }
         .onAppear { requestFieldFocused = controller.snapshot?.selections.isEmpty == false }
         .onChange(of: controller.snapshot?.selections.map(\.selector)) { _, selectors in
@@ -99,6 +106,9 @@ struct BrowserDesignModePopover: View {
                     selection: selection,
                     onRemove: {
                         Task { @MainActor in await controller.removeSelection(at: index) }
+                    },
+                    onReveal: {
+                        Task { @MainActor in await controller.revealSelection(at: index) }
                     }
                 )
             }
@@ -123,6 +133,13 @@ struct BrowserDesignModePopover: View {
         .focused($requestFieldFocused)
         .onSubmit {
             Task { @MainActor in await controller.copySelection() }
+        }
+        .onKeyPress(.delete) {
+            // Backspace in an empty field pops the last chip, like a token field.
+            guard controller.requestedChange.isEmpty,
+                  let count = controller.snapshot?.selections.count, count > 0 else { return .ignored }
+            Task { @MainActor in await controller.removeSelection(at: count - 1) }
+            return .handled
         }
         .padding(.vertical, 5)
         .accessibilityLabel(

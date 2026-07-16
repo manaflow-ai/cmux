@@ -158,6 +158,34 @@
     return parts.join(" > ");
   };
 
+  // Absolute XPath (id-anchored when possible), the primary human-facing
+  // element identity in badges, chips, and the copied payload.
+  const xpathFor = (element) => {
+    const parts = [];
+    let current = element;
+    while (current && current.nodeType === 1) {
+      if (current.id && current.id.length <= maxSelectorValueCharacters) {
+        parts.unshift(`//*[@id="${current.id}"]`);
+        return parts.join("/");
+      }
+      let index = 1;
+      let sibling = current.previousElementSibling;
+      while (sibling) {
+        if (sibling.localName === current.localName) index += 1;
+        sibling = sibling.previousElementSibling;
+      }
+      parts.unshift(`${current.localName || "*"}[${index}]`);
+      current = current.parentElement;
+    }
+    return `/${parts.join("/")}`;
+  };
+
+  const truncateMiddle = (value, max = 64) => (
+    value.length <= max
+      ? value
+      : `${value.slice(0, Math.ceil(max / 2) - 1)}…${value.slice(-Math.floor(max / 2))}`
+  );
+
   // Guaranteed-unique fallback: an nth-child path from the nearest #id
   // ancestor (or the root) down to the element. Unlike structuralSelector's
   // bounded walk, this always resolves to exactly one element, so deeply
@@ -454,6 +482,7 @@
     return {
       selector: selectors[0],
       selectors,
+      xpath: xpathFor(element),
       tag_name: element.localName || "element",
       dom_snippet: boundedSnippet(element),
       text_content: boundedTextValue(element),
@@ -554,6 +583,7 @@
     return {
       selector: `@region(${Math.round(x)},${Math.round(y)},${Math.round(region.width)},${Math.round(region.height)})`,
       selectors: [],
+      xpath: "",
       tag_name: "region",
       dom_snippet: "",
       text_content: "",
@@ -1058,7 +1088,10 @@
     refreshSelectedOutlines();
     const element = hoveredElement?.isConnected ? hoveredElement : selected;
     if (!element) {
-      hideOverlay();
+      // No hover/active element: hide only the hover feedback. Selection and
+      // region outlines must stay visible (a freshly drawn region would
+      // otherwise vanish until the next selection forces a refresh).
+      hideHoverFeedback();
       return;
     }
 
@@ -1074,7 +1107,7 @@
       overlay.badge.style.display = "none";
       return;
     }
-    overlay.badge.textContent = displaySelectorFor(element);
+    overlay.badge.textContent = truncateMiddle(xpathFor(element));
     overlay.badge.style.display = "block";
     const badgeRect = overlay.badge.getBoundingClientRect();
     const badgeWidth = badgeRect.width || 120;
@@ -1589,6 +1622,48 @@
     },
 
     snapshot,
+
+    clearHover() {
+      if (hoveredElement) {
+        hoveredElement = null;
+        scheduleOverlayRefresh();
+      }
+      return snapshot();
+    },
+
+    flashSelection(index) {
+      const position = Number(index);
+      if (!Number.isInteger(position) || position < 0) return snapshot();
+      createOverlay();
+      if (position < selectedReferences.length) {
+        const element = referenceElement(selectedReferences[position], false);
+        try { element?.scrollIntoView({ block: "nearest" }); } catch (_) {}
+        refreshOverlay();
+        const outline = overlay?.selectionOutlines[position];
+        try {
+          outline?.animate?.(
+            [
+              { boxShadow: "0 0 0 6px rgba(10, 132, 255, 0.55)" },
+              { boxShadow: "0 0 0 0 rgba(10, 132, 255, 0)" },
+            ],
+            { duration: 650 }
+          );
+        } catch (_) {}
+      } else if (position < selectedReferences.length + regionReferences.length) {
+        refreshOverlay();
+        const outline = overlay?.regionOutlines[position - selectedReferences.length];
+        try {
+          outline?.animate?.(
+            [
+              { boxShadow: "0 0 0 6px rgba(10, 132, 255, 0.55)" },
+              { boxShadow: "0 0 0 0 rgba(10, 132, 255, 0)" },
+            ],
+            { duration: 650 }
+          );
+        } catch (_) {}
+      }
+      return snapshot();
+    },
 
     setMode(value) {
       const mode = value === "draw" ? "draw" : "select";

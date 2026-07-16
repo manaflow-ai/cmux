@@ -25,6 +25,7 @@ function fixture(html: string) {
 type SnapshotSelection = {
   selector: string;
   selectors: string[];
+  xpath?: string;
   tag_name?: string;
   react_components?: string[];
   react_prop_keys?: string[];
@@ -48,8 +49,10 @@ type DesignRuntime = {
   destroy(): Snapshot;
   snapshot(): Snapshot;
   select(selector: string, stack?: boolean): Snapshot;
-  composerState(): { selection_count: number; selectors: string[]; can_copy: boolean; mode: string };
+  composerState(): { selection_count: number; selectors: string[]; can_copy: boolean; mode: string; hovered_selector: string | null };
   setMode(mode: string): Snapshot;
+  clearHover(): Snapshot;
+  flashSelection(index: number): Snapshot;
   applyStyle(property: string, value: string): Snapshot;
   applyText(value: string): Snapshot;
   revert(id: string): Snapshot;
@@ -757,6 +760,28 @@ describe("browser design-mode runtime", () => {
     expect(snap.selection?.react_components).toEqual(["ResultCard", "SearchList"]);
     expect(snap.selection?.react_prop_keys).toEqual(["title", "userEmail"]);
     expect(JSON.stringify(snap)).not.toContain("s3cr3t-user-data");
+  });
+
+  test("selections carry an absolute xpath and support hover-clear and flash", () => {
+    const { dom, runtime } = fixture(`<main><section><button id="b">B</button><button class="plain">C</button></section></main>`);
+    const plain = dom.window.document.querySelector(".plain") as HTMLElement;
+
+    const withId = runtime.select("#b");
+    expect(withId.selection?.xpath).toBe('//*[@id="b"]');
+
+    const positional = runtime.select(".plain");
+    expect(positional.selection?.xpath).toBe("/html[1]/body[1]/main[1]/section[1]/button[2]");
+
+    Object.defineProperty(dom.window.document, "elementFromPoint", { value: () => plain });
+    dom.window.document.dispatchEvent(
+      new dom.window.MouseEvent("pointermove", { bubbles: true, cancelable: true, clientX: 4, clientY: 4 }),
+    );
+    expect(runtime.composerState().hovered_selector).not.toBeNull();
+    runtime.clearHover();
+    expect(runtime.composerState().hovered_selector).toBeNull();
+
+    // Flash is a no-op snapshot round-trip in DOM without WAAPI.
+    expect(runtime.flashSelection(0).selection?.selector).toBe(positional.selection?.selector);
   });
 
   test("escape clears the selection first, then requests design-mode exit", () => {
