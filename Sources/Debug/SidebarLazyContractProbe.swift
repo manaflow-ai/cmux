@@ -17,5 +17,7 @@ struct SidebarLazyContractProbe {
     var groupHeaderRowBody: (() -> Void)?
     var workspaceSnapshotBuild: (() -> Void)?
     var workspaceRowInputProjection: (() -> Void)?
+    /// Fires once per AppKit cell (re)configuration in the table-backed list.
+    var tableRootViewReconfigure: (() -> Void)?
 }
 #endif
