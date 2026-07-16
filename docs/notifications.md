@@ -62,6 +62,8 @@ Use `Cmd+Shift+U` to jump to the latest unread notification. Use `Ctrl+Cmd+U` to
 
 Pages open in the cmux browser can forward website notifications into the same notification history and macOS notification pipeline. The website must first have notification permission, and **Settings > Browser > Forward Website Notifications** must also be enabled. The cmux setting defaults to off. Its compatibility fallback is installed only when a new browser web view is created, so reload or reopen existing browser panes after changing it:
 
+Permissions are scoped to the browser profile and the page's exact WebKit security origin. cmux may show a friendlier localhost-style origin for remote loopback pages, but that display alias does not change the stored permission boundary.
+
 ```json
 {
   "browser": {
