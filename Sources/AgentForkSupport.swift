@@ -23,6 +23,7 @@ enum AgentForkSupport {
         private let workingDirectory: String?
         private var process: Process?
         private var pipe: Pipe?
+        private var outputDrainTask: Task<Data, Never>?
         private var timeoutTimer: DispatchSourceTimer?
         private var killTimer: DispatchSourceTimer?
         private var continuation: CheckedContinuation<String?, Never>?
@@ -90,6 +91,14 @@ enum AgentForkSupport {
                 return
             }
             self.process = process
+            try? pipe.fileHandleForWriting.close()
+            let drain = CommandOutputDrain(
+                readHandle: pipe.fileHandleForReading,
+                maximumBytes: AgentForkSupport.commandOutputMaximumBytes
+            )
+            outputDrainTask = Task.detached(priority: .utility) {
+                drain.run()
+            }
             didLaunch = true
 
             if terminationRequested {
@@ -164,6 +173,7 @@ enum AgentForkSupport {
         private func finish(exitStatus: Int32? = nil) {
             let continuation: CheckedContinuation<String?, Never>?
             let pipe: Pipe?
+            let outputDrainTask: Task<Data, Never>?
             let process: Process?
             let timeoutTimer: DispatchSourceTimer?
             let killTimer: DispatchSourceTimer?
@@ -175,6 +185,8 @@ enum AgentForkSupport {
             self.continuation = nil
             pipe = self.pipe
             self.pipe = nil
+            outputDrainTask = self.outputDrainTask
+            self.outputDrainTask = nil
             process = self.process
             self.process = nil
             timeoutTimer = self.timeoutTimer
@@ -186,15 +198,45 @@ enum AgentForkSupport {
             timeoutTimer?.cancel()
             killTimer?.cancel()
             process?.terminationHandler = nil
-            var output = Data()
-            if let readHandle = pipe?.fileHandleForReading {
-                output = Data(readHandle.readDataToEndOfFileOrEmpty().prefix(AgentForkSupport.commandOutputMaximumBytes))
+            if outputDrainTask == nil {
+                try? pipe?.fileHandleForReading.close()
+                try? pipe?.fileHandleForWriting.close()
             }
-            guard !timedOut, exitStatus == 0 else {
+            guard !timedOut, exitStatus == 0, let outputDrainTask else {
                 continuation?.resume(returning: nil)
                 return
             }
-            continuation?.resume(returning: String(data: output, encoding: .utf8))
+            Task {
+                let output = await outputDrainTask.value
+                continuation?.resume(returning: String(data: output, encoding: .utf8))
+            }
+        }
+    }
+
+    private final class CommandOutputDrain: @unchecked Sendable {
+        private let readHandle: FileHandle
+        private let maximumBytes: Int
+
+        init(readHandle: FileHandle, maximumBytes: Int) {
+            self.readHandle = readHandle
+            self.maximumBytes = maximumBytes
+        }
+
+        func run() -> Data {
+            var output = Data()
+            while true {
+                guard let chunk = try? readHandle.read(upToCount: 4096),
+                      let chunk,
+                      !chunk.isEmpty else {
+                    break
+                }
+                let remaining = maximumBytes - output.count
+                if remaining > 0 {
+                    output.append(contentsOf: chunk.prefix(remaining))
+                }
+            }
+            try? readHandle.close()
+            return output
         }
     }
 

@@ -333,6 +333,7 @@ final class SharedLiveAgentIndex {
         self.loadedAt = loadedAt
         validatedForkPanels = forkValidatedPanels
         validatedMissingForkPanels.removeAll()
+        pruneForkSupportValidations(validPanelKeys: forkValidatedPanels, now: loadedAt)
         self.liveAgentProcessFingerprint = liveAgentProcessFingerprint
         self.processScopeFingerprint = processScopeFingerprint
     }
@@ -393,6 +394,16 @@ final class SharedLiveAgentIndex {
             return false
         }
         return dateProvider().timeIntervalSince(validation.completedAt) < Self.forkAvailabilityProbeTTL
+    }
+
+    private func pruneForkSupportValidations(
+        validPanelKeys: Set<RestorableAgentSessionIndex.PanelKey>,
+        now: Date
+    ) {
+        validatedForkSupport = validatedForkSupport.filter { probeKey, validation in
+            validPanelKeys.contains(probeKey.panelKey)
+                && now.timeIntervalSince(validation.completedAt) < Self.forkAvailabilityProbeTTL
+        }
     }
 
     private func validatedForkPanelKey(
