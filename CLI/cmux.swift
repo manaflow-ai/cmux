@@ -26938,7 +26938,11 @@ struct CMUXCLI {
         if let surfaceId, !surfaceId.isEmpty {
             let fingerprint = AgentHookNotificationPolicy.codexCriticalFingerprint(
                 sessionId: sessionId,
-                turnId: turnId
+                turnId: turnId,
+                failureKind: AgentHookNotificationPolicy.codexCriticalFailureKind(
+                    codexErrorInfo: failure.codexErrorInfo,
+                    body: summary.body
+                )
             )
             var payload = "Codex|\(sanitizeNotificationField(summary.subtitle))|\(sanitizeNotificationField(summary.body))"
             if let fingerprint {
@@ -31384,7 +31388,11 @@ export default CMUXSessionRestore;
             let codexCriticalFingerprint = stopNotificationStatus == .error
                 ? AgentHookNotificationPolicy.codexCriticalFingerprint(
                     sessionId: sessionId,
-                    turnId: codexCriticalTurnId
+                    turnId: codexCriticalTurnId,
+                    failureKind: AgentHookNotificationPolicy.codexCriticalFailureKind(
+                        codexErrorInfo: codexFailure?.codexErrorInfo,
+                        body: body
+                    )
                 )
                 : nil
             let stopNotificationAlreadyRouted = (input.rawObject?["cmux_notification_routed"] as? Bool) == true
