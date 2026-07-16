@@ -82,6 +82,24 @@
 	<string>A program running within cmux would like to use Bluetooth to discover passkeys and security keys.</string>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>A program running within cmux would like to use AppleScript.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>A program running within cmux would like to access your calendars.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>A program running within cmux would like to access your contacts.</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>A program running within cmux would like to access your reminders.</string>
+	<key>NSLocationUsageDescription</key>
+	<string>A program running within cmux would like to access your location.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>A program running within cmux would like to use speech recognition.</string>
+	<key>NSSystemAdministrationUsageDescription</key>
+	<string>A program running within cmux would like to perform system administration tasks.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>A program running within cmux would like to access your photo library.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>A program running within cmux would like to discover devices on your local network.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>A program running within cmux would like to access motion data.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
