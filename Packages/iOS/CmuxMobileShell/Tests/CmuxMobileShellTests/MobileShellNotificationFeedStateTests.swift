@@ -190,6 +190,49 @@ struct MobileShellNotificationFeedStateTests {
         #expect(store.consumeDeeplinkWorkspaceNavigationRequest() == "workspace-live-row")
     }
 
+    @Test("Open confines a source-scoped notification to its captured workspace")
+    func openConfinesMovedSurface() async {
+        var capturedWorkspace = MobileWorkspacePreview(
+            id: "workspace-captured-row",
+            macDeviceID: "mac",
+            name: "Captured",
+            terminals: [MobileTerminalPreview(id: "surface-captured", name: "captured")]
+        )
+        capturedWorkspace.remoteWorkspaceID = "workspace-captured"
+        var liveWorkspace = MobileWorkspacePreview(
+            id: "workspace-live-row",
+            macDeviceID: "mac",
+            name: "Live",
+            terminals: [MobileTerminalPreview(id: "surface-moved", name: "moved")]
+        )
+        liveWorkspace.remoteWorkspaceID = "workspace-live"
+        let store = MobileShellComposite(
+            connectionState: .connected,
+            workspaces: [capturedWorkspace, liveWorkspace]
+        )
+        store.foregroundMacDeviceID = "mac"
+        let item = MobileNotificationFeedItem(
+            macDeviceID: "mac",
+            notificationID: "confined",
+            macDisplayName: "Mac",
+            remoteWorkspaceID: "workspace-captured",
+            remoteSurfaceID: "surface-moved",
+            title: "Confined",
+            body: "Stay in the captured workspace",
+            createdAt: Date(),
+            isRead: true,
+            retargetsToLiveSurfaceOwner: false,
+            connectionStatus: .connected
+        )
+
+        await store.openNotificationFeedItem(item)
+
+        #expect(store.selectedWorkspaceID == "workspace-captured-row")
+        #expect(store.selectedTerminalID == "surface-captured")
+        #expect(store.deeplinkWorkspaceNavigationRequest?.origin == .notificationFeed)
+        #expect(store.consumeDeeplinkWorkspaceNavigationRequest() == "workspace-captured-row")
+    }
+
     private func response(
         revision: Int,
         id: String,

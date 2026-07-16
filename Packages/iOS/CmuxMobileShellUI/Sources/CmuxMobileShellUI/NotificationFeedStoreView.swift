@@ -8,11 +8,12 @@ import SwiftUI
 struct NotificationFeedStoreView: View {
     @Bindable var store: CMUXMobileShellStore
     let items: [MobileNotificationFeedItem]
+    let status: MobileNotificationFeedStatus
 
     var body: some View {
         NotificationFeedView(
             items: items,
-            status: store.notificationFeedStatus,
+            status: status,
             actions: actions
         )
     }

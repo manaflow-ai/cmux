@@ -24,6 +24,8 @@ public struct MobileNotificationFeedItem: Identifiable, Equatable, Sendable {
     public let createdAt: Date
     /// Whether the notification has been read on the Mac.
     public let isRead: Bool
+    /// Whether the target may follow its terminal to a different live workspace.
+    public let retargetsToLiveSurfaceOwner: Bool
     /// The workspace's captured display label, when available.
     public let workspaceTitle: String?
     /// The terminal surface's captured display label, when available.
@@ -43,6 +45,7 @@ public struct MobileNotificationFeedItem: Identifiable, Equatable, Sendable {
     ///   - body: The notification body.
     ///   - createdAt: When the Mac created the notification.
     ///   - isRead: Whether the notification has been read on the Mac.
+    ///   - retargetsToLiveSurfaceOwner: Whether a moved terminal may resolve in its live workspace.
     ///   - workspaceTitle: The workspace label captured by the Mac, when present.
     ///   - surfaceTitle: The terminal surface label captured by the Mac, when present.
     ///   - connectionStatus: The current reachability of the owning Mac.
@@ -57,6 +60,7 @@ public struct MobileNotificationFeedItem: Identifiable, Equatable, Sendable {
         body: String,
         createdAt: Date,
         isRead: Bool,
+        retargetsToLiveSurfaceOwner: Bool = true,
         workspaceTitle: String? = nil,
         surfaceTitle: String? = nil,
         connectionStatus: MobileMacConnectionStatus
@@ -75,6 +79,7 @@ public struct MobileNotificationFeedItem: Identifiable, Equatable, Sendable {
         self.body = body
         self.createdAt = createdAt
         self.isRead = isRead
+        self.retargetsToLiveSurfaceOwner = retargetsToLiveSurfaceOwner
         self.workspaceTitle = workspaceTitle
         self.surfaceTitle = surfaceTitle
         self.connectionStatus = connectionStatus
@@ -100,6 +105,7 @@ public struct MobileNotificationFeedItem: Identifiable, Equatable, Sendable {
             body: body,
             createdAt: createdAt,
             isRead: isRead ?? self.isRead,
+            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
             workspaceTitle: workspaceTitle,
             surfaceTitle: surfaceTitle,
             connectionStatus: connectionStatus ?? self.connectionStatus

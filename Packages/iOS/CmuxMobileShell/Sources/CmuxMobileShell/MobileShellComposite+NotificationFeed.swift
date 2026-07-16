@@ -38,6 +38,34 @@ extension MobileShellComposite {
         notificationFeedStatus = resolvedNotificationFeedStatus()
     }
 
+    /// Resolves feed availability for one computer picker scope. A retained
+    /// snapshot stays visible while its Mac is offline, while a connected Mac
+    /// without the feed capability reports that it needs an update.
+    public func notificationFeedStatus(
+        scopedTo macDeviceIDs: Set<String>?
+    ) -> MobileNotificationFeedStatus {
+        guard let macDeviceIDs, !macDeviceIDs.isEmpty else {
+            return notificationFeedStatus
+        }
+
+        var connectedMacDeviceIDs = Set(secondaryMacSubscriptions.keys)
+        if remoteClient != nil, let foregroundID = normalizedForegroundNotificationFeedMacID() {
+            connectedMacDeviceIDs.insert(foregroundID)
+        }
+        let capableMacDeviceIDs = Set(notificationFeedTargets().map(\.macDeviceID))
+        let hasConnectedMac = !connectedMacDeviceIDs.isDisjoint(with: macDeviceIDs)
+        let hasCapableMac = !capableMacDeviceIDs.isDisjoint(with: macDeviceIDs)
+        let hasSnapshot = !Set(notificationFeedSnapshotsByMac.keys).isDisjoint(with: macDeviceIDs)
+        let hasSuccessfulSnapshot = !notificationFeedSuccessfulMacIDs.isDisjoint(with: macDeviceIDs)
+        let isRefreshing = !Set(notificationFeedRefreshTasksByMac.keys).isDisjoint(with: macDeviceIDs)
+
+        guard hasConnectedMac else { return .unavailable }
+        guard hasCapableMac else { return .requiresMacUpdate }
+        if isRefreshing, !hasSnapshot, !hasSuccessfulSnapshot { return .loading }
+        if hasSnapshot || hasSuccessfulSnapshot { return .ready }
+        return .unavailable
+    }
+
     /// Marks one notification read on its owning Mac and reconciles the local snapshot.
     /// - Parameter item: The immutable feed item selected by the user.
     public func markNotificationFeedItemRead(_ item: MobileNotificationFeedItem) async {
@@ -93,10 +121,25 @@ extension MobileShellComposite {
         if item.macDeviceID != normalizedForegroundNotificationFeedMacID() {
             guard await switchToMac(macDeviceID: item.macDeviceID) else { return }
         }
-        guard let workspaceID = workspaceID(
+        let capturedWorkspaceID = workspaceID(
             matchingRemoteWorkspaceID: item.remoteWorkspaceID,
             macDeviceID: item.macDeviceID
-        ) else { return }
+        )
+        let liveSurfaceOwnerID: MobileWorkspacePreview.ID?
+        if item.retargetsToLiveSurfaceOwner, let surfaceID = item.remoteSurfaceID {
+            liveSurfaceOwnerID = workspaceID(
+                containingSurfaceID: surfaceID,
+                macDeviceID: item.macDeviceID
+            )
+        } else {
+            liveSurfaceOwnerID = nil
+        }
+        guard let workspaceID = liveSurfaceOwnerID ?? capturedWorkspaceID else {
+            notificationFeedLog.error(
+                "open target unavailable mac=\(item.macDeviceID, privacy: .public) notification=\(item.notificationID, privacy: .public)"
+            )
+            return
+        }
 
         navigateToWorkspaceForDeeplink(workspaceID, origin: .notificationFeed)
         if let surfaceID = item.remoteSurfaceID,
@@ -269,6 +312,7 @@ extension MobileShellComposite {
                 body: wire.body,
                 createdAt: wire.createdAt,
                 isRead: wire.isRead,
+                retargetsToLiveSurfaceOwner: wire.retargetsToLiveSurfaceOwner,
                 workspaceTitle: normalizedOptional(wire.workspaceTitle),
                 surfaceTitle: normalizedOptional(wire.surfaceTitle),
                 connectionStatus: status

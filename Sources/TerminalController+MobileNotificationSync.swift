@@ -148,22 +148,32 @@ extension TerminalController {
     private func mobileNotificationFeedPayload(
         _ record: NotificationFeedHistoryRecord
     ) -> [String: Any] {
+        let targetSurfaceID = record.panelId ?? record.surfaceId
+        var targetWorkspaceID = record.tabId
+        if record.retargetsToLiveSurfaceOwner,
+           let targetSurfaceID,
+           let liveTarget = AppDelegate.shared?.agentNotificationDeliveryTarget(
+               claimedTabId: record.tabId,
+               surfaceId: targetSurfaceID
+           ) {
+            targetWorkspaceID = liveTarget.tabId
+        }
         var payload: [String: Any] = [
             "id": record.id.uuidString,
-            "workspace_id": record.tabId.uuidString,
+            "workspace_id": targetWorkspaceID.uuidString,
             "title": record.title,
             "subtitle": record.subtitle,
             "body": record.body,
             "created_at": record.createdAt.timeIntervalSince1970,
             "is_read": record.isRead,
+            "retargets_to_live_surface_owner": record.retargetsToLiveSurfaceOwner,
         ]
-        let targetSurfaceID = record.panelId ?? record.surfaceId
         if let targetSurfaceID {
             payload["surface_id"] = targetSurfaceID.uuidString
         }
         if let workspace = AppDelegate.shared?
-            .tabManagerFor(tabId: record.tabId)?
-            .workspacesById[record.tabId] {
+            .tabManagerFor(tabId: targetWorkspaceID)?
+            .workspacesById[targetWorkspaceID] {
             payload["workspace_title"] = workspace.title
             if let targetSurfaceID,
                let surfaceTitle = workspace.panelTitle(panelId: targetSurfaceID) {

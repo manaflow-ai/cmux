@@ -6,7 +6,7 @@ import Testing
 struct MobileNotificationFeedDTOTests {
     @Test("List response decodes every navigation and display field")
     func listResponseDecode() throws {
-        let data = Data(#"{"revision":17,"notifications":[{"id":"notification-1","workspace_id":"workspace-1","surface_id":"surface-1","title":"Approval needed","subtitle":"Claude Code","body":"Allow the command?","created_at":1721000000.25,"is_read":false,"workspace_title":"cmux","surface_title":"agent"}]}"#.utf8)
+        let data = Data(#"{"revision":17,"notifications":[{"id":"notification-1","workspace_id":"workspace-1","surface_id":"surface-1","title":"Approval needed","subtitle":"Claude Code","body":"Allow the command?","created_at":1721000000.25,"is_read":false,"retargets_to_live_surface_owner":true,"workspace_title":"cmux","surface_title":"agent"}]}"#.utf8)
 
         let response = try MobileNotificationFeedListResponse.decode(data)
         let item = try #require(response.notifications.first)
@@ -20,8 +20,18 @@ struct MobileNotificationFeedDTOTests {
         #expect(item.body == "Allow the command?")
         #expect(item.createdAt == Date(timeIntervalSince1970: 1_721_000_000.25))
         #expect(item.isRead == false)
+        #expect(item.retargetsToLiveSurfaceOwner)
         #expect(item.workspaceTitle == "cmux")
         #expect(item.surfaceTitle == "agent")
+    }
+
+    @Test("Missing retarget provenance stays confined")
+    func missingRetargetProvenanceDefaultsToFalse() throws {
+        let data = Data(#"{"revision":1,"notifications":[{"id":"notification-1","workspace_id":"workspace-1","title":"Title","body":"Body","created_at":1721000000,"is_read":true}]}"#.utf8)
+
+        let item = try #require(MobileNotificationFeedListResponse.decode(data).notifications.first)
+
+        #expect(!item.retargetsToLiveSurfaceOwner)
     }
 
     @Test("Revision-only changed event rejects malformed payloads")

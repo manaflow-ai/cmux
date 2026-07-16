@@ -1,8 +1,9 @@
 import SwiftUI
 
 /// Owns the native search controller above workspace snapshots that are replaced
-/// during refresh. Keeping this view's identity stable prevents live list updates
-/// from reconfiguring the system search placement while the field is active.
+/// during refresh. Stable identity preserves the query, while an explicit
+/// navigation-bar drawer keeps the search location at the top on iOS 26.
+@MainActor
 struct WorkspaceListSearchHost<Content: View>: View {
     @State private var searchText = ""
     private let content: (String) -> Content
@@ -12,7 +13,15 @@ struct WorkspaceListSearchHost<Content: View>: View {
     }
 
     var body: some View {
+        #if os(iOS)
+        content(searchText)
+            .searchable(
+                text: $searchText,
+                placement: .navigationBarDrawer(displayMode: .always)
+            )
+        #else
         content(searchText)
             .searchable(text: $searchText)
+        #endif
     }
 }

@@ -72,14 +72,15 @@ struct WorkspaceShellView: View {
         #if os(iOS)
         MobilePrimaryTabScaffold(
             selection: $selectedPrimaryTab,
-            notificationUnreadCount: store.notificationFeedUnreadCount
+            notificationUnreadCount: visibleNotificationFeedUnreadCount
         ) {
             workspaceTabContent
         } notifications: {
             NavigationStack(path: $notificationNavigationPath) {
                 NotificationFeedStoreView(
                     store: store,
-                    items: visibleNotificationFeedItems
+                    items: visibleNotificationFeedItems,
+                    status: visibleNotificationFeedStatus
                 )
                     .toolbar {
                         if notificationNavigationPath.isEmpty {
@@ -361,9 +362,15 @@ struct WorkspaceShellView: View {
     }
 
     private var visibleNotificationFeedItems: [MobileNotificationFeedItem] {
-        store.notificationFeedItems.filter { item in
-            macSelectionScope.includes(macDeviceID: item.macDeviceID)
-        }
+        macSelectionScope.notificationFeedItems(from: store.notificationFeedItems)
+    }
+
+    private var visibleNotificationFeedUnreadCount: Int {
+        visibleNotificationFeedItems.lazy.filter { !$0.isRead }.count
+    }
+
+    private var visibleNotificationFeedStatus: MobileNotificationFeedStatus {
+        store.notificationFeedStatus(scopedTo: macSelectionScope.selectedMachineIDs)
     }
 
     private var liveRootToolbarMachineSnapshots: WorkspaceMachineSnapshots {
@@ -385,6 +392,10 @@ struct WorkspaceShellView: View {
                !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 names[id] = name
             }
+        }
+        for item in store.notificationFeedItems
+        where !item.macDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            names[item.macDeviceID] = item.macDisplayName
         }
         for device in store.deviceTreeDevices {
             if let name = device.displayName, !name.isEmpty {
@@ -427,6 +438,10 @@ struct WorkspaceShellView: View {
         let previousTask = rootToolbarSelectionTask
         previousTask?.cancel()
         let startsSwitch = rootToolbarSelectionNeedsMacSwitch(selection)
+        // Filtering is local and immediate. A foreground connection switch can
+        // continue in parallel, but an offline Mac's retained feed must remain
+        // selectable even when that switch cannot complete.
+        macSelection = selection
         rootToolbarPendingSelection = startsSwitch ? selection : nil
 
         let task = Task { @MainActor in
@@ -446,7 +461,6 @@ struct WorkspaceShellView: View {
                       rootToolbarSelectionGeneration == generation,
                       switched else { return }
             }
-            macSelection = selection
         }
         rootToolbarSelectionTask = task
     }
@@ -561,6 +575,7 @@ struct WorkspaceShellView: View {
             selection: macSelection,
             workspaces: store.workspaces,
             displayPairedMacs: store.displayPairedMacs,
+            notificationFeedItems: store.notificationFeedItems,
             foregroundMacDeviceID: store.connectedMacDeviceID ?? store.activeTicket?.macDeviceID,
             aliasesFor: { store.pairedMacAliasIDs(for: $0) }
         )

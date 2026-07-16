@@ -128,8 +128,8 @@ final class cmuxUITests: XCTestCase {
         ])
         defer { app.terminate() }
 
-        let list = app.descendants(matching: .any)["MobileWorkspaceList"]
-        XCTAssertTrue(list.waitForExistence(timeout: 8))
+        let scroll = app.collectionViews["MobileWorkspaceList"]
+        XCTAssertTrue(scroll.waitForExistence(timeout: 8))
         XCTAssertTrue(
             app.descendants(matching: .any)["MobileWorkspaceListRefreshGeneration-0"]
                 .waitForExistence(timeout: 3)
@@ -156,10 +156,15 @@ final class cmuxUITests: XCTestCase {
             XCTFail("Search field had no usable frame before refresh")
             return
         }
+        XCTAssertLessThan(
+            beforeRefreshFrame.midY,
+            app.windows.firstMatch.frame.midY,
+            "Workspace search must remain in the navigation bar"
+        )
 
-        let refreshStart = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2))
-        let refreshEnd = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85))
-        refreshStart.press(forDuration: 0.1, thenDragTo: refreshEnd)
+        let refreshStart = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2))
+        let refreshEnd = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))
+        refreshStart.press(forDuration: 0.01, thenDragTo: refreshEnd)
         XCTAssertTrue(
             app.descendants(matching: .any)["MobileWorkspaceListRefreshGeneration-1"]
                 .waitForExistence(timeout: 5),

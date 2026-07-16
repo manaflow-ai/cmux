@@ -18,6 +18,8 @@ public struct MobileNotificationFeedListItem: Decodable, Equatable, Sendable {
     public let createdAt: Date
     /// Whether the notification has been read on the Mac.
     public let isRead: Bool
+    /// Whether a terminal that moved may open in its current workspace.
+    public let retargetsToLiveSurfaceOwner: Bool
     /// The workspace label captured by the Mac, when available.
     public let workspaceTitle: String?
     /// The terminal surface label captured by the Mac, when available.
@@ -32,6 +34,7 @@ public struct MobileNotificationFeedListItem: Decodable, Equatable, Sendable {
         case body
         case createdAt = "created_at"
         case isRead = "is_read"
+        case retargetsToLiveSurfaceOwner = "retargets_to_live_surface_owner"
         case workspaceTitle = "workspace_title"
         case surfaceTitle = "surface_title"
     }
@@ -48,6 +51,12 @@ public struct MobileNotificationFeedListItem: Decodable, Equatable, Sendable {
         body = try container.decode(String.self, forKey: .body)
         createdAt = Date(timeIntervalSince1970: try container.decode(Double.self, forKey: .createdAt))
         isRead = try container.decode(Bool.self, forKey: .isRead)
+        // Notification feed capability predates this provenance field only in
+        // development builds. Missing provenance stays confined by default.
+        retargetsToLiveSurfaceOwner = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .retargetsToLiveSurfaceOwner
+        ) ?? false
         workspaceTitle = try container.decodeIfPresent(String.self, forKey: .workspaceTitle)
         surfaceTitle = try container.decodeIfPresent(String.self, forKey: .surfaceTitle)
     }
