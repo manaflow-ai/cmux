@@ -1,10 +1,73 @@
 import XCTest
 import Darwin
+import SQLite3
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
+private func readAgentTurnDiffBaselineRecords(at stateDirectoryURL: URL) throws -> [[String: Any]] {
+    let databaseURL = stateDirectoryURL.appendingPathComponent("agent-turn-diff-baselines.sqlite3")
+    var database: OpaquePointer?
+    let openResult = sqlite3_open_v2(databaseURL.path, &database, SQLITE_OPEN_READONLY, nil)
+    guard openResult == SQLITE_OK, let database else {
+        sqlite3_close(database)
+        throw NSError(
+            domain: "CLINotifyProcessIntegrationRegressionTests.diffBaselineDatabase",
+            code: Int(openResult)
+        )
+    }
+    defer { sqlite3_close(database) }
+
+    let sql = """
+        SELECT workspace_id, surface_id, session_id, turn_id, base_commit
+        FROM baselines
+        ORDER BY captured_at DESC
+        """
+    var statement: OpaquePointer?
+    let prepareResult = sqlite3_prepare_v2(database, sql, -1, &statement, nil)
+    guard prepareResult == SQLITE_OK, let statement else {
+        sqlite3_finalize(statement)
+        throw NSError(
+            domain: "CLINotifyProcessIntegrationRegressionTests.diffBaselineDatabase",
+            code: Int(prepareResult)
+        )
+    }
+    defer { sqlite3_finalize(statement) }
+
+    func text(_ index: Int32) -> String? {
+        guard sqlite3_column_type(statement, index) != SQLITE_NULL,
+              let value = sqlite3_column_text(statement, index) else {
+            return nil
+        }
+        return String(cString: value)
+    }
+
+    var records: [[String: Any]] = []
+    while true {
+        let result = sqlite3_step(statement)
+        if result == SQLITE_DONE {
+            return records
+        }
+        guard result == SQLITE_ROW else {
+            throw NSError(
+                domain: "CLINotifyProcessIntegrationRegressionTests.diffBaselineDatabase",
+                code: Int(result)
+            )
+        }
+        var record: [String: Any] = [
+            "workspaceId": text(0) ?? "",
+            "surfaceId": text(1) ?? "",
+            "sessionId": text(2) ?? "",
+            "baseCommit": text(4) ?? ""
+        ]
+        if let turnId = text(3) {
+            record["turnId"] = turnId
+        }
+        records.append(record)
+    }
+}
 
 final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     func testClaudeClearSessionStartMarksWorkspaceRunning() throws {
@@ -360,9 +423,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         }
         func baselineRecords() throws -> [[String: Any]] {
-            let storeURL = context.root.appendingPathComponent("agent-turn-diff-baselines.json")
-            let store = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
-            return try XCTUnwrap(store["records"] as? [[String: Any]])
+            try readAgentTurnDiffBaselineRecords(at: context.root)
         }
 
         _ = try runGit(["init"])

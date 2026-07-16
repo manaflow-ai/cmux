@@ -687,7 +687,7 @@ struct CLICodexHookTimeoutRegressionTests {
         let fakeBin = root.appendingPathComponent("bin", isDirectory: true)
         let fakeGit = fakeBin.appendingPathComponent("git", isDirectory: false)
         let slowGitDone = root.appendingPathComponent("slow-git-done", isDirectory: false)
-        let baselineStore = root.appendingPathComponent("agent-turn-diff-baselines.json", isDirectory: false)
+        let baselineStore = root.appendingPathComponent("agent-turn-diff-baselines.sqlite3", isDirectory: false)
         let socketPath = makeCodexHookSocketPath("slow-diff")
         let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
         let commands = CodexHookCapturedSocketCommands()

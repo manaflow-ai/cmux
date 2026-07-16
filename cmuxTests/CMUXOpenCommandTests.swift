@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import SQLite3
 import XCTest
 
 final class CMUXOpenCommandTests: XCTestCase {
@@ -1403,11 +1404,8 @@ final class CMUXOpenCommandTests: XCTestCase {
         )
         XCTAssertEqual(untrackedRefs.trimmingCharacters(in: .whitespacesAndNewlines), "")
 
-        let storeURL = stateURL.appendingPathComponent("agent-turn-diff-baselines.json")
-        let lockURL = stateURL.appendingPathComponent("agent-turn-diff-baselines.json.lock")
-        let storeData = try Data(contentsOf: storeURL)
-        let store = try JSONSerialization.jsonObject(with: storeData, options: []) as? [String: Any]
-        let records = try XCTUnwrap(store?["records"] as? [[String: Any]])
+        let storeURL = stateURL.appendingPathComponent("agent-turn-diff-baselines.sqlite3")
+        let records = try readDiffBaselineRecords(stateDirectoryURL: stateURL)
         let record = try XCTUnwrap(records.first)
         let snapshotId = try XCTUnwrap(record["untrackedSnapshotId"] as? String)
         let hashes = try XCTUnwrap(record["untrackedPathHashes"] as? [String: String])
@@ -1423,7 +1421,11 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: snapshotFile.path))
         XCTAssertEqual(try posixPermissions(at: stateURL), 0o700)
         XCTAssertEqual(try posixPermissions(at: storeURL), 0o600)
-        XCTAssertEqual(try posixPermissions(at: lockURL), 0o600)
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: stateURL.appendingPathComponent("agent-turn-diff-baselines.json.lock").path
+            )
+        )
         XCTAssertEqual(try posixPermissions(at: snapshotRoot), 0o700)
         XCTAssertEqual(try posixPermissions(at: snapshotDirectory), 0o700)
         XCTAssertEqual(try posixPermissions(at: filesDirectory), 0o700)
@@ -1492,10 +1494,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertFalse(hook.timedOut, hook.stderr)
         XCTAssertEqual(hook.status, 0, hook.stderr)
 
-        let storeURL = stateURL.appendingPathComponent("agent-turn-diff-baselines.json")
-        let storeData = try Data(contentsOf: storeURL)
-        let store = try XCTUnwrap(JSONSerialization.jsonObject(with: storeData) as? [String: Any])
-        let records = try XCTUnwrap(store["records"] as? [[String: Any]])
+        let records = try readDiffBaselineRecords(stateDirectoryURL: stateURL)
         let record = try XCTUnwrap(records.first)
         XCTAssertEqual(record["baseCommit"] as? String, emptyTree)
 
@@ -1614,9 +1613,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         }
 
         func diffBaselineRecords() throws -> [[String: Any]] {
-            let storeData = try Data(contentsOf: stateURL.appendingPathComponent("agent-turn-diff-baselines.json"))
-            let store = try JSONSerialization.jsonObject(with: storeData, options: []) as? [String: Any]
-            return try XCTUnwrap(store?["records"] as? [[String: Any]])
+            try readDiffBaselineRecords(stateDirectoryURL: stateURL)
         }
 
         let firstHook = try runPromptSubmit()
@@ -2534,6 +2531,94 @@ final class CMUXOpenCommandTests: XCTestCase {
             timeout: 30,
             currentDirectoryURL: directory
         )
+    }
+
+    private func readDiffBaselineRecords(stateDirectoryURL: URL) throws -> [[String: Any]] {
+        let databaseURL = stateDirectoryURL.appendingPathComponent("agent-turn-diff-baselines.sqlite3")
+        var database: OpaquePointer?
+        let openResult = sqlite3_open_v2(databaseURL.path, &database, SQLITE_OPEN_READONLY, nil)
+        guard openResult == SQLITE_OK, let database else {
+            sqlite3_close(database)
+            throw NSError(
+                domain: "CMUXOpenCommandTests.diffBaselineDatabase",
+                code: Int(openResult),
+                userInfo: [NSLocalizedDescriptionKey: "Failed to open \(databaseURL.path)"]
+            )
+        }
+        defer { sqlite3_close(database) }
+
+        let sql = """
+            SELECT workspace_id, surface_id, session_id, turn_id, agent, repo_root,
+                   base_commit, untracked_paths, untracked_path_hashes, snapshot_id, captured_at
+            FROM baselines
+            ORDER BY captured_at DESC
+            """
+        var statement: OpaquePointer?
+        let prepareResult = sqlite3_prepare_v2(database, sql, -1, &statement, nil)
+        guard prepareResult == SQLITE_OK, let statement else {
+            sqlite3_finalize(statement)
+            throw NSError(
+                domain: "CMUXOpenCommandTests.diffBaselineDatabase",
+                code: Int(prepareResult),
+                userInfo: [NSLocalizedDescriptionKey: String(cString: sqlite3_errmsg(database))]
+            )
+        }
+        defer { sqlite3_finalize(statement) }
+
+        func text(_ index: Int32) -> String? {
+            guard sqlite3_column_type(statement, index) != SQLITE_NULL,
+                  let value = sqlite3_column_text(statement, index) else {
+                return nil
+            }
+            return String(cString: value)
+        }
+        func data(_ index: Int32) -> Data? {
+            guard sqlite3_column_type(statement, index) != SQLITE_NULL else { return nil }
+            let count = Int(sqlite3_column_bytes(statement, index))
+            guard count > 0, let value = sqlite3_column_blob(statement, index) else {
+                return Data()
+            }
+            return Data(bytes: value, count: count)
+        }
+
+        var records: [[String: Any]] = []
+        while true {
+            let result = sqlite3_step(statement)
+            if result == SQLITE_DONE {
+                return records
+            }
+            guard result == SQLITE_ROW else {
+                throw NSError(
+                    domain: "CMUXOpenCommandTests.diffBaselineDatabase",
+                    code: Int(result),
+                    userInfo: [NSLocalizedDescriptionKey: String(cString: sqlite3_errmsg(database))]
+                )
+            }
+            var record: [String: Any] = [
+                "workspaceId": text(0) ?? "",
+                "surfaceId": text(1) ?? "",
+                "sessionId": text(2) ?? "",
+                "agent": text(4) ?? "",
+                "repoRoot": text(5) ?? "",
+                "baseCommit": text(6) ?? "",
+                "capturedAt": sqlite3_column_double(statement, 10)
+            ]
+            if let turnId = text(3) {
+                record["turnId"] = turnId
+            }
+            if let pathsData = data(7),
+               let paths = String(data: pathsData, encoding: .utf8)?.split(separator: "\0").map(String.init) {
+                record["untrackedPaths"] = paths
+            }
+            if let hashesData = data(8),
+               let hashes = try? JSONDecoder().decode([String: String].self, from: hashesData) {
+                record["untrackedPathHashes"] = hashes
+            }
+            if let snapshotId = text(9) {
+                record["untrackedSnapshotId"] = snapshotId
+            }
+            records.append(record)
+        }
     }
 
     private func writeDiffBaselineStore(
