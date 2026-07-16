@@ -356,11 +356,8 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
 
         private func plainText(of storage: NSTextStorage?) -> String {
             guard let storage else { return "" }
-            let text = storage.string.replacingOccurrences(
-                of: String(UnicodeScalar(NSTextAttachment.character)!),
-                with: ""
-            )
-            return text.drop(while: { $0 == " " }).description
+            let text = storage.string.replacingOccurrences(of: "\u{FFFC}", with: "")
+            return String(text.drop(while: { $0 == " " }))
         }
     }
 }
@@ -410,7 +407,7 @@ final class BrowserDesignModeTokenAttachment: NSTextAttachment {
 /// Draws a token as an inline pill: element-kind glyph plus tag name in blue.
 final class BrowserDesignModeTokenCell: NSTextAttachmentCell {
     let identity: String
-    private let title: String
+    private let tagTitle: String
     private let icon: NSImage?
 
     private static let titleAttributes: [NSAttributedString.Key: Any] = [
@@ -420,7 +417,7 @@ final class BrowserDesignModeTokenCell: NSTextAttachmentCell {
 
     init(selection: BrowserDesignModeSelection) {
         identity = selection.selector
-        title = selection.tagName
+        tagTitle = selection.tagName
         let configuration = NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
         icon = NSImage(
             systemSymbolName: BrowserDesignModeTagSymbol.symbol(forTag: selection.tagName),
@@ -433,7 +430,7 @@ final class BrowserDesignModeTokenCell: NSTextAttachmentCell {
     required init(coder: NSCoder) { fatalError("unsupported") }
 
     private var titleSize: NSSize {
-        (title as NSString).size(withAttributes: Self.titleAttributes)
+        (tagTitle as NSString).size(withAttributes: Self.titleAttributes)
     }
 
     override func cellSize() -> NSSize {
@@ -467,7 +464,7 @@ final class BrowserDesignModeTokenCell: NSTextAttachmentCell {
             tinted.draw(in: iconRect)
             textX = iconRect.maxX + 3
         }
-        (title as NSString).draw(
+        (tagTitle as NSString).draw(
             at: NSPoint(x: textX, y: cellFrame.midY - titleSize.height / 2),
             withAttributes: Self.titleAttributes
         )
