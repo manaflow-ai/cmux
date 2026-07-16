@@ -676,6 +676,14 @@ extension TerminalController {
                 let derivationSettled = derivable.flatMap { grid in
                     claimed.map { $0.0 == grid.columns && $0.1 == grid.rows }
                 } ?? true
+                let renderFrameDescription: String = {
+                    guard let size = mirror.renderFrameSize else { return "none" }
+                    return "\(Int(size.width))x\(Int(size.height))"
+                }()
+                let containerDescription: String = {
+                    guard let size = mirror.containerSizePt else { return "none" }
+                    return "\(Int(size.width))x\(Int(size.height))"
+                }()
                 windows.append([
                     "window": windowId,
                     "claimed": claimed.map { "\($0.0)x\($0.1)" } ?? "none",
@@ -697,6 +705,16 @@ extension TerminalController {
                         "window_grid": windowGrid.map { "\($0.width)x\($0.height)" } ?? "none",
                         "visible_for_sizing": mirror.isVisibleForSizing,
                         "on_screen": onScreen,
+                        // The parent this judge plans from, beside the live one. A
+                        // native-geometry mismatch says the panes disagree with a
+                        // plan, and the plan is only as good as its parent: if the
+                        // banked render frame has drifted from the container the
+                        // views were laid out against, the disagreement is the
+                        // judge's rather than the app's. Only reporting both tells
+                        // those apart. Built above, not inline: this literal is
+                        // already at the type-checker's limit.
+                        "render_frame": renderFrameDescription,
+                        "container": containerDescription,
                     ],
                     // The claim is a CLIENT size; `windowGrid` is the WINDOW tmux
                     // laid out. Columns agree exactly (tmux fits the window to the
