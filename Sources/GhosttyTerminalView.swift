@@ -7857,15 +7857,31 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 }
 
 private final class TerminalPaneBackgroundView: NSView {
-    var onPointerDown: (() -> Void)?
-    var onScrollWheel: ((NSEvent) -> Void)?
+    weak var terminalSurfaceView: GhosttyNSView?
+    weak var terminalScrollView: GhosttyScrollView?
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        terminalSurfaceView?.acceptsFirstMouse(for: event) ?? false
+    }
 
     override func mouseDown(with event: NSEvent) {
-        onPointerDown?()
+        terminalSurfaceView?.focusFromPointerDown()
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        terminalSurfaceView?.rightMouseDown(with: event)
+    }
+
+    override func rightMouseUp(with event: NSEvent) {
+        terminalSurfaceView?.rightMouseUp(with: event)
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        terminalSurfaceView?.menu(for: event)
     }
 
     override func scrollWheel(with event: NSEvent) {
-        onScrollWheel?(event)
+        terminalScrollView?.scrollWheel(with: event)
     }
 }
 
@@ -8423,12 +8439,8 @@ final class GhosttySurfaceScrollView: NSView {
         backgroundView.wantsLayer = true
         backgroundView.layer?.backgroundColor = NSColor.clear.cgColor
         backgroundView.layer?.isOpaque = false
-        backgroundView.onPointerDown = { [weak surfaceView] in
-            surfaceView?.focusFromPointerDown()
-        }
-        backgroundView.onScrollWheel = { [weak scrollView] event in
-            scrollView?.scrollWheel(with: event)
-        }
+        backgroundView.terminalSurfaceView = surfaceView
+        backgroundView.terminalScrollView = scrollView
         addSubview(backgroundView)
         addSubview(scrollView)
         mobileViewportBorderOverlayView.isHidden = true
