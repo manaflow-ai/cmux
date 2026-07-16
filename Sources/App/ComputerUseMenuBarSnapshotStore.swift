@@ -27,6 +27,11 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
     // DispatchSource requires a delivery queue; every mutation hops back to MainActor.
     private let directoryWatchQueue = DispatchQueue(label: "com.cmuxterm.app.computerUseStateWatch")
     private var previousCapableSessionIDs: Set<String> = []
+    // Sessions already running the first time scanning activates (e.g. at app
+    // launch, or a restored agent session) must NOT trigger onboarding — only a
+    // session that genuinely starts afterward does. The first scan seeds the
+    // baseline without firing; reset alongside previousCapableSessionIDs.
+    private var capableSessionBaselineSeeded = false
     private var refreshGeneration = 0
 
     init(
@@ -109,6 +114,7 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
         ) else {
             refreshTask = nil
             previousCapableSessionIDs = []
+            capableSessionBaselineSeeded = false
             snapshot = ComputerUseMenuBarSnapshot(
                 rows: [],
                 hasRecentStateFiles: false,
@@ -213,7 +219,12 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
             )
             let newlyStarted = result.capableSessionIDs.subtracting(self.previousCapableSessionIDs)
             self.previousCapableSessionIDs = result.capableSessionIDs
-            if currentFeatureEnabled, !newlyStarted.isEmpty {
+            if !self.capableSessionBaselineSeeded {
+                // First scan after (re)activation: record the baseline only.
+                // Pre-existing sessions must not present onboarding — computer use
+                // onboarding appears only when a session starts afterward.
+                self.capableSessionBaselineSeeded = true
+            } else if currentFeatureEnabled, !newlyStarted.isEmpty {
                 self.onCapableSessionStarted()
             }
         }

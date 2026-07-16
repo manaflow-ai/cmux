@@ -125,21 +125,11 @@ final class ComputerUseUXCoordinator {
         watchTarget.start()
         watchTargetController = watchTarget
 
-        // Offer permission setup at app startup so the embedded driver does not
-        // have to be the first process to discover missing TCC grants.
-        //
-        // Defer to a later main-runloop turn instead of presenting inline. install()
-        // runs inside applicationDidFinishLaunching, and presentOnboarding() brings
-        // up a key window (NSApp.activate + makeKeyAndOrderFront). Doing that
-        // synchronously here reenters AppKit key-window/first-responder handling
-        // while the main window's SwiftUI content — including the right-sidebar
-        // keyboard-focus host (`rs.focus.host.attach`) — is still attaching, which
-        // deadlocks the main thread at launch (reproduced on every fresh dev build,
-        // where the changed code signature drops the TCC grants so onboarding is due
-        // to present). The short delay lets the main window finish attaching first.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) { [weak self] in
-            self?.presentOnboardingAutomaticallyIfNeeded()
-        }
+        // Deliberately do NOT present onboarding at launch. Permission setup is
+        // offered only when computer use is actually about to be used — the first
+        // time a capable agent session starts (see recordCapableSessionStarted) —
+        // or on demand from Settings > Computer Use. Launch stays quiet: nothing
+        // prompts or pops a window until the user reaches one of those points.
     }
 
     func teardown() {
