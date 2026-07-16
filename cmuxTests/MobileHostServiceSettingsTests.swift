@@ -25,6 +25,18 @@ struct MobileHostServiceSettingsTests {
         #expect(!MobileHostService.isListeningEnabled(defaults: defaults))
     }
 
+    @Test func mobileHostListenerPreservesHistoricalExplicitOptIn() throws {
+        let suiteName = "MobileHostServiceSettingsTests.Legacy.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(true, forKey: "cmuxMobilePairingHostEnabled")
+        #expect(MobileHostService.isListeningEnabled(defaults: defaults))
+
+        defaults.set(false, forKey: MobileHostService.listeningEnabledDefaultsKey)
+        #expect(!MobileHostService.isListeningEnabled(defaults: defaults))
+    }
+
     @Test func configuredPortDefaultsToCatalogDefaultWhenUnset() throws {
         let suiteName = "MobileHostServiceSettingsTests.Port.Default.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))

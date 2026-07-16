@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CmuxMobileRPC
 import CmuxMobileShellModel
+import CmuxMobileSupport
 import Foundation
 import OSLog
 
@@ -11,29 +12,6 @@ private let mobileShellManualHostConnectionLog = Logger(
 
 @MainActor
 extension MobileShellComposite {
-    func connectStoredMacHost(
-        name: String,
-        host: String,
-        port: Int,
-        pairedMacDeviceID: String,
-        route: CmxAttachRoute? = nil,
-        instanceTag: String?,
-        ifStillCurrent: (() -> Bool)? = nil
-    ) async -> MobilePairingURLConnectionResult {
-        await connectManualHost(
-            name: name,
-            host: host,
-            port: port,
-            pairedMacDeviceID: pairedMacDeviceID,
-            instanceTagExpectation: MobileMacInstanceTagAuthority.expectation(
-                storedInstanceTag: instanceTag
-            ),
-            recordsPairingAttempt: false,
-            route: route,
-            ifStillCurrent: ifStillCurrent
-        )
-    }
-
     /// Connects to one explicit host while preserving the current foreground
     /// connection until trust and ownership validation have completed.
     ///

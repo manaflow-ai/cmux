@@ -5,6 +5,181 @@ import Testing
 
 @Suite
 struct CmxIrohHostRuntimeTests {
+    @Test("cold start retries transient broker connectivity before becoming active")
+    func coldStartRetriesTransientBrokerConnectivity() async throws {
+        let fixture = try HostRuntimeFixture()
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery,
+            registrationError: .connectivity
+        )
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(
+                endpoints: [TestIrohEndpoint(identity: fixture.endpointID)]
+            ),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            registrationClock: ImmediateHostActivationClock(),
+            registrationRetrySchedule: CmxIrohRetrySchedule(
+                initialDelay: 1,
+                maximumDelay: 1,
+                jitterFraction: 0
+            ),
+            registrationRetryJitter: { 0 },
+            handleTransport: { session, _ in await session.close() }
+        )
+
+        try await runtime.start()
+
+        #expect(await broker.observedRegistrationCount() == 2)
+        #expect(await runtime.snapshot().state == .active)
+        await runtime.stop()
+    }
+
+    @Test("cold start retries transient broker service failures before becoming active")
+    func coldStartRetriesTransientBrokerServiceFailure() async throws {
+        let fixture = try HostRuntimeFixture()
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery,
+            registrationError: .rejected(statusCode: 503, code: "unavailable")
+        )
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(
+                endpoints: [TestIrohEndpoint(identity: fixture.endpointID)]
+            ),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            registrationClock: ImmediateHostActivationClock(),
+            registrationRetrySchedule: CmxIrohRetrySchedule(
+                initialDelay: 1,
+                maximumDelay: 1,
+                jitterFraction: 0
+            ),
+            registrationRetryJitter: { 0 },
+            handleTransport: { session, _ in await session.close() }
+        )
+
+        try await runtime.start()
+
+        #expect(await broker.observedRegistrationCount() == 2)
+        #expect(await runtime.snapshot().state == .active)
+        await runtime.stop()
+    }
+
+    @Test("cold start does not retry an untrusted broker response")
+    func coldStartDoesNotRetryInvalidBrokerResponse() async throws {
+        let fixture = try HostRuntimeFixture()
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery,
+            registrationError: .invalidResponse
+        )
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(
+                endpoints: [TestIrohEndpoint(identity: fixture.endpointID)]
+            ),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            registrationClock: ImmediateHostActivationClock(),
+            handleTransport: { session, _ in await session.close() }
+        )
+
+        await #expect(throws: CmxIrohTrustBrokerClientError.invalidResponse) {
+            try await runtime.start()
+        }
+
+        #expect(await broker.observedRegistrationCount() == 1)
+        #expect(await runtime.snapshot().state == .failed)
+    }
+
+    @Test("stopping during cold-start backoff prevents a stale registration retry")
+    func stopDuringColdStartBackoffPreventsRetry() async throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let fixture = try HostRuntimeFixture(now: now)
+        let clock = HostRegistrationRenewalClock(now: now)
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery,
+            registrationError: .connectivity
+        )
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(
+                endpoints: [TestIrohEndpoint(identity: fixture.endpointID)]
+            ),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            registrationClock: clock,
+            registrationRetrySchedule: CmxIrohRetrySchedule(
+                initialDelay: 1,
+                maximumDelay: 1,
+                jitterFraction: 0
+            ),
+            registrationRetryJitter: { 0 },
+            handleTransport: { session, _ in await session.close() }
+        )
+        let start = Task {
+            try await runtime.start()
+        }
+
+        await clock.waitUntilSleeping()
+        let deadline = try #require(clock.observedSleepDeadlines().first)
+        await runtime.stop()
+        clock.advance(to: deadline)
+
+        await #expect(throws: CmxIrohHostRuntimeError.superseded) {
+            try await start.value
+        }
+        #expect(await broker.observedRegistrationCount() == 1)
+        #expect(await runtime.snapshot().state == .inactive)
+    }
+
+    @Test("cancelling cold-start backoff cancels its delay and closes the endpoint")
+    func cancellingColdStartBackoffCancelsDelay() async throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let fixture = try HostRuntimeFixture(now: now)
+        let clock = HostRegistrationRenewalClock(now: now)
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery,
+            registrationError: .connectivity
+        )
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            registrationClock: clock,
+            registrationRetrySchedule: CmxIrohRetrySchedule(
+                initialDelay: 7,
+                maximumDelay: 7,
+                jitterFraction: 0
+            ),
+            registrationRetryJitter: { 0 },
+            handleTransport: { session, _ in await session.close() }
+        )
+        let start = Task {
+            try await runtime.start()
+        }
+
+        await clock.waitUntilSleeping()
+        #expect(clock.observedSleepDeadlines() == [now.addingTimeInterval(7)])
+        start.cancel()
+
+        await #expect(throws: CancellationError.self) {
+            try await start.value
+        }
+        #expect(clock.observedCancellationCount() == 1)
+        #expect(await broker.observedRegistrationCount() == 1)
+        #expect(await endpoint.observedCloseCallCount() == 1)
+        #expect(await runtime.snapshot().state == .failed)
+    }
+
     @Test
     func pendingRevocationFailureBlocksHostRegistrationAndCachedFallback() async throws {
         let fixture = try HostRuntimeFixture()

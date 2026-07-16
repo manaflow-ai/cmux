@@ -7,8 +7,15 @@ public import CmuxTerminalCore
 /// The native pointer has been removed from all main-thread owner state
 /// before this request is created; this wrapper only transports the one-shot
 /// free. It is `@unchecked Sendable` for exactly that reason: the surface
-/// pointer, callback context, and terminal-byte-tee lease are exclusively
-/// owned by the request from creation until the coordinator consumes them.
+/// pointer, the `Unmanaged` callback contexts, and the byte-tee lease are
+/// exclusively owned by the request from creation until the coordinator
+/// consumes them.
+///
+/// The transported callback userdata (`callbackContext`, `manualIOContext`,
+/// `byteTeeLease`) is released only after `freeSurface` returns: the native
+/// free joins ghostty's IO threads (the io-reader thread that fires the PTY
+/// tee callback and the io thread that fires the MANUAL-mode `io_write_cb`),
+/// so a release ordered after the free can never race an in-flight callback.
 struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
     let id: UUID
     let workspaceId: UUID

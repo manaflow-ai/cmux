@@ -366,7 +366,7 @@ final class MobilePairingModel {
     /// Mac. The dev loopback route a DEBUG build always carries must not count
     /// as reachability, or the pairing window would happily display a QR no
     /// phone can use.
-    private static func isPhoneReachableRoute(_ route: CmxAttachRoute) -> Bool {
+    private nonisolated static func isPhoneReachableRoute(_ route: CmxAttachRoute) -> Bool {
         (route.kind == .tailscale || route.kind == .manualHost) && !CmxLoopbackHost().matches(route)
     }
 
