@@ -164,6 +164,9 @@ extension SimulatorPaneCoordinator {
             if let preferredDeviceID,
                previousDeviceID == nil || previousDeviceID == preferredDeviceID,
                !devices.contains(where: { $0.id == preferredDeviceID }) {
+                // Runtime and device type are descriptive, non-unique metadata. Never
+                // substitute them for a missing persisted UDID because automation could
+                // silently target a different Simulator without an explicit selection.
                 if previousDeviceID != nil {
                     _ = await beginLocationRouteTeardown()?.value
                     guard selectedDeviceID == previousDeviceID else { return }

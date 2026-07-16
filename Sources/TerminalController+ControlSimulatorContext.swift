@@ -19,37 +19,68 @@ extension TerminalController: ControlSimulatorContext {
         case let .failure(failure):
             return .failed(failure)
         case let .panel(panel):
+            let sequence: SimulatorTextInputSequence
+            do {
+                sequence = try SimulatorUSKeyboardTextEncoder().encode(text)
+            } catch let error as SimulatorTextInputEncodingError {
+                return controlSimulatorTypeResolution(for: error)
+            } catch {
+                return .deliveryUnavailable
+            }
             let receipt = ControlSimulatorCompletionReceipt()
             let coordinator = panel.coordinator
-            switch coordinator.beginTypeText(text, completion: { succeeded in
-                receipt.complete(succeeded ? .succeeded : .failed)
-            }) {
-            case let .success(submission):
-                receipt.installCancellation { [weak coordinator] in
-                    Task { @MainActor in
-                        coordinator?.cancelTextInput(requestID: submission.requestIdentifier)
-                    }
+            let pending = ControlSimulatorPendingTextInput(coordinator: coordinator)
+            let task = Task { @MainActor [weak coordinator, pending] in
+                defer { pending.finishTask() }
+                guard let coordinator else {
+                    receipt.complete(.failed)
+                    return
                 }
-                return .started(
-                    surfaceID: panel.id,
-                    characterCount: submission.characterCount,
-                    completionTimeoutSeconds: submission.completionTimeoutSeconds,
-                    receipt: receipt
-                )
-            case let .failure(error):
-                switch error {
-                case .encoding(.empty):
-                    return .emptyText
-                case let .encoding(.tooLong(_, maximum)):
-                    return .textTooLong(maximumUTF8ByteCount: maximum)
-                case let .encoding(.unsupportedScalar(value, index)):
-                    return .unsupportedCharacter(scalarIndex: index, scalarValue: value)
-                case .encoding(.malformedSequence), .deliveryUnavailable:
-                    return .deliveryUnavailable
-                case .inputUnavailable:
-                    return .inputUnavailable
+                await coordinator.start()
+                do {
+                    try Task.checkCancellation()
+                    try await coordinator.waitForSelectedDeviceStreaming()
+                    try Task.checkCancellation()
+                } catch {
+                    receipt.complete(.failed)
+                    return
+                }
+                guard coordinator.supports(.keyboard) else {
+                    receipt.complete(.failed)
+                    return
+                }
+                switch coordinator.beginTypeText(text, completion: { succeeded in
+                    receipt.complete(succeeded ? .succeeded : .failed)
+                }) {
+                case let .success(submission):
+                    pending.setRequestIdentifier(submission.requestIdentifier)
+                case .failure:
+                    receipt.complete(.failed)
                 }
             }
+            pending.setTask(task)
+            receipt.installCancellation { pending.cancel() }
+            return .started(
+                surfaceID: panel.id,
+                characterCount: sequence.characterCount,
+                completionTimeoutSeconds: sequence.completionTimeoutSeconds + 35,
+                receipt: receipt
+            )
+        }
+    }
+
+    private func controlSimulatorTypeResolution(
+        for error: SimulatorTextInputEncodingError
+    ) -> ControlSimulatorTypeStartResolution {
+        switch error {
+        case .empty:
+            return .emptyText
+        case let .tooLong(_, maximum):
+            return .textTooLong(maximumUTF8ByteCount: maximum)
+        case let .unsupportedScalar(value, index):
+            return .unsupportedCharacter(scalarIndex: index, scalarValue: value)
+        case .malformedSequence:
+            return .deliveryUnavailable
         }
     }
 
@@ -101,4 +132,58 @@ extension TerminalController: ControlSimulatorContext {
         }
     }
 
+}
+
+private final class ControlSimulatorPendingTextInput: @unchecked Sendable {
+    private let lock = NSLock()
+    private weak var coordinator: SimulatorPaneCoordinator?
+    private var task: Task<Void, Never>?
+    private var requestIdentifier: UUID?
+    private var isCancelled = false
+    private var taskFinished = false
+
+    @MainActor
+    init(coordinator: SimulatorPaneCoordinator) {
+        self.coordinator = coordinator
+    }
+
+    func setTask(_ task: Task<Void, Never>) {
+        lock.withLock {
+            if isCancelled {
+                task.cancel()
+            } else if !taskFinished {
+                self.task = task
+            }
+        }
+    }
+
+    func finishTask() {
+        lock.withLock {
+            taskFinished = true
+            task = nil
+        }
+    }
+
+    @MainActor
+    func setRequestIdentifier(_ requestIdentifier: UUID) {
+        let shouldCancel = lock.withLock {
+            self.requestIdentifier = requestIdentifier
+            return isCancelled
+        }
+        if shouldCancel {
+            coordinator?.cancelTextInput(requestID: requestIdentifier)
+        }
+    }
+
+    func cancel() {
+        let state = lock.withLock { () -> (Task<Void, Never>?, UUID?) in
+            isCancelled = true
+            return (task, requestIdentifier)
+        }
+        state.0?.cancel()
+        guard let requestIdentifier = state.1 else { return }
+        Task { @MainActor [weak coordinator] in
+            coordinator?.cancelTextInput(requestID: requestIdentifier)
+        }
+    }
 }

@@ -19,19 +19,6 @@ extension TerminalController {
             return .failed(failure)
         case let .panel(panel):
             let coordinator = panel.coordinator
-            guard operation.isAvailableWithoutStreaming || coordinator.status == .streaming else {
-                return .unavailable(String(
-                    localized: "cli.simulator.error.notStreaming",
-                    defaultValue: "The selected Simulator is not streaming"
-                ))
-            }
-            if let capability = simulatorCapability(for: operation),
-               !coordinator.supports(capability) {
-                return .unavailable(String(
-                    localized: "cli.simulator.error.capabilityUnavailable",
-                    defaultValue: "The active Simulator worker does not support this operation"
-                ))
-            }
             let receipt = ControlSimulatorOperationReceipt()
             let task = Task { @MainActor [weak coordinator] in
                 guard let coordinator else {
@@ -63,11 +50,24 @@ extension TerminalController {
         do {
             await coordinator.start()
             try Task.checkCancellation()
+            if !operation.isAvailableWithoutStreaming {
+                try await coordinator.waitForSelectedDeviceStreaming()
+            }
+            if let capability = simulatorCapability(for: operation),
+               !coordinator.supports(capability) {
+                throw SimulatorFailure(
+                    code: "simulator_capability_unavailable",
+                    message: String(
+                        localized: "cli.simulator.error.capabilityUnavailable",
+                        defaultValue: "The active Simulator worker does not support this operation"
+                    ),
+                    isRecoverable: true
+                )
+            }
             let payload: JSONValue
             var mutationCommitted = false
             switch operation {
             case .context:
-                try await coordinator.waitForSelectedDeviceStreaming()
                 let deviceID = try simulatorSelectedDeviceID(coordinator)
                 let selectedDevice = coordinator.selectedDevice
                 var values: [String: JSONValue] = [
@@ -497,7 +497,7 @@ extension TerminalController {
 private extension ControlSimulatorOperation {
     var isAvailableWithoutStreaming: Bool {
         switch self {
-        case .context, .selectDevice, .recover, .eventLog, .tools:
+        case .selectDevice, .recover, .eventLog, .tools:
             true
         default:
             false

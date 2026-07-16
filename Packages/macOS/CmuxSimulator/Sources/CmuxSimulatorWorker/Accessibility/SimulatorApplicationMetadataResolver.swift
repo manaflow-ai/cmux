@@ -41,15 +41,16 @@ struct SimulatorApplicationMetadataResolver {
     func containsReactNative(bundleURL: URL) -> Bool {
         if fileManager.fileExists(
             atPath: bundleURL.appendingPathComponent("main.jsbundle").path
-        ) || fileManager.fileExists(
-            atPath: bundleURL.appendingPathComponent("Frameworks/React.framework").path
         ) { return true }
         let frameworks = bundleURL.appendingPathComponent("Frameworks")
         let names = (try? fileManager.contentsOfDirectory(atPath: frameworks.path)) ?? []
-        return names.contains { name in
-            let value = name.lowercased()
-            return value.contains("react") || value.contains("hermes") || value.contains("expo")
-        }
+        let reactNativeArtifacts: Set<String> = [
+            "React.framework",
+            "React-Core.framework",
+            "React_Core.framework",
+            "ReactCommon.framework",
+        ]
+        return !reactNativeArtifacts.isDisjoint(with: names)
     }
 }
 
