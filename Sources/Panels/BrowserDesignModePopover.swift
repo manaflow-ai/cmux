@@ -352,9 +352,17 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             in cellFrame: NSRect,
             at charIndex: Int
         ) {
-            guard let token = cell as? BrowserDesignModeTokenCell else { return }
-            let identities = attachmentIdentities(in: view.textStorage)
-            guard let position = identities.firstIndex(of: token.identity) else { return }
+            guard let token = cell as? BrowserDesignModeTokenCell,
+                  let selections = controller.snapshot?.selections,
+                  let position = selections.firstIndex(where: { $0.selector == token.identity })
+            else { return }
+            // The XPath is the element's copyable identity: clicking a pill
+            // puts the full path on the clipboard and flashes the element.
+            let selection = selections[position]
+            let identity = selection.xpath.isEmpty ? selection.selector : selection.xpath
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(identity, forType: .string)
             Task { @MainActor [controller] in await controller.revealSelection(at: position) }
         }
 
@@ -450,7 +458,24 @@ final class BrowserDesignModeTokenAttachment: NSTextAttachment {
     required init?(coder: NSCoder) { nil }
 
     static func attributedToken(for selection: BrowserDesignModeSelection, at index: Int) -> NSAttributedString {
-        NSAttributedString(attachment: BrowserDesignModeTokenAttachment(selection: selection))
+        let token = NSMutableAttributedString(
+            attachment: BrowserDesignModeTokenAttachment(selection: selection)
+        )
+        // Hovering a pill shows its (middle-truncated) XPath; clicking the
+        // pill copies the full path.
+        let identity = selection.xpath.isEmpty ? selection.selector : selection.xpath
+        let truncated: String
+        if identity.count > 160 {
+            truncated = "\(identity.prefix(79))…\(identity.suffix(80))"
+        } else {
+            truncated = identity
+        }
+        token.addAttribute(
+            .toolTip,
+            value: truncated,
+            range: NSRange(location: 0, length: token.length)
+        )
+        return token
     }
 }
 
