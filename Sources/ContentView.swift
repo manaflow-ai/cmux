@@ -10634,28 +10634,24 @@ struct VerticalTabsSidebar: View {
         ) { workspaceId in
             refreshWorkspaceSnapshot(workspaceId: workspaceId)
         }
-        .onReceive(extensionSidebarImmediateObservationPublisher) { _ in
-            refreshWorkspaceSnapshots()
-        }
-        .onReceive(extensionSidebarDebouncedObservationPublisher) { _ in
-            refreshWorkspaceSnapshots()
+        .sidebarWorkspaceObservations(
+            ids: renderContext.workspaceIds,
+            workspaces: renderContext.tabs,
+            debouncedInterval: Self.extensionSidebarObservationCoalesceInterval
+        ) { workspaceId in
+            refreshWorkspaceSnapshot(workspaceId: workspaceId)
         }
         .onAppear {
             refreshWorkspaceSnapshots()
-            refreshExtensionSidebarObservationPublishers(tabs: renderContext.tabs)
         }
         .onChange(of: renderContext.workspaceIds) { _, _ in
             refreshWorkspaceSnapshots()
-            refreshExtensionSidebarObservationPublishers(tabs: renderContext.tabs)
         }
         .onChange(of: renderContext.tabItemSettings) { _, _ in
             refreshWorkspaceSnapshots()
         }
         .onChange(of: renderContext.showsAgentActivity) { _, _ in
             refreshWorkspaceSnapshots()
-        }
-        .onDisappear {
-            clearExtensionSidebarObservationPublishers()
         }
     }
 
@@ -11882,42 +11878,63 @@ struct VerticalTabsSidebar: View {
     ) -> some View {
         let signpost = SidebarProfilingSignposts.begin("sidebar-workspace-rows", "renderItems=\(renderContext.workspaceRenderItems.count) collectDropTargets=\(shouldCollectWorkspaceDropTargets)")
         let renderItems = renderContext.workspaceRenderItems
-        // Resolve every model read above the LazyVStack. Its realization
-        // closure only copies immutable row projections and capability
-        // closures; scrolling cannot subscribe a row to live workspace state.
-        let workspaceRowsById = Dictionary(uniqueKeysWithValues: renderContext.tabs.map { workspace in
+        // Reduce live models to cheap immutable values above the LazyVStack.
+        // Full row trees (context-menu notification filtering + row-specific
+        // closure binding) are built only when SwiftUI realizes an item.
+        let unreadSummariesByWorkspaceId = sidebarUnread.summaryByWorkspaceId
+        let notifications = notificationStore.notifications
+        let workspaceRowInputsById = Dictionary(uniqueKeysWithValues: renderContext.tabs.map { workspace in
             (
                 workspace.id,
-                workspaceRow(
+                workspaceRowInput(
                     workspace,
                     renderContext: renderContext,
-                    shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
+                    unreadSummariesByWorkspaceId: unreadSummariesByWorkspaceId
                 )
             )
         })
         let _ = anchorCwdRevision
-        let groupRowsById = Dictionary(uniqueKeysWithValues: renderContext.workspaceGroups.map { group in
+        let groupRowSnapshotsById = Dictionary(uniqueKeysWithValues: renderContext.workspaceGroups.map { group in
             (
                 group.id,
-                sidebarWorkspaceGroupRow(
+                sidebarWorkspaceGroupRowSnapshot(
                     group: group,
                     memberWorkspaceIds: renderContext.memberWorkspaceIdsByGroupId[group.id] ?? [],
                     renderContext: renderContext,
+                    unreadSummariesByWorkspaceId: unreadSummariesByWorkspaceId,
+                    notifications: notifications,
                     shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets,
                     showModifierHoldHints: showModifierHoldHints
                 )
             )
         })
+        let listSnapshot = SidebarWorkspaceRowsSnapshot(
+            workspaceRowsById: workspaceRowInputsById,
+            groupRowsById: groupRowSnapshotsById,
+            selectedContextTargetIds: renderContext.selectedContextTargetIds,
+            anchorWorkspaceIds: Set(renderContext.workspaceGroups.map(\.anchorWorkspaceId)),
+            workspaceGroupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
+            canCreateEmptyGroup: tabManager.selectedTab?.isRemoteTmuxMirror != true,
+            unreadSummariesByWorkspaceId: unreadSummariesByWorkspaceId,
+            notifications: notifications,
+            windowMoveTargets: renderContext.windowMoveTargets
+        )
+        let actionFactory = makeWorkspaceRowActionFactory()
         let rows = LazyVStack(spacing: tabRowSpacing) {
             ForEach(renderItems, id: \.id) { item in
                 switch item {
                 case .groupHeader(let groupId, _):
-                    if let groupRow = groupRowsById[groupId] {
-                        groupRow
+                    if let snapshot = listSnapshot.groupRowsById[groupId] {
+                        sidebarWorkspaceGroupRow(snapshot: snapshot)
                     }
                 case .workspace(let workspaceId):
-                    if let workspaceRow = workspaceRowsById[workspaceId] {
-                        workspaceRow
+                    if let input = listSnapshot.workspaceRowsById[workspaceId] {
+                        workspaceRow(
+                            input: input,
+                            listSnapshot: listSnapshot,
+                            actionFactory: actionFactory,
+                            shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
+                        )
                     }
                 }
             }
@@ -12398,14 +12415,22 @@ struct VerticalTabsSidebar: View {
         guard let app = AppDelegate.shared else { return }
         let orderedIds = tabManager.tabs.compactMap { workspaceIds.contains($0.id) ? $0.id : nil }
         guard !orderedIds.isEmpty else { return }
-        for (index, workspaceId) in orderedIds.enumerated() {
-            _ = app.moveWorkspaceToWindow(
+        var movedIds: [UUID] = []
+        movedIds.reserveCapacity(orderedIds.count)
+        for workspaceId in orderedIds {
+            if app.moveWorkspaceToWindow(
                 workspaceId: workspaceId,
                 windowId: windowId,
-                focus: index == orderedIds.count - 1
-            )
+                focus: false
+            ) {
+                movedIds.append(workspaceId)
+            }
         }
-        selectedTabIds.subtract(orderedIds)
+        guard let focusId = movedIds.last else { return }
+        // The workspace is already attached to the destination, so this takes
+        // AppDelegate's same-manager focus path rather than moving it twice.
+        _ = app.moveWorkspaceToWindow(workspaceId: focusId, windowId: windowId, focus: true)
+        selectedTabIds.subtract(movedIds)
         syncWorkspaceRowSelectionAfterMutation()
     }
 
@@ -12415,25 +12440,27 @@ struct VerticalTabsSidebar: View {
         guard let firstId = orderedIds.first else { return }
         guard let newWindowId = app.moveWorkspaceToNewWindow(
             workspaceId: firstId,
-            focus: orderedIds.count == 1
+            focus: false
         ) else { return }
+        var movedIds = [firstId]
+        movedIds.reserveCapacity(orderedIds.count)
         if orderedIds.count > 1 {
             for workspaceId in orderedIds.dropFirst() {
-                _ = app.moveWorkspaceToWindow(
+                if app.moveWorkspaceToWindow(
                     workspaceId: workspaceId,
                     windowId: newWindowId,
                     focus: false
-                )
-            }
-            if let finalId = orderedIds.last {
-                _ = app.moveWorkspaceToWindow(
-                    workspaceId: finalId,
-                    windowId: newWindowId,
-                    focus: true
-                )
+                ) {
+                    movedIds.append(workspaceId)
+                }
             }
         }
-        selectedTabIds.subtract(orderedIds)
+        // Focus the final successful attachment without detaching or attaching
+        // it again; AppDelegate recognizes it is already in this window.
+        if let focusId = movedIds.last {
+            _ = app.moveWorkspaceToWindow(workspaceId: focusId, windowId: newWindowId, focus: true)
+        }
+        selectedTabIds.subtract(movedIds)
         syncWorkspaceRowSelectionAfterMutation()
     }
 
@@ -12471,30 +12498,17 @@ struct VerticalTabsSidebar: View {
         )
     }
 
-    private func workspaceRow(
+    private func workspaceRowInput(
         _ tab: Workspace,
         renderContext: WorkspaceListRenderContext,
-        shouldCollectWorkspaceDropTargets: Bool
-    ) -> SidebarWorkspaceRowView {
+        unreadSummariesByWorkspaceId: [UUID: SidebarWorkspaceUnreadSummary]
+    ) -> SidebarWorkspaceRowInput {
         let signpost = SidebarProfilingSignposts.begin("sidebar-workspace-row", "index=\(renderContext.tabIndexById[tab.id] ?? -1) workspace=\(sidebarShortTabId(tab.id)) selected=\(tabManager.selectedTabId == tab.id)")
         let index = renderContext.tabIndexById[tab.id] ?? 0
         let usesSelectedContextMenuTargets = selectedTabIds.contains(tab.id)
         let contextMenuWorkspaceIds = usesSelectedContextMenuTargets
             ? renderContext.selectedContextTargetIds
             : [tab.id]
-        let remoteContextMenuWorkspaceIds = usesSelectedContextMenuTargets
-            ? renderContext.selectedRemoteContextMenuWorkspaceIds
-            : (tab.isRemoteWorkspace && !tab.isManagedCloudVMWorkspace ? [tab.id] : [])
-        let allRemoteContextMenuTargetsConnecting = usesSelectedContextMenuTargets
-            ? renderContext.allSelectedRemoteContextMenuTargetsConnecting
-            : (
-                tab.isRemoteWorkspace &&
-                    !tab.isManagedCloudVMWorkspace &&
-                    (tab.remoteConnectionState == .connecting || tab.remoteConnectionState == .reconnecting)
-            )
-        let allRemoteContextMenuTargetsDisconnected = usesSelectedContextMenuTargets
-            ? renderContext.allSelectedRemoteContextMenuTargetsDisconnected
-            : (tab.isRemoteWorkspace && !tab.isManagedCloudVMWorkspace && tab.remoteConnectionState == .disconnected)
         let contextMenuPinTarget = WorkspaceActionDispatcher.Target(
             workspaceIds: contextMenuWorkspaceIds,
             anchorWorkspaceId: tab.id
@@ -12503,9 +12517,10 @@ struct VerticalTabsSidebar: View {
             in: renderContext.pinResolutionContext,
             target: contextMenuPinTarget
         )
-        let liveUnreadCount = sidebarUnread.unreadCount(forWorkspaceId: tab.id)
-        let liveLatestNotificationText: String? = showsSidebarNotificationMessage
-            ? sidebarUnread.latestNotificationText(forWorkspaceId: tab.id)
+        let unreadSummary = unreadSummariesByWorkspaceId[tab.id]
+            ?? SidebarWorkspaceUnreadSummary(unreadCount: 0, latestNotificationText: nil)
+        let liveLatestNotificationText: String? = renderContext.tabItemSettings.showsNotificationMessage
+            ? unreadSummary.latestNotificationText
             : nil
         let liveShowsModifierShortcutHints = showModifierHoldHints && modifierKeyMonitor.isModifierPressed
         let resolvedShowsModifierShortcutHints = SidebarShortcutHintFreezePolicy().resolved(
@@ -12514,15 +12529,6 @@ struct VerticalTabsSidebar: View {
             frozenTabId: frozenShortcutHintsTabId,
             frozenValue: frozenShortcutHintsValue
         )
-        let onContextMenuAppear: () -> Void = { [tabId = tab.id, snapshot = resolvedShowsModifierShortcutHints] in
-            frozenShortcutHintsTabId = tabId
-            frozenShortcutHintsValue = snapshot
-        }
-        let onContextMenuDisappear: () -> Void = { [tabId = tab.id] in
-            if frozenShortcutHintsTabId == tabId {
-                frozenShortcutHintsTabId = nil
-            }
-        }
         let isPointerHovering = pointerInteractionMonitor.hoveredRowId == .workspace(tab.id)
 
         // Per-row drag/drop snapshots. Reading `dragState` here in the parent
@@ -12545,50 +12551,6 @@ struct VerticalTabsSidebar: View {
             tabIds: sidebarReorderIds,
             indicatorScope: dragState.dropIndicatorScope
         )
-        let onDragStart: () -> NSItemProvider = { [tabId = tab.id] in
-            #if DEBUG
-            cmuxDebugLog("sidebar.onDrag tab=\(tabId.uuidString.prefix(5))")
-            #endif
-            dragState.beginDragging(tabId: tabId)
-            return SidebarTabDragPayload(tabId: tabId).provider()
-        }
-        let bonsplitSourceWorkspaceId: @MainActor (UUID) -> UUID? = { tabId in
-            guard let app = AppDelegate.shared else { return nil }
-            return app.locateBonsplitSurface(tabId: tabId)?.workspaceId
-        }
-        let moveBonsplitTabToWorkspace: @MainActor (BonsplitTabDragPayload.Transfer, UUID) -> Bool = { transfer, workspaceId in
-            guard let app = AppDelegate.shared else { return false }
-            return app.moveBonsplitTab(
-                tabId: transfer.tab.id,
-                toWorkspace: workspaceId,
-                focus: true,
-                focusWindow: true
-            )
-        }
-        let syncSidebarSelectionAfterBonsplitDrop: @MainActor () -> Void = {
-            if let selectedId = tabManager.selectedTabId {
-                lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
-            } else {
-                lastSidebarSelectionIndex = nil
-            }
-        }
-        let onToggleChecklistExpansion: () -> Void = { [tabId = tab.id] in
-            if expandedChecklistWorkspaceIds.contains(tabId) {
-                expandedChecklistWorkspaceIds.remove(tabId)
-            } else {
-                expandedChecklistWorkspaceIds.insert(tabId)
-            }
-        }
-        let onConsumeChecklistAddFieldActivation: () -> Void = { [tabId = tab.id] in
-            checklistAddFieldActivationTokens[tabId] = nil
-        }
-        let onChecklistPopoverPresentedChange: @MainActor (Bool) -> Void = { [tabId = tab.id] presented in
-            if presented {
-                checklistPopoverWorkspaceId = tabId
-            } else if checklistPopoverWorkspaceId == tabId {
-                checklistPopoverWorkspaceId = nil
-            }
-        }
         let settings = renderContext.tabItemSettings
         let cachedWorkspaceSnapshot = workspaceSnapshotsById[tab.id]
         let expectedPresentationKey = SidebarWorkspaceSnapshotFactory.presentationKey(
@@ -12607,22 +12569,6 @@ struct VerticalTabsSidebar: View {
             )
         }
 
-        let targetWorkspaces = contextMenuWorkspaceIds.compactMap {
-            renderContext.workspaceById[$0]
-        }
-        let anchorWorkspaceIds = Set(renderContext.workspaceGroups.map(\.anchorWorkspaceId))
-        let eligibleGroupTargets = targetWorkspaces.filter {
-            !anchorWorkspaceIds.contains($0.id)
-        }
-        let eligibleGroupTargetIds = eligibleGroupTargets.map(\.id)
-        let eligibleGroupIds = eligibleGroupTargets.map(\.groupId)
-        let allEligibleTargetsGroupId: UUID? = {
-            guard let first = eligibleGroupIds.first,
-                  eligibleGroupIds.allSatisfy({ $0 == first }) else {
-                return nil
-            }
-            return first
-        }()
         let todoStatusResolution = WorkspaceTaskStatusOverride.effectiveStatus(
             override: tab.todoState.statusOverride,
             inferred: tab.inferredTaskStatus
@@ -12634,37 +12580,7 @@ struct VerticalTabsSidebar: View {
             }
             return override.status
         }()
-        let contextMenuSnapshot = SidebarWorkspaceContextMenuSnapshot(
-            targetWorkspaceIds: contextMenuWorkspaceIds,
-            remoteTargetWorkspaceIds: remoteContextMenuWorkspaceIds,
-            allRemoteTargetsConnecting: allRemoteContextMenuTargetsConnecting,
-            allRemoteTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
-            pinState: contextMenuPinState,
-            groupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
-            canCreateEmptyGroup: tabManager.selectedTab?.isRemoteTmuxMirror != true,
-            eligibleGroupTargetIds: eligibleGroupTargetIds,
-            allEligibleTargetsGroupId: allEligibleTargetsGroupId,
-            hasGroupedEligibleTarget: eligibleGroupTargets.contains { $0.groupId != nil },
-            todoStatusLanes: WorkspaceTodoStatusLane.lanes(
-                inferred: tab.inferredTaskStatus,
-                activeOverride: activeTodoOverride,
-                isHidden: tab.todoState.statusHidden
-            ),
-            canMarkRead: notificationStore.canMarkWorkspaceRead(
-                forTabIds: contextMenuWorkspaceIds
-            ),
-            canMarkUnread: notificationStore.canMarkWorkspaceUnread(
-                forTabIds: contextMenuWorkspaceIds
-            ),
-            hasLatestNotification: contextMenuWorkspaceIds.contains {
-                notificationStore.latestNotification(forTabId: $0) != nil
-            },
-            notifications: notificationStore.notifications(
-                forTabIds: contextMenuWorkspaceIds
-            ),
-            windowMoveTargets: renderContext.windowMoveTargets
-        )
-        let rowSnapshot = SidebarWorkspaceRowSnapshot(
+        let result = SidebarWorkspaceRowInput(
             workspaceId: tab.id,
             groupId: tab.groupId,
             index: index,
@@ -12682,7 +12598,7 @@ struct VerticalTabsSidebar: View {
             ),
             workspaceShortcutModifierSymbol: renderContext.workspaceNumberShortcut.numberedDigitHintPrefix,
             canCloseWorkspace: renderContext.canCloseWorkspace,
-            unreadCount: liveUnreadCount,
+            unreadCount: unreadSummary.unreadCount,
             latestNotificationText: liveLatestNotificationText,
             showsAgentActivity: renderContext.showsAgentActivity,
             rowSpacing: tabRowSpacing,
@@ -12696,53 +12612,85 @@ struct VerticalTabsSidebar: View {
             isChecklistExpanded: expandedChecklistWorkspaceIds.contains(tab.id),
             checklistAddFieldActivationToken: checklistAddFieldActivationTokens[tab.id] ?? 0,
             isChecklistPopoverPresented: checklistPopoverWorkspaceId == tab.id,
-            contextMenu: contextMenuSnapshot
+            isRemoteContextMenuEligible: tab.isRemoteWorkspace && !tab.isManagedCloudVMWorkspace,
+            remoteConnectionState: tab.remoteConnectionState,
+            contextMenuPinState: contextMenuPinState,
+            inferredTaskStatus: tab.inferredTaskStatus,
+            activeTodoOverride: activeTodoOverride,
+            isTodoStatusHidden: tab.todoState.statusHidden
         )
+        SidebarProfilingSignposts.end(signpost)
+        return result
+    }
+
+    /// Captures the parent action surface once per list evaluation. Invoking
+    /// this factory below `LazyVStack` only binds immutable ids/values into
+    /// closures; live models are resolved later when the user performs an
+    /// action, never while SwiftUI realizes or lays out a row.
+    private func makeWorkspaceRowActionFactory() -> SidebarWorkspaceRowActionFactory {
+        let pointerInteractionMonitor = pointerInteractionMonitor
+        return { input in
+        let tabId = input.workspaceId
+        let index = input.index
+        let settings = input.settings
+        let rowId = SidebarWorkspaceRenderItemID.workspace(tabId)
+        let workspace: @MainActor () -> Workspace? = {
+            tabManager.tabs.first { $0.id == tabId }
+        }
         let checklistActions = SidebarWorkspaceChecklistActions(
-            setItemState: { [tab] itemId, state in
+            setItemState: { itemId, state in
+                guard let tab = workspace() else { return }
                 WorkspaceTodoActions.setChecklistItemState(id: itemId, state: state, in: tab)
             },
-            removeItem: { [tab] itemId in
+            removeItem: { itemId in
+                guard let tab = workspace() else { return }
                 WorkspaceTodoActions.removeChecklistItem(id: itemId, from: tab)
             },
-            addItem: { [tab] text in
+            addItem: { text in
+                guard let tab = workspace() else { return }
                 WorkspaceTodoActions.addChecklistItem(text: text, to: tab)
             },
-            editItem: { [tab] itemId, text in
+            editItem: { itemId, text in
+                guard let tab = workspace() else { return }
                 WorkspaceTodoActions.editChecklistItem(id: itemId, text: text, in: tab)
             },
-            moveItem: { [tab] itemId, toIndex in
+            moveItem: { itemId, toIndex in
+                guard let tab = workspace() else { return }
                 WorkspaceTodoActions.moveChecklistItem(id: itemId, toIndex: toIndex, in: tab)
             },
-            openPane: { [tab] in
+            openPane: {
+                guard let tab = workspace() else { return }
                 WorkspaceTodoActions.openTodoPane(for: tab)
             }
         )
-        let rowId = SidebarWorkspaceRenderItemID.workspace(tab.id)
-        let actions = SidebarWorkspaceRowActions(
+        return SidebarWorkspaceRowActions(
             select: { modifiers in
+                guard let tab = workspace() else { return }
                 selectWorkspaceRow(tab, index: index, modifiers: modifiers)
             },
             setCustomTitle: { title in
-                tabManager.setCustomTitle(tabId: tab.id, title: title)
+                tabManager.setCustomTitle(tabId: tabId, title: title)
             },
             clearCustomTitle: {
-                tabManager.clearCustomTitle(tabId: tab.id)
+                tabManager.clearCustomTitle(tabId: tabId)
             },
             clearCustomDescription: {
-                tabManager.clearCustomDescription(tabId: tab.id)
+                tabManager.clearCustomDescription(tabId: tabId)
             },
             editDescription: {
-                selectedTabIds = [tab.id]
+                guard let tab = workspace() else { return }
+                selectedTabIds = [tabId]
                 lastSidebarSelectionIndex = index
                 tabManager.selectTab(tab)
                 selection = .tabs
                 _ = AppDelegate.shared?.requestEditWorkspaceDescriptionViaCommandPalette()
             },
             closeWorkspace: {
-                tabManager.closeWorkspaceWithConfirmation(tab)
+                guard let tab = workspace() else { return }
+                tabManager.closeWorkspaceFromTabCloseButton(tab)
             },
             moveBy: { delta in
+                guard let tab = workspace() else { return }
                 moveWorkspaceRow(tab, by: delta)
             },
             moveTargetsToTop: { targetIds in
@@ -12767,7 +12715,7 @@ struct VerticalTabsSidebar: View {
             },
             closeTargetsBelow: {
                 guard let anchorIndex = tabManager.tabs.firstIndex(
-                    where: { $0.id == tab.id }
+                    where: { $0.id == tabId }
                 ) else { return }
                 closeWorkspaceRows(
                     Array(tabManager.tabs.suffix(from: anchorIndex + 1).map(\.id)),
@@ -12776,7 +12724,7 @@ struct VerticalTabsSidebar: View {
             },
             closeTargetsAbove: {
                 guard let anchorIndex = tabManager.tabs.firstIndex(
-                    where: { $0.id == tab.id }
+                    where: { $0.id == tabId }
                 ) else { return }
                 closeWorkspaceRows(
                     Array(tabManager.tabs.prefix(upTo: anchorIndex).map(\.id)),
@@ -12784,7 +12732,7 @@ struct VerticalTabsSidebar: View {
                 )
             },
             performPin: {
-                guard let contextMenuPinState else {
+                guard let contextMenuPinState = input.contextMenuPinState else {
                     NSSound.beep()
                     return
                 }
@@ -12842,7 +12790,7 @@ struct VerticalTabsSidebar: View {
                 WorkspaceTodoActions.hideStatus(for: workspaces)
             },
             requestChecklistAdd: {
-                WorkspaceTodoActions.requestChecklistAddField(workspaceId: tab.id)
+                WorkspaceTodoActions.requestChecklistAddField(workspaceId: tabId)
             },
             markRead: { workspaceIds in
                 for workspaceId in workspaceIds {
@@ -12871,6 +12819,7 @@ struct VerticalTabsSidebar: View {
                 )
             },
             openPullRequest: { url in
+                guard let tab = workspace() else { return }
                 openWorkspaceRowPullRequest(
                     url,
                     workspace: tab,
@@ -12879,6 +12828,7 @@ struct VerticalTabsSidebar: View {
                 )
             },
             openPort: { port in
+                guard let tab = workspace() else { return }
                 openWorkspaceRowPort(
                     port,
                     workspace: tab,
@@ -12887,36 +12837,86 @@ struct VerticalTabsSidebar: View {
                 )
             },
             checklist: checklistActions,
-            onDragStart: onDragStart,
-            bonsplitSourceWorkspaceId: bonsplitSourceWorkspaceId,
-            moveBonsplitTabToWorkspace: moveBonsplitTabToWorkspace,
-            syncAfterBonsplitDrop: syncSidebarSelectionAfterBonsplitDrop,
-            selectAfterBonsplitDrop: {
-                selectedTabIds = [tab.id]
+            onDragStart: {
+#if DEBUG
+                cmuxDebugLog("sidebar.onDrag tab=\(tabId.uuidString.prefix(5))")
+#endif
+                dragState.beginDragging(tabId: tabId)
+                return SidebarTabDragPayload(tabId: tabId).provider()
             },
-            onToggleChecklistExpansion: onToggleChecklistExpansion,
-            onConsumeChecklistAddFieldActivation: onConsumeChecklistAddFieldActivation,
-            onChecklistPopoverPresentedChange: onChecklistPopoverPresentedChange,
-            onContextMenuAppear: onContextMenuAppear,
-            onContextMenuDisappear: onContextMenuDisappear,
+            bonsplitSourceWorkspaceId: { bonsplitTabId in
+                AppDelegate.shared?.locateBonsplitSurface(tabId: bonsplitTabId)?.workspaceId
+            },
+            moveBonsplitTabToWorkspace: { transfer, workspaceId in
+                guard let app = AppDelegate.shared else { return false }
+                return app.moveBonsplitTab(
+                    tabId: transfer.tab.id,
+                    toWorkspace: workspaceId,
+                    focus: true,
+                    focusWindow: true
+                )
+            },
+            syncAfterBonsplitDrop: {
+                if let selectedId = tabManager.selectedTabId {
+                    lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
+                } else {
+                    lastSidebarSelectionIndex = nil
+                }
+            },
+            selectAfterBonsplitDrop: {
+                selectedTabIds = [tabId]
+            },
+            onToggleChecklistExpansion: {
+                if expandedChecklistWorkspaceIds.contains(tabId) {
+                    expandedChecklistWorkspaceIds.remove(tabId)
+                } else {
+                    expandedChecklistWorkspaceIds.insert(tabId)
+                }
+            },
+            onConsumeChecklistAddFieldActivation: {
+                checklistAddFieldActivationTokens[tabId] = nil
+            },
+            onChecklistPopoverPresentedChange: { presented in
+                if presented {
+                    checklistPopoverWorkspaceId = tabId
+                } else if checklistPopoverWorkspaceId == tabId {
+                    checklistPopoverWorkspaceId = nil
+                }
+            },
+            onContextMenuAppear: {
+                frozenShortcutHintsTabId = tabId
+                frozenShortcutHintsValue = input.showsModifierShortcutHints
+            },
+            onContextMenuDisappear: {
+                if frozenShortcutHintsTabId == tabId {
+                    frozenShortcutHintsTabId = nil
+                }
+            },
             onPointerFrameChange: { [pointerInteractionMonitor] frame in
                 pointerInteractionMonitor.updateFrame(
                     frame,
                     for: rowId,
-                    workspaceId: tab.id
+                    workspaceId: tabId
                 )
             },
             onPointerFrameDisappear: { [pointerInteractionMonitor] in
                 pointerInteractionMonitor.removeFrame(for: rowId)
             }
         )
-        let result = SidebarWorkspaceRowView(
-            snapshot: rowSnapshot,
-            actions: actions,
+        }
+    }
+
+    private func workspaceRow(
+        input: SidebarWorkspaceRowInput,
+        listSnapshot: SidebarWorkspaceRowsSnapshot,
+        actionFactory: SidebarWorkspaceRowActionFactory,
+        shouldCollectWorkspaceDropTargets: Bool
+    ) -> SidebarWorkspaceRowView {
+        SidebarWorkspaceRowView(
+            snapshot: input.rowSnapshot(list: listSnapshot),
+            actions: actionFactory(input),
             shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
         )
-        SidebarProfilingSignposts.end(signpost)
-        return result
     }
 
 }

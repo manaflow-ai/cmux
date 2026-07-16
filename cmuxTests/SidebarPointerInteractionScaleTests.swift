@@ -205,14 +205,15 @@ final class SidebarOverflowingScrollStatusChurnTests {
         for iteration in 0..<32 {
             let target = statusTargets[iteration % statusTargets.count]
             let key = "issue-6707.status"
-            if iteration.isMultiple(of: 3) {
-                target.statusEntries.removeValue(forKey: key)
-            } else {
+            let snapshotBuildsBeforeMutation = harness.counter.workspaceSnapshotBuilds
+            if (iteration / statusTargets.count).isMultiple(of: 2) {
                 target.statusEntries[key] = SidebarStatusEntry(
                     key: key,
                     value: "CLI status update \(iteration)",
                     icon: "bolt.fill"
                 )
+            } else {
+                target.statusEntries.removeValue(forKey: key)
             }
 
             // Re-read the live document height because adding/removing a
@@ -243,12 +244,19 @@ final class SidebarOverflowingScrollStatusChurnTests {
                 window: harness.window
             ))
 
-            // The parent sidebar observation is intentionally coalesced for
-            // 40 ms. Wait past that signal so every cycle exercises the real
-            // snapshot refresh while scrolling, rather than collapsing the
-            // entire test into one final update.
-            try await Task.sleep(for: .milliseconds(50))
-            await SidebarLazyLayoutScaleTests.drainMainRunLoop(for: harness.window, iterations: 3)
+            // Wait on the keyed per-workspace refresh itself, not a scheduler
+            // delay. This proves every mutation reached the parent snapshot
+            // boundary while the live-scroll transaction was active.
+            let refreshDeadline = ProcessInfo.processInfo.systemUptime + 2
+            while harness.counter.workspaceSnapshotBuilds <= snapshotBuildsBeforeMutation,
+                  ProcessInfo.processInfo.systemUptime < refreshDeadline {
+                SidebarLazyLayoutScaleTests.turnMainRunLoopOnce(layingOut: harness.window)
+                await Task.yield()
+            }
+            #expect(
+                harness.counter.workspaceSnapshotBuilds > snapshotBuildsBeforeMutation,
+                "Workspace \(target.id) did not publish a keyed sidebar snapshot refresh for iteration \(iteration)."
+            )
         }
         await SidebarLazyLayoutScaleTests.drainMainRunLoop(for: harness.window)
 

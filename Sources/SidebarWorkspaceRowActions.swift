@@ -55,3 +55,6 @@ struct SidebarWorkspaceRowActions {
     let onPointerFrameChange: (CGRect) -> Void
     let onPointerFrameDisappear: () -> Void
 }
+
+/// Binds parent-owned action capabilities to one lazily realized row input.
+typealias SidebarWorkspaceRowActionFactory = @MainActor (SidebarWorkspaceRowInput) -> SidebarWorkspaceRowActions

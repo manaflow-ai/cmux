@@ -279,7 +279,7 @@ final class SidebarLazyLayoutScaleTests {
     /// graph from inside SwiftUI layout and recreate the #6707 reentry path.
     @Test
     @MainActor
-    func testRowBodyEvaluationBuildsWorkspaceSnapshotAtMostOnce() async throws {
+    func testRowBodyEvaluationNeverBuildsWorkspaceSnapshot() async throws {
         let harness = try await Self.mountSidebar(workspaceCount: Self.workspaceCount)
         defer { harness.tearDown() }
 

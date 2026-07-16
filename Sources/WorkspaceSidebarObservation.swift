@@ -14,6 +14,46 @@ private struct SidebarPanelObservationState: Equatable {
 }
 
 extension View {
+    /// Observes row-affecting workspace publishers above the lazy-list boundary.
+    ///
+    /// Each task retains the workspace identity that produced a change, so a
+    /// status/metadata/title update rebuilds one immutable row projection
+    /// instead of walking every workspace. The initial CombineLatest value is
+    /// intentionally delivered: it closes the gap between the owner's first
+    /// snapshot and subscription setup, while the snapshot equality guard makes
+    /// an unchanged initial value a no-op.
+    func sidebarWorkspaceObservations(
+        ids: [UUID],
+        workspaces: [Workspace],
+        debouncedInterval: RunLoop.SchedulerTimeType.Stride,
+        onChange: @MainActor @escaping (UUID) -> Void
+    ) -> some View {
+        task(id: ids) { @MainActor in
+            await withTaskGroup(of: Void.self) { group in
+                for (id, workspace) in zip(ids, workspaces) {
+                    let immediateChanges = workspace.sidebarImmediateObservationPublisher
+                        .values
+                    let debouncedChanges = workspace.sidebarObservationPublisher
+                        .receive(on: RunLoop.main)
+                        .debounce(for: debouncedInterval, scheduler: RunLoop.main)
+                        .values
+                    group.addTask { @MainActor in
+                        for await _ in immediateChanges {
+                            if Task.isCancelled { break }
+                            onChange(id)
+                        }
+                    }
+                    group.addTask { @MainActor in
+                        for await _ in debouncedChanges {
+                            if Task.isCancelled { break }
+                            onChange(id)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     func sidebarAgentRuntimeObservation(
         id: UUID,
         model: WorkspaceSidebarAgentRuntimeObservationModel,
