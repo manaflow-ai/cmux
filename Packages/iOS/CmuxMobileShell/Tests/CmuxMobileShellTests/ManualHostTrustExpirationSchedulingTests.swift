@@ -9,9 +9,10 @@ import Testing
     @Test func repeatedHealthSchedulingKeepsOneExpirationLookup() async throws {
         let router = LivenessHostRouter()
         let trustStore = CountingExpirationManualHostTrustStore()
+        let clock = TestClock()
         let runtime = LivenessTestRuntime(
             transportFactory: LivenessTransportFactory(router: router, box: TransportBox()),
-            now: { Date() },
+            now: { clock.now },
             supportedRouteKinds: [.manualHost],
             supportsServerPushEvents: false
         )

@@ -7,6 +7,7 @@ import Testing
 @MainActor
 @Suite struct PrimaryRouteAuthorizationFallbackTests {
     @Test func authorizationFailureDoesNotFallBackToTrustedManualHost() async throws {
+        let clock = TestClock()
         let tailscaleRoute = try CmxAttachRoute(
             id: "preferred-tailscale",
             kind: .tailscale,
@@ -26,7 +27,7 @@ import Testing
             macDisplayName: "Candidate Mac",
             macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
             routes: [tailscaleRoute, manualRoute],
-            expiresAt: Date().addingTimeInterval(3_600)
+            expiresAt: clock.now.addingTimeInterval(3_600)
         )
         let trustStore = InMemoryMobileManualHostTrustStore()
         let manualScope = try #require(
@@ -40,7 +41,7 @@ import Testing
                 box: TransportBox(),
                 attempts: attempts
             ),
-            now: { Date() },
+            now: { clock.now },
             supportedRouteKinds: [.tailscale, .manualHost],
             supportsServerPushEvents: false
         )

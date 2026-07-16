@@ -174,6 +174,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
     public internal(set) var macConnectionStatus: MobileMacConnectionStatus
     public internal(set) var connectedHostName: String
+    /// User-facing description of the most recent connection failure, or `nil`
+    /// while no failure is being surfaced.
     public internal(set) var connectionError: String?
     /// Actionable next-step line shown beneath ``connectionError`` (for example
     /// "Check that both devices are on the same Tailscale"). Set and cleared

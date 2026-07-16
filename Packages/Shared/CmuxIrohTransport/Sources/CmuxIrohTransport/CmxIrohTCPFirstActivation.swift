@@ -8,6 +8,13 @@ public struct CmxIrohTCPFirstActivation {
     /// Creates a TCP-first activation sequencer.
     public init() {}
 
+    /// Starts the required TCP listener synchronously, then schedules the
+    /// optional Iroh activation work.
+    ///
+    /// - Parameters:
+    ///   - startTCP: Synchronously starts the required TCP listener.
+    ///   - scheduleIroh: Enqueues asynchronous Iroh activation and returns
+    ///     immediately without blocking on policy or credential work.
     public func start(
         startTCP: () -> Void,
         scheduleIroh: () -> Void

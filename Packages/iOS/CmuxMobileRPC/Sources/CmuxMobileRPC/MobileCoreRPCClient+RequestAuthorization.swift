@@ -63,27 +63,28 @@ extension MobileCoreRPCClient {
         return method != "mobile.host.status"
     }
 
-    private static func stringParamSelection(
-        _ params: [String: Any],
-        keys: [String]
-    ) -> StringParamSelection {
-        var selected: String?
-        for key in keys {
-            if let value = params[key] as? String {
-                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty {
-                    if let selected, selected != trimmed {
-                        return StringParamSelection(value: selected, hasConflict: true)
-                    }
-                    selected = selected ?? trimmed
+}
+
+private func stringParamSelection(
+    _ params: [String: Any],
+    keys: [String]
+) -> StringParamSelection {
+    var selected: String?
+    for key in keys {
+        if let value = params[key] as? String {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                if let selected, selected != trimmed {
+                    return StringParamSelection(value: selected, hasConflict: true)
                 }
+                selected = selected ?? trimmed
             }
         }
-        return StringParamSelection(value: selected, hasConflict: false)
     }
+    return StringParamSelection(value: selected, hasConflict: false)
+}
 
-    private struct StringParamSelection {
-        let value: String?
-        let hasConflict: Bool
-    }
+private struct StringParamSelection {
+    let value: String?
+    let hasConflict: Bool
 }
