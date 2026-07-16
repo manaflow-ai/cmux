@@ -417,6 +417,8 @@ extension CmuxSettingsFileStore {
         "terminal.rendererRealization.enabled",
         "terminal.rendererRealization.idleSeconds",
         "terminal.rendererRealization.maxWarmRenderers",
+        SessionContentWidthSettings.settingsPath,
+        SessionContentWidthSettings.alignmentSettingsPath,
         "terminal.textBoxMaxLines",
         "terminal.resumeCommands",
         "terminal.uploadCommands",
