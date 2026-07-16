@@ -50,6 +50,9 @@ package actor SimulatorProcessGroupProcess {
             SimulatorInheritedProcessTree(rootProcessIdentifier: processIdentifier)
         }
         startReaper()
+        if grouping == .inheritedProcessGroup {
+            _ = Darwin.kill(processIdentifier, SIGCONT)
+        }
     }
 
     deinit {
@@ -125,6 +128,11 @@ package actor SimulatorProcessGroupProcess {
                 // The leader is reaped, but descendants may still retain pipes
                 // or ignore an earlier signal. This group is exclusively ours.
                 _ = processGroup.signal(SIGKILL, groupIdentifier: processIdentifier)
+            } else {
+                // NOTE_FORK monitoring records descendants while their ancestry
+                // is still verifiable, including helpers whose leader exits normally.
+                _ = self?.inheritedProcessTree?.signalRetainedDescendants(SIGKILL)
+                self?.inheritedProcessTree?.stopMonitoring()
             }
             Task {
                 await self?.recordTermination(status)
@@ -162,12 +170,23 @@ private final class SimulatorInheritedProcessTree: @unchecked Sendable {
 
     private let rootProcessIdentifier: pid_t
     private let rootProcessIdentity: SimulatorRetainedProcessIdentity?
+    private let monitoringQueue = DispatchQueue(
+        label: "com.cmux.simulator.inherited-process-tree"
+    )
     private let lock = NSLock()
     private var retainedDescendants: Set<SimulatorRetainedProcessIdentity> = []
+    private var processSources: [SimulatorRetainedProcessIdentity: DispatchSourceProcess] = [:]
 
     init(rootProcessIdentifier: pid_t) {
         self.rootProcessIdentifier = rootProcessIdentifier
         rootProcessIdentity = SimulatorRetainedProcessIdentity(pid: rootProcessIdentifier)
+        if let rootProcessIdentity {
+            trackForks(from: rootProcessIdentity)
+        }
+    }
+
+    deinit {
+        stopMonitoring()
     }
 
     @discardableResult
@@ -186,6 +205,7 @@ private final class SimulatorInheritedProcessTree: @unchecked Sendable {
             retainedDescendants.formUnion(discoveredIdentities)
             return Array(retainedDescendants)
         }
+        discoveredIdentities.forEach(trackForks)
         var signalled = false
         for identity in descendants
             where SimulatorRetainedProcessIdentity(pid: identity.pid) == identity {
@@ -199,6 +219,64 @@ private final class SimulatorInheritedProcessTree: @unchecked Sendable {
             signalled = true
         }
         return signalled
+    }
+
+    @discardableResult
+    func signalRetainedDescendants(_ signal: Int32) -> Bool {
+        let descendants = lock.withLock { Array(retainedDescendants) }
+        var signalled = false
+        for identity in descendants
+            where SimulatorRetainedProcessIdentity(pid: identity.pid) == identity {
+            if Darwin.kill(identity.pid, signal) == 0 || errno == ESRCH {
+                signalled = true
+            }
+        }
+        return signalled
+    }
+
+    func stopMonitoring() {
+        let sources = lock.withLock { () -> [DispatchSourceProcess] in
+            let sources = Array(processSources.values)
+            processSources.removeAll()
+            return sources
+        }
+        sources.forEach { $0.cancel() }
+    }
+
+    private func trackForks(from identity: SimulatorRetainedProcessIdentity) {
+        guard SimulatorRetainedProcessIdentity(pid: identity.pid) == identity else { return }
+        let source = DispatchSource.makeProcessSource(
+            identifier: identity.pid,
+            eventMask: [.fork, .exit],
+            queue: monitoringQueue
+        )
+        let shouldStart = lock.withLock { () -> Bool in
+            guard processSources[identity] == nil else { return false }
+            processSources[identity] = source
+            return true
+        }
+        guard shouldStart else {
+            source.activate()
+            source.cancel()
+            return
+        }
+        source.setEventHandler { [weak self, weak source] in
+            guard let self, let source else { return }
+            let events = source.data
+            if events.contains(.fork),
+               SimulatorRetainedProcessIdentity(pid: identity.pid) == identity {
+                let children = Self.directChildren(of: identity)
+                self.lock.withLock {
+                    self.retainedDescendants.formUnion(children)
+                }
+                children.forEach(self.trackForks)
+            }
+            if events.contains(.exit) {
+                _ = self.lock.withLock { self.processSources.removeValue(forKey: identity) }
+                source.cancel()
+            }
+        }
+        source.activate()
     }
 
     private static func descendantsChildFirst(

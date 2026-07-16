@@ -13,8 +13,9 @@ final class SimulatorProcessSession {
     private let terminationEvents: AsyncStream<Void>
     private let terminationContinuation: AsyncStream<Void>.Continuation
     private var outputTask: Task<Void, Never>?
+    private var outputReader: SimulatorProcessOutputReader?
     private var escalationTask: Task<Void, Never>?
-    private var terminationWaiters: [CheckedContinuation<Void, Never>] = []
+    private var onTermination: (@MainActor @Sendable () -> Void)?
 
     init(
         sleeper: any SimulatorProcessSleeper = ContinuousSimulatorProcessSleeper(),
@@ -42,6 +43,7 @@ final class SimulatorProcessSession {
         if capturesOutput {
             let handle = outputPipe.fileHandleForReading
             let reader = SimulatorProcessOutputReader(fileDescriptor: handle.fileDescriptor)
+            outputReader = reader
             outputTask = Task.detached {
                 for await batch in reader.batches() {
                     guard !Task.isCancelled else { return }
@@ -68,6 +70,7 @@ final class SimulatorProcessSession {
                 grouping: .dedicatedProcessGroup
             )
             self.process = process
+            self.onTermination = onTermination
             isRunning = true
             Task { [weak self, weak process] in
                 await process?.setTerminationHandler { [weak self, weak process] _ in
@@ -78,14 +81,8 @@ final class SimulatorProcessSession {
                             await outputTask.value
                         }
                         self.outputTask = nil
-                        onTermination()
-                        self.isRunning = false
-                        let waiters = self.terminationWaiters
-                        self.terminationWaiters.removeAll()
-                        waiters.forEach { $0.resume() }
-                        self.terminationContinuation.yield(())
-                        self.terminationContinuation.finish()
-                        self.escalationTask = nil
+                        self.outputReader = nil
+                        self.finishTermination()
                     }
                 }
             }
@@ -96,6 +93,9 @@ final class SimulatorProcessSession {
             try? outputPipe.fileHandleForWriting.close()
             outputTask?.cancel()
             outputTask = nil
+            outputReader?.cancel()
+            outputReader = nil
+            self.onTermination = nil
             terminationContinuation.finish()
             throw error
         }
@@ -110,18 +110,30 @@ final class SimulatorProcessSession {
         guard isRunning else { return }
         let task = startEscalationIfNeeded()
         await task.value
-        await waitUntilTerminationCallbackCompletes()
+        let result = await waitForSimulatorProcessTermination(
+            events: terminationEvents,
+            sleeper: ContinuousSimulatorProcessSleeper(),
+            for: .seconds(2)
+        )
+        if result != .terminated, isRunning {
+            outputReader?.cancel()
+            outputTask?.cancel()
+            process = nil
+            outputTask = nil
+            outputReader = nil
+            finishTermination()
+        }
     }
 
-    private func waitUntilTerminationCallbackCompletes() async {
+    private func finishTermination() {
         guard isRunning else { return }
-        await withCheckedContinuation { continuation in
-            if isRunning {
-                terminationWaiters.append(continuation)
-            } else {
-                continuation.resume()
-            }
-        }
+        let callback = onTermination
+        onTermination = nil
+        callback?()
+        isRunning = false
+        terminationContinuation.yield(())
+        terminationContinuation.finish()
+        escalationTask = nil
     }
 
     private func startEscalationIfNeeded() -> Task<Void, Never> {
@@ -160,6 +172,7 @@ final class SimulatorProcessSession {
             }
         }
         outputTask?.cancel()
+        outputReader?.cancel()
         terminationContinuation.finish()
     }
 }

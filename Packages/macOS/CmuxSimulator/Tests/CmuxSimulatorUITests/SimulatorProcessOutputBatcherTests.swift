@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 @testable import CmuxSimulatorUI
@@ -28,5 +29,24 @@ struct SimulatorProcessOutputBatcherTests {
         let line = batcher.finish()?.first
 
         #expect(line?.utf8.count == 64 * 1_024)
+    }
+
+    @Test("Cancellation wakes a reader blocked on an open pipe")
+    func cancellationWakesBlockedReader() async throws {
+        var descriptors: [Int32] = [-1, -1]
+        try #require(Darwin.pipe(&descriptors) == 0)
+        let reader = SimulatorProcessOutputReader(fileDescriptor: descriptors[0])
+        Darwin.close(descriptors[0])
+        defer { Darwin.close(descriptors[1]) }
+        let task = Task {
+            for await _ in reader.batches() {}
+        }
+
+        await Task.yield()
+        reader.cancel()
+        await task.value
+
+        // A repeated lifecycle cancellation after EOF must not raise SIGPIPE.
+        reader.cancel()
     }
 }

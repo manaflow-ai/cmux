@@ -69,6 +69,10 @@ package struct SimulatorPOSIXProcessLauncher: Sendable {
         if grouping == .dedicatedProcessGroup {
             spawnFlags |= Int16(POSIX_SPAWN_SETPGROUP)
             try throwPOSIXErrorIfNeeded(posix_spawnattr_setpgroup(&attributes, 0))
+        } else {
+            // The process wrapper installs NOTE_FORK monitoring before resuming
+            // inherited commands, so a fast fork-and-exit cannot outrun it.
+            spawnFlags |= Int16(POSIX_SPAWN_START_SUSPENDED)
         }
         try throwPOSIXErrorIfNeeded(posix_spawnattr_setflags(&attributes, spawnFlags))
 

@@ -131,6 +131,42 @@ struct SimulatorSubprocessTests {
         await Self.expectProcessExited(identifiers.child)
     }
 
+    @Test("Normal leader exit terminates inherited descendants")
+    func normalExitTerminatesInheritedSubprocessTree() async throws {
+        let marker = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-subprocess-normal-descendant-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: marker) }
+        let runner = SimulatorSubprocessRunner()
+        let result = try await runner.run(
+            executableURL: URL(fileURLWithPath: "/usr/bin/perl"),
+            arguments: [
+                "-MPOSIX",
+                "-e",
+                #"""
+            my $child = fork();
+            defined($child) or die "fork: $!";
+            if ($child == 0) {
+                open(STDIN, '<', '/dev/null') or die "stdin: $!";
+                open(STDOUT, '>', '/dev/null') or die "stdout: $!";
+                open(STDERR, '>', '/dev/null') or die "stderr: $!";
+                while (1) { sleep 1; }
+            }
+            open(my $marker, '>', $ARGV[0]) or die "marker: $!";
+            print $marker "$$ ", POSIX::getpgrp(), " $child\n";
+            close($marker);
+            exit 0;
+            """#,
+                marker.path,
+            ]
+        )
+        let identifiers = try await Self.requireNormalExitMarker(marker)
+
+        #expect(result.status == 0)
+        #expect(identifiers.leaderGroup == getpgrp())
+        #expect(identifiers.leaderGroup != identifiers.leader)
+        await Self.expectProcessExited(identifiers.child)
+    }
+
     private static func readProcessTreeMarker(
         _ marker: URL
     ) throws -> (leader: Int32, leaderGroup: Int32, child: Int32, childGroup: Int32) {
@@ -155,6 +191,24 @@ struct SimulatorSubprocessTests {
         }
         throw SimulatorWorkerFailure.privateAPIUnavailable(
             "The subprocess fixture did not publish its process tree."
+        )
+    }
+
+    private static func requireNormalExitMarker(
+        _ marker: URL
+    ) async throws -> (leader: Int32, leaderGroup: Int32, child: Int32) {
+        let deadline = ContinuousClock().now.advanced(by: .seconds(2))
+        while ContinuousClock().now < deadline {
+            if let fields = try? String(contentsOf: marker, encoding: .utf8)
+                .split(whereSeparator: \.isWhitespace)
+                .compactMap({ Int32($0) }),
+               fields.count == 3 {
+                return (fields[0], fields[1], fields[2])
+            }
+            try await ContinuousClock().sleep(for: .milliseconds(10))
+        }
+        throw SimulatorWorkerFailure.privateAPIUnavailable(
+            "The normal-exit fixture did not publish its process tree."
         )
     }
 
