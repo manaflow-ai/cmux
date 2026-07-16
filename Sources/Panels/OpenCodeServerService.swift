@@ -1,5 +1,34 @@
 import Foundation
 
+private final class OpenCodeServerProcessOwner: @unchecked Sendable {
+    private let lock = NSLock()
+    private var process: Process?
+
+    func store(_ process: Process) {
+        lock.withLock {
+            self.process = process
+        }
+    }
+
+    func clear(processIdentifier: Int32) {
+        lock.withLock {
+            guard process?.processIdentifier == processIdentifier else { return }
+            process = nil
+        }
+    }
+
+    func terminate() {
+        let process = lock.withLock {
+            let process = self.process
+            self.process = nil
+            return process
+        }
+        if let process, process.isRunning {
+            process.terminate()
+        }
+    }
+}
+
 actor OpenCodeServerService: OpenCodeServerServing {
     private struct PendingConnection {
         let continuation: CheckedContinuation<OpenCodeServerConnection, Error>
@@ -12,6 +41,7 @@ actor OpenCodeServerService: OpenCodeServerServing {
     private var stderrHandle: FileHandle?
     private var outputBuffers: [String: Data] = [:]
     private var leaseCount = 0
+    private nonisolated let processOwner = OpenCodeServerProcessOwner()
 
     func acquireConnection(plan: AgentSessionLaunchPlan) async throws -> OpenCodeServerConnection {
         guard plan.provider == .opencode else {
@@ -38,6 +68,10 @@ actor OpenCodeServerService: OpenCodeServerServing {
         leaseCount -= 1
         guard leaseCount == 0, pendingConnections.isEmpty else { return }
         stopServer()
+    }
+
+    nonisolated func terminateImmediately() {
+        processOwner.terminate()
     }
 
     nonisolated static func serverURL(from text: String) -> URL? {
@@ -80,6 +114,7 @@ actor OpenCodeServerService: OpenCodeServerServing {
         }
 
         self.process = process
+        processOwner.store(process)
         stdoutHandle = stdout.fileHandleForReading
         stderrHandle = stderr.fileHandleForReading
         installReadHandler(stdout.fileHandleForReading, stream: "stdout")
@@ -168,6 +203,9 @@ actor OpenCodeServerService: OpenCodeServerServing {
     }
 
     private func clearServerState() {
+        if let process {
+            processOwner.clear(processIdentifier: process.processIdentifier)
+        }
         stdoutHandle?.readabilityHandler = nil
         stdoutHandle = nil
         stderrHandle?.readabilityHandler = nil
