@@ -931,6 +931,8 @@
           "globalFontMagnification": "Skalerer cmux-ejede terminaler, fanetitler, sidepaneler, indstillinger, overlejringer og app-chrome med denne procent. Renderet browserindhold er ikke inkluderet."
         },
         "terminal": {
+          "sessionContentMaxWidth": "Valgfri maksimal bredde i punkter for terminalindhold og den indbyggede agentchat. Angiv false for at bruge hele rudens bredde.",
+          "sessionContentAlignment": "Vandret placering af terminalindhold og den indbyggede agentchat, når sessionContentMaxWidth er aktiveret.",
           "copyOnSelect": "Når værdien er true, kopieres markeret terminaltekst til systemets udklipsholder, når markeringen bekræftes. Når værdien er false, udsender cmux ikke en Ghostty copy-on-select-tilsidesættelse; Ghostty-konfiguration og standarder styrer markeringsudklipsholderens adfærd.",
           "scrollSpeed": "Multiplikator anvendt på rulleværdier fra musehjul og pegefelt i terminalen. Højere værdier ruller hurtigere, lavere værdier langsommere.",
           "showTextBoxOnNewTerminals": "Viser beta-TextBox-input som standard for nyoprettede arbejdsområder, terminalfaner og terminalsplits.",
