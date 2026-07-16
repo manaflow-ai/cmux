@@ -78,10 +78,13 @@ public enum AgentLaunchCaptureTrust {
         kind: String
     ) -> Bool {
         guard launcherDescribesKind(launcher, kind: kind),
-              let normalizedLauncher = normalizedAgentName(launcher),
               let normalizedKind = normalizedAgentName(kind) else {
             return false
         }
+        // Older hook wrappers can provide argv without a launch-kind marker.
+        // `launcherDescribesKind` intentionally trusts that absence, so treat
+        // it as the hook's own kind rather than invalidating the capture here.
+        let normalizedLauncher = normalizedAgentName(launcher) ?? normalizedKind
         if normalizedLauncher != normalizedKind {
             return true
         }

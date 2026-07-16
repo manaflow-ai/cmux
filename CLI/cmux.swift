@@ -27486,7 +27486,7 @@ struct CMUXCLI {
             ? decodeNULSeparatedBase64(env["CMUX_AGENT_LAUNCH_ARGV_B64"])
             : nil
         let envExecutablePath = normalizedHookValue(env["CMUX_AGENT_LAUNCH_EXECUTABLE"])
-        let envArguments = decodedEnvArguments.flatMap { arguments in
+        let validEnvArguments = decodedEnvArguments.flatMap { arguments in
             AgentLaunchCaptureTrust.capturedArgumentsDescribeKind(
                 launcher: envLauncher,
                 executablePath: envExecutablePath,
@@ -27510,80 +27510,99 @@ struct CMUXCLI {
             // `sh -c …` wrapper), not the agent. That argv is not a launch.
             processArguments = nil
         }
-        let arguments = envArguments ?? processArguments
-        let launcher = envCaptureIsTrusted ? (envLauncher ?? fallbackKind) : fallbackKind
         let exactEnvironmentLauncher = normalizedHookValue(envLauncher)?.lowercased()
             == normalizedHookValue(fallbackKind)?.lowercased()
+        let environmentEvidence: AgentLaunchCaptureEvidence = {
+            if exactEnvironmentLauncher {
+                return .exactEnvironmentLauncher
+            }
+            if envCaptureIsTrusted, envLauncher != nil {
+                return .wrapperEnvironmentLauncher
+            }
+            return .unavailable
+        }()
+        let arguments: [String]?
+        let evidence: AgentLaunchCaptureEvidence
+        let launcher: String
+        let executablePath: String?
+        if let validEnvArguments {
+            arguments = validEnvArguments
+            evidence = environmentEvidence
+            launcher = envLauncher ?? fallbackKind
+            executablePath = envExecutablePath ?? validEnvArguments.first
+        } else if let processArguments {
+            arguments = processArguments
+            evidence = .nativeProcess
+            launcher = fallbackKind
+            executablePath = processArguments.first
+        } else {
+            // Retain an exact launcher's truncated capture as evidence for the
+            // canonical provider command. The planner will never replay it.
+            arguments = decodedEnvArguments
+            evidence = environmentEvidence
+            launcher = envCaptureIsTrusted ? (envLauncher ?? fallbackKind) : fallbackKind
+            executablePath = envCaptureIsTrusted
+                ? (envExecutablePath ?? decodedEnvArguments?.first)
+                : nil
+        }
         let workingDirectory = (envCaptureIsTrusted ? normalizedHookValue(env["CMUX_AGENT_LAUNCH_CWD"]) : nil)
             ?? normalizedHookValue(cwd)
             ?? normalizedHookValue(env["PWD"])
         let environment = selectedAgentLaunchEnvironment(from: env, kind: launcher)
 
-        // Fallback when the launch argv is genuinely UNAVAILABLE: plain `codex` with no cmux launcher
-        // (no CMUX_AGENT_LAUNCH_ARGV_B64) and an unresolved/exited PID, so processArguments returns nil.
-        // The argv is gone, but the agent's launch env may still carry a non-default home that
-        // resume/fork MUST reproduce or the session won't be found — above all CODEX_HOME when codex
-        // runs under the subrouter account manager (~/.codex-accounts/<account>), also CLAUDE_CONFIG_DIR
-        // for Claude. AgentResumeCommandBuilder then prefixes it ahead of the kind's fallback verb
-        // (`CODEX_HOME=<home> codex resume <id>`), while launcher/kind resolution still gates whether a
-        // resume command is produced (omx/omc and unknown kinds stay non-resumable). Empty selected env
-        // keeps the historical nil. This deliberately does NOT cover a captured-but-rejected argv (see
-        // the sanitizer guard below), so non-restorable invocations stay non-resumable.
-        func environmentOnlyRecord() -> AgentHookLaunchCommandRecord? {
-            guard !environment.isEmpty else {
-                // An exact launcher is durable evidence for the built-in
-                // canonical resume verb even if its interpreter hid the real
-                // entrypoint from argv capture. Never replay the incomplete
-                // interpreter prefix itself.
-                return (fallbackKind == "codex" || exactEnvironmentLauncher)
-                    ? AgentHookLaunchCommandRecord(launcher: launcher, executablePath: nil, arguments: [], workingDirectory: workingDirectory, environment: nil, capturedAt: Date().timeIntervalSince1970, source: "default")
-                    : nil
-            }
+        let sanitizedArguments = arguments.flatMap {
+            sanitizedAgentLaunchArguments(
+                $0,
+                launcher: launcher,
+                fallbackKind: fallbackKind
+            )
+        }
+        let plan = AgentLaunchReplayPlanner().plan(
+            kind: fallbackKind,
+            launcher: launcher,
+            executablePath: executablePath,
+            capturedArguments: arguments,
+            sanitizedArguments: sanitizedArguments,
+            evidence: evidence,
+            hasSelectedEnvironment: !environment.isEmpty
+        )
+        let capturedAt = Date().timeIntervalSince1970
+        switch plan {
+        case .captured(let sanitizedArguments, let captureEvidence):
+            let source = captureEvidence == .nativeProcess ? "process" : "environment"
+            return AgentHookLaunchCommandRecord(
+                launcher: launcher,
+                executablePath: executablePath,
+                arguments: sanitizedArguments,
+                workingDirectory: workingDirectory,
+                environment: environment.isEmpty ? nil : environment,
+                capturedAt: capturedAt,
+                source: source
+            )
+        case .canonical:
+            let source = !environment.isEmpty && arguments == nil ? "environment" : "default"
             return AgentHookLaunchCommandRecord(
                 launcher: launcher,
                 executablePath: nil,
                 arguments: [],
                 workingDirectory: workingDirectory,
-                environment: environment,
-                capturedAt: Date().timeIntervalSince1970,
-                source: "environment"
+                environment: environment.isEmpty ? nil : environment,
+                capturedAt: capturedAt,
+                source: source
             )
+        case .rejected:
+            return AgentHookLaunchCommandRecord(
+                launcher: launcher,
+                executablePath: executablePath,
+                arguments: [],
+                workingDirectory: workingDirectory,
+                environment: nil,
+                capturedAt: capturedAt,
+                source: "rejected"
+            )
+        case .unavailable:
+            return nil
         }
-
-        guard let arguments, !arguments.isEmpty else {
-            return environmentOnlyRecord()
-        }
-
-        let executablePath = (envCaptureIsTrusted ? envExecutablePath : nil)
-            ?? arguments.first
-        guard let sanitizedArguments = sanitizedAgentLaunchArguments(
-            arguments,
-            launcher: launcher,
-            fallbackKind: fallbackKind
-        ) else {
-            // Sanitized-away argv means a non-restorable invocation. Do not
-            // replace it with an env-only fallback.
-            return AgentHookLaunchCommandRecord(launcher: launcher, executablePath: executablePath, arguments: [], workingDirectory: workingDirectory, environment: nil, capturedAt: Date().timeIntervalSince1970, source: "rejected")
-        }
-        guard AgentHookSanitizedLaunchCapturePolicy().canReplay(
-            launcher: launcher,
-            executablePath: executablePath,
-            arguments: sanitizedArguments,
-            kind: fallbackKind
-        ) else {
-            return environmentOnlyRecord()
-        }
-        let source = envArguments == nil ? "process" : "environment"
-
-        return AgentHookLaunchCommandRecord(
-            launcher: launcher,
-            executablePath: executablePath,
-            arguments: sanitizedArguments,
-            workingDirectory: workingDirectory,
-            environment: environment.isEmpty ? nil : environment,
-            capturedAt: Date().timeIntervalSince1970,
-            source: source
-        )
     }
 
     private func publishAgentSurfaceResumeBinding(

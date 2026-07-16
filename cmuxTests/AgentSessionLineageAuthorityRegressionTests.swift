@@ -7,20 +7,6 @@ import Testing
 #endif
 
 extension CMUXCLIErrorOutputRegressionTests {
-    @Test func sanitizedInterpreterCaptureCannotBeReplayedAsTheAgent() {
-        #expect(
-            !AgentHookSanitizedLaunchCapturePolicy().canReplay(
-                launcher: "gemini",
-                executablePath: "/Users/alice/.hermes/node/bin/node",
-                arguments: [
-                    "/Users/alice/.hermes/node/bin/node",
-                    "--max-old-space-size=65536",
-                ],
-                kind: "gemini"
-            )
-        )
-    }
-
     @Test func inheritedForkMetadataCannotPromoteAManagedChild() {
         let lineage = AgentHookSessionLineageResolver().resolve(
             agentName: "codex",

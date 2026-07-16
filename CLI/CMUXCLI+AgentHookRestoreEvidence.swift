@@ -1,22 +1,6 @@
 import Foundation
 import CMUXAgentLaunch
 
-struct AgentHookSanitizedLaunchCapturePolicy: Sendable {
-    func canReplay(
-        launcher: String?,
-        executablePath: String?,
-        arguments: [String],
-        kind: String
-    ) -> Bool {
-        AgentLaunchCaptureTrust.capturedArgumentsDescribeKind(
-            launcher: launcher,
-            executablePath: executablePath,
-            arguments: arguments,
-            kind: kind
-        )
-    }
-}
-
 extension CMUXCLI {
     private static let codexPermissionEvidenceChunkBytes = 64 * 1024
 
