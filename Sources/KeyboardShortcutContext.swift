@@ -321,11 +321,6 @@ extension AppDelegate {
                panel.ownedFocusIntent(for: responder, in: window) != nil {
                 return panel
             }
-            if let panel = dock.panels.values.compactMap({ $0 as? SimulatorPanel }).first(where: {
-                $0.ownedFocusIntent(for: responder, in: window) != nil
-            }) {
-                return panel
-            }
         }
         guard let workspace = shortcutContextTabManager(in: window)?.selectedWorkspace else {
             return nil
@@ -335,9 +330,7 @@ extension AppDelegate {
            panel.ownedFocusIntent(for: responder, in: window) != nil {
             return panel
         }
-        return workspace.panels.values.compactMap { $0 as? SimulatorPanel }.first(where: {
-            $0.ownedFocusIntent(for: responder, in: window) != nil
-        })
+        return nil
     }
 
     private func shortcutWebInspectorFocusedBrowserPanel(in window: NSWindow?) -> BrowserPanel? {

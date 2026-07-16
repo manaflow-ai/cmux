@@ -16,9 +16,9 @@ extension CMUXCLI {
             print(String(localized: "cli.simulator.output.accepted", defaultValue: "Completed"))
         case .eventLog:
             for event in payload["events"] as? [[String: Any]] ?? [] {
-                let timestamp = event["timestamp"] as? String ?? ""
-                let action = event["action"] as? String ?? ""
-                let summary = event["summary"] as? String ?? ""
+                let timestamp = simulatorTerminalText(event["timestamp"] as? String ?? "")
+                let action = simulatorTerminalText(event["action"] as? String ?? "")
+                let summary = simulatorTerminalText(event["summary"] as? String ?? "")
                 print("\(timestamp)\t\(action)\t\(summary)")
             }
         case .cameraStatus:
@@ -31,15 +31,15 @@ extension CMUXCLI {
                     localized: "cli.simulator.output.permissionUpdated",
                     defaultValue: "%@ %@ for %@"
                 ),
-                action,
-                service,
-                bundleIdentifier
+                simulatorTerminalText(action),
+                simulatorTerminalText(service),
+                simulatorTerminalText(bundleIdentifier)
             ))
         case .interfaceStatus:
             printSimulatorInterfaceSettings(payload)
         case let .interfaceValue(option):
             let settings = payload["settings"] as? [String: Any]
-            print(settings?[option] as? String ?? "")
+            print(simulatorTerminalText(settings?[option] as? String ?? ""))
         case let .interfaceUpdated(option):
             let settings = payload["settings"] as? [String: Any]
             let value = settings?[option] as? String ?? ""
@@ -48,8 +48,8 @@ extension CMUXCLI {
                     localized: "cli.simulator.output.interfaceUpdated",
                     defaultValue: "Set %@ to %@"
                 ),
-                option,
-                value
+                simulatorTerminalText(option),
+                simulatorTerminalText(value)
             ))
         case .accessibility:
             printSimulatorAccessibility(payload)
@@ -70,10 +70,11 @@ extension CMUXCLI {
             for application in applications.sorted(by: {
                 ($0["bundle_id"] as? String ?? "") < ($1["bundle_id"] as? String ?? "")
             }) {
-                let bundleIdentifier = application["bundle_id"] as? String ?? "?"
+                let bundleIdentifier = simulatorTerminalText(application["bundle_id"] as? String ?? "?")
                 let permissions = application["permissions"] as? [String: Any] ?? [:]
                 for key in permissions.keys.sorted() {
-                    print("\(bundleIdentifier)\t\(key)\t\(permissions[key] as? String ?? "unknown")")
+                    print("\(bundleIdentifier)\t\(simulatorTerminalText(key))\t"
+                        + simulatorTerminalText(permissions[key] as? String ?? "unknown"))
                 }
             }
             if payload["truncated"] as? Bool == true {
@@ -93,7 +94,8 @@ extension CMUXCLI {
             return
         }
         for key in permissions.keys.sorted() {
-            print("\(key)\t\(permissions[key] as? String ?? "unknown")")
+            print("\(simulatorTerminalText(key))\t"
+                + simulatorTerminalText(permissions[key] as? String ?? "unknown"))
         }
     }
 
@@ -107,7 +109,8 @@ extension CMUXCLI {
             return
         }
         for key in settings.keys.sorted() {
-            print("\(key)\t\(settings[key] as? String ?? "unsupported")")
+            print("\(simulatorTerminalText(key))\t"
+                + simulatorTerminalText(settings[key] as? String ?? "unsupported"))
         }
     }
 
@@ -177,10 +180,10 @@ extension CMUXCLI {
         var emitted = 0
         while let current = pending.popLast(), emitted < 500 {
             emitted += 1
-            let role = current.value["type"] as? String ?? "?"
-            let label = current.value["AXLabel"] as? String ?? ""
-            let value = current.value["AXValue"] as? String ?? ""
-            let identifier = current.value["AXUniqueId"] as? String ?? ""
+            let role = simulatorTerminalText(current.value["type"] as? String ?? "?")
+            let label = simulatorTerminalText(current.value["AXLabel"] as? String ?? "")
+            let value = simulatorTerminalText(current.value["AXValue"] as? String ?? "")
+            let identifier = simulatorTerminalText(current.value["AXUniqueId"] as? String ?? "")
             let indentation = String(repeating: "  ", count: min(current.depth, 16))
             print("\(indentation)\(role)\t\(label)\t\(value)\t\(identifier)")
             let children = current.value["children"] as? [[String: Any]] ?? []
@@ -204,11 +207,17 @@ extension CMUXCLI {
             ))
             return
         }
-        let bundleIdentifier = application["bundle_id"] as? String ?? "?"
-        let name = application["name"] as? String ?? bundleIdentifier
-        let processIdentifier = application["pid"].map { String(describing: $0) } ?? ""
-        let executable = application["executable"] as? String ?? ""
-        let bundlePath = application["bundle_path"] as? String ?? ""
+        let bundleIdentifier = simulatorTerminalText(application["bundle_id"] as? String ?? "?")
+        let name = simulatorTerminalText(application["name"] as? String ?? bundleIdentifier)
+        let processIdentifier = simulatorTerminalText(
+            application["pid"].map { String(describing: $0) } ?? ""
+        )
+        let executable = simulatorTerminalText(application["executable"] as? String ?? "")
+        let bundlePath = simulatorTerminalText(application["bundle_path"] as? String ?? "")
         print("\(name)\t\(bundleIdentifier)\t\(processIdentifier)\t\(executable)\t\(bundlePath)")
+    }
+
+    func simulatorTerminalText(_ value: String) -> String {
+        Self.sanitizeForTerminal(value)
     }
 }

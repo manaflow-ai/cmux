@@ -345,10 +345,10 @@ extension CMUXCLI {
         } else {
             captures.forEach { capture in
                 if let path = capture["path"] as? String {
-                    print(path)
+                    print(simulatorTerminalText(path))
                 } else if let error = capture["error"] as? String {
-                    let surface = capture["surface_ref"] as? String ?? "?"
-                    cliWriteStderr("\(surface): \(error)\n")
+                    let surface = simulatorTerminalText(capture["surface_ref"] as? String ?? "?")
+                    cliWriteStderr("\(surface): \(simulatorTerminalText(error))\n")
                 }
             }
         }
@@ -410,7 +410,9 @@ extension CMUXCLI {
         for key in [
             "simulator_id", "device_name", "runtime_id", "state", "orientation", "surface_ref",
         ] {
-            if let value = payload[key], !(value is NSNull) { print("\(key)=\(value)") }
+            if let value = payload[key], !(value is NSNull) {
+                print("\(key)=\(simulatorTerminalText(String(describing: value)))")
+            }
         }
     }
 
@@ -421,10 +423,10 @@ extension CMUXCLI {
         }
         for target in targets {
             print([
-                target["surface_ref"] as? String ?? "?",
-                target["device_name"] as? String ?? "?",
-                target["simulator_id"] as? String ?? "?",
-                target["state"] as? String ?? "?",
+                simulatorTerminalText(target["surface_ref"] as? String ?? "?"),
+                simulatorTerminalText(target["device_name"] as? String ?? "?"),
+                simulatorTerminalText(target["simulator_id"] as? String ?? "?"),
+                simulatorTerminalText(target["state"] as? String ?? "?"),
             ].joined(separator: "\t"))
         }
     }

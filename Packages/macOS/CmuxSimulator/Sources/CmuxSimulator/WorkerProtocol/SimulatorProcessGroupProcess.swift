@@ -12,6 +12,7 @@ package actor SimulatorProcessGroupProcess {
 
     private nonisolated let launchGrouping: SimulatorProcessLaunchGrouping
     private nonisolated let processGroup: SimulatorWorkerProcessGroup
+    private nonisolated let inheritedProcessTree: SimulatorInheritedProcessTree?
     private var processIsRunning = true
     private var completedTerminationStatus: Int32?
     private var terminationHandler: (@Sendable (Int32) -> Void)?
@@ -43,6 +44,11 @@ package actor SimulatorProcessGroupProcess {
         )
         launchGrouping = grouping
         processGroup = SimulatorWorkerProcessGroup()
+        inheritedProcessTree = switch grouping {
+        case .dedicatedProcessGroup: nil
+        case .inheritedProcessGroup:
+            SimulatorInheritedProcessTree(rootProcessIdentifier: processIdentifier)
+        }
         startReaper()
     }
 
@@ -85,7 +91,7 @@ package actor SimulatorProcessGroupProcess {
             }
             return Darwin.kill(processIdentifier, signal) == 0
         case .inheritedProcessGroup:
-            return Darwin.kill(processIdentifier, signal) == 0
+            return inheritedProcessTree?.signal(signal) ?? false
         }
     }
 
@@ -144,5 +150,87 @@ package actor SimulatorProcessGroupProcess {
             return (rawStatus >> 8) & 0xff
         }
         return terminatingSignal
+    }
+}
+
+/// Signals one command tree without widening the signal to the worker's shared
+/// process group. Descendants discovered for TERM remain retained so the KILL
+/// escalation still reaches them after the command leader has exited and they
+/// have been reparented by launchd.
+private final class SimulatorInheritedProcessTree: @unchecked Sendable {
+    private static let maximumDescendants = 4_096
+
+    private let rootProcessIdentifier: pid_t
+    private let lock = NSLock()
+    private var retainedDescendants: Set<pid_t> = []
+
+    init(rootProcessIdentifier: pid_t) {
+        self.rootProcessIdentifier = rootProcessIdentifier
+    }
+
+    @discardableResult
+    func signal(_ signal: Int32) -> Bool {
+        let discovered = Self.descendantsChildFirst(
+            of: rootProcessIdentifier,
+            limit: Self.maximumDescendants
+        )
+        let descendants = lock.withLock { () -> [pid_t] in
+            retainedDescendants.formUnion(discovered)
+            return discovered + Array(retainedDescendants.subtracting(discovered))
+        }
+        var signalled = false
+        for processIdentifier in descendants where processIdentifier > 1 {
+            if Darwin.kill(processIdentifier, signal) == 0 || errno == ESRCH {
+                signalled = true
+            }
+        }
+        if Darwin.kill(rootProcessIdentifier, signal) == 0 || errno == ESRCH {
+            signalled = true
+        }
+        return signalled
+    }
+
+    private static func descendantsChildFirst(
+        of root: pid_t,
+        limit: Int
+    ) -> [pid_t] {
+        var result: [pid_t] = []
+        var visited: Set<pid_t> = []
+        var pending: [(processIdentifier: pid_t, expanded: Bool)] = [(root, false)]
+        while let next = pending.popLast(), result.count < limit {
+            if next.expanded {
+                if next.processIdentifier != root { result.append(next.processIdentifier) }
+                continue
+            }
+            guard visited.insert(next.processIdentifier).inserted else { continue }
+            pending.append((next.processIdentifier, true))
+            for child in directChildren(of: next.processIdentifier).reversed()
+                where visited.count + pending.count <= limit {
+                pending.append((child, false))
+            }
+        }
+        return result
+    }
+
+    private static func directChildren(of parent: pid_t) -> [pid_t] {
+        var capacity = 16
+        let stride = MemoryLayout<pid_t>.stride
+        var lastResult: [pid_t] = []
+        for _ in 0..<4 {
+            var children = Array(repeating: pid_t(), count: capacity)
+            let returned = children.withUnsafeMutableBufferPointer { buffer in
+                proc_listchildpids(
+                    parent,
+                    buffer.baseAddress,
+                    Int32(buffer.count * stride)
+                )
+            }
+            guard returned >= 0 else { return lastResult }
+            let count = min(children.count, Int(returned))
+            lastResult = children.prefix(count).filter { $0 > 1 }
+            if Int(returned) < children.count { return lastResult }
+            capacity = max(capacity * 2, Int(returned) + 16)
+        }
+        return lastResult
     }
 }

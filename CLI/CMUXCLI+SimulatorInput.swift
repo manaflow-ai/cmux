@@ -116,10 +116,12 @@ extension CMUXCLI {
             return
         }
         for target in targets {
-            print("\(target["id"] as? String ?? "?")\t"
-                + "\(target["application_name"] as? String ?? "?")\t"
-                + "\(target["title"] as? String ?? "")\t"
-                + "\(target["url"] as? String ?? "")")
+            print([
+                simulatorTerminalText(target["id"] as? String ?? "?"),
+                simulatorTerminalText(target["application_name"] as? String ?? "?"),
+                simulatorTerminalText(target["title"] as? String ?? ""),
+                simulatorTerminalText(target["url"] as? String ?? ""),
+            ].joined(separator: "\t"))
         }
     }
 

@@ -74,18 +74,19 @@ struct SimulatorSubprocessTests {
         #expect(await sleeper.callCount >= 2)
     }
 
-    @Test("Worker subprocess trees remain in the worker process group")
-    func subprocessTreeInheritsWorkerProcessGroup() async throws {
+    @Test("Cancelling a worker command terminates its inherited descendants")
+    func cancellationTerminatesInheritedSubprocessTree() async throws {
         let marker = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-subprocess-descendant-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: marker) }
-        let runner = SimulatorSubprocessRunner(timeout: .seconds(2))
-        let result = try await runner.run(
-            executableURL: URL(fileURLWithPath: "/usr/bin/perl"),
-            arguments: [
-                "-MPOSIX",
-                "-e",
-                #"""
+        let runner = SimulatorSubprocessRunner(terminationGrace: .milliseconds(50))
+        let task = Task {
+            try await runner.run(
+                executableURL: URL(fileURLWithPath: "/usr/bin/perl"),
+                arguments: [
+                    "-MPOSIX",
+                    "-e",
+                    #"""
                 my $leader = $$;
                 my $leader_group = POSIX::getpgrp();
                 my $child = fork();
@@ -96,20 +97,19 @@ struct SimulatorSubprocessTests {
                     close($marker);
                     while (1) { sleep 1; }
                 }
-                while (!-e $ARGV[0]) { select(undef, undef, undef, 0.001); }
-                exit 0;
+                while (1) { sleep 1; }
                 """#,
-                marker.path,
-            ]
-        )
-        let identifiers = try Self.readProcessTreeMarker(marker)
-        defer { _ = Darwin.kill(identifiers.child, SIGKILL) }
-        #expect(result.status == 0)
-        #expect(!result.timedOut)
+                    marker.path,
+                ]
+            )
+        }
+        let identifiers = try await Self.requireProcessTreeMarker(marker)
         #expect(identifiers.leaderGroup == getpgrp())
         #expect(identifiers.childGroup == getpgrp())
         #expect(identifiers.leaderGroup != identifiers.leader)
-        #expect(Darwin.kill(identifiers.child, 0) == 0)
+        task.cancel()
+        _ = try await task.value
+        await Self.expectProcessExited(identifiers.child)
     }
 
     private static func readProcessTreeMarker(
@@ -124,5 +124,28 @@ struct SimulatorSubprocessTests {
             )
         }
         return (fields[0], fields[1], fields[2], fields[3])
+    }
+
+    private static func requireProcessTreeMarker(
+        _ marker: URL
+    ) async throws -> (leader: Int32, leaderGroup: Int32, child: Int32, childGroup: Int32) {
+        let deadline = ContinuousClock().now.advanced(by: .seconds(2))
+        while ContinuousClock().now < deadline {
+            if let identifiers = try? readProcessTreeMarker(marker) { return identifiers }
+            try await ContinuousClock().sleep(for: .milliseconds(10))
+        }
+        throw SimulatorWorkerFailure.privateAPIUnavailable(
+            "The subprocess fixture did not publish its process tree."
+        )
+    }
+
+    private static func expectProcessExited(_ processIdentifier: Int32) async {
+        let deadline = ContinuousClock().now.advanced(by: .seconds(2))
+        while ContinuousClock().now < deadline {
+            if Darwin.kill(processIdentifier, 0) != 0, errno == ESRCH { return }
+            try? await ContinuousClock().sleep(for: .milliseconds(10))
+        }
+        _ = Darwin.kill(processIdentifier, SIGKILL)
+        Issue.record("The command descendant survived cancellation")
     }
 }
