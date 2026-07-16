@@ -207,6 +207,10 @@ enum SessionSidebarSelection: String, Codable, Sendable, Equatable {
             self = .tabs
         case .notifications:
             self = .notifications
+        case .computer:
+            // Remote-computer scope is a live connection, not restorable UI
+            // state; a restored session lands back on the workspace list.
+            self = .tabs
         }
     }
 

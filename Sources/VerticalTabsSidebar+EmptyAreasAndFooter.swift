@@ -1,11 +1,97 @@
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxHive
+import CmuxSettings
+import CmuxSettingsUI
 import CmuxSidebar
 import CmuxSidebarProviderKit
 import CmuxUpdater
 import CmuxWorkspaces
 import SwiftUI
+
+/// One paired remote computer as a value snapshot for the sidebar scope
+/// picker (snapshot-boundary rule: no store references in row content).
+struct HiveScopeComputer: Equatable, Identifiable {
+    let id: String
+    let name: String
+}
+
+/// Bottom-of-sidebar computer scope picker, shown only in
+/// `computers.presentation = sidebar` mode when paired computers exist:
+/// switches the main window between This Mac and a remote computer's live
+/// workspaces — the macOS counterpart of the iOS workspace-title Mac picker.
+struct HiveSidebarScopePicker: View {
+    @Binding var selection: SidebarSelection
+    @LiveSetting(\.computers.presentation) private var presentation
+    @State private var computers: [HiveScopeComputer] = []
+
+    var body: some View {
+        if presentation == .sidebar, !computers.isEmpty {
+            Menu {
+                Button {
+                    selection = .tabs
+                } label: {
+                    if activeDeviceID == nil {
+                        Label(thisMacTitle, systemImage: "checkmark")
+                    } else {
+                        Text(thisMacTitle)
+                    }
+                }
+                Divider()
+                ForEach(computers) { computer in
+                    Button {
+                        selection = .computer(deviceID: computer.id)
+                    } label: {
+                        if activeDeviceID == computer.id {
+                            Label(computer.name, systemImage: "checkmark")
+                        } else {
+                            Text(computer.name)
+                        }
+                    }
+                }
+            } label: {
+                Label(currentTitle, systemImage: "desktopcomputer")
+                    .cmuxFont(.caption)
+                    .lineLimit(1)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .accessibilityIdentifier("SidebarComputerScopePicker")
+            .task { await observeComputers() }
+        } else {
+            // Keep the observation alive so the picker appears the moment a
+            // computer is paired while the sidebar is already visible.
+            Color.clear
+                .frame(width: 0, height: 0)
+                .task { await observeComputers() }
+        }
+    }
+
+    private var activeDeviceID: String? {
+        if case let .computer(deviceID) = selection { return deviceID }
+        return nil
+    }
+
+    private var thisMacTitle: String {
+        String(localized: "hive.scopePicker.thisMac", defaultValue: "This Mac")
+    }
+
+    private var currentTitle: String {
+        guard let activeDeviceID else { return thisMacTitle }
+        return computers.first(where: { $0.id == activeDeviceID })?.name ?? thisMacTitle
+    }
+
+    private func observeComputers() async {
+        guard let directory = HiveComputersService.shared.directory else { return }
+        for await merged in directory.updates() {
+            let snapshot = merged
+                .filter { $0.isPaired && !$0.isThisComputer }
+                .map { HiveScopeComputer(id: $0.deviceID, name: $0.displayName) }
+            if snapshot != computers { computers = snapshot }
+        }
+    }
+}
 
 /// Footer debug controls and empty-area drop targets for the vertical tabs sidebar, extracted from `ContentView.swift`, which sits at its file-length budget.
 struct SidebarFooterIconButtonStyle: ButtonStyle {

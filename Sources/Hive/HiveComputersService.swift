@@ -76,6 +76,33 @@ final class HiveComputersService {
         )
     }
 
+    /// Live sessions backing the main window's embedded computer pages
+    /// (`computers.presentation = sidebar`), one per device, so scope
+    /// switches reuse the connection instead of re-dialing.
+    private var embeddedSessions: [String: HiveRemoteMacSession] = [:]
+
+    /// The cached embedded-viewer session for a device, creating and
+    /// connecting one on first use. Returns `nil` when the computer has no
+    /// pairing record or auth is not configured.
+    func embeddedSession(deviceID: String) async -> HiveRemoteMacSession? {
+        if let existing = embeddedSessions[deviceID] { return existing }
+        guard let session = await makeViewerSession(deviceID: deviceID) else { return nil }
+        // Re-check after the await: a concurrent first call may have won.
+        if let existing = embeddedSessions[deviceID] {
+            await session.disconnect()
+            return existing
+        }
+        session.connect()
+        embeddedSessions[deviceID] = session
+        return session
+    }
+
+    /// Tears down the embedded session for a device (unpair, sign-out).
+    func discardEmbeddedSession(deviceID: String) async {
+        guard let session = embeddedSessions.removeValue(forKey: deviceID) else { return }
+        await session.disconnect()
+    }
+
     /// Dev builds may pair over loopback so two instances on one machine can
     /// dogfood Mac-to-Mac viewing; release builds never dial themselves.
     private static var allowsLoopbackPairing: Bool {
