@@ -1,4 +1,5 @@
 import AppKit
+import CmuxLiteCore
 
 struct CmuxPalette {
     let background: NSColor
@@ -14,7 +15,7 @@ struct CmuxPalette {
     let statusBackground: NSColor
     let statusActiveBackground: NSColor
 
-    static let tui = CmuxPalette(
+    private static let fallback = CmuxPalette(
         background: NSColor(srgbRed: 0x0C / 255, green: 0x0C / 255, blue: 0x0C / 255, alpha: 1),
         hoverBackground: NSColor(srgbRed: 0x1C / 255, green: 0x1C / 255, blue: 0x1C / 255, alpha: 1),
         activeBackground: NSColor(srgbRed: 0x30 / 255, green: 0x30 / 255, blue: 0x30 / 255, alpha: 1),
@@ -28,4 +29,40 @@ struct CmuxPalette {
         statusBackground: NSColor(srgbRed: 0x30 / 255, green: 0x30 / 255, blue: 0x30 / 255, alpha: 1),
         statusActiveBackground: NSColor(srgbRed: 0x58 / 255, green: 0x58 / 255, blue: 0x58 / 255, alpha: 1)
     )
+
+    @MainActor private static var resolved: CmuxPalette?
+
+    @MainActor static var tui: CmuxPalette {
+        resolved ?? fallback
+    }
+
+    @MainActor static func configure(with configuration: CmuxGhosttyViewConfiguration) {
+        guard let background = CmuxRenderColor(configuration.background)?.color else {
+            resolved = nil
+            return
+        }
+        let foreground = CmuxRenderColor(configuration.foreground)?.color ?? fallback.foreground
+        resolved = CmuxPalette(
+            background: background,
+            hoverBackground: background.blended(toward: foreground, fraction: 0.08),
+            activeBackground: background.blended(toward: foreground, fraction: 0.14),
+            rail: fallback.rail,
+            border: background.blended(toward: foreground, fraction: 0.18),
+            foreground: foreground,
+            activeForeground: foreground,
+            dim: background.blended(toward: foreground, fraction: 0.65),
+            sidebarDim: background.blended(toward: foreground, fraction: 0.52),
+            tabInactive: background.blended(toward: foreground, fraction: 0.72),
+            statusBackground: background,
+            statusActiveBackground: background.blended(toward: foreground, fraction: 0.20)
+        )
+    }
+}
+
+private extension NSColor {
+    func blended(toward color: NSColor, fraction: CGFloat) -> NSColor {
+        usingColorSpace(.sRGB)?
+            .blended(withFraction: fraction, of: color.usingColorSpace(.sRGB) ?? color)
+            ?? self
+    }
 }
