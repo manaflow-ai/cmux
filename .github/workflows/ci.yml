@@ -323,6 +323,44 @@ jobs:
         working-directory: webviews
         run: bun run react-doctor:ci
 
+  diff-sidecar-check:
+    needs: changes
+    # Generated protocol and streaming benchmarks also cover webview-only diffs.
+    if: ${{ needs.changes.outputs.macos == 'true' || needs.changes.outputs.web == 'true' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        run: ./scripts/install-rust-ci.sh
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Install webview dependencies
+        working-directory: webviews
+        run: bun install --frozen-lockfile
+
+      - name: Check Rust sidecar
+        run: |
+          ./scripts/run-diff-sidecar-cargo.sh fmt --manifest-path Native/DiffSidecar/Cargo.toml --all --check
+          ./scripts/run-diff-sidecar-cargo.sh clippy --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --locked --no-default-features -- -D warnings
+          ./scripts/run-diff-sidecar-cargo.sh clippy --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --all-features --locked -- -D warnings
+          ./scripts/run-diff-sidecar-cargo.sh test --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --locked --no-default-features
+          ./scripts/run-diff-sidecar-cargo.sh test --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --all-features --locked
+
+      - name: Verify generated protocol types
+        run: ./scripts/generate-diff-sidecar-types.sh --check
+
+      - name: Enforce diff-viewer performance budgets
+        env:
+          CMUX_DIFF_WEB_BENCH_ITERATIONS: "10"
+        run: ./scripts/benchmark-diff-viewer.sh
+
   web-db-migrations:
     needs: changes
     if: ${{ needs.changes.outputs.web == 'true' }}
@@ -525,6 +563,26 @@ jobs:
           else
             echo "::warning::Passwordless sudo unavailable; XCTest will use its default automation-mode setup"
           fi
+
+      - name: Run browser runtime viewport regression
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # The tolerant full-suite step can accept ordinary assertion failures
+          # when XCTest reports "0 unexpected". Keep the real-WKWebView DOM
+          # viewport check non-tolerant so a layout-only screenshot workaround
+          # cannot make this regression appear green.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/BrowserViewportRuntimeTests \
+            test
 
       - name: Run notification routing regressions
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
@@ -1106,6 +1164,7 @@ jobs:
             CmuxRemoteSession
             CmuxAgentChat
             CmuxAuthRuntime
+            CmuxBrowser
             CmuxIrohTransport
             CmuxCommandPalette
             CmuxControlSocket
@@ -1190,6 +1249,7 @@ jobs:
       - remote-daemon-tests
       - web-typecheck
       - react-apps-check
+      - diff-sidecar-check
       - web-db-migrations
       - agent-session-web-resources
     if: ${{ always() }}
@@ -1211,6 +1271,7 @@ jobs:
               "remote-daemon-tests",
               "web-typecheck",
               "react-apps-check",
+              "diff-sidecar-check",
               "web-db-migrations",
               "agent-session-web-resources",
           }
@@ -1226,6 +1287,7 @@ jobs:
               "remote-daemon-tests": "go",
               "web-typecheck": "web",
               "react-apps-check": "web",
+              "diff-sidecar-check": "macos",
               "web-db-migrations": "web",
               "agent-session-web-resources": "agent_session_web",
           }
@@ -1639,6 +1701,12 @@ jobs:
           set -euo pipefail
           ./scripts/select-ci-xcode.sh
 
+      - name: Compute Xcode compilation cache key
+        id: compilation-cache-key
+        run: |
+          set -euo pipefail
+          echo "toolchain=$(xcodebuild -version | shasum -a 256 | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
       - name: Capture Ghostty revision
         id: ghostty-revision
         run: |
@@ -1672,8 +1740,18 @@ jobs:
       - name: Cache DerivedData
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: build-universal
-          key: deriveddata-release-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}-${{ steps.ghostty-revision.outputs.sha }}
+          path: |
+            build-universal
+            !build-universal/CompilationCache.noindex
+          key: deriveddata-release-v2-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}-${{ steps.ghostty-revision.outputs.sha }}
+
+      - name: Cache Xcode compilation results
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: build-universal/CompilationCache.noindex
+          key: xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ github.event.pull_request.base.sha || github.sha }}
+          restore-keys: |
+            xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-
 
       - name: Cache Swift packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -1695,7 +1773,26 @@ jobs:
             -clonedSourcePackagesDirPath .spm-cache \
             ARCHS="arm64 x86_64" \
             ONLY_ACTIVE_ARCH=NO \
+            COMPILATION_CACHE_ENABLE_CACHING=YES \
+            COMPILATION_CACHE_LIMIT_SIZE=3221225472 \
+            COMPILER_INDEX_STORE_ENABLE=NO \
             CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
+
+      - name: Bound Xcode compilation cache size
+        run: |
+          set -euo pipefail
+          cache_path="build-universal/CompilationCache.noindex"
+          max_cache_kib=$((3 * 1024 * 1024))
+          if [ -d "$cache_path" ]; then
+            cache_kib=$(du -sk "$cache_path" | awk '{print $1}')
+          else
+            cache_kib=0
+          fi
+          echo "Xcode compilation cache size: ${cache_kib} KiB (limit: ${max_cache_kib} KiB)"
+          if [ "$cache_kib" -gt "$max_cache_kib" ]; then
+            echo "Xcode compilation cache exceeds 3 GiB; skipping cache save"
+            rm -rf "$cache_path"
+          fi
 
       - name: Download universal Ghostty CLI helper
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -1716,15 +1813,18 @@ jobs:
           APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
           CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
           HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
+          DIFF_SIDECAR="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-diff-sidecar"
           test -x "$APP_BINARY"
           test -x "$CLI_BINARY"
           test -x "$HELPER_BINARY"
-          file "$APP_BINARY" "$CLI_BINARY" "$HELPER_BINARY"
+          test -x "$DIFF_SIDECAR"
+          file "$APP_BINARY" "$CLI_BINARY" "$HELPER_BINARY" "$DIFF_SIDECAR"
           SDK_VERSION="$(otool -l "$APP_BINARY" | awk '/LC_BUILD_VERSION/ { in_version=1; next } in_version && /sdk / { print $2; exit }')"
           echo "App SDK version: $SDK_VERSION"
           lipo "$APP_BINARY" -verify_arch arm64 x86_64
           lipo "$CLI_BINARY" -verify_arch arm64 x86_64
           lipo "$HELPER_BINARY" -verify_arch arm64 x86_64
+          ./scripts/verify-diff-sidecar-artifact.sh "$DIFF_SIDECAR"
           [[ "$SDK_VERSION" == 26.* ]]
 
   ci-status:
@@ -1734,6 +1834,7 @@ jobs:
       - remote-daemon-tests
       - web-typecheck
       - react-apps-check
+      - diff-sidecar-check
       - web-db-migrations
       - linux-preflight
       - app-host-unit-tests

@@ -121,10 +121,7 @@ struct DisconnectedWorkspaceShellView: View {
         ) {
             Button(L10n.string("mobile.common.ok", defaultValue: "OK"), role: .cancel) {}
         } message: {
-            Text(L10n.string(
-                "mobile.disconnected.connectFailedMessage",
-                defaultValue: "Make sure the computer is awake and online, then try again."
-            ))
+            Text(connectFailedMessage)
         }
         #endif
     }
@@ -259,6 +256,21 @@ struct DisconnectedWorkspaceShellView: View {
                 defaultValue: "Couldn't connect to %@"
             ),
             connectFailedComputerName ?? ""
+        )
+    }
+
+    /// The reconnect attempt owns the store's latest classified failure. Show
+    /// it with its guidance, falling back only when no specific reason exists.
+    private var connectFailedMessage: String {
+        if let failure = MobileDisconnectedFailureCopy(
+            error: store?.connectionError,
+            guidance: store?.connectionErrorGuidance
+        ).combined {
+            return failure
+        }
+        return L10n.string(
+            "mobile.disconnected.connectFailedMessage",
+            defaultValue: "Make sure the computer is awake and online, then try again."
         )
     }
 

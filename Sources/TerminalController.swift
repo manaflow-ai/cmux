@@ -1296,9 +1296,13 @@ class TerminalController {
         case "remote.tmux.mirror": return v2RemoteTmuxMirror(id: request.id, params: request.params)
         case "remote.tmux.window": return v2RemoteTmuxWindow(id: request.id, params: request.params)
         case "remote.tmux.pane_grids": return v2RemoteTmuxPaneGrids(id: request.id, params: request.params)
+        case "remote.tmux.pane_surfaces":
+            return v2RemoteTmuxPaneSurfaces(id: request.id, params: request.params)
 #if DEBUG
         case "remote.tmux.test_exec": return v2RemoteTmuxTestExec(id: request.id, params: request.params)
         case "remote.tmux.test_set_frame": return v2RemoteTmuxTestSetFrame(id: request.id, params: request.params)
+        case "remote.tmux.test_perturb_divider": return v2RemoteTmuxTestPerturbDivider(id: request.id, params: request.params)
+        case "remote.tmux.root_frames": return v2RemoteTmuxRootFrames(id: request.id)
 #endif
         case "sidebar.custom.validate":
             return v2Result(id: request.id, v2CustomSidebarValidate(params: request.params))
@@ -2372,7 +2376,7 @@ class TerminalController {
             "workspace.remote.status",
             "workspace.remote.pty_sessions", "workspace.remote.pty_close", "workspace.remote.pty_detach",
             "workspace.remote.pty_bridge", "workspace.remote.pty_resize", "workspace.remote.pty_attach_end",
-            "workspace.remote.terminal_session_end", "remote.tmux.sessions", "remote.tmux.attach", "remote.tmux.detach", "remote.tmux.state", "remote.tmux.mirror", "remote.tmux.window", "remote.tmux.pane_grids",
+            "workspace.remote.terminal_session_end", "remote.tmux.sessions", "remote.tmux.attach", "remote.tmux.detach", "remote.tmux.state", "remote.tmux.mirror", "remote.tmux.window", "remote.tmux.pane_grids", "remote.tmux.pane_surfaces",
             "session.restore_previous",
             "settings.open",
             "feedback.open",
@@ -6654,7 +6658,6 @@ class TerminalController {
         guard let url = v2String(params, "url") else {
             return .err(code: "invalid_params", message: "Missing url", data: nil)
         }
-
         var basePayload: [String: Any]?
         var resolutionError: V2CallResult?
         v2MainSync {
@@ -6665,7 +6668,7 @@ class TerminalController {
             }
             guard let context = resolvedContext.context,
                   context.surfaceId == surfaceId else { return }
-            context.browserPanel.navigateSmart(url)
+            if !context.browserPanel.navigateFromCLI(url, expectedURL: v2String(params, "expected_url")) { resolutionError = .err(code: "stale_state", message: "Browser URL changed before navigation", data: nil); return }
             if AppDelegate.shared?.tabManagerForWindowDockOwner(context.workspaceId) != nil {
                 basePayload = v2WindowDockBrowserActionPayload(context)
             } else {
@@ -8242,27 +8245,37 @@ class TerminalController {
                     return
                 }
                 guard let context = dockResolution.context else { return }
-                let handled: Bool
+                let zoomResult: Result<Bool, BrowserAutomationViewportError>
                 switch direction {
-                case "in": handled = context.browserPanel.zoomIn()
-                case "out": handled = context.browserPanel.zoomOut()
-                default: handled = context.browserPanel.resetZoom()
+                case "in": zoomResult = context.browserPanel.zoomInResult()
+                case "out": zoomResult = context.browserPanel.zoomOutResult()
+                default: zoomResult = context.browserPanel.resetZoomResult()
                 }
-                result = .ok(v2WindowDockBrowserActionPayload(context, extra: ["handled": handled, "direction": direction]))
+                switch zoomResult {
+                case .success(let handled):
+                    result = .ok(v2WindowDockBrowserActionPayload(context, extra: ["handled": handled, "direction": direction]))
+                case .failure(let error):
+                    result = v2BrowserAutomationViewportError(error)
+                }
                 return
             }
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
                   let target = v2ResolveBrowserPanelForFocusedAction(workspace: ws, params: params) else { return }
-            let handled: Bool
+            let zoomResult: Result<Bool, BrowserAutomationViewportError>
             switch direction {
-            case "in": handled = target.panel.zoomIn()
-            case "out": handled = target.panel.zoomOut()
-            default: handled = target.panel.resetZoom()
+            case "in": zoomResult = target.panel.zoomInResult()
+            case "out": zoomResult = target.panel.zoomOutResult()
+            default: zoomResult = target.panel.resetZoomResult()
             }
-            result = .ok(v2BrowserActionPayload(
-                workspace: ws, surfaceId: target.surfaceId, tabManager: tabManager,
-                extra: ["handled": handled, "direction": direction]
-            ))
+            switch zoomResult {
+            case .success(let handled):
+                result = .ok(v2BrowserActionPayload(
+                    workspace: ws, surfaceId: target.surfaceId, tabManager: tabManager,
+                    extra: ["handled": handled, "direction": direction]
+                ))
+            case .failure(let error):
+                result = v2BrowserAutomationViewportError(error)
+            }
         }
         return result
     }
@@ -10126,8 +10139,8 @@ class TerminalController {
         }
     }
 
-    private func v2BrowserViewportSet(params _: [String: Any]) -> V2CallResult {
-        v2BrowserNotSupported("browser.viewport.set", details: "WKWebView does not provide a per-tab programmable viewport emulation API equivalent to CDP")
+    private func v2BrowserViewportSet(params: [String: Any]) -> V2CallResult {
+        v2BrowserViewportSetWKWebView(params: params)
     }
 
     private func v2BrowserGeolocationSet(params _: [String: Any]) -> V2CallResult {
