@@ -427,13 +427,6 @@ extension TerminalController {
             // phantoms). That blind spot is exactly half the defect this judge exists
             // for — the hide edge — so it is asserted here, where two owners are
             // countable, rather than left to a check that structurally cannot fail.
-            // KNOWN GAP, stated rather than implied: a SOLE stale owner is not
-            // caught. If a mirror keeps visible_for_sizing while hidden and the tab
-            // now selected is a single-pane window (which has no mirror), the owner
-            // count is 1, no mirror is on screen, and nothing here fires. Closing it
-            // needs the workspace's selected tab as the authority — flag == (this
-            // mirror's panel is selected) — which this judge does not reach today.
-            // Two owners, and a shown mirror that owns nothing, ARE caught.
             let owners = session.windowMirrorByWindowId
                 .filter { liveWindowIds.contains($0.key) && !$0.value.isTornDown }
                 .filter { $0.value.isVisibleForSizing }
@@ -448,6 +441,42 @@ extension TerminalController {
                         "multiple mirrors own sizing: "
                             + owners.map { "@\($0)" }.joined(separator: ",")
                             + " — a switched-away mirror never released it",
+                    ],
+                ])
+            }
+            // A SOLE stale owner used to escape: one mirror keeps the flag while
+            // hidden, the tab now selected is a single-pane window (which has no
+            // mirror), so the count is 1, nothing is on screen, and no per-window
+            // check fires. Check each owner against the product's own rule instead
+            // of counting.
+            //
+            // The rule is `panelVisibleInUI`: isWorkspaceVisible && (isSelectedInPane
+            // || isFocused). Its first two inputs are view-level — `isWorkspaceVisible`
+            // and `isWorkspaceInputActive` are properties fed into the SwiftUI view, not
+            // model state — so the full equality is not recomputable here. The
+            // implication is: holding the flag REQUIRES the panel be selected in its
+            // pane or focused, and both of those are model state. An owner that is
+            // neither is stale, with no judgement needed about whether the workspace is
+            // showing. Necessary-condition only, so it cannot fire on a legitimately
+            // hidden-but-selected mirror — the case that makes the on-screen assertion
+            // directional.
+            let selectedPanelIds: Set<UUID> = Set(
+                workspace.bonsplitController.allPaneIds
+                    .compactMap { workspace.bonsplitController.selectedTab(inPane: $0)?.id }
+                    .compactMap { workspace.panelIdFromSurfaceId($0) }
+            )
+            for windowId in owners {
+                guard let mirror = session.windowMirrorByWindowId[windowId] else { continue }
+                let isSelectedInPane = selectedPanelIds.contains(mirror.panelId)
+                let isFocused = workspace.focusedPanelId == mirror.panelId
+                guard !isSelectedInPane, !isFocused else { continue }
+                windows.append([
+                    "window": windowId,
+                    "claimed": "none",
+                    "settled": false,
+                    "mismatches": [
+                        "@\(windowId) owns sizing but its panel is neither selected in its"
+                            + " pane nor focused — the flag outlived the hide edge",
                     ],
                 ])
             }
