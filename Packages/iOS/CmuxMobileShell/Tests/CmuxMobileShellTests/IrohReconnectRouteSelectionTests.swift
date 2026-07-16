@@ -320,6 +320,205 @@ extension ReconnectRouteSelectionTests {
         #expect(store.connectionError?.localizedCaseInsensitiveContains("update cmux") != true)
     }
 
+    @Test func changedTailscaleOnlyRowIsNeverReturnedAsAReconnectRoute() async throws {
+        let clock = TestClock()
+        let runtime = LivenessTestRuntime(
+            transportFactory: KindRecordingTransportFactory(
+                router: LivenessHostRouter(),
+                box: TransportBox()
+            ),
+            now: { clock.now },
+            supportedRouteKinds: [.iroh, .tailscale]
+        )
+        let captured = MobilePairedMac(
+            macDeviceID: "test-mac",
+            displayName: "Test Mac",
+            routes: [try tailscale(51_012)],
+            createdAt: clock.now,
+            lastSeenAt: clock.now,
+            isActive: true,
+            stackUserID: "user-1",
+            instanceTag: "stable"
+        )
+        var current = captured
+        current.routes = [try tailscale(51_013)]
+        current.lastSeenAt = clock.now.addingTimeInterval(1)
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: ["": [current]],
+            blockedTeams: []
+        )
+        let registryDevice = RegistryDevice(
+            deviceId: current.macDeviceID,
+            platform: "mac",
+            displayName: current.displayName,
+            lastSeenAt: current.lastSeenAt,
+            instances: [
+                RegistryAppInstance(
+                    tag: "stable",
+                    routes: current.routes,
+                    lastSeenAt: current.lastSeenAt
+                ),
+            ]
+        )
+        let store = await makeMigrationShell(
+            pairedStore: pairedStore,
+            registry: SnapshotCountingDeviceRegistry(outcome: .ok([registryDevice])),
+            runtime: runtime
+        )
+        let scope = try #require(await store.currentScopeSnapshot(userID: "user-1"))
+        let outcome = await store.freshReconnectRoutesAfterLocalFailure(
+            for: captured,
+            scope: scope,
+            snapshot: ReconnectRefreshSnapshot(
+                pairedMacs: [current],
+                registryDevices: [registryDevice]
+            )
+        )
+
+        guard case .confirmedMissingIroh = outcome else {
+            Issue.record("Expected an authenticated missing-Iroh result")
+            return
+        }
+    }
+
+    @Test func reconnectRevalidatesMissingIrohBeforeShowingUpdateGuidance() async throws {
+        let clock = TestClock()
+        let factory = KindRecordingTransportFactory(
+            router: LivenessHostRouter(),
+            box: TransportBox()
+        )
+        let runtime = LivenessTestRuntime(
+            transportFactory: factory,
+            now: { clock.now },
+            supportedRouteKinds: [.iroh, .tailscale]
+        )
+        let legacy = MobilePairedMac(
+            macDeviceID: "test-mac",
+            displayName: "Test Mac",
+            routes: [try tailscale(51_014)],
+            createdAt: clock.now,
+            lastSeenAt: clock.now,
+            isActive: true,
+            stackUserID: "user-1",
+            instanceTag: "stable"
+        )
+        var upgraded = legacy
+        upgraded.routes = [
+            try registryIroh(
+                id: "iroh-current",
+                endpointID: String(repeating: "a", count: 64)
+            ),
+            legacy.routes[0],
+        ]
+        upgraded.lastSeenAt = clock.now.addingTimeInterval(1)
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: ["": [legacy]],
+            blockedTeams: []
+        )
+        let registry = SnapshotCountingDeviceRegistry(outcome: .ok([
+            RegistryDevice(
+                deviceId: legacy.macDeviceID,
+                platform: "mac",
+                displayName: legacy.displayName,
+                lastSeenAt: legacy.lastSeenAt,
+                instances: [
+                    RegistryAppInstance(
+                        tag: "stable",
+                        routes: legacy.routes,
+                        lastSeenAt: legacy.lastSeenAt
+                    ),
+                ]
+            ),
+        ]))
+        let store = await makeMigrationShell(
+            pairedStore: pairedStore,
+            registry: registry,
+            runtime: runtime
+        )
+        await pairedStore.resetLoadAllCount()
+        await pairedStore.replaceRecords(
+            afterLoadAllCount: 2,
+            teamID: nil,
+            with: [upgraded]
+        )
+
+        #expect(!(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")))
+        #expect(factory.attemptedKinds().isEmpty)
+        let copy = [store.connectionError, store.connectionErrorGuidance]
+            .compactMap { $0 }
+            .joined(separator: " ")
+        #expect(!copy.localizedCaseInsensitiveContains("update cmux"))
+    }
+
+    @Test func switchRevalidatesMissingIrohBeforeShowingUpdateGuidance() async throws {
+        let clock = TestClock()
+        let factory = KindRecordingTransportFactory(
+            router: LivenessHostRouter(),
+            box: TransportBox()
+        )
+        let runtime = LivenessTestRuntime(
+            transportFactory: factory,
+            now: { clock.now },
+            supportedRouteKinds: [.iroh, .tailscale]
+        )
+        let legacy = MobilePairedMac(
+            macDeviceID: "test-mac",
+            displayName: "Test Mac",
+            routes: [try tailscale(51_015)],
+            createdAt: clock.now,
+            lastSeenAt: clock.now,
+            isActive: true,
+            stackUserID: "user-1",
+            instanceTag: "stable"
+        )
+        var upgraded = legacy
+        upgraded.routes = [
+            try registryIroh(
+                id: "iroh-current",
+                endpointID: String(repeating: "b", count: 64)
+            ),
+            legacy.routes[0],
+        ]
+        upgraded.lastSeenAt = clock.now.addingTimeInterval(1)
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: ["": [legacy]],
+            blockedTeams: []
+        )
+        let registry = SnapshotCountingDeviceRegistry(outcome: .ok([
+            RegistryDevice(
+                deviceId: legacy.macDeviceID,
+                platform: "mac",
+                displayName: legacy.displayName,
+                lastSeenAt: legacy.lastSeenAt,
+                instances: [
+                    RegistryAppInstance(
+                        tag: "stable",
+                        routes: legacy.routes,
+                        lastSeenAt: legacy.lastSeenAt
+                    ),
+                ]
+            ),
+        ]))
+        let store = await makeMigrationShell(
+            pairedStore: pairedStore,
+            registry: registry,
+            runtime: runtime
+        )
+        await pairedStore.resetLoadAllCount()
+        await pairedStore.replaceRecords(
+            afterLoadAllCount: 2,
+            teamID: nil,
+            with: [upgraded]
+        )
+
+        #expect(!(await store.switchToMac(macDeviceID: "test-mac")))
+        #expect(factory.attemptedKinds().isEmpty)
+        let copy = [store.connectionError, store.connectionErrorGuidance]
+            .compactMap { $0 }
+            .joined(separator: " ")
+        #expect(!copy.localizedCaseInsensitiveContains("update cmux"))
+    }
+
     @Test func ambiguousRegistryAuthorityDoesNotClaimTheMacNeedsAnUpdate() async throws {
         let clock = TestClock()
         let runtime = LivenessTestRuntime(
