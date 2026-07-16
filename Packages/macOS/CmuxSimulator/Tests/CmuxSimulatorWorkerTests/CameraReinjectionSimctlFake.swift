@@ -67,4 +67,8 @@ actor CameraReinjectionSimctlFake {
         }
     }
 
+    var terminateCount: Int {
+        invocations.count { $0.0.first == "terminate" }
+    }
+
 }

@@ -317,7 +317,41 @@ struct SimulatorCameraAdapterTests {
         }
         #expect(await simctl.injectedLaunchCount == 1)
         #expect(await simctl.cleanLaunchCount == 1)
+        #expect(await simctl.terminateCount == 2)
         #expect(!adapter.status().injectedBundleIdentifiers.contains(bundleIdentifier))
+        adapter.detachFromUnavailableDevice()
+    }
+
+    @Test("Camera failure before app mutation does not launch the target")
+    @MainActor
+    func preMutationFailureDoesNotLaunch() async throws {
+        let suffix = UUID().uuidString
+        let bundleIdentifier = "com.example.CameraFixturePreMutation.\(suffix)"
+        let tokenKey = SimulatorCameraSharedMemory.tokenEnvironmentKey
+        setenv(tokenKey, "pre-mutation-\(suffix)", 1)
+        defer { unsetenv(tokenKey) }
+        let simctl = CameraReinjectionSimctlFake(
+            bundleIdentifier: bundleIdentifier,
+            processIdentifier: Int32(getpid())
+        )
+        let adapter = SimulatorCameraAdapter(
+            cameraPermission: SimulatorCameraPermissionAdapter { _, _, _, _ in },
+            compiledLibrary: { URL(fileURLWithPath: "/tmp/cmux-camera-test.dylib") },
+            simctl: { arguments, environment in
+                await simctl.run(arguments: arguments, environment: environment)
+            }
+        )
+        adapter.attach(deviceIdentifier: "DEVICE")
+
+        await #expect(throws: CancellationError.self) {
+            try await adapter.configure(
+                .targeted(bundleIdentifier: bundleIdentifier, source: .placeholder),
+                inferredApplication: nil,
+                targetResolved: { _ in throw CancellationError() }
+            )
+        }
+
+        #expect(await simctl.lifecycleMutationCount == 0)
         adapter.detachFromUnavailableDevice()
     }
 

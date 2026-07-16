@@ -231,6 +231,11 @@ struct SimulatorPaneCoordinatorTests {
         #expect(coordinator.frameTransport == nil)
         #expect(await client.invalidationCount() == 1)
         #expect(await client.activations().map(\.id) == ["selected"])
+
+        await coordinator.reloadDevices()
+        #expect(coordinator.selectedDeviceID == nil)
+        #expect(await client.invalidationCount() == 1)
+        #expect(await client.activations().map(\.id) == ["selected"])
     }
 
     @Test("Explicit device selection waits for the requested iPad")

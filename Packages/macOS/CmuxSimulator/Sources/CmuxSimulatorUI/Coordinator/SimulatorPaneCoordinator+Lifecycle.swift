@@ -150,11 +150,15 @@ extension SimulatorPaneCoordinator {
     public func reloadDevices() async {
         do {
             let previousDeviceID = selectedDeviceID
+            let wasAwaitingExplicitSelection = requiresExplicitDeviceSelection
+                && previousDeviceID == nil
+                && failure?.code == "simulator_saved_device_unavailable"
             let discovered = try await client.discoverDevices()
             devices = discovered
                 .filter { $0.isAvailable && ($0.family == .iPhone || $0.family == .iPad) }
                 .sorted(by: simulatorDeviceOrdering)
             pruneActionHistory(keeping: Set(devices.map(\.id)))
+            if wasAwaitingExplicitSelection { return }
             failure = nil
 
             if let selectedDeviceID,
@@ -198,6 +202,7 @@ extension SimulatorPaneCoordinator {
         let shouldDisableCamera = !cameraConfiguration.isDisabled
         let deviceScopedTasks = clearDeviceScopedState()
         selectionGeneration &+= 1
+        requiresExplicitDeviceSelection = true
         selectActionHistory(deviceID: nil)
         selectedDeviceID = nil
         chromeProfile = nil
@@ -233,6 +238,7 @@ extension SimulatorPaneCoordinator {
     /// - Parameter id: The CoreSimulator device identifier.
     public func selectDevice(id: String) {
         guard !closed, devices.contains(where: { $0.id == id }) else { return }
+        requiresExplicitDeviceSelection = false
         let previousActivation = activationTask
         previousActivation?.cancel()
         let locationRouteTeardownTask = beginLocationRouteTeardown()

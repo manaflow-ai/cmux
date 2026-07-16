@@ -293,7 +293,7 @@ final class SimulatorCameraAdapter {
                     activeTargetBundleIdentifier = nil
                     activeTargetProcessIdentifier = nil
                 }
-                if applicationMutationCommitted || operationIsCurrent() {
+                if applicationMutationCommitted {
                     _ = try? await mutationGate.withLocks([
                         .application(
                             deviceIdentifier: deviceIdentifier,
@@ -301,6 +301,9 @@ final class SimulatorCameraAdapter {
                         ),
                     ]) {
                         applicationMutationWillCommit(bundleIdentifier)
+                        _ = try? await runSimctl([
+                            "terminate", deviceIdentifier, bundleIdentifier,
+                        ])
                         return try await runSimctl([
                             "launch", deviceIdentifier, bundleIdentifier,
                         ])
