@@ -1,7 +1,7 @@
 internal import CMUXMobileCore
 public import CmuxMobileRPC
 public import CmuxMobileTerminalKit
-import Foundation
+public import Foundation
 public import Observation
 
 /// A live view onto one remote terminal: the render-grid stream reduced into
@@ -36,6 +36,11 @@ public final class HiveRemoteTerminalSession {
     public private(set) var phase: Phase = .idle
     /// The reduced grid the view renders.
     public private(set) var grid = HiveTerminalGridModel()
+    /// Optional native-surface sink: every applied frame is also emitted as
+    /// VT bytes (a full frame as replacement bytes, a delta as patch bytes)
+    /// so a manual-I/O ghostty surface can render the stream natively. The
+    /// grid model keeps reducing in parallel for tests and fallbacks.
+    @ObservationIgnored public var frameBytesHandler: (@MainActor (Data) -> Void)?
 
     @ObservationIgnored private let client: MobileCoreRPCClient
     @ObservationIgnored private let retryDelay: @Sendable (_ attempt: Int) async -> Void
@@ -150,7 +155,7 @@ public final class HiveRemoteTerminalSession {
                 guard let payload = envelope.payloadJSON,
                       let frame = Self.decodeFrame(payload),
                       frame.surfaceID == terminalID else { continue }
-                grid.apply(frame)
+                applyFrame(frame)
             }
             // Stream finished: transport died. Re-subscribe + re-replay.
             if Task.isCancelled { return }
@@ -171,8 +176,15 @@ public final class HiveRemoteTerminalSession {
         let data = try await client.sendRequest(request)
         let response = try MobileTerminalReplayResponse.decode(data)
         if let frame = response.renderGrid {
-            grid.apply(frame)
+            applyFrame(frame)
         }
+    }
+
+    private func applyFrame(_ frame: MobileTerminalRenderGridFrame) {
+        grid.apply(frame)
+        guard let frameBytesHandler else { return }
+        let replay = MobileTerminalRenderGridReplay(frame)
+        frameBytesHandler(frame.full ? replay.replacementBytes() : replay.patchBytes())
     }
 
     /// Decode one `terminal.render_grid` event payload: either the wrapped

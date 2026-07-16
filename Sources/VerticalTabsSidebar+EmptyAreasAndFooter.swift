@@ -23,6 +23,7 @@ struct HiveScopeComputer: Equatable, Identifiable {
 /// workspaces — the macOS counterpart of the iOS workspace-title Mac picker.
 struct HiveSidebarScopePicker: View {
     @Binding var selection: SidebarSelection
+    @EnvironmentObject var tabManager: TabManager
     @LiveSetting(\.computers.presentation) private var presentation
     @State private var computers: [HiveScopeComputer] = []
 
@@ -41,7 +42,16 @@ struct HiveSidebarScopePicker: View {
                 Divider()
                 ForEach(computers) { computer in
                     Button {
-                        selection = .computer(deviceID: computer.id)
+                        // Native mirrors: the computer's workspaces become
+                        // real sidebar workspaces; selection stays on .tabs.
+                        selection = .tabs
+                        let manager = tabManager
+                        Task { @MainActor in
+                            _ = await HiveComputerMirrorController.shared.attach(
+                                deviceID: computer.id,
+                                into: manager
+                            )
+                        }
                     } label: {
                         if activeDeviceID == computer.id {
                             Label(computer.name, systemImage: "checkmark")

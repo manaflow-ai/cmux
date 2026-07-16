@@ -894,6 +894,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DE34020000000000000005 /* HelpMenuUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000006 /* HelpMenuUITests.swift */; };
 		F5320000A1B2C3D4E5F60718 /* HermesAgentIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5320001A1B2C3D4E5F60718 /* HermesAgentIndex.swift */; };
 		4931A11B0000000000000002 /* HiddenRightSidebarContentMountingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4931A11B0000000000000001 /* HiddenRightSidebarContentMountingTests.swift */; };
+		C41FE00000000000000000C9 /* HiveComputerMirrorController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41FE00000000000000000D9 /* HiveComputerMirrorController.swift */; };
 		C41FE00000000000000000C2 /* HiveComputersService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41FE00000000000000000D2 /* HiveComputersService.swift */; };
 		C41FE00000000000000000C5 /* HiveViewerWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41FE00000000000000000D5 /* HiveViewerWindowController.swift */; };
 		CD0CFE6000000000CD0CFE60 /* HostAccountFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD0CFE6100000000CD0CFE61 /* HostAccountFlow.swift */; };
@@ -2818,6 +2819,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0DE34020000000000000006 /* HelpMenuUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelpMenuUITests.swift; sourceTree = "<group>"; };
 		F5320001A1B2C3D4E5F60718 /* HermesAgentIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HermesAgentIndex.swift; sourceTree = "<group>"; };
 		4931A11B0000000000000001 /* HiddenRightSidebarContentMountingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenRightSidebarContentMountingTests.swift; sourceTree = "<group>"; };
+		C41FE00000000000000000D9 /* HiveComputerMirrorController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HiveComputerMirrorController.swift; sourceTree = "<group>"; };
 		C41FE00000000000000000D2 /* HiveComputersService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HiveComputersService.swift; sourceTree = "<group>"; };
 		C41FE00000000000000000D5 /* HiveViewerWindowController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HiveViewerWindowController.swift; sourceTree = "<group>"; };
 		CD0CFE6100000000CD0CFE61 /* HostAccountFlow.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HostAccountFlow.swift; sourceTree = "<group>"; };
@@ -4101,6 +4103,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			isa = PBXGroup;
 			children = (
 				C41FE00000000000000000D2 /* HiveComputersService.swift */,
+				C41FE00000000000000000D9 /* HiveComputerMirrorController.swift */,
 				C41FE00000000000000000D5 /* HiveViewerWindowController.swift */,
 			);
 			name = Hive;
@@ -6813,6 +6816,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					A6AC72010000000000000001 /* GPUSpinnerNSView.swift in Sources */,
 					A6AC72020000000000000001 /* GPUSpinnerStyle.swift in Sources */,
 					F5320000A1B2C3D4E5F60718 /* HermesAgentIndex.swift in Sources */,
+				C41FE00000000000000000C9 /* HiveComputerMirrorController.swift in Sources */,
 				C41FE00000000000000000C2 /* HiveComputersService.swift in Sources */,
 				C41FE00000000000000000C5 /* HiveViewerWindowController.swift in Sources */,
 				CD0CFE6000000000CD0CFE60 /* HostAccountFlow.swift in Sources */,
