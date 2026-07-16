@@ -455,7 +455,11 @@ struct WorkspaceForkConversationContextMenuTests {
         #expect(!AgentForkSupport.piFamilyVersionSupportsFork("omp/13.14.2", agentID: "omp"))
         #expect(!AgentForkSupport.piFamilyVersionSupportsFork("v22.1.0", agentID: "pi"))
         #expect(!AgentForkSupport.piFamilyVersionSupportsFork("warning: pi requires node v22.1.0\n0.59.9", agentID: "pi"))
+        #expect(!AgentForkSupport.piFamilyVersionSupportsFork("warning: node v22.1.0; pi 0.59.9", agentID: "pi"))
+        #expect(AgentForkSupport.piFamilyVersionSupportsFork("warning: node v22.1.0; pi 0.60.0", agentID: "pi"))
         #expect(!AgentForkSupport.piFamilyVersionSupportsFork("node v22.1.0\npi 0.59.9", agentID: "pi"))
+        #expect(!AgentForkSupport.piFamilyVersionSupportsFork("node v22.1.0; omp/13.14.2", agentID: "omp"))
+        #expect(AgentForkSupport.piFamilyVersionSupportsFork("node v22.1.0; omp/13.15.0", agentID: "omp"))
         #expect(!AgentForkSupport.piFamilyVersionSupportsFork("node v22.1.0\nomp/13.14.2", agentID: "omp"))
         #expect(!AgentForkSupport.piFamilyVersionSupportsFork("16.5.2", agentID: "unknown"))
     }

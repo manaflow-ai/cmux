@@ -494,25 +494,48 @@ enum AgentForkSupport {
         var candidates: [SemanticVersion] = []
         for rawLine in output.split(whereSeparator: \.isNewline) {
             let line = String(rawLine).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard let version = SemanticVersion.first(in: line) else { continue }
             let lowercasedLine = line.lowercased()
             let isBareVersionLine = lowercasedLine.range(
                 of: #"^v?\d+\.\d+(?:\.\d+)?$"#,
                 options: .regularExpression
             ) != nil
-            if (acceptsBareVersionOutput && isBareVersionLine)
-                || piFamilyVersionLineBindsAgent(lowercasedLine, agentID: normalizedAgentID) {
+            if acceptsBareVersionOutput && isBareVersionLine,
+               let version = SemanticVersion.first(in: lowercasedLine) {
+                candidates.append(version)
+                continue
+            }
+            if let version = piFamilyVersionBoundToAgent(
+                lowercasedLine,
+                agentID: normalizedAgentID
+            ) {
                 candidates.append(version)
             }
         }
         return candidates.count == 1 ? candidates[0] : nil
     }
 
-    private static func piFamilyVersionLineBindsAgent(_ line: String, agentID: String) -> Bool {
+    private static func piFamilyVersionBoundToAgent(_ line: String, agentID: String) -> SemanticVersion? {
         let escapedAgentID = NSRegularExpression.escapedPattern(for: agentID)
         let pattern = #"(^|[^a-z0-9])"# + escapedAgentID
-            + #"([/\s:_-]+)v?\d+\.\d+(?:\.\d+)?($|[^a-z0-9])"#
-        return line.range(of: pattern, options: .regularExpression) != nil
+            + #"([/\s:_-]+)v?(\d+)\.(\d+)(?:\.(\d+))?($|[^a-z0-9])"#
+        guard let expression = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(line.startIndex..<line.endIndex, in: line)
+        guard let match = expression.firstMatch(in: line, range: range) else { return nil }
+
+        func integer(at captureIndex: Int, fallback defaultValue: Int? = nil) -> Int? {
+            let captureRange = match.range(at: captureIndex)
+            guard captureRange.location != NSNotFound,
+                  let range = Range(captureRange, in: line) else {
+                return defaultValue
+            }
+            return Int(line[range])
+        }
+
+        guard let major = integer(at: 3),
+              let minor = integer(at: 4) else {
+            return nil
+        }
+        return SemanticVersion(major: major, minor: minor, patch: integer(at: 5, fallback: 0) ?? 0)
     }
 
     static func openCodeVersionSupportsFork(_ output: String) -> Bool {
