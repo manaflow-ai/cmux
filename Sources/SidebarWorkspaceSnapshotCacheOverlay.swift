@@ -9,6 +9,7 @@ struct SidebarWorkspaceSnapshotCacheOverlay<Key: Hashable, Value> {
     func values<Element>(
         for elements: [Element],
         identifiedBy key: (Element) -> Key,
+        isCachedValueValid: (Element, Value) -> Bool = { _, _ in true },
         makeValue: (Element) -> Value
     ) -> [Key: Value] {
         var mergedValues = cachedValues
@@ -16,7 +17,10 @@ struct SidebarWorkspaceSnapshotCacheOverlay<Key: Hashable, Value> {
 
         for element in elements {
             let elementKey = key(element)
-            guard mergedValues[elementKey] == nil else { continue }
+            if let cachedValue = mergedValues[elementKey],
+               isCachedValueValid(element, cachedValue) {
+                continue
+            }
             mergedValues[elementKey] = makeValue(element)
         }
 

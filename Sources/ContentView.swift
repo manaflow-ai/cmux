@@ -11880,12 +11880,22 @@ struct VerticalTabsSidebar: View {
         // realizes a row, using cached presentation snapshots and value state.
         let unreadSummariesByWorkspaceId = sidebarUnread.summaryByWorkspaceId
         // onAppear/onChange refreshes the parent cache after SwiftUI has already
-        // evaluated this body. Overlay only cache misses now, above LazyVStack,
-        // so initial and newly inserted rows never disappear for that transaction.
+        // evaluated this body. Overlay cache misses and stale presentation keys
+        // above LazyVStack, so rows are complete and current for that transaction.
         // This value-only overlay does not publish or update the parent cache.
+        let presentationKey = SidebarWorkspaceSnapshotFactory.presentationKey(
+            settings: renderContext.tabItemSettings,
+            showsAgentActivity: renderContext.showsAgentActivity
+        )
         let workspaceSnapshotsForRendering = SidebarWorkspaceSnapshotCacheOverlay(
             cachedValues: workspaceSnapshotsById
-        ).values(for: renderContext.tabs, identifiedBy: \.id) { workspace in
+        ).values(
+            for: renderContext.tabs,
+            identifiedBy: \.id,
+            isCachedValueValid: { _, snapshot in
+                snapshot.presentationKey == presentationKey
+            }
+        ) { workspace in
             makeWorkspaceSnapshot(
                 workspace: workspace,
                 settings: renderContext.tabItemSettings,
