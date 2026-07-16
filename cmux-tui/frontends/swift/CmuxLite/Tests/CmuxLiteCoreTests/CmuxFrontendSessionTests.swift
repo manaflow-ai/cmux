@@ -82,7 +82,7 @@ struct CmuxFrontendSessionTests {
     }
 
     @Test
-    func renderResizeClaimsLocalGridBeforeInput() async throws {
+    func inputDoesNotClaimTheLocalGridAfterASharedResize() async throws {
         let harness = makeHarness(attachmentSurfaces: [11])
         let events = await harness.session.events()
         _ = try await harness.session.connect(hostname: "test")
@@ -103,9 +103,8 @@ struct CmuxFrontendSessionTests {
         try await harness.session.sendText("typed")
 
         let commands = await harness.attachments[0].commandSummaries()
-        let resizeIndex = try #require(commands.firstIndex(of: "resize-surface:120x40"))
-        let sendIndex = try #require(commands.firstIndex(of: "send:typed"))
-        #expect(resizeIndex < sendIndex)
+        #expect(!commands.contains("resize-surface:120x40"))
+        #expect(commands.contains("send:typed"))
         await harness.session.close()
     }
 
