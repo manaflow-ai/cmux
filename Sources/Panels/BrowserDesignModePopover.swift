@@ -28,7 +28,9 @@ struct BrowserDesignModePopover: View {
             // The card grows downward with the prompt; the inner scroll
             // viewport only engages past this generous ceiling.
             .frame(height: min(max(tokenFieldHeight, 22), 340))
-            if tokenFieldHeight > 34 {
+            let isEmptyPrompt = (controller.snapshot?.selections.isEmpty ?? true)
+                && controller.requestedChange.isEmpty
+            if tokenFieldHeight > 34, !isEmptyPrompt {
                 VStack(alignment: .leading, spacing: 8) {
                     field
                     HStack(alignment: .center, spacing: 10) {
@@ -370,6 +372,11 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             guard let textView,
                   let layoutManager = textView.layoutManager,
                   let container = textView.textContainer else { return }
+            // An emptied prompt snaps back to the original single-line size.
+            guard textView.textStorage?.length ?? 0 > 0 else {
+                onHeightChange(22)
+                return
+            }
             layoutManager.ensureLayout(for: container)
             var height = layoutManager.usedRect(for: container).height
             // Include the trailing empty line fragment or the caret clips on
