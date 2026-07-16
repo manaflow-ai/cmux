@@ -81,6 +81,42 @@ import Testing
 }
 
 @MainActor
+@Test func coldBarrierBaselineRequeuesAcceptedThemeBeforeContent() async throws {
+    let surfaceID = "terminal-cold-theme"
+    let store = MobileShellComposite.preview()
+    store.selectedTerminalID = MobileTerminalPreview.ID(rawValue: surfaceID)
+    store.terminalOutputTransport = .renderGrid
+    var outputIterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    let barrierToken = store.beginTerminalReplayBarrier(surfaceID: surfaceID)
+    store.terminalColdAttachReplayBarrierTokensBySurfaceID[surfaceID] = barrierToken
+    var light = TerminalTheme.monokai
+    light.background = "#f4f0df"
+    light.foreground = "#17212b"
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: surfaceID,
+        stateSeq: 1,
+        columns: 20,
+        rows: 1,
+        rowSpans: [.init(row: 0, column: 0, styleID: 0, text: "baseline-content")],
+        terminalTheme: light,
+        terminalConfigTheme: light,
+        terminalThemeRevision: 1
+    )
+
+    store.deliverAuthoritativeTerminalRenderGrid(frame, source: "event")
+    let themeChunk = try #require(await outputIterator.next())
+    let themeBytes = try #require(String(data: themeChunk.data, encoding: .utf8))
+    #expect(themeChunk.terminalConfigTheme == light)
+    #expect(themeBytes.contains("\u{1B}]11;rgb:f4/f0/df\u{1B}\\"))
+    #expect(!themeBytes.contains("\u{1B}[2J"))
+
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: themeChunk.streamToken)
+    let baselineChunk = try #require(await outputIterator.next())
+    let baselineBytes = try #require(String(data: baselineChunk.data, encoding: .utf8))
+    #expect(baselineBytes.contains("baseline-content"))
+}
+
+@MainActor
 @Test func staleTerminalContentStillAdvancesRevisionedThemeMetadata() throws {
     let surfaceID = "terminal-stale-content-fresh-theme"
     let store = MobileShellComposite.preview()
