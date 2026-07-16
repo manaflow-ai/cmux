@@ -210,7 +210,8 @@ final class BrowserWebNotificationNativeAdapter {
 
     /// Runs a service worker's notification-click action when its in-memory
     /// registration is still live, otherwise opens the logical origin.
-    func handleGlobalNotificationClick(notificationID: UUID, fallbackOrigin: URL) {
+    @discardableResult
+    func handleGlobalNotificationClick(notificationID: UUID, fallbackOrigin: URL) -> Bool {
         let displayFallbackOrigin = Self.displayOrigin(for: fallbackOrigin)
         guard let registration = persistentClicks.removeValue(forKey: notificationID),
               let dataStore = registration.dataStore,
@@ -221,9 +222,9 @@ final class BrowserWebNotificationNativeAdapter {
                       if !processed { _ = self.openExternalURL(registration.origin) }
                   }
               ) else {
-            _ = openExternalURL(displayFallbackOrigin)
-            return
+            return openExternalURL(displayFallbackOrigin)
         }
+        return true
     }
 
 #if DEBUG

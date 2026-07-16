@@ -34,6 +34,7 @@ final class NotificationNavSeamAdapter:
     MainWindowContextResolving,
     UnreadWorkspaceTargeting,
     NotificationOpenRouting,
+    NotificationWebsiteClickRouting,
     FinderRevealing,
     FocusedNotificationResolving
 {
@@ -161,6 +162,12 @@ final class NotificationNavSeamAdapter:
 
     func tabTitle(forTabId tabId: UUID) -> String? {
         owner?.tabTitle(forTabId: tabId) ?? nil
+    }
+
+    // MARK: NotificationWebsiteClickRouting
+
+    func openWebsiteNotification(id: UUID, fallbackDisplayOrigin: URL) -> Bool {
+        owner?.openWebsiteNotification(id: id, fallbackDisplayOrigin: fallbackDisplayOrigin) ?? false
     }
 
     // MARK: FinderRevealing

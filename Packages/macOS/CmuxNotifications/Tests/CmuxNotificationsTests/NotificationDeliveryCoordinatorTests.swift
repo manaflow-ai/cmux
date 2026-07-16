@@ -134,6 +134,23 @@ struct NotificationDeliveryCoordinatorTests {
         #expect(terminal.websiteOpens.isEmpty)
         #expect(terminal.storedOpens.isEmpty)
     }
+
+    @Test("website dismiss marks read without dispatching a click")
+    func websiteDismissMarksReadWithoutDispatch() {
+        let terminal = FakeTerminalNavigation()
+        let notificationId = UUID()
+        let coordinator = makeCoordinator(terminalNavigation: terminal)
+
+        coordinator.handle(NotificationDeliveryResponse(
+            categoryIdentifier: "terminal.category",
+            actionIdentifier: UNNotificationDismissActionIdentifier,
+            requestIdentifier: notificationId.uuidString,
+            userInfo: ["websiteDisplayOrigin": "https://example.com"]
+        ))
+
+        #expect(terminal.markedReadIds == [notificationId])
+        #expect(terminal.websiteOpens.isEmpty)
+    }
     @Test("configure installs terminal and Feed categories and delegate")
     func configureInstallsCategoriesAndDelegate() throws {
         let center = FakeNotificationCenter()
