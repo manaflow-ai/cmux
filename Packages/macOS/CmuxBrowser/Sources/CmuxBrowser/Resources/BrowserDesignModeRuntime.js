@@ -304,8 +304,6 @@
     return false;
   };
 
-  const textValue = (element) => String(element.textContent || "");
-
   const boundedTextValue = (element) => {
     if (isSensitiveElement(element)) return redactedValue;
     const parts = [];
