@@ -85,6 +85,30 @@ struct TerminalArtifactTapHitTesterTests {
         #expect(resolved == path)
     }
 
+    @Test("resolves a bare filename referenced by terminal transcript prose")
+    func resolvesBareFilename() {
+        let resolved = TerminalArtifactTapHitTester().path(
+            in: "Inspect data.csv, then continue.",
+            col: 10,
+            row: 0,
+            columns: 80
+        )
+
+        #expect(resolved == "data.csv")
+    }
+
+    @Test("trims sentence punctuation from a bare filename")
+    func trimsBareFilenamePunctuation() {
+        let resolved = TerminalArtifactTapHitTester().path(
+            in: "The log is build.log.",
+            col: 15,
+            row: 0,
+            columns: 80
+        )
+
+        #expect(resolved == "build.log")
+    }
+
     @Test("uses terminal cell width for CJK text before a path")
     func cjkPrefixUsesTerminalColumns() {
         let path = "/tmp/note.txt"
