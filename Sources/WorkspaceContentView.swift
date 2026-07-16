@@ -49,6 +49,17 @@ private struct WorkspacePanelContentHostView: View {
             customSidebarTabManager: customSidebarTabManager,
             hasUnreadNotification: hasUnreadNotification,
             terminalAgentContext: WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace),
+            terminalPaneOwnershipResolver: { [weak workspace, weak panel] in
+                guard let workspace,
+                      let panel,
+                      let livePanel = workspace.panels[panel.id],
+                      livePanel === panel,
+                      workspace.paneId(forPanelId: panel.id)?.id == paneId.id,
+                      let tabId = workspace.surfaceIdFromPanelId(panel.id) else {
+                    return false
+                }
+                return workspace.bonsplitController.selectedTab(inPane: paneId)?.id == tabId
+            },
             onFocus: onFocus,
             onRequestPanelFocus: onRequestPanelFocus,
             onResumeAgentHibernation: onResumeAgentHibernation,

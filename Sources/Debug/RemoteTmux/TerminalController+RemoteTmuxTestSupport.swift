@@ -114,8 +114,30 @@ extension TerminalController {
                 && isAtom(args[3]) && args[4] == "pane-border-status"
                 && ["top", "bottom"].contains(args[5])
         case "resize-pane":
+            // `-Z` toggles zoom; `-x`/`-y` set a dimension.
+            if args.count == 4 && args[1] == "-Z" && args[2] == "-t" && isAtom(args[3]) {
+                return true
+            }
             return args.count == 5 && args[1] == "-t" && isAtom(args[2])
+                && ["-x", "-y"].contains(args[3]) && isDimension(args[4])
+        case "resize-window":
+            return args.count == 7 && args[1] == "-t" && isAtom(args[2])
                 && args[3] == "-x" && isDimension(args[4])
+                && args[5] == "-y" && isDimension(args[6])
+        case "kill-pane":
+            return args.count == 3 && args[1] == "-t" && isAtom(args[2])
+        case "select-pane":
+            return args.count == 3 && args[1] == "-t" && isAtom(args[2])
+        case "capture-pane":
+            return args.count == 5 && args[1] == "-p" && args[2] == "-J"
+                && args[3] == "-t" && isAtom(args[4])
+        case "send-keys":
+            // The content oracle's ruler is an arbitrary shell one-liner sent
+            // as keystrokes. This verb is DEBUG-only and confined to the
+            // UI-test tmux directory, so the payload (args[3]) is unconstrained;
+            // only the target and the trailing Enter key are checked.
+            return args.count == 5 && args[1] == "-t" && isAtom(args[2])
+                && args[4] == "Enter"
         case "list-panes":
             return args.count == 5 && args[1] == "-t" && isAtom(args[2]) && args[3] == "-F"
                 && ["#{pane_width}", "#{pane_id}", "#{pane_width} #{pane_top}"].contains(args[4])
@@ -211,10 +233,13 @@ extension TerminalController {
         return text
     }
 
-    /// `remote.tmux.test_set_frame` (DEBUG only) — resizes a cmux window to an
-    /// exact size from within the app.
+    /// `remote.tmux.test_set_frame` (DEBUG only) — resizes and/or moves a
+    /// cmux window to an exact frame from within the app. `width`/`height`
+    /// resize (omitted = keep the current size); `x`/`y` place the frame
+    /// origin in screen coordinates, so an x/y-only call is an origin-only
+    /// MOVE — the geometry-only stimulus the sizing counters guard needs.
     ///
-    /// Exists for the sizing UI tests: driving window sizes with XCUITest
+    /// Exists for the sizing UI tests: driving window frames with XCUITest
     /// mouse drags depends on the desktop around the app (an overlapping
     /// window from any other application invokes XCUITest's permission-dialog
     /// interruption scan, which crashes on elements whose accessibility value
@@ -222,29 +247,49 @@ extension TerminalController {
     /// window server does, deterministically. Never compiled into release.
     nonisolated func v2RemoteTmuxTestSetFrame(id: Any?, params: [String: Any]) -> String {
         guard let idString = params["window_id"] as? String,
-              let windowId = UUID(uuidString: idString),
-              let width = params["width"] as? Double, width > 100,
-              let height = params["height"] as? Double, height > 100
+              let windowId = UUID(uuidString: idString)
         else {
-            return v2Error(id: id, code: "invalid_params", message: "window_id, width, height are required")
+            return v2Error(id: id, code: "invalid_params", message: "window_id is required")
+        }
+        let width = params["width"] as? Double
+        let height = params["height"] as? Double
+        let originX = params["x"] as? Double
+        let originY = params["y"] as? Double
+        if width == nil, height == nil, originX == nil, originY == nil {
+            return v2Error(
+                id: id, code: "invalid_params",
+                message: "at least one of width, height, x, y is required"
+            )
+        }
+        if let width, width <= 100 {
+            return v2Error(id: id, code: "invalid_params", message: "width must exceed 100")
+        }
+        if let height, height <= 100 {
+            return v2Error(id: id, code: "invalid_params", message: "height must exceed 100")
         }
         // Generous timeout: the hop onto the main actor can wait out a busy
         // render/output burst in a test app running a dozen live panes.
         return v2VmCall(id: id, timeoutSeconds: 30) {
             // Read back the frame AFTER setFrame: AppKit clamps to min/max
-            // content sizes and screen bounds, so the actual size is the only
+            // content sizes and screen bounds, so the actual frame is the only
             // trustworthy answer — callers assert on it rather than assuming
             // the request applied.
-            let applied: CGSize? = await MainActor.run {
+            let applied: CGRect? = await MainActor.run { () -> CGRect? in
                 guard let window = AppDelegate.shared?.windowForMainWindowId(windowId) else {
                     return nil
                 }
                 var frame = window.frame
+                let newSize = CGSize(
+                    width: width.map { CGFloat($0) } ?? frame.size.width,
+                    height: height.map { CGFloat($0) } ?? frame.size.height
+                )
                 // Keep the top-left corner anchored so the window stays on screen.
-                frame.origin.y += frame.size.height - height
-                frame.size = CGSize(width: width, height: height)
+                frame.origin.y += frame.size.height - newSize.height
+                frame.size = newSize
+                if let originX { frame.origin.x = CGFloat(originX) }
+                if let originY { frame.origin.y = CGFloat(originY) }
                 window.setFrame(frame, display: true, animate: false)
-                return window.frame.size
+                return window.frame
             }
             guard let applied else {
                 throw RemoteTmuxError.unreachable("window not found: \(idString)")
@@ -252,7 +297,109 @@ extension TerminalController {
             return [
                 "applied_width": Double(applied.width),
                 "applied_height": Double(applied.height),
+                "applied_x": Double(applied.origin.x),
+                "applied_y": Double(applied.origin.y),
             ]
+        }
+    }
+
+    /// `remote.tmux.test_perturb_divider` (DEBUG only) — clears the visible
+    /// mirror's root-split imposition and moves its divider to `position`,
+    /// changing rendered geometry while every sizing input stays put. The
+    /// deterministic stand-in for an apply that terminated off-target
+    /// (bonsplit parking a divider at a minimum, a retry budget expiring
+    /// against mid-commit bounds): the sizing UI suite fires this at a
+    /// settled mirror and asserts it re-converges, pinning the liveness rule
+    /// end to end — an apply may never stay off-target behind unchanged
+    /// inputs. Never compiled into release.
+    nonisolated func v2RemoteTmuxTestPerturbDivider(id: Any?, params: [String: Any]) -> String {
+        let windowId = params["window"] as? Int ?? 0
+        let position = params["position"] as? Double ?? 0.8
+        guard position > 0, position < 1 else {
+            return v2Error(id: id, code: "invalid_params", message: "position must be in (0, 1)")
+        }
+        return v2VmCall(id: id, timeoutSeconds: 15) {
+            let result: [String: Any]? = await MainActor.run {
+                for workspace in self.tabManager?.tabs ?? [] {
+                    guard let session = workspace.remoteTmuxSessionMirror,
+                          let mirror = session.windowMirrorByWindowId[windowId],
+                          mirror.isEffectivelyVisibleForSizing,
+                          case .split(let split) = mirror.bonsplitController.treeSnapshot(),
+                          let splitId = UUID(uuidString: split.id) else { continue }
+                    let before = split.dividerPosition
+                    _ = mirror.bonsplitController.setImposedFirstExtent(
+                        nil, forSplit: splitId, fromExternal: true
+                    )
+                    let moved = mirror.bonsplitController.setDividerPosition(
+                        CGFloat(position), forSplit: splitId, fromExternal: true
+                    )
+                    // Drop the divider baseline so the geometry callback that
+                    // follows the move SEEDS it instead of diffing against
+                    // it — no resize-pane goes to tmux, so no layout echo
+                    // changes a sizing input. Without this the scenario
+                    // exercises drag propagation (tmux re-assigns, inputs
+                    // change, the normal pass heals); with it, the only way
+                    // back onto the plan is the output-parity re-arm.
+                    mirror.lastDividerPositions[splitId] = nil
+                    return [
+                        "split": split.id,
+                        "moved": moved,
+                        "position_before": before,
+                        "position_after": position,
+                    ]
+                }
+                return nil
+            }
+            guard let result else {
+                throw RemoteTmuxError.unreachable(
+                    "no visible mirrored split window @\(windowId)"
+                )
+            }
+            return result
+        }
+    }
+
+    /// `remote.tmux.root_frames` (DEBUG only) — the window-versus-content
+    /// truth the growth-spiral tripwire logs (`mirror.container.ancestors`),
+    /// as data: for every visible mirror, the hosting window's frame and
+    /// content-view sizes plus the widths of the mirror's real ancestor
+    /// chain, probe to root. The sizing UI suite asserts the chain holds the
+    /// window's width after settling. The live spiral kept every CLAIM sane
+    /// (the oversized-reading guard dropped the inflated readings) while the
+    /// content view marched a step wider per layout pass — a class no grid
+    /// oracle can see, only the frames.
+    nonisolated func v2RemoteTmuxRootFrames(id: Any?) -> String {
+        v2VmCall(id: id, timeoutSeconds: 15) {
+            let report: [[String: Any]] = await MainActor.run {
+                var out: [[String: Any]] = []
+                for workspace in self.tabManager?.tabs ?? [] {
+                    guard let session = workspace.remoteTmuxSessionMirror else { continue }
+                    for (windowId, mirror) in session.windowMirrorByWindowId {
+                        guard mirror.isEffectivelyVisibleForSizing,
+                              let probe = mirror.hostProbeView,
+                              let window = probe.window else { continue }
+                        let chain: [[String: Any]] = mirror.hostProbeAncestorChain().map {
+                            [
+                                "class": String($0.className.suffix(40)),
+                                "width": Double($0.width),
+                                "height": Double($0.height),
+                            ]
+                        }
+                        out.append([
+                            "window": windowId,
+                            "window_width": Double(window.frame.width),
+                            "window_height": Double(window.frame.height),
+                            "content_layout_width": Double(window.contentLayoutRect.width),
+                            "content_layout_height": Double(window.contentLayoutRect.height),
+                            "content_view_width": Double(window.contentView?.frame.width ?? -1),
+                            "content_view_height": Double(window.contentView?.frame.height ?? -1),
+                            "ancestors": chain,
+                        ])
+                    }
+                }
+                return out
+            }
+            return ["windows": report]
         }
     }
 
@@ -287,6 +434,15 @@ extension TerminalController {
                 let leavesByPaneID = tree.leavesByPaneID
                 let metrics = mirror.nativeLayoutMetrics()
                 let plannedOuterSizes: [Int: CGSize] = {
+                    // Judge against the plan the renderer actually imposed:
+                    // the sizing pass stashes its outer sizes, and re-planning
+                    // here at the raw container would disagree with the
+                    // render path (which plans at the exact-fit render frame)
+                    // by the region's sub-cell remainder — a false unsettled
+                    // verdict whenever that remainder exceeds the tolerance.
+                    if !mirror.lastPlannedOuterSizes.isEmpty {
+                        return mirror.lastPlannedOuterSizes
+                    }
                     guard let metrics else { return [:] }
                     let planner = RemoteTmuxNativeSplitLayoutPlanner(metrics: metrics)
                     let plan = planner.plan(
@@ -294,11 +450,17 @@ extension TerminalController {
                             tree: RemoteTmuxNativeSplitTree(layout: tree),
                             metrics: metrics
                         ),
-                        parentSize: mirror.containerSizePt
+                        parentSize: mirror.renderFrameSize ?? mirror.containerSizePt
                     )
                     return planner.outerSizes(of: plan)
                 }()
                 var nativeGeometryReady = !plannedOuterSizes.isEmpty
+                // A grid shortfall (or a pane with no sample yet) must keep the
+                // window UNSETTLED on its own — the re-arm budget (below) is
+                // capped, so once it stops the shortfall would otherwise be
+                // listed in `mismatches` while `settled` flips true. Judge grids
+                // live-first, matching the shortfall read below.
+                var gridParityReady = true
                 for leaf in tree.paneIDsInOrder {
                     guard let node = leavesByPaneID[leaf] else { continue }
                     if let planned = plannedOuterSizes[leaf],
@@ -325,9 +487,18 @@ extension TerminalController {
                     // column under its span wraps every full line,
                     // while surplus is blank margin (the trailing
                     // pane legitimately absorbs sub-cell leftover).
-                    guard let rendered = mirror.lastRenderedGrids[leaf] else {
+                    // Judge the surface's LIVE grid, not the cached
+                    // sample ledger: applied-resize reports can lag or
+                    // miss a pin's resize, and a stale cache entry here
+                    // failed a pane whose actual surface held exactly
+                    // its assignment. The cache stays as the fallback
+                    // for a surface with no live report yet.
+                    let liveGrid = mirror.panelsByPaneId[leaf]?.surface.rawSizingSample()
+                        .map { (cols: $0.columns, rows: $0.rows) }
+                    guard let rendered = liveGrid ?? mirror.lastRenderedGrids[leaf] else {
                         // No size report yet: absence of evidence is
                         // not settled evidence — keep pollers waiting.
+                        gridParityReady = false
                         mismatches.append(
                             "%\(leaf) no-sample assigned=\(node.width)x\(node.height)"
                         )
@@ -342,6 +513,7 @@ extension TerminalController {
                     // misplacement entries above already judge it
                     // exactly.
                     if rendered.cols < node.width || rendered.rows < node.height {
+                        gridParityReady = false
                         var detail = "%\(leaf) rendered=\(rendered.cols)x\(rendered.rows)"
                             + " assigned=\(node.width)x\(node.height)"
                         // The surface's own pixel report — ground
@@ -353,12 +525,16 @@ extension TerminalController {
                         }
                         // Layer bisect for a live mismatch: what the
                         // plan wants for this pane right now, and
-                        // what its view actually measures. plan≠view
-                        // means the split tree diverged from the
-                        // plan; plan==view but surface short means
-                        // the portal-hosted surface lags its view.
+                        // what its view actually measures. The plan
+                        // size is the pane's OUTER box — it charges
+                        // the per-pane tab bar — while view= is the
+                        // terminal content below that bar, so a
+                        // healthy pane reads exactly tab-bar-height
+                        // shorter here. A WIDTH gap is the real
+                        // signal: the split tree diverged from the
+                        // plan, or the surface lags its view.
                         if let outer = plannedOuterSizes[leaf] {
-                            detail += " plan=\(Int(outer.width))x\(Int(outer.height))"
+                            detail += " planOuter=\(Int(outer.width))x\(Int(outer.height))"
                         }
                         if let view = mirror.panelsByPaneId[leaf]?.hostedView {
                             detail += " view=\(Int(view.frame.width))x\(Int(view.frame.height))"
@@ -394,20 +570,64 @@ extension TerminalController {
                     && mirror.lastCompletedSizingInputs != nil
                     && nativeGeometryReady
                     && portalGeometryReady
+                    && gridParityReady
+                // Derivation parity, visible mirror only (hidden mirrors
+                // hold their attach-time claim by design). Delivery parity —
+                // claim == tmux layout — cannot see a claim that tmux
+                // honored but that no longer matches what the CURRENT
+                // container derives: the class where a stale claim settles
+                // green while the region cannot render the columns it
+                // promised. A settled visible window must be able to
+                // re-derive its own claim.
+                let derivable: (columns: Int, rows: Int)? = {
+                    guard mirror.isVisibleForSizing,
+                          let container = mirror.containerSizePt else { return nil }
+                    return mirror.clientGrid(contentSize: container)
+                }()
+                let derivationSettled = derivable.flatMap { grid in
+                    claimed.map { $0.0 == grid.columns && $0.1 == grid.rows }
+                } ?? true
                 windows.append([
                     "window": windowId,
                     "claimed": claimed.map { "\($0.0)x\($0.1)" } ?? "none",
                     "layout": "\(mirror.layout.width)x\(mirror.layout.height)",
-                    "settled": claimed.map {
+                    "derivable": derivable.map { "\($0.columns)x\($0.rows)" } ?? "none",
+                    // The claim is a CLIENT size; `windowGrid` is the WINDOW tmux
+                    // laid out. Columns agree exactly (tmux fits the window to the
+                    // client width; dividers come out of panes, not the total), so
+                    // a column disagreement is a real unlanded claim and stays in
+                    // the gate. Rows do NOT: tmux spends rows on chrome (status
+                    // line, pane-border title), and with an odd row remainder it
+                    // hands the leftover to one stacked pane or the other from its
+                    // own prior state (window 38 vs 39 for one stable claim of 39)
+                    // — not a function of what we sent. So rows can't be asserted
+                    // client==window; we settle on the panes rendering their
+                    // assigned grids (gridParity, inside sizingReady) and the claim
+                    // re-deriving from the current container (derivationSettled).
+                    "settled": claimed.map { claim in
                         guard let windowGrid else { return false }
                         return connected && publicationReady && sizingReady
-                            && $0.0 == windowGrid.width && $0.1 == windowGrid.height
+                            && derivationSettled
+                            && claim.0 == windowGrid.width
                     } ?? false,
                     "mismatches": mismatches,
                 ])
             }
         }
-        return ["connected": connectionsConnected, "windows": windows]
+        return [
+            "connected": connectionsConnected,
+            "windows": windows,
+            // Monotonic work counters for the geometry-only regression
+            // guard: a window MOVE (origin-only setFrame, titlebar drag)
+            // must not run sizing passes, parity re-arms, or full portal
+            // hierarchy syncs. The UI suite snapshots these, moves the
+            // window repeatedly, and asserts zero deltas.
+            "counters": [
+                "sizing_pass": RemoteTmuxSizingDiagnostics.sizingPassCount,
+                "parity_rearm": RemoteTmuxSizingDiagnostics.parityRearmCount,
+                "full_hierarchy_sync": RemoteTmuxSizingDiagnostics.fullHierarchySyncCount,
+            ],
+        ]
     }
 }
 #endif

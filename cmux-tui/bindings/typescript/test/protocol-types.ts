@@ -70,6 +70,7 @@ function surfaceFromKnownEvent(event: KnownCmuxEvent): number | undefined {
     case "surface-output":
     case "scroll-changed":
     case "surface-resized":
+    case "surface-resize-failed":
     case "surface-exited":
     case "title-changed":
     case "bell":
@@ -97,15 +98,40 @@ const colorsChanged: KnownCmuxEvent = {
 };
 
 const futureEvent: CmuxEvent = { event: "future-event", extension: true };
+const protocolV6Resize: KnownCmuxEvent = {
+  event: "resized",
+  surface: 1,
+  cols: 80,
+  rows: 24,
+  data: "cmVwbGF5",
+};
+const protocolV7Resize: KnownCmuxEvent = {
+  event: "resized",
+  surface: 1,
+  cols: 80,
+  rows: 24,
+  replay: "cmVwbGF5",
+};
 const clientEvents: KnownCmuxEvent[] = [
   { event: "client-attached", client: 2, transport: "ws", name: "browser", kind: "web" },
   { event: "client-changed", client: 2, name: "tablet", kind: "web" },
   { event: "client-detached", client: 2 },
 ];
+const resizeFailed: KnownCmuxEvent = {
+  event: "surface-resize-failed",
+  surface: 1,
+  cols: 120,
+  rows: 40,
+  error: "browser is not responding",
+  retry_after_ms: 250,
+};
 void surfaceFromKnownEvent;
 void colorsChanged;
 void futureEvent;
+void protocolV6Resize;
+void protocolV7Resize;
 void clientEvents;
+void resizeFailed;
 
 // @ts-expect-error `read-screen` requires a surface id.
 const invalidRequest: CmuxRequest = { cmd: "read-screen" };

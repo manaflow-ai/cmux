@@ -6,11 +6,16 @@
 //! VT operations.
 
 use std::io::{Read, Write};
+use std::mem::size_of;
 use std::ops::Deref;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::mpsc::{
+    Receiver, RecvError, RecvTimeoutError, SyncSender, TryRecvError, TrySendError,
+};
+use std::sync::{Arc, Mutex, TryLockError, Weak};
+use std::time::Duration;
 
-use ghostty_vt::{Callbacks, CursorShape, RenderState, Rgb, Terminal};
+use ghostty_vt::{Callbacks, CursorShape, MouseEncoders, MouseInput, RenderState, Rgb, Terminal};
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
 use crate::platform;
@@ -54,7 +59,7 @@ pub struct SurfaceOptions {
     pub browser_ephemeral: bool,
     /// Maximum browser capture size before downscaling, in megapixels.
     pub browser_max_capture_megapixels: f64,
-    /// Optional fixed browser capture scale, where 1.0 captures at pane pixels.
+    /// Optional maximum browser capture scale, further reduced to honor the megapixel cap.
     pub browser_capture_scale: Option<f64>,
 }
 
@@ -78,7 +83,7 @@ impl Default for SurfaceOptions {
             browser_mode: BrowserMode::Headful,
             browser_session_name: "default".to_string(),
             browser_ephemeral: false,
-            browser_max_capture_megapixels: 2.0,
+            browser_max_capture_megapixels: crate::browser::TRANSPORT_SAFE_CAPTURE_MEGAPIXELS,
             browser_capture_scale: None,
         }
     }
@@ -136,7 +141,8 @@ pub struct AttachStream {
     pub rows: u16,
     pub replay: Vec<u8>,
     pub colors: TerminalColors,
-    pub stream: std::sync::mpsc::Receiver<AttachFrame>,
+    pub stream: AttachFrameReceiver,
+    pub(crate) lifecycle: AttachLifecycle,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -144,6 +150,129 @@ pub enum AttachFrame {
     Output(Vec<u8>),
     Resized { cols: u16, rows: u16, replay: Vec<u8> },
     ColorsChanged(TerminalColors),
+}
+
+const ATTACH_STREAM_CAPACITY: usize = 256;
+const ATTACH_STREAM_MAX_BYTES: usize = 16 * 1024 * 1024;
+pub(crate) const VT_REPLAY_MAX_BYTES: usize = 8 * 1024 * 1024;
+
+pub struct AttachFrameReceiver {
+    receiver: Receiver<AttachFrame>,
+    queued_bytes: Arc<AtomicUsize>,
+}
+
+impl AttachFrameReceiver {
+    fn account_received(&self, frame: &AttachFrame) {
+        self.queued_bytes.fetch_sub(frame.retained_bytes(), Ordering::AcqRel);
+    }
+
+    pub fn recv(&self) -> Result<AttachFrame, RecvError> {
+        let frame = self.receiver.recv()?;
+        self.account_received(&frame);
+        Ok(frame)
+    }
+
+    pub fn recv_timeout(&self, timeout: Duration) -> Result<AttachFrame, RecvTimeoutError> {
+        let frame = self.receiver.recv_timeout(timeout)?;
+        self.account_received(&frame);
+        Ok(frame)
+    }
+
+    pub fn try_recv(&self) -> Result<AttachFrame, TryRecvError> {
+        let frame = self.receiver.try_recv()?;
+        self.account_received(&frame);
+        Ok(frame)
+    }
+}
+
+impl AttachFrame {
+    fn retained_bytes(&self) -> usize {
+        size_of::<Self>()
+            + match self {
+                Self::Output(bytes) => bytes.capacity(),
+                Self::Resized { replay, .. } => replay.capacity(),
+                Self::ColorsChanged(_) => 0,
+            }
+    }
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct AttachLifecycle {
+    state: Arc<AttachLifecycleState>,
+}
+
+#[derive(Default)]
+struct AttachLifecycleState {
+    canceled: AtomicBool,
+    overflowed: AtomicBool,
+    overflow_reported: AtomicBool,
+}
+
+impl AttachLifecycle {
+    pub(crate) fn cancel(&self) {
+        self.state.canceled.store(true, Ordering::Release);
+    }
+
+    pub(crate) fn mark_overflow(&self) {
+        self.state.overflowed.store(true, Ordering::Release);
+        self.cancel();
+    }
+
+    pub(crate) fn is_canceled(&self) -> bool {
+        self.state.canceled.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn overflowed(&self) -> bool {
+        self.state.overflowed.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn claim_overflow_report(&self) -> bool {
+        self.overflowed()
+            && self
+                .state
+                .overflow_reported
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+    }
+}
+
+struct AttachTap {
+    sender: SyncSender<AttachFrame>,
+    lifecycle: AttachLifecycle,
+    queued_bytes: Arc<AtomicUsize>,
+    max_queued_bytes: usize,
+}
+
+impl AttachTap {
+    fn try_send(&self, frame: AttachFrame) -> bool {
+        if self.lifecycle.is_canceled() {
+            return false;
+        }
+        let frame_bytes = frame.retained_bytes();
+        if self
+            .queued_bytes
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |queued| {
+                queued.checked_add(frame_bytes).filter(|next| *next <= self.max_queued_bytes)
+            })
+            .is_err()
+        {
+            self.lifecycle.mark_overflow();
+            return false;
+        }
+        match self.sender.try_send(frame) {
+            Ok(()) => true,
+            Err(TrySendError::Full(_)) => {
+                self.queued_bytes.fetch_sub(frame_bytes, Ordering::AcqRel);
+                self.lifecycle.mark_overflow();
+                false
+            }
+            Err(TrySendError::Disconnected(_)) => {
+                self.queued_bytes.fetch_sub(frame_bytes, Ordering::AcqRel);
+                self.lifecycle.cancel();
+                false
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -193,6 +322,7 @@ impl Deref for Surface {
 pub struct PtySurface {
     pub(crate) meta: SurfaceMeta,
     term: Mutex<Terminal>,
+    mouse_encoders: Mutex<MouseEncoders>,
     writer: Mutex<Box<dyn Write + Send>>,
     master: Mutex<Box<dyn MasterPty + Send>>,
     killer: Mutex<Box<dyn ChildKiller + Send>>,
@@ -212,7 +342,7 @@ pub struct PtySurface {
     /// terminal lock, and [`Surface::attach_stream`] registers taps under
     /// the same lock, so a subscriber sees exactly the bytes applied
     /// after its replay snapshot — no gap, no duplication.
-    taps: Mutex<Vec<std::sync::mpsc::Sender<AttachFrame>>>,
+    taps: Mutex<Vec<AttachTap>>,
 }
 
 impl std::fmt::Debug for Surface {
@@ -292,9 +422,12 @@ impl Surface {
             term.set_default_colors(colors.fg, colors.bg);
             term.set_default_cursor(colors.cursor_style, colors.cursor_blink);
         }
+        let mut mouse_encoders = MouseEncoders::new()?;
+        mouse_encoders.sync_from_terminal(&term);
         let surface = Arc::new(Surface::Pty(PtySurface {
             meta: SurfaceMeta { id, name: Mutex::new(None), selection: Mutex::new(None) },
             term: Mutex::new(term),
+            mouse_encoders: Mutex::new(mouse_encoders),
             writer: Mutex::new(writer),
             master: Mutex::new(pty.master),
             killer: Mutex::new(killer),
@@ -326,19 +459,17 @@ impl Surface {
                         let mut term = pty.term.lock().unwrap();
                         let before = terminal_scroll_position(&term);
                         term.vt_write(&buf[..n]);
+                        pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
                         let after = terminal_scroll_position(&term);
-                        {
-                            let mut taps = pty.taps.lock().unwrap();
-                            if !taps.is_empty() {
-                                let frame = AttachFrame::Output(buf[..n].to_vec());
-                                taps.retain(|tap| tap.send(frame.clone()).is_ok());
-                            }
-                        }
+                        pty.broadcast_attach_output(&buf[..n]);
                         if title_changed.swap(false, Ordering::Relaxed) {
                             let title = term.title().unwrap_or_default();
-                            *pty.title.lock().unwrap() = title;
+                            *pty.title.lock().unwrap() = title.clone();
                             if let Some(mux) = mux.upgrade() {
-                                mux.emit(MuxEvent::TitleChanged(surface.id));
+                                mux.emit(MuxEvent::TitleChanged {
+                                    surface: surface.id,
+                                    title: title.into(),
+                                });
                             }
                         }
                         if let Some(pwd) = term.pwd() {
@@ -408,10 +539,13 @@ impl Surface {
             term.set_default_colors(colors.fg, colors.bg);
             term.set_default_cursor(colors.cursor_style, colors.cursor_blink);
         }
+        let mut mouse_encoders = MouseEncoders::new()?;
+        mouse_encoders.sync_from_terminal(&term);
 
         Ok(Arc::new(Surface::Pty(PtySurface {
             meta: SurfaceMeta { id, name: Mutex::new(None), selection: Mutex::new(None) },
             term: Mutex::new(term),
+            mouse_encoders: Mutex::new(mouse_encoders),
             writer: Mutex::new(Box::new(std::io::sink())),
             master: Mutex::new(Box::new(TestMasterPty {
                 size: Mutex::new(PtySize {
@@ -475,7 +609,65 @@ impl Surface {
     /// method is kept for existing PTY call sites.
     pub fn with_terminal<R>(&self, f: impl FnOnce(&mut Terminal) -> R) -> Option<R> {
         let pty = self.as_pty()?;
-        Some(f(&mut pty.term.lock().unwrap()))
+        let mut term = pty.term.lock().unwrap();
+        let result = f(&mut term);
+        pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
+        Some(result)
+    }
+
+    pub fn encode_mouse(
+        &self,
+        input: MouseInput,
+        output: &mut Vec<u8>,
+    ) -> Option<ghostty_vt::Result<()>> {
+        let pty = self.as_pty()?;
+        match pty.mouse_encoders.try_lock() {
+            Ok(mut encoders) => Some(encoders.encode(input, output)),
+            Err(TryLockError::Poisoned(error)) => Some(error.into_inner().encode(input, output)),
+            Err(TryLockError::WouldBlock) => None,
+        }
+    }
+
+    pub fn encode_mouse_release(
+        &self,
+        input: MouseInput,
+        output: &mut Vec<u8>,
+    ) -> Option<ghostty_vt::Result<()>> {
+        let pty = self.as_pty()?;
+        match pty.mouse_encoders.try_lock() {
+            Ok(mut encoders) => Some(encoders.encode_release(input, output)),
+            Err(TryLockError::Poisoned(error)) => {
+                Some(error.into_inner().encode_release(input, output))
+            }
+            Err(TryLockError::WouldBlock) => None,
+        }
+    }
+
+    pub fn encode_mouse_press_pair(
+        &self,
+        press: MouseInput,
+        release: MouseInput,
+        press_output: &mut Vec<u8>,
+        release_output: &mut Vec<u8>,
+    ) -> Option<ghostty_vt::Result<()>> {
+        let pty = self.as_pty()?;
+        match pty.mouse_encoders.try_lock() {
+            Ok(mut encoders) => {
+                Some(encoders.encode_press_pair(press, release, press_output, release_output))
+            }
+            Err(TryLockError::Poisoned(error)) => Some(error.into_inner().encode_press_pair(
+                press,
+                release,
+                press_output,
+                release_output,
+            )),
+            Err(TryLockError::WouldBlock) => None,
+        }
+    }
+
+    pub fn reset_mouse_motion_dedupe(&self) {
+        let Some(pty) = self.as_pty() else { return };
+        pty.mouse_encoders.lock().unwrap().reset_motion_dedupe();
     }
 
     pub fn try_with_terminal<R>(&self, f: impl FnOnce(&mut Terminal) -> R) -> anyhow::Result<R> {
@@ -531,7 +723,7 @@ impl Surface {
             let colors = TerminalColors::from_terminal(&mut term, colors);
             let mut taps = pty.taps.lock().unwrap();
             if !taps.is_empty() {
-                taps.retain(|tap| tap.send(AttachFrame::ColorsChanged(colors)).is_ok());
+                taps.retain(|tap| tap.try_send(AttachFrame::ColorsChanged(colors)));
             }
             pty.dirty.store(true, Ordering::Release);
         }
@@ -564,21 +756,55 @@ impl Surface {
 
     /// Resize this surface. PTYs receive cell dimensions; browsers also
     /// use the last configured cell pixel size for CDP device metrics.
-    /// Returns whether the final clamped size actually changed.
-    pub fn resize(&self, cols: u16, rows: u16) -> bool {
+    /// Returns whether a clamped size change was applied or accepted. Browser
+    /// reconfiguration completes on its worker and emits the final size there.
+    pub fn resize(&self, cols: u16, rows: u16) -> anyhow::Result<bool> {
         match self {
-            Surface::Pty(pty) => pty.resize(cols, rows),
-            Surface::Browser(browser) => {
-                let before = browser.size();
-                browser.resize(cols, rows);
-                browser.size() != before
-            }
+            Surface::Pty(pty) => Ok(pty.resize(cols, rows)),
+            Surface::Browser(browser) => browser.resize(cols, rows),
         }
     }
 
-    pub fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) {
+    pub fn resize_reporting_acceptance(
+        &self,
+        cols: u16,
+        rows: u16,
+        report: Box<dyn FnOnce(Option<u64>) + Send>,
+    ) -> anyhow::Result<Option<u64>> {
+        match self {
+            Surface::Pty(pty) => {
+                let accepted = pty.resize(cols, rows);
+                report(accepted.then_some(0));
+                Ok(accepted.then_some(0))
+            }
+            Surface::Browser(browser) => browser.resize_reporting_acceptance(cols, rows, report),
+        }
+    }
+
+    pub fn resize_needed(&self, cols: u16, rows: u16) -> bool {
+        let desired = (cols.max(1), rows.max(1));
+        match self {
+            Surface::Pty(pty) => *pty.size.lock().unwrap() != desired,
+            Surface::Browser(browser) => browser.resize_needed(desired.0, desired.1),
+        }
+    }
+
+    pub fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) -> anyhow::Result<bool> {
+        self.set_cell_pixel_size_reporting(width_px, height_px, Box::new(|_| {}))
+            .map(|reservation_id| reservation_id.is_some())
+    }
+
+    pub fn set_cell_pixel_size_reporting(
+        &self,
+        width_px: u16,
+        height_px: u16,
+        report: Box<dyn FnOnce(Option<u64>) + Send>,
+    ) -> anyhow::Result<Option<u64>> {
         if let Some(browser) = self.as_browser() {
-            browser.set_cell_pixel_size(width_px, height_px);
+            browser.set_cell_pixel_size_reporting(width_px, height_px, report)
+        } else {
+            report(None);
+            Ok(None)
         }
     }
 
@@ -629,19 +855,39 @@ impl Surface {
 
     /// Attach to a PTY surface: a VT replay plus a live byte stream.
     pub fn attach_stream(&self) -> ghostty_vt::Result<AttachStream> {
+        self.attach_stream_with_lifecycle(AttachLifecycle::default())
+    }
+
+    pub(crate) fn attach_stream_with_lifecycle(
+        &self,
+        lifecycle: AttachLifecycle,
+    ) -> ghostty_vt::Result<AttachStream> {
         let Some(pty) = self.as_pty() else {
             return Err(ghostty_vt::Error::InvalidValue);
         };
         let mut term = pty.term.lock().unwrap();
-        let (tx, rx) = std::sync::mpsc::channel();
+        let (tx, rx) = std::sync::mpsc::sync_channel(ATTACH_STREAM_CAPACITY);
+        let queued_bytes = Arc::new(AtomicUsize::new(0));
         // Snapshot and tap registration under the same terminal lock:
         // the reader thread cannot apply bytes between the two.
-        let replay = term.vt_replay()?;
+        let replay = term.vt_replay_bounded(VT_REPLAY_MAX_BYTES)?;
         let (cols, rows) = (term.cols(), term.rows());
         let defaults = pty.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
         let colors = TerminalColors::from_terminal(&mut term, defaults);
-        pty.taps.lock().unwrap().push(tx);
-        Ok(AttachStream { cols, rows, replay, colors, stream: rx })
+        pty.taps.lock().unwrap().push(AttachTap {
+            sender: tx,
+            lifecycle: lifecycle.clone(),
+            queued_bytes: queued_bytes.clone(),
+            max_queued_bytes: ATTACH_STREAM_MAX_BYTES,
+        });
+        Ok(AttachStream {
+            cols,
+            rows,
+            replay,
+            colors,
+            stream: AttachFrameReceiver { receiver: rx, queued_bytes },
+            lifecycle,
+        })
     }
 
     pub fn kill(&self) {
@@ -815,6 +1061,19 @@ impl ChildKiller for TestChildKiller {
 }
 
 impl PtySurface {
+    fn broadcast_attach_output(&self, bytes: &[u8]) {
+        let mut taps = self.taps.lock().unwrap();
+        if taps.is_empty() {
+            return;
+        }
+        let frame = AttachFrame::Output(bytes.to_vec());
+        taps.retain(|tap| tap.try_send(frame.clone()));
+    }
+
+    fn broadcast_attach_frame(&self, frame: AttachFrame) {
+        self.taps.lock().unwrap().retain(|tap| tap.try_send(frame.clone()));
+    }
+
     /// Resize both the PTY and the terminal state. Returns whether the
     /// final clamped size actually changed.
     fn resize(&self, cols: u16, rows: u16) -> bool {
@@ -838,13 +1097,8 @@ impl PtySurface {
         });
         // Nominal cell metrics; only pixel size reports observe these.
         let _ = term.resize(cols, rows, 8, 16);
-        let replay = term.vt_replay().unwrap_or_default();
-        let mut taps = self.taps.lock().unwrap();
-        if !taps.is_empty() {
-            taps.retain(|tap| {
-                tap.send(AttachFrame::Resized { cols, rows, replay: replay.clone() }).is_ok()
-            });
-        }
+        let replay = term.vt_replay_bounded(VT_REPLAY_MAX_BYTES).unwrap_or_default();
+        self.broadcast_attach_frame(AttachFrame::Resized { cols, rows, replay });
         true
     }
 }
@@ -853,5 +1107,46 @@ fn terminal_scroll_position(term: &Terminal) -> (u64, bool) {
     match term.scrollbar() {
         Some(scrollbar) => (scrollbar.offset, !scrollbar.scrolled_back()),
         None => (0, true),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn attach_tap_overflow_cancels_the_shared_lifecycle_once() {
+        let lifecycle = AttachLifecycle::default();
+        let (sender, _receiver) = std::sync::mpsc::sync_channel(1);
+        let tap = AttachTap {
+            sender,
+            lifecycle: lifecycle.clone(),
+            queued_bytes: Arc::new(AtomicUsize::new(0)),
+            max_queued_bytes: usize::MAX,
+        };
+
+        assert!(tap.try_send(AttachFrame::Output(vec![1])));
+        assert!(!tap.try_send(AttachFrame::Output(vec![2])));
+        assert!(lifecycle.is_canceled());
+        assert!(lifecycle.overflowed());
+        assert!(lifecycle.claim_overflow_report());
+        assert!(!lifecycle.claim_overflow_report());
+    }
+
+    #[test]
+    fn attach_tap_overflow_is_bounded_by_retained_bytes() {
+        let lifecycle = AttachLifecycle::default();
+        let (sender, _receiver) = std::sync::mpsc::sync_channel(4);
+        let frame_bytes = AttachFrame::Output(vec![1]).retained_bytes();
+        let tap = AttachTap {
+            sender,
+            lifecycle: lifecycle.clone(),
+            queued_bytes: Arc::new(AtomicUsize::new(0)),
+            max_queued_bytes: frame_bytes,
+        };
+
+        assert!(tap.try_send(AttachFrame::Output(vec![1])));
+        assert!(!tap.try_send(AttachFrame::Output(vec![2])));
+        assert!(lifecycle.overflowed());
     }
 }
