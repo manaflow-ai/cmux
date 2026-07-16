@@ -10,26 +10,6 @@ import Foundation
 // MARK: - Leading-edge coalescing
 
 extension Publisher where Failure == Never {
-    /// Bridges a publisher into an async stream with one pending latest value.
-    ///
-    /// `Publisher.values` requests values one at a time. Some synchronous
-    /// Combine graphs can emit again before that demand is renewed, which
-    /// traps inside Combine's AsyncPublisher implementation. This bridge uses
-    /// an unlimited-demand sink and a thread-safe AsyncStream continuation, so
-    /// bursts retain the newest pending value without violating demand.
-    func bufferedValues() -> AsyncStream<Output> {
-        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
-            let cancellation = PublisherStreamCancellation()
-            continuation.onTermination = { _ in
-                cancellation.cancel()
-            }
-            cancellation.store(sink(
-                receiveCompletion: { _ in continuation.finish() },
-                receiveValue: { continuation.yield($0) }
-            ))
-        }
-    }
-
     /// Coalesces bursts while keeping the leading edge synchronous.
     ///
     /// Combine's `throttle` schedules every emission, including the first,
@@ -58,33 +38,6 @@ extension Publisher where Failure == Never {
     ) -> AnyPublisher<Output, Never> {
         CoalesceLatestPublisher(upstream: self, interval: interval, scheduler: scheduler)
             .eraseToAnyPublisher()
-    }
-}
-
-private final class PublisherStreamCancellation: @unchecked Sendable {
-    private let lock = NSLock()
-    private var cancellable: AnyCancellable?
-    private var isCancelled = false
-
-    func store(_ cancellable: AnyCancellable) {
-        lock.lock()
-        if isCancelled {
-            lock.unlock()
-            cancellable.cancel()
-            return
-        }
-        self.cancellable = cancellable
-        lock.unlock()
-    }
-
-    func cancel() {
-        let cancellable: AnyCancellable?
-        lock.lock()
-        isCancelled = true
-        cancellable = self.cancellable
-        self.cancellable = nil
-        lock.unlock()
-        cancellable?.cancel()
     }
 }
 

@@ -32,11 +32,11 @@ extension View {
             await withTaskGroup(of: Void.self) { group in
                 for (id, workspace) in zip(ids, workspaces) {
                     let immediateChanges = workspace.sidebarImmediateObservationPublisher
-                        .bufferedValues()
+                        .values
                     let debouncedChanges = workspace.sidebarObservationPublisher
                         .receive(on: RunLoop.main)
                         .debounce(for: debouncedInterval, scheduler: RunLoop.main)
-                        .bufferedValues()
+                        .values
                     group.addTask { @MainActor in
                         for await _ in immediateChanges {
                             if Task.isCancelled { break }
