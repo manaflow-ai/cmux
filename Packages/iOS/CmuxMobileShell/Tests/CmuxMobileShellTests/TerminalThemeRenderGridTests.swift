@@ -138,7 +138,7 @@ import Testing
 }
 
 @MainActor
-@Test func olderThemeRevisionCannotEnqueueEqualSequenceFullFrame() async throws {
+@Test func olderThemeRevisionDeliversContentWithCurrentTheme() async throws {
     let surfaceID = "terminal-ordered-theme-delivery"
     let store = MobileShellComposite.preview()
     var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
@@ -152,21 +152,32 @@ import Testing
         revision: 2,
         stateSeq: 7
     )
-    let delayedOlder = try delayedFrame(
+    let delayedOlder = try MobileTerminalRenderGridFrame(
         surfaceID: surfaceID,
-        theme: oldTheme,
-        revision: 1,
-        stateSeq: 7
+        stateSeq: 8,
+        columns: 7,
+        rows: 1,
+        rowSpans: [],
+        terminalTheme: oldTheme,
+        terminalConfigTheme: oldTheme,
+        terminalThemeRevision: 1,
+        scrollbackRows: 1,
+        scrollbackSpans: [
+            .init(row: 0, column: 0, styleID: 0, text: "history", cellWidth: 7),
+        ]
     )
-    var revisionless = delayedOlder
-    revisionless.terminalThemeRevision = nil
 
     #expect(store.deliverTerminalRenderGrid(newer, surfaceID: surfaceID))
     let newerChunk = try #require(await iterator.next())
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: newerChunk.streamToken)
 
-    #expect(!store.deliverTerminalRenderGrid(delayedOlder, surfaceID: surfaceID))
-    #expect(!store.deliverTerminalRenderGrid(revisionless, surfaceID: surfaceID))
+    #expect(store.deliverTerminalRenderGrid(delayedOlder, surfaceID: surfaceID))
+    let delayedChunk = try #require(await iterator.next())
+    let replay = try #require(String(data: delayedChunk.bytes, encoding: .utf8))
+
+    #expect(replay.contains("history"))
+    #expect(replay.contains("rgb:f4/f0/df"))
+    #expect(delayedChunk.terminalConfigTheme == newTheme)
     #expect(store.terminalTheme(for: surfaceID) == newTheme)
 }
 
