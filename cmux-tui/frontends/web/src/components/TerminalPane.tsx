@@ -178,6 +178,7 @@ function PaneLeaf({
               client={client}
               clients={clients}
               surface={surface}
+              active={active}
               error={terminalError}
               onError={reportError}
             />
