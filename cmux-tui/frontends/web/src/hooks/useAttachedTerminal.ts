@@ -11,7 +11,7 @@ import type {
   Id,
 } from "cmux/browser";
 import { debounce } from "../lib/debounce";
-import { isForeignSmaller, nextFitSize, type TerminalSize } from "../lib/fit";
+import { nextFitSize, type TerminalSize } from "../lib/fit";
 import { colorsToCursorOptionsPatch, colorsToThemePatch } from "../lib/terminalColors";
 import { terminalTheme } from "../lib/terminalTheme";
 import { tryLoadWebglRenderer } from "../lib/webglRenderer";
@@ -25,11 +25,6 @@ interface AttachedTerminalOptions {
 export function useAttachedTerminal({ client, surface, onError }: AttachedTerminalOptions) {
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   const [focused, setFocused] = useState(false);
-  const [foreignSizeState, setForeignSizeState] = useState<{
-    client: CmuxClient;
-    surface: Id;
-    size: TerminalSize;
-  } | null>(null);
   const terminalRef = useCallback((node: HTMLDivElement | null) => setHost(node), []);
 
   useEffect(() => {
@@ -63,21 +58,6 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
     let stream: Awaited<ReturnType<CmuxClient["attachSurface"]>> | null = null;
     let reportedFit: TerminalSize | null = null;
 
-    const publishForeignSize = (size: TerminalSize | null) => {
-      setForeignSizeState((current) => {
-        if (size === null) return current === null ? current : null;
-        if (
-          current?.client === client
-          && current.surface === surface
-          && current.size.cols === size.cols
-          && current.size.rows === size.rows
-        ) return current;
-        return { client, surface, size };
-      });
-    };
-    const updateForeignSize = (current: TerminalSize, proposed: TerminalSize | undefined) => {
-      publishForeignSize(isForeignSmaller(current, proposed) ? current : null);
-    };
     const applyFit = () => {
       if (cancelled || stream === null) return;
       const proposed = fit.proposeDimensions();
@@ -134,7 +114,6 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
             applyColors(replay.colors);
             terminal.resize(replay.cols, replay.rows);
             terminal.write(replay.data);
-            updateForeignSize({ cols: replay.cols, rows: replay.rows }, fit.proposeDimensions());
             // Publish this viewport once attached. The server combines it
             // with every other viewer and returns the shared minimum size.
             applyFit();
@@ -145,7 +124,6 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
             terminal.reset();
             terminal.resize(resized.cols, resized.rows);
             terminal.write(resized.data);
-            updateForeignSize({ cols: resized.cols, rows: resized.rows }, fit.proposeDimensions());
           } else if (event.event === "colors-changed") {
             applyColors(event as DecodedColorsChangedEvent);
           }
@@ -172,12 +150,8 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
       terminal.dispose();
       stage?.style.removeProperty("--surface-background");
       setFocused(false);
-      publishForeignSize(null);
     };
   }, [client, host, onError, surface]);
 
-  const foreignSize = host !== null && foreignSizeState?.client === client && foreignSizeState.surface === surface
-    ? foreignSizeState.size
-    : null;
-  return { terminalRef, focused, foreignSize };
+  return { terminalRef, focused };
 }

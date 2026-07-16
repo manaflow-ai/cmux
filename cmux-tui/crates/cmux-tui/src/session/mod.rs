@@ -54,13 +54,8 @@ fn sidebar_status_to_surface(status: SidebarPluginStatus) -> SidebarPluginSurfac
     }
 }
 
-pub(crate) fn resize_action(
-    desired: (u16, u16),
-    asserted: Option<(u16, u16)>,
-    server: (u16, u16),
-    user_interaction: bool,
-) -> bool {
-    if user_interaction { desired != server } else { asserted != Some(desired) }
+pub(crate) fn resize_action(desired: (u16, u16), asserted: Option<(u16, u16)>) -> bool {
+    asserted != Some(desired)
 }
 
 #[derive(Clone)]
@@ -563,14 +558,14 @@ impl SurfaceHandle {
                 let _ = mux.resize_surface_for_client(surface.id, 0, desired.0, desired.1);
             }
             SurfaceHandle::Remote(surface, session) => {
-                if resize_action(desired, surface.asserted_size(), surface.server_size(), false) {
+                if resize_action(desired, surface.reported_size()) {
                     let _ = session.request(json!({
                         "cmd": "resize-surface",
                         "surface": surface.id,
                         "cols": desired.0,
                         "rows": desired.1,
                     }));
-                    surface.set_asserted_size(desired);
+                    surface.set_reported_size(desired);
                 }
             }
             SurfaceHandle::RemoteBrowserUnsupported => {}
@@ -890,34 +885,24 @@ mod tests {
     #[test]
     fn first_layout_after_attach_sends_ordered_resize() {
         let desired = (123, 65);
-        let server = (80, 24);
-        assert!(resize_action(desired, None, server, false));
+        assert!(resize_action(desired, None));
     }
 
     #[test]
     fn already_sized_first_layout_does_not_send_redundant_resize() {
         let desired = (123, 65);
-        assert!(!resize_action(desired, Some(desired), desired, false));
+        assert!(!resize_action(desired, Some(desired)));
     }
 
     #[test]
-    fn remote_resize_with_no_local_change_does_not_send() {
+    fn shared_resize_does_not_reassert_unchanged_local_report() {
         let desired = (123, 65);
-        let server = (341, 92);
-        assert!(!resize_action(desired, Some(desired), server, false));
-    }
-
-    #[test]
-    fn remote_resize_followed_by_user_interaction_does_not_send() {
-        let desired = (123, 65);
-        let server = (341, 92);
-        assert!(!resize_action(desired, Some(desired), server, true));
+        assert!(!resize_action(desired, Some(desired)));
     }
 
     #[test]
     fn steady_state_does_not_send() {
         let desired = (123, 65);
-        assert!(!resize_action(desired, Some(desired), desired, false));
-        assert!(!resize_action(desired, Some(desired), desired, true));
+        assert!(!resize_action(desired, Some(desired)));
     }
 }

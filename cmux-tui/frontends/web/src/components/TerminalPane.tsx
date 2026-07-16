@@ -1,5 +1,5 @@
 import { useCallback, useReducer, useRef, useState } from "react";
-import type { ClientInfo, CmuxClient, Id, LivePane, Tab } from "cmux/browser";
+import type { CmuxClient, Id, LivePane, Tab } from "cmux/browser";
 import { t } from "../i18n";
 import type { PaneLayoutView } from "../lib/layout";
 import { layoutToViewModel } from "../lib/layout";
@@ -15,7 +15,6 @@ import { RenderTerminal } from "./RenderTerminal";
 
 interface TerminalPaneProps {
   client: CmuxClient | null;
-  clients: ClientInfo[];
   screen: ScreenView | null;
   onSelectTab(pane: Id, index: number, surface: Id): void;
   onNewTab(pane: Id): void;
@@ -94,7 +93,6 @@ interface PaneLeafProps extends Omit<TerminalPaneProps, "screen" | "onSetRatio">
 
 function PaneLeaf({
   client,
-  clients,
   pane,
   paneId,
   active,
@@ -176,7 +174,6 @@ function PaneLeaf({
           {surface !== null && client !== null && (client.protocol ?? 0) >= 7 ? (
             <RenderTerminal
               client={client}
-              clients={clients}
               surface={surface}
               active={active}
               error={terminalError}
@@ -185,7 +182,6 @@ function PaneLeaf({
           ) : surface !== null ? (
             <ByteTerminal
               client={client}
-              clients={clients}
               surface={surface}
               error={terminalError}
               onError={reportError}

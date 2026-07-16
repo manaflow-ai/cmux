@@ -183,8 +183,7 @@ export function useCmuxClient() {
             if (
               event.event === "client-attached"
               || event.event === "client-changed"
-              // Presence sizes feed the foreign-size hint; refresh them when
-              // a surface is resized so the owning client is named correctly.
+              // Keep the client viewport list current after a shared resize.
               || event.event === "surface-resized"
             ) {
               await refreshClients();

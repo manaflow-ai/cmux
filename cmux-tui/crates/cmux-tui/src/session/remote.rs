@@ -59,21 +59,14 @@ pub struct RemoteSurface {
     pub kind: SurfaceKind,
     pub term: Mutex<Terminal>,
     pub dirty: AtomicBool,
-    server_size: Mutex<(u16, u16)>,
-    asserted_size: Mutex<Option<(u16, u16)>>,
+    reported_size: Mutex<Option<(u16, u16)>>,
     browser: Mutex<RemoteBrowserState>,
 }
 
 impl RemoteSurface {
-    pub(super) fn set_server_size(&self, cols: u16, rows: u16) {
-        let (cols, rows) = (cols.max(1), rows.max(1));
-        *self.server_size.lock().unwrap() = (cols, rows);
-    }
-
     /// Apply an ordered attach-stream resize marker to the mirror terminal.
     pub(super) fn apply_stream_resize(&self, cols: u16, rows: u16, replay: Option<&[u8]>) {
         let (cols, rows) = (cols.max(1), rows.max(1));
-        self.set_server_size(cols, rows);
         let mut term = self.term.lock().unwrap();
         if let Some(replay) = replay
             && let Ok(mut fresh) = Terminal::new(cols, rows, 10_000, Callbacks::default())
@@ -85,16 +78,12 @@ impl RemoteSurface {
         let _ = term.resize(cols, rows, 8, 16);
     }
 
-    pub(super) fn server_size(&self) -> (u16, u16) {
-        *self.server_size.lock().unwrap()
+    pub(super) fn reported_size(&self) -> Option<(u16, u16)> {
+        *self.reported_size.lock().unwrap()
     }
 
-    pub(super) fn asserted_size(&self) -> Option<(u16, u16)> {
-        *self.asserted_size.lock().unwrap()
-    }
-
-    pub(super) fn set_asserted_size(&self, size: (u16, u16)) {
-        *self.asserted_size.lock().unwrap() = Some(size);
+    pub(super) fn set_reported_size(&self, size: (u16, u16)) {
+        *self.reported_size.lock().unwrap() = Some(size);
     }
 
     pub fn browser_frame(&self) -> Option<BrowserFrame> {
@@ -523,8 +512,7 @@ impl RemoteSession {
             kind,
             term: Mutex::new(term),
             dirty: AtomicBool::new(false),
-            server_size: Mutex::new((cols, rows)),
-            asserted_size: Mutex::new(None),
+            reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
         });
         surface.update_browser_source(source);
@@ -701,8 +689,7 @@ mod tests {
             kind: SurfaceKind::Browser,
             term: Mutex::new(Terminal::new(10, 5, 100, Callbacks::default()).unwrap()),
             dirty: AtomicBool::new(false),
-            server_size: Mutex::new((10, 5)),
-            asserted_size: Mutex::new(None),
+            reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
         };
 
@@ -742,8 +729,7 @@ mod tests {
             kind: SurfaceKind::Pty,
             term: Mutex::new(Terminal::new(20, 6, 100, Callbacks::default()).unwrap()),
             dirty: AtomicBool::new(false),
-            server_size: Mutex::new((20, 6)),
-            asserted_size: Mutex::new(None),
+            reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
         };
         {
@@ -783,8 +769,7 @@ mod tests {
             kind: SurfaceKind::Pty,
             term: Mutex::new(Terminal::new(12, 3, 100, Callbacks::default()).unwrap()),
             dirty: AtomicBool::new(false),
-            server_size: Mutex::new((12, 3)),
-            asserted_size: Mutex::new(None),
+            reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
         };
         surface.apply_stream_resize(12, 3, None);
