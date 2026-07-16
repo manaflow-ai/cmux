@@ -275,6 +275,22 @@ struct WorkspaceTodoSidebarModelTests {
         #expect(!source.contains(".onSubmit { actions.commitEdit() }"))
     }
 
+    @Test
+    func checklistTextFieldsSupportShiftReturnLineBreaks() throws {
+        let pane = try Self.sourceText("Sources/Panels/WorkspaceTodoPanelView.swift")
+        let popover = try Self.sourceText("Sources/SidebarWorkspaceChecklistPopover.swift")
+        let compactField = try Self.sourceText("Sources/ChecklistInputField.swift")
+
+        #expect(pane.contains("modifiers.contains(.shift)"))
+        #expect(pane.contains("pendingItemText.append(\"\\n\")"))
+        #expect(pane.contains("editingText.append(\"\\n\")"))
+        #expect(popover.contains("press.modifiers == EventModifiers.shift"))
+        #expect(popover.contains("pendingItemText.append(\"\\n\")"))
+        #expect(popover.contains("editingText.append(\"\\n\")"))
+        #expect(compactField.contains("#selector(NSResponder.insertLineBreak(_:))"))
+        #expect(compactField.contains("textView.insertText(\"\\n\""))
+    }
+
     // MARK: - Checklist display policy
 
     private func item(_ text: String, _ state: WorkspaceChecklistItem.State) -> WorkspaceChecklistItem {

@@ -223,6 +223,14 @@ struct SidebarWorkspaceChecklistPopover: View {
                 .font(.system(size: Self.itemFontSize))
                 .foregroundColor(.primary)
                 .focused($editFieldFocused)
+                .onKeyPress { press in
+                    guard press.key == .return else { return .ignored }
+                    if press.modifiers == EventModifiers.shift {
+                        editingText.append("\n")
+                        return .handled
+                    }
+                    return .ignored
+                }
                 .onSubmit { commitItemEdit(item.id) }
                 .onExitCommand(perform: cancelItemEdit)
                 .accessibilityIdentifier("SidebarChecklistPopoverEditItemField")
@@ -350,8 +358,8 @@ struct SidebarWorkspaceChecklistPopover: View {
             .focused($addFieldFocused)
             .onKeyPress(.upArrow) { moveHighlight(-1, in: visible) }
             .onKeyPress(.downArrow) { moveHighlight(1, in: visible) }
-            .onKeyPress(.return) { handleAddFieldReturn(visible: visible) }
             .onKeyPress(.delete) { handleAddFieldDelete(visible: visible) }
+            .onKeyPress { press in handleAddFieldKeyPress(press, visible: visible) }
             .onSubmit(commitPendingItem)
             .onExitCommand(perform: cancelPendingItem)
             .onChange(of: pendingItemText) { _, newValue in
@@ -386,7 +394,17 @@ struct SidebarWorkspaceChecklistPopover: View {
         return .handled
     }
 
-    private func handleAddFieldReturn(visible: [WorkspaceChecklistItem]) -> KeyPress.Result {
+    private func handleAddFieldKeyPress(
+        _ press: KeyPress,
+        visible: [WorkspaceChecklistItem]
+    ) -> KeyPress.Result {
+        guard press.key == .return else { return .ignored }
+        if press.modifiers == EventModifiers.shift {
+            pendingItemText.append("\n")
+            highlightedItemId = nil
+            return .handled
+        }
+        guard press.modifiers.isEmpty else { return .ignored }
         guard pendingItemText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return .ignored
         }

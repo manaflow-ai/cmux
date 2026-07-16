@@ -419,6 +419,13 @@ private struct WorkspaceTodoPaneContent: View {
             .textFieldStyle(.plain)
             .foregroundColor(.primary)
             .focused($addFieldFocused)
+            .backport.onKeyPress(.return) { modifiers in
+                if modifiers.contains(.shift), modifiers.subtracting(.shift).isEmpty {
+                    pendingItemText.append("\n")
+                    return .handled
+                }
+                return .ignored
+            }
             .onSubmit(commitPendingItem)
             .onExitCommand(perform: cancelPendingItem)
             .accessibilityIdentifier("WorkspaceTodoPaneAddItemField")
@@ -543,6 +550,10 @@ private struct WorkspaceTodoPaneItemRow: View {
                 .lineLimit(1...8)
                 .fixedSize(horizontal: false, vertical: true)
                 .backport.onKeyPress(.return) { modifiers in
+                    if modifiers.contains(.shift), modifiers.subtracting(.shift).isEmpty {
+                        editingText.append("\n")
+                        return .handled
+                    }
                     if modifiers.contains(.command) {
                         actions.commitEdit()
                         return .handled
