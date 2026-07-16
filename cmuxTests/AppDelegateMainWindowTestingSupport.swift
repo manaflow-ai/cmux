@@ -73,6 +73,9 @@ extension AppDelegate {
             cmuxConfigStore: cmuxConfigStore,
             window: nil
         )
+        // Fidelity tests exercise the observer's pipelines without a live
+        // phone subscriber; force presence on so the graph attaches.
+        MobileWorkspaceListObserver.subscriberPresenceOverrideForTesting = true
         ensureMobileWorkspaceListObserver(for: tabManager)
         notifyMainWindowContextsDidChange()
         return windowId
