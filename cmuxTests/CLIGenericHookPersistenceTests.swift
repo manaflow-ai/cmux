@@ -3484,6 +3484,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
             params["surface_id"] as? String, ttySurfaceId,
             "PID/TTY ground truth must override the leaked env CMUX_SURFACE_ID; params=\(params)"
         )
+        let surfaceListRequestCount = state.snapshot().reduce(into: 0) { count, command in
+            guard let payload = self.jsonObject(command),
+                  payload["method"] as? String == "surface.list" else { return }
+            count += 1
+        }
+        XCTAssertEqual(
+            surfaceListRequestCount,
+            1,
+            "one hook invocation must reuse its validated surface list; saw \(state.snapshot())"
+        )
     }
 
     /// G3 stale-env variant (https://github.com/manaflow-ai/cmux/issues/5333): when the ambient
