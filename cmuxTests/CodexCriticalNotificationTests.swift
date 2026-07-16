@@ -30,6 +30,27 @@ struct CodexCriticalNotificationTests {
         )
     }
 
+    @Test("Canonical session-budget terminal errors use the budget notification")
+    func sessionBudgetTerminalErrorNotifies() throws {
+        let result = try runMonitor(
+            transcript: """
+            {"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-session-budget"}}
+            {"type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-session-budget","last_agent_message":null,"error":{"message":"Session budget exceeded.","codex_error_info":"session_budget_exceeded"}}}
+            """,
+            sessionID: "session-budget-terminal",
+            turnID: "turn-session-budget"
+        )
+
+        #expect(!result.process.timedOut, result.process.stderr)
+        #expect(result.process.status == 0, result.process.stderr)
+        #expect(
+            result.commands.contains { command in
+                command.contains("notify_target_async \(workspaceID) \(surfaceID) Codex|Budget reached|Session budget exceeded.")
+            },
+            "Expected a session-budget notification, saw \(result.commands)"
+        )
+    }
+
     @Test("Intentional turn interruption does not notify")
     func interruptedTurnDoesNotNotify() throws {
         let result = try runMonitor(

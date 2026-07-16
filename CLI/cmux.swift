@@ -26389,7 +26389,8 @@ struct CMUXCLI {
 
         let subtitle: String
         let statusValue: String
-        if signal.contains("budget_limited") ||
+        if signal.contains("session_budget_exceeded") ||
+            signal.contains("budget_limited") ||
             signal.contains("budget limited") ||
             signal.contains("turn budget") {
             subtitle = String(localized: "agent.codex.error.subtitle.budget", defaultValue: "Budget reached")
