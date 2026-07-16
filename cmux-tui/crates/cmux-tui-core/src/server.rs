@@ -2935,6 +2935,53 @@ mod tests {
     }
 
     #[test]
+    fn attached_client_resizes_are_last_writer_wins_and_independently_reported() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+
+        let first_writer = test_writer();
+        let first_stream = first_writer.start_stream(&attach_overflow_json(surface.id)).unwrap();
+        let first = mux.control_clients.register(ClientTransport::Unix, first_writer.clone());
+        mux.control_clients.attach_surface(first, surface.id, first_stream).unwrap();
+
+        let second_writer = test_writer();
+        let second_stream = second_writer.start_stream(&attach_overflow_json(surface.id)).unwrap();
+        let second = mux.control_clients.register(ClientTransport::Unix, second_writer.clone());
+        mux.control_clients.attach_surface(second, surface.id, second_stream).unwrap();
+
+        let first_result = handle_command(
+            &mux,
+            first,
+            Command::ResizeSurface { surface: surface.id, cols: 100, rows: 30 },
+            &first_writer,
+        )
+        .unwrap();
+        assert_eq!(first_result["accepted"].as_bool(), Some(true));
+        assert_eq!(surface.size(), (100, 30));
+
+        let second_result = handle_command(
+            &mux,
+            second,
+            Command::ResizeSurface { surface: surface.id, cols: 132, rows: 44 },
+            &second_writer,
+        )
+        .unwrap();
+        assert_eq!(second_result["accepted"].as_bool(), Some(true));
+        assert_eq!(surface.size(), (132, 44));
+
+        let clients = mux.control_clients.list_json(first);
+        let clients = clients.as_array().unwrap();
+        let recorded_size = |client: u64| {
+            let record =
+                clients.iter().find(|record| record["client"].as_u64() == Some(client)).unwrap();
+            let size = record["sizes"].as_array().unwrap().first().unwrap();
+            (size["cols"].as_u64().unwrap(), size["rows"].as_u64().unwrap())
+        };
+        assert_eq!(recorded_size(first), (100, 30));
+        assert_eq!(recorded_size(second), (132, 44));
+    }
+
+    #[test]
     fn client_info_is_sanitized_recallable_and_clamped_to_64_characters() {
         let mux = test_mux();
         let writer = test_writer();
