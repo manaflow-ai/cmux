@@ -513,9 +513,23 @@ private extension MobileTerminalRenderGridFrame {
         revision: UInt64?
     ) -> Self {
         var frame = self
-        frame.terminalForeground = theme.foreground
-        frame.terminalBackground = theme.background
-        frame.terminalCursorColor = theme.cursor
+        let reverseColors = frame.modes.last(where: { !$0.ansi && $0.code == 5 })?.on == true
+        let rawForeground = reverseColors ? theme.background : theme.foreground
+        let rawBackground = reverseColors ? theme.foreground : theme.background
+        frame.terminalForeground = rawForeground.caseInsensitiveCompare(config.foreground) == .orderedSame
+            ? nil
+            : rawForeground
+        frame.terminalBackground = rawBackground.caseInsensitiveCompare(config.background) == .orderedSame
+            ? nil
+            : rawBackground
+        let configuredCursor = switch config.cursorColorSemantic {
+        case .foreground: theme.foreground
+        case .background: theme.background
+        case nil: config.cursor
+        }
+        frame.terminalCursorColor = theme.cursor.caseInsensitiveCompare(configuredCursor) == .orderedSame
+            ? nil
+            : theme.cursor
         frame.terminalTheme = theme
         frame.terminalConfigTheme = config
         frame.terminalThemeRevision = revision
