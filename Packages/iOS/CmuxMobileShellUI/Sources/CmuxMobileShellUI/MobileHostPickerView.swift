@@ -103,7 +103,12 @@ struct MobileHostPickerView: View {
     private func macRow(_ mac: MobilePairedMac) -> some View {
         let isActive = mac.isActive
         Button {
-            Task { await store.switchToMac(macDeviceID: mac.macDeviceID) }
+            Task {
+                await store.switchToMac(
+                    macDeviceID: mac.macDeviceID,
+                    instanceTag: mac.instanceTag
+                )
+            }
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: "desktopcomputer")
@@ -111,6 +116,13 @@ struct MobileHostPickerView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(scopedDisplayName(mac.resolvedName))
                         .foregroundStyle(.primary)
+                    if store.pairedMacs.filter({
+                        $0.macDeviceID == mac.macDeviceID
+                    }).count > 1 {
+                        Text(mac.instanceTag ?? "Legacy")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                     Text(mac.lastSeenAt, format: .relative(presentation: .named))
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -125,14 +137,19 @@ struct MobileHostPickerView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityIdentifier("MobileHostPickerRow-\(mac.macDeviceID)")
+        .accessibilityIdentifier("MobileHostPickerRow-\(mac.id)")
         .swipeActions(edge: .trailing) {
             Button(role: .destructive) {
-                Task { await store.forgetStoredMac(macDeviceID: mac.macDeviceID) }
+                Task {
+                    await store.forgetStoredMac(
+                        macDeviceID: mac.macDeviceID,
+                        instanceTag: mac.instanceTag
+                    )
+                }
             } label: {
                 Label(L10n.string("mobile.hostPicker.forget", defaultValue: "Forget"), systemImage: "trash")
             }
-            .accessibilityIdentifier("MobileHostPickerForget-\(mac.macDeviceID)")
+            .accessibilityIdentifier("MobileHostPickerForget-\(mac.id)")
         }
     }
 

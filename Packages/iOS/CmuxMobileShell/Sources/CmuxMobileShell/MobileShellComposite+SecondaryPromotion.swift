@@ -91,7 +91,10 @@ extension MobileShellComposite {
         startTerminalRefreshPolling()
         syncSelectedTerminalForWorkspace()
         enqueueActivePairedMacWrite(
-            macDeviceID: macID, scope: scope, reloadAfterWrite: false
+            macDeviceID: macID,
+            instanceTag: activeMacInstanceTag,
+            scope: scope,
+            reloadAfterWrite: false
         )
         scheduleSecondaryAggregation()
         return true
