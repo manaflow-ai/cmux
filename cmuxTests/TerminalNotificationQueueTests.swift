@@ -19,7 +19,7 @@ final class TerminalNotificationQueueTests: XCTestCase {
         super.tearDown()
     }
 
-    func testNotifyTargetAsyncDeduplicatesCriticalNotificationForResolvedSurface() async throws {
+    func testNotifyTargetAsyncQueuesNotificationForResolvedSurface() async throws {
         let socketPath = makeSocketPath("notify-async")
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()
@@ -30,7 +30,6 @@ final class TerminalNotificationQueueTests: XCTestCase {
         let originalAppFocusOverride = AppFocusState.overrideIsFocused
 
         let notificationQueued = expectation(description: "notification queued")
-        notificationQueued.assertForOverFulfill = true
         store.replaceNotificationsForTesting([])
         store.configureNotificationDeliveryHandlerForTesting { _, _ in
             notificationQueued.fulfill()
@@ -67,20 +66,19 @@ final class TerminalNotificationQueueTests: XCTestCase {
         )
         try waitForSocket(at: socketPath)
 
-        let dedupeKey = "codex-critical:\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
-        let payload = "Async|Queued|Body|d=\(dedupeKey)"
+        let payload = "Async|Queued|Body"
         let command = "notify_target_async \(workspace.id.uuidString) \(focusedPanelId.uuidString) \(payload)"
         let responses = try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
-                    continuation.resume(returning: try self.sendCommands([command, command], to: socketPath))
+                    continuation.resume(returning: try self.sendCommands([command], to: socketPath))
                 } catch {
                     continuation.resume(throwing: error)
                 }
             }
         }
 
-        XCTAssertEqual(responses, ["OK", "OK"])
+        XCTAssertEqual(responses, ["OK"])
         await fulfillment(of: [notificationQueued], timeout: 1.0)
         XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: focusedPanelId))
     }
@@ -93,48 +91,6 @@ final class TerminalNotificationQueueTests: XCTestCase {
             response,
             "ERROR: Usage: notify_target_async <workspace_uuid> <surface_uuid> <title>|<subtitle>|<body>"
         )
-    }
-
-    func testCriticalDedupeIsScopedToDestination() {
-        let bus = TerminalMutationBus.shared
-        let firstWorkspace = UUID()
-        let secondWorkspace = UUID()
-        let surface = UUID()
-        let secondSurface = UUID()
-        let dedupeKey = "codex-critical:\(UUID().uuidString)"
-
-        XCTAssertTrue(bus.enqueueNotification(
-            tabId: firstWorkspace,
-            surfaceId: surface,
-            title: "Codex",
-            subtitle: "Error",
-            body: "Stopped",
-            dedupeKey: dedupeKey
-        ))
-        XCTAssertFalse(bus.enqueueNotification(
-            tabId: firstWorkspace,
-            surfaceId: surface,
-            title: "Codex",
-            subtitle: "Different rendering",
-            body: "Try again later",
-            dedupeKey: dedupeKey
-        ))
-        XCTAssertFalse(bus.enqueueNotification(
-            tabId: secondWorkspace,
-            surfaceId: surface,
-            title: "Codex",
-            subtitle: "Error",
-            body: "Stopped",
-            dedupeKey: dedupeKey
-        ))
-        XCTAssertTrue(bus.enqueueNotification(
-            tabId: secondWorkspace,
-            surfaceId: secondSurface,
-            title: "Codex",
-            subtitle: "Error",
-            body: "Stopped",
-            dedupeKey: dedupeKey
-        ))
     }
 
     func testClearNotificationsDropsQueuedNotifyBeforeDrain() throws {

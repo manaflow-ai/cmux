@@ -25713,19 +25713,6 @@ struct CMUXCLI {
         var hasSubagentNotificationRelay = false
     }
 
-    private final class CodexProcessExitObservation: @unchecked Sendable {
-        private let lock = NSLock()
-        private var observed = false
-
-        func record() {
-            lock.withLock { observed = true }
-        }
-
-        var value: Bool {
-            lock.withLock { observed }
-        }
-    }
-
     private enum CodexTranscriptFailureReadResult {
         case unavailable
         case pending
@@ -26952,7 +26939,7 @@ struct CMUXCLI {
                 payload += "|d=\(fingerprint)"
             }
             _ = try? sendV1Command(
-                "notify_target_async \(workspaceId) \(surfaceId) \(payload)",
+                "notify_target \(workspaceId) \(surfaceId) \(payload)",
                 client: client
             )
         }
@@ -26979,8 +26966,10 @@ struct CMUXCLI {
             return true
         }
 
+        // Dispatch handlers communicate only by signaling. No mutable value is
+        // shared across queues, and the waiting monitor owns both semaphores.
         let semaphore = DispatchSemaphore(value: 0)
-        let processExit = CodexProcessExitObservation()
+        let processExit = DispatchSemaphore(value: 0)
         var sources: [DispatchSourceFileSystemObject] = []
         var processSource: DispatchSourceProcess?
 
@@ -27014,13 +27003,13 @@ struct CMUXCLI {
                 queue: DispatchQueue.global(qos: .utility)
             )
             source.setEventHandler {
-                processExit.record()
+                processExit.signal()
                 semaphore.signal()
             }
             source.resume()
             processSource = source
             if codexMonitorProcessIsGone(pid: codexPID) {
-                processExit.record()
+                processExit.signal()
                 semaphore.signal()
             }
         }
@@ -27033,7 +27022,7 @@ struct CMUXCLI {
         _ = semaphore.wait(timeout: .now() + timeout)
         sources.forEach { $0.cancel() }
         processSource?.cancel()
-        return processExit.value
+        return processExit.wait(timeout: .now()) == .success
     }
 
     private func codexMonitorProcessIsGone(pid: Int) -> Bool {

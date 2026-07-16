@@ -24,7 +24,7 @@ struct CodexCriticalNotificationTests {
         #expect(result.process.status == 0, result.process.stderr)
         #expect(
             result.commands.contains { command in
-                command.contains("notify_target_async \(workspaceID) \(surfaceID) Codex|Budget reached|Codex stopped because the turn budget was reached|d=codex-critical:")
+                command.contains("notify_target \(workspaceID) \(surfaceID) Codex|Budget reached|Codex stopped because the turn budget was reached|d=codex-critical:")
             },
             "Expected a budget-limit notification, saw \(result.commands)"
         )
@@ -45,7 +45,7 @@ struct CodexCriticalNotificationTests {
         #expect(result.process.status == 0, result.process.stderr)
         #expect(
             result.commands.contains { command in
-                command.contains("notify_target_async \(workspaceID) \(surfaceID) Codex|Budget reached|Session budget exceeded.")
+                command.contains("notify_target \(workspaceID) \(surfaceID) Codex|Budget reached|Session budget exceeded.")
             },
             "Expected a session-budget notification, saw \(result.commands)"
         )
@@ -96,7 +96,7 @@ struct CodexCriticalNotificationTests {
         #expect(result.process.status == 0, result.process.stderr)
         #expect(
             result.commands.contains { command in
-                command.contains("notify_target_async \(workspaceID) \(surfaceID) Codex|Error|Codex exited before finishing the turn|d=codex-critical:")
+                command.contains("notify_target \(workspaceID) \(surfaceID) Codex|Error|Codex exited before finishing the turn|d=codex-critical:")
             },
             "Expected a process-exit notification, saw \(result.commands)"
         )
@@ -117,7 +117,7 @@ struct CodexCriticalNotificationTests {
         #expect(result.process.status == 0, result.process.stderr)
         #expect(
             result.commands.contains { command in
-                command.contains("notify_target_async \(workspaceID) \(surfaceID) Codex|Error|Codex exited before finishing the turn")
+                command.contains("notify_target \(workspaceID) \(surfaceID) Codex|Error|Codex exited before finishing the turn")
             },
             "Expected a pre-registration process-exit notification, saw \(result.commands)"
         )
@@ -138,7 +138,7 @@ struct CodexCriticalNotificationTests {
         #expect(result.process.status == 0, result.process.stderr)
         #expect(
             result.commands.contains { command in
-                command.contains("notify_target_async \(workspaceID) \(surfaceID) Codex|Network error|stream disconnected before completion: error sending request for url")
+                command.contains("notify_target \(workspaceID) \(surfaceID) Codex|Network error|stream disconnected before completion: error sending request for url")
             },
             "Expected the terminal stream disconnect to notify, saw \(result.commands)"
         )
@@ -159,10 +159,51 @@ struct CodexCriticalNotificationTests {
         #expect(result.process.status == 0, result.process.stderr)
         #expect(
             result.commands.contains { command in
-                command.contains("notify_target_async \(workspaceID) \(surfaceID) Codex|Error|Selected model is at capacity. Please try a different model.")
+                command.contains("notify_target \(workspaceID) \(surfaceID) Codex|Error|Selected model is at capacity. Please try a different model.")
             },
             "Expected the model-capacity failure to notify, saw \(result.commands)"
         )
+    }
+
+    @Test("Critical delivery dedupe follows the live surface")
+    func criticalDeliveryDedupeFollowsSurface() {
+        let delivery = AgentNotificationDelivery()
+        let firstWorkspace = UUID()
+        let secondWorkspace = UUID()
+        let surface = UUID()
+        let secondSurface = UUID()
+        let dedupeKey = "codex-critical:\(UUID().uuidString)"
+
+        #expect(delivery.enqueue(
+            workspaceID: firstWorkspace,
+            surfaceID: surface,
+            title: "Codex",
+            subtitle: "Error",
+            body: "Stopped",
+            category: nil,
+            pending: false,
+            dedupeKey: dedupeKey
+        ))
+        #expect(!delivery.enqueue(
+            workspaceID: secondWorkspace,
+            surfaceID: surface,
+            title: "Codex",
+            subtitle: "Different rendering",
+            body: "Try again later",
+            category: nil,
+            pending: false,
+            dedupeKey: dedupeKey
+        ))
+        #expect(delivery.enqueue(
+            workspaceID: secondWorkspace,
+            surfaceID: secondSurface,
+            title: "Codex",
+            subtitle: "Error",
+            body: "Stopped",
+            category: nil,
+            pending: false,
+            dedupeKey: dedupeKey
+        ))
     }
 
     private func runMonitor(

@@ -12028,7 +12028,7 @@ class TerminalController {
         let tabArg = parts.count > 0 ? parts[0] : ""
         let panelArg = parts.count > 1 ? parts[1] : ""
         let payload = parts.count > 2 ? parts[2] : ""
-        let (title, subtitle, body, meta, _) = parseNotificationPayload(payload)
+        let (title, subtitle, body, meta, dedupeKey) = parseNotificationPayload(payload)
         let deliver = shouldDeliverAgentNotification(meta)
         let fastPath: (workspaceId: UUID, panelId: UUID)?
         if let workspaceId = UUID(uuidString: tabArg), let panelId = UUID(uuidString: panelArg) {
@@ -12048,6 +12048,14 @@ class TerminalController {
                 // sync deliverer retargets); only a target gone everywhere errors.
                 guard AppDelegate.shared?.agentNotificationDeliveryTarget(claimedTabId: fastPath.workspaceId, surfaceId: fastPath.panelId) != nil else {
                     return "ERROR: Panel not found"
+                }
+                if let dedupeKey,
+                   !TerminalMutationBus.shared.claimNotificationDedupeKey(
+                       tabId: fastPath.workspaceId,
+                       surfaceId: fastPath.panelId,
+                       dedupeKey: dedupeKey
+                   ) {
+                    return "OK"
                 }
                 self.deliverNotificationSynchronously(
                     tabId: fastPath.workspaceId,
@@ -12071,6 +12079,14 @@ class TerminalController {
             guard let panelId = UUID(uuidString: panelArg),
                   AppDelegate.shared?.agentNotificationDeliveryTarget(claimedTabId: tab.id, surfaceId: panelId) != nil else {
                 return "ERROR: Panel not found"
+            }
+            if let dedupeKey,
+               !TerminalMutationBus.shared.claimNotificationDedupeKey(
+                   tabId: tab.id,
+                   surfaceId: panelId,
+                   dedupeKey: dedupeKey
+               ) {
+                return "OK"
             }
             self.deliverNotificationSynchronously(
                 tabId: tab.id,
