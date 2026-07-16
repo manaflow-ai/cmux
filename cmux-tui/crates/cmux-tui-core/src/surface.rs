@@ -90,6 +90,7 @@ impl Default for SurfaceOptions {
 pub struct DefaultColors {
     pub fg: Option<Rgb>,
     pub bg: Option<Rgb>,
+    pub cursor: Option<Rgb>,
     pub selection_bg: Option<Rgb>,
     pub selection_fg: Option<Rgb>,
     pub cursor_style: Option<CursorShape>,
@@ -102,6 +103,7 @@ impl Default for DefaultColors {
         Self {
             fg: None,
             bg: None,
+            cursor: None,
             selection_bg: None,
             selection_fg: None,
             cursor_style: None,
@@ -342,7 +344,7 @@ impl Surface {
         let mut term = Terminal::new(opts.cols, opts.rows, opts.scrollback, callbacks)?;
         if let Some(mux) = mux.upgrade() {
             let colors = mux.default_colors();
-            term.set_default_colors(colors.fg, colors.bg);
+            term.set_default_colors(colors.fg, colors.bg, colors.cursor);
             term.set_default_palette(&colors.palette);
             term.set_default_cursor(colors.cursor_style, colors.cursor_blink);
         }
@@ -469,7 +471,7 @@ impl Surface {
         let mut term = Terminal::new(opts.cols, opts.rows, opts.scrollback, callbacks)?;
         if let Some(mux) = mux.upgrade() {
             let colors = mux.default_colors();
-            term.set_default_colors(colors.fg, colors.bg);
+            term.set_default_colors(colors.fg, colors.bg, colors.cursor);
             term.set_default_palette(&colors.palette);
             term.set_default_cursor(colors.cursor_style, colors.cursor_blink);
         }
@@ -643,7 +645,7 @@ impl Surface {
     pub fn set_default_colors(&self, colors: DefaultColors) {
         if let Some(pty) = self.as_pty() {
             let mut term = pty.term.lock().unwrap();
-            term.set_default_colors(colors.fg, colors.bg);
+            term.set_default_colors(colors.fg, colors.bg, colors.cursor);
             term.set_default_palette(&colors.palette);
             term.set_default_cursor(colors.cursor_style, colors.cursor_blink);
             let colors = TerminalColors::from_terminal(&mut term, colors);

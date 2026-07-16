@@ -86,14 +86,19 @@ fn default_colors_answer_osc_queries() {
     term.vt_write(b"\x1b]11;?\x07");
     assert!(pty_out.lock().unwrap().is_empty());
 
-    term.set_default_colors(None, Some(Rgb { r: 0x13, g: 0x14, b: 0x15 }));
+    term.set_default_colors(None, Some(Rgb { r: 0x13, g: 0x14, b: 0x15 }), None);
     term.vt_write(b"\x1b]11;?\x07");
     assert_eq!(&*pty_out.lock().unwrap(), b"\x1b]11;rgb:1313/1414/1515\x07");
 
     pty_out.lock().unwrap().clear();
-    term.set_default_colors(Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }), None);
+    term.set_default_colors(Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }), None, None);
     term.vt_write(b"\x1b]10;?\x07");
     assert_eq!(&*pty_out.lock().unwrap(), b"\x1b]10;rgb:0101/0202/0303\x07");
+
+    pty_out.lock().unwrap().clear();
+    term.set_default_colors(None, None, Some(Rgb { r: 0xc0, g: 0xc1, b: 0xb5 }));
+    term.vt_write(b"\x1b]12;?\x07");
+    assert_eq!(&*pty_out.lock().unwrap(), b"\x1b]12;rgb:c0c0/c1c1/b5b5\x07");
 
     pty_out.lock().unwrap().clear();
     term.vt_write(b"\x1b]11;rgb:20/40/60\x07");
