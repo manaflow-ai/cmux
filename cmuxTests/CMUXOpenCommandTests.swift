@@ -43,6 +43,47 @@ final class CMUXOpenCommandTests: XCTestCase {
         }
     }
 
+    func testSimulatorCommandForwardsAmbientWorkspaceAndPane() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("simroute")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceID = UUID().uuidString.lowercased()
+        let paneID = UUID().uuidString.lowercased()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+            return Self.v2Response(id: id, ok: true, result: ["completed": true])
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["simulator", "tap", "0.5", "0.5"],
+            environmentOverrides: [
+                "CMUX_WORKSPACE_ID": workspaceID,
+                "CMUX_PANE_ID": paneID,
+            ]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let command = try XCTUnwrap(state.commands.first)
+        let payload = try XCTUnwrap(Self.v2Payload(from: command))
+        let params = try XCTUnwrap(payload["params"] as? [String: Any])
+        XCTAssertEqual(payload["method"] as? String, "simulator.tap")
+        XCTAssertEqual(params["workspace_id"] as? String, workspaceID)
+        XCTAssertEqual(params["pane_id"] as? String, paneID)
+    }
+
     func testOpenCommandHonorsTerminatorForDashPrefixedPath() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("open-dash")

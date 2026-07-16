@@ -453,6 +453,19 @@ extension CMUXCLI {
         var params: [String: Any] = [:]
         if let window { params["window_id"] = window }
         if let surface { params["surface_id"] = surface }
+        if surface == nil, window == nil {
+            let environment = ProcessInfo.processInfo.environment
+            if let workspaceID = environment["CMUX_WORKSPACE_ID"]?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !workspaceID.isEmpty {
+                params["workspace_id"] = workspaceID
+            }
+            if let paneID = environment["CMUX_PANE_ID"]?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !paneID.isEmpty {
+                params["pane_id"] = paneID
+            }
+        }
 
         if let request = try simulatorAgentRequest(subcommand: subcommand, arguments: parsed) {
             params.merge(request.params, uniquingKeysWith: { _, new in new })

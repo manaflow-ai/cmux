@@ -358,17 +358,28 @@ extension SimulatorWorkerCoordinator {
         bundleIdentifier: String,
         operationGeneration: UUID
     ) async {
-        try? await webInspector.releaseSession(ifOwnedBy: bundleIdentifier)
-        await camera.prepareForIntentionalApplicationMutation(
-            bundleIdentifier: bundleIdentifier
-        )
-        guard toolOperationDidCommit(operationGeneration) else { return }
-        send(.applicationMutationPrepared(requestID: requestIdentifier, succeeded: true))
-        emitAction(
-            "application_mutation",
-            summary: bundleIdentifier,
-            succeeded: true
-        )
+        do {
+            try await webInspector.releaseSession(ifOwnedBy: bundleIdentifier)
+            await camera.prepareForIntentionalApplicationMutation(
+                bundleIdentifier: bundleIdentifier
+            )
+            guard toolOperationDidCommit(operationGeneration) else { return }
+            send(.applicationMutationPrepared(requestID: requestIdentifier, succeeded: true))
+            emitAction(
+                "application_mutation",
+                summary: bundleIdentifier,
+                succeeded: true
+            )
+        } catch {
+            guard toolOperationIsCurrent(operationGeneration) else { return }
+            report(error)
+            send(.applicationMutationPrepared(requestID: requestIdentifier, succeeded: false))
+            emitAction(
+                "application_mutation",
+                summary: error.localizedDescription,
+                succeeded: false
+            )
+        }
     }
 
     func setPrivateInterface(
