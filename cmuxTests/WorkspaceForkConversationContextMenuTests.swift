@@ -454,6 +454,18 @@ struct WorkspaceForkConversationContextMenuTests {
     }
 
     @Test
+    func forkCapabilityProbeCacheEvictsOldestEntriesPastCapacity() async {
+        let cache = AgentForkCapabilityProbeCache(maxEntries: 2)
+        await cache.store(true, for: "first", now: 0, expiresAt: 100)
+        await cache.store(false, for: "second", now: 0, expiresAt: 100)
+        await cache.store(true, for: "third", now: 0, expiresAt: 100)
+
+        #expect(await cache.value(for: "first", now: 1) == nil)
+        #expect(await cache.value(for: "second", now: 1) == false)
+        #expect(await cache.value(for: "third", now: 1) == true)
+    }
+
+    @Test
     func sharedForkProbeCacheInvalidatesWhenPiFamilyLauncherChanges() async throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
