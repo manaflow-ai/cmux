@@ -1615,7 +1615,7 @@ mod tests {
     }
 
     #[test]
-    fn fallback_theme_selection_retains_last_loadable_theme() {
+    fn fallback_theme_selection_matches_ghostty_first_theme_wins() {
         let dir = std::env::temp_dir().join(format!(
             "cmux-tui-ghostty-theme-{}-{}",
             std::process::id(),
@@ -1625,6 +1625,11 @@ mod tests {
         std::fs::write(
             dir.join("Monokai Classic"),
             "background = #272822\nforeground = #fdfff1\npalette = 1=#f92672\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("Aizen Light"),
+            "background = #f0f2f6\nforeground = #1f2329\npalette = 1=#cc3768\n",
         )
         .unwrap();
 
@@ -1655,6 +1660,7 @@ mod tests {
              background = #131415\n\
              selection-background = #223344\n\
              selection-foreground = #fefefe\n\
+             cursor-color = #c0c1b5\n\
              cursor-style = bar\n\
              cursor-style-blink = false\n\
              palette = 1=#445566\n",
@@ -1693,6 +1699,7 @@ mod tests {
         assert_eq!(state["event"], "render-state");
         assert_eq!(state["default_fg"], "#010203");
         assert_eq!(state["default_bg"], "#131415");
+        assert_eq!(state["cursor"]["color"], "#c0c1b5");
         assert_eq!(state["cursor"]["style"], "bar");
         assert_eq!(state["cursor"]["blink"], false);
         let red_run = state["rows"]
