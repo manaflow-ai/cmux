@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxTerminalCore
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -8,6 +9,25 @@ import Testing
 #endif
 
 @Suite struct MobileHostTerminalThemeTests {
+    @Test func hostStatusPreservesCellRelativeColorSemantics() throws {
+        var config = GhosttyConfig()
+        config.parse("""
+        cursor-color = cell-foreground
+        cursor-text = cell-background
+        selection-background = cell-foreground
+        selection-foreground = cell-background
+        """)
+
+        let theme = TerminalTheme(ghosttyConfig: config)
+        let data = try JSONSerialization.data(withJSONObject: theme.mobileHostJSONObject)
+        let decoded = try JSONDecoder().decode(TerminalTheme.self, from: data)
+
+        #expect(decoded.cursorColorSemantic == .foreground)
+        #expect(decoded.cursorTextSemantic == .background)
+        #expect(decoded.selectionBackgroundSemantic == .foreground)
+        #expect(decoded.selectionForegroundSemantic == .background)
+    }
+
     @Test func surfaceEffectiveColorsOverrideCachedConfigTheme() throws {
         var base = TerminalTheme.monokai
         base.cursorColorSemantic = .background
