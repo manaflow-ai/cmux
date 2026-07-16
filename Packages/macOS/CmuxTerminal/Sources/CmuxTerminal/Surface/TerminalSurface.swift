@@ -179,6 +179,11 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// For MANUAL-I/O remote tmux display surfaces: whether to suppress
     /// ghostty primary-screen reflow on resize.
     var manualIONoReflow = true
+    /// For MANUAL-I/O mirror surfaces whose remote grid is authoritative:
+    /// opt into the font-fitted viewport path so the remote columns × rows
+    /// scale to fill the local pane (hive computer mirrors) instead of the
+    /// legacy fixed-pixel cap (remote tmux keeps legacy).
+    @MainActor public var manualIOFontFitEnabled = false
     /// Retained userdata for the MANUAL-mode `io_write_cb`; released alongside
     /// the surface.
     var manualIOContext: Unmanaged<TerminalManualIOWriteBox>?

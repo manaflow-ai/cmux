@@ -214,6 +214,9 @@ final class HiveComputerMirrorController {
                     _ = self
                 }
             ) else { continue }
+            // Scale the remote grid to fill the local pane (font-fitted),
+            // instead of the fixed-pixel legacy cap.
+            panel.surface.manualIOFontFitEnabled = true
             // The remote grid is authoritative for the mirror surface's cell
             // dimensions; adopt them whenever they change so replay/patch rows
             // land on the layout they were produced for.
