@@ -205,7 +205,8 @@ struct MobileBrowserInputReplayer {
         case .cancelled: (direct, momentum) = (8, 0)
         case .momentumBegan: (direct, momentum) = (0, 1)
         case .momentumChanged: (direct, momentum) = (0, 2)
-        case .momentumEnded: (direct, momentum) = (0, 4)
+        // CGMomentumScrollPhase.end is 3 (not 4): none=0, begin=1, continue=2, end=3.
+        case .momentumEnded: (direct, momentum) = (0, 3)
         }
         event.setIntegerValueField(.scrollWheelEventScrollPhase, value: direct)
         event.setIntegerValueField(.scrollWheelEventMomentumPhase, value: momentum)

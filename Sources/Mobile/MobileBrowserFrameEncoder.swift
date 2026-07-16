@@ -5,7 +5,9 @@ import CMUXMobileCore
 struct MobileBrowserFrameEncoder {
     let budget: MobileBrowserFrameSizeBudget
 
-    init(budget: MobileBrowserFrameSizeBudget = MobileBrowserFrameSizeBudget()) {
+    // nonisolated so the session can use `MobileBrowserFrameEncoder()` as a
+    // default argument (default-argument expressions evaluate nonisolated).
+    nonisolated init(budget: MobileBrowserFrameSizeBudget = MobileBrowserFrameSizeBudget()) {
         self.budget = budget
     }
 
