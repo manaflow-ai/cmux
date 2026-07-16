@@ -254,6 +254,32 @@ struct WorkspaceSidebarObservationTests {
         #expect(subscriber.received == [1, 2])
     }
 
+    @Test func coalesceLatestDrainsReentrantValueBeforeCompletionWithUnlimitedDemand() {
+        let scheduler = VirtualCoalesceScheduler()
+        let subject = PassthroughSubject<Int, Never>()
+        let subscriber = DemandControlledSubscriber<Int>()
+        subject
+            .coalesceLatest(for: .milliseconds(50), scheduler: scheduler)
+            .subscribe(subscriber)
+        defer { subscriber.cancel() }
+
+        subscriber.onValue = { value in
+            if value == 1 {
+                subject.send(2)
+                subject.send(completion: .finished)
+            }
+        }
+        subscriber.request(.unlimited)
+        subject.send(1)
+
+        #expect(
+            subscriber.received == [1, 2],
+            "A reentrant value that arrived before completion must drain while unlimited demand remains."
+        )
+        #expect(subscriber.completionCount == 1)
+        #expect(subscriber.receivedValuesAtCompletion == [[1, 2]])
+    }
+
     @Test func sidebarObservationPublisherIgnoresRemoteHeartbeatOnlyChanges() {
         let workspace = Workspace()
 
@@ -409,6 +435,8 @@ private final class DemandControlledSubscriber<Input>: Subscriber {
 
     private var subscription: Subscription?
     private(set) var received: [Input] = []
+    private(set) var completionCount = 0
+    private(set) var receivedValuesAtCompletion: [[Input]] = []
     var onValue: ((Input) -> Void)?
 
     func receive(subscription: Subscription) {
@@ -421,7 +449,10 @@ private final class DemandControlledSubscriber<Input>: Subscriber {
         return .none
     }
 
-    func receive(completion: Subscribers.Completion<Never>) {}
+    func receive(completion: Subscribers.Completion<Never>) {
+        completionCount += 1
+        receivedValuesAtCompletion.append(received)
+    }
 
     func request(_ demand: Subscribers.Demand) {
         subscription?.request(demand)
