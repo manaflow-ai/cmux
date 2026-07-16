@@ -830,6 +830,8 @@ struct ContentView: View {
     @State private var hoveredResizerHandles: Set<SidebarResizerHandle> = []
     @State private var isResizerDragging = false
     @State private var sidebarDragStartWidth: CGFloat?
+    // Non-observed: flush pacing must not invalidate the view.
+    @State private var lastSidebarResizeFlushBox = MutableTimeBox()
     @State private var selectedTabIds: Set<UUID> = []
     @State private var mountedWorkspaceIds: [UUID] = []
     @State private var lastReconciledPortalRenderingStatesByWorkspaceId: [UUID: Bool] = [:]
@@ -1339,8 +1341,19 @@ struct ContentView: View {
     /// interactive resize), and the window's display inside the SAME mouse
     /// event, removing the async runloop hop that made resizes feel choppy
     /// while the main thread sat idle.
+    ///
+    /// Paced to the display's refresh interval: mouse events can arrive far
+    /// faster than frames can present (high-polling mice), and flushing per
+    /// event would do redundant layout+draw passes the screen never shows.
+    /// Events inside the same refresh interval only update state; the next
+    /// eligible event (or the normal async commit) presents them.
     private func flushSidebarResizeToDisplay() {
         guard let window = observedWindow else { return }
+        let maxFPS = max(60, window.screen?.maximumFramesPerSecond ?? 120)
+        let minInterval = 1.0 / Double(maxFPS)
+        let now = CACurrentMediaTime()
+        guard now - lastSidebarResizeFlushBox.value >= minInterval else { return }
+        lastSidebarResizeFlushBox.value = now
         window.contentView?.layoutSubtreeIfNeeded()
         window.displayIfNeeded()
     }
@@ -12968,6 +12981,12 @@ struct SidebarWorkspaceRowFramePreferenceKey: PreferenceKey {
     static func reduce(value: inout [UUID: Anchor<CGRect>], nextValue: () -> [UUID: Anchor<CGRect>]) {
         value.merge(nextValue()) { _, next in next }
     }
+}
+
+/// Plain mutable box for throttle timestamps kept out of SwiftUI observation.
+@MainActor
+final class MutableTimeBox {
+    var value: CFTimeInterval = 0
 }
 
 @MainActor
