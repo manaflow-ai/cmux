@@ -164,6 +164,10 @@ extension TerminalController {
 
     // MARK: - Payload shaping (pure value mapping)
 
+    // ISO8601DateFormatter is Apple-documented thread-safe; shared so the
+    // per-session payload mapping does not allocate one per element.
+    private nonisolated(unsafe) static let subrouterTimestampFormatter = ISO8601DateFormatter()
+
     private nonisolated static func subrouterStatusPayload(snapshot: SubrouterSnapshot) -> [String: Any] {
         var daemon: [String: Any] = [:]
         switch snapshot.daemonState {
@@ -180,7 +184,7 @@ extension TerminalController {
             payload["last_error"] = lastError
         }
         if let lastUpdatedAt = snapshot.lastUpdatedAt {
-            payload["last_updated"] = ISO8601DateFormatter().string(from: lastUpdatedAt)
+            payload["last_updated"] = Self.subrouterTimestampFormatter.string(from: lastUpdatedAt)
         }
         return payload
     }
@@ -228,8 +232,8 @@ extension TerminalController {
             "agent_type": session.agentType,
             "session_id": session.sessionID,
             "account_id": session.accountID,
-            "created_at": ISO8601DateFormatter().string(from: session.createdAt),
-            "updated_at": ISO8601DateFormatter().string(from: session.updatedAt),
+            "created_at": Self.subrouterTimestampFormatter.string(from: session.createdAt),
+            "updated_at": Self.subrouterTimestampFormatter.string(from: session.updatedAt),
         ]
         if let userEmail = session.userEmail { payload["user_email"] = userEmail }
         return payload

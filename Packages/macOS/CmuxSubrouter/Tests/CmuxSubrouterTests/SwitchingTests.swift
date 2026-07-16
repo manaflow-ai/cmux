@@ -102,6 +102,18 @@ import Testing
         #expect(store.snapshot.daemonState == .unreachable(consecutiveFailures: 1))
     }
 
+    @Test func reloadReportingNotOKAfterSwitchBecomesWarning() async throws {
+        let client = FakeSubrouterClient()
+        await client.setReloadResult(.success(SubrouterReloadResult(ok: false, accounts: 0, usageRefreshed: 0)))
+        let store = makeStore(client: client, switcher: FakeAccountSwitcher())
+
+        // HTTP success with ok=false: the on-disk switch landed, so no throw,
+        // but the failed hot reload surfaces as a snapshot warning.
+        try await store.switchAccount(provider: .codex, accountID: "dev@example.com")
+        #expect(store.lastSwitchError == nil)
+        #expect(store.snapshot.lastErrorDescription == "daemon reload reported failure")
+    }
+
     @Test func reloadDaemonAccountsRefreshes() async throws {
         let client = FakeSubrouterClient()
         await client.setReloadResult(.success(SubrouterReloadResult(ok: true, accounts: 3, usageRefreshed: 2)))

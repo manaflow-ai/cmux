@@ -103,11 +103,12 @@ public final class SubrouterStore {
             return
         }
         if !previous.isEnabled || newConfiguration.endpoint != previous.endpoint {
-            consecutiveFailureCount = 0
+            // Cancel any in-flight fetch first: a response from the previous
+            // endpoint must not land after the reset, and a live refreshTask
+            // would make the refresh below no-op.
+            goIdle()
             snapshot.daemonState = .unknown
-            if visibleSurfaces.isEmpty {
-                goIdle()
-            } else {
+            if !visibleSurfaces.isEmpty {
                 refresh(reason: "configuration")
             }
             return

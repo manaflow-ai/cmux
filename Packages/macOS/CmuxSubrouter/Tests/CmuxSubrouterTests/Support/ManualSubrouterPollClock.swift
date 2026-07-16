@@ -13,6 +13,7 @@ actor ManualSubrouterPollClock: SubrouterPollClock {
     private var sleepers: [Sleeper] = []
     private var cancelledIds: Set<UUID> = []
     private var sleeperWaiters: [CheckedContinuation<Void, Never>] = []
+    private var emptyWaiters: [CheckedContinuation<Void, Never>] = []
 
     func sleep(for duration: Duration) async throws {
         let seconds = TimeInterval(duration.components.seconds)
@@ -46,6 +47,16 @@ actor ManualSubrouterPollClock: SubrouterPollClock {
         }
     }
 
+    /// Suspends until no sleeper is parked (cancellation acknowledged), so
+    /// tests can assert went-idle without racing the onCancel task.
+    func waitForNoSleepers() async {
+        while !sleepers.isEmpty {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                emptyWaiters.append(continuation)
+            }
+        }
+    }
+
     /// Resumes the oldest parked sleeper.
     func resumeNext() {
         guard !sleepers.isEmpty else { return }
@@ -65,6 +76,11 @@ actor ManualSubrouterPollClock: SubrouterPollClock {
             sleepers.remove(at: index).continuation.resume(throwing: CancellationError())
         } else {
             cancelledIds.insert(id)
+        }
+        if sleepers.isEmpty {
+            while !emptyWaiters.isEmpty {
+                emptyWaiters.removeFirst().resume()
+            }
         }
     }
 }

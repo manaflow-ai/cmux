@@ -41,7 +41,10 @@ extension SubrouterStore {
 
         var reloadWarning: String?
         do {
-            _ = try await client.reloadAccounts(endpoint: configuration.endpoint)
+            let reload = try await client.reloadAccounts(endpoint: configuration.endpoint)
+            if !reload.ok {
+                reloadWarning = "daemon reload reported failure"
+            }
         } catch let error as SubrouterClientError {
             reloadWarning = error.shortDescription
         } catch {

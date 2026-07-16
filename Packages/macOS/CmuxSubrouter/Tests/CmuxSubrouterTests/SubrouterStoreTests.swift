@@ -152,8 +152,7 @@ import Testing
 
         store.setSurfaceVisible(.agentsPanel, false)
         // The parked deadline is cancelled and no new one is armed.
-        await Task.yield()
-        await Task.yield()
+        await clock.waitForNoSleepers()
         #expect(await clock.parkedSleeperCount == 0)
         #expect(await client.usageCallCount == callsWhileVisible)
         // Existing data is kept for the next appearance.
@@ -187,10 +186,35 @@ import Testing
         #expect(store.snapshot.usageStatuses.count == 1)
 
         store.updateConfiguration(SubrouterConfiguration(isEnabled: false, tuning: Self.tuning))
-        await Task.yield()
-        await Task.yield()
+        await clock.waitForNoSleepers()
         #expect(store.snapshot == .empty)
         #expect(await clock.parkedSleeperCount == 0)
+    }
+
+    @Test func endpointChangeCancelsInFlightRefreshAndStartsFresh() async {
+        let client = FakeSubrouterClient()
+        await client.setUsageResult(.success([Self.usageRow()]))
+        let clock = ManualSubrouterPollClock()
+        let store = makeStore(client: client, clock: clock)
+
+        store.setSurfaceVisible(.agentsPanel, true)
+        await clock.waitForSleeper()
+        #expect(await client.usageCallCount == 1)
+
+        // An endpoint change while a poll deadline is armed cancels it and
+        // refreshes against the new endpoint immediately (the old refresh
+        // must not survive to overwrite the reset state).
+        let newEndpoint = SubrouterEndpoint(configurationString: "127.0.0.1:9999")!
+        store.updateConfiguration(
+            SubrouterConfiguration(isEnabled: true, endpoint: newEndpoint, tuning: Self.tuning)
+        )
+        // The old poll deadline is cancelled first, then the fresh refresh
+        // against the new endpoint re-arms the timer.
+        await clock.waitForNoSleepers()
+        await clock.waitForSleeper()
+        #expect(await client.usageCallCount == 2)
+        #expect(await client.lastEndpoint == newEndpoint)
+        #expect(store.snapshot.daemonState == .healthy)
     }
 
     @Test func enablingWhileVisibleRefreshesImmediately() async {
