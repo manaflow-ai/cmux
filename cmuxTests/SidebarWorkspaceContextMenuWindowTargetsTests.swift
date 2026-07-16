@@ -13,7 +13,7 @@ import Testing
 struct SidebarWorkspaceContextMenuWindowTargetsTests {
     @Test
     @MainActor
-    func menuPresentationResolvesWindowTargetsAfterRowRender() throws {
+    func menuPresentationResolvesVolatileInputsAfterRowRender() throws {
         let firstWindowId = UUID()
         let laterWindowId = UUID()
         var currentTargets = [
@@ -24,10 +24,17 @@ struct SidebarWorkspaceContextMenuWindowTargetsTests {
             )
         ]
         var resolvedTopologies: [[UUID]] = []
-        let actions = Self.actions {
-            resolvedTopologies.append(currentTargets.map(\.windowId))
-            return currentTargets
-        }
+        var notificationProjectionCount = 0
+        let actions = Self.actions(
+            currentWindowMoveTargets: {
+                resolvedTopologies.append(currentTargets.map(\.windowId))
+                return currentTargets
+            },
+            currentNotifications: { _ in
+                notificationProjectionCount += 1
+                return []
+            }
+        )
         let row = TabItemView(
             snapshot: try Self.rowSnapshot(),
             actions: actions
@@ -36,6 +43,7 @@ struct SidebarWorkspaceContextMenuWindowTargetsTests {
         // Rendering the lazy row must not freeze or resolve app-window state.
         _ = row.body
         #expect(resolvedTopologies.isEmpty)
+        #expect(notificationProjectionCount == 0)
 
         currentTargets = [
             SidebarWorkspaceWindowMoveTarget(
@@ -53,6 +61,7 @@ struct SidebarWorkspaceContextMenuWindowTargetsTests {
         // SwiftUI evaluates this deferred wrapper when presenting the menu.
         _ = TabItemWorkspaceContextMenuContent(row: row).body
         #expect(resolvedTopologies == [[firstWindowId, laterWindowId]])
+        #expect(notificationProjectionCount == 1)
     }
 
     @MainActor
@@ -102,16 +111,15 @@ struct SidebarWorkspaceContextMenuWindowTargetsTests {
                 hasGroupedEligibleTarget: false,
                 todoStatusLanes: [],
                 canMarkRead: false,
-                canMarkUnread: false,
-                hasLatestNotification: false,
-                notifications: []
+                canMarkUnread: false
             )
         )
     }
 
     @MainActor
     private static func actions(
-        currentWindowMoveTargets: @escaping () -> [SidebarWorkspaceWindowMoveTarget]
+        currentWindowMoveTargets: @escaping () -> [SidebarWorkspaceWindowMoveTarget],
+        currentNotifications: @escaping ([UUID]) -> [TerminalNotification]
     ) -> SidebarWorkspaceRowActions {
         SidebarWorkspaceRowActions(
             select: { _ in },
@@ -142,6 +150,7 @@ struct SidebarWorkspaceContextMenuWindowTargetsTests {
             requestChecklistAdd: {},
             markRead: { _ in },
             markUnread: { _ in },
+            currentNotifications: currentNotifications,
             clearLatestNotifications: { _ in },
             openNotification: { _ in },
             copyWorkspaceLinks: { _ in },

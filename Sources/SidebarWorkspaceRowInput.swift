@@ -38,14 +38,11 @@ struct SidebarWorkspaceRowInput {
     let isChecklistExpanded: Bool
     let checklistAddFieldActivationToken: Int
     let isChecklistPopoverPresented: Bool
-    let isRemoteContextMenuEligible: Bool
-    let remoteConnectionState: WorkspaceRemoteConnectionState
     let contextMenuPinState: WorkspaceActionDispatcher.PinState?
     let inferredTaskStatus: WorkspaceTaskStatus
     let activeTodoOverride: WorkspaceTaskStatus?
     let isTodoStatusHidden: Bool
 
-    @MainActor
     func rowSnapshot(list: SidebarWorkspaceRowsSnapshot) -> SidebarWorkspaceRowSnapshot {
         let targetAggregate = list.contextMenuTargetAggregate(for: self)
         return SidebarWorkspaceRowSnapshot(
@@ -94,9 +91,7 @@ struct SidebarWorkspaceRowInput {
                     isHidden: isTodoStatusHidden
                 ),
                 canMarkRead: targetAggregate.canMarkRead,
-                canMarkUnread: targetAggregate.canMarkUnread,
-                hasLatestNotification: targetAggregate.hasLatestNotification,
-                notifications: targetAggregate.notifications
+                canMarkUnread: targetAggregate.canMarkUnread
             )
         )
     }

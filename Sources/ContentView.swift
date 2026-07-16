@@ -10251,14 +10251,11 @@ struct VerticalTabsSidebar: View {
         let workspaceNumberShortcut: StoredShortcut
         let tabItemSettings: SidebarTabItemSettingsSnapshot
         let showsAgentActivity: Bool
-        let pinResolutionContext: WorkspaceActionDispatcher.PinResolutionContext
         let tabIndexById: [UUID: Int]
         let workspaceById: [UUID: Workspace]
+        let workspaceRowModelSnapshotsById: [UUID: SidebarWorkspaceRowModelSnapshot]
         let workspaceGroupIdByWorkspaceId: [UUID: UUID?]
         let selectedContextTargetIds: [UUID]
-        let selectedRemoteContextMenuWorkspaceIds: [UUID]
-        let allSelectedRemoteContextMenuTargetsConnecting: Bool
-        let allSelectedRemoteContextMenuTargetsDisconnected: Bool
         let workspaceGroups: [WorkspaceGroup]
         let workspaceGroupById: [UUID: WorkspaceGroup]
         let memberWorkspaceIdsByGroupId: [UUID: [UUID]]
@@ -10284,23 +10281,13 @@ struct VerticalTabsSidebar: View {
             ($0.element.id, $0.offset)
         })
         let workspaceById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
-        let pinResolutionContext = WorkspaceActionDispatcher.PinResolutionContext(
-            workspacesById: workspaceById,
-            liveWorkspaceIds: Set(tabIds)
-        )
+        let workspaceRowModelSnapshotsById = Dictionary(uniqueKeysWithValues: tabs.map {
+            let snapshot = SidebarWorkspaceRowModelSnapshot(workspace: $0)
+            return (snapshot.workspaceId, snapshot)
+        })
         let workspaceGroupIdByWorkspaceId = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0.groupId) })
         let orderedSelectedTabs = tabs.filter { selectedTabIds.contains($0.id) }
         let selectedContextTargetIds = orderedSelectedTabs.map(\.id)
-        let selectedRemoteContextMenuTargets = orderedSelectedTabs.filter {
-            $0.isRemoteWorkspace && !$0.isManagedCloudVMWorkspace
-        }
-        let selectedRemoteContextMenuWorkspaceIds = selectedRemoteContextMenuTargets.map(\.id)
-        let allSelectedRemoteContextMenuTargetsConnecting = !selectedRemoteContextMenuTargets.isEmpty &&
-            selectedRemoteContextMenuTargets.allSatisfy {
-                $0.remoteConnectionState == .connecting || $0.remoteConnectionState == .reconnecting
-            }
-        let allSelectedRemoteContextMenuTargetsDisconnected = !selectedRemoteContextMenuTargets.isEmpty &&
-            selectedRemoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected }
         let workspaceGroups = tabManager.workspaceGroups
         let workspaceGroupById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
         let memberWorkspaceIdsByGroupId = SidebarWorkspaceRenderItem.memberWorkspaceIdsByGroupId(tabs: tabs)
@@ -10332,14 +10319,11 @@ struct VerticalTabsSidebar: View {
             workspaceNumberShortcut: workspaceNumberShortcut,
             tabItemSettings: tabItemSettings,
             showsAgentActivity: showAgentActivity && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled,
-            pinResolutionContext: pinResolutionContext,
             tabIndexById: tabIndexById,
             workspaceById: workspaceById,
+            workspaceRowModelSnapshotsById: workspaceRowModelSnapshotsById,
             workspaceGroupIdByWorkspaceId: workspaceGroupIdByWorkspaceId,
             selectedContextTargetIds: selectedContextTargetIds,
-            selectedRemoteContextMenuWorkspaceIds: selectedRemoteContextMenuWorkspaceIds,
-            allSelectedRemoteContextMenuTargetsConnecting: allSelectedRemoteContextMenuTargetsConnecting,
-            allSelectedRemoteContextMenuTargetsDisconnected: allSelectedRemoteContextMenuTargetsDisconnected,
             workspaceGroups: workspaceGroups,
             workspaceGroupById: workspaceGroupById,
             memberWorkspaceIdsByGroupId: memberWorkspaceIdsByGroupId,
@@ -11891,23 +11875,38 @@ struct VerticalTabsSidebar: View {
     ) -> some View {
         let signpost = SidebarProfilingSignposts.begin("sidebar-workspace-rows", "renderItems=\(renderContext.workspaceRenderItems.count) collectDropTargets=\(shouldCollectWorkspaceDropTargets)")
         let renderItems = renderContext.workspaceRenderItems
-        // Reduce live models to cheap immutable values above the LazyVStack.
-        // Shared notification/selection projections are built once here; full
-        // row trees and row-specific closure binding remain lazy.
+        // Live workspaces were reduced to cheap immutable model facts in the
+        // parent body. Complete row inputs are resolved only when LazyVStack
+        // realizes a row, using cached presentation snapshots and value state.
         let unreadSummariesByWorkspaceId = sidebarUnread.summaryByWorkspaceId
-        let notificationIndex = SidebarWorkspaceNotificationIndex(
-            notifications: notificationStore.notifications
+        let rowInputProjection = SidebarWorkspaceRowInputProjection(
+            modelSnapshotsById: renderContext.workspaceRowModelSnapshotsById,
+            workspaceSnapshotsById: workspaceSnapshotsById,
+            unreadSummariesByWorkspaceId: unreadSummariesByWorkspaceId,
+            tabIndexById: renderContext.tabIndexById,
+            selectedContextTargetIds: renderContext.selectedContextTargetIds,
+            selectedWorkspaceIds: selectedTabIds,
+            activeWorkspaceId: tabManager.selectedTabId,
+            hoveredRowId: pointerInteractionMonitor.hoveredRowId,
+            draggedWorkspaceId: dragState.draggedTabId,
+            dropIndicator: dragState.dropIndicator,
+            dropIndicatorScope: dragState.dropIndicatorScope,
+            sidebarReorderIds: renderContext.sidebarReorderIds,
+            expandedChecklistWorkspaceIds: expandedChecklistWorkspaceIds,
+            checklistAddFieldActivationTokens: checklistAddFieldActivationTokens,
+            checklistPopoverWorkspaceId: checklistPopoverWorkspaceId,
+            workspaceCount: renderContext.workspaceCount,
+            canCloseWorkspace: renderContext.canCloseWorkspace,
+            workspaceShortcutModifierSymbol: renderContext.workspaceNumberShortcut.numberedDigitHintPrefix,
+            showsAgentActivity: renderContext.showsAgentActivity,
+            showsNotificationMessage: renderContext.tabItemSettings.showsNotificationMessage,
+            liveShowsModifierShortcutHints: showModifierHoldHints && modifierKeyMonitor.isModifierPressed,
+            frozenShortcutHintsTabId: frozenShortcutHintsTabId,
+            frozenShortcutHintsValue: frozenShortcutHintsValue,
+            isBonsplitWorkspaceDropActive: isBonsplitWorkspaceDropTargetCollectionActive,
+            rowSpacing: tabRowSpacing,
+            settings: renderContext.tabItemSettings
         )
-        let workspaceRowInputsById = Dictionary(uniqueKeysWithValues: renderContext.tabs.map { workspace in
-            (
-                workspace.id,
-                workspaceRowInput(
-                    workspace,
-                    renderContext: renderContext,
-                    unreadSummariesByWorkspaceId: unreadSummariesByWorkspaceId
-                )
-            )
-        })
         let _ = anchorCwdRevision
         let groupRowSnapshotsById = Dictionary(uniqueKeysWithValues: renderContext.workspaceGroups.map { group in
             (
@@ -11917,20 +11916,19 @@ struct VerticalTabsSidebar: View {
                     memberWorkspaceIds: renderContext.memberWorkspaceIdsByGroupId[group.id] ?? [],
                     renderContext: renderContext,
                     unreadSummariesByWorkspaceId: unreadSummariesByWorkspaceId,
-                    notificationIndex: notificationIndex,
                     shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets,
                     showModifierHoldHints: showModifierHoldHints
                 )
             )
         })
         let listSnapshot = SidebarWorkspaceRowsSnapshot(
-            workspaceRowsById: workspaceRowInputsById,
+            modelSnapshotsById: renderContext.workspaceRowModelSnapshotsById,
             groupRowsById: groupRowSnapshotsById,
             selectedContextTargetIds: renderContext.selectedContextTargetIds,
             anchorWorkspaceIds: Set(renderContext.workspaceGroups.map(\.anchorWorkspaceId)),
             workspaceGroupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
             canCreateEmptyGroup: tabManager.selectedTab?.isRemoteTmuxMirror != true,
-            notificationIndex: notificationIndex
+            unreadSummariesByWorkspaceId: unreadSummariesByWorkspaceId
         )
         let actionFactory = makeWorkspaceRowActionFactory()
         let rows = LazyVStack(spacing: tabRowSpacing) {
@@ -11941,7 +11939,10 @@ struct VerticalTabsSidebar: View {
                         sidebarWorkspaceGroupRow(snapshot: snapshot)
                     }
                 case .workspace(let workspaceId):
-                    if let input = listSnapshot.workspaceRowsById[workspaceId] {
+                    if let input = rowInputProjection.input(for: workspaceId) {
+#if DEBUG
+                        let _ = sidebarLazyContractProbe.workspaceRowInputProjection?()
+#endif
                         workspaceRow(
                             input: input,
                             listSnapshot: listSnapshot,
@@ -12511,134 +12512,6 @@ struct VerticalTabsSidebar: View {
         )
     }
 
-    private func workspaceRowInput(
-        _ tab: Workspace,
-        renderContext: WorkspaceListRenderContext,
-        unreadSummariesByWorkspaceId: [UUID: SidebarWorkspaceUnreadSummary]
-    ) -> SidebarWorkspaceRowInput {
-#if DEBUG
-        sidebarLazyContractProbe.workspaceRowInputProjection?()
-#endif
-        let signpost = SidebarProfilingSignposts.begin("sidebar-workspace-row", "index=\(renderContext.tabIndexById[tab.id] ?? -1) workspace=\(sidebarShortTabId(tab.id)) selected=\(tabManager.selectedTabId == tab.id)")
-        let index = renderContext.tabIndexById[tab.id] ?? 0
-        let usesSelectedContextMenuTargets = selectedTabIds.contains(tab.id)
-        let contextMenuWorkspaceIds = usesSelectedContextMenuTargets
-            ? renderContext.selectedContextTargetIds
-            : [tab.id]
-        let contextMenuPinTarget = WorkspaceActionDispatcher.Target(
-            workspaceIds: contextMenuWorkspaceIds,
-            anchorWorkspaceId: tab.id
-        )
-        let contextMenuPinState = WorkspaceActionDispatcher.pinState(
-            in: renderContext.pinResolutionContext,
-            target: contextMenuPinTarget
-        )
-        let unreadSummary = unreadSummariesByWorkspaceId[tab.id]
-            ?? SidebarWorkspaceUnreadSummary(unreadCount: 0, latestNotificationText: nil)
-        let liveLatestNotificationText: String? = renderContext.tabItemSettings.showsNotificationMessage
-            ? unreadSummary.latestNotificationText
-            : nil
-        let liveShowsModifierShortcutHints = showModifierHoldHints && modifierKeyMonitor.isModifierPressed
-        let resolvedShowsModifierShortcutHints = SidebarShortcutHintFreezePolicy().resolved(
-            live: liveShowsModifierShortcutHints,
-            currentTabId: tab.id,
-            frozenTabId: frozenShortcutHintsTabId,
-            frozenValue: frozenShortcutHintsValue
-        )
-        let isPointerHovering = pointerInteractionMonitor.hoveredRowId == .workspace(tab.id)
-
-        // Per-row drag/drop snapshots. Reading `dragState` here in the parent
-        // is intentional: the parent owns the @Observable store, and these
-        // value snapshots are what get passed to the row. The row's
-        // Equatable conformance ignores closures, so rows whose snapshot is
-        // unchanged skip re-render when drag state moves.
-        let isBeingDragged = dragState.draggedTabId == tab.id
-        let sidebarReorderIds = renderContext.sidebarReorderIds
-        let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate().topVisible(
-            forTabId: tab.id,
-            draggedTabId: dragState.draggedTabId,
-            dropIndicator: dragState.dropIndicator,
-            tabIds: sidebarReorderIds
-        )
-        let bottomDropIndicatorVisible = SidebarTabDropIndicatorPredicate().bottomVisible(
-            forTabId: tab.id,
-            draggedTabId: dragState.draggedTabId,
-            dropIndicator: dragState.dropIndicator,
-            tabIds: sidebarReorderIds,
-            indicatorScope: dragState.dropIndicatorScope
-        )
-        let settings = renderContext.tabItemSettings
-        let cachedWorkspaceSnapshot = workspaceSnapshotsById[tab.id]
-        let expectedPresentationKey = SidebarWorkspaceSnapshotFactory.presentationKey(
-            settings: settings,
-            showsAgentActivity: renderContext.showsAgentActivity
-        )
-        let workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot
-        if let cachedWorkspaceSnapshot,
-           cachedWorkspaceSnapshot.presentationKey == expectedPresentationKey {
-            workspaceSnapshot = cachedWorkspaceSnapshot
-        } else {
-            workspaceSnapshot = makeWorkspaceSnapshot(
-                workspace: tab,
-                settings: settings,
-                showsAgentActivity: renderContext.showsAgentActivity
-            )
-        }
-
-        let todoStatusResolution = WorkspaceTaskStatusOverride.effectiveStatus(
-            override: tab.todoState.statusOverride,
-            inferred: tab.inferredTaskStatus
-        )
-        let activeTodoOverride: WorkspaceTaskStatus? = {
-            guard let override = tab.todoState.statusOverride,
-                  !todoStatusResolution.shouldClearOverride else {
-                return nil
-            }
-            return override.status
-        }()
-        let result = SidebarWorkspaceRowInput(
-            workspaceId: tab.id,
-            groupId: tab.groupId,
-            index: index,
-            workspaceCount: renderContext.workspaceCount,
-            workspace: workspaceSnapshot,
-            isActive: tabManager.selectedTabId == tab.id,
-            isMultiSelected: selectedTabIds.contains(tab.id),
-            hasUserCustomTitle: tab.effectiveCustomTitleSource == .user,
-            hasCustomTitle: tab.hasCustomTitle,
-            hasCustomDescription: tab.hasCustomDescription,
-            customTitle: tab.customTitle,
-            workspaceShortcutDigit: WorkspaceShortcutMapper.digitForWorkspace(
-                at: index,
-                workspaceCount: renderContext.workspaceCount
-            ),
-            workspaceShortcutModifierSymbol: renderContext.workspaceNumberShortcut.numberedDigitHintPrefix,
-            canCloseWorkspace: renderContext.canCloseWorkspace,
-            unreadCount: unreadSummary.unreadCount,
-            latestNotificationText: liveLatestNotificationText,
-            showsAgentActivity: renderContext.showsAgentActivity,
-            rowSpacing: tabRowSpacing,
-            showsModifierShortcutHints: resolvedShowsModifierShortcutHints,
-            isPointerHovering: isPointerHovering,
-            isBeingDragged: isBeingDragged,
-            topDropIndicatorVisible: topDropIndicatorVisible,
-            bottomDropIndicatorVisible: bottomDropIndicatorVisible,
-            isBonsplitWorkspaceDropActive: isBonsplitWorkspaceDropTargetCollectionActive,
-            settings: settings,
-            isChecklistExpanded: expandedChecklistWorkspaceIds.contains(tab.id),
-            checklistAddFieldActivationToken: checklistAddFieldActivationTokens[tab.id] ?? 0,
-            isChecklistPopoverPresented: checklistPopoverWorkspaceId == tab.id,
-            isRemoteContextMenuEligible: tab.isRemoteWorkspace && !tab.isManagedCloudVMWorkspace,
-            remoteConnectionState: tab.remoteConnectionState,
-            contextMenuPinState: contextMenuPinState,
-            inferredTaskStatus: tab.inferredTaskStatus,
-            activeTodoOverride: activeTodoOverride,
-            isTodoStatusHidden: tab.todoState.statusHidden
-        )
-        SidebarProfilingSignposts.end(signpost)
-        return result
-    }
-
     /// Captures the parent action surface once per list evaluation. Invoking
     /// this factory below `LazyVStack` only binds immutable ids/values into
     /// closures; live models are resolved later when the user performs an
@@ -12831,6 +12704,9 @@ struct VerticalTabsSidebar: View {
                     notificationStore.canMarkWorkspaceUnread(forTabIds: [workspaceId]) {
                     notificationStore.markUnread(forTabId: workspaceId)
                 }
+            },
+            currentNotifications: { workspaceIds in
+                notificationStore.notifications(forTabIds: workspaceIds)
             },
             clearLatestNotifications: { workspaceIds in
                 for workspaceId in workspaceIds {
