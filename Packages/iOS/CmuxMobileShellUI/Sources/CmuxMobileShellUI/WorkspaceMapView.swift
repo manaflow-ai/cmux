@@ -14,8 +14,6 @@ struct WorkspaceMapView: View {
     /// owner so the map stays store-free.
     let openTab: (MobileTerminalPreview.ID) -> Void
     /// One-shot styled-grid fetch for a terminal tab's miniature.
-    /// Main-actor isolated so the value is Sendable into the fetch task
-    /// group; the underlying RPC awaits off-actor, so fetches still overlap.
     let fetchPreview: @MainActor (MobileTerminalPreview.ID) async -> MobileTerminalRenderGridFrame?
     let dismiss: () -> Void
 
@@ -107,15 +105,13 @@ struct WorkspaceMapView: View {
             guard let tab = pane.selectedTab, tab.kind == .terminal else { return nil }
             return tab.id
         }
-        await withTaskGroup(of: (MobileTerminalPreview.ID, MobileTerminalRenderGridFrame?).self) { group in
-            for target in targets {
-                let fetch = fetchPreview
-                group.addTask { @MainActor in (target, await fetch(target)) }
-            }
-            for await (target, frame) in group {
-                if let frame {
-                    previews[target] = frame
-                }
+        // Sequential on purpose: a workspace has a handful of panes and each
+        // replay is one short RPC, so miniatures pop in within a beat; the
+        // task-group formulation trips the region-isolation checker.
+        for target in targets {
+            guard !Task.isCancelled else { return }
+            if let frame = await fetchPreview(target) {
+                previews[target] = frame
             }
         }
     }
