@@ -32,9 +32,9 @@ Drag the sidebar border to resize the sidebar for the current TUI session. The c
 
 ## Context Menus
 
-Right-click a pane for rename tab, new tab, new browser tab, split right, split down, close tab, and close pane. When an inner PTY app enables mouse tracking, right-click is forwarded to the app; hold Shift while right-clicking to open the cmux menu. Right-click a workspace row for rename or close. Right-click a screen in the status bar for rename or close.
+Right-click a pane for rename tab, close tab, new tab, new browser tab, browser actions when applicable, split right, split down, close pane, and ID copying. The menu separates current-tab, creation, browser, pane-layout, and ID actions. When an inner PTY app enables mouse tracking, right-click is forwarded to the app; hold Shift while right-clicking to open the cmux menu. Right-click a workspace row for rename, close, or ID copying. Right-click a screen in the status bar for rename or close.
 
-Menus draw bordered overlays. Up and Down move the selected row, Enter activates it, and Esc closes the menu. A right press, drag to a row, and release activates that row. A plain right-click opens the menu and leaves it open.
+Menus draw bordered overlays. Divider rows collapse as needed to keep every action visible when the flat menu would fit. Up and Down move the selected row, Enter activates it, and Esc closes the menu. A right press, drag to a row, and release activates that row. A plain right-click opens the menu and leaves it open.
 
 ## Selection and Clipboard
 
