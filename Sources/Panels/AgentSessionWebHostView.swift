@@ -44,29 +44,20 @@ final class AgentSessionWebHostView: NSView {
 
     override func scrollWheel(with event: NSEvent) {
         guard let hostedWebView else { return }
-        guard let cgEvent = event.cgEvent?.copy() else {
-            hostedWebView.scrollWheel(with: event)
-            return
-        }
+        let pointScale: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 20
+        let deltaX = event.scrollingDeltaX * pointScale
+        let deltaY = event.scrollingDeltaY * pointScale
+        guard deltaX.isFinite, deltaY.isFinite else { return }
 
-        let targetInWindow = hostedWebView.convert(
-            NSPoint(x: hostedWebView.bounds.midX, y: hostedWebView.bounds.midY),
-            to: nil
-        )
-        let windowDelta = NSPoint(
-            x: targetInWindow.x - event.locationInWindow.x,
-            y: targetInWindow.y - event.locationInWindow.y
-        )
-        var targetInQuartz = cgEvent.location
-        targetInQuartz.x += windowDelta.x
-        targetInQuartz.y -= windowDelta.y
-        cgEvent.location = targetInQuartz
-
-        guard let retargetedEvent = NSEvent(cgEvent: cgEvent) else {
-            hostedWebView.scrollWheel(with: event)
-            return
-        }
-        hostedWebView.scrollWheel(with: retargetedEvent)
+        let script = """
+        (() => {
+          const thread = document.querySelector('.agent-thread');
+          if (!(thread instanceof HTMLElement)) return false;
+          thread.scrollBy(\(-Double(deltaX)), \(-Double(deltaY)));
+          return true;
+        })()
+        """
+        hostedWebView.evaluateJavaScript(script, completionHandler: nil)
     }
 
     override func setFrameOrigin(_ newOrigin: NSPoint) {
