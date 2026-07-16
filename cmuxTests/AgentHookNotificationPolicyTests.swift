@@ -82,6 +82,10 @@ struct AgentHookNotificationPolicyTests {
             sessionId: "",
             turnId: "turn-1"
         ) == nil)
+        #expect(AgentHookNotificationPolicy.codexCriticalFingerprint(
+            sessionId: "session-1",
+            turnId: nil
+        ) == nil)
         #expect(AgentHookNotificationPolicy.dedupeFingerprint(
             agentName: "grok",
             sessionId: "",

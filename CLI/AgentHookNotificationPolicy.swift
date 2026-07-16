@@ -214,8 +214,12 @@ enum AgentHookNotificationPolicy {
     /// the independent transcript monitor. Keep this fingerprint separate from
     /// the generic agent policy so routine Codex notifications remain undeduped.
     static func codexCriticalFingerprint(sessionId: String, turnId: String?) -> String? {
-        guard !sessionId.isEmpty else { return nil }
-        let eventIdentity = [sessionId, turnId ?? "", "terminal-error"].joined(separator: "\u{0}")
+        guard !sessionId.isEmpty,
+              let turnId = turnId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !turnId.isEmpty else {
+            return nil
+        }
+        let eventIdentity = [sessionId, turnId, "terminal-error"].joined(separator: "\u{0}")
         return "codex-critical:\(stableHash(of: eventIdentity))"
     }
 

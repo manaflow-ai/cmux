@@ -26735,9 +26735,11 @@ struct CMUXCLI {
             monitorArgs += ["--lease", leasePath]
         }
         if let codexPID = agentPIDFromHookEnvironment(agentName: "codex", env: env) {
-            monitorArgs += ["--pid", String(codexPID)]
             if let startTime = sessionsListProcessIdentity(for: codexPID)?.startTime {
+                monitorArgs += ["--pid", String(codexPID)]
                 monitorArgs += ["--pid-start", String(startTime)]
+            } else if codexMonitorProcessIsGone(pid: codexPID) {
+                monitorArgs += ["--pid-gone"]
             }
         }
         process.arguments = monitorArgs
@@ -26771,7 +26773,10 @@ struct CMUXCLI {
         let codexPIDStartTime = optionValue(commandArgs, name: "--pid-start").flatMap(TimeInterval.init)
         let requestedCodexPID = optionValue(commandArgs, name: "--pid").flatMap(Int.init)
             ?? agentPIDFromHookEnvironment(agentName: "codex", env: env)
-        let codexPID = requestedCodexPID
+        let codexPIDWasGoneBeforeRegistration = commandArgs.contains("--pid-gone")
+            || (codexPIDStartTime == nil
+                && requestedCodexPID.map({ codexMonitorProcessIsGone(pid: $0) }) == true)
+        let codexPID = codexPIDStartTime == nil ? nil : requestedCodexPID
 
         guard !workspaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -26846,13 +26851,14 @@ struct CMUXCLI {
 
             let remaining = deadline.timeIntervalSinceNow
             guard remaining > 0 else { return }
-            let processExited = codexProcessExitedWhileWaitingForTranscriptChange(
-                path: transcriptPath,
-                leasePath: leasePath,
-                codexPID: codexPID,
-                codexPIDStartTime: codexPIDStartTime,
-                timeout: min(30, remaining)
-            )
+            let processExited = codexPIDWasGoneBeforeRegistration
+                || codexProcessExitedWhileWaitingForTranscriptChange(
+                    path: transcriptPath,
+                    leasePath: leasePath,
+                    codexPID: codexPID,
+                    codexPIDStartTime: codexPIDStartTime,
+                    timeout: min(30, remaining)
+                )
             guard processExited else { continue }
 
             if let currentTranscriptPath = transcriptPath {
@@ -26930,11 +26936,14 @@ struct CMUXCLI {
     ) {
         let summary = summarizeCodexHookFailureCandidate(failure)
         if let surfaceId, !surfaceId.isEmpty {
-            guard let fingerprint = AgentHookNotificationPolicy.codexCriticalFingerprint(
+            let fingerprint = AgentHookNotificationPolicy.codexCriticalFingerprint(
                 sessionId: sessionId,
                 turnId: turnId
-            ) else { return }
-            let payload = "Codex|\(sanitizeNotificationField(summary.subtitle))|\(sanitizeNotificationField(summary.body))|d=\(fingerprint)"
+            )
+            var payload = "Codex|\(sanitizeNotificationField(summary.subtitle))|\(sanitizeNotificationField(summary.body))"
+            if let fingerprint {
+                payload += "|d=\(fingerprint)"
+            }
             _ = try? sendV1Command(
                 "notify_target_async \(workspaceId) \(surfaceId) \(payload)",
                 client: client
