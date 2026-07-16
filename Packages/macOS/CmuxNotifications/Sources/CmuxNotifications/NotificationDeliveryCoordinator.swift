@@ -254,6 +254,18 @@ public final class NotificationDeliveryCoordinator {
     private func handleTerminalNotificationResponse(_ response: NotificationDeliveryResponse) {
         switch response.actionIdentifier {
         case UNNotificationDefaultActionIdentifier, terminalIdentifiers.showActionIdentifier:
+            let notificationId = notificationId(response)
+            if response.userInfo[terminalIdentifiers.websiteDisplayOriginUserInfoKey] != nil {
+                guard let notificationId,
+                      let displayOrigin = websiteDisplayOrigin(response) else {
+                    return
+                }
+                _ = terminalNavigation.openWebsiteNotification(
+                    id: notificationId,
+                    fallbackDisplayOrigin: displayOrigin
+                )
+                return
+            }
             guard let tabIdString = response.userInfo["tabId"] as? String,
                   let tabId = UUID(uuidString: tabIdString) else {
                 return
@@ -264,7 +276,6 @@ public final class NotificationDeliveryCoordinator {
                 }
                 return UUID(uuidString: surfaceIdString)
             }()
-            let notificationId = notificationId(response)
             let retargetsToLiveSurfaceOwner = response.userInfo[
                 terminalIdentifiers.retargetsToLiveSurfaceOwnerUserInfoKey
             ] as? Bool ?? true
@@ -292,6 +303,24 @@ public final class NotificationDeliveryCoordinator {
         default:
             break
         }
+    }
+
+    private func websiteDisplayOrigin(_ response: NotificationDeliveryResponse) -> URL? {
+        guard let rawOrigin = response.userInfo[
+            terminalIdentifiers.websiteDisplayOriginUserInfoKey
+        ] as? String,
+              let origin = URL(string: rawOrigin),
+              let scheme = origin.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              origin.host?.isEmpty == false,
+              origin.user == nil,
+              origin.password == nil,
+              origin.query == nil,
+              origin.fragment == nil,
+              origin.path.isEmpty || origin.path == "/" else {
+            return nil
+        }
+        return origin
     }
 
     private func notificationId(_ response: NotificationDeliveryResponse) -> UUID? {

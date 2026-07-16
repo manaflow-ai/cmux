@@ -203,6 +203,13 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
     /// Mirrors `AppDelegate.openTerminalNotification`.
     @discardableResult
     public func openNotification(_ notification: NotificationNavSnapshot) -> Bool {
+        if let websiteClickTarget = notification.websiteClickTarget {
+            return routeWebsiteNotification(
+                id: notification.id,
+                fallbackDisplayOrigin: websiteClickTarget.displayOrigin,
+                markStoredNotificationRead: true
+            )
+        }
         if notification.hasClickAction {
             // A click action exists; resolve and perform it via the router.
             // The router returns `false` when the action cannot be resolved or
@@ -225,9 +232,46 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
     /// id and serialized display-origin fallback are available.
     @discardableResult
     public func openWebsiteNotification(id: UUID, fallbackDisplayOrigin: URL) -> Bool {
-        _ = id
-        _ = fallbackDisplayOrigin
-        return false
+        if let notification = store.orderedNotifications.first(where: {
+            $0.id == id && $0.websiteClickTarget != nil
+        }) {
+            return openNotification(notification)
+        }
+        return routeWebsiteNotification(
+            id: id,
+            fallbackDisplayOrigin: fallbackDisplayOrigin,
+            markStoredNotificationRead: false
+        )
+    }
+
+    private func routeWebsiteNotification(
+        id: UUID,
+        fallbackDisplayOrigin: URL,
+        markStoredNotificationRead: Bool
+    ) -> Bool {
+        guard Self.isHTTPDisplayOrigin(fallbackDisplayOrigin),
+              let websiteClickRouting,
+              websiteClickRouting.openWebsiteNotification(
+                  id: id,
+                  fallbackDisplayOrigin: fallbackDisplayOrigin
+              ) else {
+            return false
+        }
+        if markStoredNotificationRead { store.markRead(id: id) }
+        return true
+    }
+
+    private static func isHTTPDisplayOrigin(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else {
+            return false
+        }
+        return url.host?.isEmpty == false
+            && url.user == nil
+            && url.password == nil
+            && url.query == nil
+            && url.fragment == nil
+            && (url.path.isEmpty || url.path == "/")
     }
 
     /// Opens a notification response from the OS notification center by first

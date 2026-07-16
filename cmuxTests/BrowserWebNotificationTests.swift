@@ -800,6 +800,7 @@ struct BrowserWebNotificationTests {
     @Test func removedNativeManagerAddressCanBeProvisionedAgain() {
         let adapter = BrowserWebNotificationNativeAdapter.shared
         let manager = UnsafeRawPointer(bitPattern: 0xCAFE)!
+        defer { adapter.simulateManagerRemovalForTesting(manager) }
         #expect(adapter.provisionManagerForTesting(manager))
         #expect(adapter.isManagerTrackedForTesting(manager))
 
@@ -837,15 +838,18 @@ struct BrowserWebNotificationTests {
         let store = TerminalNotificationStore.shared
         let adapter = BrowserWebNotificationNativeAdapter.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let originalStore = appDelegate.notificationStore
         let profileID = UUID()
         let origin = try #require(URL(string: "https://example.com"))
         store.replaceNotificationsForTesting([])
         store.configureNotificationDeliveryHandlerForTesting { _, _ in }
         defer {
+            appDelegate.notificationStore = originalStore
             adapter.resetNativeDeliveryTestingState()
             store.replaceNotificationsForTesting([])
             store.resetNotificationDeliveryHandlerForTesting()
         }
+        appDelegate.notificationStore = store
 
         let rejectedID = store.addGlobalWebsiteNotification(
             title: "Rejected",
@@ -876,16 +880,19 @@ struct BrowserWebNotificationTests {
         let store = TerminalNotificationStore.shared
         let adapter = BrowserWebNotificationNativeAdapter.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let originalStore = appDelegate.notificationStore
         let profileID = UUID()
         let origin = try #require(URL(string: "https://example.com"))
         store.replaceNotificationsForTesting([])
         store.configureNotificationDeliveryHandlerForTesting { _, _ in }
         adapter.externalURLOpenerForTesting = { _ in true }
         defer {
+            appDelegate.notificationStore = originalStore
             adapter.resetNativeDeliveryTestingState()
             store.replaceNotificationsForTesting([])
             store.resetNotificationDeliveryHandlerForTesting()
         }
+        appDelegate.notificationStore = store
         let notificationID = store.addGlobalWebsiteNotification(
             title: "OS click",
             subtitle: "example.com",

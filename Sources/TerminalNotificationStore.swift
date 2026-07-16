@@ -164,6 +164,7 @@ final class TerminalNotificationStore: ObservableObject {
     static let categoryIdentifier = "com.cmuxterm.app.userNotification"
     static let actionShowIdentifier = "com.cmuxterm.app.userNotification.show"
     nonisolated static let retargetsToLiveSurfaceOwnerUserInfoKey = "retargetsToLiveSurfaceOwner"
+    nonisolated static let websiteDisplayOriginUserInfoKey = "websiteDisplayOrigin"
     /// Mobile-host event topic the Mac emits when one or more delivered
     /// notifications are dismissed/cleared on this Mac, so an attached phone can
     /// clear the matching banners it is mirroring. Payload carries the stable
@@ -1845,6 +1846,10 @@ final class TerminalNotificationStore: ObservableObject {
         let notificationSurfaceId = notification.surfaceId
         let retargetsToLiveSurfaceOwner = notification.retargetsToLiveSurfaceOwner
         let clickActionUserInfo = notification.clickAction?.userInfo ?? [:]
+        let websiteDisplayOrigin: String? = {
+            guard case .website(_, let displayOrigin, true) = notification.source else { return nil }
+            return displayOrigin.absoluteString
+        }()
         let categoryIdentifier = Self.categoryIdentifier
         let handleAuthorization: NativeNotificationDeliveryHooks.AuthorizationCompletion = { authorized, effectiveAuthorizationState in
             let content = UNMutableNotificationContent()
@@ -1869,6 +1874,9 @@ final class TerminalNotificationStore: ObservableObject {
             }
             for (key, value) in clickActionUserInfo {
                 content.userInfo[key] = value
+            }
+            if let websiteDisplayOrigin {
+                content.userInfo[Self.websiteDisplayOriginUserInfoKey] = websiteDisplayOrigin
             }
             let request = UNNotificationRequest(
                 identifier: notificationId.uuidString,

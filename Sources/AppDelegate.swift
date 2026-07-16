@@ -688,6 +688,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             unreadTargeting: notificationNavSeams,
             openRouting: notificationNavSeams,
             clickRouting: notificationClickPerformer,
+            websiteClickRouting: notificationNavSeams,
             focusedResolving: notificationNavSeams,
             // Route the focused-mark jump through `AppDelegate.jumpToLatestUnread`
             // so its `#if DEBUG` `jumpUnreadInvoked` recorder and nil-store guard
@@ -715,7 +716,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         terminalIdentifiers: TerminalNotificationDeliveryIdentifiers(
             categoryIdentifier: TerminalNotificationStore.categoryIdentifier,
             showActionIdentifier: TerminalNotificationStore.actionShowIdentifier,
-            retargetsToLiveSurfaceOwnerUserInfoKey: TerminalNotificationStore.retargetsToLiveSurfaceOwnerUserInfoKey
+            retargetsToLiveSurfaceOwnerUserInfoKey: TerminalNotificationStore.retargetsToLiveSurfaceOwnerUserInfoKey,
+            websiteDisplayOriginUserInfoKey: TerminalNotificationStore.websiteDisplayOriginUserInfoKey
         ),
         actionTitles: notificationDeliveryActionTitles
     )
@@ -16307,14 +16309,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     @MainActor
     func openTerminalNotification(_ notification: TerminalNotification) -> Bool {
-        if case .website(_, let origin, true) = notification.source {
-            TerminalNotificationStore.shared.markRead(id: notification.id)
-            BrowserWebNotificationNativeAdapter.shared.handleGlobalNotificationClick(
-                notificationID: notification.id,
-                fallbackOrigin: origin
-            )
-            return true
-        }
         return notificationNavigation.openNotification(
             notification.notificationNavigationSnapshot
         )
@@ -16325,11 +16319,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         actionIdentifier: String,
         requestIdentifier: String
     ) -> Bool {
-        _ = actionIdentifier
-        _ = requestIdentifier
-        return false
+        guard actionIdentifier == UNNotificationDefaultActionIdentifier
+                || actionIdentifier == TerminalNotificationStore.actionShowIdentifier,
+              let id = UUID(uuidString: requestIdentifier),
+              let notification = notificationStore?.notifications.first(where: { $0.id == id }),
+              case .website(_, let displayOrigin, true) = notification.source else {
+            return false
+        }
+        return notificationNavigation.openWebsiteNotification(
+            id: id,
+            fallbackDisplayOrigin: displayOrigin
+        )
     }
 #endif
+
+    func openWebsiteNotification(id: UUID, fallbackDisplayOrigin: URL) -> Bool {
+        BrowserWebNotificationNativeAdapter.shared.handleGlobalNotificationClick(
+            notificationID: id,
+            fallbackOrigin: fallbackDisplayOrigin
+        )
+    }
+
     /// Performs a notification click action. Forwards to the shared
     /// `NotificationClickPerformer` (which owns the tilde-expansion and
     /// file-vs-directory reveal logic); `AppDelegate` only supplies the

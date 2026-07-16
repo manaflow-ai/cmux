@@ -11,10 +11,16 @@ extension TerminalNotification {
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
             isRead: isRead,
             clickAction: clickAction?.notificationNavigationAction,
+            websiteClickTarget: websiteClickTarget,
             scrollRow: scrollPosition?.row,
             scrollTotalRows: scrollPosition?.totalRows,
             scrollRowSpaceRevision: scrollPosition?.rowSpaceRevision
         )
+    }
+
+    private var websiteClickTarget: NotificationNavWebsiteClickTarget? {
+        guard case .website(_, let displayOrigin, true) = source else { return nil }
+        return NotificationNavWebsiteClickTarget(displayOrigin: displayOrigin)
     }
 }
 
