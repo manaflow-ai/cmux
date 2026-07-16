@@ -6,9 +6,7 @@ final class CmuxTerminalHostViewController: NSViewController {
     private let frontend: CmuxFrontendSession
     private let ghosttyViewConfiguration: CmuxGhosttyViewConfiguration
     private let renderView: CmuxRenderView
-    private let foreignSizeHint = NSTextField(labelWithString: "")
     private let backToLiveButton = NSButton()
-    private let resizePolicy = CmuxResizePolicy()
 
     private var model: CmuxRenderModel?
     private var attachedSurface: UInt64?
@@ -49,7 +47,6 @@ final class CmuxTerminalHostViewController: NSViewController {
 
         renderView.autoresizingMask = []
         container.addSubview(renderView)
-        configureForeignSizeHint()
         configureBackToLiveButton()
         updateBackground()
         CmuxStateDump.register(self)
@@ -65,7 +62,6 @@ final class CmuxTerminalHostViewController: NSViewController {
             if let model { renderView.update(model: model) }
             updateBackground()
             layoutRenderGrid()
-            updateForeignSizeHint()
             containerDidLayout()
         case let .renderDelta(delta):
             guard attachedSurface == delta.surface, let previous = model else { return }
@@ -84,7 +80,6 @@ final class CmuxTerminalHostViewController: NSViewController {
             updateBackground()
             if delta.size != nil {
                 layoutRenderGrid()
-                updateForeignSizeHint()
             }
         case let .detached(surface):
             guard attachedSurface == surface else { return }
@@ -120,19 +115,6 @@ final class CmuxTerminalHostViewController: NSViewController {
         ]
     }
 
-    private func configureForeignSizeHint() {
-        foreignSizeHint.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
-        foreignSizeHint.textColor = CmuxPalette.tui.dim
-        foreignSizeHint.drawsBackground = true
-        foreignSizeHint.lineBreakMode = .byTruncatingTail
-        foreignSizeHint.maximumNumberOfLines = 1
-        foreignSizeHint.isHidden = true
-        foreignSizeHint.wantsLayer = true
-        foreignSizeHint.layer?.borderWidth = 1
-        foreignSizeHint.layer?.borderColor = CmuxPalette.tui.border.cgColor
-        view.addSubview(foreignSizeHint, positioned: .above, relativeTo: renderView)
-    }
-
     private func configureBackToLiveButton() {
         backToLiveButton.title = String(
             localized: "terminal.back_to_live",
@@ -145,16 +127,18 @@ final class CmuxTerminalHostViewController: NSViewController {
         backToLiveButton.controlSize = .small
         backToLiveButton.wantsLayer = true
         backToLiveButton.isHidden = true
-        view.addSubview(backToLiveButton, positioned: .above, relativeTo: foreignSizeHint)
+        view.addSubview(backToLiveButton, positioned: .above, relativeTo: renderView)
     }
 
     private func containerDidLayout() {
         layoutRenderGrid()
         layoutOverlayControls()
-        guard let measurement = terminalMeasurement(), measurement != lastMeasurement else { return }
+        guard let attachedSurface,
+              model != nil,
+              let measurement = terminalMeasurement(),
+              measurement != lastMeasurement
+        else { return }
         lastMeasurement = measurement
-        updateForeignSizeHint()
-        guard let attachedSurface, model != nil else { return }
         let frontend = frontend
         Task {
             await frontend.scheduleResize(for: measurement, surface: attachedSurface)
@@ -185,30 +169,6 @@ final class CmuxTerminalHostViewController: NSViewController {
     }
 
     private func layoutOverlayControls() {
-        if !foreignSizeHint.isHidden {
-            foreignSizeHint.sizeToFit()
-            let hintSize = NSSize(
-                width: min(view.bounds.width - 8, foreignSizeHint.frame.width + 10),
-                height: foreignSizeHint.frame.height + 4
-            )
-            let rightLetterbox = view.bounds.width - renderView.frame.maxX
-            if rightLetterbox >= hintSize.width + 4 {
-                foreignSizeHint.frame = NSRect(
-                    x: renderView.frame.maxX + 4,
-                    y: view.bounds.maxY - hintSize.height,
-                    width: hintSize.width,
-                    height: hintSize.height
-                )
-            } else {
-                foreignSizeHint.frame = NSRect(
-                    x: max(0, renderView.frame.maxX - hintSize.width),
-                    y: max(0, renderView.frame.minY - hintSize.height - 4),
-                    width: hintSize.width,
-                    height: hintSize.height
-                )
-            }
-        }
-
         if !backToLiveButton.isHidden {
             let fitting = backToLiveButton.fittingSize
             let size = NSSize(
@@ -236,34 +196,11 @@ final class CmuxTerminalHostViewController: NSViewController {
         )
     }
 
-    private func updateForeignSizeHint() {
-        guard let model,
-              let measurement = lastMeasurement,
-              let localCapacity = resizePolicy.grid(for: measurement),
-              model.size.cols < localCapacity.cols || model.size.rows < localCapacity.rows
-        else {
-            foreignSizeHint.isHidden = true
-            return
-        }
-        foreignSizeHint.stringValue = String(
-            format: String(
-                localized: "terminal.foreign_size_hint",
-                defaultValue: "sized by another client (%1$lldx%2$lld), type to take over",
-                bundle: .module
-            ),
-            Int64(model.size.cols),
-            Int64(model.size.rows)
-        )
-        foreignSizeHint.isHidden = false
-        layoutOverlayControls()
-    }
-
     private func updateBackground() {
         let color = CmuxRenderColor(model?.defaultBackground)?.color
             ?? CmuxRenderColor(ghosttyViewConfiguration.background)?.color
             ?? .black
         view.layer?.backgroundColor = color.cgColor
-        foreignSizeHint.backgroundColor = color
     }
 
     private func send(_ action: CmuxTerminalKeyAction) {

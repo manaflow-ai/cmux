@@ -10,7 +10,6 @@ struct CmuxResizePolicyTests {
         let owned = CmuxSurfaceSize(cols: 100, rows: 38)
         let action = policy.action(
             lastSent: owned,
-            incomingResized: owned,
             measurement: measurement(width: 1_000, height: 760)
         )
 
@@ -21,7 +20,6 @@ struct CmuxResizePolicyTests {
     func unchangedLocalGridIgnoresSharedResizeWithoutPingPong() {
         let action = policy.action(
             lastSent: CmuxSurfaceSize(cols: 100, rows: 38),
-            incomingResized: CmuxSurfaceSize(cols: 46, rows: 16),
             measurement: measurement(width: 1_009.9, height: 779.9)
         )
 
@@ -32,7 +30,6 @@ struct CmuxResizePolicyTests {
     func initialGridIsReportedEvenWhenSharedSurfaceAlreadyMatches() {
         let action = policy.action(
             lastSent: nil,
-            incomingResized: CmuxSurfaceSize(cols: 100, rows: 38),
             measurement: measurement(width: 1_000, height: 760)
         )
 
@@ -43,7 +40,6 @@ struct CmuxResizePolicyTests {
     func changedFinalBoundsUseFloorAndScheduleExactlyOneGrid() {
         let action = policy.action(
             lastSent: CmuxSurfaceSize(cols: 100, rows: 38),
-            incomingResized: CmuxSurfaceSize(cols: 46, rows: 16),
             measurement: measurement(width: 1_209.9, height: 819.9)
         )
 
@@ -55,7 +51,6 @@ struct CmuxResizePolicyTests {
         let owned = CmuxSurfaceSize(cols: 100, rows: 38)
         let action = policy.action(
             lastSent: owned,
-            incomingResized: owned,
             measurement: measurement(width: 1_209.9, height: 819.9)
         )
 
@@ -66,7 +61,6 @@ struct CmuxResizePolicyTests {
     func incompleteCellMetricsNeverResize() {
         let action = policy.action(
             lastSent: nil,
-            incomingResized: nil,
             measurement: CmuxTerminalMeasurement(
                 widthPixels: 1_000,
                 heightPixels: 760,

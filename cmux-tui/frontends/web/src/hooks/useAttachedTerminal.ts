@@ -60,6 +60,8 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
     host.addEventListener("focusin", handleFocusIn);
     host.addEventListener("focusout", handleFocusOut);
     host.addEventListener("touchend", focusOnTouch, { passive: true });
+    let stream: Awaited<ReturnType<CmuxClient["attachSurface"]>> | null = null;
+    let reportedFit: TerminalSize | null = null;
 
     const publishForeignSize = (size: TerminalSize | null) => {
       setForeignSizeState((current) => {
@@ -77,12 +79,15 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
       publishForeignSize(isForeignSmaller(current, proposed) ? current : null);
     };
     const applyFit = () => {
-      if (cancelled) return;
-      const current = { cols: terminal.cols, rows: terminal.rows };
+      if (cancelled || stream === null) return;
       const proposed = fit.proposeDimensions();
-      const next = nextFitSize(current, proposed);
+      const next = nextFitSize(reportedFit, proposed);
       if (!next) return;
-      void client.resizeSurface(surface, next.cols, next.rows).catch(onError);
+      reportedFit = next;
+      void client.resizeSurface(surface, next.cols, next.rows).catch((error) => {
+        if (reportedFit?.cols === next.cols && reportedFit.rows === next.rows) reportedFit = null;
+        onError(error);
+      });
     };
     const sendResize = debounce(applyFit, 100);
     const observer = new ResizeObserver(sendResize);
@@ -106,8 +111,6 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
       const cursorPatch = colorsToCursorOptionsPatch(colors);
       if (cursorPatch !== null) Object.assign(terminal.options, cursorPatch);
     };
-    let stream: Awaited<ReturnType<CmuxClient["attachSurface"]>> | null = null;
-
     void (async () => {
       try {
         stream = await client.attachSurface(surface);

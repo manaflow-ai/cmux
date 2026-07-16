@@ -132,7 +132,7 @@ export function useRenderTerminal({ client, surface, active, onError }: RenderTe
     let cacheGeneration = 0;
     let historyActive = false;
     let historyLoading = false;
-    let pendingFit: TerminalSize | null = null;
+    let reportedFit: TerminalSize | null = null;
     let composing = false;
     let committedComposition: string | null = null;
     let touchStartY: number | null = null;
@@ -206,12 +206,11 @@ export function useRenderTerminal({ client, surface, active, onError }: RenderTe
     };
     const applyFit = () => {
       if (cancelled || currentModel === null) return;
-      const next = nextFitSize(currentModel.size, proposedSize());
+      const next = nextFitSize(reportedFit, proposedSize());
       if (next === null) return;
-      if (pendingFit?.cols === next.cols && pendingFit.rows === next.rows) return;
-      pendingFit = next;
+      reportedFit = next;
       void client.resizeSurface(surface, next.cols, next.rows).catch((error) => {
-        pendingFit = null;
+        if (reportedFit?.cols === next.cols && reportedFit.rows === next.rows) reportedFit = null;
         onError(error);
       });
     };
@@ -492,9 +491,6 @@ export function useRenderTerminal({ client, surface, active, onError }: RenderTe
             }
             applySurfaceBackground(nextModel.defaultBg);
             updateForeignSize();
-            if (renderDelta.size !== undefined) {
-              pendingFit = null;
-            }
             if (!historyActive) {
               scheduleAfterRender(() => {
                 if (scroller !== null) scroller.scrollTop = scroller.scrollHeight;
