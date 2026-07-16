@@ -2,42 +2,25 @@
 import CMUXMobileCore
 import UIKit
 
-/// Bridges decoded frames and UIKit input callbacks to async RPC actions.
+/// Bridges UIKit input callbacks and chrome commands to async RPC actions.
+///
+/// Frames deliberately do NOT flow through here: the store consumes the
+/// decoder stream for the subscription's lifetime and publishes
+/// `state.latestFrame`, so a SwiftUI remount can never kill the frame
+/// pipeline. This coordinator only carries input out of the content view.
 @MainActor
 final class BrowserStreamSurfaceCoordinator: BrowserStreamContentViewDelegate {
     private let panelID: String
-    private let frames: AsyncStream<BrowserStreamFrame>
     private let actions: BrowserStreamSurfaceActions
-    private let didDisplay: @MainActor (BrowserStreamFrame) -> Void
-    private var frameTask: Task<Void, Never>?
 
-    init(
-        panelID: String,
-        frames: AsyncStream<BrowserStreamFrame>,
-        actions: BrowserStreamSurfaceActions,
-        didDisplay: @escaping @MainActor (BrowserStreamFrame) -> Void
-    ) {
+    init(panelID: String, actions: BrowserStreamSurfaceActions) {
         self.panelID = panelID
-        self.frames = frames
         self.actions = actions
-        self.didDisplay = didDisplay
-    }
-
-    deinit {
-        frameTask?.cancel()
     }
 
     func attach(to view: BrowserStreamContentView) {
         view.delegate = self
         view.panelID = panelID
-        frameTask?.cancel()
-        frameTask = Task { @MainActor [weak view] in
-            for await frame in frames {
-                guard !Task.isCancelled, let view else { return }
-                view.display(frame)
-                didDisplay(frame)
-            }
-        }
     }
 
     func perform(_ command: BrowserStreamSurfaceState.ChromeCommand) {

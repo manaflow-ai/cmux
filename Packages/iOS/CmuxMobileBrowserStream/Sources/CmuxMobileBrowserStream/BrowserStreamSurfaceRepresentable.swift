@@ -2,37 +2,25 @@
 import SwiftUI
 import UIKit
 
-/// SwiftUI host for a decoded Mac browser frame stream and its UIKit input surface.
+/// SwiftUI host for the mirrored Mac browser frame and its UIKit input surface.
+///
+/// The displayed frame comes from `state.latestFrame` (installed by the
+/// store's long-lived decoder consumer), so remounting this representable can
+/// never interrupt the frame pipeline; `updateUIView` re-runs via observation
+/// whenever a new frame lands.
 struct BrowserStreamSurfaceRepresentable: UIViewRepresentable {
     /// The observable panel state.
     let state: BrowserStreamSurfaceState
-    /// Decoded frames for this subscription.
-    let frames: AsyncStream<BrowserStreamFrame>
     /// RPC action sink.
     let actions: BrowserStreamSurfaceActions
-    /// Called after the decoded image is installed into the layer.
-    let didDisplay: @MainActor (BrowserStreamFrame) -> Void
 
-    /// Creates a browser stream representable.
-    init(
-        state: BrowserStreamSurfaceState,
-        frames: AsyncStream<BrowserStreamFrame>,
-        actions: BrowserStreamSurfaceActions,
-        didDisplay: @escaping @MainActor (BrowserStreamFrame) -> Void
-    ) {
+    init(state: BrowserStreamSurfaceState, actions: BrowserStreamSurfaceActions) {
         self.state = state
-        self.frames = frames
         self.actions = actions
-        self.didDisplay = didDisplay
     }
 
     func makeCoordinator() -> BrowserStreamSurfaceCoordinator {
-        BrowserStreamSurfaceCoordinator(
-            panelID: state.id,
-            frames: frames,
-            actions: actions,
-            didDisplay: didDisplay
-        )
+        BrowserStreamSurfaceCoordinator(panelID: state.id, actions: actions)
     }
 
     func makeUIView(context: Context) -> BrowserStreamContentView {

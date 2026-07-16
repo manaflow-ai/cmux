@@ -14,6 +14,7 @@ public final class BrowserStreamStore: BrowserStreamEventReceiving {
     private var activePanelByWorkspace: [String: String] = [:]
     private var currentConnectionStatus: BrowserStreamSurfaceState.ConnectionStatus = .disconnected
     @ObservationIgnored private var decodersByPanel: [String: BrowserStreamFrameDecoder] = [:]
+    @ObservationIgnored private var frameTasksByPanel: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var acknowledgeFrame: BrowserStreamFrameAcknowledging?
 
     /// Creates an empty stream store.
@@ -40,9 +41,7 @@ public final class BrowserStreamStore: BrowserStreamEventReceiving {
                 state.connectionStatus = currentConnectionStatus
                 statesByPanel[descriptor.panelID] = state
             }
-            if decodersByPanel[descriptor.panelID] == nil {
-                decodersByPanel[descriptor.panelID] = BrowserStreamFrameDecoder()
-            }
+            _ = decoder(for: descriptor.panelID)
         }
         if let active = activePanelByWorkspace[workspaceID], !currentIDs.contains(active) {
             activePanelByWorkspace[workspaceID] = nil
@@ -81,13 +80,6 @@ public final class BrowserStreamStore: BrowserStreamEventReceiving {
         if let panelID = activePanelByWorkspace.removeValue(forKey: workspaceID) {
             statesByPanel[panelID]?.streamStatus = .idle
         }
-    }
-
-    /// Returns the decoder stream consumed by the panel representable.
-    /// - Parameter panelID: The Mac browser panel identifier.
-    /// - Returns: The existing decoder stream, or `nil` before panel discovery.
-    public func frames(for panelID: String) -> AsyncStream<BrowserStreamFrame>? {
-        decodersByPanel[panelID]?.frames
     }
 
     /// Records a frame as displayed and then sends its cumulative acknowledgement.
@@ -205,6 +197,20 @@ public final class BrowserStreamStore: BrowserStreamEventReceiving {
         if let decoder = decodersByPanel[panelID] { return decoder }
         let decoder = BrowserStreamFrameDecoder()
         decodersByPanel[panelID] = decoder
+        // The store is the ONE consumer of the decoder's frame stream, for the
+        // subscription's whole life. An AsyncStream dies permanently when its
+        // consuming task is cancelled, so consumption must never be tied to a
+        // SwiftUI view or coordinator lifetime: an early version consumed it
+        // from the representable's coordinator, and the first remount killed
+        // frames (while un-flow-controlled state events kept updating chrome)
+        // and starved the Mac's ack window into a permanent stall. Views render
+        // `state.latestFrame` via observation instead.
+        frameTasksByPanel[panelID] = Task { @MainActor [weak self] in
+            for await frame in decoder.frames {
+                guard let self else { return }
+                self.didDisplay(frame, for: panelID)
+            }
+        }
         return decoder
     }
 }

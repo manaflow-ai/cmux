@@ -16,6 +16,10 @@ final class BrowserStreamContentView: UIView, UIScrollViewDelegate, UIGestureRec
     private var lastAnchor = CGPoint.zero
     private var scrollBatcher = BrowserStreamScrollBatcher()
     private var pageSize = CGSize.zero
+    // Identity of the installed CGImage, not its sequence: sequences restart
+    // at one on re-subscription, so a sequence guard could skip the first
+    // frame of a new stream that collides with the old stream's counter.
+    private var displayedImageID: ObjectIdentifier?
     private var zoomScale: CGFloat = 1
     private var viewportOffset = CGPoint.zero
     private var pinchStartScale: CGFloat = 1
@@ -104,8 +108,14 @@ final class BrowserStreamContentView: UIView, UIScrollViewDelegate, UIGestureRec
     }
 
     /// Installs one decoded frame into the backing layer.
+    ///
+    /// `updateUIView` re-runs on every observed state change, not only on new
+    /// frames, so unchanged sequences return early instead of re-setting layer
+    /// contents.
     /// - Parameter frame: The frame to display.
     func display(_ frame: BrowserStreamFrame) {
+        guard ObjectIdentifier(frame.image) != displayedImageID else { return }
+        displayedImageID = ObjectIdentifier(frame.image)
         pageSize = frame.pageSize
         imageLayer.contents = frame.image
         imageLayer.contentsScale = CGFloat(frame.pixelSize.width / max(frame.pageSize.width, 1))

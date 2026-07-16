@@ -3,65 +3,98 @@ public import SwiftUI
 import CmuxMobileSupport
 
 /// Complete iOS chrome and interaction surface for one streamed Mac browser panel.
+///
+/// The mirrored page fills the pane edge to edge; chrome is a floating bottom
+/// glass bar in the thumb zone. Collapsed, it is a compact pill showing the
+/// page's host and load progress. Tapping it expands the full controls
+/// (back/forward, editable address, reload, keyboard, close); submitting or
+/// tapping the collapse chevron returns to the pill.
 public struct BrowserStreamPane: View {
     @State private var state: BrowserStreamSurfaceState
     @State private var addressText: String
-    @State private var isEditingAddress = false
+    @State private var isBarExpanded = false
     @FocusState private var addressFocused: Bool
 
-    private let frames: AsyncStream<BrowserStreamFrame>
     private let actions: BrowserStreamSurfaceActions
-    private let didDisplay: @MainActor (BrowserStreamFrame) -> Void
     private let close: () -> Void
     private let reconnect: () -> Void
 
     /// Creates a full browser streaming pane.
     /// - Parameters:
     ///   - state: Observable state for the selected Mac browser panel.
-    ///   - frames: Decoded frames for the current subscription.
     ///   - actions: RPC actions for browser input and chrome.
-    ///   - didDisplay: Called after a frame is installed into the display layer.
     ///   - close: Closes the current streamed surface.
     ///   - reconnect: Requests connection recovery for the selected Mac.
     public init(
         state: BrowserStreamSurfaceState,
-        frames: AsyncStream<BrowserStreamFrame>,
         actions: BrowserStreamSurfaceActions,
-        didDisplay: @escaping @MainActor (BrowserStreamFrame) -> Void,
         close: @escaping () -> Void,
         reconnect: @escaping () -> Void
     ) {
         _state = State(initialValue: state)
         _addressText = State(initialValue: state.url ?? "")
-        self.frames = frames
         self.actions = actions
-        self.didDisplay = didDisplay
         self.close = close
         self.reconnect = reconnect
     }
 
-    /// Renders browser chrome, the mirrored frame surface, and lifecycle overlays.
+    /// Renders the mirrored frame surface, lifecycle overlays, and bottom chrome.
     public var body: some View {
-        VStack(spacing: 0) {
-            chrome
-            progress
-            BrowserStreamSurfaceRepresentable(
-                state: state,
-                frames: frames,
-                actions: actions,
-                didDisplay: didDisplay
-            )
+        BrowserStreamSurfaceRepresentable(state: state, actions: actions)
             .accessibilityIdentifier("BrowserStreamSurface")
+            .ignoresSafeArea(.container, edges: .bottom)
             .overlay { surfaceOverlay }
-        }
-        .background(Color(red: 0.055, green: 0.063, blue: 0.075))
-        .onChange(of: state.url) { _, url in
-            if !isEditingAddress { addressText = url ?? "" }
-        }
+            .overlay(alignment: .bottom) { bottomBar }
+            .background(Color(red: 0.055, green: 0.063, blue: 0.075))
+            .onChange(of: state.url) { _, url in
+                if !addressFocused { addressText = url ?? "" }
+            }
     }
 
-    private var chrome: some View {
-        HStack(spacing: 9) {
+    // MARK: - Bottom chrome
+
+    @ViewBuilder
+    private var bottomBar: some View {
+        Group {
+            if isBarExpanded {
+                expandedBar
+            } else {
+                collapsedPill
+            }
+        }
+        .padding(.horizontal, isBarExpanded ? 12 : 60)
+        .padding(.bottom, 10)
+        .animation(.spring(duration: 0.32, bounce: 0.24), value: isBarExpanded)
+    }
+
+    private var collapsedPill: some View {
+        Button {
+            isBarExpanded = true
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: isSecure ? "lock.fill" : "globe")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Text(displayHost)
+                    .font(.footnote.weight(.medium))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .mobileGlassPill()
+        .overlay(alignment: .bottom) { pillProgress }
+        .clipShape(Capsule())
+        .accessibilityLabel(L10n.string("mobile.browserStream.showControls", defaultValue: "Show Browser Controls"))
+        .accessibilityIdentifier("BrowserStreamAddressPill")
+    }
+
+    private var expandedBar: some View {
+        HStack(spacing: 10) {
             chromeButton(
                 systemImage: "chevron.backward",
                 label: L10n.string("mobile.browserStream.back", defaultValue: "Back"),
@@ -75,7 +108,21 @@ public struct BrowserStreamPane: View {
                 disabled: !state.canGoForward
             ) { state.request(.forward) }
 
-            addressPill
+            TextField(
+                L10n.string("mobile.browserStream.addressPlaceholder", defaultValue: "Search or enter address"),
+                text: $addressText
+            )
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled(true)
+            .keyboardType(.webSearch)
+            .submitLabel(.go)
+            .focused($addressFocused)
+            .onSubmit { submitAddress() }
+            .font(.footnote)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(.quaternary.opacity(0.5), in: Capsule())
+            .accessibilityIdentifier("BrowserStreamAddressField")
 
             chromeButton(
                 systemImage: "arrow.clockwise",
@@ -95,62 +142,48 @@ public struct BrowserStreamPane: View {
                 identifier: "BrowserStreamCloseButton",
                 action: close
             )
+            chromeButton(
+                systemImage: "chevron.down",
+                label: L10n.string("mobile.browserStream.hideControls", defaultValue: "Hide Browser Controls"),
+                identifier: "BrowserStreamCollapseButton"
+            ) { collapseBar() }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(.ultraThinMaterial)
-    }
-
-    private var addressPill: some View {
-        Group {
-            if isEditingAddress {
-                TextField(
-                    L10n.string("mobile.browserStream.addressPlaceholder", defaultValue: "Search or enter address"),
-                    text: $addressText
-                )
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled(true)
-                .keyboardType(.webSearch)
-                .submitLabel(.go)
-                .focused($addressFocused)
-                .onSubmit { submitAddress() }
-            } else {
-                Button {
-                    isEditingAddress = true
-                    addressFocused = true
-                } label: {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(state.title ?? L10n.string("mobile.browserStream.untitled", defaultValue: "Browser"))
-                            .font(.caption.weight(.semibold))
-                            .lineLimit(1)
-                        Text(state.url ?? L10n.string("mobile.browserStream.noAddress", defaultValue: "No address"))
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, 11)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
         .mobileGlassPill()
-        .accessibilityIdentifier("BrowserStreamAddressPill")
+        .overlay(alignment: .bottom) { pillProgress }
+        .clipShape(Capsule())
     }
 
     @ViewBuilder
-    private var progress: some View {
+    private var pillProgress: some View {
         if state.isLoading {
             ProgressView(value: state.progress)
                 .progressViewStyle(.linear)
                 .frame(height: 2)
+                .padding(.horizontal, 18)
                 .accessibilityLabel(L10n.string("mobile.browserStream.loading", defaultValue: "Loading"))
                 .accessibilityIdentifier("BrowserStreamProgress")
-        } else {
-            Color.clear.frame(height: 2)
         }
     }
+
+    private var isSecure: Bool {
+        state.url?.hasPrefix("https://") == true
+    }
+
+    private var displayHost: String {
+        if let url = state.url.flatMap(URL.init(string:)), let host = url.host() {
+            return host
+        }
+        return state.title ?? L10n.string("mobile.browserStream.untitled", defaultValue: "Browser")
+    }
+
+    private func collapseBar() {
+        addressFocused = false
+        isBarExpanded = false
+    }
+
+    // MARK: - Overlays
 
     @ViewBuilder
     private var surfaceOverlay: some View {
@@ -243,8 +276,7 @@ public struct BrowserStreamPane: View {
         let trimmed = addressText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         state.request(.navigate(trimmed))
-        isEditingAddress = false
-        addressFocused = false
+        collapseBar()
     }
 }
 #endif

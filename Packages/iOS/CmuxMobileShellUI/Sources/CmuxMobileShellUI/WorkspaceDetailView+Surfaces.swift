@@ -61,32 +61,27 @@ extension WorkspaceDetailView {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    @ViewBuilder
     func browserStreamContent(_ browser: BrowserStreamSurfaceState) -> some View {
-        if let frames = browserStreamStore.frames(for: browser.id) {
-            BrowserStreamPane(
-                state: browser,
-                frames: frames,
-                actions: BrowserStreamSurfaceActions(
-                    pointer: { await store.sendMobileBrowserPointer($0) },
-                    scroll: { await store.sendMobileBrowserScroll($0) },
-                    key: { await store.sendMobileBrowserKey($0) },
-                    text: { await store.sendMobileBrowserText($0) },
-                    navigate: { await store.navigateMobileBrowser(panelID: $0, url: $1) },
-                    back: { await store.backMobileBrowser(panelID: $0) },
-                    forward: { await store.forwardMobileBrowser(panelID: $0) },
-                    reload: { await store.reloadMobileBrowser(panelID: $0) }
-                ),
-                didDisplay: { browserStreamStore.didDisplay($0, for: browser.id) },
-                close: {
-                    browserStreamStore.deactivate(in: workspace.rpcWorkspaceID.rawValue)
-                    Task { await store.stopMobileBrowserStream(panelID: browser.id) }
-                },
-                reconnect: { Task { await store.reconnectOrRefresh() } }
-            )
-            .id(browser.id)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
+        BrowserStreamPane(
+            state: browser,
+            actions: BrowserStreamSurfaceActions(
+                pointer: { await store.sendMobileBrowserPointer($0) },
+                scroll: { await store.sendMobileBrowserScroll($0) },
+                key: { await store.sendMobileBrowserKey($0) },
+                text: { await store.sendMobileBrowserText($0) },
+                navigate: { await store.navigateMobileBrowser(panelID: $0, url: $1) },
+                back: { await store.backMobileBrowser(panelID: $0) },
+                forward: { await store.forwardMobileBrowser(panelID: $0) },
+                reload: { await store.reloadMobileBrowser(panelID: $0) }
+            ),
+            close: {
+                browserStreamStore.deactivate(in: workspace.rpcWorkspaceID.rawValue)
+                Task { await store.stopMobileBrowserStream(panelID: browser.id) }
+            },
+            reconnect: { Task { await store.reconnectOrRefresh() } }
+        )
+        .id(browser.id)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     #endif
 }
