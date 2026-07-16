@@ -229,24 +229,13 @@ private extension ReflowOptions {
                         && !structuredCode
                         && previousLineWasFull
                         && (proseContinuation || commandContinuation)
-                    // Preserve Markdown hard breaks unless the spaces pad a row
-                    // that reached either the current or an inferred historical
-                    // wrap width. The latter matters after the terminal widens:
-                    // old grid padding no longer reaches `terminalWidth`.
+                    // An exact two-space suffix is canonical Markdown hard-break
+                    // syntax. An application can emit terminal padding as
+                    // identical space cells, so width inference cannot safely
+                    // reinterpret that suffix after the terminal resizes.
                     let previousRawLine = rawLines[i - 1]
-                    let previousRawVisibleLength = previousRawLine.visibleLength
-                    let currentTerminalIsWider = (terminalWidth ?? 0) >= minWrapWidth
-                        && previousRawVisibleLength < (terminalWidth ?? 0)
-                    let previousHasStaleWidthPadding = previousRawLine.hasSuffix("  ")
-                        && currentTerminalIsWider
-                        && previousLineWasFull
-                        && previousRawVisibleLength >= minWrapWidth
                     let previousHasMarkdownHardBreak = previousRawLine.hasSuffix("  ")
-                        && !previousHasStaleWidthPadding
-                        && !reachesTerminalWidth(
-                            lineLength: previousRawVisibleLength,
-                            terminalWidth: terminalWidth
-                        )
+                        && !previousRawLine.dropLast(2).hasSuffix(" ")
                     let canJoin = !p.prevEndsTerminator
                         && !previousHasMarkdownHardBreak
                         && !endsIndentedBlock(p.prevContent)
