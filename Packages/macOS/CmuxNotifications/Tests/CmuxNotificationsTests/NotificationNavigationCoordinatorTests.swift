@@ -167,6 +167,44 @@ struct NotificationNavigationCoordinatorTests {
         #expect(router.opens.map(\.id) == [notification.id])
         #expect(store.markedReadIds.isEmpty)
     }
+
+    @Test("OS website open prefers the stored snapshot target")
+    func osWebsiteOpenPrefersStoredSnapshot() {
+        let store = FakeStore()
+        let router = FakeWebsiteClickRouting()
+        let storedOrigin = URL(string: "https://stored.example")!
+        let serializedFallback = URL(string: "https://serialized.example")!
+        let notification = snapshot(
+            tabId: UUID(),
+            websiteClickTarget: NotificationNavWebsiteClickTarget(displayOrigin: storedOrigin)
+        )
+        store.orderedNotifications = [notification]
+        let coordinator = makeCoordinator(store: store, websiteClickRouting: router)
+
+        #expect(coordinator.openWebsiteNotification(
+            id: notification.id,
+            fallbackDisplayOrigin: serializedFallback
+        ))
+        #expect(router.opens.map(\.fallbackDisplayOrigin) == [storedOrigin])
+        #expect(store.markedReadIds == [notification.id])
+    }
+
+    @Test("OS website open uses serialized fallback when the store entry is gone")
+    func osWebsiteOpenUsesSerializedFallbackWithoutStoreMutation() {
+        let store = FakeStore()
+        let router = FakeWebsiteClickRouting()
+        let notificationId = UUID()
+        let serializedFallback = URL(string: "http://localhost:4317")!
+        let coordinator = makeCoordinator(store: store, websiteClickRouting: router)
+
+        #expect(coordinator.openWebsiteNotification(
+            id: notificationId,
+            fallbackDisplayOrigin: serializedFallback
+        ))
+        #expect(router.opens.map(\.id) == [notificationId])
+        #expect(router.opens.map(\.fallbackDisplayOrigin) == [serializedFallback])
+        #expect(store.markedReadIds.isEmpty)
+    }
     @Test("jumpToLatestUnread opens the first openable unread in store order")
     func picksLatestUnread() {
         let store = FakeStore()
