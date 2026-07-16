@@ -48,6 +48,8 @@ public final class HiveRemoteMacSession {
     @ObservationIgnored public private(set) var client: MobileCoreRPCClient?
     @ObservationIgnored private var eventTask: Task<Void, Never>?
     @ObservationIgnored private var connectTask: Task<Void, Never>?
+    @ObservationIgnored private var workspaceListeners:
+        [UUID: AsyncStream<[HiveRemoteWorkspace]>.Continuation] = [:]
 
     /// Creates a session onto one paired Mac.
     ///
@@ -102,10 +104,36 @@ public final class HiveRemoteMacSession {
     public func refreshWorkspaces() async {
         guard let client else { return }
         do {
-            workspaces = try await Self.fetchWorkspaces(client: client)
+            setWorkspaces(try await Self.fetchWorkspaces(client: client))
         } catch {
             // Keep the stale list; the event loop's stream death drives the
             // visible reconnect state.
+        }
+    }
+
+    /// A stream of workspace lists: the current value immediately, then every
+    /// change (the session refreshes on `workspace.updated` push events).
+    /// Native mirror reconciliation consumes this to add/remove local mirror
+    /// workspaces as the host's topology changes.
+    public func workspaceUpdates() -> AsyncStream<[HiveRemoteWorkspace]> {
+        let id = UUID()
+        let (stream, continuation) = AsyncStream<[HiveRemoteWorkspace]>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        workspaceListeners[id] = continuation
+        continuation.yield(workspaces)
+        continuation.onTermination = { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.workspaceListeners.removeValue(forKey: id)
+            }
+        }
+        return stream
+    }
+
+    private func setWorkspaces(_ newWorkspaces: [HiveRemoteWorkspace]) {
+        workspaces = newWorkspaces
+        for (_, continuation) in workspaceListeners {
+            continuation.yield(newWorkspaces)
         }
     }
 
@@ -142,7 +170,7 @@ public final class HiveRemoteMacSession {
                 let workspaces = try await Self.fetchWorkspaces(client: candidate)
                 if let previous = client { await previous.disconnect() }
                 client = candidate
-                self.workspaces = workspaces
+                setWorkspaces(workspaces)
                 phase = .connected
                 startEventLoop(client: candidate)
                 return
