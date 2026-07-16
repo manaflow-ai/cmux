@@ -4,6 +4,7 @@ import CmuxFoundation
 
 struct CmuxConfigUIDefinition: Codable, Sendable, Hashable {
     var newWorkspace: CmuxConfigButtonPlacement?
+    var projectWorktrees: CmuxConfigProjectWorktreesDefinition?
     var surfaceTabBar: CmuxSurfaceTabBarUIDefinition?
 }
 

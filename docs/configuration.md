@@ -84,6 +84,53 @@ Default: `cloudFirst`.
 
 `sectionOrder` is accepted as an alias. Project-local `.cmux/cmux.json` values override the global setting.
 
+## `ui.projectWorktrees`
+
+`Project Worktrees` is a bundled sidebar preset available from the sidebar switcher and Command Palette. It is not the default sidebar. Without configuration, its `+` button creates a worktree under `<project>/.cmux/worktrees/<branch>`, and selecting a worktree opens a terminal there. Worktrees created elsewhere or by other tools still appear because the list comes from Git.
+
+Use `createAction` or `openAction` to replace either built-in behavior with any action from the shared `actions` registry. Put the setting in a project's `.cmux/cmux.json` for a project-specific workflow, or in the global `~/.config/cmux/cmux.json` for a fallback. Project-local values win independently for each field. Omit a field to retain that built-in behavior.
+
+Relative paths in a `createAction` workspace resolve from the project root. Relative paths in an `openAction` workspace resolve from the selected worktree. A configured action that is missing or invalid reports a configuration issue and does not silently fall back to the built-in action.
+
+```json
+{
+  "actions": {
+    "open-worktree-layout": {
+      "type": "workspace",
+      "workspace": {
+        "cwd": ".",
+        "layout": {
+          "direction": "horizontal",
+          "children": [
+            {
+              "pane": {
+                "surfaces": [
+                  { "type": "terminal", "command": "codex" }
+                ]
+              }
+            },
+            {
+              "pane": {
+                "surfaces": [
+                  { "type": "terminal", "command": "pnpm dev" }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "ui": {
+    "projectWorktrees": {
+      "openAction": "open-worktree-layout"
+    }
+  }
+}
+```
+
+For a custom creation flow, point `createAction` at a command, agent, workspace, or built-in action. A command can launch an interactive script that chooses its own branch naming, checkout location, setup steps, and tools; cmux does not impose its built-in creation convention once this override is present. Deletion remains Git-authoritative and uses cmux's confirmation and safety checks.
+
 ## `terminal.agentHibernation`
 
 Opt-in Agent Hibernation. cmux kills idle background agent processes to free RAM and CPU, then resumes each one with its saved session when you visit its tab. See [agent-hooks.md](agent-hooks.md#agent-hibernation) for the full behavior, including the confirmation settle window and how resume works.

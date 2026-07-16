@@ -16,15 +16,66 @@ struct WorktreeSidebarSchedulingTests {
         let enqueuedA = queue.enqueue(path: "/a", eligibleAt: now)
         let duplicatedA = queue.enqueue(path: "/a", eligibleAt: now)
         let enqueuedB = queue.enqueue(path: "/b", eligibleAt: now)
-        let firstPath = queue.popFirst()
+        let enqueuedC = queue.enqueue(path: "/c", eligibleAt: now)
         let removedB = queue.remove(path: "/b")
+        let firstPath = queue.popFirst()
+        let secondPath = queue.popFirst()
+        let reenqueuedB = queue.enqueue(path: "/b", eligibleAt: now)
+        let thirdPath = queue.popFirst()
 
         #expect(enqueuedA)
         #expect(!duplicatedA)
         #expect(enqueuedB)
-        #expect(firstPath == "/a")
+        #expect(enqueuedC)
         #expect(removedB)
+        #expect(firstPath == "/a")
+        #expect(secondPath == "/c")
+        #expect(reenqueuedB)
+        #expect(thirdPath == "/b")
         #expect(queue.isEmpty)
+    }
+
+    @Test("keep-unmerged disposition preserves a branch already merged into HEAD")
+    func keepUnmergedDispositionPreservesBranchMergedIntoHEAD() async throws {
+        let container = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-keep-unmerged-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: container) }
+        let repo = container.appendingPathComponent("repo", isDirectory: true)
+        let worktree = container.appendingPathComponent("linked", isDirectory: true)
+        try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
+        try runGit(["init", "-b", "main"], in: repo)
+        try runGit(["config", "user.name", "cmux Test"], in: repo)
+        try runGit(["config", "user.email", "cmux@example.invalid"], in: repo)
+        try runGit(["remote", "add", "origin", "https://example.invalid/cmux-test.git"], in: repo)
+        try Data("base\n".utf8).write(to: repo.appendingPathComponent("tracked"))
+        try runGit(["add", "tracked"], in: repo)
+        try runGit(["commit", "-m", "base"], in: repo)
+        try runGit(["update-ref", "refs/remotes/origin/main", "HEAD"], in: repo)
+        try runGit(["worktree", "add", "-b", "feature", worktree.path, "HEAD"], in: repo)
+        try runGit(["branch", "--set-upstream-to=origin/main", "feature"], in: repo)
+        try Data("feature\n".utf8).write(to: worktree.appendingPathComponent("feature"))
+        try runGit(["add", "feature"], in: worktree)
+        try runGit(["commit", "-m", "feature"], in: worktree)
+        try runGit(["merge", "--no-ff", "--no-edit", "feature"], in: repo)
+
+        let service = WorktreeSidebarGitService(commandTimeout: 10)
+        let inspection = try await service.inspectDeletion(
+            projectRootPath: repo.path,
+            worktreePath: worktree.path
+        )
+        #expect(inspection.branchDisposition == .keepUnmerged("feature"))
+        let result = try await service.removeWorktree(
+            projectRootPath: repo.path,
+            expected: inspection,
+            force: false
+        )
+
+        guard case .preserved(let branchName, _) = result.branch else {
+            Issue.record("Expected the confirmed keep disposition to preserve the branch")
+            return
+        }
+        #expect(branchName == "feature")
+        #expect(try runGit(["branch", "--list", "feature"], in: repo).contains("feature"))
     }
 
     @Test("status watch plan excludes shell-created descendant worktrees")
@@ -279,11 +330,9 @@ struct WorktreeSidebarSchedulingTests {
         process.standardOutput = pipe
         process.standardError = pipe
         try process.run()
+        let outputData = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
-        let output = String(
-            data: pipe.fileHandleForReading.readDataToEndOfFile(),
-            encoding: .utf8
-        ) ?? ""
+        let output = String(data: outputData, encoding: .utf8) ?? ""
         let childEnvironment = Set(output.split(whereSeparator: \.isNewline).map(String.init))
 
         #expect(process.terminationStatus == 0)
@@ -296,7 +345,7 @@ struct WorktreeSidebarSchedulingTests {
 
     @Test("workspace close plan preserves symlink matches across removal")
     @MainActor
-    func workspaceClosePlanPreservesSymlinkMatchesAcrossRemoval() throws {
+    func workspaceClosePlanPreservesSymlinkMatchesAcrossRemoval() async throws {
         let container = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-close-plan-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: container) }
@@ -312,12 +361,12 @@ struct WorktreeSidebarSchedulingTests {
         let workspace = try #require(manager.tabs.first)
         let controller = WorktreeSidebarWorkspaceController(tabManager: manager)
 
-        let plan = controller.closePlan(
+        let plan = await controller.closePlan(
             worktreePath: worktree.path,
             fallbackDirectory: container.path
         )
         try FileManager.default.removeItem(at: worktree)
-        let latePlan = controller.closePlan(
+        let latePlan = await controller.closePlan(
             worktreePath: worktree.path,
             fallbackDirectory: container.path
         )
@@ -326,7 +375,8 @@ struct WorktreeSidebarSchedulingTests {
         #expect(!latePlan.entries.contains { $0.workspaceIDs.contains(workspace.id) })
     }
 
-    private func runGit(_ arguments: [String], in directory: URL) throws {
+    @discardableResult
+    private func runGit(_ arguments: [String], in directory: URL) throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
         process.arguments = ["-C", directory.path] + arguments
@@ -334,18 +384,17 @@ struct WorktreeSidebarSchedulingTests {
         process.standardOutput = pipe
         process.standardError = pipe
         try process.run()
+        let outputData = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
+        let output = String(data: outputData, encoding: .utf8) ?? ""
         guard process.terminationStatus == 0 else {
-            let output = String(
-                data: pipe.fileHandleForReading.readDataToEndOfFile(),
-                encoding: .utf8
-            ) ?? ""
             throw NSError(
                 domain: "WorktreeSidebarSchedulingTests.Git",
                 code: Int(process.terminationStatus),
                 userInfo: [NSLocalizedDescriptionKey: output]
             )
         }
+        return output.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 

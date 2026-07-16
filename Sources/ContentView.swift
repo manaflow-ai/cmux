@@ -11535,7 +11535,7 @@ struct VerticalTabsSidebar: View {
         now: Date
     ) -> some View {
         let isCollapsed = collapsedExtensionSidebarSectionIds.contains(section.id)
-        if providerId == ProjectWorktreeSidebar.providerID,
+        if section.treeSection.content == .projectWorktrees,
            let projectRootPath = section.treeSection.projectRootPath {
             WorktreeSidebarSectionView(
                 sectionID: section.id,

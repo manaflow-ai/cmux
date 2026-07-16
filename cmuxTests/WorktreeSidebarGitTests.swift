@@ -481,11 +481,9 @@ struct WorktreeSidebarGitTests {
         process.standardOutput = pipe
         process.standardError = pipe
         try process.run()
+        let outputData = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
-        let output = String(
-            data: pipe.fileHandleForReading.readDataToEndOfFile(),
-            encoding: .utf8
-        ) ?? ""
+        let output = String(data: outputData, encoding: .utf8) ?? ""
         guard process.terminationStatus == 0 else {
             throw GitFailure(arguments: arguments, output: output)
         }

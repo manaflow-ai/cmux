@@ -19,6 +19,7 @@ struct ExampleSidebarSection {
     var title: CmuxSidebarProviderLocalizedText
     var systemImageName: String
     var projectRootPath: String?
+    var content: CmuxSidebarProviderSectionContent? = nil
     var workspaces: [CmuxSidebarProviderWorkspace]
 
     func render(
@@ -37,6 +38,7 @@ struct ExampleSidebarSection {
                 subtitle: nil,
                 systemImageName: systemImageName,
                 projectRootPath: projectRootPath,
+                content: content,
                 workspaceIds: workspaces.map(\.id)
             ),
             rows: workspaces.map { workspace in

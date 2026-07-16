@@ -42,6 +42,7 @@ final class WorktreeSidebarModel {
     @ObservationIgnored private var lifecyclePhase: LifecyclePhase = .stopped
     @ObservationIgnored private var refreshState: RefreshState = .idle
     @ObservationIgnored private var worktrees: [WorktreeSidebarWorktree] = []
+    @ObservationIgnored private var worktreeByPath: [String: WorktreeSidebarWorktree] = [:]
     @ObservationIgnored private var worktreePaths: [String] = []
     @ObservationIgnored private var statusByPath: [String: WorktreeSidebarStatus] = [:]
     @ObservationIgnored private var rowIndexByPath: [String: Int] = [:]
@@ -127,6 +128,12 @@ final class WorktreeSidebarModel {
 
     func createWorktree() {
         guard operationPhase == .idle else { return }
+        if let didExecute = workspaces.executeConfiguredCreateActionIfAvailable(
+            projectRootPath: projectRootPath
+        ) {
+            if didExecute { refreshAll() }
+            return
+        }
         let projectName = URL(fileURLWithPath: projectRootPath, isDirectory: true).lastPathComponent
         guard let userInput = dialogs.promptForBranchName(projectName: projectName) else { return }
 
@@ -160,7 +167,14 @@ final class WorktreeSidebarModel {
 
     func openTerminal(for row: WorktreeSidebarRow) {
         guard !row.worktree.isPrunable,
-              operationPhase != .removing(row.id) else {
+              operationPhase != .removing(row.id),
+              worktreeByPath[row.worktree.path]?.id == row.worktree.id else {
+            return
+        }
+        if workspaces.executeConfiguredOpenActionIfAvailable(
+            projectRootPath: projectRootPath,
+            worktreePath: row.worktree.path
+        ) != nil {
             return
         }
         workspaces.openTerminal(WorktreeSidebarWorkspaceRequest(
@@ -193,7 +207,7 @@ final class WorktreeSidebarModel {
                     return
                 }
 
-                let closePlan = workspaces.closePlan(
+                let closePlan = await workspaces.closePlan(
                     worktreePath: inspection.worktree.path,
                     fallbackDirectory: projectRootPath
                 )
@@ -277,6 +291,7 @@ final class WorktreeSidebarModel {
 
     private func apply(worktrees: [WorktreeSidebarWorktree]) {
         self.worktrees = worktrees
+        worktreeByPath = Dictionary(uniqueKeysWithValues: worktrees.map { ($0.path, $0) })
         worktreePaths = worktrees.map(\.path)
         let validPaths = Set(worktrees.map(\.path))
         for path in visiblePaths.subtracting(validPaths) {
@@ -321,7 +336,7 @@ final class WorktreeSidebarModel {
     private func scheduleStatusRefresh(path: String) {
         guard lifecyclePhase == .running,
               visiblePaths.contains(path),
-              worktrees.contains(where: { $0.path == path && !$0.isPrunable }) else {
+              worktreeByPath[path]?.isPrunable == false else {
             return
         }
         guard statusScheduler.enqueue(path: path) else { return }
@@ -336,7 +351,7 @@ final class WorktreeSidebarModel {
     ) {
         guard lifecyclePhase == .running,
               visiblePaths.contains(path),
-              worktrees.contains(where: { $0.path == path && !$0.isPrunable }) else {
+              worktreeByPath[path]?.isPrunable == false else {
             return
         }
         switch result {
@@ -364,7 +379,7 @@ final class WorktreeSidebarModel {
     private func reconcileStatusWatcher(path: String) {
         guard lifecyclePhase == .running,
               visiblePaths.contains(path),
-              worktrees.contains(where: { $0.path == path && !$0.isPrunable }) else {
+              worktreeByPath[path]?.isPrunable == false else {
             return
         }
         statusWatcherInstallTasks[path]?.cancel()
@@ -420,7 +435,7 @@ final class WorktreeSidebarModel {
     }
 
     private func handleStatusWatchEvent(path: String) {
-        guard let worktree = worktrees.first(where: { $0.path == path }) else {
+        guard let worktree = worktreeByPath[path] else {
             refresh()
             return
         }

@@ -1,9 +1,20 @@
 import CmuxSidebarProviderKit
 @testable import CmuxExtensionSidebarExamples
-import XCTest
+import Foundation
+import Testing
 
-final class ProjectWorktreeSidebarTests: XCTestCase {
-    func testPinnedOnlyRepositoryPreservesHostBackedProjectSection() throws {
+@Suite
+struct ProjectWorktreeSidebarTests {
+    @Test
+    func descriptorIdentifiesBundledProvider() {
+        let descriptor = ProjectWorktreeSidebar().descriptor
+
+        #expect(descriptor.isHostProvided)
+        #expect(descriptor.subtitle?.defaultValue == "Built-in")
+    }
+
+    @Test
+    func pinnedOnlyRepositoryPreservesHostBackedProjectSection() throws {
         let projectRoot = "/tmp/pinned-only-repository"
         let workspace = CmuxSidebarProviderWorkspace(
             id: UUID(),
@@ -26,11 +37,32 @@ final class ProjectWorktreeSidebarTests: XCTestCase {
         )
 
         let model = ProjectWorktreeSidebar().render(snapshot: snapshot)
-        let project = try XCTUnwrap(model.sections.first { section in
+        let project = try #require(model.sections.first { section in
             section.treeSection.projectRootPath == projectRoot
         })
 
-        XCTAssertTrue(project.rows.isEmpty)
-        XCTAssertTrue(project.treeSection.workspaceIds.isEmpty)
+        #expect(project.rows.isEmpty)
+        #expect(project.treeSection.workspaceIds.isEmpty)
+        #expect(project.treeSection.content == .projectWorktrees)
+    }
+
+    @Test
+    func sectionContentIsOptionalAndRoundTrips() throws {
+        let ordinary = CmuxSidebarProviderTreeSection(
+            id: "ordinary",
+            title: "Ordinary",
+            subtitle: nil,
+            systemImageName: "folder",
+            projectRootPath: nil,
+            workspaceIds: []
+        )
+        #expect(ordinary.content == nil)
+
+        var project = ordinary
+        project.content = .projectWorktrees
+        let encoded = try JSONEncoder().encode(project)
+        let decoded = try JSONDecoder().decode(CmuxSidebarProviderTreeSection.self, from: encoded)
+
+        #expect(decoded.content == .projectWorktrees)
     }
 }

@@ -1654,58 +1654,6 @@ struct CmuxResolvedCommand: Sendable {
     let sourcePath: String?
 }
 
-struct CmuxConfigIssue: Identifiable, Equatable, Sendable {
-    enum Kind: String, Sendable {
-        case newWorkspaceActionNotFound
-        case newWorkspaceCommandNotFound
-        case newWorkspaceCommandRequiresWorkspace
-        case schemaError
-    }
-
-    let kind: Kind
-    let settingName: String
-    let commandName: String?
-    let sourcePath: String?
-    let message: String?
-
-    init(
-        kind: Kind,
-        settingName: String,
-        commandName: String? = nil,
-        sourcePath: String? = nil,
-        message: String? = nil
-    ) {
-        self.kind = kind
-        self.settingName = settingName
-        self.commandName = commandName
-        self.sourcePath = sourcePath
-        self.message = message
-    }
-
-    var id: String {
-        [
-            kind.rawValue,
-            settingName,
-            commandName ?? "",
-            sourcePath ?? "",
-            message ?? ""
-        ].joined(separator: "|")
-    }
-
-    var logMessage: String {
-        switch kind {
-        case .newWorkspaceActionNotFound:
-            return "\(settingName) '\(commandName ?? "")' does not match any loaded action"
-        case .newWorkspaceCommandNotFound:
-            return "\(settingName) '\(commandName ?? "")' does not match any loaded command"
-        case .newWorkspaceCommandRequiresWorkspace:
-            return "\(settingName) '\(commandName ?? "")' must reference a workspace command"
-        case .schemaError:
-            return "\(settingName) has a schema error: \(message ?? "unknown error")"
-        }
-    }
-}
-
 @MainActor
 final class CmuxConfigStore: ObservableObject {
     private static let defaultNewWorkspaceContextMenu: [CmuxConfigContextMenuItem] = [
@@ -1719,6 +1667,8 @@ final class CmuxConfigStore: ObservableObject {
     @Published private(set) var newWorkspaceContextMenuItems: [CmuxResolvedConfigContextMenuItem] = []
     @Published private(set) var newWorkspaceContextMenuIsConfigured = false
     @Published private(set) var newWorkspaceMenuSectionOrder: CmuxNewWorkspaceMenuSectionOrder = .default
+    @Published private(set) var projectWorktreesCreateActionID: String?
+    @Published private(set) var projectWorktreesOpenActionID: String?
     @Published private(set) var agentChat: CmuxAgentChatConfiguration = .default
     /// Resolved per-cwd workspace group customization, keyed by the JSON cwd key.
     /// Use `resolveWorkspaceGroupConfig(forCwd:)` to find the best match for an
@@ -1794,6 +1744,8 @@ final class CmuxConfigStore: ObservableObject {
     private var surfaceTabBarWorkspaceCommands: [String: CmuxResolvedCommand] = [:]
     private var resolvedNewWorkspaceCommandCache: CmuxResolvedCommand?
     private var resolvedNewWorkspaceActionCache: CmuxResolvedConfigAction?
+    var resolvedProjectWorktreesCreateActionCache: CmuxResolvedConfigAction?
+    var resolvedProjectWorktreesOpenActionCache: CmuxResolvedConfigAction?
     private var parsedConfigCache: [String: ParsedConfigCacheEntry] = [:]
     private var lifetimeCancellables = Set<AnyCancellable>()
     private var trackingCancellables = Set<AnyCancellable>()
@@ -1924,7 +1876,7 @@ final class CmuxConfigStore: ObservableObject {
         loadAll()
     }
 
-    private func resolvedLocalConfigPath(startingFrom directory: String) -> String {
+    func resolvedLocalConfigPath(startingFrom directory: String) -> String {
         findCmuxConfig(startingFrom: directory)
             ?? defaultLocalConfigPath(startingFrom: directory)
     }
@@ -1984,6 +1936,10 @@ final class CmuxConfigStore: ObservableObject {
         var configuredNewWorkspaceContextMenu: [CmuxConfigContextMenuItem]?
         var configuredNewWorkspaceContextMenuSourcePath: String?
         var configuredNewWorkspaceMenuSectionOrder: CmuxNewWorkspaceMenuSectionOrder?
+        var configuredProjectWorktreesCreateActionID: String?
+        var configuredProjectWorktreesCreateActionSourcePath: String?
+        var configuredProjectWorktreesOpenActionID: String?
+        var configuredProjectWorktreesOpenActionSourcePath: String?
         var configuredSurfaceTabBarButtons: [CmuxSurfaceTabBarButton]?
         var configuredSurfaceTabBarButtonSourcePath: String?
         let localPath = localConfigPath
@@ -2023,6 +1979,14 @@ final class CmuxConfigStore: ObservableObject {
             if let menuSectionOrder = localConfig.ui?.newWorkspace?.menuSectionOrder {
                 configuredNewWorkspaceMenuSectionOrder = menuSectionOrder
             }
+            if let actionID = localConfig.ui?.projectWorktrees?.createAction {
+                configuredProjectWorktreesCreateActionID = actionID
+                configuredProjectWorktreesCreateActionSourcePath = localPath
+            }
+            if let actionID = localConfig.ui?.projectWorktrees?.openAction {
+                configuredProjectWorktreesOpenActionID = actionID
+                configuredProjectWorktreesOpenActionSourcePath = localPath
+            }
             if configuredNewWorkspaceActionID == nil,
                let newWorkspaceCommand = localConfig.newWorkspaceCommand {
                 configuredNewWorkspaceCommandName = newWorkspaceCommand
@@ -2059,6 +2023,16 @@ final class CmuxConfigStore: ObservableObject {
             if configuredNewWorkspaceMenuSectionOrder == nil,
                let menuSectionOrder = globalConfig.ui?.newWorkspace?.menuSectionOrder {
                 configuredNewWorkspaceMenuSectionOrder = menuSectionOrder
+            }
+            if configuredProjectWorktreesCreateActionID == nil,
+               let actionID = globalConfig.ui?.projectWorktrees?.createAction {
+                configuredProjectWorktreesCreateActionID = actionID
+                configuredProjectWorktreesCreateActionSourcePath = globalConfigPath
+            }
+            if configuredProjectWorktreesOpenActionID == nil,
+               let actionID = globalConfig.ui?.projectWorktrees?.openAction {
+                configuredProjectWorktreesOpenActionID = actionID
+                configuredProjectWorktreesOpenActionSourcePath = globalConfigPath
             }
             if configuredNewWorkspaceActionID == nil,
                configuredNewWorkspaceCommandName == nil,
@@ -2131,6 +2105,22 @@ final class CmuxConfigStore: ObservableObject {
             commands: commands,
             sourcePaths: sourcePaths
         )
+        let resolvedProjectWorktreesCreateAction = resolvedProjectWorktreesAction(
+            id: configuredProjectWorktreesCreateActionID,
+            sourcePath: configuredProjectWorktreesCreateActionSourcePath,
+            actions: resolvedActionLookup,
+            commands: commands,
+            commandSourcePaths: sourcePaths,
+            settingName: "ui.projectWorktrees.createAction"
+        )
+        let resolvedProjectWorktreesOpenAction = resolvedProjectWorktreesAction(
+            id: configuredProjectWorktreesOpenActionID,
+            sourcePath: configuredProjectWorktreesOpenActionSourcePath,
+            actions: resolvedActionLookup,
+            commands: commands,
+            commandSourcePaths: sourcePaths,
+            settingName: "ui.projectWorktrees.openAction"
+        )
         let resolvedNotificationHooks = resolveNotificationHooks(
             globalConfig: globalConfig,
             localConfigs: localHookParseResults.compactMap { entry in
@@ -2147,6 +2137,8 @@ final class CmuxConfigStore: ObservableObject {
         newWorkspaceContextMenuItems = resolvedNewWorkspaceContextMenuItems.items
         newWorkspaceContextMenuIsConfigured = configuredNewWorkspaceContextMenu != nil
         newWorkspaceMenuSectionOrder = configuredNewWorkspaceMenuSectionOrder ?? .default
+        projectWorktreesCreateActionID = configuredProjectWorktreesCreateActionID
+        projectWorktreesOpenActionID = configuredProjectWorktreesOpenActionID
         agentChat = CmuxAgentChatConfiguration.resolved(
             local: localConfig?.agentChat, global: globalConfig?.agentChat,
             localSourcePath: localConfig?.agentChat == nil ? nil : localPath, globalSourcePath: globalConfig?.agentChat == nil ? nil : globalConfigPath
@@ -2168,8 +2160,16 @@ final class CmuxConfigStore: ObservableObject {
         surfaceTabBarButtons = resolvedWorkspaceButtons.buttons
         notificationHooks = resolvedNotificationHooks
         resolvedNewWorkspaceActionCache = resolvedNewWorkspaceAction.action
+        resolvedProjectWorktreesCreateActionCache = resolvedProjectWorktreesCreateAction.action
+        resolvedProjectWorktreesOpenActionCache = resolvedProjectWorktreesOpenAction.action
         resolvedNewWorkspaceCommandCache = resolvedNewWorkspaceAction.command
         if let issue = resolvedNewWorkspaceAction.issue {
+            issues.append(issue)
+        }
+        if let issue = resolvedProjectWorktreesCreateAction.issue {
+            issues.append(issue)
+        }
+        if let issue = resolvedProjectWorktreesOpenAction.issue {
             issues.append(issue)
         }
         issues.append(contentsOf: resolvedNewWorkspaceContextMenuItems.issues)

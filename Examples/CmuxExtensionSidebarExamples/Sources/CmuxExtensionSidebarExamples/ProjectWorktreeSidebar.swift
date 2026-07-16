@@ -8,9 +8,9 @@ public struct ProjectWorktreeSidebar: CmuxSidebarProvider {
     public let descriptor = CmuxSidebarProviderDescriptor(
         id: Self.providerID,
         title: localized("example.sidebar.projectWorktrees.title", "Project Worktrees"),
-        subtitle: localized("example.sidebar.projectWorktrees.subtitle", "User extension"),
+        subtitle: localized("example.sidebar.projectWorktrees.subtitle", "Built-in"),
         systemImageName: "folder",
-        isHostProvided: false
+        isHostProvided: true
     )
 
     public init() {}
@@ -60,6 +60,7 @@ public struct ProjectWorktreeSidebar: CmuxSidebarProvider {
                     title: titleText,
                     systemImageName: root == "no-folder" ? "tray" : "folder",
                     projectRootPath: root == "no-folder" ? nil : root,
+                    content: root == "no-folder" ? nil : .projectWorktrees,
                     workspaces: grouped[root] ?? []
                 )
                 .render(subtitle: branchSubtitle)
