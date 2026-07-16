@@ -370,7 +370,7 @@ enum CmuxConfigAgentKind: Sendable, Hashable {
         case .opencode:
             return .symbol("chevron.left.forwardslash.chevron.right")
         case .codePuppy:
-            return .symbol("dog")
+            return .symbol("pawprint")
         case .custom:
             return .symbol("terminal")
         }

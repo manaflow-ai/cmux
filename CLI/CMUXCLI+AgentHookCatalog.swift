@@ -241,10 +241,11 @@ extension CMUXCLI {
                 .init(agentEvent: "Notification",     cmuxSubcommand: "notification"),
                 .init(agentEvent: "SessionEnd",       cmuxSubcommand: "session-end"),
             ],
+            aliases: ["pup"],
             feedHookEvents: ["PreToolUse", "PostToolUse"]
         ),
         AgentHookDef(
-            name: "kimi",
+            name: "kimi", displayName: "Kimi Code", statusKey: "kimi",
             configDir: ".kimi-code", configFile: "config.toml", configDirEnvOverride: "KIMI_CODE_HOME",
             binaryName: "kimi",
             sessionStoreSuffix: "kimi", disableEnvVar: "CMUX_KIMI_HOOKS_DISABLED",
