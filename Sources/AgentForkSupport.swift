@@ -318,6 +318,10 @@ enum AgentForkSupport {
                 launchCommand: snapshot.launchCommand,
                 fallbackExecutable: fallbackExecutable
             )
+            let acceptsBareVersionOutput = piFamilyProbeExecutableMatchesAgent(
+                probe.executable,
+                agentID: agentID
+            )
             return await supportsLocalForkProbe(
                 probe: probe,
                 snapshot: snapshot,
@@ -325,7 +329,11 @@ enum AgentForkSupport {
                 probeFromDefaultDirectoryWhenWorkingDirectoryIsMissing: true,
                 boundedCacheTTL: piFamilyVersionProbeCacheTTL,
                 outputSupportsFork: { output in
-                    piFamilyVersionSupportsFork(output, agentID: agentID)
+                    piFamilyVersionSupportsFork(
+                        output,
+                        agentID: agentID,
+                        acceptsBareVersionOutput: acceptsBareVersionOutput
+                    )
                 }
             )
         }
@@ -449,8 +457,20 @@ enum AgentForkSupport {
         return normalized
     }
 
-    static func piFamilyVersionSupportsFork(_ output: String, agentID: String) -> Bool {
-        guard let version = piFamilyProbeVersion(in: output, agentID: agentID) else { return false }
+    private static func piFamilyProbeExecutableMatchesAgent(_ executable: String, agentID: String) -> Bool {
+        (executable as NSString).lastPathComponent.lowercased() == agentID
+    }
+
+    static func piFamilyVersionSupportsFork(
+        _ output: String,
+        agentID: String,
+        acceptsBareVersionOutput: Bool = false
+    ) -> Bool {
+        guard let version = piFamilyProbeVersion(
+            in: output,
+            agentID: agentID,
+            acceptsBareVersionOutput: acceptsBareVersionOutput
+        ) else { return false }
         switch agentID {
         case "pi":
             return version >= minimumPiForkVersion
@@ -461,7 +481,11 @@ enum AgentForkSupport {
         }
     }
 
-    private static func piFamilyProbeVersion(in output: String, agentID: String) -> SemanticVersion? {
+    private static func piFamilyProbeVersion(
+        in output: String,
+        agentID: String,
+        acceptsBareVersionOutput: Bool
+    ) -> SemanticVersion? {
         let normalizedAgentID = agentID
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
@@ -472,10 +496,12 @@ enum AgentForkSupport {
             let line = String(rawLine).trimmingCharacters(in: .whitespacesAndNewlines)
             guard let version = SemanticVersion.first(in: line) else { continue }
             let lowercasedLine = line.lowercased()
-            if lowercasedLine.range(
+            let isBareVersionLine = lowercasedLine.range(
                 of: #"^v?\d+\.\d+(?:\.\d+)?$"#,
                 options: .regularExpression
-            ) != nil || piFamilyVersionLineMentionsAgent(lowercasedLine, agentID: normalizedAgentID) {
+            ) != nil
+            if (acceptsBareVersionOutput && isBareVersionLine)
+                || piFamilyVersionLineMentionsAgent(lowercasedLine, agentID: normalizedAgentID) {
                 candidates.append(version)
             }
         }

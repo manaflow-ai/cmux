@@ -446,10 +446,13 @@ struct WorkspaceForkConversationContextMenuTests {
 
     @Test
     func piFamilyCapabilityProbeUsesCoreVersionThresholds() {
-        #expect(AgentForkSupport.piFamilyVersionSupportsFork("0.60.0", agentID: "pi"))
-        #expect(!AgentForkSupport.piFamilyVersionSupportsFork("0.59.9", agentID: "pi"))
+        #expect(!AgentForkSupport.piFamilyVersionSupportsFork("0.60.0", agentID: "pi"))
+        #expect(AgentForkSupport.piFamilyVersionSupportsFork("0.60.0", agentID: "pi", acceptsBareVersionOutput: true))
+        #expect(!AgentForkSupport.piFamilyVersionSupportsFork("0.59.9", agentID: "pi", acceptsBareVersionOutput: true))
+        #expect(AgentForkSupport.piFamilyVersionSupportsFork("pi 0.60.0", agentID: "pi"))
         #expect(AgentForkSupport.piFamilyVersionSupportsFork("omp/13.15.0", agentID: "omp"))
         #expect(!AgentForkSupport.piFamilyVersionSupportsFork("omp/13.14.2", agentID: "omp"))
+        #expect(!AgentForkSupport.piFamilyVersionSupportsFork("v22.1.0", agentID: "pi"))
         #expect(!AgentForkSupport.piFamilyVersionSupportsFork("node v22.1.0\npi 0.59.9", agentID: "pi"))
         #expect(!AgentForkSupport.piFamilyVersionSupportsFork("node v22.1.0\nomp/13.14.2", agentID: "omp"))
         #expect(!AgentForkSupport.piFamilyVersionSupportsFork("16.5.2", agentID: "unknown"))
@@ -765,7 +768,7 @@ struct WorkspaceForkConversationContextMenuTests {
         #expect(!(await AgentForkSupport.supportsFork(snapshot: failedSnapshot)))
 
         let sharedWrapper = root.appendingPathComponent("agent-wrapper", isDirectory: false)
-        try "#!/bin/sh\nprintf '%s\\n' '1.0.0'\n"
+        try "#!/bin/sh\nprintf '%s\\n' 'pi 1.0.0'\n"
             .write(to: sharedWrapper, atomically: true, encoding: .utf8)
         try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: sharedWrapper.path)
         var sharedPiSnapshot = snapshot
