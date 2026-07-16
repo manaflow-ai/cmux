@@ -31,7 +31,13 @@ extension Publisher where Failure == Never {
     ///   next window.
     ///
     /// Not thread-safe: intended for main-thread streams with `RunLoop.main`.
-    /// Downstream demand is ignored (sink-style subscribers only).
+    ///
+    /// A value is forwarded only against outstanding downstream demand. `sink`
+    /// requests unlimited demand and so never observes the difference, but
+    /// `.values` requests one value at a time and Combine traps an
+    /// AsyncPublisher handed a value it did not request. A value with no demand
+    /// behind it is therefore held as the coalesced latest and forwarded once
+    /// demand arrives.
     func coalesceLatest<Context: Scheduler>(
         for interval: Context.SchedulerTimeType.Stride,
         scheduler: Context
@@ -68,6 +74,7 @@ private final class CoalesceLatestInner<Downstream: Subscriber, Context: Schedul
     private let interval: Context.SchedulerTimeType.Stride
     private let scheduler: Context
     private var upstreamSubscription: Subscription?
+    private var downstreamDemand: Subscribers.Demand = .none
     private var hasReceivedReplay = false
     private var windowStart: Context.SchedulerTimeType?
     private var pendingValue: Input?
@@ -90,7 +97,7 @@ private final class CoalesceLatestInner<Downstream: Subscriber, Context: Schedul
         guard !isCancelled else { return .none }
         if !hasReceivedReplay {
             hasReceivedReplay = true
-            _ = downstream.receive(input)
+            forward(input)
             return .none
         }
         let now = scheduler.now
@@ -104,7 +111,7 @@ private final class CoalesceLatestInner<Downstream: Subscriber, Context: Schedul
             // callback cannot emit it out of order after this value.
             pendingValue = nil
             windowStart = now
-            _ = downstream.receive(input)
+            forward(input)
         }
         return .none
     }
@@ -113,7 +120,7 @@ private final class CoalesceLatestInner<Downstream: Subscriber, Context: Schedul
         guard !isCancelled else { return }
         if let value = pendingValue {
             pendingValue = nil
-            _ = downstream.receive(value)
+            forward(value)
         }
         downstream.receive(completion: completion)
     }
@@ -141,12 +148,31 @@ private final class CoalesceLatestInner<Downstream: Subscriber, Context: Schedul
         }
         pendingValue = nil
         windowStart = scheduler.now
-        _ = downstream.receive(value)
+        forward(value)
     }
 
-    func request(_ demand: Subscribers.Demand) {
-        // Downstream demand is intentionally ignored; this operator backs
-        // sink-style Void observation streams with unlimited demand.
+    /// Forwards a value only against outstanding demand. Combine traps a
+    /// publisher that hands a subscriber a value it never requested, so a value
+    /// with no demand behind it becomes the coalesced pending value and waits
+    /// for `request(_:)` instead.
+    private func forward(_ input: Input) {
+        guard downstreamDemand > 0 else {
+            pendingValue = input
+            return
+        }
+        downstreamDemand -= 1
+        downstreamDemand += downstream.receive(input)
+    }
+
+    func request(_ additional: Subscribers.Demand) {
+        guard !isCancelled, additional > 0 else { return }
+        downstreamDemand += additional
+        // The window was stamped when the value arrived, so forwarding a value
+        // that was only waiting for demand must not re-stamp it: the coalesce
+        // interval paces upstream bursts, not the consumer's pull rate.
+        guard let value = pendingValue else { return }
+        pendingValue = nil
+        forward(value)
     }
 
     func cancel() {
