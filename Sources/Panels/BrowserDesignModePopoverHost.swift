@@ -128,7 +128,11 @@ struct BrowserDesignModePopoverHost: View {
                         .padding(.leading, cardOrigin?.x ?? 0)
                         .padding(.top, cardOrigin?.y ?? 0)
                         .padding(.bottom, cardOrigin == nil ? 14 : 0)
-                        .gesture(dragGesture(hostSize: host.size))
+                        // Simultaneous: the AppKit prompt editor consumes
+                        // drags over the text, so the card must be draggable
+                        // from every SwiftUI-owned region (mode toggle, copy
+                        // button, paddings/edges) without breaking their taps.
+                        .simultaneousGesture(dragGesture(hostSize: host.size))
                         .transition(.opacity.combined(with: .scale(scale: 0.96)))
                 }
             }
