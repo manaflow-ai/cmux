@@ -5,6 +5,12 @@ import Foundation
 import CmuxSidebar
 import SwiftUI
 
+extension Publisher where Failure == Never {
+    func sidebarAsyncValues() -> AsyncPublisher<Self> {
+        values
+    }
+}
+
 private struct SidebarPanelObservationState: Equatable {
     let panelIds: [UUID]
 
@@ -32,7 +38,7 @@ extension View {
             await withTaskGroup(of: Void.self) { group in
                 for (id, workspace) in zip(ids, workspaces) {
                     let immediateChanges = workspace.sidebarImmediateObservationPublisher
-                        .values
+                        .sidebarAsyncValues()
                     let debouncedChanges = workspace.sidebarObservationPublisher
                         .receive(on: RunLoop.main)
                         .debounce(for: debouncedInterval, scheduler: RunLoop.main)

@@ -228,6 +228,29 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
+    @Test func sidebarAsyncValuesKeepsLatestBurstValueWithoutIteratorDemand() async {
+        let scheduler = VirtualCoalesceScheduler()
+        let subject = CurrentValueSubject<Int, Never>(1)
+        let changes = subject
+            .coalesceLatest(for: .milliseconds(50), scheduler: scheduler)
+            .sidebarAsyncValues()
+        var iterator = changes.makeAsyncIterator()
+
+        #expect(await iterator.next() == 1)
+
+        // SwiftUI's observation task does not request its next value while it
+        // rebuilds a row snapshot. Model a status burst during that gap.
+        subject.send(2)
+        subject.send(3)
+        scheduler.advance(by: 0.06)
+        scheduler.runScheduledActions()
+
+        #expect(
+            await iterator.next() == 3,
+            "The async bridge must retain only the latest sidebar change while its consumer is busy."
+        )
+    }
+
     @Test func sidebarObservationPublisherIgnoresRemoteHeartbeatOnlyChanges() {
         let workspace = Workspace()
 
