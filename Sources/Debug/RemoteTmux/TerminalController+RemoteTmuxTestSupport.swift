@@ -578,6 +578,7 @@ extension TerminalController {
                                     + " view=\(Int(actual.width))x\(Int(actual.height))"
                                     + " lease_pane=\(leasePane) expected_pane=\(expectedPane)"
                                     + " lease_inWin=\(lease?.inWindow == true ? 1 : 0)"
+                                    + " in \(Self.ancestryDescription(of: hostedView))"
                             )
                         }
                     } else {
@@ -773,6 +774,32 @@ extension TerminalController {
                 "full_hierarchy_sync": RemoteTmuxSizingDiagnostics.fullHierarchySyncCount,
             ],
         ]
+    }
+
+    /// The hosted view's enclosing containers, innermost first, each with its own
+    /// size and — for a split — how many panes it still arranges.
+    ///
+    /// A pane that misses its planned size says nothing about WHERE the size was
+    /// lost. If the enclosing split already holds the planned width, the pane
+    /// alone failed to fill it; if the split itself is short, the miss came from
+    /// above; and an arranged count that disagrees with the tree's child count
+    /// means the split never collapsed after a sibling closed, which no divider
+    /// imposition can correct because there is no longer a divider to move.
+    nonisolated static func ancestryDescription(of view: NSView, levels: Int = 3) -> String {
+        var parts: [String] = []
+        var next = view.superview
+        while let current = next, parts.count < levels {
+            let name = String(describing: type(of: current))
+                .replacingOccurrences(of: "Bonsplit.", with: "")
+            var term = "\(name)(\(Int(current.frame.width))x\(Int(current.frame.height))"
+            if let split = current as? NSSplitView {
+                term += ",arranged=\(split.arrangedSubviews.count)"
+                term += ",vertical=\(split.isVertical ? 1 : 0)"
+            }
+            parts.append(term + ")")
+            next = current.superview
+        }
+        return parts.isEmpty ? "no-superview" : parts.joined(separator: " < ")
     }
 }
 #endif
