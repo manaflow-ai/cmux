@@ -271,6 +271,7 @@ struct BrowserWebNotificationTests {
     @Test func fallbackMapsRemoteAliasAndReadsLivePermissionState() async throws {
         let controller = WKUserContentController()
         let probe = BrowserWebNotificationContractProbe()
+        probe.statusReply = "granted"
         controller.addScriptMessageHandler(
             probe,
             contentWorld: .page,
