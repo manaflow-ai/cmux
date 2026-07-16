@@ -13,7 +13,7 @@ private nonisolated let cmuxTopProcessSnapshotCache = OSAllocatedUnfairLock(
     initialState: CmuxTopProcessSnapshotCacheState()
 )
 
-nonisolated extension CmuxTopProcessSnapshot {
+extension CmuxTopProcessSnapshot {
     static func captureCached(
         includeProcessDetails: Bool = false,
         includeCMUXScope: Bool = true,
