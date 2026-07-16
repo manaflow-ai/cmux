@@ -22,7 +22,6 @@ extension View {
         if let theme {
             self
                 .navigationBarTitleDisplayMode(.inline)
-                .preferredColorScheme(colorScheme)
                 .toolbarBackground(theme.terminalBackgroundColor, for: .navigationBar)
                 .toolbarBackground(.visible, for: .navigationBar)
                 .toolbarColorScheme(colorScheme, for: .navigationBar)
