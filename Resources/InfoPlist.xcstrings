@@ -53,6 +53,23 @@
         }
       }
     },
+    "NSCalendarsFullAccessUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A program running within cmux would like to read and write your calendars."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 内で実行中のプログラムがカレンダーの読み書きへのアクセスを求めています。"
+          }
+        }
+      }
+    },
     "NSCalendarsUsageDescription": {
       "extractionState": "manual",
       "localizations": {
@@ -66,6 +83,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux 内で実行中のプログラムがカレンダーへのアクセスを求めています。"
+          }
+        }
+      }
+    },
+    "NSCalendarsWriteOnlyAccessUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A program running within cmux would like to add events to your calendars."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 内で実行中のプログラムがカレンダーへのイベントの追加を求めています。"
           }
         }
       }
@@ -383,6 +417,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux 内で実行中のプログラムがフォトライブラリへのアクセスを求めています。"
+          }
+        }
+      }
+    },
+    "NSRemindersFullAccessUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A program running within cmux would like to read and write your reminders."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 内で実行中のプログラムがリマインダーの読み書きへのアクセスを求めています。"
           }
         }
       }
