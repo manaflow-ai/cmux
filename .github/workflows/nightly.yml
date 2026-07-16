@@ -104,7 +104,7 @@ jobs:
     if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *'
     # Match the PR Release-build runner and Xcode so its compilation cache is reusable.
     runs-on: ${{ vars.MACOS_RUNNER_26_RELEASE || 'blacksmith-6vcpu-macos-26' }}
-    timeout-minutes: 25
+    timeout-minutes: 45
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
