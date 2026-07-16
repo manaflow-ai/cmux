@@ -2,6 +2,16 @@ public import CmuxMobileRPC
 internal import CmuxMobileShellModel
 internal import Foundation
 
+/// Shell-owned failure categories for single-workspace changes reads, so UI
+/// callers can distinguish "not a repository" from transport/decoding failures
+/// without importing the RPC module's error type.
+public enum WorkspaceChangesFetchError: Error, Sendable, Equatable {
+    /// The workspace's effective directory is not inside a Git repository.
+    case notARepository
+    /// Any other connection, authorization, RPC, or decoding failure.
+    case transport
+}
+
 extension MobileShellComposite {
     /// Returns the unseen one-time hint for a changed workspace, when eligible.
     /// - Parameter workspaceID: Mac-local workspace identifier.
@@ -91,11 +101,27 @@ extension MobileShellComposite {
             method: "mobile.workspace.changes.files",
             params: ["workspace_id": workspaceID]
         )
-        let data = try await client.sendRequest(request)
+        let data: Data
+        do {
+            data = try await client.sendRequest(request)
+        } catch let error as MobileShellConnectionError {
+            throw Self.workspaceChangesFetchError(error)
+        }
         guard remoteClient === client, connectionState == .connected else {
             throw CancellationError()
         }
         return try MobileWorkspaceChangedFilesResponse.decode(data)
+    }
+
+    /// Maps the RPC connection error onto the shell-owned fetch failure so UI
+    /// callers can render a dedicated non-repository state.
+    nonisolated static func workspaceChangesFetchError(
+        _ error: MobileShellConnectionError
+    ) -> WorkspaceChangesFetchError {
+        if case let .rpcError(code, _) = error, code == "not_a_repo" {
+            return .notARepository
+        }
+        return .transport
     }
 
     /// Fetches the bounded unified diff for one changed path.

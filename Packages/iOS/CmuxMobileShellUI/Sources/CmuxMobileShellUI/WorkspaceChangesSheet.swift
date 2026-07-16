@@ -107,6 +107,11 @@ public struct WorkspaceChangesSheet: View {
             listState = files.isEmpty ? .empty : .loaded
         } catch is CancellationError {
             return
+        } catch WorkspaceChangesFetchError.notARepository {
+            guard !Task.isCancelled else { return }
+            files = []
+            totals = ChangesTotals(filesChanged: 0, additions: 0, deletions: 0)
+            listState = .notARepository
         } catch {
             guard !Task.isCancelled else { return }
             listState = .error

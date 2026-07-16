@@ -62,6 +62,8 @@ public struct WorkspaceChangesListView: View {
                     failureView
                 case .empty:
                     emptyView
+                case .notARepository:
+                    notARepositoryView
                 case .loaded:
                     ForEach(rowSnapshots) { snapshot in
                         WorkspaceChangedFileRow(
@@ -72,12 +74,16 @@ public struct WorkspaceChangesListView: View {
                     }
                 }
             } header: {
-                WorkspaceChangesSummaryHeader(
-                    branch: branch,
-                    base: base,
-                    totals: totals,
-                    theme: theme
-                )
+                // A non-repository workspace has no meaningful branch/base or
+                // totals, so the summary header is omitted for that state.
+                if state != .notARepository {
+                    WorkspaceChangesSummaryHeader(
+                        branch: branch,
+                        base: base,
+                        totals: totals,
+                        theme: theme
+                    )
+                }
             }
         }
         .listStyle(.plain)
@@ -104,6 +110,27 @@ public struct WorkspaceChangesListView: View {
             Button(String(localized: "changes.retry", defaultValue: "Retry", bundle: .module)) {
                 actions.onRetry()
             }
+        }
+        .frame(maxWidth: .infinity, minHeight: 300)
+        .listRowSeparator(.hidden)
+    }
+
+    private var notARepositoryView: some View {
+        ContentUnavailableView {
+            Label(
+                String(
+                    localized: "changes.not_repo.title",
+                    defaultValue: "Not a Git repository",
+                    bundle: .module
+                ),
+                systemImage: "folder.badge.questionmark"
+            )
+        } description: {
+            Text(String(
+                localized: "changes.not_repo.message",
+                defaultValue: "This workspace's directory isn't inside a Git repository.",
+                bundle: .module
+            ))
         }
         .frame(maxWidth: .infinity, minHeight: 300)
         .listRowSeparator(.hidden)

@@ -6,6 +6,8 @@ public enum WorkspaceChangesListState: Sendable, Equatable {
     case error
     /// The repository has no changes relative to its base.
     case empty
+    /// The workspace directory is not inside a Git repository.
+    case notARepository
     /// Changed-file snapshots are ready.
     case loaded
 }
