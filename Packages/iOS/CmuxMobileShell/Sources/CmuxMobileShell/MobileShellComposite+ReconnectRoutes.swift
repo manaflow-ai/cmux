@@ -270,7 +270,11 @@ extension MobileShellComposite {
                   pairedMacs: pairedMacs,
                   registryDevices: nil
               ).currentMac(for: captured),
-              await !isForgottenMacDeviceID(captured.macDeviceID, scope: scope) else {
+              await !isForgottenMacDeviceID(
+                  captured.macDeviceID,
+                  instanceTag: captured.instanceTag,
+                  scope: scope
+              ) else {
             return false
         }
         return currentMac.routes.contains { $0.kind == .tailscale }

@@ -56,10 +56,12 @@ export const MAX_PAIRED_MAC_RECORDS_PER_USER = MAX_PAIRED_MACS_PER_USER * 5;
 /** Max tagged-build backup scopes one user may create per supported storage
  * generation. Scopes are client-provided dev-build labels, so the server bounds
  * their count before using them in a physical collection name. The deprecated
- * iOS v1 and current iOS v2 generations have separate 32-scope namespaces: stale
- * v1 heads cannot deny v2 capacity, while total retained scope state remains
- * bounded at twice this limit during the fail-closed migration. */
-export const MAX_PAIRED_MAC_CLIENT_SCOPES_PER_USER = 32;
+ * iOS v1 and current iOS v2 generations have separate namespaces: stale
+ * v1 heads cannot deny v2 capacity. The larger bound supports many concurrent
+ * development builds while remaining finite; at capacity, only a scope with no
+ * activity for 24 hours may be recycled. */
+export const MAX_PAIRED_MAC_CLIENT_SCOPES_PER_USER = 256;
+export const PAIRED_MAC_CLIENT_SCOPE_INACTIVE_MS = 24 * 60 * 60 * 1_000;
 
 /** Max ops accepted in one backup request. A full reconcile pushes at most the
  * whole list, so the per-user cap is the natural bound. */
@@ -72,6 +74,7 @@ export const MAX_DISPLAY_NAME_LENGTH = 128;
 export const MAX_INSTANCE_TAG_LENGTH = 64;
 export const MAX_CLIENT_SCOPE_LENGTH = 128;
 const SYNC_HEAD_PREFIX = "synchead:";
+const SCOPE_ACTIVITY_PREFIX = "pairedmacscopeactivity:";
 const PAIRED_MAC_INSTANCE_SEPARATOR = "\u001f";
 
 /** Storage identity for one physical Mac app instance. Legacy untagged records
@@ -197,15 +200,77 @@ function scopedPairedMacCollectionHeadPrefix(userId: string, clientScope: string
   return `${SYNC_HEAD_PREFIX}${scopedPairedMacCollectionNamespace(clientScope)}:${userId}:`;
 }
 
-async function hasScopedCollectionCapacity(
+function scopedPairedMacActivityPrefix(userId: string, clientScope: string): string {
+  return `${SCOPE_ACTIVITY_PREFIX}${scopedPairedMacCollectionNamespace(clientScope)}:${userId}:`;
+}
+
+function scopedPairedMacActivityKey(collection: string): string {
+  return `${SCOPE_ACTIVITY_PREFIX}${collection}`;
+}
+
+async function ensureScopedCollectionCapacity(
   storage: SyncStorage,
   userId: string,
   collection: string,
   clientScope: string,
+  nowMs: number,
 ): Promise<boolean> {
   const heads = await storage.list<number>({ prefix: scopedPairedMacCollectionHeadPrefix(userId, clientScope) });
   if (heads.has(`${SYNC_HEAD_PREFIX}${collection}`)) return true;
-  return heads.size < MAX_PAIRED_MAC_CLIENT_SCOPES_PER_USER;
+  if (heads.size < MAX_PAIRED_MAC_CLIENT_SCOPES_PER_USER) return true;
+
+  const inactiveBefore = nowMs - PAIRED_MAC_CLIENT_SCOPE_INACTIVE_MS;
+  const activity = await storage.list<number>({
+    prefix: scopedPairedMacActivityPrefix(userId, clientScope),
+  });
+  let oldest: { collection: string; lastActivityAt: number } | null = null;
+  for (const headKey of heads.keys()) {
+    const candidateCollection = headKey.slice(SYNC_HEAD_PREFIX.length);
+    const activityKey = scopedPairedMacActivityKey(candidateCollection);
+    let lastActivityAt = activity.get(activityKey);
+    if (lastActivityAt === undefined) {
+      // One-time migration for scopes created before activity markers existed.
+      const records = await listRecords<PairedMacBackupRecord>(storage, candidateCollection);
+      lastActivityAt = records.reduce(
+        (latest, record) => Math.max(latest, record.updatedAt),
+        0,
+      );
+    }
+    if (lastActivityAt > inactiveBefore) continue;
+    if (
+      oldest === null ||
+      lastActivityAt < oldest.lastActivityAt ||
+      (lastActivityAt === oldest.lastActivityAt && candidateCollection < oldest.collection)
+    ) {
+      oldest = { collection: candidateCollection, lastActivityAt };
+    }
+  }
+  if (oldest === null) return false;
+  await deleteScopedCollection(storage, oldest.collection);
+  return true;
+}
+
+async function deleteScopedCollection(
+  storage: SyncStorage,
+  collection: string,
+): Promise<void> {
+  const listPrefixes = [
+    `synced:${collection}:`,
+    `synctomb:${collection}:`,
+  ];
+  for (const prefix of listPrefixes) {
+    const entries = await storage.list<unknown>({ prefix });
+    for (const key of entries.keys()) await storage.delete(key);
+  }
+  for (const key of [
+    `synchead:${collection}`,
+    `syncgcfloor:${collection}`,
+    `syncbackfill:${collection}`,
+    `syncepoch:${collection}`,
+    scopedPairedMacActivityKey(collection),
+  ]) {
+    await storage.delete(key);
+  }
 }
 
 function finiteNumber(value: unknown): number | null {
@@ -405,7 +470,13 @@ export async function applyBackupOps(
 ): Promise<SyncDeltaFrame<unknown>[]> {
   const collection = pairedMacsCollection(userId, clientScope);
   const scope = normalizeClientScope(clientScope);
-  if (scope && !(await hasScopedCollectionCapacity(storage, userId, collection, clientScope ?? ""))) {
+  if (scope && !(await ensureScopedCollectionCapacity(
+    storage,
+    userId,
+    collection,
+    clientScope ?? "",
+    nowMs,
+  ))) {
     throw new PairedMacBackupApplyError("too_many_client_scopes");
   }
   // One listing gives both the live count (cap on visible Macs) AND the total
@@ -543,6 +614,9 @@ export async function applyBackupOps(
     }
   }
 
+  if (scope && await storage.get<number>(`${SYNC_HEAD_PREFIX}${collection}`) !== undefined) {
+    await storage.put(scopedPairedMacActivityKey(collection), nowMs);
+  }
   return deltas;
 }
 

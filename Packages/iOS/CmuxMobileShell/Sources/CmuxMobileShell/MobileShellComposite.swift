@@ -738,7 +738,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// live `workspace.updated` subscription that keeps its ``workspacesByMac``
     /// entry current (slice 3). Best-effort and fully additive: any failure tears
     /// the entry down and the pull-to-refresh / foreground re-aggregate path
-    /// remains as the fallback. Keyed by `macDeviceID`. Today these are N direct
+    /// remains as the fallback. Keyed by `macDeviceID`, intentionally one
+    /// connection per physical Mac even when several tagged app instances are
+    /// saved for that Mac. The active instance wins, then the freshest instance.
+    /// Today these are N direct
     /// phone->Mac connections; the same per-Mac entries would be fed by one
     /// phone->Durable Object stream in the planned end-state.
     var secondaryMacSubscriptions: [String: SecondaryMacSubscription] = [:]
@@ -1658,8 +1661,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             finishStoredMacReconnectAttempt(generation: generation)
             return false
         }
-        let activeMac = loadedActiveMac.flatMap { forgottenIDs.contains($0.macDeviceID) ? nil : $0 }
-        let allMacs = loadedMacs.filter { !forgottenIDs.contains($0.macDeviceID) }
+        let isForgotten: (MobilePairedMac) -> Bool = { mac in
+            forgottenIDs.contains(mac.macDeviceID) || forgottenIDs.contains(mac.id)
+        }
+        let activeMac = loadedActiveMac.flatMap { isForgotten($0) ? nil : $0 }
+        let allMacs = loadedMacs.filter { !isForgotten($0) }
         // Candidate Macs in priority order: the active Mac first, then every
         // other saved Mac. Rows with no locally usable route stay in the list so
         // one authenticated registry snapshot can upgrade an older Tailscale
@@ -1668,9 +1674,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let activeMac {
             candidates.append(activeMac)
         }
-        candidates.append(contentsOf: allMacs.filter { mac in
-            mac.macDeviceID != activeMac?.macDeviceID
-        })
+        candidates.append(contentsOf: allMacs.filter { $0.id != activeMac?.id })
         guard !candidates.isEmpty else {
             setHasKnownPairedMac(false, generation: generation)
             finishStoredMacReconnectAttempt(generation: generation)
@@ -1719,8 +1723,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         for (candidateIndex, mac) in candidates.enumerated() {
             guard generation == storedMacReconnectGeneration,
                   await isScopeCurrent(scope) else { break }
-            let latestForgottenIDs = await forgottenMacDeviceIDs(scope: scope)
-            guard generation == storedMacReconnectGeneration, await isScopeCurrent(scope), !latestForgottenIDs.contains(mac.macDeviceID) else { break }
+            guard generation == storedMacReconnectGeneration,
+                  await isScopeCurrent(scope),
+                  await !isForgottenMacDeviceID(
+                      mac.macDeviceID,
+                      instanceTag: mac.instanceTag,
+                      scope: scope
+                  ) else { break }
             let localRoutes = storedReconnectRoutes(mac)
             let localHasIroh = localRoutes.contains { $0.kind == .iroh }
             let localCanConnectSecurely = localHasIroh
@@ -1781,13 +1790,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 firstCandidateNeedingMacUpdate,
                 scope: scope
             )
-            let latestForgottenIDs = await forgottenMacDeviceIDs(scope: scope)
             if generation == storedMacReconnectGeneration,
                await isScopeCurrent(scope),
                connectionState != .connected,
                !connectionRequiresReauth,
                isStillLegacy,
-               !latestForgottenIDs.contains(firstCandidateNeedingMacUpdate.macDeviceID) {
+               await !isForgottenMacDeviceID(
+                   firstCandidateNeedingMacUpdate.macDeviceID,
+                   instanceTag: firstCandidateNeedingMacUpdate.instanceTag,
+                   scope: scope
+               ) {
                 applyStoredMacUpdateRequiredFailure(disconnect: true)
             }
         }
@@ -2309,7 +2321,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 refreshedTarget,
                 scope: scope
             )
-            let latestForgottenIDs = await forgottenMacDeviceIDs(scope: scope)
             if isCurrentMacSwitchAttempt(switchAttemptID),
                await isScopeCurrent(scope),
                !connectionRequiresReauth,
@@ -2317,7 +2328,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                    && remoteClient != nil
                    && foregroundMacDeviceID == macDeviceID),
                isStillLegacy,
-               !latestForgottenIDs.contains(macDeviceID) {
+               await !isForgottenMacDeviceID(
+                   macDeviceID,
+                   instanceTag: refreshedTarget.instanceTag,
+                   scope: scope
+               ) {
                 applyStoredMacUpdateRequiredFailure(disconnect: !hasActiveMacConnection)
             }
         }
@@ -3198,12 +3213,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let pairedMacStore,
               await isAggregationScopeValid(scope),
               secondaryMacSubscriptions[macDeviceID] === subscription,
-              await !isForgottenMacDeviceID(macDeviceID, scope: scope),
+              await !isForgottenMacDeviceID(
+                  macDeviceID,
+                  instanceTag: subscription.storedInstanceTag,
+                  scope: scope
+              ),
               secondaryMacSubscriptions[macDeviceID] === subscription,
               let currentMac = try? await pairedMacStore.loadAll(
                   stackUserID: scope.userID,
                   teamID: scope.teamID
-              ).first(where: { $0.macDeviceID == macDeviceID }),
+              ).first(where: {
+                  $0.macDeviceID == macDeviceID
+                      && MobileMacInstanceTagAuthority.sameStoredAuthority(
+                          $0.instanceTag,
+                          subscription.storedInstanceTag
+                      )
+              }),
               secondaryMacSubscriptions[macDeviceID] === subscription,
               MobileMacInstanceTagAuthority.sameStoredAuthority(
                   currentMac.instanceTag,
@@ -3215,10 +3240,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
     private func isSecondaryMacStillVisible(
         _ macDeviceID: String,
+        instanceTag: String?,
         scope: MobileShellScopeSnapshot
     ) async -> Bool {
         guard await isAggregationScopeValid(scope) else { return false }
-        return await !isForgottenMacDeviceID(macDeviceID, scope: scope)
+        return await !isForgottenMacDeviceID(
+            macDeviceID,
+            instanceTag: instanceTag,
+            scope: scope
+        )
     }
 
     func secondaryAggregationCandidateMacIDs() async -> [String] {
@@ -3232,11 +3262,29 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func secondaryAggregationCandidateMacs(from visibleLoadedMacs: [MobilePairedMac]) -> [MobilePairedMac] {
         let supportedRouteKinds = runtime?.supportedRouteKinds ?? []
-        let macs = Self.coalescePairedMacsByDialEndpoint(
+        let endpointDistinctMacs = Self.coalescePairedMacsByDialEndpoint(
             visibleLoadedMacs,
             supportedKinds: supportedRouteKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes
         )
+        var selectedByPhysicalMac: [String: MobilePairedMac] = [:]
+        var physicalMacOrder: [String] = []
+        for mac in endpointDistinctMacs where !mac.macDeviceID.isEmpty {
+            guard let selected = selectedByPhysicalMac[mac.macDeviceID] else {
+                selectedByPhysicalMac[mac.macDeviceID] = mac
+                physicalMacOrder.append(mac.macDeviceID)
+                continue
+            }
+            let shouldReplace = mac.isActive != selected.isActive
+                ? mac.isActive
+                : mac.lastSeenAt != selected.lastSeenAt
+                    ? mac.lastSeenAt > selected.lastSeenAt
+                    : mac.id < selected.id
+            if shouldReplace {
+                selectedByPhysicalMac[mac.macDeviceID] = mac
+            }
+        }
+        let macs = physicalMacOrder.compactMap { selectedByPhysicalMac[$0] }
         let aliasIDsByMacID = macDeviceIDAliasesByPairedMacID(
             in: visibleLoadedMacs,
             supportedKinds: supportedRouteKinds,
@@ -3262,7 +3310,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let pairedMacStore,
               secondaryMacSubscriptions[macID] == nil else { return }
         guard let handle = await makeSecondaryClient(for: mac) else {
-            guard await isSecondaryMacStillVisible(macID, scope: scope) else { return }
+            guard await isSecondaryMacStillVisible(
+                macID,
+                instanceTag: mac.instanceTag,
+                scope: scope
+            ) else { return }
             markSecondaryMacUnavailable(macID)
             return
         }
@@ -3272,14 +3324,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // during the connect does not leave an old-scope connection live or write
         // its state; the loser disconnects its client.
         guard secondaryMacSubscriptions[macID] == nil,
-              await isSecondaryMacStillVisible(macID, scope: scope) else {
+              await isSecondaryMacStillVisible(
+                  macID,
+                  instanceTag: mac.instanceTag,
+                  scope: scope
+              ) else {
             await client.disconnect()
             return
         }
         guard let currentMac = try? await pairedMacStore.loadAll(
                   stackUserID: scope.userID,
                   teamID: scope.teamID
-              ).first(where: { $0.macDeviceID == macID }),
+              ).first(where: {
+                  $0.macDeviceID == macID
+                      && MobileMacInstanceTagAuthority.sameStoredAuthority(
+                          $0.instanceTag,
+                          handle.storedInstanceTag
+                      )
+              }),
               MobileMacInstanceTagAuthority.sameStoredAuthority(
                   currentMac.instanceTag,
                   handle.storedInstanceTag
@@ -3305,7 +3367,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let refreshedMac = try? await pairedMacStore.loadAll(
             stackUserID: scope.userID,
             teamID: scope.teamID
-        ).first(where: { $0.macDeviceID == macID })
+        ).first(where: {
+            $0.macDeviceID == macID
+                && MobileMacInstanceTagAuthority.sameStoredAuthority(
+                    $0.instanceTag,
+                    subscription.storedInstanceTag
+                )
+        })
         guard await isAggregationScopeValid(scope),
               secondaryMacSubscriptions[macID] === subscription,
               let refreshedMac,
@@ -3401,7 +3469,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     refreshedMac = try? await pairedMacStore.loadAll(
                         stackUserID: scope.userID,
                         teamID: scope.teamID
-                    ).first(where: { $0.macDeviceID == macID })
+                    ).first(where: {
+                        $0.macDeviceID == macID
+                            && MobileMacInstanceTagAuthority.sameStoredAuthority(
+                                $0.instanceTag,
+                                subscription.storedInstanceTag
+                            )
+                    })
                 } else {
                     refreshedMac = nil
                 }
