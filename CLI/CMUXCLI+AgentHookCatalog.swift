@@ -228,7 +228,23 @@ extension CMUXCLI {
             feedHookEvents: ["PreToolUse"]
         ),
         AgentHookDef(
-            name: "kimi", displayName: "Kimi Code", statusKey: "kimi",
+            name: "code-puppy", displayName: "Code Puppy", statusKey: "code-puppy",
+            configDir: ".code_puppy", configFile: "hooks.json",
+            createConfigDirIfMissing: true,
+            binaryName: "code-puppy",
+            sessionStoreSuffix: "code-puppy", disableEnvVar: "CMUX_CODE_PUPPY_HOOKS_DISABLED",
+            hookMarker: "cmux hooks code-puppy", format: .nested(timeoutMs: 5000),
+            events: [
+                .init(agentEvent: "SessionStart",     cmuxSubcommand: "session-start"),
+                .init(agentEvent: "UserPromptSubmit", cmuxSubcommand: "prompt-submit"),
+                .init(agentEvent: "Stop",             cmuxSubcommand: "stop"),
+                .init(agentEvent: "Notification",     cmuxSubcommand: "notification"),
+                .init(agentEvent: "SessionEnd",       cmuxSubcommand: "session-end"),
+            ],
+            feedHookEvents: ["PreToolUse", "PostToolUse"]
+        ),
+        AgentHookDef(
+            name: "kimi",
             configDir: ".kimi-code", configFile: "config.toml", configDirEnvOverride: "KIMI_CODE_HOME",
             binaryName: "kimi",
             sessionStoreSuffix: "kimi", disableEnvVar: "CMUX_KIMI_HOOKS_DISABLED",
