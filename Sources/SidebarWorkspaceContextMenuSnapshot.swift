@@ -20,6 +20,4 @@ struct SidebarWorkspaceContextMenuSnapshot: Equatable {
     let todoStatusLanes: [WorkspaceTodoStatusLane]
     let canMarkRead: Bool
     let canMarkUnread: Bool
-    let hasLatestNotification: Bool
-    let notifications: [TerminalNotification]
 }

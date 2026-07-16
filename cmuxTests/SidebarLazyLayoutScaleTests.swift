@@ -321,9 +321,9 @@ final class SidebarLazyLayoutScaleTests {
         // The default sidebar intentionally accepts the initial value from
         // both workspace publisher families. Wait for those known initial
         // projections before isolating the operation count for this burst.
-        // Initial mount builds fallback + owner snapshots, then each of the
-        // two keyed publisher families delivers its accepted initial value.
-        let initialObservationBuildFloor = Self.workspaceCount * 4
+        // Owner snapshots plus two keyed publisher families account for three
+        // builds per workspace; lazy rows must never build fallback snapshots.
+        let initialObservationBuildFloor = Self.workspaceCount * 3
         let initialDeadline = ProcessInfo.processInfo.systemUptime + 3
         while harness.counter.workspaceSnapshotBuilds < initialObservationBuildFloor,
               ProcessInfo.processInfo.systemUptime < initialDeadline {
@@ -360,11 +360,11 @@ final class SidebarLazyLayoutScaleTests {
         let projections = harness.counter.workspaceRowInputProjections
         #expect(projections > 0, "The parent row-input projection probe did not run.")
         #expect(
-            projections <= Self.workspaceCount * 4,
+            projections <= Self.realizedRowCeiling,
             """
             \(projections) parent row-input projections ran for one \(targets.count)-workspace \
-            event batch at \(Self.workspaceCount) workspaces. The batch must cause O(N) parent \
-            projection work, not O(N²) work from one parent invalidation per emitter.
+            event batch at \(Self.workspaceCount) workspaces. Row-input projection must remain \
+            O(visible rows), not eagerly rebuild every workspace after the coalesced publication.
             """
         )
     }

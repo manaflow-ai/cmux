@@ -3,14 +3,16 @@ import SwiftUI
 
 extension TabItemView {
     @ViewBuilder
-    func workspaceNotificationsContextMenu(_ targetIds: [UUID]) -> some View {
+    func workspaceNotificationsContextMenu(
+        _ notifications: [TerminalNotification],
+        targetIds: [UUID]
+    ) -> some View {
         Menu(String(localized: "contextMenu.notifications", defaultValue: "Notifications")) {
-            let notificationItems = workspaceNotificationMenuItems(targetIds)
-            if notificationItems.isEmpty {
+            if notifications.isEmpty {
                 Button(String(localized: "contextMenu.notifications.empty", defaultValue: "No Notifications")) {}
                     .disabled(true)
             } else {
-                ForEach(notificationItems) { notification in
+                ForEach(notifications) { notification in
                     Button(workspaceNotificationMenuTitle(notification)) {
                         openWorkspaceContextMenuNotification(notification)
                     }
@@ -18,10 +20,6 @@ extension TabItemView {
             }
         }
         .disabled(targetIds.isEmpty)
-    }
-
-    private func workspaceNotificationMenuItems(_ targetIds: [UUID]) -> [TerminalNotification] {
-        snapshot.contextMenu.notifications
     }
 
     private func workspaceNotificationMenuTitle(_ notification: TerminalNotification) -> String {
