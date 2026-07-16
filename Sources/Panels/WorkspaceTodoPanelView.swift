@@ -66,6 +66,20 @@ enum WorkspaceTodoPaneHeaderStatusLabel {
     }
 }
 
+enum WorkspaceTodoPaneItemRowClickPolicy {
+    enum Action: Equatable {
+        case select
+        case beginEdit
+        case focusEditor
+    }
+
+    nonisolated static func action(isEditing: Bool, isHighlighted: Bool) -> Action {
+        if isEditing { return .focusEditor }
+        if isHighlighted { return .beginEdit }
+        return .select
+    }
+}
+
 private struct WorkspaceTodoPanelOpaqueBackground: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         WorkspaceTodoPanelOpaqueBackgroundView()
@@ -292,6 +306,9 @@ private struct WorkspaceTodoPaneContent: View {
                 beginEdit: { beginItemEdit(item) },
                 commitEdit: { commitItemEdit(item.id) },
                 cancelEdit: cancelItemEdit,
+                focusEditor: {
+                    editFieldFocused = true
+                },
                 select: {
                     highlightedItemId = item.id
                     itemsFocused = true
@@ -346,13 +363,11 @@ private struct WorkspaceTodoPaneContent: View {
         _ press: KeyPress,
         ordered: [WorkspaceChecklistItem]
     ) -> KeyPress.Result {
-        let isPlainReturn = press.key == .return && press.modifiers.isEmpty
-        guard isPlainReturn || toggleChecklistItemCompleteShortcutMatches(press) else {
+        if editingItemId != nil {
             return .ignored
         }
-        // Plain Return must fall through to a live in-row edit's onSubmit
-        // (the edit TextField is a descendant of this handler's scope).
-        if isPlainReturn, editingItemId != nil {
+        let isPlainReturn = press.key == .return && press.modifiers.isEmpty
+        guard isPlainReturn || toggleChecklistItemCompleteShortcutMatches(press) else {
             return .ignored
         }
         guard let id = highlightedItemId,
@@ -425,7 +440,7 @@ private struct WorkspaceTodoPaneContent: View {
         editFieldFocused = true
     }
 
-    /// Enter commits the trimmed replacement text; empty keeps the old text.
+    /// Cmd-Return or focus loss commits the trimmed replacement text; empty keeps the old text.
     private func commitItemEdit(_ id: UUID) {
         let text = editingText
         cancelItemEdit()
@@ -454,6 +469,7 @@ private struct WorkspaceTodoPaneItemRowActions {
     let beginEdit: () -> Void
     let commitEdit: () -> Void
     let cancelEdit: () -> Void
+    let focusEditor: () -> Void
     let select: () -> Void
     let markInProgress: () -> Void
     let remove: () -> Void
@@ -508,13 +524,22 @@ private struct WorkspaceTodoPaneItemRow: View {
             if isEditing {
                 TextField(
                     String(localized: "sidebar.checklist.editItemPlaceholder", defaultValue: "Item text"),
-                    text: $editingText
+                    text: $editingText,
+                    axis: .vertical
                 )
                 .textFieldStyle(.plain)
                 .font(.system(size: itemFontSize))
                 .foregroundColor(.primary)
                 .focused(editFieldFocused)
-                .onSubmit { actions.commitEdit() }
+                .lineLimit(1...8)
+                .fixedSize(horizontal: false, vertical: true)
+                .backport.onKeyPress(.return) { modifiers in
+                    if modifiers.contains(.command) {
+                        actions.commitEdit()
+                        return .handled
+                    }
+                    return .ignored
+                }
                 .onExitCommand(perform: actions.cancelEdit)
                 .accessibilityIdentifier("WorkspaceTodoPaneEditItemField")
             } else {
@@ -535,7 +560,6 @@ private struct WorkspaceTodoPaneItemRow: View {
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
                     .contentShape(Rectangle())
-                    .onTapGesture { actions.beginEdit() }
             }
             Spacer(minLength: 0)
             WorkspaceChecklistAttachmentMenu(
@@ -556,7 +580,7 @@ private struct WorkspaceTodoPaneItemRow: View {
                 .fill(isHighlighted ? Color.primary.opacity(0.08) : Color.clear)
         )
         .contentShape(Rectangle())
-        .onTapGesture { actions.select() }
+        .onTapGesture { handleRowTap() }
         // Drag to reorder within the item's completion partition; the model
         // clamps the target so completed items always stay last (item 5).
         .draggable(item.id.uuidString)
@@ -577,6 +601,17 @@ private struct WorkspaceTodoPaneItemRow: View {
             }
         }
         .accessibilityIdentifier("WorkspaceTodoPaneItemRow")
+    }
+
+    private func handleRowTap() {
+        switch WorkspaceTodoPaneItemRowClickPolicy.action(isEditing: isEditing, isHighlighted: isHighlighted) {
+        case .select:
+            actions.select()
+        case .beginEdit:
+            actions.beginEdit()
+        case .focusEditor:
+            actions.focusEditor()
+        }
     }
 
     private func checkboxSymbolName(for state: WorkspaceChecklistItem.State) -> String {

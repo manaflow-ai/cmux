@@ -228,6 +228,37 @@ struct WorkspaceTodoSidebarModelTests {
         ) == nil)
     }
 
+    // MARK: - Todo pane row editing
+
+    @Test
+    func todoPaneRowClickSelectsBeforeEditingAndRefocusesDuringEdit() {
+        #expect(WorkspaceTodoPaneItemRowClickPolicy.action(
+            isEditing: false,
+            isHighlighted: false
+        ) == .select)
+        #expect(WorkspaceTodoPaneItemRowClickPolicy.action(
+            isEditing: false,
+            isHighlighted: true
+        ) == .beginEdit)
+        #expect(WorkspaceTodoPaneItemRowClickPolicy.action(
+            isEditing: true,
+            isHighlighted: false
+        ) == .focusEditor)
+        #expect(WorkspaceTodoPaneItemRowClickPolicy.action(
+            isEditing: true,
+            isHighlighted: true
+        ) == .focusEditor)
+    }
+
+    @Test
+    func todoPaneEditFieldUsesVerticalTextEntry() throws {
+        let source = try Self.sourceText("Sources/Panels/WorkspaceTodoPanelView.swift")
+
+        #expect(source.contains("axis: .vertical"))
+        #expect(source.contains(".lineLimit(1...8)"))
+        #expect(!source.contains(".onSubmit { actions.commitEdit() }"))
+    }
+
     // MARK: - Checklist display policy
 
     private func item(_ text: String, _ state: WorkspaceChecklistItem.State) -> WorkspaceChecklistItem {
