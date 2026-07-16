@@ -272,11 +272,11 @@ extension BrowserPanel {
             )
             alert.addButton(withTitle: String(localized: "browser.notifications.permission.allow", defaultValue: "Allow"))
             alert.addButton(withTitle: String(localized: "browser.notifications.permission.deny", defaultValue: "Don't Allow"))
-            browserPresentAlert(alert, in: webView) { response in
+            webNotificationPermissionAlertPresenter(alert, webView, { response in
                 let allowed = response == .alertFirstButtonReturn
                 repository.setDecision(allowed ? .allowed : .denied, for: origin, profileID: self.profileID)
                 reply(allowed)
-            }
+            }, {})
         }
     }
 

@@ -1,3 +1,4 @@
+import AppKit
 import CmuxBrowser
 import CmuxFoundation
 import CmuxSettings
@@ -13,6 +14,7 @@ import WebKit
 
 private final class BrowserWebNotificationContractProbe: NSObject, WKScriptMessageHandlerWithReply {
     private(set) var bodies: [[String: String]] = []
+    var statusReply = "default"
 
     func userContentController(
         _ userContentController: WKUserContentController,
@@ -21,6 +23,10 @@ private final class BrowserWebNotificationContractProbe: NSObject, WKScriptMessa
     ) {
         guard let body = message.body as? [String: String] else {
             replyHandler(nil, "invalid_message")
+            return
+        }
+        if body["type"] == "status" {
+            replyHandler(statusReply, nil)
             return
         }
         if body["type"] == "permission" {
@@ -208,6 +214,14 @@ struct BrowserWebNotificationTests {
         #expect(identity["length"] as? Int == 1)
         #expect(identity["constructorMatches"] as? Bool == true)
 
+        let permissionState = try await webView.callAsyncJavaScript(
+            "return (await navigator.permissions.query({ name: 'notifications' })).state",
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        ) as? String
+        #expect(permissionState == "prompt")
+
         let grantedPermission = try await webView.callAsyncJavaScript(
             "return await Notification.requestPermission()",
             arguments: [:],
@@ -238,6 +252,128 @@ struct BrowserWebNotificationTests {
             """
         ) as? [String: String])
         #expect(nativeError == ["name": "TypeError", "message": "native boom"])
+    }
+
+    @Test func fallbackMapsRemoteAliasAndReadsLivePermissionState() async throws {
+        let controller = WKUserContentController()
+        let probe = BrowserWebNotificationContractProbe()
+        controller.addScriptMessageHandler(
+            probe,
+            contentWorld: .page,
+            name: BrowserWebNotificationMessageHandler.name
+        )
+        let configuration = WKWebViewConfiguration()
+        configuration.userContentController = controller
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        let loadProbe = BrowserWebNotificationLoadProbe()
+        webView.navigationDelegate = loadProbe
+        defer { webView.navigationDelegate = nil }
+        try await loadProbe.load(
+            "<!doctype html><html><body>alias permission probe</body></html>",
+            in: webView,
+            baseURL: try #require(URL(string: "http://cmux-loopback.localtest.me:3000"))
+        )
+        _ = try await webView.evaluateJavaScript(
+            """
+            (() => {
+              class NativeNotification {
+                static get permission() { return "default"; }
+                static requestPermission() { return Promise.resolve("default"); }
+                constructor(title, options = {}) { this.title = String(title); this.body = String(options.body ?? ""); }
+              }
+              Object.defineProperty(window, "Notification", { value: NativeNotification, configurable: true, writable: true });
+            })();
+            """
+        )
+        _ = try await webView.evaluateJavaScript(BrowserPanel.webNotificationBridgeScriptSource(
+            token: token,
+            allowedOrigins: ["http://localhost:3000"]
+        ))
+        #expect(try await webView.evaluateJavaScript("Notification.permission") as? String == "granted")
+
+        let setting = SettingCatalog().browser.forwardWebNotifications
+        let defaults = UserDefaults.standard
+        let previousSetting = defaults.object(forKey: setting.userDefaultsKey)
+        let profileID = BrowserProfileRepository.builtInDefaultProfileID
+        let logicalOrigin = try #require(URL(string: "http://localhost:3000"))
+        let repository = BrowserProfileStore.shared.notificationPermissions
+        let previousDecision = repository.decision(for: logicalOrigin, profileID: profileID)
+        BrowserWebNotificationNativeAdapter.shared.forceForegroundFallbackForTesting = true
+        defer {
+            BrowserWebNotificationNativeAdapter.shared.forceForegroundFallbackForTesting = false
+            repository.setDecision(previousDecision, for: logicalOrigin, profileID: profileID)
+            if let previousSetting { defaults.set(previousSetting, forKey: setting.userDefaultsKey) }
+            else { defaults.removeObject(forKey: setting.userDefaultsKey) }
+        }
+        setting.set(true, in: defaults)
+        repository.setDecision(.allowed, for: logicalOrigin, profileID: profileID)
+        let panel = BrowserPanel(workspaceId: UUID(), profileID: profileID, renderInitialNavigation: false)
+        defer { panel.close() }
+        panel.replaceWebViewPreservingState(
+            from: panel.webView,
+            websiteDataStore: panel.webView.configuration.websiteDataStore,
+            reason: "test_live_web_notification_permission"
+        )
+        let panelWebView = panel.webView
+        let panelLoadProbe = BrowserWebNotificationLoadProbe()
+        panelWebView.navigationDelegate = panelLoadProbe
+        defer { panelWebView.navigationDelegate = nil }
+        try await panelLoadProbe.load(
+            "<!doctype html><html><body>live permission probe</body></html>",
+            in: panelWebView,
+            baseURL: try #require(URL(string: "http://cmux-loopback.localtest.me:3000"))
+        )
+        let bridgeToken = try #require(panel.webNotificationBridgeToken?.javaScriptStringLiteral)
+        let liveStatus = try await panelWebView.callAsyncJavaScript(
+            """
+            return await window.webkit.messageHandlers.\(BrowserWebNotificationMessageHandler.name).postMessage({
+              type: "status", token: \(bridgeToken)
+            });
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        ) as? String
+        #expect(liveStatus == "granted")
+    }
+
+    @Test func permissionRequestsRespectLiveSettingAndCoalesceByOrigin() throws {
+        let setting = SettingCatalog().browser.forwardWebNotifications
+        let defaults = UserDefaults.standard
+        let previousSetting = defaults.object(forKey: setting.userDefaultsKey)
+        let profileID = BrowserProfileRepository.builtInDefaultProfileID
+        let origin = try #require(URL(string: "https://example.com"))
+        let repository = BrowserProfileStore.shared.notificationPermissions
+        let previousDecision = repository.decision(for: origin, profileID: profileID)
+        defer {
+            repository.setDecision(previousDecision, for: origin, profileID: profileID)
+            if let previousSetting { defaults.set(previousSetting, forKey: setting.userDefaultsKey) }
+            else { defaults.removeObject(forKey: setting.userDefaultsKey) }
+        }
+        let panel = BrowserPanel(workspaceId: UUID(), profileID: profileID, renderInitialNavigation: false)
+        defer { panel.close() }
+
+        setting.set(false, in: defaults)
+        repository.setDecision(.allowed, for: origin, profileID: profileID)
+        var disabledReply: Bool?
+        panel.resolveWebNotificationPermission(for: origin, in: panel.webView) { disabledReply = $0 }
+        #expect(disabledReply == false)
+
+        setting.set(true, in: defaults)
+        repository.setDecision(.prompt, for: origin, profileID: profileID)
+        var presentations = 0
+        var completions: [(NSApplication.ModalResponse) -> Void] = []
+        panel.webNotificationPermissionAlertPresenter = { _, _, completion, _ in
+            presentations += 1
+            completions.append(completion)
+        }
+        var replies: [Bool] = []
+        panel.resolveWebNotificationPermission(for: origin, in: panel.webView) { replies.append($0) }
+        panel.resolveWebNotificationPermission(for: origin, in: panel.webView) { replies.append($0) }
+        #expect(presentations == 1)
+        #expect(replies.isEmpty)
+        for completion in completions { completion(.alertFirstButtonReturn) }
+        #expect(replies == [true, true])
     }
 
     @Test(.timeLimit(.minutes(1)))
