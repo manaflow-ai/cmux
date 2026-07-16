@@ -2,18 +2,6 @@ import CmuxSimulator
 import Foundation
 
 actor SimulatorSubprocessBox {
-    static let supervisorScript = #"""
-    exec 3<&0
-    (IFS= read -r _ <&3 || kill -KILL 0) &
-    watchdog=$!
-    exec 3<&-
-    "$@" </dev/null
-    status=$?
-    kill -KILL "$watchdog" 2>/dev/null
-    wait "$watchdog" 2>/dev/null
-    exit "$status"
-    """#
-
     private let executableURL: URL
     private let arguments: [String]
     private let environment: [String: String]
@@ -78,13 +66,11 @@ actor SimulatorSubprocessBox {
         await errorReader.start()
         do {
             let process = try SimulatorProcessGroupProcess(
-                executableURL: URL(fileURLWithPath: "/bin/sh"),
-                arguments: [
-                    "-c",
-                    Self.supervisorScript,
-                    "cmux-simulator-command-supervisor",
-                    executableURL.path,
-                ] + arguments,
+                executableURL: SimulatorParentLifetimeSupervisor.executableURL,
+                arguments: SimulatorParentLifetimeSupervisor.arguments(
+                    executableURL: executableURL,
+                    arguments: arguments
+                ),
                 environment: environment,
                 standardInputFD: parentLifetime.fileHandleForReading.fileDescriptor,
                 standardOutputFD: standardOutput.fileHandleForWriting.fileDescriptor,

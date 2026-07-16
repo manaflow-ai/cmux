@@ -189,13 +189,11 @@ struct SimulatorSubprocessTests {
             marker.path,
         ]
         let process = try SimulatorProcessGroupProcess(
-            executableURL: URL(fileURLWithPath: "/bin/sh"),
-            arguments: [
-                "-c",
-                SimulatorSubprocessBox.supervisorScript,
-                "cmux-simulator-command-supervisor",
-                target.path,
-            ] + targetArguments,
+            executableURL: SimulatorParentLifetimeSupervisor.executableURL,
+            arguments: SimulatorParentLifetimeSupervisor.arguments(
+                executableURL: target,
+                arguments: targetArguments
+            ),
             standardInputFD: parentLifetime.fileHandleForReading.fileDescriptor,
             fileDescriptorsToClose: [
                 parentLifetime.fileHandleForReading.fileDescriptor,
