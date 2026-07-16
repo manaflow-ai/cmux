@@ -130,7 +130,8 @@ struct PanelContentView: View {
             }
         case .simulator:
             if let simulatorPanel = panel as? SimulatorPanel {
-                if CmuxFeatureFlags.shared.isSimulatorEnabled {
+                if CmuxFeatureFlags.shared.isSimulatorEnabled,
+                   simulatorPanel.isFeatureReady {
                     SimulatorPanelView(
                         panel: simulatorPanel,
                         isFocused: isFocused,

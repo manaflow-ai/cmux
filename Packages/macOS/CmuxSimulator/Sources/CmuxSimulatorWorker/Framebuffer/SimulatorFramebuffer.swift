@@ -240,10 +240,21 @@ final class SimulatorFramebuffer {
     }
 
     private func handleDisplayPropertiesChange(_ descriptor: NSObject) {
-        _ = descriptor
-        // Every display sends this callback. Re-read orientation from the
-        // selected integrated display so an auxiliary display cannot rotate
-        // the IOSurface and HID transform used by the pane.
+        guard let properties = objectProperty(
+            descriptor,
+            selectorName: "screenProperties"
+        ) as? NSObject,
+            simulatorUnsignedLongLongProperty(
+                properties,
+                selectorName: "screenType"
+            ) == 0
+        else {
+            // Auxiliary display callbacks may arrive while a requested
+            // built-in rotation is still settling. They cannot make the
+            // built-in display's cached orientation authoritative.
+            _ = publishLatest()
+            return
+        }
         _ = publishLatest(
             readNativeOrientation: true,
             nativeOrientationIsAuthoritative: true
@@ -259,9 +270,10 @@ final class SimulatorFramebuffer {
         guard let display = bestDisplay(readNativeOrientation: readNativeOrientation) else {
             return false
         }
-        if let rawValue = display.orientationRawValue,
-            simulatorNativeOrientation(rawValue: rawValue) != nil
-        {
+        let freshNativeOrientation = display.orientationRawValue.flatMap { rawValue in
+            simulatorNativeOrientation(rawValue: rawValue) == nil ? nil : rawValue
+        }
+        if let rawValue = freshNativeOrientation {
             nativeOrientationRawValue = rawValue
         }
         let surface = display.surface
@@ -275,6 +287,7 @@ final class SimulatorFramebuffer {
             height: height,
             nativeRawValue: nativeOrientationRawValue,
             nativeValueIsAuthoritative: nativeOrientationIsAuthoritative
+                && freshNativeOrientation != nil
         )
         let metadata = SimulatorDisplayMetadata(
             width: width,

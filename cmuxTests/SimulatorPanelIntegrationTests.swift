@@ -185,6 +185,7 @@ struct SimulatorPanelIntegrationTests {
         panel.setVisibleInUI(true)
         for _ in 0..<100 { await Task.yield() }
         #expect(panel.coordinator === firstCoordinator)
+        #expect(!panel.isFeatureReady)
         #expect(await secondClient.discoveryCount == 0)
 
         await firstClient.releaseStop()
@@ -193,6 +194,7 @@ struct SimulatorPanelIntegrationTests {
             await Task.yield()
         }
         #expect(panel.coordinator !== firstCoordinator)
+        #expect(panel.isFeatureReady)
         #expect(await secondClient.discoveryCount == 1)
     }
 

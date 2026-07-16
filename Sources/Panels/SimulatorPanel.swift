@@ -33,6 +33,8 @@ final class SimulatorPanel: Panel {
     private var isVisibleInUI = false
     private var canvasRendering: Bool?
 
+    var isFeatureReady: Bool { !isFeatureDisabled && !isClosed }
+
     var displayTitle: String {
         String(localized: "simulator.pane.title", defaultValue: "Simulator")
     }

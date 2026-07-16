@@ -185,6 +185,30 @@ struct SimulatorPaneCoordinatorCancellationTests {
         await coordinator.close()
     }
 
+    @Test("An older explicit selection cannot replace a newer selection")
+    func staleExplicitSelectionCannotReplaceNewerSelection() async {
+        let previous = makeDevice(id: "previous", family: .iPhone)
+        let newer = makeDevice(id: "newer", family: .iPad)
+        let client = StaleDiscoveryPaneClient()
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        coordinator.devices = [previous, newer]
+        coordinator.selectedDeviceID = previous.id
+        coordinator.status = .streaming
+
+        let staleSelection = Task { @MainActor in
+            try await coordinator.selectDeviceAndWait(id: previous.id)
+        }
+        await client.waitUntilDiscoveryIsPending()
+        coordinator.selectDevice(id: newer.id)
+        await client.resumeDiscovery(with: [previous])
+
+        await #expect(throws: CancellationError.self) {
+            try await staleSelection.value
+        }
+        #expect(coordinator.selectedDeviceID == newer.id)
+        await coordinator.close()
+    }
+
     private func makeDevice(
         id: String,
         family: SimulatorDeviceFamily

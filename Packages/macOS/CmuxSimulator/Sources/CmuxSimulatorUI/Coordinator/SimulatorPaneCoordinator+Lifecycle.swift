@@ -316,6 +316,9 @@ extension SimulatorPaneCoordinator {
             )
             throw CancellationError()
         }
+        guard selectionGeneration == discoveryGeneration else {
+            throw CancellationError()
+        }
         guard devices.contains(where: { $0.id == id }) else {
             throw SimulatorFailure(
                 code: "simulator_device_not_found",

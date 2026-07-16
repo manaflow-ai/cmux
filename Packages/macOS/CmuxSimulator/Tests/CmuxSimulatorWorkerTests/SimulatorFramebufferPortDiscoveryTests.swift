@@ -58,8 +58,9 @@ struct SimulatorFramebufferPortDiscoveryTests {
         )
         try await framebuffer.start(device: fixture.device)
 
+        framebuffer.setOrientation(.landscapeRight)
         fixture.publishOrientation(3, displayIndex: 1)
-        #expect(metadata.last?.orientation == .portrait)
+        #expect(metadata.last?.orientation == .landscapeRight)
 
         fixture.publishOrientation(2, displayIndex: 0)
         #expect(metadata.last?.orientation == .portraitUpsideDown)
