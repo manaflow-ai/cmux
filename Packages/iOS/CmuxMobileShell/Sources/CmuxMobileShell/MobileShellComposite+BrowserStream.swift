@@ -52,24 +52,28 @@ extension MobileShellComposite {
     /// Sends browser pointer input.
     /// - Parameter input: Page-point pointer input for the Mac browser.
     public func sendMobileBrowserPointer(_ input: MobileBrowserPointerInput) async {
+        browserStreamEvents?.noteBrowserInputSent(panelID: input.panelID)
         _ = try? await remoteClient?.sendMobileBrowserPointer(input)
     }
 
     /// Sends browser scroll input.
     /// - Parameter input: Page-point scroll input with native gesture phase.
     public func sendMobileBrowserScroll(_ input: MobileBrowserScrollInput) async {
+        browserStreamEvents?.noteBrowserInputSent(panelID: input.panelID)
         _ = try? await remoteClient?.sendMobileBrowserScroll(input)
     }
 
     /// Sends browser key input.
     /// - Parameter input: A key token and modifiers for the Mac browser.
     public func sendMobileBrowserKey(_ input: MobileBrowserKeyInput) async {
+        browserStreamEvents?.noteBrowserInputSent(panelID: input.panelID)
         _ = try? await remoteClient?.sendMobileBrowserKey(input)
     }
 
     /// Sends committed browser text input.
     /// - Parameter input: Committed text for the focused Mac page element.
     public func sendMobileBrowserText(_ input: MobileBrowserTextInput) async {
+        browserStreamEvents?.noteBrowserInputSent(panelID: input.panelID)
         _ = try? await remoteClient?.sendMobileBrowserText(input)
     }
 
@@ -127,8 +131,20 @@ extension MobileShellComposite {
         guard connectionState == .connected, supportsBrowserStream else { return }
         let selections = browserStreamEvents?.activeBrowserStreamSelections() ?? []
         for selection in selections {
-            Task { await startMobileBrowserStream(panelID: selection.panelID) }
+            Task { await forceRestartMobileBrowserStream(panelID: selection.panelID) }
         }
+    }
+
+    /// Re-arms one panel's stream even if it is marked started.
+    ///
+    /// A recovery can swap `remoteClient` without `connectionState` ever
+    /// leaving `.connected` (route swap behind a Reconnection toast), and the
+    /// Mac tears stream sessions down with the OLD connection. The
+    /// started-dedupe set must not suppress the re-arm in that case, or the
+    /// mirror freezes with no path back short of closing the surface.
+    func forceRestartMobileBrowserStream(panelID: String) async {
+        startedMobileBrowserPanelIDs.remove(panelID)
+        await startMobileBrowserStream(panelID: panelID)
     }
 
     func stopActiveMobileBrowserStreamsForBackground() {

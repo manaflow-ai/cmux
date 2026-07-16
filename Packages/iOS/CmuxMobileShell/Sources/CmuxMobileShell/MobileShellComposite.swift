@@ -1034,6 +1034,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalLiveFontTokensBySurfaceID = [:]
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
         self.pairingAttemptID = UUID()
+        // The watchdog's re-arm must bypass the started-dedupe set: unanswered
+        // input means the Mac-side session is gone (or never took), whatever
+        // the phone's bookkeeping says.
+        browserStreamEvents?.configureBrowserStreamRestart { [weak self] panelID in
+            await self?.forceRestartMobileBrowserStream(panelID: panelID)
+        }
     }
 
     isolated deinit {

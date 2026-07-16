@@ -35,6 +35,12 @@ public protocol BrowserStreamEventReceiving: AnyObject {
     /// - Parameter payload: The raw event payload.
     /// - Returns: The decoded closed panel identifier, or `nil` for malformed data.
     func receiveBrowserClosedPayload(_ payload: Data) -> String?
+    /// Configures the hook the liveness watchdog uses to re-arm a stream.
+    /// - Parameter restart: Re-arms one panel's stream subscription.
+    func configureBrowserStreamRestart(_ restart: @escaping @MainActor (String) async -> Void)
+    /// Records forwarded user input for unanswered-input liveness tracking.
+    /// - Parameter panelID: The Mac browser panel identifier.
+    func noteBrowserInputSent(panelID: String)
 }
 
 /// Acknowledges a frame after its decoded image was installed for display.

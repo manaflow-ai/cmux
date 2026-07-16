@@ -39,13 +39,18 @@ public struct BrowserStreamPane: View {
     }
 
     /// Renders the mirrored frame surface, lifecycle overlays, and bottom chrome.
+    ///
+    /// The bar lives in a bottom `safeAreaInset` so SwiftUI keyboard avoidance
+    /// carries it up and down with the keyboard, while the mirror itself
+    /// ignores the keyboard region and stays full-bleed underneath.
     public var body: some View {
         BrowserStreamSurfaceRepresentable(state: state, actions: actions)
             .accessibilityIdentifier("BrowserStreamSurface")
             .ignoresSafeArea(.container, edges: .bottom)
+            .ignoresSafeArea(.keyboard, edges: .bottom)
             .overlay { surfaceOverlay }
-            .overlay(alignment: .bottom) { bottomBar }
             .background(Color(red: 0.055, green: 0.063, blue: 0.075))
+            .safeAreaInset(edge: .bottom) { bottomBar }
             .onChange(of: state.url) { _, url in
                 if !addressFocused { addressText = url ?? "" }
             }

@@ -16,9 +16,51 @@ public final class BrowserStreamStore: BrowserStreamEventReceiving {
     @ObservationIgnored private var decodersByPanel: [String: BrowserStreamFrameDecoder] = [:]
     @ObservationIgnored private var frameTasksByPanel: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var acknowledgeFrame: BrowserStreamFrameAcknowledging?
+    @ObservationIgnored private var recoveryPoliciesByPanel: [String: BrowserStreamRecoveryPolicy] = [:]
+    @ObservationIgnored private var recoveryChecksByPanel: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var requestStreamRestart: (@MainActor (String) async -> Void)?
+    @ObservationIgnored private let recoveryClock: any BrowserStreamRecoveryClock
 
     /// Creates an empty stream store.
-    public init() {}
+    /// - Parameter recoveryClock: Monotonic clock for liveness decisions.
+    public init(recoveryClock: any BrowserStreamRecoveryClock = BrowserStreamContinuousRecoveryClock()) {
+        self.recoveryClock = recoveryClock
+    }
+
+    /// Configures the restart hook the liveness watchdog invokes.
+    /// - Parameter restart: Re-arms one panel's stream subscription.
+    public func configureBrowserStreamRestart(_ restart: @escaping @MainActor (String) async -> Void) {
+        requestStreamRestart = restart
+    }
+
+    /// Records forwarded user input and arms the unanswered-input watchdog.
+    ///
+    /// Frames are the only liveness proof for a mirror: state events kept
+    /// flowing during real stalls. If no frame lands within the policy window
+    /// after input, the stream is re-armed (Mac-side start replaces the
+    /// session idempotently).
+    /// - Parameter panelID: The Mac browser panel identifier.
+    public func noteBrowserInputSent(panelID: String) {
+        let now = recoveryClock.now
+        recoveryPoliciesByPanel[panelID, default: BrowserStreamRecoveryPolicy()].noteInput(at: now)
+        guard let policy = recoveryPoliciesByPanel[panelID] else { return }
+        recoveryChecksByPanel[panelID]?.cancel()
+        let delay = policy.inputSilenceThreshold
+        recoveryChecksByPanel[panelID] = Task { @MainActor [weak self] in
+            try? await self?.recoveryClock.sleep(for: delay + 0.05)
+            guard !Task.isCancelled, let self else { return }
+            self.runRecoveryCheck(panelID: panelID)
+        }
+    }
+
+    private func runRecoveryCheck(panelID: String) {
+        let now = recoveryClock.now
+        guard recoveryPoliciesByPanel[panelID]?.shouldRestart(at: now) == true else { return }
+        guard let requestStreamRestart else { return }
+        recoveryPoliciesByPanel[panelID]?.noteRestart(at: now)
+        statesByPanel[panelID]?.streamStatus = .starting
+        Task { await requestStreamRestart(panelID) }
+    }
 
     /// Returns immutable discovery rows for a Mac workspace.
     /// - Parameter workspaceID: The Mac-local workspace identifier.
@@ -89,6 +131,8 @@ public final class BrowserStreamStore: BrowserStreamEventReceiving {
     public func didDisplay(_ frame: BrowserStreamFrame, for panelID: String) {
         guard let state = statesByPanel[panelID] else { return }
         state.didDisplay(frame)
+        recoveryPoliciesByPanel[panelID]?.noteFrame(at: recoveryClock.now)
+        recoveryChecksByPanel[panelID]?.cancel()
         guard let acknowledgeFrame else { return }
         Task { await acknowledgeFrame(panelID, frame.sequence) }
     }
@@ -138,6 +182,8 @@ public final class BrowserStreamStore: BrowserStreamEventReceiving {
     /// - Parameter panelID: The Mac browser panel identifier.
     public func browserStreamWillStart(panelID: String) async {
         statesByPanel[panelID]?.prepareForStreamStart()
+        recoveryChecksByPanel[panelID]?.cancel()
+        recoveryPoliciesByPanel[panelID]?.reset()
         await decoder(for: panelID).reset()
     }
 
