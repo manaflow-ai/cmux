@@ -5584,3 +5584,27 @@ final class BrowserOmnibarFocusPolicyTests: XCTestCase {
         )
     }
 }
+
+@MainActor
+final class BrowserSharedWebViewConfigurationHandlerTests: XCTestCase {
+    /// Extension-context tabs share one WKUserContentController across every
+    /// web view the extension owns. Re-adding a fixed-name script message
+    /// handler to that controller throws NSInvalidArgumentException, which is
+    /// uncatchable from Swift and killed the app when a 1Password action
+    /// opened its webkit-extension: unlock tab alongside an existing
+    /// extension-context web view.
+    func testPanelsSharingOneWebViewConfigurationDoNotCollideOnScriptMessageHandlers() {
+        let sharedConfiguration = WKWebViewConfiguration()
+        let first = BrowserPanel(workspaceId: UUID(), webViewConfiguration: sharedConfiguration)
+        defer { first.close() }
+
+        let second = BrowserPanel(workspaceId: UUID(), webViewConfiguration: sharedConfiguration)
+        defer { second.close() }
+
+        XCTAssertTrue(
+            second.webView.configuration.userContentController
+                === first.webView.configuration.userContentController,
+            "Both panels must share the extension-style user content controller for this repro"
+        )
+    }
+}
