@@ -275,6 +275,7 @@ struct SidebarWorkspaceTableTests {
             selectedWorkspaceId: nil,
             selectedScrollTargetWorkspaceId: nil
         )
+        flushStagedApplies()
         container.layoutSubtreeIfNeeded()
         container.tableView.layoutSubtreeIfNeeded()
         var computations = 0
@@ -317,6 +318,7 @@ struct SidebarWorkspaceTableTests {
             selectedWorkspaceId: nil,
             selectedScrollTargetWorkspaceId: nil
         )
+        flushStagedApplies()
         container.layoutSubtreeIfNeeded()
         container.tableView.layoutSubtreeIfNeeded()
 
@@ -379,6 +381,7 @@ struct SidebarWorkspaceTableTests {
             selectedWorkspaceId: nil,
             selectedScrollTargetWorkspaceId: nil
         )
+        flushStagedApplies()
         // Transfer only has its Decodable initializer (the explicit
         // init(from:) suppresses the memberwise one), so build it the way
         // production does: from a pasteboard JSON payload.
@@ -472,6 +475,14 @@ struct SidebarWorkspaceTableTests {
     }
 
 #if DEBUG
+    /// apply() stages its input and flushes table mutations on the next
+    /// main-run-loop turn (outside SwiftUI render passes); pump one turn so
+    /// tests observe post-flush state through the production timing.
+    @MainActor
+    private func flushStagedApplies() {
+        _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02))
+    }
+
     @MainActor
     private func configure(
         _ cell: SidebarWorkspaceTableCellView,

@@ -18,7 +18,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var appKitDropIndicatorScope: SidebarWorkspaceReorderDropIndicatorScope = .raw
     private var appKitDropIndicatorIncludesRowTargets = false
     private var clipBoundsObserver: NSObjectProtocol?
-    private var isViewportMeasurementScheduled = false
     private let rowHeightCache = SidebarWorkspaceTableRowHeightCache()
     private let dropTargetGeometry = SidebarWorkspaceTableDropTargetGeometryGate()
 
@@ -102,6 +101,28 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         return container
     }
 
+    private struct StagedApply {
+        let rows: [SidebarWorkspaceTableRowConfiguration]
+        let actions: SidebarWorkspaceTableActions
+        let workspaceIds: [UUID]
+        let selectedWorkspaceId: UUID?
+        let selectedScrollTargetWorkspaceId: UUID?
+    }
+
+    private var stagedApply: StagedApply?
+    private var isApplyFlushScheduled = false
+
+    /// Entry point from `updateNSView`, which runs inside a SwiftUI render
+    /// transaction. Mutating the table there (reloadData, reconfigure,
+    /// noteHeightOfRows, scrollRowToVisible) tiles cells whose hosted roots
+    /// then lay out while SwiftUI is still rendering, the "NSHostingView is
+    /// being laid out reentrantly" runtime fault. Stage the input and flush
+    /// every table mutation on the next main-run-loop turn, outside any render
+    /// pass; the previous rows stay on screen for that turn and row actions
+    /// resolve live models at invocation time, so the staleness window has no
+    /// correctness cost. Repeated applies within one turn coalesce to the
+    /// newest staged value. Same deferral pattern as
+    /// SidebarWorkspaceSnapshotRefreshCoalescer.
     func apply(
         rows nextRows: [SidebarWorkspaceTableRowConfiguration],
         actions: SidebarWorkspaceTableActions,
@@ -109,6 +130,34 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         selectedWorkspaceId: UUID?,
         selectedScrollTargetWorkspaceId: UUID?
     ) {
+        stagedApply = StagedApply(
+            rows: nextRows,
+            actions: actions,
+            workspaceIds: nextWorkspaceIds,
+            selectedWorkspaceId: selectedWorkspaceId,
+            selectedScrollTargetWorkspaceId: selectedScrollTargetWorkspaceId
+        )
+        guard !isApplyFlushScheduled else { return }
+        isApplyFlushScheduled = true
+        RunLoop.main.perform(inModes: [.common]) { [weak self] in
+            // `RunLoop.main.perform` guarantees main-run-loop delivery, but
+            // Foundation's closure is not annotated with `@MainActor`.
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.isApplyFlushScheduled = false
+                guard let staged = self.stagedApply else { return }
+                self.stagedApply = nil
+                self.flushApply(staged)
+            }
+        }
+    }
+
+    private func flushApply(_ staged: StagedApply) {
+        let nextRows = staged.rows
+        let actions = staged.actions
+        let nextWorkspaceIds = staged.workspaceIds
+        let selectedWorkspaceId = staged.selectedWorkspaceId
+        let selectedScrollTargetWorkspaceId = staged.selectedScrollTargetWorkspaceId
         guard let containerView else { return }
         self.actions = actions
         actions.attachScrollView(containerView.scrollView)
@@ -120,19 +169,27 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             previousRows.indices.contains(index)
                 && !previousRows[index].hasEquivalentContent(to: nextRows[index])
         })
+        // Measure BEFORE reconfiguring any cell: the prototype render flushes
+        // pending SwiftUI updates process-wide, so measuring after same-pass
+        // cell mutations lays hosted cells out reentrantly ("laid out
+        // reentrantly" runtime fault, churn scale test). The near-viewport
+        // range keeps one width or bulk-content change from re-realizing the
+        // whole list; estimates cover everything else.
+        let heightChanges = rowHeightCache.prepareHostedRows(
+            nextRows,
+            columnWidth: currentColumnWidth(),
+            measurableRange: measurableRowRange(rowCount: nextRows.count)
+        )
         rows = nextRows
 
         if hasStructuralChanges {
             containerView.tableView.reloadData()
         } else {
             reconfigureVisibleRows(contentChanges)
+            if !heightChanges.isEmpty {
+                containerView.tableView.noteHeightOfRows(withIndexesChanged: heightChanges)
+            }
         }
-
-        // apply() runs inside updateNSView (a SwiftUI render pass), where
-        // measuring would lay out the prototype hosting view reentrantly, so
-        // heights correct on the next main-actor turn; estimates cover the
-        // gap by design.
-        scheduleViewportRowMeasurement()
 
         let shouldScrollAfterWorkspaceChange = SidebarSelectedWorkspaceScrollPolicy
             .shouldScrollSelectedWorkspace(
@@ -281,33 +338,21 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     func viewportDidChange() {
-        scheduleViewportRowMeasurement()
+        // Measurement runs FIRST, before the hover recompute can mutate any
+        // cell model in this same pass; see apply() for the reentrancy
+        // rationale. This mirrors the proven pre-lazy ordering, where the
+        // width-change path measured every row inside this notification
+        // without faults.
+        if let changed = rowHeightCache.prepareHostedRowsForViewportChange(
+            rows,
+            columnWidth: currentColumnWidth(),
+            measurableRange: measurableRowRange(rowCount: rows.count),
+            visibleRange: visibleRowRange(rowCount: rows.count, overscanFactor: 0)
+        ), !changed.isEmpty {
+            containerView?.tableView.noteHeightOfRows(withIndexesChanged: changed)
+        }
         recomputeHoveredRow()
         updateDropTargets()
-    }
-
-    /// Bounds-change notifications arrive synchronously inside the table's
-    /// tiling pass, where measuring (which renders the prototype hosting
-    /// view) and noteHeightOfRows (which re-tiles) reenter NSHostingView
-    /// layout while cells are mid-render ("laid out reentrantly" runtime
-    /// fault). Coalesce the measurement onto the next main-actor turn
-    /// instead; scrolling never mutates the table from inside its own
-    /// layout.
-    private func scheduleViewportRowMeasurement() {
-        guard !isViewportMeasurementScheduled else { return }
-        isViewportMeasurementScheduled = true
-        Task { [weak self] in
-            guard let self else { return }
-            self.isViewportMeasurementScheduled = false
-            if let changed = self.rowHeightCache.prepareHostedRowsForViewportChange(
-                self.rows,
-                columnWidth: self.currentColumnWidth(),
-                measurableRange: self.measurableRowRange(rowCount: self.rows.count),
-                visibleRange: self.visibleRowRange(rowCount: self.rows.count, overscanFactor: 0)
-            ), !changed.isEmpty {
-                self.containerView?.tableView.noteHeightOfRows(withIndexesChanged: changed)
-            }
-        }
     }
 
     private func currentColumnWidth() -> CGFloat {

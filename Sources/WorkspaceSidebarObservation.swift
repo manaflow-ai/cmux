@@ -29,39 +29,39 @@ extension View {
         onChange: @MainActor @escaping (UUID) -> Void
     ) -> some View {
         task(id: ids) { @MainActor in
-            await withTaskGroup(of: Void.self) { group in
-                for (id, workspace) in zip(ids, workspaces) {
-                    // The buffer stage makes the AsyncPublisher bridge
-                    // demand-safe: CombineLatest-backed publishers emit
-                    // synchronously once per @Published write, so two writes in
-                    // one main-runloop tick (workspace init, batch mutations)
-                    // deliver a second value while the async iterator's demand
-                    // is zero, which is a Combine fatalError ("Received an
-                    // output without requesting demand"). Events here are Void
-                    // change signals and the consumer re-reads live state, so
-                    // keeping only the newest buffered signal is lossless.
-                    let immediateChanges = workspace.sidebarImmediateObservationPublisher
-                        .buffer(size: 1, prefetch: .byRequest, whenFull: .dropOldest)
-                        .values
-                    let debouncedChanges = workspace.sidebarObservationPublisher
-                        .receive(on: RunLoop.main)
-                        .debounce(for: debouncedInterval, scheduler: RunLoop.main)
-                        .buffer(size: 1, prefetch: .byRequest, whenFull: .dropOldest)
-                        .values
-                    group.addTask { @MainActor in
-                        for await _ in immediateChanges {
-                            if Task.isCancelled { break }
+            // Combine `sink` grants upstream unlimited demand, so the
+            // CombineLatest-backed publishers can emit synchronously once per
+            // @Published write (workspace init, batch mutations) with no
+            // AsyncPublisher demand trap ("Received an output without
+            // requesting demand"). Synchronous delivery also keeps a burst's
+            // change signals inside one main-runloop tick, so the snapshot
+            // refresh coalescer flushes once per batch instead of once per
+            // task-scheduler resume. All of these publishers deliver on the
+            // main run loop.
+            var cancellables: Set<AnyCancellable> = []
+            for (id, workspace) in zip(ids, workspaces) {
+                workspace.sidebarImmediateObservationPublisher
+                    .sink { _ in
+                        MainActor.assumeIsolated {
                             onChange(id)
                         }
                     }
-                    group.addTask { @MainActor in
-                        for await _ in debouncedChanges {
-                            if Task.isCancelled { break }
+                    .store(in: &cancellables)
+                workspace.sidebarObservationPublisher
+                    .receive(on: RunLoop.main)
+                    .debounce(for: debouncedInterval, scheduler: RunLoop.main)
+                    .sink { _ in
+                        MainActor.assumeIsolated {
                             onChange(id)
                         }
                     }
-                }
+                    .store(in: &cancellables)
             }
+            // Park until SwiftUI cancels the task (view teardown or `ids`
+            // change); the stream never yields, and cancellation ends the
+            // iteration, tearing the subscriptions down with the task.
+            for await _ in AsyncStream<Never>(Never.self) { _ in } {}
+            withExtendedLifetime(cancellables) {}
         }
     }
 
