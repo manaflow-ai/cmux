@@ -104,6 +104,17 @@ struct ZenModeControllerTests {
     }
 
     @Test
+    func terminationReturnsWindowStateLedgerForSynchronousRestoration() {
+        let defaults = makeDefaults()
+        let controller = ZenModeController(defaults: defaults)
+        let session = controller.begin(windowID: UUID(), isSidebarVisible: true, isFullScreen: false)
+
+        #expect(controller.restoreForTermination() == session)
+        #expect(defaults.object(forKey: WorkspacePresentationModeSettings.modeKey) == nil)
+        #expect(defaults.object(forKey: SessionContentWidthSettings.maxWidthKey) == nil)
+    }
+
+    @Test
     func usesVSCodeZenModeShortcutAndPublishesItInSettings() {
         let shortcut = KeyboardShortcutSettings.Action.toggleZenMode.defaultShortcut
 
@@ -122,6 +133,8 @@ struct ZenModeControllerTests {
             control: false
         ))
         #expect(KeyboardShortcutSettings.settingsVisibleActions.contains(.toggleZenMode))
+        #expect(ShortcutAction.settingsVisibleActions.contains(.toggleZenMode))
+        #expect(ShortcutAction.toggleZenMode.defaultShortcut == shortcut)
     }
 
     private func makeDefaults() -> UserDefaults {

@@ -96,9 +96,8 @@ final class ZenModeController {
     }
 
     /// Restores temporary global settings before normal application termination.
-    func restoreForTermination() {
-        restoreInterruptedGlobalSettingsIfNeeded()
-        activeSession = nil
+    func restoreForTermination() -> Session? {
+        end()
     }
 
     private func recordGlobalSettingsRecovery(
