@@ -1848,6 +1848,33 @@ mod tests {
     }
 
     #[test]
+    fn omitted_ghostty_cursor_blink_resolves_to_blinking() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
+        let old_xdg_config_home = std::env::var_os("XDG_CONFIG_HOME");
+        let dir = std::env::temp_dir().join(format!(
+            "mux-ghostty-cursor-default-{}",
+            std::process::id()
+        ));
+        let ghostty_dir = dir.join("ghostty");
+        std::fs::create_dir_all(&ghostty_dir).unwrap();
+        std::fs::write(ghostty_dir.join("config"), "cursor-style = \"bar\"\n").unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::remove_var("CMUX_MUX_CONFIG") };
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("XDG_CONFIG_HOME", &dir) };
+
+        let config = load();
+
+        restore_env_var("CMUX_MUX_CONFIG", old_mux_config);
+        restore_env_var("XDG_CONFIG_HOME", old_xdg_config_home);
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert_eq!(config.terminal_defaults.cursor_style, Some(CursorShape::Bar));
+        assert_eq!(config.terminal_defaults.cursor_blink, Some(true));
+    }
+
+    #[test]
     fn chrome_theme_selection_honors_auto_and_overrides() {
         let light_defaults = DefaultColors {
             fg: None,
