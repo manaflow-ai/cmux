@@ -10,6 +10,11 @@ final class AgentSessionWebHostView: NSView {
     private var hasPendingGeometryNotification = false
     private weak var hostedWebView: WKWebView?
     private var sessionContentWidthPresentation = SessionContentWidthPresentation.disabled
+    private var pendingScrollDelta = CGPoint.zero
+    private var scrollFlushTask: Task<Void, Never>?
+    private var isScrollJavaScriptInFlight = false
+    private var scrollGeneration: UInt64 = 0
+    private static let maximumPendingScrollDelta: CGFloat = 2400
 
     override var isOpaque: Bool { false }
 
@@ -49,15 +54,62 @@ final class AgentSessionWebHostView: NSView {
         let deltaY = event.scrollingDeltaY * pointScale
         guard deltaX.isFinite, deltaY.isFinite else { return }
 
+        pendingScrollDelta.x = Self.clampedScrollDelta(pendingScrollDelta.x + deltaX)
+        pendingScrollDelta.y = Self.clampedScrollDelta(pendingScrollDelta.y + deltaY)
+        scheduleScrollFlush()
+    }
+
+    private static func clampedScrollDelta(_ value: CGFloat) -> CGFloat {
+        min(max(value, -maximumPendingScrollDelta), maximumPendingScrollDelta)
+    }
+
+    private func scheduleScrollFlush() {
+        guard pendingScrollDelta != .zero,
+              scrollFlushTask == nil,
+              !isScrollJavaScriptInFlight else { return }
+        scrollFlushTask = Task { @MainActor [weak self] in
+            await Task.yield()
+            guard !Task.isCancelled, let self else { return }
+            self.scrollFlushTask = nil
+            self.flushPendingScroll()
+        }
+    }
+
+    private func flushPendingScroll() {
+        guard !isScrollJavaScriptInFlight,
+              let hostedWebView,
+              pendingScrollDelta != .zero else { return }
+
+        let delta = pendingScrollDelta
+        pendingScrollDelta = .zero
+        isScrollJavaScriptInFlight = true
+        let generation = scrollGeneration
+
         let script = """
         (() => {
           const thread = document.querySelector('.agent-thread');
           if (!(thread instanceof HTMLElement)) return false;
-          thread.scrollBy(\(-Double(deltaX)), \(-Double(deltaY)));
+          thread.scrollBy(\(-Double(delta.x)), \(-Double(delta.y)));
           return true;
         })()
         """
-        hostedWebView.evaluateJavaScript(script, completionHandler: nil)
+        hostedWebView.evaluateJavaScript(script) { [weak self, weak hostedWebView] _, _ in
+            Task { @MainActor in
+                guard let self,
+                      self.scrollGeneration == generation,
+                      self.hostedWebView === hostedWebView else { return }
+                self.isScrollJavaScriptInFlight = false
+                self.scheduleScrollFlush()
+            }
+        }
+    }
+
+    private func resetPendingScroll() {
+        scrollGeneration &+= 1
+        scrollFlushTask?.cancel()
+        scrollFlushTask = nil
+        pendingScrollDelta = .zero
+        isScrollJavaScriptInFlight = false
     }
 
     override func setFrameOrigin(_ newOrigin: NSPoint) {
@@ -99,6 +151,9 @@ final class AgentSessionWebHostView: NSView {
     }
 
     func attachWebView(_ webView: WKWebView) {
+        if hostedWebView !== webView {
+            resetPendingScroll()
+        }
         if webView.superview !== self {
             webView.removeFromSuperview()
             addSubview(webView, positioned: .above, relativeTo: nil)
@@ -125,6 +180,7 @@ final class AgentSessionWebHostView: NSView {
         }
         webView.removeFromSuperview()
         if hostedWebView === webView {
+            resetPendingScroll()
             hostedWebView = nil
         }
     }
