@@ -159,6 +159,48 @@ struct SimulatorPaneCoordinatorTests {
         #expect(await client.activations().last?.id == "pad")
     }
 
+    @Test("Context readiness waits for a dormant selected device to stream")
+    func contextReadinessWaitsForActivation() async throws {
+        let client = SimulatorPaneClientSpy(
+            devices: [Self.device(id: "pad", family: .iPad, state: .shutdown)],
+            delaysActivation: true
+        )
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        await coordinator.start()
+        await eventually { await client.hasDelayedActivation() }
+
+        let readiness = Task { try await coordinator.waitForSelectedDeviceStreaming() }
+        await Task.yield()
+        #expect(coordinator.status == .connecting)
+
+        await client.resumeActivation()
+        try await readiness.value
+
+        #expect(coordinator.status == .streaming)
+        #expect(await client.activations().map(\.id) == ["pad"])
+    }
+
+    @Test("Cancelling context readiness preserves pane-owned activation")
+    func cancellingContextReadinessPreservesActivation() async {
+        let client = SimulatorPaneClientSpy(
+            devices: [Self.device(id: "phone", family: .iPhone, state: .shutdown)],
+            delaysActivation: true
+        )
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        await coordinator.start()
+        await eventually { await client.hasDelayedActivation() }
+
+        let readiness = Task { try await coordinator.waitForSelectedDeviceStreaming() }
+        readiness.cancel()
+        await #expect(throws: CancellationError.self) {
+            try await readiness.value
+        }
+        #expect(await client.activationCancellationCount() == 0)
+
+        await client.resumeActivation()
+        await eventually { coordinator.status == .streaming }
+    }
+
     @Test("Swipe commands stay ordered on one outbox")
     func swipeOrdering() async {
         let client = SimulatorPaneClientSpy(devices: [])

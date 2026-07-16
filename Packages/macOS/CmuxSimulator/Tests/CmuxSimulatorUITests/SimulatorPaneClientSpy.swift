@@ -153,6 +153,15 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
         activationCancellationValue
     }
 
+    func hasDelayedActivation() -> Bool {
+        delayedActivation != nil
+    }
+
+    func resumeActivation() {
+        delayedActivation?.resume()
+        delayedActivation = nil
+    }
+
     private func cancelDelayedActivation() {
         activationCancellationValue += 1
         delayedActivation?.resume(throwing: CancellationError())

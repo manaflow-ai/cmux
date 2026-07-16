@@ -247,16 +247,26 @@ extension CMUXCLI {
             ))
         }
         if targetsRequireContextResolution {
-            targets = try targets.map { target in
+            var resolvedTargets: [[String: Any]] = []
+            resolvedTargets.reserveCapacity(targets.count)
+            for target in targets {
                 guard let surfaceRef = target["surface_ref"] as? String else {
                     throw missingIOSSimulatorIdentifier()
                 }
-                return try iosContextPayload(
-                    surface: surfaceRef,
-                    client: client,
-                    windowOverride: windowOverride
-                )
+                do {
+                    resolvedTargets.append(try iosContextPayload(
+                        surface: surfaceRef,
+                        client: client,
+                        windowOverride: windowOverride
+                    ))
+                } catch {
+                    guard all else { throw error }
+                    var failedTarget = target
+                    failedTarget["error"] = (error as? CLIError)?.message ?? error.localizedDescription
+                    resolvedTargets.append(failedTarget)
+                }
             }
+            targets = resolvedTargets
         }
         let outputURL = output.map { URL(fileURLWithPath: $0).standardizedFileURL }
         if let outputURL {
@@ -285,6 +295,12 @@ extension CMUXCLI {
             }
         }
         let captures = try targets.map { target -> [String: Any] in
+            if all, let error = target["error"] as? String {
+                return [
+                    "surface_ref": target["surface_ref"] ?? NSNull(),
+                    "error": error,
+                ]
+            }
             guard let simulatorID = target["simulator_id"] as? String,
                   let surfaceRef = target["surface_ref"] as? String else {
                 if all {
@@ -358,7 +374,7 @@ extension CMUXCLI {
             method: "simulator.context",
             params: params,
             responseTimeout: simulatorOperationDeadlines.clientTimeout(
-                for: simulatorOperationDeadlines.inspectionRead
+                for: simulatorOperationDeadlines.selectDevice
             )
         )
     }

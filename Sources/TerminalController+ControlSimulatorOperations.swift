@@ -67,6 +67,7 @@ extension TerminalController {
             var mutationCommitted = false
             switch operation {
             case .context:
+                try await coordinator.waitForSelectedDeviceStreaming()
                 let deviceID = try simulatorSelectedDeviceID(coordinator)
                 let selectedDevice = coordinator.selectedDevice
                 var values: [String: JSONValue] = [
@@ -323,6 +324,7 @@ extension TerminalController {
     }
 
     private func simulatorTimeout(for operation: ControlSimulatorOperation) -> TimeInterval {
+        if case .context = operation { return simulatorOperationDeadlines.selectDevice }
         if case .selectDevice = operation { return simulatorOperationDeadlines.selectDevice }
         if case .recover = operation { return simulatorOperationDeadlines.recover }
         if case .cameraConfigure = operation { return 160 }

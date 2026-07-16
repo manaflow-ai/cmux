@@ -6,7 +6,7 @@ extension SimulatorPaneCoordinator {
     /// Calling this method more than once is harmless.
     public func start() async {
         if let startupTask {
-            await waitForPaneOwnedStartup(startupTask)
+            await waitForPaneOwnedTask(startupTask)
             return
         }
         guard !closed, !started else { return }
@@ -15,13 +15,13 @@ extension SimulatorPaneCoordinator {
             await self.runStartup()
         }
         startupTask = task
-        await waitForPaneOwnedStartup(task)
+        await waitForPaneOwnedTask(task)
         guard !Task.isCancelled else { return }
         await task.value
         startupTask = nil
     }
 
-    private func waitForPaneOwnedStartup(_ task: Task<Void, Never>) async {
+    private func waitForPaneOwnedTask(_ task: Task<Void, Never>) async {
         let receipt = SimulatorStartupWaitReceipt()
         Task {
             await task.value
@@ -31,6 +31,48 @@ extension SimulatorPaneCoordinator {
             await receipt.wait()
         } onCancel: {
             receipt.finish()
+        }
+    }
+
+    /// Waits for the currently selected device to finish its pane-owned
+    /// activation without transferring cancellation ownership to the caller.
+    public func waitForSelectedDeviceStreaming() async throws {
+        if status == .streaming { return }
+        guard let selectedDeviceID,
+              devices.contains(where: { $0.id == selectedDeviceID }) else {
+            throw SimulatorFailure(
+                code: "device_not_found",
+                message: String(
+                    localized: "cli.simulator.error.deviceRequired",
+                    defaultValue: "The Simulator pane has no selected device"
+                ),
+                isRecoverable: true
+            )
+        }
+        if activationTask == nil {
+            selectDevice(id: selectedDeviceID)
+        }
+        guard let activationTask else {
+            throw SimulatorFailure(
+                code: "worker_unavailable",
+                message: String(
+                    localized: "simulator.failure.rendererStopped",
+                    defaultValue: "The Simulator renderer stopped"
+                ),
+                isRecoverable: true
+            )
+        }
+        await waitForPaneOwnedTask(activationTask)
+        try Task.checkCancellation()
+        guard self.selectedDeviceID == selectedDeviceID, status == .streaming else {
+            throw failure ?? SimulatorFailure(
+                code: "simulator_device_selection_failed",
+                message: String(
+                    localized: "cli.ios.error.deviceSelectionFailed",
+                    defaultValue: "The requested iOS Simulator device did not start streaming"
+                ),
+                isRecoverable: true
+            )
         }
     }
 
