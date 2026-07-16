@@ -923,7 +923,7 @@ function SourceControls({
       {/* The repo select is ALWAYS rendered (a native <select> has no "..." menu
           equivalent, so dropping it would strand multi-repo users). It shrinks
           and ellipsizes in place via field-sizing + the .toolbar-left clip. */}
-      {activeSessionSource?.kind !== "patch" ? (
+      {activeSessionSource?.kind !== "patch" && activeSessionSource?.kind !== "agentTurn" ? (
         <NavigationSelect
           ariaLabel={label("repoPath")}
           fallbackValue={payload.repoRoot ?? ""}
@@ -1764,9 +1764,21 @@ function validDiffSource(value: unknown): value is DiffSource {
   if (!value || typeof value !== "object" || typeof (value as { kind?: unknown }).kind !== "string") {
     return false;
   }
-  const source = value as { kind: string; repoRoot?: unknown; path?: unknown; baseRef?: unknown };
+  const source = value as {
+    kind: string;
+    repoRoot?: unknown;
+    path?: unknown;
+    baseRef?: unknown;
+    provider?: unknown;
+    sessionId?: unknown;
+  };
   if (source.kind === "patch") {
     return typeof source.path === "string";
+  }
+  if (source.kind === "agentTurn") {
+    return (source.provider === "codex" || source.provider === "claude" || source.provider === "openCode")
+      && typeof source.sessionId === "string"
+      && source.sessionId.length > 0;
   }
   if (source.kind === "unstaged" || source.kind === "staged") {
     return typeof source.repoRoot === "string";
@@ -1785,7 +1797,7 @@ function diffSourceRepoRoot(source: DiffSource | null): string | null {
 }
 
 function sourceSelectionWithActiveRepo(source: DiffSource, active: DiffSource | null): DiffSource {
-  if (source.kind === "patch") {
+  if (source.kind === "patch" || source.kind === "agentTurn") {
     return source;
   }
   const activeRepo = diffSourceRepoRoot(active);
@@ -1802,7 +1814,7 @@ function sourceSelectionWithActiveRepo(source: DiffSource, active: DiffSource | 
 
 function repoSelectionWithActiveSource(source: DiffSource, active: DiffSource | null): DiffSource {
   const repoRoot = diffSourceRepoRoot(source);
-  if (!repoRoot || !active || active.kind === "patch") {
+  if (!repoRoot || !active || active.kind === "patch" || active.kind === "agentTurn") {
     return source;
   }
   if (active.kind === "branch") {

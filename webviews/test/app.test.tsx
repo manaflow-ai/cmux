@@ -146,7 +146,7 @@ test("custom-scheme pending pages stream exactly one typed Rust session", async 
           sourceOptions: [
             { label: "Branch", selected: true, sessionSource: { kind: "branch", repoRoot: "/tmp/repo", baseRef: "main" }, value: "branch" },
             { label: "Unstaged", selected: false, sessionSource: { kind: "unstaged", repoRoot: "/tmp/repo" }, value: "unstaged" },
-            { label: "Last turn", selected: false, sessionSource: { kind: "patch", path: "/last-turn.patch" }, value: "last-turn" },
+            { label: "Last turn", selected: false, sessionSource: { kind: "agentTurn", provider: "codex", sessionId: "codex-session" }, value: "last-turn" },
           ],
           repoOptions: [
             { label: "repo", selected: true, sessionSource: { kind: "branch", repoRoot: "/tmp/repo", baseRef: "main" }, value: "/tmp/repo" },
@@ -201,7 +201,7 @@ test("custom-scheme pending pages stream exactly one typed Rust session", async 
   await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 5);
   await waitFor(() => fetched.length === 5);
   expect(requests.filter((request) => request.method === "sessionOpen")[4].params.source)
-    .toEqual({ kind: "patch", path: "/last-turn.patch" });
+    .toEqual({ kind: "agentTurn", provider: "codex", sessionId: "codex-session" });
   const closeCountBeforePageHide = requests.filter((request) => request.method === "sessionClose").length;
   dom.window.dispatchEvent(new dom.window.Event("pagehide"));
   await waitFor(() => requests.filter((request) => request.method === "sessionClose").length > closeCountBeforePageHide);
@@ -494,9 +494,9 @@ test("Last Turn reveals repo selection after switching to a typed git source", a
     <App
       config={{ payload: {
         capabilityToken: "0123456789abcdef",
-        sessionSource: { kind: "patch", path: "/last-turn.patch" },
+        sessionSource: { kind: "agentTurn", provider: "codex", sessionId: "codex-session" },
         sourceOptions: [
-          { label: "Last turn", selected: true, sessionSource: { kind: "patch", path: "/last-turn.patch" }, value: "last-turn" },
+          { label: "Last turn", selected: true, sessionSource: { kind: "agentTurn", provider: "codex", sessionId: "codex-session" }, value: "last-turn" },
           { label: "Unstaged", selected: false, sessionSource: { kind: "unstaged", repoRoot: "/tmp/repo" }, value: "unstaged" },
         ],
         repoOptions: [
