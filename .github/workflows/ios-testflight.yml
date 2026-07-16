@@ -328,9 +328,9 @@ jobs:
       CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID: ${{ vars.IOS_TESTFLIGHT_EXTERNAL_GROUP_ID }}
       CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME: ${{ vars.IOS_TESTFLIGHT_EXTERNAL_GROUP_NAME }}
       CMUX_TESTFLIGHT_ASSIGN_EXTERNAL_GROUP: "0"
-      # Internal builds use separate bundle ID and display name (set here so provisioning profile step can use it)
-      IOS_BETA_BUNDLE_ID: dev.cmux.app.internal
-      IOS_BETA_DISPLAY_NAME: cmux INTERNAL
+      # HOTFIX LANE: this branch ships the external beta app (dev.cmux.app.beta,
+      # "cmux BETA") to the founders group, so the internal bundle/display env from
+      # main's scheduled lane is intentionally absent here.
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -501,11 +501,6 @@ jobs:
           # Optional manual one-off override that reuses an older approved beta
           # marketing version so external testers can install it immediately.
           INPUT_MARKETING_VERSION_OVERRIDE: ${{ github.event.inputs.marketing_version_override }}
-          # Display name for scheduled internal builds (auto-synced to internal group).
-          IOS_BETA_DISPLAY_NAME: cmux INTERNAL
-          # Internal builds use separate bundle ID (dev.cmux.app.internal) so internal
-          # and external can coexist on same device.
-          IOS_BETA_BUNDLE_ID: dev.cmux.app.internal
         run: |
           set -euo pipefail
           if [ -n "${INPUT_MARKETING_VERSION_OVERRIDE:-}" ]; then
@@ -526,15 +521,11 @@ jobs:
               --marketing-version "$INPUT_MARKETING_VERSION_OVERRIDE" \
               --skip-notes
           else
-            # Reuse the checked-in CMUX_IOS_BETA_MARKETING_VERSION for scheduled betas.
-            # Scheduled builds use:
-            # - "cmux INTERNAL" display name
-            # - dev.cmux.app.internal bundle ID (separate app, can coexist with external)
-            # - assigned to internal TestFlight group for dogfooding within the team
-            # --notes-from-range: auto-generate audience-appropriate "What to
-            # Test" notes from the commits since the previous beta (skipped if we
-            # have no base SHA yet).
-            ARGS=(--lane beta --signing manual)
+            # HOTFIX LANE: reuse the checked-in CMUX_IOS_BETA_MARKETING_VERSION
+            # (1.0.4, already externally approved) and upload the external beta
+            # app (dev.cmux.app.beta) as external-eligible; the assign-external
+            # job attaches it to the founders group after processing.
+            ARGS=(--lane beta --signing manual --external)
             if [ -n "${LAST_UPLOADED_SHA:-}" ]; then
               ARGS+=(--notes-from-range "$LAST_UPLOADED_SHA")
             fi
@@ -654,62 +645,5 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ steps.assign.outputs.assignment_state == 'sibling_review_pending' && 'ios-testflight-assignment-state-pending' || 'ios-testflight-assignment-state-complete' }}
-          path: ${{ runner.temp }}/ios-testflight-assign-state.txt
-          retention-days: 30
-
-  assign-internal-group:
-    name: Assign build to internal TestFlight group
-    needs: [decide, upload]
-    if: (needs.decide.outputs.should_build == 'true' || needs.decide.outputs.should_assign_only == 'true') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/ios-hotfix-chip-top') && (needs.upload.result == 'success' || needs.decide.outputs.should_assign_only == 'true')
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 40
-    env:
-      ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
-      ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
-      ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
-      CMUX_TESTFLIGHT_INTERNAL_GROUP_ID: ${{ vars.IOS_TESTFLIGHT_INTERNAL_GROUP_ID }}
-      CMUX_TESTFLIGHT_INTERNAL_GROUP_NAME: ${{ vars.IOS_TESTFLIGHT_INTERNAL_GROUP_NAME }}
-      GH_TOKEN: ${{ github.token }}
-      SHOULD_BUILD: ${{ needs.decide.outputs.should_build }}
-      SHOULD_ASSIGN_ONLY: ${{ needs.decide.outputs.should_assign_only }}
-      LAST_UPLOADED_RUN_ID: ${{ needs.decide.outputs.last_uploaded_run_id }}
-      BUILD_NUMBER: ${{ needs.upload.outputs.final_build_number }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Restore previous uploaded build metadata
-        if: env.SHOULD_ASSIGN_ONLY == 'true'
-        run: |
-          set -euo pipefail
-          gh run download "$LAST_UPLOADED_RUN_ID" --repo manaflow-ai/cmux \
-            -n ios-testflight-build-metadata \
-            -D "$RUNNER_TEMP/ios-testflight-build"
-          BUILD_NUMBER="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["build_number"])' "$RUNNER_TEMP/ios-testflight-build/ios-testflight-build.json")"
-          echo "BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
-
-      - name: Assign uploaded build to the internal beta group
-        id: assign
-        run: |
-          set -euo pipefail
-          export CMUX_TESTFLIGHT_ASSIGN_STATE_OUT_FILE="$RUNNER_TEMP/ios-testflight-assign-state.txt"
-          if [ -z "${BUILD_NUMBER:-}" ] || [ "$BUILD_NUMBER" = "unknown" ]; then
-            echo "missing uploaded build number for internal TestFlight assignment" >&2
-            exit 1
-          fi
-          python3 ./ios/scripts/asc_assign_internal_testflight_group.py \
-            --bundle-id dev.cmux.app.internal \
-            --build-number "$BUILD_NUMBER"
-          ASSIGNMENT_STATE="unknown"
-          if [ -f "$CMUX_TESTFLIGHT_ASSIGN_STATE_OUT_FILE" ]; then
-            ASSIGNMENT_STATE="$(cat "$CMUX_TESTFLIGHT_ASSIGN_STATE_OUT_FILE")"
-          fi
-          echo "assignment_state=$ASSIGNMENT_STATE" >> "$GITHUB_OUTPUT"
-
-      - name: Upload assignment-state artifact
-        if: success()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: ios-testflight-internal-assignment-state-complete
           path: ${{ runner.temp }}/ios-testflight-assign-state.txt
           retention-days: 30
