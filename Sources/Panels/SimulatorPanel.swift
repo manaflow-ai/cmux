@@ -24,6 +24,7 @@ final class SimulatorPanel: Panel {
     @ObservationIgnored private var featureFlagsObserver: (any NSObjectProtocol)?
     @ObservationIgnored private var startupTask: Task<Void, Never>?
     @ObservationIgnored private var shutdownTask: Task<Void, Never>?
+    @ObservationIgnored private weak var focusOwnershipView: NSView?
     @ObservationIgnored private var featureTransitionGeneration = 0
     private var isFeatureDisabled = false
     private var isClosed = false
@@ -163,13 +164,41 @@ final class SimulatorPanel: Panel {
         coordinator.setActive(false)
     }
 
+    func setFocusOwnershipView(_ view: NSView) {
+        focusOwnershipView = view
+    }
+
+    func clearFocusOwnershipView(_ view: NSView) {
+        guard focusOwnershipView === view else { return }
+        focusOwnershipView = nil
+    }
+
     func ownedFocusIntent(for responder: NSResponder, in window: NSWindow) -> PanelFocusIntent? {
-        guard let simulatorResponder = responder as? any SimulatorInputResponder,
-              simulatorResponder.simulatorOwnerID == ObjectIdentifier(coordinator),
-              (responder as? NSView)?.window === window else {
-            return nil
+        if let simulatorResponder = responder as? any SimulatorInputResponder,
+           simulatorResponder.simulatorOwnerID == ObjectIdentifier(coordinator),
+           (responder as? NSView)?.window === window {
+            return .panel
         }
+
+        guard let ownershipView = focusOwnershipView,
+              ownershipView.window === window,
+              let responderView = Self.focusView(for: responder),
+              responderView.window === window else { return nil }
+        let ownershipFrame = ownershipView.convert(ownershipView.bounds, to: nil)
+        let responderFrame = responderView.convert(responderView.bounds, to: nil)
+        guard ownershipFrame.contains(
+            NSPoint(x: responderFrame.midX, y: responderFrame.midY)
+        ) else { return nil }
         return .panel
+    }
+
+    private static func focusView(for responder: NSResponder) -> NSView? {
+        if let fieldEditor = responder as? NSTextView,
+           fieldEditor.isFieldEditor,
+           let control = fieldEditor.delegate as? NSView {
+            return control
+        }
+        return responder as? NSView
     }
 
     func yieldFocusIntent(_ intent: PanelFocusIntent, in window: NSWindow) -> Bool {

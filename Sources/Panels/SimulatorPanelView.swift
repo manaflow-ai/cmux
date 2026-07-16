@@ -19,6 +19,9 @@ struct SimulatorPanelView: View {
             pointerEntryEventFilter: pointerEntryEventFilter,
             onRequestPanelFocus: onRequestPanelFocus
         )
+            .background {
+                SimulatorFocusOwnershipBridge(panel: panel)
+            }
             .environment(
                 \.colorScheme,
                 cmuxReadableColorScheme(for: appearance.backgroundColor)
@@ -40,5 +43,49 @@ struct SimulatorPanelView: View {
                 panel.coordinator.releaseInputs()
                 panel.setVisibleInUI(false)
             }
+    }
+}
+
+private struct SimulatorFocusOwnershipBridge: NSViewRepresentable {
+    let panel: SimulatorPanel
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(panel: panel)
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = PassthroughView()
+        context.coordinator.view = view
+        panel.setFocusOwnershipView(view)
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        if context.coordinator.panel !== panel {
+            context.coordinator.panel?.clearFocusOwnershipView(view)
+            context.coordinator.panel = panel
+        }
+        context.coordinator.view = view
+        panel.setFocusOwnershipView(view)
+    }
+
+    static func dismantleNSView(_ view: NSView, coordinator: Coordinator) {
+        coordinator.panel?.clearFocusOwnershipView(view)
+        coordinator.view = nil
+    }
+
+    final class Coordinator {
+        weak var panel: SimulatorPanel?
+        weak var view: NSView?
+
+        init(panel: SimulatorPanel) {
+            self.panel = panel
+        }
+    }
+
+    private final class PassthroughView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            nil
+        }
     }
 }

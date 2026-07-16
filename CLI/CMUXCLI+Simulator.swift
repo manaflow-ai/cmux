@@ -265,13 +265,19 @@ extension CMUXCLI {
                 atPath: outputURL.path,
                 isDirectory: &isDirectory
             )
-            if targets.count == 1, outputExists, isDirectory.boolValue {
+            if all {
+                guard outputExists, isDirectory.boolValue else {
+                    throw CLIError(message: String(
+                        localized: "cli.ios.error.outputDirectoryRequired",
+                        defaultValue: "--out must name an existing directory when capturing multiple Simulators"
+                    ))
+                }
+            } else if targets.count == 1, outputExists, isDirectory.boolValue {
                 throw CLIError(message: String(
                     localized: "cli.ios.error.outputFileRequired",
                     defaultValue: "--out must name a file when capturing one Simulator"
                 ))
-            }
-            guard targets.count == 1 || (outputExists && isDirectory.boolValue) else {
+            } else if targets.count != 1, !(outputExists && isDirectory.boolValue) {
                 throw CLIError(message: String(
                     localized: "cli.ios.error.outputDirectoryRequired",
                     defaultValue: "--out must name an existing directory when capturing multiple Simulators"
@@ -290,7 +296,7 @@ extension CMUXCLI {
                 throw missingIOSSimulatorIdentifier()
             }
             let destination: URL
-            if let outputURL, targets.count == 1 {
+            if let outputURL, !all, targets.count == 1 {
                 destination = outputURL
             } else {
                 let directory = outputURL ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath)

@@ -64,7 +64,7 @@ extension AppDelegate {
         }
 
         let shortcutWindow = shortcutResolvedEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
-        let simulatorFocused = shortcutWindow?.firstResponder is any SimulatorInputResponder
+        let simulatorFocused = shortcutFocusedSimulatorPanel(in: shortcutWindow) != nil
         let browserPanel = simulatorFocused
             ? nil
             : shortcutEventFocusedBrowserPanel(event) ?? shortcutWebInspectorFocusedBrowserPanel(in: shortcutWindow)
@@ -310,6 +310,34 @@ extension AppDelegate {
         }
 
         return tabManager?.focusedBrowserPanel
+    }
+
+    private func shortcutFocusedSimulatorPanel(in window: NSWindow?) -> SimulatorPanel? {
+        guard let window, let responder = window.firstResponder else { return nil }
+        if let context = shortcutMainWindowContext(in: window),
+           let dock = existingWindowDock(forWindowId: context.windowId) {
+            if let panelId = dock.focusedPanelId,
+               let panel = dock.panels[panelId] as? SimulatorPanel,
+               panel.ownedFocusIntent(for: responder, in: window) != nil {
+                return panel
+            }
+            if let panel = dock.panels.values.compactMap({ $0 as? SimulatorPanel }).first(where: {
+                $0.ownedFocusIntent(for: responder, in: window) != nil
+            }) {
+                return panel
+            }
+        }
+        guard let workspace = shortcutContextTabManager(in: window)?.selectedWorkspace else {
+            return nil
+        }
+        if let panelId = workspace.focusedPanelId,
+           let panel = workspace.panels[panelId] as? SimulatorPanel,
+           panel.ownedFocusIntent(for: responder, in: window) != nil {
+            return panel
+        }
+        return workspace.panels.values.compactMap { $0 as? SimulatorPanel }.first(where: {
+            $0.ownedFocusIntent(for: responder, in: window) != nil
+        })
     }
 
     private func shortcutWebInspectorFocusedBrowserPanel(in window: NSWindow?) -> BrowserPanel? {
