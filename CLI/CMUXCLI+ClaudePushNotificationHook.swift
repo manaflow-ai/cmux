@@ -60,6 +60,7 @@ extension CMUXCLI {
         let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
         let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
             currentAgentPID: claudePid,
+            agentName: "claude",
             env: ProcessInfo.processInfo.environment
         )
         guard !shouldSuppressNestedAgentNotification(

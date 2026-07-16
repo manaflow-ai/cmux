@@ -23864,6 +23864,7 @@ struct CMUXCLI {
             let claudePid = claudeAgentPID(from: ProcessInfo.processInfo.environment)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
+                agentName: "claude",
                 env: ProcessInfo.processInfo.environment
             )
             let launchCommand = agentLaunchCommandFromEnvironment(
@@ -23997,6 +23998,7 @@ struct CMUXCLI {
                 let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
                 let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                     currentAgentPID: claudePid,
+                    agentName: "claude",
                     env: ProcessInfo.processInfo.environment
                 )
                 let suppressNotification = shouldSuppressNestedAgentNotification(
@@ -24168,6 +24170,7 @@ struct CMUXCLI {
             let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
+                agentName: "claude",
                 env: ProcessInfo.processInfo.environment
             )
             sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
@@ -24337,6 +24340,7 @@ struct CMUXCLI {
             let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
+                agentName: "claude",
                 env: ProcessInfo.processInfo.environment
             )
             let suppressNotification = shouldSuppressNestedAgentNotification(
@@ -24501,6 +24505,7 @@ struct CMUXCLI {
                 let forkClaudePid = claudeAgentPID(from: ProcessInfo.processInfo.environment)
                 let suppressForkVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                     currentAgentPID: forkClaudePid,
+                    agentName: "claude",
                     env: ProcessInfo.processInfo.environment
                 )
                 // Resolve through the live target resolver so the cleanup
@@ -24597,6 +24602,7 @@ struct CMUXCLI {
                 let claudePid = consumedSession.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
                 let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                     currentAgentPID: claudePid,
+                    agentName: "claude",
                     env: ProcessInfo.processInfo.environment
                 )
                 if shouldClearVisibleState, !suppressVisibleMutations {
@@ -24656,6 +24662,7 @@ struct CMUXCLI {
             let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
+                agentName: "claude",
                 env: ProcessInfo.processInfo.environment
             )
             guard shouldApplyClaudeHookVisibleMutation(
@@ -30214,7 +30221,11 @@ export default CMUXSessionRestore;
         func performAgentSessionTeardown() {
             guard let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) else { return }
             sendAgentFeedTelemetry(workspaceId: mapped.workspaceId)
-            let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: mapped.pid, env: env)
+            let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
+                currentAgentPID: mapped.pid,
+                agentName: def.name,
+                env: env
+            )
             if suppressVisibleMutations {
                 telemetry.breadcrumb("\(def.name)-hook.session-end.nested-suppressed")
             } else if let consumed = try? store.consume(sessionId: sessionId, workspaceId: nil, surfaceId: nil) {
@@ -30469,7 +30480,11 @@ export default CMUXSessionRestore;
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
             let pid = inferredPID
-            let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: pid, env: env)
+            let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
+                currentAgentPID: pid,
+                agentName: def.name,
+                env: env
+            )
             let launchCommand = agentLaunchCommandFromEnvironment(
                 env,
                 fallbackPID: pid,
@@ -30779,6 +30794,7 @@ export default CMUXSessionRestore;
             }
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: pid,
+                agentName: def.name,
                 nestedPromptEvent: nestedPromptSubmit,
                 env: env
             )
@@ -31110,6 +31126,7 @@ export default CMUXSessionRestore;
             }
             let suppressNestedVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: pid,
+                agentName: def.name,
                 nestedPromptEvent: nestedPromptStop,
                 transcriptSubagentSession: codexSubagentSignals.isSubagentSession,
                 env: env
@@ -31354,7 +31371,11 @@ export default CMUXSessionRestore;
                 kind: def.name, current: launchCommand, mapped: mapped,
                 transcriptPath: input.transcriptPath ?? mapped?.transcriptPath, currentPID: pid
             )
-            var suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: pid, env: env)
+            var suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
+                currentAgentPID: pid,
+                agentName: def.name,
+                env: env
+            )
             if !sessionId.isEmpty, !suppressVisibleMutations {
                 let accepted = (try? store.markNotificationResolved(
                     sessionId: sessionId,
@@ -31419,6 +31440,7 @@ export default CMUXSessionRestore;
             let pid = mapped?.pid ?? inferredPID
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: pid,
+                agentName: def.name,
                 env: env
             )
             let suppressNotification = shouldSuppressNestedAgentNotification(

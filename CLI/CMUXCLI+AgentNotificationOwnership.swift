@@ -4,9 +4,29 @@ private let suppressSubagentNotificationsDefaultsKey = "suppressSubagentNotifica
 private let suppressSubagentNotificationsEnvironmentKey = "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"
 private let managedSubagentEnvironmentKey = "CMUX_AGENT_MANAGED_SUBAGENT"
 
+struct AgentVisibleMutationOwnershipAgentName: Sendable {
+    func resolve(
+        explicitAgentName: String?,
+        environment: [String: String]
+    ) -> String {
+        normalized(explicitAgentName)
+            ?? normalized(environment["CMUX_AGENT_LAUNCH_KIND"])
+            ?? "agent"
+    }
+
+    private func normalized(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+}
+
 extension CMUXCLI {
     func shouldSuppressNestedAgentVisibleMutations(
         currentAgentPID: Int?,
+        agentName: String,
         nestedPromptEvent: Bool = false,
         transcriptSubagentSession: Bool = false,
         env: [String: String]
@@ -24,7 +44,10 @@ extension CMUXCLI {
         guard let currentAgentPID, currentAgentPID > 1 else {
             return false
         }
-        let kind = normalizedHookValue(env["CMUX_AGENT_LAUNCH_KIND"]) ?? "agent"
+        let kind = AgentVisibleMutationOwnershipAgentName().resolve(
+            explicitAgentName: agentName,
+            environment: env
+        )
         return !AgentHookSessionLineageResolver().resolve(
             agentName: kind,
             sessionId: "unknown",
