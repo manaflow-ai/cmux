@@ -151,6 +151,22 @@ extension TerminalSurface {
 
             let currentUsable = Self.portalHostIsUsable(current)
             let nextUsable = Self.portalHostIsUsable(next)
+            // A distinct representable can appear before SwiftUI attaches or sizes it.
+            // Keep the rearmed owner authoritative until the replacement is usable;
+            // otherwise the detached host can be dismantled after stealing the lease,
+            // leaving the terminal alive but with no portal mounted in the Dock.
+            guard nextUsable else {
+#if DEBUG
+                logDebugEvent(
+                    "terminal.portal.host.skip surface=\(id.uuidString.prefix(5)) " +
+                    "reason=\(reason) host=\(hostId) pane=\(paneId.id.uuidString.prefix(5)) " +
+                    "inWin=\(inWindow ? 1 : 0) " +
+                    "size=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) " +
+                    "cause=detachedOrTiny"
+                )
+#endif
+                return false
+            }
             // During split churn SwiftUI can briefly keep the old host alive while the new
             // host for the same pane is already in the window. Prefer the newer live host
             // immediately so the surface moves with the pane instead of waiting for a later
