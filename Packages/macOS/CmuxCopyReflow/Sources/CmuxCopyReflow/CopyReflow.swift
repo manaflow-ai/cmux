@@ -185,9 +185,8 @@ private extension ReflowOptions {
                             after: p.prevContent,
                             alreadyJoined: p.hasJoined
                         )
-                    let indentationHasWrapEvidence = terminalWidth == nil
-                        ? p.prevVisibleLength >= minWrapWidth
-                        : previousLineReachedTerminalWidth
+                    let indentationHasWrapEvidence = previousLineReachedTerminalWidth
+                        || p.prevVisibleLength >= minWrapWidth
                     let s1 = indentationDelta > 0
                         && indentationHasWrapEvidence
                         && proseContinuationShape
