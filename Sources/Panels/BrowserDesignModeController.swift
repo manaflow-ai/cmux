@@ -536,6 +536,12 @@ final class BrowserDesignModeController {
         didCopy = false
         activePageURL = nil
         copyTask?.cancel()
+        // Clear the handle so the next copySelection() starts fresh instead of
+        // awaiting a cancelled task and returning without capturing. The
+        // originating copySelection() call detects the cleared copyTaskID and
+        // leaves the reset state untouched.
+        copyTask = nil
+        copyTaskID = nil
     }
 
     private func beginOperation() -> UInt {
