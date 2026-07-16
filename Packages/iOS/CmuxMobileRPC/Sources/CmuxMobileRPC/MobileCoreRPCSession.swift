@@ -253,6 +253,8 @@ actor MobileCoreRPCSession {
                         .connected(elapsedMilliseconds: Self.elapsedMilliseconds(since: connectStartedAt))
                     )
                     return connected
+                } catch is CancellationError {
+                    throw CancellationError()
                 } catch {
                     await transportConnectObserver?(
                         .failed(

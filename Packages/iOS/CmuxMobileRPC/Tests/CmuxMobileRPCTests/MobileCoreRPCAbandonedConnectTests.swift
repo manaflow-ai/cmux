@@ -132,11 +132,16 @@ import Testing
             expiresAt: Date().addingTimeInterval(60),
             authToken: "ticket-secret"
         )
+        let (connectEvents, connectEventContinuation) =
+            AsyncStream<MobileRPCTransportConnectEvent>.makeStream()
         let client = MobileCoreRPCClient(
             runtime: runtime,
             route: route,
             ticket: ticket,
-            allowsStackAuthFallback: true
+            allowsStackAuthFallback: true,
+            transportConnectObserver: { event in
+                connectEventContinuation.yield(event)
+            }
         )
         let first = try MobileCoreRPCClient.requestData(
             method: "terminal.input",
@@ -163,6 +168,18 @@ import Testing
         } catch is CancellationError {
         } catch {
             Issue.record("Expected CancellationError, got \(error)")
+        }
+        connectEventContinuation.finish()
+        var recordedConnectEvents: [MobileRPCTransportConnectEvent] = []
+        for await event in connectEvents {
+            recordedConnectEvents.append(event)
+        }
+        #expect(recordedConnectEvents.count == 1)
+        if let firstEvent = recordedConnectEvents.first {
+            guard case .attempt = firstEvent else {
+                Issue.record("Expected only an attempt event for a cancelled connect")
+                return
+            }
         }
 
         let data = try await client.sendRequest(second)
