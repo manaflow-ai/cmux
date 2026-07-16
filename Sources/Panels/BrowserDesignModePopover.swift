@@ -217,7 +217,22 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
         scrollView.verticalScrollElasticity = .none
         scrollView.hasHorizontalScroller = false
         scrollView.documentView = textView
-        textView.frame = NSRect(origin: .zero, size: scrollView.contentSize)
+        // contentSize is zero before layout; keep the text view's width (and
+        // therefore the wrapping container width) pinned to the scroll
+        // view's live content width or lines never wrap.
+        scrollView.contentView.postsFrameChangedNotifications = true
+        context.coordinator.frameObserver = NotificationCenter.default.addObserver(
+            forName: NSView.frameDidChangeNotification,
+            object: scrollView.contentView,
+            queue: .main
+        ) { [weak textView, weak scrollView] _ in
+            MainActor.assumeIsolated {
+                guard let textView, let scrollView else { return }
+                let width = scrollView.contentView.bounds.width
+                guard width > 0, abs(textView.frame.width - width) > 0.5 else { return }
+                textView.setFrameSize(NSSize(width: width, height: max(textView.frame.height, 1)))
+            }
+        }
         context.coordinator.textView = textView
         context.coordinator.sync(selections: selections, requestedChange: controller.requestedChange)
         DispatchQueue.main.async {
@@ -236,11 +251,18 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
         private let onHeightChange: (CGFloat) -> Void
         weak var textView: BrowserDesignModeTokenTextView?
         private var syncing = false
+        var frameObserver: (any NSObjectProtocol)?
         /// Identities the user deleted locally whose page-side removal has
         /// not been confirmed by a snapshot yet. sync() must treat these as
         /// gone, or it would re-append every just-deleted pill and rapid
         /// backspaces would cascade into mass deletions.
         private var pendingRemovals: Set<String> = []
+
+        deinit {
+            if let frameObserver {
+                NotificationCenter.default.removeObserver(frameObserver)
+            }
+        }
         private var lastIdentities: [String] = []
 
         init(controller: BrowserDesignModeController, onHeightChange: @escaping (CGFloat) -> Void) {
