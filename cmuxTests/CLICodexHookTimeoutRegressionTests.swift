@@ -129,15 +129,13 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(waitForFile(doneFile, containing: "done", timeout: 6))
     }
 
-    @Test func codexHooksPublishVisibleStateBeforeSlowTurnDiffBaseline() throws {
-        try assertCodexHookPublishesVisibleStateBeforeSlowTurnDiffBaseline(
-            eventName: "SessionStart",
+    @Test func codexHooksPublishVisibleStateWithoutGitSnapshots() throws {
+        try assertCodexHookPublishesVisibleStateWithoutGitSnapshot(
             subcommand: "session-start",
             payload: #"{"session_id":"codex-session","cwd":"REPO_ROOT","hook_event_name":"SessionStart"}"#,
             expectedCommandPrefix: "set_agent_pid "
         )
-        try assertCodexHookPublishesVisibleStateBeforeSlowTurnDiffBaseline(
-            eventName: "UserPromptSubmit",
+        try assertCodexHookPublishesVisibleStateWithoutGitSnapshot(
             subcommand: "prompt-submit",
             payload: #"{"session_id":"codex-session","turn_id":"turn-1","cwd":"REPO_ROOT","hook_event_name":"UserPromptSubmit","prompt":"work"}"#,
             expectedCommandPrefix: "set_status codex Running "
@@ -674,21 +672,19 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(session["terminalPromptTurnIds"] as? [String] == ["turn-done"])
     }
 
-    private func assertCodexHookPublishesVisibleStateBeforeSlowTurnDiffBaseline(
-        eventName: String,
+    private func assertCodexHookPublishesVisibleStateWithoutGitSnapshot(
         subcommand: String,
         payload: String,
         expectedCommandPrefix: String
     ) throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-codex-slow-baseline-\(subcommand)-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cmux-codex-no-git-snapshot-\(subcommand)-\(UUID().uuidString)", isDirectory: true)
         let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
         let fakeBin = root.appendingPathComponent("bin", isDirectory: true)
         let fakeGit = fakeBin.appendingPathComponent("git", isDirectory: false)
-        let slowGitDone = root.appendingPathComponent("slow-git-done", isDirectory: false)
-        let baselineStore = root.appendingPathComponent("agent-turn-diff-baselines.json", isDirectory: false)
-        let socketPath = makeCodexHookSocketPath("slow-diff")
+        let gitInvocation = root.appendingPathComponent("git-invoked", isDirectory: false)
+        let socketPath = makeCodexHookSocketPath("no-git-diff")
         let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
         let commands = CodexHookCapturedSocketCommands()
         let workspaceId = "11111111-1111-1111-1111-111111111111"
@@ -703,22 +699,9 @@ struct CLICodexHookTimeoutRegressionTests {
 
         try makeCodexHookExecutableShellFile(at: fakeGit, lines: [
             "#!/bin/sh",
-            "case \" $* \" in",
-            "  *\" rev-parse --show-toplevel \"*) printf '%s\\n' \"$CMUX_TEST_REPO_ROOT\" ;;",
-            "  *\" stash create \"*) sleep 3; printf done > \"$CMUX_TEST_SLOW_GIT_DONE\"; exit 1 ;;",
-            "  *\" rev-parse HEAD \"*) printf '%040d\\n' 0 ;;",
-            "  *) exit 0 ;;",
-            "esac",
+            "printf '%s\\n' \"$*\" > \"$CMUX_TEST_GIT_INVOCATION\"",
+            "exit 99",
         ])
-
-        let install = runCodexHookProcess(
-            executablePath: cliPath,
-            arguments: ["hooks", "codex", "install", "--yes"],
-            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
-            timeout: 5
-        )
-        #expect(!install.timedOut, Comment(rawValue: install.stderr))
-        #expect(install.status == 0, Comment(rawValue: install.stderr))
         startCodexHookMockSocketServerAccepting(
             listenerFD: listenerFD,
             commands: commands,
@@ -726,9 +709,6 @@ struct CLICodexHookTimeoutRegressionTests {
             connectionLimit: 24
         )
 
-        let hookCommand = try #require(
-            codexHookEntries(in: codexHome).first { $0.eventName == eventName }?.command
-        )
         let environment = [
             "HOME": root.path,
             "CODEX_HOME": codexHome.path,
@@ -740,33 +720,25 @@ struct CLICodexHookTimeoutRegressionTests {
             "CMUX_SURFACE_ID": surfaceId,
             "CMUX_AGENT_HOOK_STATE_DIR": root.path,
             "CMUX_CLI_SENTRY_DISABLED": "1",
-            "CMUX_BUNDLED_CLI_PATH": cliPath,
             "CMUX_CODEX_PID": "4242",
-            "CMUX_TEST_REPO_ROOT": root.path,
-            "CMUX_TEST_SLOW_GIT_DONE": slowGitDone.path,
+            "CMUX_TEST_GIT_INVOCATION": gitInvocation.path,
         ]
         let run = runCodexHookProcess(
-            executablePath: "/bin/sh",
-            arguments: ["-c", hookCommand],
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", subcommand],
             environment: environment,
             standardInput: payload.replacingOccurrences(of: "REPO_ROOT", with: root.path),
-            timeout: 2
+            timeout: 5
         )
 
         #expect(!run.timedOut, Comment(rawValue: run.stderr))
         #expect(run.status == 0, Comment(rawValue: run.stderr))
         #expect(run.stdout == "{}\n")
+        #expect(commands.snapshot().contains { $0.hasPrefix(expectedCommandPrefix) })
         #expect(
-            waitForCondition(timeout: 1) {
-                !FileManager.default.fileExists(atPath: slowGitDone.path)
-                    && commands.snapshot().contains { $0.hasPrefix(expectedCommandPrefix) }
-            },
-            "\(subcommand) must publish its sidebar state before the turn-diff baseline finishes"
+            !FileManager.default.fileExists(atPath: gitInvocation.path),
+            "\(subcommand) must not create a Git snapshot"
         )
-        #expect(waitForFile(slowGitDone, containing: "done", timeout: 5))
-        #expect(waitForCondition(timeout: 2) {
-            FileManager.default.fileExists(atPath: baselineStore.path)
-        })
     }
 
     private func bundledCLIPath() throws -> String {

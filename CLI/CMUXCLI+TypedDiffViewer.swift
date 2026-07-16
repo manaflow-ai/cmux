@@ -111,8 +111,6 @@ extension CMUXCLI {
             surfaceId: context.surfaceId
         )
         try writeDiffViewerBranchSession(session, rootDirectory: target.directory)
-        let lastTurnInput = try? readGitDiffInput(source: .lastTurn, context: context)
-
         func sessionSource(_ source: DiffSource, repo: String) -> [String: Any]? {
             switch source {
             case .unstaged:
@@ -127,10 +125,14 @@ extension CMUXCLI {
                 }
                 return payload
             case .lastTurn:
-                guard lastTurnInput != nil else { return nil }
+                guard let provider = normalizedDiffSourceValue(context.agentProvider),
+                      let sessionId = normalizedDiffSourceValue(context.sessionId) else {
+                    return nil
+                }
                 return [
-                    "kind": "patch",
-                    "path": "/\(diffViewerPatchFileURL(for: fileURL).lastPathComponent)",
+                    "kind": "agentTurn",
+                    "provider": provider,
+                    "sessionId": sessionId,
                 ]
             }
         }
@@ -148,7 +150,9 @@ extension CMUXCLI {
             )
         }
         let repoOptions: [DiffViewerSourceOption]
-        if repoCandidates.count > 1 {
+        if selectedSource == .lastTurn {
+            repoOptions = []
+        } else if repoCandidates.count > 1 {
             repoOptions = repoCandidates.map { option in
                 DiffViewerSourceOption(
                     value: option.repoRoot,
@@ -165,95 +169,38 @@ extension CMUXCLI {
             repoOptions = []
         }
 
-        var responseInput: DiffInput
-        if selectedSource == .lastTurn {
-            do {
-                responseInput = try nonEmptyGitDiffInput(source: selectedSource, context: context)
-                try writeDiffViewerHTML(
-                    to: fileURL,
-                    patch: responseInput.patch,
-                    title: titleOverride ?? responseInput.defaultTitle,
-                    sourceLabel: responseInput.sourceLabel,
-                    externalURL: responseInput.externalURL,
-                    remotePatchURL: responseInput.remotePatchURL,
-                    layout: layout,
-                    layoutSource: layoutSource,
-                    appearance: appearance,
-                    sourceOptions: sourceOptions,
-                    repoOptions: repoOptions,
-                    repoRoot: repoRoot,
-                    sessionSource: sessionSource(.lastTurn, repo: repoRoot),
-                    capabilityToken: target.mapper.token,
-                    assets: assets,
-                    sharedPayload: sharedPayload,
-                    runtime: target.runtime
-                )
-            } catch let error as EmptyDiffSourceError {
-                responseInput = DiffInput(
-                    patch: "",
-                    sourceLabel: "git \(selectedSource.slug)",
-                    defaultTitle: selectedSource.title,
-                    emptyMessage: error.message,
-                    externalURL: nil
-                )
-                try writeDiffViewerStatusHTML(
-                    to: fileURL,
-                    title: titleOverride ?? selectedSource.title,
-                    sourceLabel: responseInput.sourceLabel,
-                    message: error.message,
-                    isError: false,
-                    pollForReplacement: false,
-                    layout: layout,
-                    layoutSource: layoutSource,
-                    appearance: appearance,
-                    sourceOptions: sourceOptions,
-                    repoOptions: repoOptions,
-                    repoRoot: repoRoot,
-                    sessionSource: sessionSource(.lastTurn, repo: repoRoot),
-                    capabilityToken: target.mapper.token,
-                    assets: assets,
-                    sharedPayload: sharedPayload,
-                    runtime: target.runtime
-                )
-            }
-        } else {
-            let selectedSessionSource = sessionSource(selectedSource, repo: repoRoot)
-            responseInput = DiffInput(
-                patch: "",
-                sourceLabel: "git \(selectedSource.slug)",
-                defaultTitle: selectedSource.title,
-                emptyMessage: selectedSource.emptyMessage,
-                externalURL: nil
-            )
-            try writeDiffViewerStatusHTML(
-                to: fileURL,
-                title: titleOverride ?? selectedSource.title,
-                sourceLabel: responseInput.sourceLabel,
-                message: diffViewerLoadingDiffMessage(selectedSource.menuLabel),
-                emptyMessage: selectedSource.emptyMessage,
-                isError: false,
-                pollForReplacement: true,
-                layout: layout,
-                layoutSource: layoutSource,
-                appearance: appearance,
-                sourceOptions: sourceOptions,
-                repoOptions: repoOptions,
-                repoRoot: repoRoot,
-                branchBaseRef: context.branchBaseRef,
-                sessionSource: selectedSessionSource,
-                capabilityToken: target.mapper.token,
-                assets: assets,
-                sharedPayload: sharedPayload,
-                runtime: target.runtime
-            )
-            if let lastTurnInput {
-                try lastTurnInput.patch.write(
-                    to: diffViewerPatchFileURL(for: fileURL),
-                    atomically: true,
-                    encoding: .utf8
-                )
-            }
+        let selectedSessionSource = sessionSource(selectedSource, repo: repoRoot)
+        if selectedSource == .lastTurn, selectedSessionSource == nil {
+            throw CLIError(message: "cmux diff --last-turn requires --agent and --session.")
         }
+        let responseInput = DiffInput(
+            patch: "",
+            sourceLabel: "git \(selectedSource.slug)",
+            defaultTitle: selectedSource.title,
+            emptyMessage: selectedSource.emptyMessage,
+            externalURL: nil
+        )
+        try writeDiffViewerStatusHTML(
+            to: fileURL,
+            title: titleOverride ?? selectedSource.title,
+            sourceLabel: responseInput.sourceLabel,
+            message: diffViewerLoadingDiffMessage(selectedSource.menuLabel),
+            emptyMessage: selectedSource.emptyMessage,
+            isError: false,
+            pollForReplacement: true,
+            layout: layout,
+            layoutSource: layoutSource,
+            appearance: appearance,
+            sourceOptions: sourceOptions,
+            repoOptions: repoOptions,
+            repoRoot: repoRoot,
+            branchBaseRef: context.branchBaseRef,
+            sessionSource: selectedSessionSource,
+            capabilityToken: target.mapper.token,
+            assets: assets,
+            sharedPayload: sharedPayload,
+            runtime: target.runtime
+        )
 
         var pageURLs = [fileURL]
         if let extraAllowedPageURL { pageURLs.append(extraAllowedPageURL) }

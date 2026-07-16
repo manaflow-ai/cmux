@@ -147,7 +147,15 @@ extension CMUXCLI {
             guard let baseRef = context.branchBaseRef, !baseRef.isEmpty else { return nil }
             return ["kind": "branch", "repoRoot": repoRoot, "baseRef": baseRef]
         case .lastTurn:
-            return nil
+            guard let provider = normalizedDiffSourceValue(context.agentProvider),
+                  let sessionId = normalizedDiffSourceValue(context.sessionId) else {
+                return nil
+            }
+            return [
+                "kind": "agentTurn",
+                "provider": provider,
+                "sessionId": sessionId,
+            ]
         }
     }
 

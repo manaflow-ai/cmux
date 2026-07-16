@@ -850,117 +850,68 @@ final class CMUXOpenCommandTests: XCTestCase {
         let viewerFileURL = try resolvedDiffViewerHTMLFileURL(openedFileURL, from: params)
         let html = try String(contentsOf: viewerFileURL, encoding: .utf8)
         XCTAssertTrue(html.contains("data-cmux-diff-pending=\"true\""), html)
-        XCTAssertFalse(html.contains("No last-turn diff baseline recorded"), html)
         let payload = try diffViewerPayload(from: html)
         XCTAssertEqual(payload["statusIsError"] as? Bool, false, html)
         XCTAssertEqual(payload["emptyMessage"] as? String, "No unstaged changes to diff.")
         XCTAssertTrue(try openTypedDiffSession(payload: payload, cliPath: cliPath).isEmpty)
     }
 
-    func testDiffCommandShowsFriendlyEmptyStateForLastTurnWithoutBaseline() throws {
-        // Regression: a last-turn diff with no recorded baseline must render the
-        // friendly empty diff state (with the source switcher) and exit 0, not
-        // surface the raw "No last-turn diff baseline recorded" CLI error. The
-        // non-zero exit is what triggered the launcher's "unable to click" beep,
-        // so a clean exit fixes both the bad copy and the beep (issue #5246).
+    func testDiffCommandRequiresAgentTrajectoryContextForLastTurn() throws {
         let cliPath = try bundledCLIPath()
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let repoURL = rootURL.appendingPathComponent("repo", isDirectory: true)
-        let fileURL = repoURL.appendingPathComponent("story.txt")
         try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: rootURL) }
 
         try runGit(["init"], in: repoURL)
-        try runGit(["checkout", "-b", "main"], in: repoURL)
-        try runGit(["config", "user.name", "cmux tests"], in: repoURL)
-        try runGit(["config", "user.email", "cmux@example.invalid"], in: repoURL)
-        try "one\n".write(to: fileURL, atomically: true, encoding: .utf8)
-        try runGit(["add", "story.txt"], in: repoURL)
-        try runGit(["commit", "-m", "initial"], in: repoURL)
-        // Staged changes exist on another source; last turn must NOT silently fall
-        // back to them — it stays on its own empty state.
-        try "one\ntwo\n".write(to: fileURL, atomically: true, encoding: .utf8)
-        try runGit(["add", "story.txt"], in: repoURL)
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: makeSocketPath("diff-last-turn-context"),
+            arguments: ["diff", "--last-turn"],
+            currentDirectoryURL: repoURL
+        )
 
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.contains("requires --agent and --session"), result.stderr)
+    }
+
+    func testDiffCommandSendsAgentAndSessionToRustForLastTurn() throws {
+        let cliPath = try bundledCLIPath()
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let repoURL = rootURL.appendingPathComponent("repo", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        try runGit(["init"], in: repoURL)
         let result = try runDiffCLIAndReadHTML(
             cliPath: cliPath,
-            arguments: ["diff", "--last-turn"],
-            environmentOverrides: [
-                "CMUX_AGENT_HOOK_STATE_DIR": rootURL.appendingPathComponent("hook-state", isDirectory: true).path,
-                "CMUX_WORKSPACE_ID": UUID().uuidString.lowercased(),
-                "CMUX_SURFACE_ID": UUID().uuidString.lowercased()
+            arguments: [
+                "diff", "--last-turn",
+                "--agent", "codex",
+                "--session", "codex-session-123",
             ],
             currentDirectoryURL: repoURL,
             readPatchSidecar: false
         )
 
-        try assertFriendlyLastTurnEmptyState(html: result.html)
-        // No silent fallback to the staged "+two" change.
-        XCTAssertFalse(result.html.contains("+two"), result.html)
+        let payload = try diffViewerPayload(from: result.html)
+        let sessionSource = try XCTUnwrap(payload["sessionSource"] as? [String: Any])
+        XCTAssertEqual(sessionSource["kind"] as? String, "agentTurn")
+        XCTAssertEqual(sessionSource["provider"] as? String, "codex")
+        XCTAssertEqual(sessionSource["sessionId"] as? String, "codex-session-123")
+        XCTAssertEqual((payload["repoOptions"] as? [[String: Any]])?.count, 0)
     }
 
-    func testDiffCommandShowsFriendlyEmptyStateForEmptyLastTurnDiff() throws {
+    func testDiffCommandSupportsGitSources() throws {
         let cliPath = try bundledCLIPath()
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let repoURL = rootURL.appendingPathComponent("repo", isDirectory: true)
-        let stateURL = rootURL.appendingPathComponent("hook-state", isDirectory: true)
         let fileURL = repoURL.appendingPathComponent("story.txt")
         try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: stateURL, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: rootURL) }
-
-        try runGit(["init"], in: repoURL)
-        try runGit(["checkout", "-b", "main"], in: repoURL)
-        try runGit(["config", "user.name", "cmux tests"], in: repoURL)
-        try runGit(["config", "user.email", "cmux@example.invalid"], in: repoURL)
-        try runGit(["remote", "add", "origin", rootURL.appendingPathComponent("origin.git").path], in: repoURL)
-        try "one\n".write(to: fileURL, atomically: true, encoding: .utf8)
-        try runGit(["add", "story.txt"], in: repoURL)
-        try runGit(["commit", "-m", "initial"], in: repoURL)
-        let initialCommit = try runGitStdout(["rev-parse", "HEAD"], in: repoURL)
-        try runGit(["update-ref", "refs/remotes/origin/main", initialCommit], in: repoURL)
-        try runGit(["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"], in: repoURL)
-        try runGit(["checkout", "-b", "feature/diff-source"], in: repoURL)
-        try "one\ntwo\n".write(to: fileURL, atomically: true, encoding: .utf8)
-        try runGit(["add", "story.txt"], in: repoURL)
-        try runGit(["commit", "-m", "feature change"], in: repoURL)
-        let featureCommit = try runGitStdout(["rev-parse", "HEAD"], in: repoURL)
-        let workspaceId = UUID().uuidString.lowercased()
-        let surfaceId = UUID().uuidString.lowercased()
-        try writeDiffBaselineStore(
-            stateDirectoryURL: stateURL,
-            repoURL: repoURL,
-            workspaceId: workspaceId,
-            surfaceId: surfaceId,
-            baseCommit: featureCommit
-        )
-
-        let result = try runDiffCLIAndReadHTML(
-            cliPath: cliPath,
-            arguments: ["diff", "--last-turn"],
-            environmentOverrides: [
-                "CMUX_AGENT_HOOK_STATE_DIR": stateURL.path,
-                "CMUX_WORKSPACE_ID": workspaceId,
-                "CMUX_SURFACE_ID": surfaceId
-            ],
-            currentDirectoryURL: repoURL,
-            readPatchSidecar: false
-        )
-
-        try assertFriendlyLastTurnEmptyState(html: result.html)
-    }
-
-    func testDiffCommandSupportsGitSourcesAndSurfaceScopedLastTurn() throws {
-        let cliPath = try bundledCLIPath()
-        let rootURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        let repoURL = rootURL.appendingPathComponent("repo", isDirectory: true)
-        let stateURL = rootURL.appendingPathComponent("hook-state", isDirectory: true)
-        let fileURL = repoURL.appendingPathComponent("story.txt")
-        try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: stateURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: rootURL) }
         func assertNoANSIEscape(_ html: String, file: StaticString = #filePath, line: UInt = #line) {
             XCTAssertFalse(html.contains("\u{1B}"), html, file: file, line: line)
@@ -1030,6 +981,10 @@ final class CMUXOpenCommandTests: XCTestCase {
 
         let branchPayload = try diffViewerPayload(from: branch.html)
         let branchSourceOptions = try XCTUnwrap(branchPayload["sourceOptions"] as? [[String: Any]])
+        let lastTurnOption = try XCTUnwrap(
+            branchSourceOptions.first { $0["value"] as? String == "last-turn" }
+        )
+        XCTAssertEqual(lastTurnOption["disabled"] as? Bool, true)
         let selectedRepoUnstagedURLString = try diffViewerOptionURL(value: "unstaged", in: branchSourceOptions)
         let selectedRepoUnstagedFileURL = try diffViewerHTMLFileURL(
             for: selectedRepoUnstagedURLString,
@@ -1109,510 +1064,6 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(staged.html.contains("\"sourceLabel\":\"git staged\""), staged.html)
         assertNoANSIEscape(staged.patch)
 
-        let workspaceId = UUID().uuidString.lowercased()
-        let surfaceId = UUID().uuidString.lowercased()
-        try "before\n".write(to: repoURL.appendingPathComponent("preexisting.txt"), atomically: true, encoding: .utf8)
-        try "same\n".write(to: repoURL.appendingPathComponent("unchanged-untracked.txt"), atomically: true, encoding: .utf8)
-        try "remove me\n".write(to: repoURL.appendingPathComponent("deleted-untracked.txt"), atomically: true, encoding: .utf8)
-        let quotedUntrackedPath = "quoted\tuntracked.txt"
-        try "quoted before\n".write(to: repoURL.appendingPathComponent(quotedUntrackedPath), atomically: true, encoding: .utf8)
-        try "tracked later\n".write(to: repoURL.appendingPathComponent("tracked-later.txt"), atomically: true, encoding: .utf8)
-        try Data([0xff, 0x00, 0x6f, 0x6c, 0x64])
-            .write(to: repoURL.appendingPathComponent("binary.dat"), options: .atomic)
-        try writeDiffBaselineStore(
-            stateDirectoryURL: stateURL,
-            repoURL: repoURL,
-            workspaceId: workspaceId.uppercased(),
-            surfaceId: surfaceId.uppercased(),
-            baseCommit: initialCommit,
-            untrackedPaths: [
-                "preexisting.txt",
-                "unchanged-untracked.txt",
-                "deleted-untracked.txt",
-                quotedUntrackedPath,
-                "tracked-later.txt",
-                "binary.dat"
-            ]
-        )
-        try "after\n".write(to: repoURL.appendingPathComponent("preexisting.txt"), atomically: true, encoding: .utf8)
-        try "quoted after\n".write(to: repoURL.appendingPathComponent(quotedUntrackedPath), atomically: true, encoding: .utf8)
-        try Data([0xff, 0x00, 0x6e, 0x65, 0x77])
-            .write(to: repoURL.appendingPathComponent("binary.dat"), options: .atomic)
-        try runGit(["add", "tracked-later.txt"], in: repoURL)
-        try "created\n".write(to: repoURL.appendingPathComponent("new-turn-file.txt"), atomically: true, encoding: .utf8)
-        try FileManager.default.removeItem(at: repoURL.appendingPathComponent("deleted-untracked.txt"))
-        let lastTurn = try runDiffCLIAndReadHTML(
-            cliPath: cliPath,
-            arguments: ["diff", "--last-turn"],
-            environmentOverrides: [
-                "CMUX_AGENT_HOOK_STATE_DIR": stateURL.path,
-                "CMUX_WORKSPACE_ID": workspaceId,
-                "CMUX_SURFACE_ID": surfaceId
-            ],
-            currentDirectoryURL: repoURL
-        )
-        XCTAssertEqual(lastTurn.params["workspace_id"] as? String, workspaceId)
-        XCTAssertEqual(lastTurn.params["surface_id"] as? String, surfaceId)
-        XCTAssertEqual(lastTurn.params["show_omnibar"] as? Bool, false)
-        XCTAssertTrue(lastTurn.html.contains("Last turn diff"), lastTurn.html)
-        XCTAssertTrue(lastTurn.patch.contains("+two"), lastTurn.patch)
-        XCTAssertTrue(lastTurn.patch.contains("+three"), lastTurn.patch)
-        XCTAssertTrue(lastTurn.patch.contains("new-turn-file.txt"), lastTurn.patch)
-        XCTAssertTrue(lastTurn.patch.contains("+created"), lastTurn.patch)
-        XCTAssertTrue(lastTurn.patch.contains("preexisting.txt"), lastTurn.patch)
-        XCTAssertTrue(lastTurn.patch.contains("-before"), lastTurn.patch)
-        XCTAssertTrue(lastTurn.patch.contains("+after"), lastTurn.patch)
-        XCTAssertTrue(lastTurn.patch.contains("\"a/quoted\\tuntracked.txt\""), lastTurn.patch)
-        XCTAssertTrue(lastTurn.patch.contains("\"b/quoted\\tuntracked.txt\""), lastTurn.patch)
-        XCTAssertFalse(lastTurn.patch.contains("baseline/quoted"), lastTurn.patch)
-        XCTAssertFalse(lastTurn.patch.contains("current/quoted"), lastTurn.patch)
-        XCTAssertTrue(lastTurn.patch.contains("-quoted before"), lastTurn.patch)
-        XCTAssertTrue(lastTurn.patch.contains("+quoted after"), lastTurn.patch)
-        XCTAssertTrue(lastTurn.patch.contains("binary.dat"), lastTurn.patch)
-        XCTAssertTrue(lastTurn.patch.contains("GIT binary patch"), lastTurn.patch)
-        XCTAssertTrue(lastTurn.patch.contains("tracked-later.txt"), lastTurn.patch)
-        XCTAssertTrue(lastTurn.patch.contains("+tracked later"), lastTurn.patch)
-        XCTAssertFalse(lastTurn.patch.contains("-tracked later"), lastTurn.patch)
-        XCTAssertTrue(lastTurn.patch.contains("deleted-untracked.txt"), lastTurn.patch)
-        XCTAssertTrue(lastTurn.patch.contains("-remove me"), lastTurn.patch)
-        XCTAssertFalse(lastTurn.patch.contains("unchanged-untracked.txt"), lastTurn.patch)
-        assertNoANSIEscape(lastTurn.patch)
-
-        let refLastTurn = try runDiffCLIAndReadHTML(
-            cliPath: cliPath,
-            arguments: ["diff", "--last-turn", "--workspace", "workspace:1", "--surface", "surface:1"],
-            environmentOverrides: [
-                "CMUX_AGENT_HOOK_STATE_DIR": stateURL.path
-            ],
-            currentDirectoryURL: repoURL
-        ) { line in
-            guard let payload = Self.v2Payload(from: line),
-                  let id = payload["id"] as? String,
-                  let method = payload["method"] as? String else {
-                return nil
-            }
-            switch method {
-            case "workspace.list":
-                return Self.v2Response(
-                    id: id,
-                    ok: true,
-                    result: [
-                        "workspaces": [
-                            [
-                                "id": workspaceId,
-                                "ref": "workspace:1",
-                                "index": 1
-                            ] as [String: Any]
-                        ]
-                    ]
-                )
-            case "surface.list":
-                let params = payload["params"] as? [String: Any] ?? [:]
-                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
-                return Self.v2Response(
-                    id: id,
-                    ok: true,
-                    result: [
-                        "surfaces": [
-                            [
-                                "id": surfaceId,
-                                "ref": "surface:1",
-                                "index": 1,
-                                "focused": true
-                            ] as [String: Any]
-                        ]
-                    ]
-                )
-            default:
-                return nil
-            }
-        }
-        XCTAssertEqual(refLastTurn.params["workspace_id"] as? String, workspaceId)
-        XCTAssertEqual(refLastTurn.params["surface_id"] as? String, surfaceId)
-        XCTAssertTrue(refLastTurn.html.contains("Last turn diff"), refLastTurn.html)
-
-        let homeURL = rootURL.appendingPathComponent("custom-home", isDirectory: true)
-        let homeStateURL = homeURL.appendingPathComponent(".cmuxterm", isDirectory: true)
-        try FileManager.default.createDirectory(at: homeStateURL, withIntermediateDirectories: true)
-        try writeDiffBaselineStore(
-            stateDirectoryURL: homeStateURL,
-            repoURL: repoURL,
-            workspaceId: workspaceId,
-            surfaceId: surfaceId,
-            baseCommit: initialCommit,
-            untrackedPaths: ["preexisting.txt"]
-        )
-        let homeLastTurn = try runDiffCLIAndReadHTML(
-            cliPath: cliPath,
-            arguments: ["diff", "--last-turn"],
-            environmentOverrides: [
-                "HOME": homeURL.path,
-                "CMUX_WORKSPACE_ID": workspaceId,
-                "CMUX_SURFACE_ID": surfaceId
-            ],
-            currentDirectoryURL: repoURL
-        )
-        XCTAssertTrue(homeLastTurn.html.contains("Last turn diff"), homeLastTurn.html)
-        XCTAssertTrue(homeLastTurn.patch.contains("new-turn-file.txt"), homeLastTurn.patch)
-
-        let wrongSurfaceResult = try runDiffCLIAndReadHTML(
-            cliPath: cliPath,
-            arguments: ["diff", "--last-turn"],
-            environmentOverrides: [
-                "CMUX_AGENT_HOOK_STATE_DIR": stateURL.path,
-                "CMUX_WORKSPACE_ID": workspaceId,
-                "CMUX_SURFACE_ID": UUID().uuidString.lowercased()
-            ],
-            currentDirectoryURL: repoURL,
-            readPatchSidecar: false
-        )
-        try assertFriendlyLastTurnEmptyState(html: wrongSurfaceResult.html)
-    }
-
-    /// Asserts the diff viewer HTML renders the friendly, non-error last-turn empty
-    /// state: plain-language copy (never the raw baseline CLI error), `statusIsError`
-    /// false, and the source switcher still present with last turn selected.
-    private func assertFriendlyLastTurnEmptyState(html: String) throws {
-        XCTAssertFalse(html.contains("No last-turn diff baseline recorded"), html)
-        let payload = try diffViewerPayload(from: html)
-        XCTAssertEqual(payload["statusMessage"] as? String, "No last-turn changes to diff.", html)
-        XCTAssertEqual(payload["statusIsError"] as? Bool, false, html)
-        let sourceOptions = try XCTUnwrap(payload["sourceOptions"] as? [[String: Any]], html)
-        let lastTurnOption = try XCTUnwrap(
-            sourceOptions.first { $0["value"] as? String == "last-turn" },
-            html
-        )
-        XCTAssertEqual(lastTurnOption["selected"] as? Bool, true, html)
-    }
-
-    func testAgentTurnDiffBaselineStoresUntrackedSnapshotsOutsideGit() throws {
-        let cliPath = try bundledCLIPath()
-        let rootURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        let repoURL = rootURL.appendingPathComponent("repo", isDirectory: true)
-        let stateURL = rootURL.appendingPathComponent("state", isDirectory: true)
-        try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: stateURL, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: rootURL) }
-
-        try runGit(["init"], in: repoURL)
-        try runGit(["config", "user.name", "cmux tests"], in: repoURL)
-        try runGit(["config", "user.email", "cmux@example.invalid"], in: repoURL)
-        try "tracked\n".write(to: repoURL.appendingPathComponent("tracked.txt"), atomically: true, encoding: .utf8)
-        try runGit(["add", "tracked.txt"], in: repoURL)
-        try runGit(["commit", "-m", "initial"], in: repoURL)
-        let secretURL = repoURL.appendingPathComponent("secret.txt")
-        try "before\n".write(to: secretURL, atomically: true, encoding: .utf8)
-        chmod(secretURL.path, 0o644)
-
-        let workspaceId = UUID().uuidString.lowercased()
-        let surfaceId = UUID().uuidString.lowercased()
-        let socketPath = makeSocketPath("hook-diff")
-        let listenerFD = try bindUnixSocket(at: socketPath)
-        let state = MockSocketServerState()
-        defer {
-            Darwin.close(listenerFD)
-            unlink(socketPath)
-        }
-        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            guard let payload = Self.v2Payload(from: line),
-                  let id = payload["id"] as? String,
-                  let method = payload["method"] as? String else {
-                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
-            }
-            if method == "surface.list" {
-                return Self.v2Response(
-                    id: id,
-                    ok: true,
-                    result: [
-                        "surfaces": [
-                            [
-                                "id": surfaceId,
-                                "ref": "surface:1",
-                                "index": 1,
-                                "focused": true
-                            ] as [String: Any]
-                        ]
-                    ]
-                )
-            }
-            return Self.v2Response(id: id, ok: true, result: [:])
-        }
-
-        let result = runCLI(
-            cliPath: cliPath,
-            socketPath: socketPath,
-            arguments: ["hooks", "codex", "prompt-submit", "--workspace", workspaceId, "--surface", surfaceId],
-            environmentOverrides: [
-                "CMUX_AGENT_HOOK_STATE_DIR": stateURL.path,
-                "PWD": repoURL.path
-            ],
-            currentDirectoryURL: repoURL
-        )
-
-        wait(for: [serverHandled], timeout: 5)
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        let untrackedRefs = try runGitStdout(
-            ["for-each-ref", "--format=%(refname)", "refs/cmux/last-turn/untracked"],
-            in: repoURL
-        )
-        XCTAssertEqual(untrackedRefs.trimmingCharacters(in: .whitespacesAndNewlines), "")
-
-        let storeURL = stateURL.appendingPathComponent("agent-turn-diff-baselines.json")
-        let lockURL = stateURL.appendingPathComponent("agent-turn-diff-baselines.json.lock")
-        let storeData = try Data(contentsOf: storeURL)
-        let store = try JSONSerialization.jsonObject(with: storeData, options: []) as? [String: Any]
-        let records = try XCTUnwrap(store?["records"] as? [[String: Any]])
-        let record = try XCTUnwrap(records.first)
-        let snapshotId = try XCTUnwrap(record["untrackedSnapshotId"] as? String)
-        let hashes = try XCTUnwrap(record["untrackedPathHashes"] as? [String: String])
-        XCTAssertNotNil(hashes["secret.txt"])
-        let snapshotRoot = stateURL
-            .appendingPathComponent("agent-turn-diff-baseline-snapshots", isDirectory: true)
-        let snapshotDirectory = snapshotRoot
-            .appendingPathComponent(snapshotId, isDirectory: true)
-        let filesDirectory = snapshotDirectory
-            .appendingPathComponent("files", isDirectory: true)
-        let snapshotFile = filesDirectory
-            .appendingPathComponent("secret.txt", isDirectory: false)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: snapshotFile.path))
-        XCTAssertEqual(try posixPermissions(at: stateURL), 0o700)
-        XCTAssertEqual(try posixPermissions(at: storeURL), 0o600)
-        XCTAssertEqual(try posixPermissions(at: lockURL), 0o600)
-        XCTAssertEqual(try posixPermissions(at: snapshotRoot), 0o700)
-        XCTAssertEqual(try posixPermissions(at: snapshotDirectory), 0o700)
-        XCTAssertEqual(try posixPermissions(at: filesDirectory), 0o700)
-        XCTAssertEqual(try posixPermissions(at: snapshotFile), 0o600)
-    }
-
-    func testAgentTurnDiffBaselineUsesEmptyTreeForUnbornGitRepo() throws {
-        let cliPath = try bundledCLIPath()
-        let rootURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        let repoURL = rootURL.appendingPathComponent("repo", isDirectory: true)
-        let stateURL = rootURL.appendingPathComponent("state", isDirectory: true)
-        try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: stateURL, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: rootURL) }
-
-        try runGit(["init"], in: repoURL)
-        let emptyTree = try runGitStdout(["hash-object", "-t", "tree", "/dev/null"], in: repoURL)
-
-        let workspaceId = UUID().uuidString.lowercased()
-        let surfaceId = UUID().uuidString.lowercased()
-        let socketPath = makeSocketPath("hook-empty")
-        let listenerFD = try bindUnixSocket(at: socketPath)
-        let state = MockSocketServerState()
-        defer {
-            Darwin.close(listenerFD)
-            unlink(socketPath)
-        }
-        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            guard let payload = Self.v2Payload(from: line),
-                  let id = payload["id"] as? String,
-                  let method = payload["method"] as? String else {
-                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
-            }
-            if method == "surface.list" {
-                return Self.v2Response(
-                    id: id,
-                    ok: true,
-                    result: [
-                        "surfaces": [
-                            [
-                                "id": surfaceId,
-                                "ref": "surface:1",
-                                "index": 1,
-                                "focused": true
-                            ] as [String: Any]
-                        ]
-                    ]
-                )
-            }
-            return Self.v2Response(id: id, ok: true, result: [:])
-        }
-
-        let hook = runCLI(
-            cliPath: cliPath,
-            socketPath: socketPath,
-            arguments: ["hooks", "codex", "prompt-submit", "--workspace", workspaceId, "--surface", surfaceId],
-            environmentOverrides: [
-                "CMUX_AGENT_HOOK_STATE_DIR": stateURL.path,
-                "PWD": repoURL.path
-            ],
-            currentDirectoryURL: repoURL
-        )
-
-        wait(for: [serverHandled], timeout: 5)
-        XCTAssertFalse(hook.timedOut, hook.stderr)
-        XCTAssertEqual(hook.status, 0, hook.stderr)
-
-        let storeURL = stateURL.appendingPathComponent("agent-turn-diff-baselines.json")
-        let storeData = try Data(contentsOf: storeURL)
-        let store = try XCTUnwrap(JSONSerialization.jsonObject(with: storeData) as? [String: Any])
-        let records = try XCTUnwrap(store["records"] as? [[String: Any]])
-        let record = try XCTUnwrap(records.first)
-        XCTAssertEqual(record["baseCommit"] as? String, emptyTree)
-
-        try "created before first commit\n".write(
-            to: repoURL.appendingPathComponent("new-file.txt"),
-            atomically: true,
-            encoding: .utf8
-        )
-
-        let lastTurn = try runDiffCLIAndReadHTML(
-            cliPath: cliPath,
-            arguments: ["diff", "--last-turn"],
-            environmentOverrides: [
-                "CMUX_AGENT_HOOK_STATE_DIR": stateURL.path,
-                "CMUX_WORKSPACE_ID": workspaceId,
-                "CMUX_SURFACE_ID": surfaceId
-            ],
-            currentDirectoryURL: repoURL
-        )
-        XCTAssertTrue(lastTurn.patch.contains("new-file.txt"), lastTurn.patch)
-        XCTAssertTrue(lastTurn.patch.contains("+created before first commit"), lastTurn.patch)
-    }
-
-    func testAgentTurnDiffBaselineKeepsFirstSnapshotForDuplicateTurnHook() throws {
-        let cliPath = try bundledCLIPath()
-        let rootURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        let repoURL = rootURL.appendingPathComponent("repo", isDirectory: true)
-        let stateURL = rootURL.appendingPathComponent("state", isDirectory: true)
-        let fileURL = repoURL.appendingPathComponent("story.txt")
-        try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: stateURL, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: rootURL) }
-
-        try runGit(["init"], in: repoURL)
-        try runGit(["config", "user.name", "cmux tests"], in: repoURL)
-        try runGit(["config", "user.email", "cmux@example.invalid"], in: repoURL)
-        try "one\n".write(to: fileURL, atomically: true, encoding: .utf8)
-        try runGit(["add", "story.txt"], in: repoURL)
-        try runGit(["commit", "-m", "initial"], in: repoURL)
-
-        let workspaceId = UUID().uuidString.lowercased()
-        let surfaceId = UUID().uuidString.lowercased()
-        let sessionId = "session-duplicate-turn"
-        let turnId = "turn-duplicate"
-
-        func runHook(subcommand: String, input: [String: Any]) throws -> ProcessRunResult {
-            let socketPath = makeSocketPath("hookdu")
-            let listenerFD = try bindUnixSocket(at: socketPath)
-            let state = MockSocketServerState()
-            defer {
-                Darwin.close(listenerFD)
-                unlink(socketPath)
-            }
-            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-                guard let payload = Self.v2Payload(from: line),
-                      let id = payload["id"] as? String,
-                      let method = payload["method"] as? String else {
-                    return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
-                }
-                if method == "surface.list" {
-                    return Self.v2Response(
-                        id: id,
-                        ok: true,
-                        result: [
-                            "surfaces": [
-                                [
-                                    "id": surfaceId,
-                                    "ref": "surface:1",
-                                    "index": 1,
-                                    "focused": true
-                                ] as [String: Any]
-                            ]
-                        ]
-                    )
-                }
-                return Self.v2Response(id: id, ok: true, result: [:])
-            }
-            let inputData = try JSONSerialization.data(withJSONObject: input, options: [.sortedKeys])
-            let result = runCLI(
-                cliPath: cliPath,
-                socketPath: socketPath,
-                arguments: ["hooks", "codex", subcommand, "--workspace", workspaceId, "--surface", surfaceId],
-                environmentOverrides: [
-                    "CMUX_AGENT_HOOK_STATE_DIR": stateURL.path,
-                    "PWD": repoURL.path
-                ],
-                currentDirectoryURL: repoURL,
-                stdinText: String(data: inputData, encoding: .utf8)
-            )
-            wait(for: [serverHandled], timeout: 5)
-            return result
-        }
-
-        func runPromptSubmit() throws -> ProcessRunResult {
-            try runHook(
-                subcommand: "prompt-submit",
-                input: [
-                    "session_id": sessionId,
-                    "turn_id": turnId,
-                    "cwd": repoURL.path
-                ]
-            )
-        }
-
-        func runStop() throws -> ProcessRunResult {
-            try runHook(
-                subcommand: "stop",
-                input: [
-                    "session_id": sessionId,
-                    "turn_id": turnId,
-                    "cwd": repoURL.path,
-                    "last_assistant_message": "done"
-                ]
-            )
-        }
-
-        func diffBaselineRecords() throws -> [[String: Any]] {
-            let storeData = try Data(contentsOf: stateURL.appendingPathComponent("agent-turn-diff-baselines.json"))
-            let store = try JSONSerialization.jsonObject(with: storeData, options: []) as? [String: Any]
-            return try XCTUnwrap(store?["records"] as? [[String: Any]])
-        }
-
-        let firstHook = try runPromptSubmit()
-        XCTAssertFalse(firstHook.timedOut, firstHook.stderr)
-        XCTAssertEqual(firstHook.status, 0, firstHook.stderr)
-        try "one\ntwo\n".write(to: fileURL, atomically: true, encoding: .utf8)
-
-        let duplicateHook = try runPromptSubmit()
-        XCTAssertFalse(duplicateHook.timedOut, duplicateHook.stderr)
-        XCTAssertEqual(duplicateHook.status, 0, duplicateHook.stderr)
-
-        let records = try diffBaselineRecords()
-        XCTAssertEqual(records.filter { $0["turnId"] as? String == turnId }.count, 1)
-        let duplicateBaseCommit = try XCTUnwrap(records.first?["baseCommit"] as? String)
-
-        let lastTurn = try runDiffCLIAndReadHTML(
-            cliPath: cliPath,
-            arguments: ["diff", "--last-turn"],
-            environmentOverrides: [
-                "CMUX_AGENT_HOOK_STATE_DIR": stateURL.path,
-                "CMUX_WORKSPACE_ID": workspaceId,
-                "CMUX_SURFACE_ID": surfaceId
-            ],
-            currentDirectoryURL: repoURL
-        )
-        XCTAssertTrue(lastTurn.patch.contains("+two"), lastTurn.patch)
-
-        let stopHook = try runStop()
-        XCTAssertFalse(stopHook.timedOut, stopHook.stderr)
-        XCTAssertEqual(stopHook.status, 0, stopHook.stderr)
-        try "one\ntwo\nthree\n".write(to: fileURL, atomically: true, encoding: .utf8)
-
-        let nextHook = try runPromptSubmit()
-        XCTAssertFalse(nextHook.timedOut, nextHook.stderr)
-        XCTAssertEqual(nextHook.status, 0, nextHook.stderr)
-
-        let refreshedRecords = try diffBaselineRecords()
-        XCTAssertEqual(refreshedRecords.filter { $0["turnId"] as? String == turnId }.count, 1)
-        let refreshedBaseCommit = try XCTUnwrap(refreshedRecords.first?["baseCommit"] as? String)
-        XCTAssertNotEqual(refreshedBaseCommit, duplicateBaseCommit)
     }
 
     func testDiffCommandGitSourcesDrainLargeDiffOutput() throws {
@@ -2413,11 +1864,6 @@ final class CMUXOpenCommandTests: XCTestCase {
         return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func posixPermissions(at url: URL) throws -> Int {
-        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
-        return (try XCTUnwrap(attributes[.posixPermissions] as? NSNumber).intValue) & 0o777
-    }
-
     private func runGitProcess(_ arguments: [String], in directory: URL) -> ProcessRunResult {
         runProcess(
             executablePath: "/usr/bin/env",
@@ -2426,56 +1872,6 @@ final class CMUXOpenCommandTests: XCTestCase {
             timeout: 30,
             currentDirectoryURL: directory
         )
-    }
-
-    private func writeDiffBaselineStore(
-        stateDirectoryURL: URL,
-        repoURL: URL,
-        workspaceId: String,
-        surfaceId: String,
-        baseCommit: String,
-        untrackedPaths: [String]? = nil
-    ) throws {
-        var record: [String: Any] = [
-            "workspaceId": workspaceId,
-            "surfaceId": surfaceId,
-            "sessionId": "session-1",
-            "turnId": "turn-1",
-            "agent": "codex",
-            "repoRoot": repoURL.standardizedFileURL.path,
-            "baseCommit": baseCommit,
-            "capturedAt": Date().timeIntervalSince1970
-        ]
-        if let untrackedPaths {
-            record["untrackedPaths"] = untrackedPaths
-            var untrackedPathHashes: [String: String] = [:]
-            let snapshotId = UUID().uuidString
-            let snapshotRoot = stateDirectoryURL
-                .appendingPathComponent("agent-turn-diff-baseline-snapshots", isDirectory: true)
-                .appendingPathComponent(snapshotId, isDirectory: true)
-                .appendingPathComponent("files", isDirectory: true)
-            for path in untrackedPaths {
-                let hash = try runGitStdout(["hash-object", "--no-filters", "--", path], in: repoURL)
-                let snapshotURL = snapshotRoot.appendingPathComponent(path, isDirectory: false)
-                try FileManager.default.createDirectory(
-                    at: snapshotURL.deletingLastPathComponent(),
-                    withIntermediateDirectories: true
-                )
-                try FileManager.default.copyItem(
-                    at: repoURL.appendingPathComponent(path, isDirectory: false),
-                    to: snapshotURL
-                )
-                untrackedPathHashes[path] = hash
-            }
-            record["untrackedPathHashes"] = untrackedPathHashes
-            record["untrackedSnapshotId"] = snapshotId
-        }
-        let payload: [String: Any] = [
-            "version": 1,
-            "records": [record]
-        ]
-        let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
-        try data.write(to: stateDirectoryURL.appendingPathComponent("agent-turn-diff-baselines.json"), options: .atomic)
     }
 
     private func bundledCLIPath() throws -> String {

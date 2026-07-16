@@ -943,9 +943,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Live `cmux diff` viewer subprocesses, keyed by pid, retained until they exit.
     /// Declared outside `#if DEBUG` because process retention is production behavior.
     private var diffViewerProcesses: [Int32: Process] = [:]
-    /// In-flight agent-aware diff launches, keyed so repeated shortcuts do not fan out large baseline parses.
-    var openDiffViewerAgentContextTasks: [String: Task<Void, Never>] = [:]
-    var openDiffViewerAgentContextPendingRequests: [String: OpenDiffViewerAgentContextRequest] = [:]
 
 #if DEBUG
     private var didSetupJumpUnreadUITest = false
@@ -6057,37 +6054,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if preferAgentContext,
            let surfaceId = workspace.focusedPanelId,
            let snapshot = SharedLiveAgentIndex.shared.snapshot(workspaceId: workspace.id, panelId: surfaceId),
-           let sessionId = Self.normalizedOpenDiffViewerSessionId(snapshot.sessionId) {
-            let snapshotWorkingDirectory = Self.normalizedOpenDiffViewerPath(
+           let sessionId = Self.normalizedOpenDiffViewerSessionId(snapshot.sessionId),
+           let agentProvider = snapshot.kind.diffTrajectoryProvider,
+           let cwd = Self.normalizedOpenDiffViewerPath(
                 snapshot.workingDirectory ?? snapshot.launchCommand?.workingDirectory
-            )
-            let storeURL = Self.agentTurnDiffBaselineStoreURL()
-            let workspaceId = workspace.id
-            let originWindowId = tabManager.flatMap { manager in
-                mainWindowContexts.values.first { $0.tabManager === manager }?.windowId
-            }
-            let taskKey = Self.openDiffViewerAgentContextTaskKey(
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                sessionId: sessionId
-            )
-            let request = OpenDiffViewerAgentContextRequest(
+           ) {
+            return launchDiffViewerProcess(
                 cliURL: cliURL,
                 socketPath: socketPath,
-                fallbackCwd: fallbackCwd,
-                snapshotWorkingDirectory: snapshotWorkingDirectory,
-                storeURL: storeURL,
-                workspaceId: workspaceId,
+                cwd: cwd,
+                workspaceId: workspace.id,
                 surfaceId: surfaceId,
+                useLastTurnSource: true,
                 sessionId: sessionId,
-                originWindowId: originWindowId
+                agentProvider: agentProvider
             )
-            if openDiffViewerAgentContextTasks[taskKey] != nil {
-                openDiffViewerAgentContextPendingRequests[taskKey] = request
-            } else {
-                startOpenDiffViewerAgentContextTask(request, taskKey: taskKey)
-            }
-            return true
         }
         let agentDiffContext = preferAgentContext ? focusedAgentWorkingDirectoryContext(for: workspace) : nil
         return launchDiffViewerProcess(
@@ -6115,6 +6096,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
+    nonisolated static func normalizedOpenDiffViewerSessionId(_ value: String?) -> String? {
+        value?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+    }
+
+    nonisolated static func normalizedOpenDiffViewerPath(_ value: String?) -> String? {
+        value?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+    }
+
     @discardableResult
     func launchDiffViewerProcess(
         cliURL: URL,
@@ -6124,6 +6117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         surfaceId: UUID?,
         useLastTurnSource: Bool,
         sessionId: String?,
+        agentProvider: String? = nil,
         focus: Bool = true
     ) -> Bool {
         let process = Process()
@@ -6141,6 +6135,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         if useLastTurnSource, let sessionId {
             arguments.append(contentsOf: ["--session", sessionId])
+        }
+        if useLastTurnSource, let agentProvider {
+            arguments.append(contentsOf: ["--agent", agentProvider])
         }
         process.arguments = arguments
         var environment = ProcessInfo.processInfo.environment

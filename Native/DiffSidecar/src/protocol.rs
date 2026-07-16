@@ -35,7 +35,7 @@ pub struct OpenSessionRequest {
     pub session_id: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, TS)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, TS)]
 #[serde(
     tag = "kind",
     rename_all = "camelCase",
@@ -58,6 +58,19 @@ pub enum DiffSource {
         #[ts(optional)]
         base_ref: Option<String>,
     },
+    AgentTurn {
+        provider: AgentProvider,
+        session_id: String,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "protocol.ts")]
+pub enum AgentProvider {
+    Codex,
+    Claude,
+    OpenCode,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, TS)]

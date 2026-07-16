@@ -69,7 +69,8 @@ fn codex_resolver_uses_patch_events_from_the_latest_turn_id() {
         &[
             serde_json::json!({"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-old"}}),
             serde_json::json!({"type":"event_msg","payload":{"type":"patch_apply_end","turn_id":"turn-old","success":true,"status":"completed","changes":{
-                old_path.to_string_lossy(): {"type":"update","move_path":null,"unified_diff":"@@ -1 +1 @@\n-old\n+stale\n"}
+                old_path.to_string_lossy(): {"type":"update","move_path":null,"unified_diff":"@@ -1 +1 @@\n-old\n+stale\n"},
+                "/tmp/outside-repository.txt": {"type":"update","move_path":null,"unified_diff":"@@ -1 +1 @@\n-old\n+outside\n"}
             }}}),
             serde_json::json!({"type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-old"}}),
             serde_json::json!({"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-current"}}),
@@ -93,10 +94,21 @@ fn codex_resolver_uses_patch_events_from_the_latest_turn_id() {
     )
     .expect("resolve Codex turn patch");
 
-    assert_eq!(resolved.repo_root, repo.canonicalize().expect("canonical repo"));
-    assert!(resolved.patch.contains("diff --git a/current.txt b/current.txt"));
+    assert_eq!(
+        resolved.repo_root,
+        repo.canonicalize().expect("canonical repo")
+    );
+    assert!(
+        resolved
+            .patch
+            .contains("diff --git a/current.txt b/current.txt")
+    );
     assert!(resolved.patch.contains("+after"));
-    assert!(resolved.patch.contains("diff --git a/created.txt b/created.txt"));
+    assert!(
+        resolved
+            .patch
+            .contains("diff --git a/created.txt b/created.txt")
+    );
     assert!(resolved.patch.contains("+created"));
     assert!(!resolved.patch.contains("old.txt"));
     assert!(!resolved.patch.contains("+stale"));
@@ -112,13 +124,13 @@ fn claude_resolver_uses_structured_patches_from_the_latest_prompt_id() {
         &transcript,
         &[
             claude_prompt("prompt-old", "old request"),
-            claude_patch_result(
-                "prompt-old",
-                &repo.join("old.txt"),
-                "-stale",
-                "+older",
-            ),
+            claude_patch_result("prompt-old", &repo.join("old.txt"), "-stale", "+older"),
             claude_prompt("prompt-current", "current request"),
+            serde_json::json!({
+                "type": "user",
+                "promptId": "prompt-current",
+                "toolUseResult": {"stdout": "command output", "interrupted": false}
+            }),
             claude_patch_result(
                 "prompt-current",
                 &repo.join("current.txt"),
@@ -141,7 +153,11 @@ fn claude_resolver_uses_structured_patches_from_the_latest_prompt_id() {
     )
     .expect("resolve Claude turn patch");
 
-    assert!(resolved.patch.contains("diff --git a/current.txt b/current.txt"));
+    assert!(
+        resolved
+            .patch
+            .contains("diff --git a/current.txt b/current.txt")
+    );
     assert!(resolved.patch.contains("+after"));
     assert!(!resolved.patch.contains("old.txt"));
     assert!(!resolved.patch.contains("+older"));
@@ -170,12 +186,17 @@ fn opencode_resolver_uses_diffs_parented_to_the_latest_user_message() {
             ("opencode-session", repo.to_string_lossy().as_ref()),
         )
         .expect("insert session");
-    insert_opencode_message(&database, "user-old", 1, serde_json::json!({"role":"user"}));
+    insert_opencode_message(
+        &database,
+        "user-old",
+        1,
+        &serde_json::json!({"role":"user"}),
+    );
     insert_opencode_message(
         &database,
         "assistant-old",
         2,
-        serde_json::json!({"role":"assistant","parentID":"user-old"}),
+        &serde_json::json!({"role":"assistant","parentID":"user-old"}),
     );
     insert_opencode_part(
         &database,
@@ -184,12 +205,17 @@ fn opencode_resolver_uses_diffs_parented_to_the_latest_user_message() {
         3,
         "Index: old.txt\n--- a/old.txt\n+++ b/old.txt\n@@ -1 +1 @@\n-stale\n+older\n",
     );
-    insert_opencode_message(&database, "user-current", 4, serde_json::json!({"role":"user"}));
+    insert_opencode_message(
+        &database,
+        "user-current",
+        4,
+        &serde_json::json!({"role":"user"}),
+    );
     insert_opencode_message(
         &database,
         "assistant-current",
         5,
-        serde_json::json!({"role":"assistant","parentID":"user-current"}),
+        &serde_json::json!({"role":"assistant","parentID":"user-current"}),
     );
     insert_opencode_part(
         &database,
@@ -290,7 +316,7 @@ fn insert_opencode_message(
     database: &Connection,
     id: &str,
     time_created: i64,
-    data: serde_json::Value,
+    data: &serde_json::Value,
 ) {
     database
         .execute(

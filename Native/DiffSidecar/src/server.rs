@@ -27,7 +27,6 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get, post};
 #[cfg(feature = "http-server")]
 use axum::{Json, Router};
-use fs2::FileExt;
 #[cfg(feature = "http-server")]
 use futures_util::StreamExt;
 #[cfg(feature = "http-server")]
@@ -46,6 +45,9 @@ use crate::manifest::{
 use crate::protocol::{
     BranchListResult, DiffCommand, DiffRequest, DiffResourceRef, DiffResponse, DiffResult,
     DiffSource, NavigationResult, OpenSessionRequest, SessionOpened, SessionRequest, handshake,
+};
+use crate::trajectory::{
+    AgentTurnIdentity, ResolvedTurnPatch, TrajectoryError, TrajectoryRoots, resolve_last_turn_patch,
 };
 #[cfg(feature = "http-server")]
 use crate::{HTTP_PROTOCOL_VERSION, health_response};
@@ -96,11 +98,11 @@ const RPC_STDIN_READ_TIMEOUT: Duration = Duration::from_secs(10);
 const UNTRUSTED_RPC_REQUEST_ID: &str = "__cmux_untrusted_request__";
 const MAX_CONCURRENT_CHILD_PROCESSES: usize = 4;
 const BRANCH_LIST_CHILD_TIMEOUT: Duration = Duration::from_secs(30);
-const SESSION_GIT_TIMEOUT: Duration = Duration::from_secs(60);
-const SESSION_OPEN_TIMEOUT: Duration = Duration::from_secs(120);
+const SESSION_GIT_TIMEOUT: Duration = Duration::from_mins(1);
+const SESSION_OPEN_TIMEOUT: Duration = Duration::from_mins(2);
 const MAX_SESSION_PATCH_BYTES: u64 = 512 * 1024 * 1024;
-const ORPHAN_SESSION_TEMP_MIN_AGE: Duration = Duration::from_secs(2 * 60);
-const ORPHAN_SESSION_FINAL_MIN_AGE: Duration = Duration::from_secs(24 * 60 * 60);
+const ORPHAN_SESSION_TEMP_MIN_AGE: Duration = Duration::from_mins(2);
+const ORPHAN_SESSION_FINAL_MIN_AGE: Duration = Duration::from_hours(24);
 const MAX_ORPHAN_SCAN_ENTRIES: usize = 4096;
 const MAX_ORPHAN_REMOVALS: usize = 64;
 const MAX_TEMP_INDEX_ENTRIES: usize = 4096;
@@ -114,7 +116,7 @@ struct SessionOwner {
 // Branch regeneration runs Git commands with 60-second deadlines, then writes
 // the page, patch, assets, and manifest. Keep the outer safety deadline above
 // that complete contract while still releasing a stuck child eventually.
-const BRANCH_CHANGE_CHILD_TIMEOUT: Duration = Duration::from_secs(120);
+const BRANCH_CHANGE_CHILD_TIMEOUT: Duration = Duration::from_mins(2);
 
 #[cfg(feature = "http-server")]
 #[derive(Serialize)]
@@ -179,7 +181,7 @@ fn app_state(config: ServerConfig, port: u16) -> Result<AppState, String> {
             Some(
                 reqwest::Client::builder()
                     .redirect(reqwest::redirect::Policy::limited(5))
-                    .timeout(Duration::from_secs(120))
+                    .timeout(Duration::from_mins(2))
                     .build()
                     .map_err(|error| error.to_string())?,
             )
@@ -573,18 +575,50 @@ async fn open_session(
         .try_acquire()
         .map_err(|_| SessionOpenError::Failed)?;
 
-    let repo = match &params.source {
-        DiffSource::Unstaged { repo_root }
-        | DiffSource::Staged { repo_root }
-        | DiffSource::Branch { repo_root, .. } => repo_root,
-        DiffSource::Patch { .. } => unreachable!(),
+    let resolved_turn = if let DiffSource::AgentTurn {
+        provider,
+        session_id,
+    } = &params.source
+    {
+        let identity = AgentTurnIdentity::new(*provider, session_id.clone());
+        Some(
+            tokio::task::spawn_blocking(move || {
+                let roots = TrajectoryRoots::from_environment()?;
+                resolve_last_turn_patch(&identity, &roots)
+            })
+            .await
+            .map_err(|_| SessionOpenError::Failed)?
+            .map_err(|error| match error {
+                TrajectoryError::Empty => SessionOpenError::Empty,
+                TrajectoryError::Unavailable | TrajectoryError::Invalid => SessionOpenError::Failed,
+            })?,
+        )
+    } else {
+        None
+    };
+    let repo = match (&params.source, &resolved_turn) {
+        (
+            DiffSource::Unstaged { repo_root }
+            | DiffSource::Staged { repo_root }
+            | DiffSource::Branch { repo_root, .. },
+            _,
+        ) => repo_root.as_str(),
+        (DiffSource::AgentTurn { .. }, Some(resolved)) => resolved
+            .repo_root
+            .to_str()
+            .ok_or(SessionOpenError::Unauthorized)?,
+        (DiffSource::AgentTurn { .. }, None) | (DiffSource::Patch { .. }, _) => unreachable!(),
     };
     if !authorize_repo_for_token(state, &params.capability_token, repo).await {
         return Err(SessionOpenError::Unauthorized);
     }
-    let canonical_repo = tokio::fs::canonicalize(repo)
-        .await
-        .map_err(|_| SessionOpenError::Unauthorized)?;
+    let canonical_repo = if let Some(resolved) = &resolved_turn {
+        resolved.repo_root.clone()
+    } else {
+        tokio::fs::canonicalize(repo)
+            .await
+            .map_err(|_| SessionOpenError::Unauthorized)?
+    };
     let session_id = match params.session_id {
         Some(session_id) if uuid::Uuid::parse_str(&session_id).is_ok() => session_id,
         Some(_) => return Err(SessionOpenError::Unauthorized),
@@ -609,7 +643,11 @@ async fn open_session(
     );
 
     let source = resolve_session_source(state, params.source, &canonical_repo).await?;
-    run_git_patch(&source, &canonical_repo, &temporary_path).await?;
+    if let Some(resolved) = resolved_turn {
+        write_resolved_turn_patch(&resolved, &temporary_path).await?;
+    } else {
+        run_git_patch(&source, &canonical_repo, &temporary_path).await?;
+    }
     rename_owned_session_temp(&state.config.root, &temporary_path, &final_path)
         .map_err(|_| SessionOpenError::Failed)?;
     temporary_file.retarget(final_path.clone());
@@ -750,6 +788,18 @@ async fn run_git_patch(
     run_git_patch_with_limit(source, repo, output_path, MAX_SESSION_PATCH_BYTES).await
 }
 
+async fn write_resolved_turn_patch(
+    resolved: &ResolvedTurnPatch,
+    output_path: &Path,
+) -> Result<(), SessionOpenError> {
+    if resolved.patch.is_empty() || resolved.patch.len() as u64 > MAX_SESSION_PATCH_BYTES {
+        return Err(SessionOpenError::Failed);
+    }
+    tokio::fs::write(output_path, resolved.patch.as_bytes())
+        .await
+        .map_err(|_| SessionOpenError::Failed)
+}
+
 async fn run_git_patch_with_limit(
     source: &DiffSource,
     repo: &Path,
@@ -788,7 +838,9 @@ async fn run_git_patch_with_limit(
             arguments.push(merge_base);
             arguments.push("--".to_owned());
         }
-        DiffSource::Branch { base_ref: None, .. } | DiffSource::Patch { .. } => {
+        DiffSource::Branch { base_ref: None, .. }
+        | DiffSource::Patch { .. }
+        | DiffSource::AgentTurn { .. } => {
             return Err(SessionOpenError::Failed);
         }
     }
@@ -1069,12 +1121,13 @@ fn session_lease_is_active(root: &Path, token: &str) -> bool {
     else {
         return false;
     };
-    match lock.try_lock_exclusive() {
+    match lock.try_lock() {
         Ok(()) => {
-            let _ = FileExt::unlock(&lock);
+            let _ = lock.unlock();
             false
         }
-        Err(error) => error.kind() == std::io::ErrorKind::WouldBlock,
+        Err(std::fs::TryLockError::WouldBlock) => true,
+        Err(std::fs::TryLockError::Error(_)) => false,
     }
 }
 
@@ -1227,7 +1280,7 @@ fn mutate_temp_index<T>(
         .write(true)
         .open(root.join(".diff-session-temp-index.lock"))
         .map_err(|error| error.to_string())?;
-    FileExt::lock_exclusive(&lock).map_err(|error| error.to_string())?;
+    lock.lock().map_err(|error| error.to_string())?;
     let index_path = root.join(".diff-session-temp-index");
     let contents = std::fs::read_to_string(&index_path).unwrap_or_default();
     let mut entries: Vec<String> = contents
@@ -1324,7 +1377,7 @@ fn mutate_manifest<T>(
         .write(true)
         .open(lock_path)
         .map_err(|error| error.to_string())?;
-    FileExt::lock_exclusive(&lock).map_err(|error| error.to_string())?;
+    lock.lock().map_err(|error| error.to_string())?;
     let manifest_path = root.join(format!(".manifest-{token}.json"));
     let bytes = std::fs::read(&manifest_path).map_err(|error| error.to_string())?;
     let mut manifest: Manifest =
@@ -1942,7 +1995,7 @@ mod tests {
     use crate::protocol::{DiffCommand, DiffRequest, DiffResult};
 
     use super::{
-        AllowedFile, DiffSource, FileExt, Manifest, OpenOptions, RpcRequestRead, SessionOpenError,
+        AllowedFile, DiffSource, Manifest, OpenOptions, RpcRequestRead, SessionOpenError,
         TemporaryPatchFile, UNTRUSTED_RPC_REQUEST_ID, handle_protocol_request,
         prune_orphaned_session_temp_files, read_rpc_request, register_session_temp,
         reserve_session_owner, run_git_patch_with_limit, valid_group_id,
@@ -2077,7 +2130,7 @@ mod tests {
             .write(true)
             .open(root.join(format!(".session-lease-{active_token}.lock")))
             .expect("open active lease");
-        FileExt::lock_shared(&active_lease).expect("hold active lease");
+        active_lease.lock_shared().expect("hold active lease");
         std::fs::write(&unrelated, b"keep").expect("write unrelated file");
 
         for _ in 0..6 {
@@ -2087,7 +2140,7 @@ mod tests {
         assert!(orphans.iter().all(|orphan| !orphan.exists()));
         assert!(!final_orphan.exists());
         assert!(active_final.exists());
-        FileExt::unlock(&active_lease).expect("release active lease");
+        active_lease.unlock().expect("release active lease");
         prune_orphaned_session_temp_files(&root, Duration::ZERO, Duration::ZERO, 16).await;
         assert!(!active_final.exists());
         assert!(unrelated.exists());
