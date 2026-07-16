@@ -2373,16 +2373,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         didFinishStoredMacReconnectAttempt = false
     }
 
-    /// Whether route selection should avoid loopback routes. A loopback route
+    /// Whether stored-route selection must reject loopback routes. A loopback route
     /// (`.debugLoopback`, `127.0.0.1`) names the host it runs on, so on a
     /// physical device it can only ever reach the phone itself, never a remote
-    /// Mac. On the simulator `127.0.0.1` IS the host Mac, so loopback is valid
-    /// (and is how the dev/UI-test mock host attaches).
+    /// Mac. Simulators and explicit mock-data UI tests host their test server at
+    /// loopback, so those harnesses opt into it instead of weakening real-device
+    /// reconnect for every debug build.
     static var prefersNonLoopbackRoutes: Bool {
-        #if targetEnvironment(simulator)
-        false
+        #if os(iOS) && !targetEnvironment(simulator)
+        !UITestConfig.mockDataEnabled
         #else
-        true
+        false
         #endif
     }
 

@@ -76,7 +76,7 @@ extension MobileShellComposite {
         )
             .filter { supportedKinds.isEmpty || supportedKinds.contains($0.kind) }
             .sorted(by: Self.routeSortsBefore)
-        if preferNonLoopback, ordered.contains(where: { $0.kind != .debugLoopback }) {
+        if preferNonLoopback {
             ordered.removeAll { $0.kind == .debugLoopback }
         }
         let irohRoutes = ordered.filter { $0.kind == .iroh }
@@ -368,14 +368,11 @@ extension MobileShellComposite {
     /// Ordered host/port reconnect candidates for a Mac, preserving the single-route
     /// preference policy but keeping fallbacks available for the same Mac.
     ///
-    /// With `preferNonLoopback` (physical devices) the list NEVER contains a
-    /// `.debugLoopback` route while any real candidate exists — not even as a
-    /// trailing fallback. Callers iterate every candidate, so a loopback tail
-    /// entry would get dialed once the real routes fail; on a phone that
-    /// reaches whatever local process is listening on 127.0.0.1, and the
-    /// manual attach-ticket path treats loopback as trusted. Loopback stays
-    /// reachable only as the sole supported route (the on-device XCUITest
-    /// mock host).
+    /// With `preferNonLoopback` (real physical devices) the list never contains
+    /// a `.debugLoopback` route. Callers iterate every candidate, so keeping
+    /// loopback as either a tail fallback or the sole route would dial the
+    /// phone's own `127.0.0.1`, never the saved Mac. Explicit mock/simulator
+    /// harnesses pass `false` and retain loopback for their in-process host.
     static func reconnectHostPortRoutes(
         _ routes: [CmxAttachRoute],
         supportedKinds: [CmxAttachTransportKind],
@@ -418,9 +415,7 @@ extension MobileShellComposite {
                 return Self.isIPLiteralHost(host)
             }, to: &candidates)
             appendCandidates(where: { $0.kind != .debugLoopback }, to: &candidates)
-            // Any real candidate found: stop here so loopback is unreachable
-            // even as a dial-everything fallback (see the doc comment).
-            guard candidates.isEmpty else { return candidates }
+            return candidates
         }
         appendCandidates(where: { _ in true }, to: &candidates)
         return candidates
