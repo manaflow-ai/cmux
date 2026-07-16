@@ -1861,6 +1861,10 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     static let maxRegisteredFiles = 1024
     static let bundledFeedToken = "bundled-feed-surface"
 
+    static func isBundledFeedSurface(token: String, requestPath: String) -> Bool {
+        token == bundledFeedToken && requestPath == "/feed.html"
+    }
+
     struct RegisteredFile {
         let requestPath: String
         let fileURL: URL
@@ -2013,6 +2017,25 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             throw NSError(domain: "CmuxDiffViewerURLSchemeHandler", code: 7)
         }
         return url
+    }
+
+    /// Resolves a persisted internal browser surface and restores the backing
+    /// asset registration that was process-local before the app relaunched.
+    func sessionRestoreURL(token: String, requestPath: String) -> URL? {
+        if Self.isBundledFeedSurface(token: token, requestPath: requestPath) {
+            return try? registerBundledFeedAssets()
+        }
+        guard registerFromManifest(token: token) else { return nil }
+        return Self.diffViewerURL(token: token, requestPath: requestPath)
+    }
+
+    /// Bundled surfaces are restorable from the app resources in every process.
+    /// Dynamic diff surfaces remain restorable only when their manifest is local.
+    func sessionRestorable(token: String, requestPath: String) -> Bool {
+        if Self.isBundledFeedSurface(token: token, requestPath: requestPath) {
+            return true
+        }
+        return diffViewerRestorable(token: token, requestPath: requestPath)
     }
 
     /// Whether the token currently has a registered (or manifest-restorable)
@@ -4905,13 +4928,14 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func restoreSessionSnapshot(_ snapshot: SessionBrowserPanelSnapshot) {
-        // Diff viewer surfaces re-register their token from the on-disk manifest
-        // and navigate via the app-owned custom scheme, so they restore even
-        // though the local HTTP server that originally served them is gone.
+        // Internal surfaces restore their backing registration, from bundled
+        // resources for Feed or an on-disk manifest for dynamic diff viewers.
         if let token = snapshot.diffViewerToken,
            let requestPath = snapshot.diffViewerRequestPath,
-           CmuxDiffViewerURLSchemeHandler.shared.registerFromManifest(token: token),
-           let diffURL = CmuxDiffViewerURLSchemeHandler.diffViewerURL(token: token, requestPath: requestPath) {
+           let diffURL = CmuxDiffViewerURLSchemeHandler.shared.sessionRestoreURL(
+               token: token,
+               requestPath: requestPath
+           ) {
             hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(snapshot.shouldRenderWebView)
             setMuted(snapshot.isMuted)
             setOmnibarVisible(
@@ -4976,12 +5000,11 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func shouldPersistSessionSnapshot() -> Bool {
-        // Diff viewer surfaces are otherwise treated as temporary. Persist them
-        // only when they can actually be restored via the custom scheme (a
-        // local-only, non-pending manifest); otherwise persisting would leave a
-        // blank panel on restart with no URL to fall back to.
+        // Internal surfaces are otherwise treated as temporary. Persist them
+        // only when their bundled resources or local, non-pending manifest can
+        // restore the custom-scheme URL after relaunch.
         if let components = diffViewerSessionComponents() {
-            return CmuxDiffViewerURLSchemeHandler.shared.diffViewerRestorable(
+            return CmuxDiffViewerURLSchemeHandler.shared.sessionRestorable(
                 token: components.token,
                 requestPath: components.requestPath
             )
