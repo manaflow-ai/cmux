@@ -27,6 +27,17 @@ struct ReflowParagraphTests {
         #expect(!result.contains("Helloworld"))
     }
 
+    @Test func historicalNarrowScrollbackReflowsAfterTerminalWidens() {
+        let oldRow = "Historical scrollback retains a prose row wrapped at its original narrow width"
+        let continuation = "flowing naturally onto its indented continuation"
+        let input = "\(oldRow)\n  \(continuation)\n"
+
+        #expect(
+            ReflowOptions.default.reflow(input, terminalWidth: 120)
+                == "\(oldRow) \(continuation)\n"
+        )
+    }
+
     @Test func shortIndentedFileRowIsNotJoined() {
         let input = "Files changed\n  readme.md\n"
         #expect(reflow(input) == input)
