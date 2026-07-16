@@ -9,7 +9,7 @@ import Testing
 #endif
 
 @MainActor
-@Suite struct RemoteTmuxMirrorLayoutIdentityTests {
+@Suite(.serialized) struct RemoteTmuxMirrorLayoutIdentityTests {
     @Test("remote layout changes reconcile pane identities incrementally")
     func remoteLayoutChangesReconcilePaneIdentitiesIncrementally() throws {
         let harness = try Harness()
