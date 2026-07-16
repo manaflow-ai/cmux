@@ -193,6 +193,35 @@ def extract_function_body(source, name):
     )
 
 
+def extract_all_function_bodies(source, name):
+    """Every body for `name` in the file, so a second type declaring the same
+    lifecycle callback cannot hide behind the first."""
+    bodies = []
+    offset = 0
+    pattern = re.compile(r"\bfunc\s+" + re.escape(name) + r"\s*\(")
+    while True:
+        match = pattern.search(source, offset)
+        if not match:
+            return bodies
+        opening = source.find("{", match.end())
+        if opening < 0:
+            return bodies
+        depth = 0
+        end = None
+        for index in range(opening, len(source)):
+            if source[index] == "{":
+                depth += 1
+            elif source[index] == "}":
+                depth -= 1
+                if depth == 0:
+                    end = index + 1
+                    break
+        if end is None:
+            return bodies
+        bodies.append(source[opening:end])
+        offset = end
+
+
 def extract_type_body(source, name):
     return extract_braced_declaration(
         source,
@@ -202,11 +231,17 @@ def extract_type_body(source, name):
 
 def discovered_representables(swift_sources):
     names = set()
+    # Multiline declarations and `extension Foo: NSViewRepresentable` both
+    # count; conformance position in the inheritance clause is irrelevant.
     pattern = re.compile(
-        r"\b(?:struct|class|final\s+class)\s+([A-Za-z_]\w*)[^\{\n]*:\s*[^\{\n]*\bNSViewRepresentable\b"
+        r"\b(?:struct|class|final\s+class|extension)\s+([A-Za-z_]\w*)\b[^{]*?\bNSViewRepresentable\b[^{]*?\{",
+        re.DOTALL,
     )
     for source in swift_sources:
-        names.update(pattern.findall(neutralize_swift(source)))
+        clean = neutralize_swift(source)
+        if "NSViewRepresentable" not in clean:
+            continue
+        names.update(pattern.findall(clean))
     return names
 
 
@@ -226,7 +261,7 @@ def check_content_view(source):
     body = extract_function_body(clean, "workspaceScrollArea")
     if body is None:
         return ["could not locate func workspaceScrollArea(...); update this guard for the renamed boundary"]
-    if "SidebarWorkspaceTableView" not in body:
+    if not re.search(r"\bSidebarWorkspaceTableView\s*\(", body):
         violations.append("workspaceScrollArea does not mount SidebarWorkspaceTableView")
     for token in SWIFTUI_LIST_CONTAINERS:
         if re.search(r"\b" + token + r"\s*[({]", body):
@@ -288,19 +323,17 @@ def check_appkit_sources(sources_by_name, require_all_files=True):
     for filename, source in sources_by_name.items():
         clean = neutralize_swift(source)
         for callback in LAYOUT_CALLBACKS:
-            body = extract_function_body(clean, callback)
-            if body is None:
-                continue
-            for pattern in LAYOUT_MUTATION_PATTERNS:
-                if pattern.search(body):
-                    violations.append(
-                        f"{filename}.{callback} mutates/reconfigures the table from a layout callback"
-                    )
+            for body in extract_all_function_bodies(clean, callback):
+                for pattern in LAYOUT_MUTATION_PATTERNS:
+                    if pattern.search(body):
+                        violations.append(
+                            f"{filename}.{callback} mutates/reconfigures the table from a layout callback"
+                        )
         for pattern, label in (
             (r"\bObservableObject\b", "ObservableObject"),
             (r"@Published\b", "@Published"),
             (r"DispatchQueue\.main\.async", "DispatchQueue.main.async"),
-            (r"DispatchQueue\.asyncAfter", "DispatchQueue.asyncAfter"),
+            (r"\.asyncAfter\s*\(", "asyncAfter"),
         ):
             if re.search(pattern, clean):
                 violations.append(f"{filename} introduces forbidden {label}")
