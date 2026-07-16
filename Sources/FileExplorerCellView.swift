@@ -92,15 +92,13 @@ final class FileExplorerCellView: NSTableCellView {
             if node.isDirectory {
                 iconView.apply(CmuxResolvedIconRequest(
                     source: .image(NSWorkspace.shared.icon(for: .folder)),
-                    size: NSSize(width: style.iconSize, height: style.iconSize),
-                    tintColor: style.folderIconTint
+                    size: NSSize(width: style.iconSize, height: style.iconSize)
                 ))
             } else {
                 let pathExtension = (node.name as NSString).pathExtension
                 iconView.apply(CmuxResolvedIconRequest(
                     source: .image(NSWorkspace.shared.icon(for: UTType(filenameExtension: pathExtension) ?? .data)),
-                    size: NSSize(width: style.iconSize, height: style.iconSize),
-                    tintColor: style.fileIconTint
+                    size: NSSize(width: style.iconSize, height: style.iconSize)
                 ))
             }
         } else {
