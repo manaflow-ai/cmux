@@ -577,6 +577,30 @@ final class CmuxSettingsFileStore {
     ) {
         applyBooleanSettings(TerminalSettingsFileMapping.booleanSettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
         applyTerminalScrollSpeedSetting(from: section, assign: { snapshot.managedUserDefaults[$0] = .double($1) }, logInvalid: { logInvalid($0, sourcePath: sourcePath) })
+        if let value = jsonDouble(section["sessionContentMaxWidth"]) {
+            if value >= SessionContentWidthSettings.minimumWidth,
+               value <= SessionContentWidthSettings.maximumWidth {
+                snapshot.managedUserDefaults[SessionContentWidthSettings.maxWidthKey] = .double(
+                    SessionContentWidthSettings().clampedMaximumWidth(value)
+                )
+            } else {
+                logInvalid(SessionContentWidthSettings.settingsPath, sourcePath: sourcePath)
+            }
+        } else if let enabled = jsonBool(section["sessionContentMaxWidth"]), !enabled {
+            snapshot.managedUserDefaults[SessionContentWidthSettings.maxWidthKey] = .double(
+                SessionContentWidthSettings.noMaximumWidth
+            )
+        } else if section.keys.contains("sessionContentMaxWidth") {
+            logInvalid(SessionContentWidthSettings.settingsPath, sourcePath: sourcePath)
+        }
+
+        if let rawAlignment = jsonString(section["sessionContentAlignment"]),
+           let alignment = SessionContentAlignment(rawValue: rawAlignment) {
+            snapshot.managedUserDefaults[SessionContentWidthSettings.alignmentKey] = .string(alignment.rawValue)
+        } else if section.keys.contains("sessionContentAlignment") {
+            logInvalid(SessionContentWidthSettings.alignmentSettingsPath, sourcePath: sourcePath)
+        }
+
         if let value = jsonBool(section["showTextBoxOnNewTerminals"]) {
             snapshot.managedUserDefaults[TerminalTextBoxInputSettings.showOnNewTerminalsKey] = .bool(value)
         } else if section.keys.contains("showTextBoxOnNewTerminals") {
