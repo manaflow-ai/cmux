@@ -869,6 +869,8 @@ enum AgentForkSupport {
             break
         case .skipRemoteLikeContext:
             return true
+        case .rejectMissingWorkingDirectory:
+            return false
         case .rejectMissingExecutable:
             return false
         }
@@ -1049,6 +1051,8 @@ enum AgentForkSupport {
             break
         case .skipRemoteLikeContext:
             return ("skipRemoteLikeContext", nil, nil, nil, [])
+        case .rejectMissingWorkingDirectory:
+            return ("unresolved", nil, nil, nil, [])
         case .rejectMissingExecutable:
             return ("unresolved", nil, nil, nil, [])
         }
@@ -1343,6 +1347,7 @@ enum AgentForkSupport {
     private enum LocalForkProbeDecision {
         case run
         case skipRemoteLikeContext
+        case rejectMissingWorkingDirectory
         case rejectMissingExecutable
     }
 
@@ -1351,7 +1356,7 @@ enum AgentForkSupport {
         workingDirectory: String?
     ) -> LocalForkProbeDecision {
         if let workingDirectory, localDirectoryURL(path: workingDirectory) == nil {
-            return .skipRemoteLikeContext
+            return .rejectMissingWorkingDirectory
         }
         if probe.executable.hasPrefix("/") {
             return isRegularExecutableFile(atPath: probe.executable)

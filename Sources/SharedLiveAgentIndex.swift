@@ -304,14 +304,8 @@ final class SharedLiveAgentIndex {
             guard let self else { return }
             _ = await self.reloadIfLiveAgentProcessFingerprintChanged()
             self.forkAvailabilityRefreshTask = nil
-            NotificationCenter.default.post(
-                name: .sharedLiveAgentIndexDidChange,
-                object: self,
-                userInfo: [
-                    "workspaceId": probeKey.panelKey.workspaceId,
-                    "panelId": probeKey.panelKey.panelId,
-                ]
-            )
+            self.restartForkAvailabilityRefreshIfPending()
+            NotificationCenter.default.post(name: .sharedLiveAgentIndexDidChange, object: self)
             if self.changePending {
                 self.changePending = false
                 self.handleHookStoreChange()
@@ -326,6 +320,7 @@ final class SharedLiveAgentIndex {
             guard let self else { return }
             await self.reload(forcePublish: true)
             self.refreshTask = nil
+            self.restartForkAvailabilityRefreshIfPending()
             NotificationCenter.default.post(name: .sharedLiveAgentIndexDidChange, object: self)
             if self.changePending {
                 self.changePending = false

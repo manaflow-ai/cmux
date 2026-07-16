@@ -1483,6 +1483,114 @@ struct WorkspaceForkConversationContextMenuTests {
     }
 
     @Test
+    func sharedForkProbeBackgroundRefreshRestartsPendingRequestQueuedDuringActiveValidation() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-pending-probe-background-restart-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        try fm.createDirectory(at: root.appendingPathComponent(".cmuxterm", isDirectory: true), withIntermediateDirectories: true)
+        let executable = root.appendingPathComponent("opencode", isDirectory: false)
+        try writeExecutableFixture(at: executable)
+
+        let firstWorkspaceId = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000021"))
+        let firstPanelId = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000031"))
+        let firstPanelKey = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: firstWorkspaceId,
+            panelId: firstPanelId
+        )
+        let secondWorkspaceId = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000022"))
+        let secondPanelId = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000032"))
+        let secondPanelKey = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: secondWorkspaceId,
+            panelId: secondPanelId
+        )
+        let firstSnapshot = makeProbeRequiredOpenCodeSnapshot(
+            sessionId: "first-background",
+            workingDirectory: root.path,
+            executablePath: executable.path
+        )
+        let secondSnapshot = makeProbeRequiredOpenCodeSnapshot(
+            sessionId: "second-background",
+            workingDirectory: root.path,
+            executablePath: executable.path
+        )
+        let loaderCallCount = OSAllocatedUnfairLock(initialState: 0)
+        let firstProviderRelease = OSAllocatedUnfairLock(initialState: false)
+        let probedSessionIds = OSAllocatedUnfairLock(initialState: [String]())
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                loaderCallCount.withLock { $0 += 1 }
+                let index = RestorableAgentSessionIndex.load(
+                    homeDirectory: root.path,
+                    fileManager: fm,
+                    registry: CmuxVaultAgentRegistry(registrations: []),
+                    detectedSnapshots: [
+                        firstPanelKey: (
+                            snapshot: firstSnapshot,
+                            updatedAt: 0,
+                            processIDs: [],
+                            agentProcessIDs: [],
+                            sessionIDSource: .explicit
+                        ),
+                        secondPanelKey: (
+                            snapshot: secondSnapshot,
+                            updatedAt: 0,
+                            processIDs: [],
+                            agentProcessIDs: [],
+                            sessionIDSource: .explicit
+                        ),
+                    ]
+                )
+                return (
+                    index: index,
+                    liveAgentProcessFingerprint: [],
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: [firstPanelKey, secondPanelKey]
+                )
+            },
+            forkSupportProvider: { snapshot, _ in
+                probedSessionIds.withLock { $0.append(snapshot.sessionId) }
+                if snapshot.sessionId == "first-background" {
+                    while !Task.isCancelled && !firstProviderRelease.withLock({ $0 }) {
+                        await Task.yield()
+                    }
+                }
+                return true
+            },
+            hookStoreDirectoryProvider: {
+                root.appendingPathComponent(".cmuxterm", isDirectory: true).path
+            }
+        )
+
+        #expect(!sharedIndex.prepareForkAvailabilityProbe(workspaceId: firstWorkspaceId, panelId: firstPanelId))
+        for _ in 0..<1000 where !probedSessionIds.withLock({ $0.contains("first-background") }) {
+            await Task.yield()
+        }
+        #expect(probedSessionIds.withLock { $0 } == ["first-background"])
+
+        #expect(!sharedIndex.prepareForkAvailabilityProbe(workspaceId: secondWorkspaceId, panelId: secondPanelId))
+        for _ in 0..<1000 where probedSessionIds.withLock({ $0.count }) != 1 {
+            await Task.yield()
+        }
+        #expect(probedSessionIds.withLock { $0 } == ["first-background"])
+
+        firstProviderRelease.withLock { $0 = true }
+        for _ in 0..<1000 where !probedSessionIds.withLock({ $0.contains("second-background") }) {
+            await Task.yield()
+        }
+
+        #expect(probedSessionIds.withLock { $0 } == ["first-background", "second-background"])
+        #expect(loaderCallCount.withLock { $0 } >= 2)
+        #expect(
+            sharedIndex.snapshotForForkAvailability(
+                workspaceId: secondWorkspaceId,
+                panelId: secondPanelId
+            )?.sessionId == "second-background",
+            "A request queued while a background validation is active must restart after the active task clears."
+        )
+    }
+
+    @Test
     func sharedForkProbeFallbackValidationDoesNotReloadLiveIndex() async throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
@@ -2134,7 +2242,7 @@ struct WorkspaceForkConversationContextMenuTests {
     }
 
     @Test
-    func sharedOpenCodeMissingWorkingDirectoryPublishesSupportedValidation() async throws {
+    func sharedOpenCodeMissingWorkingDirectoryRejectsValidation() async throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
             .appendingPathComponent("cmux-opencode-missing-cwd-\(UUID().uuidString)", isDirectory: true)
@@ -2178,7 +2286,11 @@ struct WorkspaceForkConversationContextMenuTests {
         )
 
         await sharedIndex.refreshForkAvailabilityNow(workspaceId: workspaceId, panelId: panelId)
-        #expect(sharedIndex.forkSupportProbeRejected(workspaceId: workspaceId, panelId: panelId))
+        #expect(!sharedIndex.forkSupportProbeAccepted(workspaceId: workspaceId, panelId: panelId))
+        #expect(!sharedIndex.forkSupportProbeRejected(workspaceId: workspaceId, panelId: panelId))
+        #expect(!sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId))
+        let supportsFork = await AgentForkSupport.supportsFork(snapshot: snapshot)
+        #expect(!supportsFork)
         #expect(
             sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId) == nil,
             "OpenCode snapshots with deleted local cwd should fail closed when the executable identity cannot be watched."
