@@ -1095,14 +1095,15 @@ private func windowDragHandleSiblingHitResolutionScope(
     return ObjectIdentifier(superview)
 }
 
-/// Returns whether the titlebar drag handle should capture a hit at `point`.
-/// We only claim the hit when no sibling view already handles it, so interactive
-/// controls layered in the titlebar (e.g. proxy folder icon) keep their gestures.
+/// Returns whether an explicit window drag handle should capture a hit at `point`.
+/// Titlebar handles yield when a sibling already owns the point. A region whose
+/// bounds are already known to be non-interactive can opt out of that sibling walk.
 func windowDragHandleShouldCaptureHit(
     _ point: NSPoint,
     in dragHandleView: NSView,
     eventType: NSEvent.EventType? = NSApp.currentEvent?.type,
-    eventWindow: NSWindow? = NSApp.currentEvent?.window
+    eventWindow: NSWindow? = NSApp.currentEvent?.window,
+    yieldsToSiblingHits: Bool = true
 ) -> Bool {
     let dragHandleWindow = dragHandleView.window
 
@@ -1188,6 +1189,13 @@ func windowDragHandleShouldCaptureHit(
         }
     }
 
+    guard yieldsToSiblingHits else {
+        #if DEBUG
+        cmuxDebugLog("titlebar.dragHandle.hitTest capture=true reason=explicitRegion point=\(windowDragHandleFormatPoint(point))")
+        #endif
+        return true
+    }
+
     guard let superview = dragHandleView.superview else {
         #if DEBUG
         cmuxDebugLog("titlebar.dragHandle.hitTest capture=true reason=noSuperview point=\(windowDragHandleFormatPoint(point))")
@@ -1262,33 +1270,53 @@ func windowDragHandleShouldCaptureHit(
     return true
 }
 
-/// A transparent view that enables dragging the window when clicking in empty titlebar space.
+/// A transparent view that enables dragging the window from an explicitly bounded region.
 /// This lets us keep `window.isMovableByWindowBackground = false` so drags in the app content
 /// (e.g. sidebar tab reordering) don't move the whole window.
 struct WindowDragHandleView: NSViewRepresentable {
     static let viewIdentifier = NSUserInterfaceItemIdentifier("cmux.titlebarDragHandle")
 
     var doubleClickBehavior: TitlebarDoubleClickBehavior = .standardAction
+    var yieldsToSiblingHits = true
+    /// Overrides ``doubleClickBehavior`` when the bounded region owns an existing action.
+    var onDoubleClick: (() -> Void)?
 
     func makeNSView(context: Context) -> NSView {
-        DraggableView(doubleClickBehavior: doubleClickBehavior)
+        DraggableView(
+            doubleClickBehavior: doubleClickBehavior,
+            yieldsToSiblingHits: yieldsToSiblingHits,
+            onDoubleClick: onDoubleClick
+        )
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        (nsView as? DraggableView)?.doubleClickBehavior = doubleClickBehavior
+        guard let draggableView = nsView as? DraggableView else { return }
+        draggableView.doubleClickBehavior = doubleClickBehavior
+        draggableView.yieldsToSiblingHits = yieldsToSiblingHits
+        draggableView.onDoubleClick = onDoubleClick
     }
 
     private final class DraggableView: NSView {
         var doubleClickBehavior: TitlebarDoubleClickBehavior
+        var yieldsToSiblingHits: Bool
+        var onDoubleClick: (() -> Void)?
 
-        init(doubleClickBehavior: TitlebarDoubleClickBehavior) {
+        init(
+            doubleClickBehavior: TitlebarDoubleClickBehavior,
+            yieldsToSiblingHits: Bool,
+            onDoubleClick: (() -> Void)?
+        ) {
             self.doubleClickBehavior = doubleClickBehavior
+            self.yieldsToSiblingHits = yieldsToSiblingHits
+            self.onDoubleClick = onDoubleClick
             super.init(frame: .zero)
             identifier = WindowDragHandleView.viewIdentifier
         }
 
         required init?(coder: NSCoder) {
             self.doubleClickBehavior = .standardAction
+            self.yieldsToSiblingHits = true
+            self.onDoubleClick = nil
             super.init(coder: coder)
             identifier = WindowDragHandleView.viewIdentifier
         }
@@ -1308,7 +1336,8 @@ struct WindowDragHandleView: NSViewRepresentable {
                 point,
                 in: self,
                 eventType: currentEvent?.type,
-                eventWindow: currentEvent?.window
+                eventWindow: currentEvent?.window,
+                yieldsToSiblingHits: yieldsToSiblingHits
             )
             #if DEBUG
             cmuxDebugLog(
@@ -1328,6 +1357,10 @@ struct WindowDragHandleView: NSViewRepresentable {
             #endif
 
             if event.clickCount >= 2 {
+                if let onDoubleClick {
+                    onDoubleClick()
+                    return
+                }
                 let result = handleTitlebarDoubleClick(
                     window: window,
                     behavior: doubleClickBehavior
