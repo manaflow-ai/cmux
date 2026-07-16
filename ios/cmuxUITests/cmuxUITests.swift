@@ -242,12 +242,14 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(approvalWorkspace.waitForExistence(timeout: 3))
         XCTAssertTrue(approvalSubtitle.waitForExistence(timeout: 3))
         XCTAssertLessThanOrEqual(approvalTitle.frame.maxY, approvalWorkspace.frame.minY)
-        XCTAssertLessThanOrEqual(approvalWorkspace.frame.minY - approvalTitle.frame.maxY, 8)
-        XCTAssertLessThanOrEqual(approvalWorkspace.frame.maxY, approvalSubtitle.frame.minY)
-        XCTAssertGreaterThan(approvalWorkspace.frame.height, approvalSubtitle.frame.height)
+        XCTAssertLessThanOrEqual(approvalWorkspace.frame.minY - approvalTitle.frame.maxY, 6)
+        XCTAssertEqual(approvalWorkspace.frame.midY, approvalSubtitle.frame.midY, accuracy: 1)
+        XCTAssertLessThan(approvalWorkspace.frame.maxX, approvalSubtitle.frame.minX)
+        XCTAssertGreaterThanOrEqual(approvalWorkspace.frame.height, approvalSubtitle.frame.height)
 
         let approvalRow = app.descendants(matching: .any)["MobileNotificationFeedRow-studio-codex-approval"]
         XCTAssertTrue(approvalRow.waitForExistence(timeout: 3))
+        XCTAssertLessThanOrEqual(approvalRow.frame.height, 135)
         let approvalValue = try XCTUnwrap(approvalRow.value as? String)
         let workspaceRange = try XCTUnwrap(approvalValue.range(of: "cmux iOS"))
         let subtitleRange = try XCTUnwrap(approvalValue.range(of: "Notification feed"))
