@@ -1031,7 +1031,13 @@ func TestAuthenticatePersistentDaemonServerReadDeadline(t *testing.T) {
 
 	done := make(chan struct{}, 1)
 	go func() {
-		handlePersistentDaemonConnWithAuthTimeout(server, persistentDaemonFixedTokenVerifier("token"), hub, 50*time.Millisecond)
+		handlePersistentDaemonConnWithAuthTimeout(
+			server,
+			persistentDaemonFixedTokenVerifier("token"),
+			hub,
+			50*time.Millisecond,
+			nil,
+		)
 		done <- struct{}{}
 	}()
 

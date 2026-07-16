@@ -1,4 +1,5 @@
 import CmuxCore
+import CmuxRemoteSession
 import Foundation
 import Testing
 

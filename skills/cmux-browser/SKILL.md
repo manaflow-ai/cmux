@@ -111,10 +111,23 @@ If `get url` is empty or `about:blank`, navigate first instead of waiting on loa
 | [templates/authenticated-session.sh](templates/authenticated-session.sh) | Login once, save/load state |
 | [templates/capture-workflow.sh](templates/capture-workflow.sh) | Navigate + capture snapshots/screenshots |
 
+## Viewport Sizing (WKWebView)
+
+Use `cmux browser <surface> viewport <width> <height>` to set an exact logical
+viewport from 1...4096 CSS pixels. The page is aspect-fitted inside its existing
+pane, so pane layout and focus stay unchanged; screenshots use the requested
+logical dimensions. Run `cmux browser <surface> viewport reset` to follow native
+pane sizing again. Close or detach the browser inspector first because its
+inspector-managed split layout cannot be combined with viewport emulation.
+Large viewport and page-zoom combinations are bounded; the viewport command
+returns structured `maximum_page_zoom` details without changing the current
+viewport when the combination exceeds the WKWebView render limits.
+Opening or redocking an attached browser inspector resets emulation to native
+sizing because WebKit owns the attached split geometry.
+
 ## Limits (WKWebView)
 
 These commands currently return `not_supported` because they rely on Chrome/CDP-only APIs not exposed by WKWebView:
-- viewport emulation
 - offline emulation
 - trace/screencast recording
 - network route interception/mocking
