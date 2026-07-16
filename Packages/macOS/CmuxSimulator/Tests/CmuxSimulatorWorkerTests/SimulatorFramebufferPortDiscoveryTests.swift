@@ -30,8 +30,8 @@ struct SimulatorFramebufferPortDiscoveryTests {
     @Test("The built-in display wins over a larger external display")
     func primaryDisplayIdentityWins() async throws {
         let fixture = SimulatorFramebufferPortFixture(displays: [
-            (screenID: 0, width: 8, height: 12),
-            (screenID: 1, width: 30, height: 20),
+            (screenID: 42, screenType: 0, width: 8, height: 12),
+            (screenID: 1, screenType: 1, width: 30, height: 20),
         ])
         var metadata: SimulatorDisplayMetadata?
         let framebuffer = SimulatorFramebuffer(
@@ -43,6 +43,26 @@ struct SimulatorFramebufferPortDiscoveryTests {
 
         #expect(metadata?.width == 8)
         #expect(metadata?.height == 12)
+    }
+
+    @Test("Auxiliary display property changes preserve built-in orientation")
+    func auxiliaryOrientationIsIgnored() async throws {
+        let fixture = SimulatorFramebufferPortFixture(displays: [
+            (screenID: 42, screenType: 0, width: 8, height: 12),
+            (screenID: 1, screenType: 1, width: 30, height: 20),
+        ])
+        var metadata: [SimulatorDisplayMetadata] = []
+        let framebuffer = SimulatorFramebuffer(
+            onFrameTransportChange: { _ in },
+            onDisplayChange: { metadata.append($0) }
+        )
+        try await framebuffer.start(device: fixture.device)
+
+        fixture.publishOrientation(3, displayIndex: 1)
+        #expect(metadata.last?.orientation == .portrait)
+
+        fixture.publishOrientation(2, displayIndex: 0)
+        #expect(metadata.last?.orientation == .portraitUpsideDown)
     }
 
     @Test("Stopping rejects a dimension change already waiting to publish")

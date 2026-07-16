@@ -4,11 +4,15 @@ import IOSurface
 final class SimulatorFramebufferPortFixtureDescriptor: NSObject {
     private var surface: IOSurface?
     private var frameCallback: (() -> Void)?
+    private var propertiesChangedCallback: (() -> Void)?
     private let properties: SimulatorFramebufferPortFixtureScreenProperties
 
-    init(screenID: UInt32 = 0, width: Int = 8, height: Int = 12) {
+    init(screenID: UInt32 = 0, screenType: UInt64 = 0, width: Int = 8, height: Int = 12) {
         surface = makeSimulatorFramebufferPortFixtureSurface(width: width, height: height)
-        properties = SimulatorFramebufferPortFixtureScreenProperties(screenID: screenID)
+        properties = SimulatorFramebufferPortFixtureScreenProperties(
+            screenID: screenID,
+            screenType: screenType
+        )
         super.init()
     }
 
@@ -24,11 +28,13 @@ final class SimulatorFramebufferPortFixtureDescriptor: NSObject {
         propertiesChangedCallback: @escaping @convention(block) () -> Void
     ) {
         self.frameCallback = frameCallback
+        self.propertiesChangedCallback = propertiesChangedCallback
         propertiesChangedCallback()
     }
 
     @objc dynamic func unregisterScreenCallbacks(withUUID _: NSUUID) {
         frameCallback = nil
+        propertiesChangedCallback = nil
     }
 
     func publishFrame(width: Int, height: Int) {
@@ -40,17 +46,26 @@ final class SimulatorFramebufferPortFixtureDescriptor: NSObject {
         surface = nil
         frameCallback?()
     }
+
+    func publishOrientation(_ rawValue: UInt32) {
+        properties.orientation = rawValue
+        propertiesChangedCallback?()
+    }
 }
 
 final class SimulatorFramebufferPortFixtureScreenProperties: NSObject {
     private let identifier: UInt32
+    private let type: UInt64
+    var orientation: UInt32 = 1
 
-    init(screenID: UInt32) {
+    init(screenID: UInt32, screenType: UInt64) {
         identifier = screenID
+        type = screenType
     }
 
     @objc dynamic func screenID() -> UInt32 { identifier }
-    @objc dynamic func uiOrientation() -> UInt32 { 1 }
+    @objc dynamic func screenType() -> UInt64 { type }
+    @objc dynamic func uiOrientation() -> UInt32 { orientation }
 }
 
 private func makeSimulatorFramebufferPortFixtureSurface(width: Int, height: Int) -> IOSurface {

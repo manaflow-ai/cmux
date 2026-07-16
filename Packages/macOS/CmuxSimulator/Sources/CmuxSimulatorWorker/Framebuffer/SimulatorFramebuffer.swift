@@ -240,24 +240,14 @@ final class SimulatorFramebuffer {
     }
 
     private func handleDisplayPropertiesChange(_ descriptor: NSObject) {
-        guard
-            let properties = objectProperty(
-                descriptor,
-                selectorName: "screenProperties"
-            ) as? NSObject,
-            let rawValue = simulatorUnsignedIntegerProperty(
-                properties,
-                selectorName: "uiOrientation"
-            ),
-            simulatorNativeOrientation(
-                rawValue: rawValue
-            ) != nil
-        else {
-            _ = publishLatest()
-            return
-        }
-        nativeOrientationRawValue = rawValue
-        _ = publishLatest(nativeOrientationIsAuthoritative: true)
+        _ = descriptor
+        // Every display sends this callback. Re-read orientation from the
+        // selected integrated display so an auxiliary display cannot rotate
+        // the IOSurface and HID transform used by the pane.
+        _ = publishLatest(
+            readNativeOrientation: true,
+            nativeOrientationIsAuthoritative: true
+        )
     }
 
     @discardableResult
@@ -302,7 +292,12 @@ final class SimulatorFramebuffer {
     private func bestDisplay(
         readNativeOrientation: Bool
     ) -> (surface: IOSurface, orientationRawValue: UInt32?)? {
-        var candidates: [(surface: IOSurface, screenID: UInt32, properties: NSObject)] = []
+        var candidates: [(
+            surface: IOSurface,
+            screenID: UInt32,
+            screenType: UInt64,
+            properties: NSObject
+        )] = []
         for descriptor in descriptors {
             guard let rawSurface = simulatorFramebufferSurface(descriptor) else {
                 continue
@@ -315,15 +310,25 @@ final class SimulatorFramebuffer {
                 let screenID = simulatorUnsignedIntegerProperty(
                     properties,
                     selectorName: "screenID"
+                ),
+                let screenType = simulatorUnsignedLongLongProperty(
+                    properties,
+                    selectorName: "screenType"
                 )
             else {
                 // HID events target the built-in display. Rendering an unidentified
                 // surface could show a different screen than the one receiving input.
                 return nil
             }
-            candidates.append((surface, screenID, properties))
+            candidates.append((surface, screenID, screenType, properties))
         }
-        guard let primaryScreenID = candidates.map(\.screenID).min(),
+        // SimScreenType.integrated is raw value zero in SimulatorKit. Require
+        // one integrated screen identity, then choose its largest plane.
+        let integratedScreenIDs = Set(
+            candidates.lazy.filter { $0.screenType == 0 }.map(\.screenID)
+        )
+        guard integratedScreenIDs.count == 1,
+              let primaryScreenID = integratedScreenIDs.first,
               let best = candidates
                 .filter({ $0.screenID == primaryScreenID })
                 .max(by: {
@@ -336,6 +341,26 @@ final class SimulatorFramebuffer {
         return (best.surface, orientationRawValue)
     }
 
+}
+
+private func simulatorUnsignedLongLongProperty(
+    _ target: NSObject,
+    selectorName: String
+) -> UInt64? {
+    let selector = NSSelectorFromString(selectorName)
+    guard target.responds(to: selector),
+        let method = class_getInstanceMethod(type(of: target), selector)
+    else {
+        return nil
+    }
+    let returnType = method_copyReturnType(method)
+    defer { free(returnType) }
+    guard String(cString: returnType) == "Q" else { return nil }
+    typealias Function = @convention(c) (AnyObject, Selector) -> UInt64
+    return unsafeBitCast(method_getImplementation(method), to: Function.self)(
+        target,
+        selector
+    )
 }
 
 private func hasSimulatorFramebufferSurface(_ descriptor: NSObject) -> Bool {
