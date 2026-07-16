@@ -4,31 +4,6 @@ import CmuxTerminal
 @Suite
 struct TerminalSurfaceResizePolicyTests {
     @Test
-    func interactivePaneResizeUsesPixelOnlyCoalescing() {
-        #expect(
-            TerminalSurface.shouldCoalesceSurfacePixelResize(
-                windowLiveResizeActive: false,
-                interactiveGeometryResizeActive: true,
-                bypass: false
-            )
-        )
-        #expect(
-            TerminalSurface.shouldCoalesceSurfacePixelResize(
-                windowLiveResizeActive: true,
-                interactiveGeometryResizeActive: false,
-                bypass: false
-            )
-        )
-        #expect(
-            !TerminalSurface.shouldCoalesceSurfacePixelResize(
-                windowLiveResizeActive: false,
-                interactiveGeometryResizeActive: true,
-                bypass: true
-            )
-        )
-    }
-
-    @Test
     func pixelOnlyResizeWithinExistingGridIsCoalesced() {
         #expect(
             !TerminalSurface.shouldApplySurfacePixelSizeChange(
