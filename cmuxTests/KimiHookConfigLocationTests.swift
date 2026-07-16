@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import Darwin
 import Foundation
 import Testing
 
@@ -9,6 +10,7 @@ struct KimiHookConfigLocationTests {
     private struct ProcessResult {
         let status: Int32
         let output: String
+        let timedOut: Bool
     }
 
     @Test("Setup writes the default Kimi config file")
@@ -31,6 +33,7 @@ struct KimiHookConfigLocationTests {
             fixture: fixture
         )
 
+        #expect(!result.timedOut, Comment(rawValue: result.output))
         #expect(result.status == 0, Comment(rawValue: result.output))
         #expect(FileManager.default.fileExists(atPath: currentConfig.path), Comment(rawValue: result.output))
         #expect(!FileManager.default.fileExists(atPath: legacyConfig.path), Comment(rawValue: result.output))
@@ -68,6 +71,7 @@ struct KimiHookConfigLocationTests {
             ]
         )
 
+        #expect(!result.timedOut, Comment(rawValue: result.output))
         #expect(result.status == 0, Comment(rawValue: result.output))
         let installed = try String(contentsOf: currentConfig, encoding: .utf8)
         let migratedLegacy = try String(contentsOf: legacyConfig, encoding: .utf8)
@@ -104,6 +108,7 @@ struct KimiHookConfigLocationTests {
             ]
         )
 
+        #expect(!result.timedOut, Comment(rawValue: result.output))
         #expect(result.status == 0, Comment(rawValue: result.output))
         #expect(try String(contentsOf: currentConfig, encoding: .utf8) == currentUserContent)
         #expect(try String(contentsOf: legacyConfig, encoding: .utf8) == legacyUserContent)
@@ -158,12 +163,22 @@ struct KimiHookConfigLocationTests {
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = output
         process.standardError = output
+        let exitSignal = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exitSignal.signal() }
         try process.run()
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
+        let timedOut = exitSignal.wait(timeout: .now() + 10) == .timedOut
+        if timedOut {
+            process.terminate()
+            if exitSignal.wait(timeout: .now() + 1) == .timedOut {
+                kill(process.processIdentifier, SIGKILL)
+                _ = exitSignal.wait(timeout: .now() + 1)
+            }
+        }
+        let data = try output.fileHandleForReading.readToEnd() ?? Data()
         return ProcessResult(
-            status: process.terminationStatus,
-            output: String(data: data, encoding: .utf8) ?? ""
+            status: process.isRunning ? SIGKILL : process.terminationStatus,
+            output: String(data: data, encoding: .utf8) ?? "",
+            timedOut: timedOut
         )
     }
 
