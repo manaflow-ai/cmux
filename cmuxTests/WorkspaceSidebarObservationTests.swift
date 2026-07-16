@@ -196,6 +196,26 @@ struct WorkspaceSidebarObservationTests {
         #expect(received == [1, 2, 5, 6])
     }
 
+    @Test func coalesceLatestRespectsAsyncPublisherDemand() async {
+        let subject = PassthroughSubject<Int, Never>()
+        let publisher = subject
+            .coalesceLatest(for: .milliseconds(50), scheduler: RunLoop.main)
+        var iterator = publisher.values.makeAsyncIterator()
+
+        let producer = Task { @MainActor in
+            await Task.yield()
+            subject.send(1)
+            subject.send(2)
+        }
+
+        let first = await iterator.next()
+        let second = await iterator.next()
+        await producer.value
+
+        #expect(first == 1)
+        #expect(second == 2)
+    }
+
     @Test func coalesceLatestDropsStalePendingValueWhenLeadingSupersedesOverdueTrailing() {
         let scheduler = VirtualCoalesceScheduler()
         let subject = PassthroughSubject<Int, Never>()
