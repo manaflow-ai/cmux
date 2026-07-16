@@ -18,6 +18,12 @@ import sys
 import zlib
 
 root = pathlib.Path(sys.argv[1])
+file_url_assets = {
+    "webviews-app/main.mjs",
+    "webviews-app/chunks/agentSessionSurface.mjs",
+    "webviews-app/chunks/installWebviewStyles.mjs",
+    "webviews-app/chunks/vendor.mjs",
+}
 
 for path in sorted(root.rglob("*")):
     if path.suffix not in {".js", ".mjs"}:
@@ -28,6 +34,11 @@ for path in sorted(root.rglob("*")):
     compressed = zlib.compress(raw, level=9)
     output = path.with_name(path.name + ".deflate")
     output.write_bytes(compressed)
-    path.unlink()
-    print(f"compressed markdown viewer asset: {path.name} -> {output.name} ({len(raw)} -> {len(compressed)} bytes)")
+    relative_path = path.relative_to(root).as_posix()
+    if relative_path not in file_url_assets:
+        path.unlink()
+    print(
+        f"compressed markdown viewer asset: {relative_path} -> "
+        f"{output.name} ({len(raw)} -> {len(compressed)} bytes)"
+    )
 PY
