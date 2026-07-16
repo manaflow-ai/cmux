@@ -5,11 +5,19 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-mkdir -p "$TMP_DIR/markdown-viewer/chunks" "$TMP_DIR/markdown-viewer/nested"
+mkdir -p \
+  "$TMP_DIR/markdown-viewer/chunks" \
+  "$TMP_DIR/markdown-viewer/nested" \
+  "$TMP_DIR/markdown-viewer/webviews-app/chunks"
 printf 'const top = "top";\n' > "$TMP_DIR/markdown-viewer/top.js"
 printf 'export const chunk = "chunk";\n' > "$TMP_DIR/markdown-viewer/chunks/chunk.mjs"
 printf 'already compressed\n' > "$TMP_DIR/markdown-viewer/nested/keep.js.deflate"
 printf 'body { color: red; }\n' > "$TMP_DIR/markdown-viewer/style.css"
+printf 'import "./chunks/agentSessionSurface.mjs";\n' > "$TMP_DIR/markdown-viewer/webviews-app/main.mjs"
+printf 'export const vendor = true;\n' > "$TMP_DIR/markdown-viewer/webviews-app/chunks/vendor.mjs"
+printf 'export const agent = true;\n' > "$TMP_DIR/markdown-viewer/webviews-app/chunks/agentSessionSurface.mjs"
+printf 'export const styles = true;\n' > "$TMP_DIR/markdown-viewer/webviews-app/chunks/installWebviewStyles.mjs"
+printf 'export const diff = true;\n' > "$TMP_DIR/markdown-viewer/webviews-app/chunks/diffSurface.mjs"
 
 "$ROOT/scripts/compress-markdown-viewer-assets.sh" "$TMP_DIR/markdown-viewer" >/tmp/cmux-compress-assets.log
 
@@ -25,13 +33,34 @@ done
 
 for path in \
   "$TMP_DIR/markdown-viewer/top.js.deflate" \
-  "$TMP_DIR/markdown-viewer/chunks/chunk.mjs.deflate"
+  "$TMP_DIR/markdown-viewer/chunks/chunk.mjs.deflate" \
+  "$TMP_DIR/markdown-viewer/webviews-app/main.mjs.deflate" \
+  "$TMP_DIR/markdown-viewer/webviews-app/chunks/vendor.mjs.deflate" \
+  "$TMP_DIR/markdown-viewer/webviews-app/chunks/agentSessionSurface.mjs.deflate" \
+  "$TMP_DIR/markdown-viewer/webviews-app/chunks/installWebviewStyles.mjs.deflate"
 do
   if [ ! -s "$path" ]; then
     echo "compressed asset missing or empty: $path" >&2
     exit 1
   fi
 done
+
+for path in \
+  "$TMP_DIR/markdown-viewer/webviews-app/main.mjs" \
+  "$TMP_DIR/markdown-viewer/webviews-app/chunks/vendor.mjs" \
+  "$TMP_DIR/markdown-viewer/webviews-app/chunks/agentSessionSurface.mjs" \
+  "$TMP_DIR/markdown-viewer/webviews-app/chunks/installWebviewStyles.mjs"
+do
+  if [ ! -s "$path" ]; then
+    echo "agent session file URL asset missing or empty: $path" >&2
+    exit 1
+  fi
+done
+
+if [ -e "$TMP_DIR/markdown-viewer/webviews-app/chunks/diffSurface.mjs" ]; then
+  echo "raw diff viewer asset was not removed" >&2
+  exit 1
+fi
 
 if [ "$(cat "$TMP_DIR/markdown-viewer/nested/keep.js.deflate")" != "already compressed" ]; then
   echo "existing .deflate asset was rewritten" >&2
