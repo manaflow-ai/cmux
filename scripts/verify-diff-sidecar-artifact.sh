@@ -71,7 +71,7 @@ else
   SIGNING_STATE="unsigned"
 fi
 
-HANDSHAKE="$($BINARY handshake)"
+HANDSHAKE="$("$BINARY" handshake)"
 python3 - "$HANDSHAKE" <<'PY'
 import json
 import sys
