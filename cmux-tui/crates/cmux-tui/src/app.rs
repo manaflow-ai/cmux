@@ -6,7 +6,7 @@
 //! snapshots, prefix arming, the current layout, hit map, selection, and
 //! menu/prompt overlays).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
@@ -15,8 +15,8 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use cmux_tui_core::{
-    BrowserSource, BrowserStatus, MuxEvent, PaneId, Rect, SplitDir, SplitEdge, SurfaceId,
-    SurfaceKind, WorkspaceId, layout_screen, split_for_pane_edge, split_sides,
+    BrowserSource, BrowserStatus, MuxEvent, PairingChallenge, PaneId, Rect, SplitDir, SplitEdge,
+    SurfaceId, SurfaceKind, WorkspaceId, layout_screen, split_for_pane_edge, split_sides,
 };
 use crossterm::ExecutableCommand;
 use crossterm::event::{
@@ -270,6 +270,19 @@ pub struct Prompt {
     pub cancel: Rect,
 }
 
+pub struct PairingDialog {
+    pub challenge: PairingChallenge,
+    pub rect: Rect,
+    pub approve: Rect,
+    pub deny: Rect,
+}
+
+impl PairingDialog {
+    fn new(challenge: PairingChallenge) -> Self {
+        Self { challenge, rect: Rect::default(), approve: Rect::default(), deny: Rect::default() }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct OmnibarState {
     pub pane: PaneId,
@@ -418,6 +431,8 @@ pub struct App {
     pub hover: Option<(u16, u16)>,
     pub menu: Option<ContextMenu>,
     pub prompt: Option<Prompt>,
+    pub pairing_dialog: Option<PairingDialog>,
+    pairing_queue: VecDeque<PairingChallenge>,
     pub omnibar: Option<OmnibarState>,
     pub toast: Option<Toast>,
     pub(crate) shake_frames: u8,
@@ -680,6 +695,8 @@ pub fn run(
         hover: None,
         menu: None,
         prompt: None,
+        pairing_dialog: None,
+        pairing_queue: VecDeque::new(),
         omnibar: None,
         toast: None,
         shake_frames: 0,
@@ -1086,20 +1103,36 @@ impl App {
                     Ok(RenderAction::Draw)
                 }
             }
-            AppEvent::Mux(_) => Ok(RenderAction::Draw),
-            AppEvent::Input(Event::Key(key)) => {
-                if key.kind != KeyEventKind::Release {
-                    self.reassert_visible_surface_sizes();
+            AppEvent::Mux(MuxEvent::PairingRequested(challenge)) => {
+                let duplicate = self
+                    .pairing_dialog
+                    .as_ref()
+                    .is_some_and(|dialog| dialog.challenge.id == challenge.id)
+                    || self.pairing_queue.iter().any(|queued| queued.id == challenge.id);
+                if !duplicate {
+                    if self.pairing_dialog.is_none() {
+                        self.pairing_dialog = Some(PairingDialog::new(challenge));
+                    } else {
+                        self.pairing_queue.push_back(challenge);
+                    }
                 }
-                self.handle_key(key)
+                Ok(RenderAction::Draw)
             }
-            AppEvent::Input(Event::Mouse(mouse)) => {
-                self.reassert_visible_surface_sizes();
-                self.handle_mouse(mouse)
+            AppEvent::Mux(MuxEvent::PairingResolved { request }) => {
+                self.pairing_queue.retain(|challenge| challenge.id != request);
+                if self.pairing_dialog.as_ref().is_some_and(|dialog| dialog.challenge.id == request)
+                {
+                    self.pairing_dialog = self.pairing_queue.pop_front().map(PairingDialog::new);
+                }
+                Ok(RenderAction::Draw)
             }
+            AppEvent::Mux(_) => Ok(RenderAction::Draw),
+            AppEvent::Input(Event::Key(key)) => self.handle_key(key),
+            AppEvent::Input(Event::Mouse(mouse)) => self.handle_mouse(mouse),
             AppEvent::Input(Event::Paste(text)) => {
-                self.reassert_visible_surface_sizes();
-                if let Some(prompt) = self.prompt.as_mut() {
+                if self.pairing_dialog.is_some() {
+                    Ok(RenderAction::Draw)
+                } else if let Some(prompt) = self.prompt.as_mut() {
                     prompt.input.insert_str(&text);
                     Ok(RenderAction::Draw)
                 } else if let Some(state) = self.omnibar.as_mut() {
@@ -1121,10 +1154,7 @@ impl App {
                     Ok(RenderAction::None)
                 }
             }
-            AppEvent::Input(Event::FocusGained) => {
-                self.reassert_visible_surface_sizes();
-                Ok(RenderAction::Draw)
-            }
+            AppEvent::Input(Event::FocusGained) => Ok(RenderAction::Draw),
             AppEvent::Input(Event::Resize(_, _)) => {
                 self.refresh_cell_pixels(false);
                 self.render_states.clear();
@@ -1154,30 +1184,6 @@ impl App {
 
     fn active_screen_id(&self) -> Option<cmux_tui_core::ScreenId> {
         self.tree.active_screen().map(|screen| screen.id)
-    }
-
-    fn reassert_visible_surface_sizes(&self) {
-        if self.config.sidebar.plugin.is_some()
-            && self.sidebar_visible
-            && self.sidebar_width >= 3
-            && let Some(surface) = self.sidebar_surface_handle()
-        {
-            let rect = self.sidebar_plugin_rect();
-            if rect.width > 0 && rect.height > 0 {
-                surface.reassert_size(rect.width, rect.height);
-            }
-        }
-        for area in &self.pane_areas {
-            if area.content.width == 0 || area.content.height == 0 {
-                continue;
-            }
-            if let Some(surface) = self
-                .session
-                .surface_sized(area.surface, Some((area.content.width, area.content.height)))
-            {
-                surface.reassert_size(area.content.width, area.content.height);
-            }
-        }
     }
 
     pub fn dragging_scrollbar(&self) -> Option<SurfaceId> {
@@ -1281,6 +1287,9 @@ impl App {
             return Ok(RenderAction::None);
         }
         self.status_message = None;
+        if self.pairing_dialog.is_some() {
+            return self.handle_pairing_key(key);
+        }
         if self.prompt.is_some() {
             return self.handle_prompt_key(key);
         }
@@ -1429,6 +1438,33 @@ impl App {
             InputEvent::Commit => self.commit_prompt(),
             InputEvent::Cancel => self.close_prompt(),
             InputEvent::Changed | InputEvent::None => {}
+        }
+        Ok(RenderAction::Draw)
+    }
+
+    fn resolve_pairing(&mut self, approve: bool) {
+        let Some(dialog) = self.pairing_dialog.take() else { return };
+        if let Err(error) = self.session.respond_pairing(dialog.challenge.id, approve) {
+            self.status_message = Some(error.to_string());
+        }
+        self.pairing_dialog = self.pairing_queue.pop_front().map(PairingDialog::new);
+    }
+
+    fn handle_pairing_key(&mut self, key: KeyEvent) -> anyhow::Result<RenderAction> {
+        match key.code {
+            KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => self.resolve_pairing(true),
+            KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => self.resolve_pairing(false),
+            _ => {}
+        }
+        Ok(RenderAction::Draw)
+    }
+
+    fn handle_pairing_click(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
+        let Some(dialog) = self.pairing_dialog.as_ref() else { return Ok(RenderAction::None) };
+        if dialog.approve.contains(x, y) {
+            self.resolve_pairing(true);
+        } else if dialog.deny.contains(x, y) || !dialog.rect.contains(x, y) {
+            self.resolve_pairing(false);
         }
         Ok(RenderAction::Draw)
     }
@@ -2231,7 +2267,7 @@ impl App {
             }
             MouseEventKind::Up(MouseButton::Left) => self.handle_left_up(mouse.column, mouse.row),
             MouseEventKind::Down(MouseButton::Right) => {
-                if self.prompt.is_some() {
+                if self.pairing_dialog.is_some() || self.prompt.is_some() {
                     self.shake_frames = 6;
                     return Ok(RenderAction::Draw);
                 }
@@ -2254,6 +2290,9 @@ impl App {
     /// Whether the cell is over something clickable (any hit, a menu row,
     /// or a dialog button): these render the hand pointer.
     fn is_clickable(&self, x: u16, y: u16) -> bool {
+        if let Some(dialog) = &self.pairing_dialog {
+            return dialog.approve.contains(x, y) || dialog.deny.contains(x, y);
+        }
         if let Some(prompt) = &self.prompt {
             return prompt.ok.contains(x, y)
                 || prompt.cancel.contains(x, y)
@@ -2399,6 +2438,9 @@ impl App {
         self.drag = None;
 
         // An open rename dialog captures the click.
+        if self.pairing_dialog.is_some() {
+            return self.handle_pairing_click(x, y);
+        }
         if self.prompt.is_some() {
             return self.handle_prompt_click(x, y);
         }
@@ -2695,7 +2737,7 @@ impl App {
         if text.is_empty() {
             return;
         }
-        if let SurfaceHandle::Local(local) = &surface {
+        if let SurfaceHandle::Local(local, _) = &surface {
             local.set_selection_text(Some(text.clone()));
         }
         self.copy_text_to_clipboard(&text);
@@ -3089,14 +3131,16 @@ fn browser_key_mapping(
 #[cfg(test)]
 mod tests {
     use super::{
-        App, PaneArea, browser_content_size_for_rect, browser_hover_forward_allowed,
+        App, AppEvent, PaneArea, browser_content_size_for_rect, browser_hover_forward_allowed,
         pane_parts_for_rect,
     };
     use std::collections::HashMap;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
 
-    use cmux_tui_core::{BrowserStatus, Mux, Node, Rect, SurfaceKind, SurfaceOptions};
+    use cmux_tui_core::{
+        BrowserStatus, Mux, MuxEvent, Node, PairingChallenge, Rect, SurfaceKind, SurfaceOptions,
+    };
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use ghostty_vt::{KeyEncoder, RenderState};
     use ratatui::Terminal;
@@ -3107,6 +3151,23 @@ mod tests {
     use crate::session::tree::{PaneView, ScreenView, TabNotificationView, TabView, WorkspaceView};
     use crate::session::{Session, TreeView};
     use crate::sidebar_files::FileBrowser;
+
+    #[test]
+    fn pairing_resolution_closes_the_matching_dialog() {
+        let mux = Mux::new("pairing-dialog-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.handle(AppEvent::Mux(MuxEvent::PairingRequested(PairingChallenge {
+            id: 7,
+            code: "123 456".to_string(),
+            peer: "127.0.0.1".to_string(),
+            expires_in: 60,
+        })))
+        .unwrap();
+        assert_eq!(app.pairing_dialog.as_ref().unwrap().challenge.id, 7);
+
+        app.handle(AppEvent::Mux(MuxEvent::PairingResolved { request: 7 })).unwrap();
+        assert!(app.pairing_dialog.is_none());
+    }
 
     #[test]
     fn browser_omnibar_reduces_content_rect_for_graphics_and_input() {
@@ -3362,6 +3423,8 @@ mod tests {
             hover: None,
             menu: None,
             prompt: None,
+            pairing_dialog: None,
+            pairing_queue: std::collections::VecDeque::new(),
             omnibar: None,
             toast: None,
             shake_frames: 0,

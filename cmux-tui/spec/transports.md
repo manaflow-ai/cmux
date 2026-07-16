@@ -107,21 +107,31 @@ Binary frames are not protocol messages and cause the connection to close. The s
 
 This framing exactly matches the TypeScript SDK's `WebSocketTransport`: `send(json)` sends that string as one text frame, and every received text frame is delivered as one complete JSON message.
 
-### Authentication Preamble
+### Authentication and Pairing
 
-Authentication is optional. Set it with `--ws-token <token>` or `server.ws_token`; the command-line flag takes precedence over config:
+Every WebSocket authenticates before protocol commands are dispatched. Interactive clients request pairing as their first frame:
+
+```json
+{"pair":{"request":true}}
+```
+
+The server returns a 60-second six-digit challenge. It sends the same challenge to trusted Unix-socket subscribers as `pairing-requested`. A local or attached TUI approves or denies it. Approval authorizes the waiting socket and returns an eight-hour reconnect credential. The comparison code is not a secret.
+
+Set `--ws-token <token>` or `server.ws_token` to add a non-interactive static-token bypass; the command-line flag takes precedence over config:
 
 ```json
 {"server":{"ws":"127.0.0.1:7681","ws_token":"replace-with-a-secret"}}
 ```
 
-When a token is configured, the first WebSocket frame must be this transport-level preamble:
+Static and server-issued reconnect credentials use this transport-level preamble:
 
 ```json
 {"auth":{"token":"replace-with-a-secret"}}
 ```
 
-The preamble is not a protocol command, has no `id`, and receives no success response. After sending it, the client may immediately send normal protocol requests. A missing, malformed, or incorrect preamble closes the connection with WebSocket policy code `1008` before dispatch. When no token is configured, the first text frame is a normal protocol request.
+The preamble is not a protocol command, has no `id`, and receives no success response. After sending it, the client may immediately send normal protocol requests. A missing, malformed, or incorrect preamble closes the connection with WebSocket policy code `1008` before dispatch.
+
+The listener permits one pending request per source address, five starts per minute per address, 16 pending challenges, 64 total sockets, and 4 MiB frames. Pairing expires after 60 seconds and at most 64 reconnect credentials remain valid in memory.
 
 ### Bind Security
 

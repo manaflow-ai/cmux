@@ -212,7 +212,7 @@ describe("TerminalPane foreign-size indicator", () => {
     const { container, getByText, rerender } = render(<TerminalPane {...props} screen={terminalScreenView()} />);
 
     expect(container.querySelector(".terminal-host.foreign-sized")).toBeInTheDocument();
-    expect(getByText("sized by office tmux (126x38)")).toHaveClass("foreign-size-hint");
+    expect(getByText("shared size 126x38, limited by office tmux")).toHaveClass("foreign-size-hint");
 
     attachedTerminal.foreignSize = null;
     rerender(<TerminalPane {...props} screen={terminalScreenView()} />);
@@ -236,7 +236,7 @@ describe("TerminalPane foreign-size indicator", () => {
 
     const { getByText } = render(<TerminalPane {...props} screen={terminalScreenView()} />);
 
-    expect(getByText("sized by another client (126x38), type to take over")).toBeInTheDocument();
+    expect(getByText("shared size 126x38 (smallest client)")).toBeInTheDocument();
   });
 });
 

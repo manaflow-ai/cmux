@@ -16,6 +16,12 @@ fn connect(addr: SocketAddr) -> WebSocket<TcpStream> {
     client(format!("ws://{addr}/"), stream).unwrap().0
 }
 
+fn authenticated_connect(addr: SocketAddr) -> WebSocket<TcpStream> {
+    let mut websocket = connect(addr);
+    send_json(&mut websocket, json!({"auth": {"token": "test-token"}}));
+    websocket
+}
+
 fn send_json(websocket: &mut WebSocket<TcpStream>, value: Value) {
     websocket.send(Message::Text(value.to_string().into())).unwrap();
 }
@@ -105,16 +111,65 @@ fn websocket_auth_accepts_exact_preamble_and_rejects_missing_or_wrong_tokens() {
 }
 
 #[test]
+fn websocket_pairing_is_approved_over_trusted_unix_and_credential_reconnects() {
+    let mux = Mux::new("ws-pairing", SurfaceOptions::default());
+    let socket_path = unique_socket("ws-pairing");
+    server::serve(mux.clone(), Some(socket_path.clone())).unwrap();
+    let websocket_server =
+        server::serve_websocket(mux.clone(), "127.0.0.1:0".parse().unwrap(), None, false).unwrap();
+
+    let unix = transport::connect(&socket_path).unwrap();
+    unix.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    let mut unix_writer = unix.try_clone_box().unwrap();
+    let mut unix_reader = BufReader::new(unix);
+    writeln!(unix_writer, r#"{{"id":1,"cmd":"subscribe"}}"#).unwrap();
+    assert_eq!(read_line_until(&mut unix_reader, |value| value["id"] == 1)["ok"], true);
+
+    let mut websocket = connect(websocket_server.local_addr());
+    send_json(&mut websocket, json!({"pair": {"request": true}}));
+    let tui_challenge =
+        read_line_until(&mut unix_reader, |value| value["event"] == "pairing-requested");
+    let browser_challenge = read_until(&mut websocket, |value| value.get("pairing").is_some());
+    assert_eq!(tui_challenge["code"], browser_challenge["pairing"]["code"]);
+    assert_eq!(tui_challenge["request"], browser_challenge["pairing"]["id"]);
+
+    let request = tui_challenge["request"].as_u64().unwrap();
+    writeln!(
+        unix_writer,
+        r#"{{"id":2,"cmd":"pairing-response","request":{request},"approve":true}}"#
+    )
+    .unwrap();
+    assert_eq!(read_line_until(&mut unix_reader, |value| value["id"] == 2)["ok"], true);
+    let paired = read_until(&mut websocket, |value| value.get("paired").is_some());
+    let credential = paired["paired"]["credential"].as_str().unwrap().to_string();
+    send_json(&mut websocket, json!({"id": 3, "cmd": "identify"}));
+    assert_eq!(read_until(&mut websocket, |value| value["id"] == 3)["ok"], true);
+
+    let mut reconnect = connect(websocket_server.local_addr());
+    send_json(&mut reconnect, json!({"auth": {"token": credential}}));
+    send_json(&mut reconnect, json!({"id": 4, "cmd": "identify"}));
+    assert_eq!(read_until(&mut reconnect, |value| value["id"] == 4)["ok"], true);
+
+    mux.shutdown();
+    server::cleanup(&socket_path);
+}
+
+#[test]
 fn websocket_streams_subscribe_and_attach_and_survives_unclean_disconnect() {
     let mux = Mux::new("ws-streams", SurfaceOptions::default());
     let surface = mux
         .run_command_surface(vec!["/bin/cat".to_string()], None, true, None, None, Some((80, 24)))
         .unwrap()
         .surface;
-    let server =
-        server::serve_websocket(mux.clone(), "127.0.0.1:0".parse().unwrap(), None, false).unwrap();
+    let server = server::serve_websocket(
+        mux.clone(),
+        "127.0.0.1:0".parse().unwrap(),
+        Some("test-token".to_string()),
+        false,
+    )
+    .unwrap();
 
-    let mut websocket = connect(server.local_addr());
+    let mut websocket = authenticated_connect(server.local_addr());
     send_json(&mut websocket, json!({"id": 1, "cmd": "subscribe"}));
     let subscribe = read_until(&mut websocket, |value| value["id"] == 1);
     assert_eq!(subscribe["ok"], true);
@@ -150,7 +205,7 @@ fn websocket_streams_subscribe_and_attach_and_survives_unclean_disconnect() {
     websocket.get_mut().shutdown(Shutdown::Both).unwrap();
     drop(websocket);
 
-    let mut second = connect(server.local_addr());
+    let mut second = authenticated_connect(server.local_addr());
     send_json(&mut second, json!({"id": 4, "cmd": "identify"}));
     let identify = read_json(&mut second);
     assert_eq!(identify["ok"], true);
@@ -162,14 +217,19 @@ fn websocket_streams_subscribe_and_attach_and_survives_unclean_disconnect() {
 #[test]
 fn websocket_subscriber_receives_cross_connection_event_without_poll_delay() {
     let mux = Mux::new("ws-outbound-latency", SurfaceOptions::default());
-    let server =
-        server::serve_websocket(mux.clone(), "127.0.0.1:0".parse().unwrap(), None, false).unwrap();
+    let server = server::serve_websocket(
+        mux.clone(),
+        "127.0.0.1:0".parse().unwrap(),
+        Some("test-token".to_string()),
+        false,
+    )
+    .unwrap();
 
-    let mut subscriber = connect(server.local_addr());
+    let mut subscriber = authenticated_connect(server.local_addr());
     send_json(&mut subscriber, json!({"id": 1, "cmd": "subscribe"}));
     assert_eq!(read_until(&mut subscriber, |value| value["id"] == 1)["ok"], true);
 
-    let mut trigger = connect(server.local_addr());
+    let mut trigger = authenticated_connect(server.local_addr());
     send_json(&mut trigger, json!({"id": 2, "cmd": "identify"}));
     assert_eq!(read_until(&mut trigger, |value| value["id"] == 2)["ok"], true);
 
@@ -220,8 +280,13 @@ fn clients_list_identify_resize_and_detach_across_transports() {
         .surface;
     let socket_path = unique_socket("client-presence");
     server::serve(mux.clone(), Some(socket_path.clone())).unwrap();
-    let websocket_server =
-        server::serve_websocket(mux.clone(), "127.0.0.1:0".parse().unwrap(), None, false).unwrap();
+    let websocket_server = server::serve_websocket(
+        mux.clone(),
+        "127.0.0.1:0".parse().unwrap(),
+        Some("test-token".to_string()),
+        false,
+    )
+    .unwrap();
 
     let unix = transport::connect(&socket_path).unwrap();
     unix.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
@@ -236,7 +301,7 @@ fn clients_list_identify_resize_and_detach_across_transports() {
     );
     assert_eq!(read_line_until(&mut unix_reader, |value| value["id"] == 2)["ok"], true);
 
-    let mut websocket = connect(websocket_server.local_addr());
+    let mut websocket = authenticated_connect(websocket_server.local_addr());
     send_json(
         &mut websocket,
         json!({"id": 3, "cmd": "set-client-info", "name": "lawrences-iphone", "kind": "web"}),
@@ -325,10 +390,15 @@ fn websocket_non_loopback_bind_requires_and_accepts_explicit_insecure_opt_in() {
         .expect("non-loopback bind should fail");
     assert!(error.to_string().contains("--ws-insecure-bind"));
 
-    let server =
-        server::serve_websocket(mux.clone(), "0.0.0.0:0".parse().unwrap(), None, true).unwrap();
+    let server = server::serve_websocket(
+        mux.clone(),
+        "0.0.0.0:0".parse().unwrap(),
+        Some("test-token".to_string()),
+        true,
+    )
+    .unwrap();
     let addr = SocketAddr::from(([127, 0, 0, 1], server.local_addr().port()));
-    let mut websocket = connect(addr);
+    let mut websocket = authenticated_connect(addr);
     send_json(&mut websocket, json!({"id": 1, "cmd": "identify"}));
     let identify = read_json(&mut websocket);
     assert_eq!(identify["ok"], true);

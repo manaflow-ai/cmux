@@ -63,7 +63,7 @@ OPTIONS:
   --socket <path>    Explicit control socket path.
   --headless         Run only the control socket, no TUI.
   --ws <addr>        Also listen for WebSocket clients (default: off).
-  --ws-token <token> Require an auth preamble on WebSocket connections.
+  --ws-token <token> Allow a static-token bypass for interactive pairing.
   --ws-insecure-bind Allow a non-loopback WebSocket bind (no TLS; use a proxy).
   --term <value>     TERM for child shells (default: xterm-256color).
   -h, --help         Show this help.

@@ -61,10 +61,6 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
     host.addEventListener("focusout", handleFocusOut);
     host.addEventListener("touchend", focusOnTouch, { passive: true });
 
-    // tmux window-size=latest: false after a foreign size is applied, so the
-    // next local keystroke claims the surface back to this pane's fit. The
-    // flag makes the claim one applyFit per divergence, not one per key.
-    let sizeClaimed = true;
     const publishForeignSize = (size: TerminalSize | null) => {
       setForeignSizeState((current) => {
         if (size === null) return current === null ? current : null;
@@ -82,15 +78,10 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
     };
     const applyFit = () => {
       if (cancelled) return;
-      sizeClaimed = true;
       const current = { cols: terminal.cols, rows: terminal.rows };
       const proposed = fit.proposeDimensions();
       const next = nextFitSize(current, proposed);
-      // A local fit is the size claim, including a no-op when the current
-      // terminal already matches the pane.
-      publishForeignSize(null);
       if (!next) return;
-      terminal.resize(next.cols, next.rows);
       void client.resizeSurface(surface, next.cols, next.rows).catch(onError);
     };
     const sendResize = debounce(applyFit, 100);
@@ -100,7 +91,6 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
     window.visualViewport?.addEventListener("scroll", sendResize);
     sendResize();
     const input = terminal.onData((text) => {
-      if (!sizeClaimed) applyFit();
       void client.send(surface, { text }).catch(onError);
     });
     const applyColors = (colors: DecodedVtStateEvent["colors"] | DecodedColorsChangedEvent) => {
@@ -142,10 +132,8 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
             terminal.resize(replay.cols, replay.rows);
             terminal.write(replay.data);
             updateForeignSize({ cols: replay.cols, rows: replay.rows }, fit.proposeDimensions());
-            // Attaching is our interaction: fit the replayed surface to this
-            // pane and push it (latest-interaction-wins). Foreign `resized`
-            // events below are accepted as-is — the pane clips them — so the
-            // two attached clients never ping-pong sizes.
+            // Publish this viewport once attached. The server combines it
+            // with every other viewer and returns the shared minimum size.
             applyFit();
           } else if (event.event === "output") {
             terminal.write((event as DecodedOutputEvent).data);
@@ -155,8 +143,6 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
             terminal.resize(resized.cols, resized.rows);
             terminal.write(resized.data);
             updateForeignSize({ cols: resized.cols, rows: resized.rows }, fit.proposeDimensions());
-            // Could be our own echo; applyFit no-ops in that case.
-            sizeClaimed = false;
           } else if (event.event === "colors-changed") {
             applyColors(event as DecodedColorsChangedEvent);
           }

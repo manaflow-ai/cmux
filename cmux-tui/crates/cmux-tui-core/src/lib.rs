@@ -11,6 +11,7 @@
 mod browser;
 mod model;
 mod mux;
+mod pairing;
 mod short_id;
 mod surface;
 
@@ -30,6 +31,7 @@ pub use mux::{
     SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification, TreeDelta, TreeDeltaKind,
     ZoomMode, ZoomState,
 };
+pub use pairing::{PairingChallenge, PairingDecision, PairingError};
 pub use short_id::assign_short_ids;
 pub use surface::{
     AttachFrame, AttachStream, BrowserAttachState, BrowserFrame, BrowserFrameStream, BrowserSource,
