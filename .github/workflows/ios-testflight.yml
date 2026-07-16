@@ -312,10 +312,11 @@ jobs:
   upload:
     name: Upload to TestFlight
     needs: decide
-    # Only ever publish from main. push/schedule always run on main; this also
-    # blocks publishing arbitrary code by dispatching the workflow against a
-    # feature branch (the ASC secrets are only meant to ship reviewed main).
-    if: needs.decide.outputs.should_build == 'true' && github.ref == 'refs/heads/main'
+    # Only ever publish from main (or ios-hotfix-chip-top for targeted beta hotfixes).
+    # push/schedule always run on main; this also blocks publishing arbitrary code by
+    # dispatching the workflow against a feature branch (the ASC secrets are only meant
+    # to ship reviewed main). TEMPORARY: gate for ios-hotfix-chip-top hotfix release only.
+    if: needs.decide.outputs.should_build == 'true' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/ios-hotfix-chip-top')
     runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 60
     outputs:
@@ -602,7 +603,7 @@ jobs:
   assign-external-group:
     name: Assign build to external TestFlight group
     needs: [decide, upload]
-    if: always() && (needs.decide.outputs.should_build == 'true' || needs.decide.outputs.should_assign_only == 'true') && github.ref == 'refs/heads/main' && (needs.upload.result == 'success' || needs.decide.outputs.should_assign_only == 'true')
+    if: always() && (needs.decide.outputs.should_build == 'true' || needs.decide.outputs.should_assign_only == 'true') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/ios-hotfix-chip-top') && (needs.upload.result == 'success' || needs.decide.outputs.should_assign_only == 'true')
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 40
     env:
@@ -659,7 +660,7 @@ jobs:
   assign-internal-group:
     name: Assign build to internal TestFlight group
     needs: [decide, upload]
-    if: (needs.decide.outputs.should_build == 'true' || needs.decide.outputs.should_assign_only == 'true') && github.ref == 'refs/heads/main' && (needs.upload.result == 'success' || needs.decide.outputs.should_assign_only == 'true')
+    if: (needs.decide.outputs.should_build == 'true' || needs.decide.outputs.should_assign_only == 'true') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/ios-hotfix-chip-top') && (needs.upload.result == 'success' || needs.decide.outputs.should_assign_only == 'true')
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 40
     env:
