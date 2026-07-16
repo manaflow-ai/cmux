@@ -211,6 +211,56 @@ test("custom-scheme pending pages stream exactly one typed Rust session", async 
     .toBeGreaterThan(closeCountBeforePageHide);
 });
 
+test("custom-scheme pending pages stream an agent trajectory session", async () => {
+  dom = createDom("cmux-diff-viewer://0123456789abcdef/last-turn.html");
+  const requests: any[] = [];
+  installDomGlobals(dom, () => new Response("", { status: 200 }));
+  (dom.window as any).webkit = {
+    messageHandlers: {
+      cmuxDiff: {
+        async postMessage(request: any) {
+          requests.push(request);
+          return {
+            id: request.id,
+            version: 1,
+            result: {
+              type: "sessionOpened",
+              value: {
+                sessionId: "01234567-89ab-cdef-0123-456789abcdef",
+                patch: {
+                  id: "cmux-diff-viewer://0123456789abcdef/diff-session.patch",
+                  mediaType: "text/x-diff",
+                  byteLength: 0,
+                  revision: 1,
+                },
+                source: request.params.source,
+              },
+            },
+            error: null,
+          };
+        },
+      },
+    },
+  };
+
+  const source = { kind: "agentTurn", provider: "codex", sessionId: "codex-session" } as const;
+  renderApp(
+    <App
+      config={{ payload: {
+        capabilityToken: "0123456789abcdef",
+        pendingReplacement: true,
+        sessionSource: source,
+        statusMessage: "Loading diff",
+        transport: { kind: "webKit", endpoint: "cmuxDiff", protocolVersion: 1 },
+      } }}
+      initialStatus={createDiffViewerStatus("Loading diff", { loading: true, pending: true })}
+    />,
+  );
+
+  await waitFor(() => requests.some((request) => request.method === "sessionOpen"));
+  expect(requests.find((request) => request.method === "sessionOpen").params.source).toEqual(source);
+});
+
 test("typed Rust empty diffs keep the localized source-specific message", async () => {
   dom = createDom("cmux-diff-viewer://0123456789abcdef/unstaged.html");
   let fetched = false;
