@@ -27565,6 +27565,14 @@ struct CMUXCLI {
             // replace it with an env-only fallback.
             return AgentHookLaunchCommandRecord(launcher: launcher, executablePath: executablePath, arguments: [], workingDirectory: workingDirectory, environment: nil, capturedAt: Date().timeIntervalSince1970, source: "rejected")
         }
+        guard AgentHookSanitizedLaunchCapturePolicy().canReplay(
+            launcher: launcher,
+            executablePath: executablePath,
+            arguments: sanitizedArguments,
+            kind: fallbackKind
+        ) else {
+            return environmentOnlyRecord()
+        }
         let source = envArguments == nil ? "process" : "environment"
 
         return AgentHookLaunchCommandRecord(
