@@ -58,7 +58,7 @@ public struct TerminalArtifactTapHitTester: Sendable {
             ))
         }
 
-        let normalizedPath = TerminalArtifactPathDetector().tokens(in: rawPath).first?.path ?? token.path
+        let normalizedPath = Self.normalizedPath(in: rawPath) ?? token.path
         return StitchedPath(path: normalizedPath, segments: segments)
     }
 
@@ -76,7 +76,7 @@ public struct TerminalArtifactTapHitTester: Sendable {
                 index = line.index(after: index)
             }
             let raw = String(line[tokenStart..<index])
-            guard let path = TerminalArtifactPathDetector().tokens(in: raw).first?.path else {
+            guard let path = Self.normalizedPath(in: raw) else {
                 continue
             }
             let leadingTrim = String(raw.prefix(while: Self.leadingTrimCharacters.contains))
@@ -91,6 +91,36 @@ public struct TerminalArtifactTapHitTester: Sendable {
             ))
         }
         return result
+    }
+
+    /// Transcript prose often names a file without a slash. Keep the gallery's
+    /// broad path detector conservative, but make the tapped token itself
+    /// actionable when it has an unambiguous filename extension.
+    private static func normalizedPath(in raw: String) -> String? {
+        if let path = TerminalArtifactPathDetector().tokens(in: raw).first?.path {
+            return path
+        }
+
+        var candidate = raw.trimmingCharacters(in: bareFilenameLeadingCharacters)
+        while let scalar = candidate.unicodeScalars.last,
+              bareFilenameTrailingCharacters.contains(scalar) {
+            candidate.removeLast()
+        }
+        guard !candidate.isEmpty,
+              !candidate.contains("/"),
+              !candidate.contains("@"),
+              !candidate.contains("://"),
+              !candidate.unicodeScalars.contains(where: forbiddenBareFilenameCharacters.contains)
+        else { return nil }
+
+        let path = candidate as NSString
+        let pathExtension = path.pathExtension
+        let basename = path.deletingPathExtension
+        guard !basename.isEmpty,
+              !pathExtension.isEmpty,
+              candidate.contains(where: { $0.isLetter })
+        else { return nil }
+        return candidate
     }
 
     private func leadingContinuation(in line: String) -> Continuation? {
@@ -185,6 +215,9 @@ public struct TerminalArtifactTapHitTester: Sendable {
     }
 
     private static let leadingTrimCharacters: Set<Character> = ["\"", "'", "`", "(", "[", "{", "<"]
+    private static let bareFilenameLeadingCharacters = CharacterSet(charactersIn: "\"'`([{<")
+    private static let bareFilenameTrailingCharacters = CharacterSet(charactersIn: "\"'`)]}>,;:!?.")
+    private static let forbiddenBareFilenameCharacters = CharacterSet(charactersIn: "<>\"'\\`")
     private static let pathContinuationCharacters: Set<Character> = [
         "/", ".", "_", "-", "+", "=", "~", "@", "%", ":", "\\",
     ]

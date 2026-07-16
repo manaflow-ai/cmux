@@ -265,16 +265,13 @@ struct WorkspaceDetailView: View {
             if let selectedTerminalArtifact {
                 ChatArtifactViewerDestination(
                     path: selectedTerminalArtifact.path,
-                    scope: .terminal
+                    scope: selectedTerminalArtifact.usesSessionAuthorization ? .chat : .terminal
                 ) {
                     self.selectedTerminalArtifact = nil
                 }
                     .environment(
                         \.chatArtifactLoader,
-                        terminalArtifactLoader(
-                            workspaceID: selectedTerminalArtifact.workspaceID,
-                            surfaceID: selectedTerminalArtifact.surfaceID
-                        )
+                        artifactLoader(for: selectedTerminalArtifact)
                     )
             }
         }
@@ -350,6 +347,24 @@ struct WorkspaceDetailView: View {
                     path: path
                 )
             }
+        )
+    }
+
+    private func artifactLoader(for selection: TerminalArtifactSelection) -> ChatArtifactLoader {
+        guard let sessionID = selection.sessionID else {
+            return terminalArtifactLoader(
+                workspaceID: selection.workspaceID,
+                surfaceID: selection.surfaceID
+            )
+        }
+        guard store.supportsChatArtifacts,
+              let source = store.makeChatEventSource() else {
+            return .unsupported(cache: terminalArtifactThumbnailCache)
+        }
+        return ChatArtifactLoader(
+            source: source,
+            sessionID: sessionID,
+            cache: terminalArtifactThumbnailCache
         )
     }
     #endif

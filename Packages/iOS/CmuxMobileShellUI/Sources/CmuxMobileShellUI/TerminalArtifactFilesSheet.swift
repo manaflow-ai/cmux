@@ -2,6 +2,7 @@
 import CmuxAgentChat
 import CmuxAgentChatUI
 import CmuxMobileShell
+import Foundation
 import SwiftUI
 
 struct TerminalArtifactContext: Identifiable {
@@ -16,8 +17,35 @@ struct TerminalArtifactSelection: Identifiable, Equatable {
     let workspaceID: String
     let surfaceID: String
     let path: String
+    let sessionID: String?
 
-    var id: String { "\(workspaceID)#\(surfaceID)#\(path)" }
+    init(
+        workspaceID: String,
+        surfaceID: String,
+        path: String,
+        session: ChatSessionDescriptor?
+    ) {
+        self.workspaceID = workspaceID
+        self.surfaceID = surfaceID
+
+        if (path as NSString).isAbsolutePath {
+            self.path = (path as NSString).standardizingPath
+            sessionID = session?.id
+        } else if let session,
+                  let workingDirectory = session.workingDirectory,
+                  (workingDirectory as NSString).isAbsolutePath {
+            self.path = ((workingDirectory as NSString).appendingPathComponent(path) as NSString)
+                .standardizingPath
+            sessionID = session.id
+        } else {
+            self.path = path
+            sessionID = nil
+        }
+    }
+
+    var usesSessionAuthorization: Bool { sessionID != nil }
+
+    var id: String { "\(workspaceID)#\(surfaceID)#\(sessionID ?? "terminal")#\(path)" }
 }
 
 struct TerminalArtifactFilesSheet: View {
@@ -99,14 +127,14 @@ struct TerminalArtifactFilesSheet: View {
                 if let selection {
                     ChatArtifactViewerDestination(
                         path: selection.path,
-                        scope: selection.scope == .session ? .chat : .terminal,
+                        scope: selection.usesSessionAuthorization ? .chat : .terminal,
                         swipeOrder: selection.swipeOrder
                     ) {
                         dismiss()
                     }
                     .environment(
                         \.chatArtifactLoader,
-                        selection.scope == .session ? sessionLoader : loader
+                        selection.usesSessionAuthorization ? sessionLoader : loader
                     )
                 }
             }
@@ -536,8 +564,9 @@ struct TerminalArtifactFilesSheet: View {
     struct TerminalArtifactPathSelection: Identifiable {
         let path: String
         let scope: Scope
+        let usesSessionAuthorization: Bool
         let swipeOrder: ChatArtifactGallerySwipeOrder
-        var id: String { "\(scope)#\(path)" }
+        var id: String { "\(scope)#\(usesSessionAuthorization)#\(path)" }
     }
 }
 #endif

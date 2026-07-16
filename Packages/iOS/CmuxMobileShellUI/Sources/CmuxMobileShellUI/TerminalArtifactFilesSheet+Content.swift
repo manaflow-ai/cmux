@@ -673,6 +673,7 @@ extension TerminalArtifactFilesSheet {
         selection = TerminalArtifactPathSelection(
             path: path,
             scope: scope,
+            usesSessionAuthorization: scope == .session || sessionID != nil,
             swipeOrder: swipeOrder
         )
     }
