@@ -30692,7 +30692,7 @@ export default CMUXSessionRestore;
             let transcriptPathForStore = input.transcriptPath ?? mapped?.transcriptPath
             let resumeLaunchCommand = preferredAgentHookResumeLaunchCommand(
                 kind: def.name, current: launchCommand, mapped: mapped,
-                transcriptPath: transcriptPathForStore, currentPID: pid
+                transcriptPath: transcriptPathForStore, currentPID: inferredPID
             )
             let activePromptTurnStack = mapped?.activePromptTurnIds?
                 .compactMap({ normalizedHookValue($0) }) ?? []
@@ -31064,7 +31064,7 @@ export default CMUXSessionRestore;
             let cwd = preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped)
             let resumeLaunchCommand = preferredAgentHookResumeLaunchCommand(
                 kind: def.name, current: launchCommand, mapped: mapped,
-                transcriptPath: input.transcriptPath ?? mapped?.transcriptPath, currentPID: pid
+                transcriptPath: input.transcriptPath ?? mapped?.transcriptPath, currentPID: inferredPID
             )
             let grokAssistantMessage: String? = {
                 guard def.name == "grok" else { return nil }
@@ -31375,7 +31375,7 @@ export default CMUXSessionRestore;
             )
             let resumeLaunchCommand = preferredAgentHookResumeLaunchCommand(
                 kind: def.name, current: launchCommand, mapped: mapped,
-                transcriptPath: input.transcriptPath ?? mapped?.transcriptPath, currentPID: pid
+                transcriptPath: input.transcriptPath ?? mapped?.transcriptPath, currentPID: inferredPID
             )
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: pid, env: env)
             if !sessionId.isEmpty, !suppressVisibleMutations {
