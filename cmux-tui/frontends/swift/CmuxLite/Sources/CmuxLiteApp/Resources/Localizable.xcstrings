@@ -85,12 +85,6 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "ライブ表示に戻る" } }
       }
     },
-    "terminal.foreign_size_hint" : {
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "sized by another client (%1$lldx%2$lld), type to take over" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "別のクライアントがサイズを設定中（%1$lldx%2$lld）。入力すると引き継ぎます" } }
-      }
-    },
     "tabs.new" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "New tab" } },

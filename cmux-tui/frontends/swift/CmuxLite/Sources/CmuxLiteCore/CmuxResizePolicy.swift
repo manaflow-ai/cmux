@@ -5,28 +5,21 @@ public struct CmuxResizePolicy: Sendable {
     /// Creates a stateless resize policy.
     public init() {}
 
-    /// Selects a resize using the last client send, latest render size, and final bounds.
+    /// Selects a resize using this client's last report and final bounds.
     ///
-    /// An echoed render size never schedules another resize, a foreign size is
-    /// accepted without ping-pong when the local grid is unchanged, and a
-    /// genuinely changed local grid is returned for debounce.
+    /// Every client must report its initial grid even when it matches the shared
+    /// surface. Later shared-size updates do not trigger a report unless this
+    /// client's own available grid changed.
     /// - Parameters:
     ///   - lastSent: The last grid successfully sent by this client.
-    ///   - incomingResized: The most recent authoritative render grid.
     ///   - measurement: Final container bounds and native cell metrics.
     /// - Returns: No action or the newly measured grid.
     public func action(
         lastSent: CmuxSurfaceSize?,
-        incomingResized: CmuxSurfaceSize?,
         measurement: CmuxTerminalMeasurement
     ) -> CmuxResizeAction {
         guard let measured = grid(for: measurement) else { return .none }
-        if let lastSent, incomingResized == lastSent, measured == lastSent {
-            return .none
-        }
-        guard measured != lastSent, measured != incomingResized else {
-            return .none
-        }
+        guard measured != lastSent else { return .none }
         return .resize(measured)
     }
 

@@ -292,12 +292,8 @@ public actor CmuxFrontendSession {
               var attachment = attachments[pane]
         else { return }
         attachment.localSize = requested
-        if requested == attachment.remoteSize {
-            attachment.sizeClaimed = true
-        }
         let action = resizePolicy.action(
             lastSent: attachment.lastSentSize,
-            incomingResized: attachment.remoteSize,
             measurement: measurement
         )
         guard case let .resize(decided) = action else {
@@ -350,7 +346,6 @@ public actor CmuxFrontendSession {
     ///   - surface: The destination surface identifier.
     public func sendInput(_ data: Data, surface: UInt64) async {
         guard let pane = paneID(for: surface) else { return }
-        await claimSizeBeforeInput(pane: pane)
         guard let attachment = attachments[pane], attachment.surface == surface else { return }
         try? await attachment.client.sendBytes(data, surface: surface)
     }
@@ -378,7 +373,6 @@ public actor CmuxFrontendSession {
                 Int64(surface)
             ))
         }
-        await claimSizeBeforeInput(pane: pane)
         guard let attachment = attachments[pane], attachment.surface == surface else {
             throw CmuxProtocolError.transportState(String(
                 format: String(
@@ -416,7 +410,6 @@ public actor CmuxFrontendSession {
                 Int64(surface)
             ))
         }
-        await claimSizeBeforeInput(pane: pane)
         guard let attachment = attachments[pane], attachment.surface == surface else { return }
         try await attachment.client.sendKey(key, surface: surface)
     }
@@ -629,22 +622,16 @@ public actor CmuxFrontendSession {
         pane: UInt64,
         generation: UInt64
     ) async {
-        guard var attachment = attachments[pane],
+        guard let attachment = attachments[pane],
               attachment.generation == generation
         else { return }
         let routedEvent: CmuxAttachEvent
         switch event {
         case let .renderState(state):
             guard state.surface == attachment.surface else { return }
-            attachment.remoteSize = state.size
-            attachment.sizeClaimed = attachment.localSize == attachment.remoteSize
             routedEvent = event
         case let .renderDelta(delta):
             guard delta.surface == attachment.surface else { return }
-            if let size = delta.size {
-                attachment.remoteSize = size
-                attachment.sizeClaimed = size == attachment.lastSentSize
-            }
             routedEvent = event
         case let .detached(eventSurface):
             guard eventSurface == attachment.surface else { return }
@@ -662,23 +649,6 @@ public actor CmuxFrontendSession {
 
     private func paneID(for surface: UInt64) -> UInt64? {
         attachments.first(where: { $0.value.surface == surface })?.key
-    }
-
-    private func claimSizeBeforeInput(pane: UInt64) async {
-        guard var attachment = attachments[pane], !attachment.sizeClaimed else { return }
-        attachment.resizeTask?.cancel()
-        attachment.resizeTask = nil
-        attachment.pendingResizeSize = nil
-        let localSize = attachment.localSize
-        attachments[pane] = attachment
-        if let localSize {
-            await resizeNow(localSize, pane: pane, generation: attachment.generation)
-        }
-        guard var current = attachments[pane],
-              current.generation == attachment.generation
-        else { return }
-        current.sizeClaimed = true
-        attachments[pane] = current
     }
 
     private func resizeAfterDebounce(
@@ -703,7 +673,7 @@ public actor CmuxFrontendSession {
     ) async {
         guard let attachment = attachments[pane],
               attachment.generation == generation,
-              requested != attachment.remoteSize
+              requested != attachment.lastSentSize
         else { return }
         do {
             try await attachment.client.resizeSurface(
@@ -713,8 +683,6 @@ public actor CmuxFrontendSession {
             )
             guard var current = attachments[pane], current.generation == generation else { return }
             current.lastSentSize = requested
-            current.remoteSize = requested
-            current.sizeClaimed = true
             attachments[pane] = current
         } catch {
             return

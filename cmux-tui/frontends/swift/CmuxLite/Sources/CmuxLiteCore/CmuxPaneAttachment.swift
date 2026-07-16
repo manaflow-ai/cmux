@@ -10,7 +10,5 @@ struct CmuxPaneAttachment {
     var resizeTask: Task<Void, Never>?
     var pendingResizeSize: CmuxSurfaceSize?
     var localSize: CmuxSurfaceSize?
-    var remoteSize: CmuxSurfaceSize?
     var lastSentSize: CmuxSurfaceSize?
-    var sizeClaimed = false
 }
