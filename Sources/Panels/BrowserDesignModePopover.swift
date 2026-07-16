@@ -59,7 +59,9 @@ struct BrowserDesignModePopover: View {
                 Task { @MainActor in await controller.clearPageHover() }
             }
         }
-        .onExitCommand { controller.dismissComposer() }
+        .onExitCommand {
+            Task { @MainActor in await controller.handleEscape() }
+        }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(String(localized: "browser.designMode.title", defaultValue: "Design Mode"))
     }
@@ -398,7 +400,9 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
                 Task { @MainActor [controller] in await controller.copySelection() }
                 return true
             case #selector(NSResponder.cancelOperation(_:)):
-                controller.dismissComposer()
+                // Escape in the field follows the shared chain: reset the
+                // prompt first, exit Design Mode on a clean slate.
+                Task { @MainActor [controller] in await controller.handleEscape() }
                 return true
             default:
                 return false

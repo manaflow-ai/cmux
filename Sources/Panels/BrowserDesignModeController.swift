@@ -111,6 +111,12 @@ final class BrowserDesignModeController {
                 Task { @MainActor in
                     await self.setEnabled(false, reason: "escape")
                 }
+            },
+            onPromptReset: { [weak self] in
+                guard let self, self.isActive else { return }
+                self.requestedChange = ""
+                self.didCopy = false
+                self.errorMessage = nil
             }
         )
         messageHandler = handler
@@ -266,6 +272,29 @@ final class BrowserDesignModeController {
         copyTask = nil
         copyTaskID = nil
         isCopying = false
+    }
+
+    /// Escape semantics shared by the page and the composer: with any pills
+    /// or typed text, reset the whole prompt; with a clean slate, leave
+    /// Design Mode.
+    func handleEscape() async {
+        guard phase == .active else { return }
+        let hasContent = snapshot?.selections.isEmpty == false || !requestedChange.isEmpty
+        if hasContent {
+            requestedChange = ""
+            didCopy = false
+            errorMessage = nil
+            guard let webView else { return }
+            if let value = try? await evaluate(
+                "return globalThis.__cmuxDesignMode?.clearSelection();",
+                arguments: [:],
+                in: webView
+            ), let next = try? BrowserDesignModeSupport.decodeSnapshot(value) {
+                apply(next)
+            }
+        } else {
+            await setEnabled(false, reason: "escape")
+        }
     }
 
     /// Clears the page-side hover highlight (used when the pointer enters the

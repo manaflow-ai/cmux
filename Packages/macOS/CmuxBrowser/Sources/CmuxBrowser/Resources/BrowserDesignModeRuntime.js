@@ -1534,7 +1534,10 @@
     event.stopPropagation();
     event.stopImmediatePropagation();
     if (selectedBaseline || regionReferences.length) {
+      // First Escape resets the whole prompt: selections here, and the
+      // composer clears its typed text on this message.
       clearSelection();
+      handler?.postMessage({ type: "prompt_reset" });
       return;
     }
     // Escape with nothing selected exits design mode entirely.
@@ -1635,6 +1638,10 @@
     },
 
     snapshot,
+
+    clearSelection() {
+      return clearSelection();
+    },
 
     clearHover() {
       if (hoveredElement) {

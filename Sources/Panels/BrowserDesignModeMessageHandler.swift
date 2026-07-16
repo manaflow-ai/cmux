@@ -7,13 +7,16 @@ final class BrowserDesignModeMessageHandler: NSObject, WKScriptMessageHandler {
 
     private let onSnapshot: @MainActor @Sendable (Data) -> Void
     private let onExitRequested: @MainActor @Sendable () -> Void
+    private let onPromptReset: @MainActor @Sendable () -> Void
 
     init(
         onSnapshot: @escaping @MainActor @Sendable (Data) -> Void,
-        onExitRequested: @escaping @MainActor @Sendable () -> Void = {}
+        onExitRequested: @escaping @MainActor @Sendable () -> Void = {},
+        onPromptReset: @escaping @MainActor @Sendable () -> Void = {}
     ) {
         self.onSnapshot = onSnapshot
         self.onExitRequested = onExitRequested
+        self.onPromptReset = onPromptReset
     }
 
     func userContentController(
@@ -27,6 +30,12 @@ final class BrowserDesignModeMessageHandler: NSObject, WKScriptMessageHandler {
         if type == "exit_requested" {
             MainActor.assumeIsolated { [onExitRequested] in
                 onExitRequested()
+            }
+            return
+        }
+        if type == "prompt_reset" {
+            MainActor.assumeIsolated { [onPromptReset] in
+                onPromptReset()
             }
             return
         }

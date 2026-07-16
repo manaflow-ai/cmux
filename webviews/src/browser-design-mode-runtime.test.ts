@@ -810,6 +810,8 @@ describe("browser design-mode runtime", () => {
     esc();
     expect(runtime.composerState().selection_count).toBe(0);
     expect(exitRequests()).toHaveLength(0);
+    // The first escape also tells the composer to reset its typed prompt.
+    expect(messages.filter((m) => (m as { type?: string }).type === "prompt_reset")).toHaveLength(1);
 
     esc();
     expect(exitRequests()).toHaveLength(1);
