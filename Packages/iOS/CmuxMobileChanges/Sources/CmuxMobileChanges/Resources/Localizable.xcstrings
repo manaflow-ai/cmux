@@ -1,0 +1,31 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "changes.binary.badge": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "BIN" } }, "ja": { "stringUnit": { "state": "translated", "value": "バイナリ" } } } },
+    "changes.binary.title": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Binary file not shown" } }, "ja": { "stringUnit": { "state": "translated", "value": "バイナリファイルは表示できません" } } } },
+    "changes.copy.hunk": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Copy Hunk" } }, "ja": { "stringUnit": { "state": "translated", "value": "ハンクをコピー" } } } },
+    "changes.copy.line": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Copy Line" } }, "ja": { "stringUnit": { "state": "translated", "value": "行をコピー" } } } },
+    "changes.diff.error.message": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Check the connection to your Mac and try again." } }, "ja": { "stringUnit": { "state": "translated", "value": "Macとの接続を確認して、もう一度お試しください。" } } } },
+    "changes.diff.error.title": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Couldn't load diff" } }, "ja": { "stringUnit": { "state": "translated", "value": "差分を読み込めませんでした" } } } },
+    "changes.diff.truncated": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Diff truncated — showing first %lld lines" } }, "ja": { "stringUnit": { "state": "translated", "value": "差分は省略されています — 最初の%lld行を表示中" } } } },
+    "changes.empty.message": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "This workspace matches %@." } }, "ja": { "stringUnit": { "state": "translated", "value": "このワークスペースは%@と一致しています。" } } } },
+    "changes.empty.title": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "No changes" } }, "ja": { "stringUnit": { "state": "translated", "value": "変更はありません" } } } },
+    "changes.error.message": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Check the connection to your Mac and try again." } }, "ja": { "stringUnit": { "state": "translated", "value": "Macとの接続を確認して、もう一度お試しください。" } } } },
+    "changes.error.title": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Couldn't load changes" } }, "ja": { "stringUnit": { "state": "translated", "value": "変更を読み込めませんでした" } } } },
+    "changes.pager.position": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "%1$lld / %2$lld" } }, "ja": { "stringUnit": { "state": "translated", "value": "%1$lld / %2$lld" } } } },
+    "changes.rename.format": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "%1$@ → %2$@" } }, "ja": { "stringUnit": { "state": "translated", "value": "%1$@ → %2$@" } } } },
+    "changes.retry": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Retry" } }, "ja": { "stringUnit": { "state": "translated", "value": "再試行" } } } },
+    "changes.row.accessibility": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "%1$@, %2$@, %3$lld additions, %4$lld deletions" } }, "ja": { "stringUnit": { "state": "translated", "value": "%1$@、%2$@、追加%3$lld行、削除%4$lld行" } } } },
+    "changes.status.added": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "added" } }, "ja": { "stringUnit": { "state": "translated", "value": "追加" } } } },
+    "changes.status.deleted": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "deleted" } }, "ja": { "stringUnit": { "state": "translated", "value": "削除" } } } },
+    "changes.status.modified": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "modified" } }, "ja": { "stringUnit": { "state": "translated", "value": "変更" } } } },
+    "changes.status.renamed": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "renamed" } }, "ja": { "stringUnit": { "state": "translated", "value": "名前変更" } } } },
+    "changes.status.unknown": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "changed" } }, "ja": { "stringUnit": { "state": "translated", "value": "変更" } } } },
+    "changes.status.untracked": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "untracked" } }, "ja": { "stringUnit": { "state": "translated", "value": "未追跡" } } } },
+    "changes.summary.additions": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "+%lld" } }, "ja": { "stringUnit": { "state": "translated", "value": "+%lld" } } } },
+    "changes.summary.branch_base": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "%1$@ ← %2$@" } }, "ja": { "stringUnit": { "state": "translated", "value": "%1$@ ← %2$@" } } } },
+    "changes.summary.deletions": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "−%lld" } }, "ja": { "stringUnit": { "state": "translated", "value": "−%lld" } } } },
+    "changes.summary.files_changed": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "%lld files changed" } }, "ja": { "stringUnit": { "state": "translated", "value": "%lldファイルを変更" } } } }
+  },
+  "version": "1.0"
+}

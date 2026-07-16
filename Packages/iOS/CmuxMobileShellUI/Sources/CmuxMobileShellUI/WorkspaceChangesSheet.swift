@@ -1,0 +1,132 @@
+#if os(iOS)
+import CmuxMobileChanges
+import CmuxMobileShell
+import Foundation
+import SwiftUI
+import UIKit
+
+/// Full-height navigation sheet binding workspace RPC data to value-driven changes views.
+public struct WorkspaceChangesSheet: View {
+    @Bindable private var store: CMUXMobileShellStore
+    private let workspaceID: String
+    private let workspaceTitle: String
+    private let fontPreference: DiffFontPreference
+    @State private var branch = ""
+    @State private var base = "HEAD"
+    @State private var totals = ChangesTotals(filesChanged: 0, additions: 0, deletions: 0)
+    @State private var files: [ChangedFileItem] = []
+    @State private var listState: WorkspaceChangesListState = .loading
+    @State private var cachedDocuments: [String: FileDiffDocument] = [:]
+    @State private var fontSize: Double
+    @Environment(\.dismiss) private var dismiss
+
+    /// Creates a changes sheet for one remote workspace.
+    /// - Parameters:
+    ///   - store: Connected mobile shell store.
+    ///   - workspaceID: Remote workspace UUID string.
+    ///   - workspaceTitle: Workspace title used when a branch name is unavailable.
+    public init(
+        store: CMUXMobileShellStore,
+        workspaceID: String,
+        workspaceTitle: String
+    ) {
+        self.store = store
+        self.workspaceID = workspaceID
+        self.workspaceTitle = workspaceTitle
+        let preference = DiffFontPreference(defaults: .standard)
+        fontPreference = preference
+        _fontSize = State(initialValue: preference.pointSize)
+    }
+
+    public var body: some View {
+        WorkspaceChangesNavigationView(
+            branch: branch,
+            base: base,
+            totals: totals,
+            files: files,
+            listState: listState,
+            cachedDocuments: cachedDocuments,
+            fontSize: fontSize,
+            initialFileIndex: nil,
+            listActions: listActions,
+            pagerActions: pagerActions,
+            onClose: { dismiss() }
+        )
+        .task(id: workspaceID) {
+            await loadChangedFiles(invalidateCache: true)
+        }
+    }
+
+    private var listActions: WorkspaceChangesListActions {
+        WorkspaceChangesListActions(
+            onSelectFile: { _ in },
+            onRefresh: { await loadChangedFiles(invalidateCache: true) },
+            onRetry: { Task { await loadChangedFiles(invalidateCache: true) } }
+        )
+    }
+
+    private var pagerActions: WorkspaceFileDiffPagerActions {
+        WorkspaceFileDiffPagerActions(
+            onLoad: { path, forceRefresh in
+                try await loadDocument(path: path, forceRefresh: forceRefresh)
+            },
+            onPersistFontSize: { pointSize in
+                fontSize = pointSize
+                fontPreference.pointSize = pointSize
+            },
+            onCopy: { text in
+                UIPasteboard.general.string = text
+            }
+        )
+    }
+
+    @MainActor
+    private func loadChangedFiles(invalidateCache: Bool) async {
+        if invalidateCache { cachedDocuments = [:] }
+        listState = .loading
+        do {
+            let response = try await store.fetchChangedFiles(workspaceID: workspaceID)
+            guard !Task.isCancelled else { return }
+            branch = response.branch ?? workspaceTitle
+            base = response.baseRef ?? "HEAD"
+            totals = ChangesTotals(
+                filesChanged: response.filesChanged,
+                additions: response.additions,
+                deletions: response.deletions
+            )
+            files = response.files.map { file in
+                ChangedFileItem(
+                    path: file.path,
+                    oldPath: file.oldPath,
+                    kind: file.status.fileChangeKind,
+                    additions: file.additions,
+                    deletions: file.deletions,
+                    isBinary: file.isBinary
+                )
+            }
+            listState = files.isEmpty ? .empty : .loaded
+        } catch is CancellationError {
+            return
+        } catch {
+            guard !Task.isCancelled else { return }
+            listState = .error
+        }
+    }
+
+    @MainActor
+    private func loadDocument(
+        path: String,
+        forceRefresh: Bool
+    ) async throws -> FileDiffDocument {
+        if !forceRefresh, let cached = cachedDocuments[path] { return cached }
+        let response = try await store.fetchFileDiff(workspaceID: workspaceID, path: path)
+        let document = UnifiedDiffParser().parse(
+            response.unifiedDiff,
+            truncated: response.truncated,
+            isBinary: response.isBinary
+        )
+        cachedDocuments[path] = document
+        return document
+    }
+}
+#endif

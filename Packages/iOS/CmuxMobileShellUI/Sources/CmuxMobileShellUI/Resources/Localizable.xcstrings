@@ -428,6 +428,41 @@
           }
         }
       }
+    },
+    "workspace.changes.close" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Close" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "閉じる" } }
+      }
+    },
+    "workspace.changes.preview.error" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Error" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "エラー" } }
+      }
+    },
+    "workspace.changes.preview.loading" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Loading" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "読み込み中" } }
+      }
+    },
+    "workspace.changes.preview.state" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "State" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "状態" } }
+      }
+    },
+    "workspace.changes.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Changes" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "変更" } }
+      }
     }
   },
   "version" : "1.0"
