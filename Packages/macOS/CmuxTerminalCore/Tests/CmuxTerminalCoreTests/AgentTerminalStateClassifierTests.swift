@@ -172,6 +172,29 @@ struct AgentTerminalStateClassifierTests {
     }
 
     @Test
+    func geminiAPIKeyDialogRequiresItsCorroboratingPromptRows() {
+        let capturedInteraction = [
+            "Gemini CLI v0.51.0",
+            "Enter Gemini API Key",
+            "Please enter your Gemini API key. It will be securely stored in your system keychain.",
+            "Paste your API key here",
+            "(Press Enter to submit, Esc to cancel, Ctrl+C to clear stored key)",
+        ].joined(separator: "\n")
+        #expect(classifier.classify(screen(familyID: "gemini", text: capturedInteraction)).state == .blocked)
+    }
+
+    @Test
+    func kimiUpdateDialogIgnoresRenderedColumnSpacing() {
+        let capturedInteraction = [
+            "kimi-cli update available",
+            "[Enter]  Upgrade now  (uv tool upgrade kimi-cli)",
+            "[q]      Not now, remind me next time",
+            "[s]      Skip reminders for version 1.47.0",
+        ].joined(separator: "\n")
+        #expect(classifier.classify(screen(familyID: "kimi", text: capturedInteraction)).state == .blocked)
+    }
+
+    @Test
     func codexMultilineApprovalPromptRemainsInsideBlockedEvidenceWindow() {
         let capturedInteraction = [
             "Would you like to run the following command?",
