@@ -352,7 +352,7 @@ final class TerminalNotificationStore {
         case settingsTest = "settings_test"
     }
 
-    /// Legacy Combine bridge for the remaining `foo.$prop` subscribers. Emits the
+    /// Legacy Combine bridge for the remaining `.$notifications` subscribers. Emits the
     /// new value during willSet and replays the current value on subscribe — the
     /// exact `Published.Publisher` semantics those call sites were written
     /// against. Delete when the subscribers move to @Observable observation.
@@ -365,7 +365,7 @@ final class TerminalNotificationStore {
             if !suppressNotificationDiffPublishing { CmuxEventBus.shared.publishNotificationChanges(oldValue: oldValue, newValue: notifications) }
         }
     }
-    /// Legacy Combine bridge for the remaining `foo.$prop` subscribers. Emits the
+    /// Legacy Combine bridge for the remaining `.$notificationMenuSnapshot` subscribers. Emits the
     /// new value during willSet and replays the current value on subscribe — the
     /// exact `Published.Publisher` semantics those call sites were written
     /// against. Delete when the subscribers move to @Observable observation.
@@ -386,7 +386,7 @@ final class TerminalNotificationStore {
     @ObservationIgnored let sidebarUnread = SidebarUnreadModel()
     // Workspace-level unread drives sidebar workspace badges; pane-level manual
     // unread remains owned by Workspace.manualUnreadPanelIds.
-    /// Legacy Combine bridge for the remaining `foo.$prop` subscribers. Emits the
+    /// Legacy Combine bridge for the remaining `.$manualUnreadWorkspaceIds` subscribers. Emits the
     /// new value during willSet and replays the current value on subscribe — the
     /// exact `Published.Publisher` semantics those call sites were written
     /// against. Delete when the subscribers move to @Observable observation.
@@ -395,7 +395,7 @@ final class TerminalNotificationStore {
         willSet { manualUnreadWorkspaceIdsPublisher.send(newValue) }
         didSet { refreshUnreadPresentation() }
     }
-    /// Legacy Combine bridge for the remaining `foo.$prop` subscribers. Emits the
+    /// Legacy Combine bridge for the remaining `.$panelDerivedUnreadWorkspaceIds` subscribers. Emits the
     /// new value during willSet and replays the current value on subscribe — the
     /// exact `Published.Publisher` semantics those call sites were written
     /// against. Delete when the subscribers move to @Observable observation.
@@ -404,7 +404,7 @@ final class TerminalNotificationStore {
         willSet { panelDerivedUnreadWorkspaceIdsPublisher.send(newValue) }
         didSet { refreshUnreadPresentation() }
     }
-    /// Legacy Combine bridge for the remaining `foo.$prop` subscribers. Emits the
+    /// Legacy Combine bridge for the remaining `.$restoredUnreadWorkspaceIds` subscribers. Emits the
     /// new value during willSet and replays the current value on subscribe — the
     /// exact `Published.Publisher` semantics those call sites were written
     /// against. Delete when the subscribers move to @Observable observation.

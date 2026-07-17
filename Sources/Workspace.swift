@@ -2067,7 +2067,8 @@ final class Workspace: Identifiable {
         willSet { surfaceTabBarDirectoryPublisher.send(newValue) }
     }
     @ObservationIgnored private(set) var preferredBrowserProfileID: UUID?
-    @ObservationIgnored let closeTabWarningDefaults, agentSessionAutoResumeDefaults: UserDefaults
+    @ObservationIgnored let closeTabWarningDefaults: UserDefaults
+    @ObservationIgnored let agentSessionAutoResumeDefaults: UserDefaults
 
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
     @ObservationIgnored var portOrdinal: Int = 0

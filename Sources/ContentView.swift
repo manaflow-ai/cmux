@@ -800,7 +800,7 @@ private final class SelectedWorkspaceDirectoryObserver {
 struct ContentView: View {
     var updateViewModel: UpdateStateModel
     let windowId: UUID
-    @EnvironmentObject var tabManager: TabManager
+    @Environment(TabManager.self) var tabManager
     // ContentView observes the coalesced unread projection, NOT the notification
     // store. Reading `notificationStore` directly here would re-render the entire
     // content view + sidebar on every notification publish (terminal/agent
@@ -2639,11 +2639,11 @@ struct ContentView: View {
             await backgroundWorkspacePrimeCoordinator.primePendingBackgroundWorkspaces(tabManager: tabManager)
         })
 
-        view = AnyView(view.onReceive(tabManager.$debugPinnedWorkspaceLoadIds) { _ in
+        view = AnyView(view.onChange(of: tabManager.debugPinnedWorkspaceLoadIds, initial: true) { _, _ in
             reconcileMountedWorkspaceIds()
         })
 
-        view = AnyView(view.onReceive(tabManager.$mountedBackgroundWorkspaceLoadIds) { _ in
+        view = AnyView(view.onChange(of: tabManager.mountedBackgroundWorkspaceLoadIds, initial: true) { _, _ in
             reconcileMountedWorkspaceIds()
         })
 
@@ -10445,7 +10445,7 @@ struct VerticalTabsSidebar: View {
     let onToggleSidebar: () -> Void
     let onNewTab: () -> Void
     let observedWindow: NSWindow?
-    @EnvironmentObject var tabManager: TabManager
+    @Environment(TabManager.self) var tabManager
     // Observe the coalesced unread projection instead of the notification store
     // so notification churn (terminal/agent activity) no longer reconstructs
     // every workspace row. The store stays available as an unobserved singleton

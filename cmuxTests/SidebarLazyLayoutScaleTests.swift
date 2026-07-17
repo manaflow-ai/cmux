@@ -157,7 +157,7 @@ final class SidebarLazyLayoutScaleTests {
             sidebarRenderWorkerClient: .constant(nil)
         )
         .frame(width: 280)
-        .environmentObject(tabManager)
+        .environment(tabManager)
         .environment(unread)
         .environment(CmuxConfigStore())
         .environment(TerminalNotificationStore.shared)

@@ -67,7 +67,7 @@ struct SidebarDevFooter: View {
 #endif
 
 struct SidebarEmptyArea: View {
-    @EnvironmentObject var tabManager: TabManager
+    @Environment(TabManager.self) var tabManager
     let rowSpacing: CGFloat
     @Binding var selection: SidebarSelection
     @Binding var selectedTabIds: Set<UUID>

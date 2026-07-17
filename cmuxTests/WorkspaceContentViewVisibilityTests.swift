@@ -48,7 +48,7 @@ final class WorkspaceContentViewVisibilityTests {
         let notificationStore = TerminalNotificationStore.shared
         let counts = MinimalModeBodyProbeCounts()
         let root = ContentView(updateViewModel: UpdateStateModel(), windowId: UUID())
-            .environmentObject(tabManager)
+            .environment(tabManager)
             .environment(notificationStore)
             .environment(notificationStore.sidebarUnread)
             .environment(SidebarState())

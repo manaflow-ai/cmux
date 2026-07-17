@@ -240,7 +240,7 @@ final class RightSidebarToolPanel: Panel {
 
 struct RightSidebarToolPanelView: View {
     let panel: RightSidebarToolPanel
-    @EnvironmentObject private var tabManager: TabManager
+    @Environment(TabManager.self) private var tabManager
     let isFocused: Bool
     let isVisibleInUI: Bool
     let appearance: PanelAppearance

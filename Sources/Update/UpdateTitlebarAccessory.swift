@@ -241,7 +241,7 @@ final class NotificationsPopoverVisibilityState {
     static let shared = NotificationsPopoverVisibilityState()
 
     private(set) var isShown = false
-    /// Legacy Combine bridge for the remaining `foo.$prop` subscribers. Emits the
+    /// Legacy Combine bridge for the remaining `.$shownWindowNumbers` subscribers. Emits the
     /// new value during willSet and replays the current value on subscribe — the
     /// exact `Published.Publisher` semantics those call sites were written
     /// against. Delete when the subscribers move to @Observable observation.

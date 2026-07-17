@@ -15,7 +15,7 @@ import Observation
 @MainActor
 @Observable
 final class WorkspaceTodoState {
-    /// Legacy Combine bridge for the remaining `foo.$prop` subscribers. Emits the
+    /// Legacy Combine bridge for the remaining `.$statusOverride` subscribers. Emits the
     /// new value during willSet and replays the current value on subscribe — the
     /// exact `Published.Publisher` semantics those call sites were written
     /// against. Delete when the subscribers move to @Observable observation.
@@ -26,7 +26,7 @@ final class WorkspaceTodoState {
     var statusOverride: WorkspaceTaskStatusOverride? {
         willSet { statusOverridePublisher.send(newValue) }
     }
-    /// Legacy Combine bridge for the remaining `foo.$prop` subscribers. Emits the
+    /// Legacy Combine bridge for the remaining `.$statusHidden` subscribers. Emits the
     /// new value during willSet and replays the current value on subscribe — the
     /// exact `Published.Publisher` semantics those call sites were written
     /// against. Delete when the subscribers move to @Observable observation.
@@ -37,7 +37,7 @@ final class WorkspaceTodoState {
     var statusHidden: Bool = true {
         willSet { statusHiddenPublisher.send(newValue) }
     }
-    /// Legacy Combine bridge for the remaining `foo.$prop` subscribers. Emits the
+    /// Legacy Combine bridge for the remaining `.$checklist` subscribers. Emits the
     /// new value during willSet and replays the current value on subscribe — the
     /// exact `Published.Publisher` semantics those call sites were written
     /// against. Delete when the subscribers move to @Observable observation.

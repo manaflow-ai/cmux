@@ -118,7 +118,7 @@ final class FocusSurfaceBroadcaster {
     /// Records a focus broadcast for asynchronous, coalesced delivery.
     ///
     /// Never delivers synchronously: this is what makes emitting safe while
-    /// `@Published` selection state is mid-mutation. If a delivery is already in
+    /// tracked selection state is mid-mutation. If a delivery is already in
     /// progress (an observer re-entered during a flush), the payload is recorded for
     /// the active drain loop instead of scheduling another flush.
     func emit(_ payload: FocusSurfacePayload) {
