@@ -473,9 +473,12 @@ public final class MobileIrohRuntimeComposition:
     public func didBecomeActive() {
         guard signOutPhase.allowsLifecycle else { return }
         sceneTransitionTask?.cancel()
+        let auth = auth
         let runtime = runtime
         let lanPeerDiscovery = lanPeerDiscovery
         sceneTransitionTask = Task {
+            await auth?.revalidateSession()
+            guard !Task.isCancelled, auth?.isAuthenticated != false else { return }
             await lanPeerDiscovery?.permissionMayHaveChanged()
             do {
                 try await runtime?.didBecomeActive()

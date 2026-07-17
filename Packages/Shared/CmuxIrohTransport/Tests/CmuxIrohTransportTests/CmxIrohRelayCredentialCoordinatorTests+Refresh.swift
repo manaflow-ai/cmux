@@ -5,6 +5,61 @@ import Testing
 
 extension CmxIrohRelayCredentialCoordinatorTests {
     @Test
+    func concurrentForegroundCatchUpSharesOneBrokerMint() async throws {
+        let fixture = try RelayCoordinatorFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.identity)
+        let supervisor = try await fixture.activeSupervisor(endpoint: endpoint)
+        let clock = TestRelayClock(now: fixture.now)
+        let expiry = fixture.now.addingTimeInterval(5 * 60)
+        let refresh = expiry.addingTimeInterval(-60)
+        let replacementExpiry = fixture.now.addingTimeInterval(15 * 60)
+        let replacementRefresh = replacementExpiry.addingTimeInterval(-60)
+        let gate = TestRelayIssueGate()
+        let broker = TestRelayTokenBroker(
+            steps: [.response(try fixture.response(
+                tokens: ["ghi234", "jkl567"],
+                refreshAfter: replacementRefresh,
+                expiresAt: replacementExpiry
+            ))],
+            issueHook: { count in
+                if count == 1 { await gate.park() }
+            }
+        )
+        let coordinator = CmxIrohRelayCredentialCoordinator(
+            supervisor: supervisor,
+            broker: broker,
+            managedRelayURLs: Set(fixture.relayURLs),
+            clock: clock,
+            jitter: { _, refreshAfter in refreshAfter },
+            retryJitter: { 0 }
+        )
+        try await coordinator.activate(
+            bindingID: fixture.bindingID,
+            endpointIdentity: fixture.identity,
+            bootstrap: try fixture.response(
+                tokens: ["abc234", "def567"],
+                refreshAfter: refresh,
+                expiresAt: expiry
+            )
+        )
+        clock.setNowWithoutResuming(expiry.addingTimeInterval(1))
+
+        let first = Task { try await coordinator.refreshIfNeeded() }
+        await gate.waitUntilParked()
+        let second = Task { try await coordinator.refreshIfNeeded() }
+        for _ in 0 ..< 20 { await Task.yield() }
+
+        #expect(await broker.observedEndpointIDs() == [fixture.identity])
+
+        await gate.release()
+        try await first.value
+        try await second.value
+        #expect(await broker.observedEndpointIDs() == [fixture.identity])
+        #expect(await endpoint.observedRelayUpdates().count == 2)
+        await coordinator.deactivate()
+    }
+
+    @Test
     func foregroundCatchUpRefreshesCredentialAfterSuspensionPastDeadline() async throws {
         let fixture = try RelayCoordinatorFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.identity)
@@ -151,5 +206,29 @@ extension CmxIrohRelayCredentialCoordinatorTests {
 
         #expect(await endpoint.observedRelayUpdates().isEmpty)
         #expect(try await supervisor.activeEndpoint().identity() == fixture.identity)
+    }
+}
+
+private actor TestRelayIssueGate {
+    private var isParked = false
+    private var parkContinuation: CheckedContinuation<Void, Never>?
+    private var parkedWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func park() async {
+        isParked = true
+        let waiters = parkedWaiters
+        parkedWaiters.removeAll(keepingCapacity: false)
+        for waiter in waiters { waiter.resume() }
+        await withCheckedContinuation { parkContinuation = $0 }
+    }
+
+    func waitUntilParked() async {
+        guard !isParked else { return }
+        await withCheckedContinuation { parkedWaiters.append($0) }
+    }
+
+    func release() {
+        parkContinuation?.resume()
+        parkContinuation = nil
     }
 }

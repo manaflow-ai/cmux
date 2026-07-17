@@ -365,6 +365,8 @@ public actor CmxIrohClientRuntime {
             registrationRefreshEnabled = true
             _ = try await refreshLiveDiscoveryThrowing()
             try requireCurrent(revision)
+            try await relayCoordinator?.refreshIfNeeded()
+            try requireCurrent(revision)
         } catch {
             if lifecyclePhase == .active, lifecycleRevision == revision {
                 registrationRefreshEnabled = true
