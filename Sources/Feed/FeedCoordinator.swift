@@ -193,7 +193,7 @@ final class FeedCoordinator: @unchecked Sendable {
     // inactive, offer the same decision through a native banner.
     postNotificationIfStillAwaiting(event: event, requestId: requestId)
 
-    let deliveredDecision = await withTaskGroup(of: WorkstreamDecision?.self) { group in
+    _ = await withTaskGroup(of: WorkstreamDecision?.self) { group in
       group.addTask {
         for await decision in decisions {
           return decision
@@ -209,9 +209,8 @@ final class FeedCoordinator: @unchecked Sendable {
       return first
     }
 
-    let waiter = await waiterRegistry.remove(requestID: requestId)
-
     guard !Task.isCancelled else {
+      let waiter = await waiterRegistry.expire(requestID: requestId)
       cancelNotification(requestId: requestId)
       await MainActor.run {
         self.concludeBlockingDecisionAttentionIfPresent(waiter?.attentionTarget)
@@ -219,23 +218,27 @@ final class FeedCoordinator: @unchecked Sendable {
           self.store?.markExpired(itemID)
         }
       }
+      await waiterRegistry.finalizeExpiration(requestID: requestId)
       return .timedOut(itemId: waiter?.itemID)
     }
 
-    if let decision = deliveredDecision ?? waiter?.decision {
-      // A decision that wins at the timeout boundary remains terminal
-      // even when Dispatch reports the timeout result first.
-      return .resolved(itemId: waiter?.itemID, decision: decision)
-    }
-
-    cancelNotification(requestId: requestId)
-    await MainActor.run {
-      self.concludeBlockingDecisionAttentionIfPresent(waiter?.attentionTarget)
-      if let itemID = waiter?.itemID {
-        self.store?.markExpired(itemID)
+    switch await waiterRegistry.completeAfterWait(requestID: requestId) {
+    case .resolved(let waiter, let decision):
+      return .resolved(itemId: waiter.itemID, decision: decision)
+    case .timedOut(let waiter):
+      cancelNotification(requestId: requestId)
+      await MainActor.run {
+        self.concludeBlockingDecisionAttentionIfPresent(waiter.attentionTarget)
+        if let itemID = waiter.itemID {
+          self.store?.markExpired(itemID)
+        }
       }
+      await waiterRegistry.finalizeExpiration(requestID: requestId)
+      return .timedOut(itemId: waiter.itemID)
+    case .missing:
+      cancelNotification(requestId: requestId)
+      return .timedOut(itemId: nil)
     }
-    return .timedOut(itemId: waiter?.itemID)
   }
 
   private func cancelIngest(
@@ -243,7 +246,7 @@ final class FeedCoordinator: @unchecked Sendable {
     itemID: UUID?,
     attentionTarget: AttentionTarget?
   ) async {
-    _ = await waiterRegistry.remove(requestID: requestID)
+    _ = await waiterRegistry.expire(requestID: requestID)
     cancelNotification(requestId: requestID)
     await MainActor.run {
       self.concludeBlockingDecisionAttentionIfPresent(attentionTarget)
@@ -251,21 +254,15 @@ final class FeedCoordinator: @unchecked Sendable {
         self.store?.markExpired(itemID)
       }
     }
+    await waiterRegistry.finalizeExpiration(requestID: requestID)
   }
 
   /// Concludes an attention overlay (if any) on the main actor, hopping if
   /// called from the socket worker thread.
-  private func concludeAttentionOnMain(_ target: AttentionTarget?) {
+  private func concludeAttentionOnMain(_ target: AttentionTarget?) async {
     guard let target else { return }
-    let conclude: @Sendable () -> Void = { [target] in
-      MainActor.assumeIsolated {
-        FeedCoordinator.shared.concludeBlockingDecisionAttention(target)
-      }
-    }
-    if Thread.isMainThread {
-      conclude()
-    } else {
-      Task { @MainActor in conclude() }
+    await MainActor.run {
+      self.concludeBlockingDecisionAttention(target)
     }
   }
 
@@ -288,7 +285,7 @@ final class FeedCoordinator: @unchecked Sendable {
     // running/idle state shows through (refcounted so an overlapping
     // decision on the same panel keeps it lit until it too concludes).
     if delivery.accepted {
-      concludeAttentionOnMain(delivery.attentionTarget)
+      await concludeAttentionOnMain(delivery.attentionTarget)
     }
 
     let resolvedItemID = await MainActor.run { () -> UUID? in
@@ -296,7 +293,7 @@ final class FeedCoordinator: @unchecked Sendable {
       let itemID: UUID?
       if delivery.accepted {
         itemID = delivery.itemID ?? Self.findPendingItemID(for: requestId, in: store.items)
-      } else if !delivery.registered {
+      } else if !delivery.registered && !delivery.timedOut {
         itemID = Self.findPendingItemID(for: requestId, in: store.items)
       } else {
         itemID = nil

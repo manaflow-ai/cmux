@@ -6,32 +6,18 @@ import Foundation
 import SwiftUI
 
 final class FeedInlineNativeTextView: NSTextView, FeedScopedKeyboardFocusResponder {
-    private static weak var activeEditor: FeedInlineNativeTextView?
-
     var onActivate: (() -> Void)?
     var onEscape: (() -> Void)?
     var onSubmit: (() -> Void)?
     var feedFocusScopeID = UUID()
 
     static func blurActiveEditor(in hostWindow: NSWindow?) {
-        guard let activeEditor else { return }
-        guard let window = activeEditor.window else {
-            if Self.activeEditor === activeEditor {
-                Self.activeEditor = nil
-            }
-            return
-        }
-        guard window === hostWindow else { return }
-        guard window.firstResponder === activeEditor else {
-            if Self.activeEditor === activeEditor {
-                Self.activeEditor = nil
-            }
-            return
-        }
+        guard let hostWindow,
+              hostWindow.firstResponder is FeedInlineNativeTextView else { return }
 #if DEBUG
-        dlog("feed.editor.blurActive fr=\(feedDebugResponderSummary(window.firstResponder))")
+        dlog("feed.editor.blurActive fr=\(feedDebugResponderSummary(hostWindow.firstResponder))")
 #endif
-        window.makeFirstResponder(nil)
+        hostWindow.makeFirstResponder(nil)
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -72,7 +58,6 @@ final class FeedInlineNativeTextView: NSTextView, FeedScopedKeyboardFocusRespond
     override func becomeFirstResponder() -> Bool {
         let didBecomeFirstResponder = super.becomeFirstResponder()
         if didBecomeFirstResponder {
-            Self.activeEditor = self
             onActivate?()
         }
 #if DEBUG
@@ -83,9 +68,6 @@ final class FeedInlineNativeTextView: NSTextView, FeedScopedKeyboardFocusRespond
 
     override func resignFirstResponder() -> Bool {
         let didResignFirstResponder = super.resignFirstResponder()
-        if didResignFirstResponder, Self.activeEditor === self {
-            Self.activeEditor = nil
-        }
 #if DEBUG
         dlog("feed.editor.resign result=\(didResignFirstResponder ? 1 : 0) fr=\(feedDebugResponderSummary(window?.firstResponder))")
 #endif

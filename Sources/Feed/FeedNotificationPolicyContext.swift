@@ -13,10 +13,16 @@ extension FeedNotificationPolicyContext {
     event: WorkstreamEvent,
     title: String,
     body: String,
-    hookCache: CmuxNotificationHookCache
+    hookCache: CmuxNotificationHookCache,
+    defaultGlobalConfigPath: String = CmuxConfigStore.defaultGlobalConfigPath()
   ) async -> FeedNotificationPolicyContext {
     let snapshot: FeedNotificationPolicySnapshot = await MainActor.run {
-      Self.snapshot(event: event, title: title, body: body)
+      Self.snapshot(
+        event: event,
+        title: title,
+        body: body,
+        defaultGlobalConfigPath: defaultGlobalConfigPath
+      )
     }
     let hooks: [CmuxResolvedNotificationHook]
     if let globalConfigPath = snapshot.globalConfigPath {
@@ -38,13 +44,13 @@ extension FeedNotificationPolicyContext {
   private static func snapshot(
     event: WorkstreamEvent,
     title: String,
-    body: String
+    body: String,
+    defaultGlobalConfigPath: String
   ) -> FeedNotificationPolicySnapshot {
     let appDelegate = AppDelegate.shared
     let workspaceID = event.workspaceId.flatMap(UUID.init(uuidString:))
     let workspaceContext = workspaceID.flatMap { appDelegate?.contextContainingTabId($0) }
     let configContext = workspaceContext
-      ?? appDelegate?.mainWindowContexts.values.first(where: { $0.cmuxConfigStore != nil })
     let workspace = workspaceID.flatMap { id in
       workspaceContext?.tabManager.tabs.first(where: { $0.id == id })
     }
@@ -64,6 +70,7 @@ extension FeedNotificationPolicyContext {
 
     let workspaceIdentity = workspaceID?.uuidString ?? ""
     let globalConfigPath = configContext?.cmuxConfigStore?.globalConfigPath
+      ?? defaultGlobalConfigPath
     let hookSearchDirectory = workspace?.isRemoteWorkspace == true
       ? nil
       : (normalizedCWD(event.cwd) ?? workspace?.surfaceTabBarDirectory)

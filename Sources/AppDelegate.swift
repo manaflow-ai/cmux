@@ -4727,7 +4727,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func locateBonsplitSurface(tabId: UUID) -> (windowId: UUID, workspaceId: UUID, panelId: UUID, tabManager: TabManager)? {
         let bonsplitTabId = TabID(uuid: tabId)
-        for context in mainWindowContexts.values {
+        for context in Array(mainWindowContexts.values) {
             for workspace in context.tabManager.tabs {
                 if let panelId = workspace.panelIdFromSurfaceId(bonsplitTabId) {
                     return (context.windowId, workspace.id, panelId, context.tabManager)

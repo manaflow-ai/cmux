@@ -46,7 +46,7 @@ struct FeedCoordinatorTests {
     }
 
     @MainActor
-    @Test func notificationPolicyFailsClosedWithoutWorkspaceMapping() async throws {
+    @Test func notificationPolicyUsesGlobalHooksWithoutWorkspaceMapping() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let root = FileManager.default.temporaryDirectory.appendingPathComponent(
                 "cmux-feed-global-hook-\(UUID().uuidString)",
@@ -84,11 +84,12 @@ struct FeedCoordinatorTests {
                 event: event,
                 title: "Done",
                 body: "Finished",
-                hookCache: CmuxNotificationHookCache()
+                hookCache: CmuxNotificationHookCache(),
+                defaultGlobalConfigPath: configURL.path
             )
 
-            #expect(context.globalConfigPath == nil)
-            #expect(context.hooks.isEmpty)
+            #expect(context.globalConfigPath == configURL.path)
+            #expect(context.hooks.map(\.id) == ["feed-global"])
         }
     }
 
@@ -227,6 +228,23 @@ struct FeedCoordinatorTests {
         #expect(!second.accepted)
         #expect(await iterator.next() == .permission(.once))
         #expect(await registry.remove(requestID: requestID)?.decision == .permission(.once))
+    }
+
+    @Test func blockingWaiterRejectsReplyWhileTimeoutIsBeingFinalized() async throws {
+        let registry = FeedBlockingWaiterRegistry()
+        let requestID = "timeout-finalization-race"
+        _ = try #require(await registry.register(requestID: requestID))
+
+        guard case .timedOut = await registry.completeAfterWait(requestID: requestID) else {
+            Issue.record("expected the unanswered waiter to enter its timeout state")
+            return
+        }
+        let delivery = await registry.deliver(.permission(.once), requestID: requestID)
+
+        #expect(!delivery.accepted)
+        #expect(delivery.registered)
+        #expect(delivery.timedOut)
+        await registry.finalizeExpiration(requestID: requestID)
     }
 
     @Test func codexTeamsResolvesExplicitWorkingDirectoryFlags() {

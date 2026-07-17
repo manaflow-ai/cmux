@@ -118,9 +118,7 @@ struct FeedPanelView: View {
             #endif
         }
         .rightSidebarChromeBar(
-            leadingPadding: placement == .pane
-                ? HeaderChromeControlMetrics.titlebarControlsLeadingPadding
-                : RightSidebarChromeMetrics.barHorizontalPadding
+            leadingPadding: RightSidebarChromeMetrics.barHorizontalPadding
         )
         .rightSidebarChromeBottomBorder()
         .reportRightSidebarChromeGeometryForBonsplitUITest(role: .secondaryBar, isVisible: true, titlebarHeight: RightSidebarChromeMetrics.secondaryBarHeight)

@@ -20,11 +20,12 @@ struct FeedListView: View {
     @State private var stopDrafts: [UUID: FeedStopDraft] = [:]
     @State private var focusHostRequest = 0
     @State private var focusHostReference = FeedFocusHostReference()
+    @State private var actionTaskStore = FeedRowActions.TaskStore()
 
     var body: some View {
         let activityGroups = filter == .activity ? presentation.activity : nil
         let snapshots = activityGroups?.ordered ?? presentation.actionable
-        let rowActions = FeedRowActions.bound()
+        let rowActions = FeedRowActions.bound(taskStore: actionTaskStore)
         ScrollViewReader { proxy in
             Group {
                 if snapshots.isEmpty && !shouldShowActivityHistoryLoader {

@@ -21,6 +21,7 @@ final class FeedJumpResolver: @unchecked Sendable {
     }
 
     func lookup(agent: String, sessionId: String) -> FeedJumpTarget? {
+        guard isValidAgentIdentifier(agent) else { return nil }
         let file = sessionsDirectory
             .appendingPathComponent("\(agent)-hook-sessions.json", isDirectory: false)
         guard let data = try? Data(contentsOf: file),
@@ -40,6 +41,13 @@ final class FeedJumpResolver: @unchecked Sendable {
               !workspaceId.isEmpty, !surfaceId.isEmpty
         else { return nil }
         return FeedJumpTarget(workspaceId: workspaceId, surfaceId: surfaceId)
+    }
+
+    private func isValidAgentIdentifier(_ agent: String) -> Bool {
+        guard !agent.isEmpty, agent != ".", agent != ".." else { return false }
+        return agent.unicodeScalars.allSatisfy { scalar in
+            CharacterSet.alphanumerics.contains(scalar) || scalar.value == 45 || scalar.value == 95
+        }
     }
 
     func resolve(_ workstreamId: String) -> FeedJumpTarget? {

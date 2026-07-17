@@ -143,6 +143,8 @@ struct PlanBodyView: View {
                 bulleted.append(text)
                 continue
             }
+            flushNumbered()
+            flushBulleted()
             buffer.append(line)
         }
         flushParagraph(); flushNumbered(); flushBulleted()

@@ -125,7 +125,9 @@ extension FeedCoordinator {
     }
 
     private static func permissionNotificationCategoryId(for event: WorkstreamEvent) -> String {
-        let source = WorkstreamSource(wireName: event.source) ?? .claude
+        guard let source = WorkstreamSource(wireName: event.source) else {
+            return "CMUXFeedPermissionDeny"
+        }
         let supportsOnce = FeedPermissionActionPolicy.supportsOncePermissionMode(
             source: source,
             toolInputJSON: event.toolInputJSON

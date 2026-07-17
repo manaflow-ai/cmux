@@ -51,24 +51,29 @@ final class FeedPresentationStore {
 
     private static func makePresentation(items: [WorkstreamItem]) -> FeedPresentationSnapshot {
         var lastPromptByWorkstream: [String: String] = [:]
+        var snapshots: [(item: WorkstreamItem, snapshot: FeedItemSnapshot)] = []
+        snapshots.reserveCapacity(items.count)
         for item in items {
             if case .userPrompt(let text) = item.payload, !text.isEmpty {
                 lastPromptByWorkstream[item.workstreamId] = text
             }
+            snapshots.append((
+                item: item,
+                snapshot: FeedItemSnapshot(
+                    item: item,
+                    userPromptEcho: lastPromptByWorkstream[item.workstreamId]
+                )
+            ))
         }
 
         var actionable: [FeedItemSnapshot] = []
         var activityStable: [FeedItemSnapshot] = []
         var activityHistory: [FeedItemSnapshot] = []
-        actionable.reserveCapacity(items.count)
-        activityStable.reserveCapacity(items.count)
-        activityHistory.reserveCapacity(items.count)
+        actionable.reserveCapacity(snapshots.count)
+        activityStable.reserveCapacity(snapshots.count)
+        activityHistory.reserveCapacity(snapshots.count)
 
-        for item in items.reversed() {
-            let snapshot = FeedItemSnapshot(
-                item: item,
-                userPromptEcho: lastPromptByWorkstream[item.workstreamId]
-            )
+        for (item, snapshot) in snapshots.reversed() {
             if item.kind.isActionable {
                 actionable.append(snapshot)
             }

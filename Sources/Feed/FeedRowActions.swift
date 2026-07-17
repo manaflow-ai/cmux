@@ -2,19 +2,39 @@ import CMUXAgentLaunch
 
 /// Closure bundle; binds to `FeedCoordinator` by default.
 struct FeedRowActions {
-    let approvePermission: (String, WorkstreamPermissionMode) -> Void
-    let replyQuestion: (String, [String]) -> Void
-    let approveExitPlan: (String, WorkstreamExitPlanMode, String?) -> Void
-    let jump: (String) -> Void
+    let approvePermission: @MainActor (String, WorkstreamPermissionMode) -> Void
+    let replyQuestion: @MainActor (String, [String]) -> Void
+    let approveExitPlan: @MainActor (String, WorkstreamExitPlanMode, String?) -> Void
+    let jump: @MainActor (String) -> Void
     /// Types the user's reply into the agent's terminal surface and
     /// presses Return. Used by Stop-kind cards so the user can nudge
     /// Claude without switching focus to the terminal.
-    let sendText: (String, String) -> Void
+    let sendText: @MainActor (String, String) -> Void
 
-    static func bound() -> FeedRowActions {
+    @MainActor
+    final class TaskStore {
+        private var tasks: [UUID: Task<Void, Never>] = [:]
+
+        deinit {
+            for task in tasks.values {
+                task.cancel()
+            }
+        }
+
+        func run(_ operation: @escaping @MainActor () async -> Void) {
+            let id = UUID()
+            tasks[id] = Task { [weak self] in
+                await operation()
+                self?.tasks.removeValue(forKey: id)
+            }
+        }
+    }
+
+    @MainActor
+    static func bound(taskStore: TaskStore) -> FeedRowActions {
         FeedRowActions(
             approvePermission: { requestID, mode in
-                Task {
+                taskStore.run {
                     await FeedCoordinator.shared.deliverReply(
                         requestId: requestID,
                         decision: .permission(mode)
@@ -22,7 +42,7 @@ struct FeedRowActions {
                 }
             },
             replyQuestion: { requestID, selections in
-                Task {
+                taskStore.run {
                     await FeedCoordinator.shared.deliverReply(
                         requestId: requestID,
                         decision: .question(selections: selections)
@@ -30,7 +50,7 @@ struct FeedRowActions {
                 }
             },
             approveExitPlan: { requestID, mode, feedback in
-                Task {
+                taskStore.run {
                     await FeedCoordinator.shared.deliverReply(
                         requestId: requestID,
                         decision: .exitPlan(mode, feedback: feedback)
@@ -38,12 +58,12 @@ struct FeedRowActions {
                 }
             },
             jump: { workstreamId in
-                Task {
+                taskStore.run {
                     _ = await FeedCoordinator.shared.focusIfPossible(workstreamId: workstreamId)
                 }
             },
             sendText: { workstreamId, text in
-                Task {
+                taskStore.run {
                     await FeedCoordinator.shared.sendTextToWorkstream(
                         workstreamId: workstreamId,
                         text: text

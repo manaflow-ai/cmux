@@ -42,6 +42,7 @@ final class FeedPanelViewModel {
         guard !isLoadingOlderItems,
               hasMorePersistedItems else { return }
         loadOlderTask?.cancel()
+        let presentationStore = presentationStore
         loadOlderTask = Task { @MainActor in
             await presentationStore.loadOlderItems()
         }
