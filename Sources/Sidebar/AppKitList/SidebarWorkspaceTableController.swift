@@ -171,7 +171,19 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 #endif
         guard rows.indices.contains(row) else { return }
         if let actions = rows[row].appKitWorkspaceRowActions {
-            actions.commands.updateSelection()
+            // Capture modifiers at click time: a coalesced (trailing) apply
+            // must not re-read the keyboard ~100ms later.
+            let modifiers = NSEvent.modifierFlags
+            if modifiers.contains(.command) || modifiers.contains(.shift) {
+                // Multi-select mutations are order-dependent; apply in order,
+                // never dropping intermediates.
+                selectionCoalescer.cancel()
+                actions.commands.updateSelection(modifiers: modifiers)
+            } else {
+                selectionCoalescer.request {
+                    actions.commands.updateSelection(modifiers: modifiers)
+                }
+            }
         } else if let headerActions = rows[row].appKitGroupHeaderActions {
             headerActions.onFocusAnchor()
         }
@@ -366,6 +378,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         updateDropTargets()
     }
 
+    private let selectionCoalescer = SidebarSelectionCoalescer()
     private var lastMeasuredWidth: CGFloat = 0
     private var widthRemeasureTask: Task<Void, Never>?
 
