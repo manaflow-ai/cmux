@@ -229,6 +229,9 @@ fn shared_surface_uses_smallest_viewer_size_until_that_viewer_detaches() {
     mux.remove_surface_size_client(surface, 2);
     assert_eq!(mux.surface(surface).unwrap().size(), (120, 40));
 
+    mux.remove_surface_size_client(surface, 1);
+    assert_eq!(mux.surface(surface).unwrap().size(), (120, 40));
+
     mux.shutdown();
 }
 

@@ -4,9 +4,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CmuxClient, RenderAttachEvent, RenderCursor } from "cmux/browser";
 import { useRenderTerminal } from "../src/hooks/useRenderTerminal";
 
+let recoveryDelay = 60_000;
+
 vi.mock("../src/lib/attachRecovery", () => ({
   ATTACH_RECOVERY_STABLE_MS: 60_000,
-  attachRecoveryDelay: () => 60_000,
+  attachRecoveryDelay: () => recoveryDelay,
 }));
 
 let hostWidth = 800;
@@ -66,6 +68,62 @@ describe("render terminal sizing", () => {
   afterEach(() => {
     globalThis.ResizeObserver = originalResizeObserver;
     hostWidth = 800;
+    recoveryDelay = 60_000;
+  });
+
+  it("reports an unchanged local fit again after overflow reattachment", async () => {
+    recoveryDelay = 0;
+    globalThis.ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
+    const cursor: RenderCursor = {
+      x: 0,
+      y: 0,
+      style: "bar",
+      blink: true,
+      visible: true,
+      color: null,
+    };
+    const streams = [
+      new TestStream([
+        {
+          event: "render-state",
+          surface: 7,
+          size: { cols: 100, rows: 30 },
+          cursor,
+          default_fg: "#f8f8f2",
+          default_bg: "#272822",
+          scrollback_rows: 0,
+          rows: [],
+        },
+        { event: "overflow", scope: "surface", surface: 7, error: "subscriber fell behind" },
+      ]),
+      new TestStream([
+        {
+          event: "render-state",
+          surface: 7,
+          size: { cols: 100, rows: 30 },
+          cursor,
+          default_fg: "#f8f8f2",
+          default_bg: "#272822",
+          scrollback_rows: 0,
+          rows: [],
+        },
+      ]),
+    ];
+    const client = {
+      attachSurface: vi.fn(async () => streams.shift()!),
+      resizeSurface: vi.fn(async () => ({ accepted: true, reservation_id: null })),
+    } as unknown as CmuxClient;
+
+    render(<Harness client={client} />);
+
+    await waitFor(() => expect(client.attachSurface).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(client.resizeSurface).toHaveBeenCalledTimes(2));
+    expect(client.resizeSurface).toHaveBeenNthCalledWith(1, 7, 80, 24);
+    expect(client.resizeSurface).toHaveBeenNthCalledWith(2, 7, 80, 24);
   });
 
   it("does not publish a viewer resize while the attachment is disconnected", async () => {
