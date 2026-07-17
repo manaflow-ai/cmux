@@ -223,7 +223,7 @@ struct CmxIrohHostRuntimeTests {
 }
 
 actor TestIrohHostBroker: CmxIrohHostBrokerServing {
-    private let registrationBinding: CmxIrohBrokerBinding
+    private var registrationBindings: [CmxIrohBrokerBinding]
     private var discoveryResponses: [CmxIrohDiscoveryResponse]
     private let registrationError: CmxIrohTrustBrokerClientError?
     private let discoveryError: CmxIrohTrustBrokerClientError?
@@ -233,6 +233,7 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
     private let relayIssueHook: (@Sendable () async -> Void)?
     private var subsequentRegistrationErrors: [CmxIrohTrustBrokerClientError]
     private var registrationCount = 0
+    private var preparedRegistrations: [CmxIrohPreparedRegistration] = []
     private var relayIssueCount = 0
     private var registrationHookResult: Bool?
     private var revokedBindingIDs: [String] = []
@@ -243,6 +244,7 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
     init(
         registrationBinding: CmxIrohBrokerBinding,
         discovery: CmxIrohDiscoveryResponse,
+        subsequentRegistrationBindings: [CmxIrohBrokerBinding] = [],
         subsequentDiscoveries: [CmxIrohDiscoveryResponse] = [],
         registrationError: CmxIrohTrustBrokerClientError? = nil,
         discoveryError: CmxIrohTrustBrokerClientError? = nil,
@@ -252,7 +254,7 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
         relayIssueHook: (@Sendable () async -> Void)? = nil,
         subsequentRegistrationErrors: [CmxIrohTrustBrokerClientError] = []
     ) {
-        self.registrationBinding = registrationBinding
+        registrationBindings = [registrationBinding] + subsequentRegistrationBindings
         discoveryResponses = [discovery] + subsequentDiscoveries
         self.registrationError = registrationError
         self.discoveryError = discoveryError
@@ -264,10 +266,11 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
     }
 
     func register(
-        prepared _: CmxIrohPreparedRegistration,
+        prepared: CmxIrohPreparedRegistration,
         signer _: CmxIrohRegistrationSigner
     ) async throws -> CmxIrohRegistrationResponse {
         registrationCount += 1
+        preparedRegistrations.append(prepared)
         let readyIDs = registrationCountWaiters.compactMap { id, waiter in
             registrationCount >= waiter.minimum ? id : nil
         }
@@ -286,8 +289,11 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
         if let registrationHook {
             registrationHookResult = await registrationHook()
         }
+        let binding = registrationBindings.count > 1
+            ? registrationBindings.removeFirst()
+            : registrationBindings[0]
         return CmxIrohRegistrationResponse(
-            binding: registrationBinding,
+            binding: binding,
             relay: .unavailable
         )
     }
@@ -328,6 +334,9 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
     }
 
     func observedRegistrationCount() -> Int { registrationCount }
+    func observedPreparedRegistrations() -> [CmxIrohPreparedRegistration] {
+        preparedRegistrations
+    }
     func observedRelayIssueCount() -> Int { relayIssueCount }
 
     func enqueueSubsequentRegistrationError(
