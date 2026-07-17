@@ -8,6 +8,51 @@ import Testing
 
 @MainActor
 @Suite struct TerminalSurfacePortalHostVacancyTests {
+    @Test func vacatedNewerSameGenerationAuthorityDoesNotPinOlderCandidate() {
+        let surface = makeSurface()
+        defer { surface.releaseSurfaceForTesting() }
+
+        let paneId = PaneID()
+        let ownershipGeneration = surface.currentPortalHostOwnershipGeneration()
+        let olderHost = NSView(frame: NSRect(x: 0, y: 0, width: 80, height: 24))
+        let newerHost = NSView(frame: NSRect(x: 0, y: 0, width: 80, height: 24))
+
+        #expect(surface.claimPortalHost(
+            hostId: ObjectIdentifier(olderHost),
+            paneId: paneId,
+            instanceSerial: 1,
+            ownershipGeneration: ownershipGeneration,
+            inWindow: true,
+            bounds: olderHost.bounds,
+            reason: "test.olderInitialClaim"
+        ))
+        #expect(surface.claimPortalHost(
+            hostId: ObjectIdentifier(newerHost),
+            paneId: paneId,
+            instanceSerial: 2,
+            ownershipGeneration: ownershipGeneration,
+            inWindow: true,
+            bounds: newerHost.bounds,
+            reason: "test.newerSameGenerationClaim"
+        ))
+
+        surface.releasePortalHostIfOwned(
+            hostId: ObjectIdentifier(newerHost),
+            instanceSerial: 2,
+            reason: "test.newerVacated"
+        )
+
+        #expect(surface.claimPortalHost(
+            hostId: ObjectIdentifier(olderHost),
+            paneId: paneId,
+            instanceSerial: 1,
+            ownershipGeneration: ownershipGeneration,
+            inWindow: true,
+            bounds: olderHost.bounds,
+            reason: "test.olderRetryAfterNewerVacated"
+        ))
+    }
+
     @Test func repeatedOwnerVacanciesCoalesceIntoOneLatestRetryDrain() async {
         let surface = makeSurface()
         defer { surface.releaseSurfaceForTesting() }
