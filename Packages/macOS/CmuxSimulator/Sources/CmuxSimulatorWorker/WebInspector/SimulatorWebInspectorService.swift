@@ -28,6 +28,7 @@ final class SimulatorWebInspectorService {
     var refreshContinuation: RefreshContinuation?
     var refreshTimeoutTask: Task<Void, Never>?
     var session: Session?
+    var sessionLease: SimulatorMutationLease?
     var nextInternalRequestIdentifier: Int64 = -9_000_000_000_000_000
     static let firstReservedInternalRequestIdentifier: Int64 = -9_000_000_000_000_000
     var pendingInternalRequests: [Int64: CheckedContinuation<Data, Error>] = [:]
@@ -95,52 +96,71 @@ final class SimulatorWebInspectorService {
               let target = catalog.target(id: targetIdentifier) else {
             throw SimulatorWebInspectorError.targetNotFound
         }
-        guard !target.isInUse else { throw SimulatorWebInspectorError.targetInUse }
         if session != nil { try await releaseSession(emit: false) }
         let key = try mutationKey(deviceIdentifier: deviceIdentifier, target: target)
-        return try await mutationGate.withLocks([key]) {
-            let identifier = UUID()
-            let senderIdentifier = UUID().uuidString
-            session = Session(
-                identifier: identifier,
-                target: target,
-                senderIdentifier: senderIdentifier
-            )
-            do {
-                try sendRPC(selector: "_rpc_forwardSocketSetup:", arguments: [
-                    "WIRApplicationIdentifierKey": target.applicationIdentifier,
-                    "WIRPageIdentifierKey": NSNumber(value: target.pageIdentifier),
-                    "WIRSenderKey": senderIdentifier,
-                    "WIRAutomaticallyPause": false,
-                ])
-                try await negotiateSessionRouting()
-            } catch {
-                releaseSessionWithoutMutationGate(emit: false)
-                throw error
-            }
-            let status = SimulatorWebInspectorSessionStatus.attached(
-                sessionID: identifier,
-                targetID: target.id
-            )
-            eventHandler?(.session(status))
-            return status
+        let lease = try await mutationGate.acquireLocks([key])
+        guard let currentTarget = catalog.target(id: targetIdentifier) else {
+            lease.release()
+            throw SimulatorWebInspectorError.targetNotFound
         }
+        guard !currentTarget.isInUse else {
+            lease.release()
+            throw SimulatorWebInspectorError.targetInUse
+        }
+        let identifier = UUID()
+        let senderIdentifier = UUID().uuidString
+        sessionLease = lease
+        session = Session(
+            identifier: identifier,
+            target: currentTarget,
+            senderIdentifier: senderIdentifier
+        )
+        do {
+            try sendRPC(selector: "_rpc_forwardSocketSetup:", arguments: [
+                "WIRApplicationIdentifierKey": currentTarget.applicationIdentifier,
+                "WIRPageIdentifierKey": NSNumber(value: currentTarget.pageIdentifier),
+                "WIRSenderKey": senderIdentifier,
+                "WIRAutomaticallyPause": false,
+            ])
+            try await negotiateSessionRouting()
+        } catch {
+            releaseSessionWithoutMutationGate(emit: false)
+            throw error
+        }
+        let status = SimulatorWebInspectorSessionStatus.attached(
+            sessionID: identifier,
+            targetID: currentTarget.id
+        )
+        eventHandler?(.session(status))
+        return status
     }
 
     func releaseSession(emit: Bool = true) async throws {
-        guard let session, let deviceIdentifier = currentDeviceIdentifier else {
+        guard let session else {
+            sessionLease?.release()
+            sessionLease = nil
             if emit { eventHandler?(.session(.detached)) }
             return
         }
-        let key = try mutationKey(deviceIdentifier: deviceIdentifier, target: session.target)
-        try await mutationGate.withLocks([key]) {
+        if sessionLease == nil {
+            guard let deviceIdentifier = currentDeviceIdentifier else {
+                throw SimulatorWebInspectorError.sessionUnavailable
+            }
+            let key = try mutationKey(deviceIdentifier: deviceIdentifier, target: session.target)
+            let transientLease = try await mutationGate.acquireLocks([key])
+            defer { transientLease.release() }
             guard self.session?.identifier == session.identifier else { return }
             releaseSessionWithoutMutationGate(emit: emit)
+            return
         }
+        guard self.session?.identifier == session.identifier else { return }
+        releaseSessionWithoutMutationGate(emit: emit)
     }
 
     func releaseSessionWithoutMutationGate(emit: Bool = true) {
         guard let session else {
+            sessionLease?.release()
+            sessionLease = nil
             if emit { eventHandler?(.session(.detached)) }
             return
         }
@@ -152,6 +172,8 @@ final class SimulatorWebInspectorService {
             "WIRPageIdentifierKey": NSNumber(value: session.target.pageIdentifier),
             "WIRSenderKey": session.senderIdentifier,
         ])
+        sessionLease?.release()
+        sessionLease = nil
         if emit { eventHandler?(.session(.detached)) }
     }
 
@@ -166,16 +188,13 @@ final class SimulatorWebInspectorService {
     }
 
     func sendMessage(_ rawJSON: String) async throws {
-        guard let session, let deviceIdentifier = currentDeviceIdentifier else {
+        guard let session, sessionLease != nil else {
             throw SimulatorWebInspectorError.sessionUnavailable
         }
-        let key = try mutationKey(deviceIdentifier: deviceIdentifier, target: session.target)
-        try await mutationGate.withLocks([key]) {
-            guard self.session?.identifier == session.identifier else {
-                throw SimulatorWebInspectorError.sessionUnavailable
-            }
-            try sendMessageWithoutMutationGate(rawJSON)
+        guard self.session?.identifier == session.identifier else {
+            throw SimulatorWebInspectorError.sessionUnavailable
         }
+        try sendMessageWithoutMutationGate(rawJSON)
     }
 
     func sendMessageWithoutMutationGate(
@@ -196,16 +215,13 @@ final class SimulatorWebInspectorService {
     }
 
     func setHighlight(enabled: Bool) async throws {
-        guard let session, let deviceIdentifier = currentDeviceIdentifier else {
+        guard let session, sessionLease != nil else {
             throw SimulatorWebInspectorError.sessionUnavailable
         }
-        let key = try mutationKey(deviceIdentifier: deviceIdentifier, target: session.target)
-        try await mutationGate.withLocks([key]) {
-            guard self.session?.identifier == session.identifier else {
-                throw SimulatorWebInspectorError.sessionUnavailable
-            }
-            try await setHighlightWithoutMutationGate(enabled: enabled)
+        guard self.session?.identifier == session.identifier else {
+            throw SimulatorWebInspectorError.sessionUnavailable
         }
+        try await setHighlightWithoutMutationGate(enabled: enabled)
     }
 
     private func setHighlightWithoutMutationGate(enabled: Bool) async throws {
@@ -311,9 +327,9 @@ final class SimulatorWebInspectorService {
                 "Web Inspector did not report the target application's bundle identifier."
             )
         }
-        return .application(
+        return .webInspector(
             deviceIdentifier: deviceIdentifier,
-            bundleIdentifier: bundleIdentifier
+            name: "\(bundleIdentifier)|\(target.id)"
         )
     }
 }

@@ -30,39 +30,87 @@ package struct SimulatorMutationGate: Sendable {
         operation: () async throws -> Result
     ) async throws -> Result {
         _ = isolation
+        let lease = try await acquireLocks(keys)
+        defer { lease.release() }
+        return try await operation()
+    }
+
+    /// Acquires keyed locks until the returned lease is explicitly released or deallocated.
+    package func acquireLocks(
+        _ keys: [SimulatorMutationKey],
+        isolation: isolated (any Actor)? = #isolation
+    ) async throws -> SimulatorMutationLease {
+        _ = isolation
         let orderedKeys = Array(Set(keys)).sorted { $0.value < $1.value }
-        guard !orderedKeys.isEmpty else { return try await operation() }
+        guard !orderedKeys.isEmpty else {
+            return SimulatorMutationLease(fileSystem: fileSystem, descriptors: [])
+        }
         try fileSystem.prepareLockDirectory(lockDirectory)
 
         var lockedDescriptors: [Int32] = []
         var pendingDescriptor: Int32?
-        defer {
+        do {
+            for key in orderedKeys {
+                try Task.checkCancellation()
+                let descriptor = try fileSystem.openLockFile(
+                    lockDirectory.appendingPathComponent(simulatorMutationLockFileName(for: key))
+                )
+                pendingDescriptor = descriptor
+                while true {
+                    try Task.checkCancellation()
+                    if try fileSystem.tryLock(descriptor) { break }
+                    try await contentionWaiter.wait()
+                }
+                try Task.checkCancellation()
+                lockedDescriptors.append(descriptor)
+                pendingDescriptor = nil
+            }
+            try Task.checkCancellation()
+            return SimulatorMutationLease(
+                fileSystem: fileSystem,
+                descriptors: lockedDescriptors
+            )
+        } catch {
             if let pendingDescriptor { fileSystem.close(pendingDescriptor) }
             for descriptor in lockedDescriptors.reversed() {
                 fileSystem.unlock(descriptor)
                 fileSystem.close(descriptor)
             }
+            throw error
         }
-
-        for key in orderedKeys {
-            try Task.checkCancellation()
-            let descriptor = try fileSystem.openLockFile(
-                lockDirectory.appendingPathComponent(simulatorMutationLockFileName(for: key))
-            )
-            pendingDescriptor = descriptor
-            while true {
-                try Task.checkCancellation()
-                if try fileSystem.tryLock(descriptor) { break }
-                try await contentionWaiter.wait()
-            }
-            try Task.checkCancellation()
-            lockedDescriptors.append(descriptor)
-            pendingDescriptor = nil
-        }
-        try Task.checkCancellation()
-        return try await operation()
     }
 
+}
+
+/// Owns cross-process mutation locks for a caller-defined lifetime.
+package final class SimulatorMutationLease: @unchecked Sendable {
+    private let lock = NSLock()
+    private let fileSystem: any SimulatorMutationLockFileSystem
+    private var descriptors: [Int32]
+
+    fileprivate init(
+        fileSystem: any SimulatorMutationLockFileSystem,
+        descriptors: [Int32]
+    ) {
+        self.fileSystem = fileSystem
+        self.descriptors = descriptors
+    }
+
+    deinit {
+        release()
+    }
+
+    /// Releases every held lock. Repeated calls are harmless.
+    package func release() {
+        lock.lock()
+        let descriptors = self.descriptors
+        self.descriptors.removeAll()
+        lock.unlock()
+        for descriptor in descriptors.reversed() {
+            fileSystem.unlock(descriptor)
+            fileSystem.close(descriptor)
+        }
+    }
 }
 
 private func simulatorMutationLockFileName(for key: SimulatorMutationKey) -> String {
