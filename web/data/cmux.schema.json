@@ -53,6 +53,27 @@
               "description": "ID of the action run by plain New Workspace. This is the default workspace layout; omit or remove it for None (Blank Terminal). Project-local ui.newWorkspace.action wins over the global value."
             }
           }
+        },
+        "projectWorktrees": {
+          "title": "projectWorktrees",
+          "description": "Optional action overrides for the bundled Project Worktrees sidebar. Omit either field to keep its built-in behavior.",
+          "descriptionKey": "schemaDescriptions.projectWorktrees.description",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "createAction": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Action ID replacing the built-in worktree creation prompt and Git command. Relative workspace paths resolve from the project root. Project-local config wins over the global value.",
+              "descriptionKey": "schemaDescriptions.projectWorktrees.createAction"
+            },
+            "openAction": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Action ID replacing the built-in terminal opened for a selected worktree. Relative workspace paths resolve from that worktree. Project-local config wins over the global value.",
+              "descriptionKey": "schemaDescriptions.projectWorktrees.openAction"
+            }
+          }
         }
       }
     },

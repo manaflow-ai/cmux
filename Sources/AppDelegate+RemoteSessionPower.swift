@@ -15,7 +15,7 @@ extension AppDelegate {
 
     private func forEachRemoteWorkspace(_ body: (Workspace) -> Void) {
         var seenManagers = Set<ObjectIdentifier>()
-        let managers = [tabManager].compactMap { $0 } + allMainWindowTabManagersForDebug()
+        let managers = [tabManager].compactMap { $0 } + allMainWindowTabManagers()
         for manager in managers where seenManagers.insert(ObjectIdentifier(manager)).inserted {
             for workspace in manager.tabs where workspace.isRemoteWorkspace {
                 body(workspace)

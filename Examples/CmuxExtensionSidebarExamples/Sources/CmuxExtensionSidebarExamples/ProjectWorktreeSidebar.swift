@@ -2,12 +2,15 @@ import CmuxSidebarProviderKit
 import Foundation
 
 public struct ProjectWorktreeSidebar: CmuxSidebarProvider {
+    /// Stable identifier used by the host to install Git-backed worktree rows.
+    public static let providerID = "com.example.cmux.sidebar.project-worktrees"
+
     public let descriptor = CmuxSidebarProviderDescriptor(
-        id: "com.example.cmux.sidebar.project-worktrees",
+        id: Self.providerID,
         title: localized("example.sidebar.projectWorktrees.title", "Project Worktrees"),
-        subtitle: localized("example.sidebar.projectWorktrees.subtitle", "User extension"),
+        subtitle: localized("example.sidebar.projectWorktrees.subtitle", "Built-in"),
         systemImageName: "folder",
-        isHostProvided: false
+        isHostProvided: true
     )
 
     public init() {}
@@ -29,13 +32,21 @@ public struct ProjectWorktreeSidebar: CmuxSidebarProvider {
         var grouped: [String: [CmuxSidebarProviderWorkspace]] = [:]
         var orderedProjectRoots: [String] = []
 
-        for workspace in snapshot.workspaces where !workspace.isPinned {
-            let key = projectRoot(for: workspace) ?? "no-folder"
+        for workspace in snapshot.workspaces {
+            let key: String
+            if let projectRoot = projectRoot(for: workspace) {
+                key = projectRoot
+            } else {
+                guard !workspace.isPinned else { continue }
+                key = "no-folder"
+            }
             if grouped[key] == nil {
                 grouped[key] = []
                 orderedProjectRoots.append(key)
             }
-            grouped[key]?.append(workspace)
+            if !workspace.isPinned {
+                grouped[key]?.append(workspace)
+            }
         }
 
         for root in orderedProjectRoots {
@@ -49,6 +60,7 @@ public struct ProjectWorktreeSidebar: CmuxSidebarProvider {
                     title: titleText,
                     systemImageName: root == "no-folder" ? "tray" : "folder",
                     projectRootPath: root == "no-folder" ? nil : root,
+                    content: root == "no-folder" ? nil : .projectWorktrees,
                     workspaces: grouped[root] ?? []
                 )
                 .render(subtitle: branchSubtitle)

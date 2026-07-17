@@ -16,10 +16,22 @@ public struct CmuxSidebarProviderTreeSection: Identifiable, Codable, Equatable, 
     public var systemImageName: String
     /// Project root represented by this section, if any.
     public var projectRootPath: String?
+    /// Optional host-rendered content replacing ordinary workspace rows.
+    public var content: CmuxSidebarProviderSectionContent?
     /// Workspace ids included in this tree section.
     public var workspaceIds: [UUID]
 
     /// Creates tree section metadata.
+    ///
+    /// - Parameter id: Stable section identifier.
+    /// - Parameter title: Plain title fallback.
+    /// - Parameter titleText: Optional localized title.
+    /// - Parameter subtitle: Plain subtitle fallback.
+    /// - Parameter subtitleText: Optional localized subtitle.
+    /// - Parameter systemImageName: SF Symbols name for the section icon.
+    /// - Parameter projectRootPath: Project root represented by the section, if any.
+    /// - Parameter content: Optional content rendered natively by the host.
+    /// - Parameter workspaceIds: Workspace identifiers included in the section.
     public init(
         id: String,
         title: String,
@@ -28,6 +40,7 @@ public struct CmuxSidebarProviderTreeSection: Identifiable, Codable, Equatable, 
         subtitleText: CmuxSidebarProviderLocalizedText? = nil,
         systemImageName: String,
         projectRootPath: String?,
+        content: CmuxSidebarProviderSectionContent? = nil,
         workspaceIds: [UUID]
     ) {
         self.id = id
@@ -37,6 +50,7 @@ public struct CmuxSidebarProviderTreeSection: Identifiable, Codable, Equatable, 
         self.subtitleText = subtitleText
         self.systemImageName = systemImageName
         self.projectRootPath = projectRootPath
+        self.content = content
         self.workspaceIds = workspaceIds
     }
 }

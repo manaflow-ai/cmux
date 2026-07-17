@@ -6196,7 +6196,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    func allMainWindowTabManagersForDebug() -> [TabManager] {
+    func allMainWindowTabManagers() -> [TabManager] {
         Array(mainWindowContexts.values).compactMap { context in
             resolvedWindow(for: context) == nil ? nil : context.tabManager
         }
@@ -8568,7 +8568,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialWorkingDirectory: initialWorkingDirectory,
             initialTerminalInput: initialTerminalInput,
             autoWelcomeIfNeeded: initialTerminalInput == nil,
-            pullRequestProbeService: self.tabManager?.pullRequestProbeService
+            pullRequestProbeService: self.tabManager?.pullRequestProbeService,
+            extensionSidebarProjectRootResolver: self.tabManager?.extensionSidebarProjectRootResolver
         )
         tabManager.windowId = windowId
         if let sessionWindowSnapshot {
@@ -8607,14 +8608,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             selection: sessionWindowSnapshot?.sidebar.selection.sidebarSelection ?? .tabs
         )
 
-        // Seed the per-window Bonsplit tab-bar leading inset before ContentView first
-        // renders. The initial workspace is created inside TabManager.init, at which
-        // point there is no source workspace or prior window inset to inherit from, so
-        // applyCreationChromeInheritance returns early and leaves the Bonsplit inset
-        // at 0 — which is wrong in minimal mode with the sidebar collapsed, where the
-        // native traffic lights need an 80pt reserved strip on the tab bar. Without
-        // this seed, the first-frame layout can mispaint in the new window until
-        // ContentView.onAppear eventually runs syncTrafficLightInset (#2737).
+        // Seed Bonsplit's leading inset before ContentView first renders. The initial
+        // workspace has no source inset to inherit, so collapsed minimal mode would
+        // reserve 0 instead of the traffic lights' 80pt strip until onAppear (#2737).
         let initialTabBarLeadingInset: CGFloat =
             (WorkspacePresentationModeSettings.isMinimal() && !sidebarState.isVisible)
                 ? MinimalModeTitlebarDebugSettings.trafficLightTabBarLeadingInset()

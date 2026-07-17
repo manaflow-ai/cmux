@@ -2163,7 +2163,12 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Callback used by TabManager to capture recently closed browser panels for Cmd+Shift+T restore.
     var onClosedBrowserPanel: ((ClosedBrowserPanelRestoreSnapshot) -> Void)?
-    weak var owningTabManager: TabManager?
+    weak var owningTabManager: TabManager? {
+        didSet {
+            guard owningTabManager !== oldValue else { return }
+            scheduleExtensionSidebarProjectRootRefresh(for: currentDirectory)
+        }
+    }
 
     // Closing tabs mutates split layout immediately; terminal views handle their own AppKit
     // layout/size synchronization.
@@ -2426,38 +2431,24 @@ final class Workspace: Identifiable, ObservableObject {
     private func scheduleExtensionSidebarProjectRootRefresh(for directory: String) {
         extensionSidebarProjectRootRefreshID &+= 1
         let refreshID = extensionSidebarProjectRootRefreshID
-        guard !usesRemoteDirectoryProvenance else {
-            extensionSidebarProjectRootPath = nil
-            return
-        }
         let trimmedDirectory = directory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedDirectory.isEmpty else {
+        guard !usesRemoteDirectoryProvenance, !trimmedDirectory.isEmpty else {
             extensionSidebarProjectRootPath = nil
             return
         }
 
-        Task.detached(priority: .utility) { [weak self, trimmedDirectory, refreshID] in
-            let projectRootPath = Self.extensionSidebarProjectRootPath(onDiskFor: trimmedDirectory)
-            await MainActor.run { [weak self] in
-                guard let self,
-                      self.extensionSidebarProjectRootRefreshID == refreshID else {
-                    return
-                }
-                self.extensionSidebarProjectRootPath = projectRootPath
+        let resolver = owningTabManager?.extensionSidebarProjectRootResolver
+        Task { @MainActor [weak self, trimmedDirectory, refreshID, resolver, requesterID = id] in
+            let projectRootPath = await resolver?.projectRoot(
+                onDiskFor: trimmedDirectory,
+                requesterID: requesterID
+            )
+            guard let self,
+                  self.extensionSidebarProjectRootRefreshID == refreshID else {
+                return
             }
+            self.extensionSidebarProjectRootPath = projectRootPath
         }
-    }
-
-    nonisolated private static func extensionSidebarProjectRootPath(onDiskFor directory: String) -> String? {
-        var url = URL(fileURLWithPath: directory, isDirectory: true).standardizedFileURL
-        let fileManager = FileManager.default
-        while url.path != "/" {
-            if fileManager.fileExists(atPath: url.appendingPathComponent(".git").path) {
-                return url.path
-            }
-            url.deleteLastPathComponent()
-        }
-        return nil
     }
 
     private static func isProxyOnlyRemoteError(_ detail: String) -> Bool {
