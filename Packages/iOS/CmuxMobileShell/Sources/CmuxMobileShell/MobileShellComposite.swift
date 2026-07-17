@@ -236,6 +236,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// resolve the restoring-gate flags, so a superseded older attempt can't clear
     /// the gate while a newer reconnect is still in progress.
     var storedMacReconnectGeneration = 0
+    var automaticReconnectBackoffOwner = MobileAutomaticReconnectBackoffOwner()
+    var automaticReconnectRetryTask: Task<Void, Never>?
     /// Whether the current attach ticket has a non-empty auth token and has not expired.
     public var hasActiveUnexpiredAttachTicket: Bool {
         guard let activeTicket,
@@ -1039,6 +1041,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     isolated deinit {
         connectionRecoveryOwner.cancel()
+        automaticReconnectRetryTask?.cancel()
         presenceTask?.cancel()
         networkPathObservationTask?.cancel()
         terminalEventListenerTask?.cancel()
@@ -1095,6 +1098,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             analytics.setSuperProperties(["is_authenticated": .bool(false)])
         }
         suppressNextConnectionOutageEdge = true
+        clearAutomaticReconnectBackoff()
         invalidatePairingAttempt()
         clearMacSwitchAttemptState()
         connectionGeneration = UUID()
@@ -1475,6 +1479,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         case eventStreamEnded
         case subscriptionStartFailed
         case transportWriteTimedOut
+        case brokerRetryAfter
 
         var reschedulesSecondaryAggregation: Bool { self != .presencePush }
 
@@ -1488,6 +1493,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             case .eventStreamEnded: return "eventStreamEnded"
             case .subscriptionStartFailed: return "subscriptionStartFailed"
             case .transportWriteTimedOut: return "transportWriteTimedOut"
+            case .brokerRetryAfter: return "brokerRetryAfter"
             }
         }
     }
@@ -1766,16 +1772,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             self.isReconnectingStoredMac = false
             self.didFinishStoredMacReconnectAttempt = true
         }
-        let zeroTouchCandidates = await discoverZeroTouchIrohCandidates(
-            scope: scope,
-            generation: generation,
-            excluding: Set(candidates.map {
-                MobilePairedMac.pairingID(
-                    macDeviceID: $0.macDeviceID.lowercased(),
-                    instanceTag: $0.instanceTag
-                )
-            })
-        )
+        let irohReconnectIsBlocked = automaticIrohReconnectIsBlocked(accountID: scope.userID)
+        let zeroTouchCandidates: [MobilePairedMac] = if irohReconnectIsBlocked {
+            []
+        } else {
+            await discoverZeroTouchIrohCandidates(
+                scope: scope,
+                generation: generation,
+                excluding: Set(candidates.map {
+                    MobilePairedMac.pairingID(
+                        macDeviceID: $0.macDeviceID.lowercased(),
+                        instanceTag: $0.instanceTag
+                    )
+                })
+            )
+        }
         guard generation == storedMacReconnectGeneration,
               await isScopeCurrent(scope) else {
             restoringDeadline.cancel()
@@ -1785,7 +1796,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let zeroTouchCandidateIDs = Set(zeroTouchCandidates.map(\.id))
         guard !candidates.isEmpty else {
             restoringDeadline.cancel()
-            setHasKnownPairedMac(false, generation: generation)
+            if !irohReconnectIsBlocked {
+                setHasKnownPairedMac(false, generation: generation)
+            }
             finishStoredMacReconnectAttempt(generation: generation)
             return false
         }
@@ -1816,7 +1829,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                       instanceTag: mac.instanceTag,
                       scope: scope
                   ) else { break }
-            let localRoutes = storedReconnectRoutes(mac)
+            let irohReconnectIsBlocked = automaticIrohReconnectIsBlocked(accountID: scope.userID)
+            let localRoutes = storedReconnectRoutes(mac).filter {
+                !irohReconnectIsBlocked || $0.kind != .iroh
+            }
             let localHasIroh = localRoutes.contains { $0.kind == .iroh }
             let localCanConnectSecurely = localHasIroh
                 || localRoutes.contains { $0.kind == .debugLoopback }
@@ -1832,12 +1848,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     routes: localRoutes,
                     pairedMacDeviceID: mac.macDeviceID,
                     instanceTag: mac.instanceTag,
+                    automaticReconnectAccountID: scope.userID,
                     ifStillCurrent: { [weak self] in
                         self?.storedMacReconnectGeneration == generation
                     }
                 )
             }
             if connectionState != .connected,
+               !automaticIrohReconnectIsBlocked(accountID: scope.userID),
                !zeroTouchCandidateIDs.contains(mac.id) {
                 switch await freshReconnectRoutesAfterLocalFailure(
                     for: mac,
@@ -1850,6 +1868,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         routes: refreshedRoutes,
                         pairedMacDeviceID: mac.macDeviceID,
                         instanceTag: mac.instanceTag,
+                        automaticReconnectAccountID: scope.userID,
                         ifStillCurrent: { [weak self] in
                             self?.storedMacReconnectGeneration == generation
                         }

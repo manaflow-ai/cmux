@@ -132,7 +132,7 @@ extension MobileShellComposite {
                 markMacConnectionReconnecting()
                 resyncTerminalOutput(reason: trigger.description, restartEventStream: true)
             case .manual, .presencePush, .foreground, .eventStreamEnded,
-                 .subscriptionStartFailed, .transportWriteTimedOut:
+                 .subscriptionStartFailed, .transportWriteTimedOut, .brokerRetryAfter:
                 markMacConnectionUnavailableIfNoStore()
             }
             return
@@ -408,6 +408,7 @@ extension MobileShellComposite {
         routes: [CmxAttachRoute],
         pairedMacDeviceID: String,
         instanceTag: String?,
+        automaticReconnectAccountID: String? = nil,
         recordsPairingAttempt: Bool = false,
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> Bool {
@@ -418,6 +419,7 @@ extension MobileShellComposite {
             instanceTagExpectation: MobileMacInstanceTagAuthority.expectation(
                 storedInstanceTag: instanceTag
             ),
+            automaticReconnectAccountID: automaticReconnectAccountID,
             recordsPairingAttempt: recordsPairingAttempt,
             ifStillCurrent: ifStillCurrent
         )
@@ -431,6 +433,7 @@ extension MobileShellComposite {
         routes: [CmxAttachRoute],
         pairedMacDeviceID: String,
         instanceTagExpectation: MobileMacInstanceTagExpectation,
+        automaticReconnectAccountID: String? = nil,
         recordsPairingAttempt: Bool = false,
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> Bool {
@@ -458,6 +461,12 @@ extension MobileShellComposite {
                 )
             } catch {
                 guard ifStillCurrent?() ?? true else { return false }
+                if let automaticReconnectAccountID {
+                    recordAutomaticReconnectBackoff(
+                        error: error,
+                        accountID: automaticReconnectAccountID
+                    )
+                }
                 if !disconnectForAuthorizationFailureIfNeeded(error) {
                     connectionState = .disconnected
                     macConnectionStatus = .unavailable
@@ -489,10 +498,65 @@ extension MobileShellComposite {
             }
         }
 
-        return (ifStillCurrent?() ?? true)
+        let connected = (ifStillCurrent?() ?? true)
             && connectionState == .connected
             && remoteClient != nil
             && foregroundMacDeviceID == pairedMacDeviceID
+        if connected, let automaticReconnectAccountID {
+            clearAutomaticReconnectBackoff(accountID: automaticReconnectAccountID)
+        }
+        return connected
+    }
+
+    func automaticIrohReconnectIsBlocked(accountID: String) -> Bool {
+        automaticReconnectBackoffOwner.isBlocked(
+            accountID: accountID,
+            now: runtime?.now() ?? Date()
+        )
+    }
+
+    func recordAutomaticReconnectBackoff(error: any Error, accountID: String) {
+        guard let retryAfterError = error as? any CmxRetryAfterProviding,
+              let retryAfterSeconds = retryAfterError.retryAfterSeconds else { return }
+        let now = runtime?.now() ?? Date()
+        let retryAt = automaticReconnectBackoffOwner.record(
+            accountID: accountID,
+            retryAfterSeconds: retryAfterSeconds,
+            now: now
+        )
+        scheduleAutomaticReconnectRetry(accountID: accountID, retryAt: retryAt, now: now)
+    }
+
+    func clearAutomaticReconnectBackoff(accountID: String? = nil) {
+        automaticReconnectBackoffOwner.clear(accountID: accountID)
+        guard accountID == nil || automaticReconnectBackoffOwner.accountID == nil else { return }
+        automaticReconnectRetryTask?.cancel()
+        automaticReconnectRetryTask = nil
+    }
+
+    private func scheduleAutomaticReconnectRetry(
+        accountID: String,
+        retryAt: Date,
+        now: Date
+    ) {
+        automaticReconnectRetryTask?.cancel()
+        let delay = max(0, retryAt.timeIntervalSince(now))
+        automaticReconnectRetryTask = Task { @MainActor [weak self] in
+            do {
+                try await ContinuousClock().sleep(for: .seconds(delay))
+            } catch {
+                return
+            }
+            guard let self,
+                  !Task.isCancelled,
+                  self.identityProvider?.currentUserID == accountID,
+                  self.automaticReconnectBackoffOwner.accountID == accountID,
+                  self.automaticReconnectBackoffOwner.retryAt == retryAt else { return }
+            self.automaticReconnectBackoffOwner.clear(accountID: accountID)
+            self.automaticReconnectRetryTask = nil
+            guard self.isSignedIn, self.connectionState != .connected else { return }
+            self.recoverMobileConnection(trigger: .brokerRetryAfter)
+        }
     }
 
     /// Connect the live session to a specific registry app instance (a tag on a
