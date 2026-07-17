@@ -184,8 +184,8 @@ import Testing
         let recoveryTask = try #require(store.recoveryTask)
         await recoveryTask.value
         #expect(store.storedMacReconnectGenerationForTesting() == 1)
-        #expect(store.connectionState == .connected)
-        #expect(!store.connectionRecoveryFailed)
+        #expect(store.connectionState == .disconnected)
+        #expect(store.connectionRecoveryFailed)
     }
 
     @Test func explicitEmptyRoutesClearRegistryWithoutErasingPersistedRoutes() async throws {

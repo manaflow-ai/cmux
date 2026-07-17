@@ -34,6 +34,8 @@ final class MobileWorkspaceListObserver {
     private let focusEventSequenceService: MobileWorkspaceFocusEventSequenceService
     private let workspaceDigestSampler: WorkspaceDigestSampler
     private let workspaceOwnershipDidChange: @MainActor ([Workspace]) -> Void
+    private var subscriptionsChangeObserver: NSObjectProtocol?
+    private var pipelinesAttached = false
     private var lastSummaryHash: Int = 0
     /// Throttle window with `latest: true`. First event in a burst emits
     /// immediately (iPhone gets the change in milliseconds), subsequent
@@ -42,9 +44,30 @@ final class MobileWorkspaceListObserver {
     /// per 80 ms. Hash-diff suppresses no-op rebroadcasts.
     private let throttleMilliseconds: Int = 80
 
+    #if DEBUG
+    /// Test seam: fidelity tests exercise the pipelines without a live phone
+    /// connection, so they force presence on instead of registering a real
+    /// mobile subscriber.
+    static var subscriberPresenceOverrideForTesting: Bool?
+    var pipelinesAttachedForTesting: Bool { pipelinesAttached }
+    #endif
+
+    /// Whether any mobile client currently subscribes to `workspace.updated`.
+    /// The observer's publisher graph and the full-list summary hash it computes
+    /// per delivery exist only to feed that event, so with no subscriber the
+    /// graph stays detached and agent-driven workspace churn costs the main
+    /// thread nothing here.
+    private var hasWorkspaceListSubscribers: Bool {
+        #if DEBUG
+        if let override = Self.subscriberPresenceOverrideForTesting { return override }
+        #endif
+        return MobileHostService.hasEventSubscribers(topic: "workspace.updated")
+    }
+
     init(
         tabManager: TabManager,
-        focusEventSequenceService: MobileWorkspaceFocusEventSequenceService,
+        focusEventSequenceService: MobileWorkspaceFocusEventSequenceService =
+            MobileWorkspaceFocusEventSequenceService(),
         notificationStore: TerminalNotificationStore? = nil,
         workspaceOwnershipDidChange: @escaping @MainActor ([Workspace]) -> Void = { _ in },
         workspaceDigestSampler: @escaping WorkspaceDigestSampler = { workspace, previewSignature in
@@ -62,7 +85,46 @@ final class MobileWorkspaceListObserver {
         #if DEBUG
         cmuxDebugLog("mobile.observer init tabs=\(tabManager.tabs.count)")
         #endif
-        attach(to: tabManager)
+        subscriptionsChangeObserver = NotificationCenter.default.addObserver(
+            forName: .mobileHostEventSubscriptionsDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.reconcilePipelines()
+            }
+        }
+        reconcilePipelines()
+    }
+
+    deinit {
+        if let subscriptionsChangeObserver {
+            NotificationCenter.default.removeObserver(subscriptionsChangeObserver)
+        }
+    }
+
+    private func reconcilePipelines() {
+        guard let tabManager else { return }
+        let wantsPipelines = hasWorkspaceListSubscribers
+        if wantsPipelines, !pipelinesAttached {
+            pipelinesAttached = true
+            attach(to: tabManager)
+        } else if !wantsPipelines, pipelinesAttached {
+            pipelinesAttached = false
+            detachPipelines()
+        }
+    }
+
+    private func detachPipelines() {
+        #if DEBUG
+        cmuxDebugLog("mobile.observer detach: no workspace.updated subscribers")
+        #endif
+        tabsCancellable = nil
+        selectionCancellable = nil
+        groupsCancellable = nil
+        notificationsCancellable = nil
+        unreadIndicatorsCancellable = nil
+        perWorkspaceCancellables.removeAll()
     }
 
     private func attach(to tabManager: TabManager) {

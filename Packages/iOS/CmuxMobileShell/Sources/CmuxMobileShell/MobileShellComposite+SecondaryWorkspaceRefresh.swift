@@ -285,7 +285,13 @@ extension MobileShellComposite {
                     refreshedMac = try? await pairedMacStore.loadAll(
                         stackUserID: scope.userID,
                         teamID: scope.teamID
-                    ).first(where: { $0.macDeviceID == macID })
+                    ).first(where: {
+                        $0.macDeviceID == macID
+                            && MobileMacInstanceTagAuthority.sameStoredAuthority(
+                                $0.instanceTag,
+                                subscription.storedInstanceTag
+                            )
+                    })
                 } else {
                     refreshedMac = nil
                 }

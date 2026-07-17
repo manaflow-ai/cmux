@@ -15,6 +15,11 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
     private var startedLoadAllOrdinals: Set<Int> = []
     private var loadAllStartWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
     private var loadAllBlockers: [Int: CheckedContinuation<Void, Never>] = [:]
+    private var recordReplacement: (
+        afterLoadAllCount: Int,
+        teamKey: String,
+        records: [MobilePairedMac]
+    )?
     private var upsertWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
     private var gatedUpsertIDs: Set<String> = []
     private var upsertStartedIDs: Set<String> = []
@@ -156,12 +161,22 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
                 blockers[key] = continuation
             }
         }
-        let scoped = recordsByTeam[key] ?? []
-        guard key != "" else { return scoped }
-        let legacyTeamless = (recordsByTeam[""] ?? []).filter { mac in
-            mac.stackUserID == nil || mac.stackUserID == stackUserID
+        let result: [MobilePairedMac]
+        if key.isEmpty {
+            result = recordsByTeam[key] ?? []
+        } else {
+            let scoped = recordsByTeam[key] ?? []
+            let legacyTeamless = (recordsByTeam[""] ?? []).filter { mac in
+                mac.stackUserID == nil || mac.stackUserID == stackUserID
+            }
+            result = scoped + legacyTeamless
         }
-        return scoped + legacyTeamless
+        if let recordReplacement,
+           loadAllCount == recordReplacement.afterLoadAllCount {
+            recordsByTeam[recordReplacement.teamKey] = recordReplacement.records
+            self.recordReplacement = nil
+        }
+        return result
     }
 
     func activeMac(stackUserID: String?, teamID: String?) async throws -> MobilePairedMac? { nil }
@@ -236,6 +251,14 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
 
     func resetLoadAllCount() {
         loadAllCount = 0
+    }
+
+    func replaceRecords(
+        afterLoadAllCount: Int,
+        teamID: String?,
+        with records: [MobilePairedMac]
+    ) {
+        recordReplacement = (afterLoadAllCount, teamID ?? "", records)
     }
 
     func currentLoadAllCount() -> Int {

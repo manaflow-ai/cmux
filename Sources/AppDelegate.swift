@@ -817,10 +817,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var shortcutEventFocusContextCache: ShortcutEventFocusContextCache?
     private var ghosttyConfigObserver: NSObjectProtocol?
     private var globalFontMagnificationObserver: NSObjectProtocol?
-    private var ghosttyGotoSplitLeftShortcut: StoredShortcut?
-    private var ghosttyGotoSplitRightShortcut: StoredShortcut?
-    private var ghosttyGotoSplitUpShortcut: StoredShortcut?
-    private var ghosttyGotoSplitDownShortcut: StoredShortcut?
+    var ghosttyGotoSplitLeftShortcut: StoredShortcut?
+    var ghosttyGotoSplitRightShortcut: StoredShortcut?
+    var ghosttyGotoSplitUpShortcut: StoredShortcut?
+    var ghosttyGotoSplitDownShortcut: StoredShortcut?
     private var browserAddressBarFocusedPanelId: UUID?
     /// Owns the browser omnibar selection-repeat state machine, extracted into
     /// `CmuxBrowser`. The app delegate is the composition root: it injects
@@ -8566,7 +8566,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialWorkspaceTitle: initialWorkspaceTitle,
             initialWorkingDirectory: initialWorkingDirectory,
             initialTerminalInput: initialTerminalInput,
-            autoWelcomeIfNeeded: initialTerminalInput == nil
+            autoWelcomeIfNeeded: initialTerminalInput == nil,
+            pullRequestProbeService: self.tabManager?.pullRequestProbeService
         )
         tabManager.windowId = windowId
         if let sessionWindowSnapshot {
@@ -13491,6 +13492,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Flash the currently focused panel so the user can visually confirm focus.
         if matchConfiguredShortcut(event: event, action: .triggerFlash) {
+            if performFocusedDockShortcut(.triggerFlash, event: event) { return true }
             let targetManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             targetManager?.triggerFocusFlash()
             return true
@@ -13722,6 +13724,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Numeric shortcuts for surfaces: focused pane in split layout,
         // workspace Canvas order in Canvas layout (9 = last).
         if let digit = routableNumberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber) {
+            if performFocusedDockShortcut(.selectSurface(number: digit), event: event) { return true }
             let manager = tabManagerForNumberedShortcut(event: event)
             if digit == 9 {
                 manager?.selectLastSurface()
@@ -13737,7 +13740,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             action: .focusLeft,
             arrowGlyph: "←",
             arrowKeyCode: 123
-        ) || (ghosttyGotoSplitLeftShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "←", arrowKeyCode: 123) } ?? false) {
+        ) || matchesGhosttyGotoSplitShortcut(event: event, direction: .left) {
+            if performFocusedDockShortcut(.focusPane(.left), event: event) { return true }
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
             routedTabs?.movePaneFocus(direction: .left)
@@ -13751,7 +13755,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             action: .focusRight,
             arrowGlyph: "→",
             arrowKeyCode: 124
-        ) || (ghosttyGotoSplitRightShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "→", arrowKeyCode: 124) } ?? false) {
+        ) || matchesGhosttyGotoSplitShortcut(event: event, direction: .right) {
+            if performFocusedDockShortcut(.focusPane(.right), event: event) { return true }
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
             routedTabs?.movePaneFocus(direction: .right)
@@ -13765,7 +13770,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             action: .focusUp,
             arrowGlyph: "↑",
             arrowKeyCode: 126
-        ) || (ghosttyGotoSplitUpShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "↑", arrowKeyCode: 126) } ?? false) {
+        ) || matchesGhosttyGotoSplitShortcut(event: event, direction: .up) {
+            if performFocusedDockShortcut(.focusPane(.up), event: event) { return true }
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
             routedTabs?.movePaneFocus(direction: .up)
@@ -13779,7 +13785,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             action: .focusDown,
             arrowGlyph: "↓",
             arrowKeyCode: 125
-        ) || (ghosttyGotoSplitDownShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "↓", arrowKeyCode: 125) } ?? false) {
+        ) || matchesGhosttyGotoSplitShortcut(event: event, direction: .down) {
+            if performFocusedDockShortcut(.focusPane(.down), event: event) { return true }
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
             routedTabs?.movePaneFocus(direction: .down)
@@ -13790,6 +13797,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .toggleSplitZoom) {
+            if performFocusedDockShortcut(.togglePaneZoom, event: event) { return true }
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             performToggleSplitZoomShortcut(tabManager: routedManager)
 #if DEBUG
@@ -13873,11 +13881,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // Surface navigation (legacy Ctrl+Tab support)
-        if matchTabShortcut(event: event, shortcut: StoredShortcut(key: "\t", command: false, shift: false, option: false, control: true)) {
+        if matchesLegacyNextSurfaceShortcut(event: event) {
+            if performFocusedDockShortcut(.selectNextSurface, event: event) { return true }
             (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?.selectNextSurface()
             return true
         }
-        if matchTabShortcut(event: event, shortcut: StoredShortcut(key: "\t", command: false, shift: true, option: false, control: true)) {
+        if matchesLegacyPreviousSurfaceShortcut(event: event) {
+            if performFocusedDockShortcut(.selectPreviousSurface, event: event) { return true }
             (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?.selectPreviousSurface()
             return true
         }
@@ -13917,6 +13927,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .focusHistoryBack) {
+            if performFocusedDockShortcut(.focusHistoryBack, event: event) { return true }
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             if routedManager?.navigateBack() != true {
                 NSSound.beep()
@@ -13925,6 +13936,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .focusHistoryForward) {
+            if performFocusedDockShortcut(.focusHistoryForward, event: event) { return true }
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             if routedManager?.navigateForward() != true {
                 NSSound.beep()
@@ -13943,7 +13955,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             _ = focusedBrowserPanel.toggleBrowserFocusMode(reason: "configuredShortcut", focusWebView: true)
             return true
         }
-
+        if let handled = handleBrowserDesignModeShortcut(event) { return handled }
         if matchConfiguredShortcut(event: event, action: .browserBack) {
             guard let focusedBrowserPanel = shortcutEventBrowserPanel(event) else {
                 return false
@@ -15084,7 +15096,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return numberedShortcutDigit(event: event, stroke: shortcut.firstStroke)
     }
 
-    private func routableNumberedConfiguredShortcutDigit(
+    func routableNumberedConfiguredShortcutDigit(
         event: NSEvent,
         action: KeyboardShortcutSettings.Action
     ) -> Int? {
@@ -15112,7 +15124,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
     }
 
-    private func matchConfiguredDirectionalShortcut(
+    func matchConfiguredDirectionalShortcut(
         event: NSEvent,
         action: KeyboardShortcutSettings.Action,
         arrowGlyph: String,
@@ -15654,7 +15666,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return event.keyCode == 48 && flags == stroke.modifierFlags
     }
 
-    private func matchTabShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
+    func matchTabShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
         guard !shortcut.hasChord else { return false }
         return matchTabShortcut(event: event, stroke: shortcut.firstStroke)
     }
@@ -15673,7 +15685,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return matchShortcutStroke(event: event, stroke: stroke)
     }
 
-    private func matchDirectionalShortcut(
+    func matchDirectionalShortcut(
         event: NSEvent,
         shortcut: StoredShortcut,
         arrowGlyph: String,

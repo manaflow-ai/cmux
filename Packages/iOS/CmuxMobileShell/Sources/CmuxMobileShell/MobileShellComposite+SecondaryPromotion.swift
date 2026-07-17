@@ -21,7 +21,13 @@ extension MobileShellComposite {
               let scope = await currentScopeSnapshot(),
               let current = try? await pairedMacStore.loadAll(
                   stackUserID: scope.userID, teamID: scope.teamID
-              ).first(where: { $0.macDeviceID == macID }),
+              ).first(where: {
+                  $0.macDeviceID == macID
+                      && MobileMacInstanceTagAuthority.sameStoredAuthority(
+                          $0.instanceTag,
+                          sub.storedInstanceTag
+                      )
+              }),
               MobileMacInstanceTagAuthority.sameStoredAuthority(
                   current.instanceTag, sub.storedInstanceTag
               ) else {
@@ -43,13 +49,20 @@ extension MobileShellComposite {
               isCurrentMacSwitchAttempt(switchAttemptID),
               let refreshed = try? await pairedMacStore.loadAll(
                   stackUserID: scope.userID, teamID: scope.teamID
-              ).first(where: { $0.macDeviceID == macID }),
+              ).first(where: {
+                  $0.macDeviceID == macID
+                      && MobileMacInstanceTagAuthority.sameStoredAuthority(
+                          $0.instanceTag,
+                          sub.storedInstanceTag
+                      )
+              }),
               secondaryListReadIsCurrent(
                   macDeviceID: macID,
                   subscription: sub,
                   refreshStartedGeneration: refreshStartedGeneration,
                   listStartedAtMutationRevision: listStartedAtMutationRevision
               ),
+              secondaryMacSubscriptions[macID] === sub,
               MobileMacInstanceTagAuthority.sameStoredAuthority(
                   refreshed.instanceTag, sub.storedInstanceTag
               ),
@@ -102,7 +115,10 @@ extension MobileShellComposite {
         startTerminalRefreshPolling()
         syncSelectedTerminalForWorkspace()
         enqueueActivePairedMacWrite(
-            macDeviceID: macID, scope: scope, reloadAfterWrite: false
+            macDeviceID: macID,
+            instanceTag: activeMacInstanceTag,
+            scope: scope,
+            reloadAfterWrite: false
         )
         scheduleSecondaryAggregation()
         return true

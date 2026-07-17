@@ -3,6 +3,7 @@ export {
   CmuxStream,
   type CmuxClientOptions,
   type CmuxClientOptions as ClientOptions,
+  type AttachSurfaceOptions,
   type NewBrowserTabOptions,
   type NewScreenOptions,
   type NewTabOptions,
@@ -11,6 +12,7 @@ export {
   type SelectTabOptions,
   type SendOptions,
   type SplitOptions,
+  type SubscribeOptions,
 } from "./client.js";
 export * from "./base64.js";
 export * from "./errors.js";

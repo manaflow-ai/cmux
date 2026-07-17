@@ -3,6 +3,7 @@ import AppKit
 import Bonsplit
 import CmuxAppKitSupportUI
 import CmuxCanvasUI
+import CmuxSettings
 import CmuxSettingsUI
 
 /// SwiftUI host for a workspace's canvas layout.
@@ -21,6 +22,10 @@ struct WorkspaceCanvasHostView: View {
     let appearance: PanelAppearance
     let windowAppearance: WindowAppearanceSnapshot
     @Environment(\.settingsRuntime) private var settingsRuntime
+    @AppStorage(SessionContentWidthSettings.maxWidthKey)
+    private var storedSessionContentMaximumWidth = SessionContentWidthSettings.noMaximumWidth
+    @AppStorage(SessionContentWidthSettings.alignmentKey)
+    private var storedSessionContentAlignment = SessionContentAlignment.center.rawValue
 
     var body: some View {
         CanvasRootRepresentable(
@@ -35,6 +40,10 @@ struct WorkspaceCanvasHostView: View {
         let focusedPanelId = workspace.focusedPanelId
         let closeActionLabel = String(localized: "canvas.pane.close.help", defaultValue: "Close Pane")
         let isSplit = workspace.orderedPanelIds.count > 1
+        let sessionContentWidthPresentation = SessionContentWidthPresentation(
+            storedMaximumWidth: storedSessionContentMaximumWidth,
+            storedAlignment: storedSessionContentAlignment
+        )
         return workspace.orderedPanelIds.compactMap { panelId in
             guard let panel = workspace.panels[panelId] else { return nil }
             let isFocused = isWorkspaceInputActive && focusedPanelId == panelId
@@ -56,7 +65,8 @@ struct WorkspaceCanvasHostView: View {
                             portalPriority: portalPriority,
                             appearance: appearance,
                             windowAppearance: windowAppearance,
-                            settingsRuntime: settingsRuntime
+                            settingsRuntime: settingsRuntime,
+                            sessionContentWidthPresentation: sessionContentWidthPresentation
                         ),
                         panelId: panelId,
                         container: container,
@@ -71,7 +81,8 @@ struct WorkspaceCanvasHostView: View {
                         isFocused: isFocused,
                         showsInactiveOverlay: isSplit && !isFocused,
                         inactiveOverlayColor: appearance.unfocusedOverlayNSColor,
-                        inactiveOverlayOpacity: appearance.unfocusedOverlayOpacity
+                        inactiveOverlayOpacity: appearance.unfocusedOverlayOpacity,
+                        sessionContentWidthPresentation: sessionContentWidthPresentation
                     )
                 }
             )
@@ -102,10 +113,11 @@ struct WorkspaceCanvasHostView: View {
         portalPriority: Int,
         appearance: PanelAppearance,
         windowAppearance: WindowAppearanceSnapshot,
-        settingsRuntime: SettingsRuntime?
+        settingsRuntime: SettingsRuntime?,
+        sessionContentWidthPresentation: SessionContentWidthPresentation
     ) -> CanvasPaneContent {
         if let terminalPanel = panel as? TerminalPanel {
-            return .terminal(terminalPanel)
+            return .terminal(terminalPanel, sessionContentWidthPresentation)
         }
         let workspaceId = workspace?.id ?? UUID()
         let paneId = workspace?.bonsplitPaneId(forPanelId: panel.id) ?? PaneID()
