@@ -322,12 +322,15 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// dismantles, when the runtime is hibernated, and when the portal
     /// lifecycle leaves `.live`; parking is refused outside bindable runtime
     /// states.
-    var portalHostVacancyRetries: [ObjectIdentifier: (instanceSerial: UInt64, retry: () -> Void)] = [:]
-    var portalHostVacancyWakeScheduled = false
+    var portalHostVacancyRetries: [ObjectIdentifier: (instanceSerial: UInt64, generation: UInt64, retry: () -> Void)] = [:]
+    var portalHostVacancyWakeGeneration: UInt64?
+    var portalHostVacancyWakeScheduled: Bool {
+        portalHostVacancyWakeGeneration != nil
+    }
 
     func clearPortalHostVacancyRetries() {
         portalHostVacancyRetries.removeAll()
-        portalHostVacancyWakeScheduled = false
+        portalHostVacancyWakeGeneration = nil
     }
 
     /// Parks (or refreshes) a host's vacancy retry. See
@@ -338,7 +341,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         _ retry: @escaping () -> Void
     ) {
         guard canAcceptPortalBinding(expectedSurfaceId: nil, expectedGeneration: nil) else { return }
-        portalHostVacancyRetries[hostId] = (instanceSerial, retry)
+        let generation = portalLifecycleGeneration
+        portalHostVacancyRetries = portalHostVacancyRetries.filter { $0.value.generation == generation }
+        portalHostVacancyRetries[hostId] = (instanceSerial, generation, retry)
     }
 
     /// Drops a host's vacancy retry (dismantle, or the host stopped owning

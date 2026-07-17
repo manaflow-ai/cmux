@@ -114,6 +114,65 @@ import Testing
         #expect(retryCount == 0)
     }
 
+    @Test func staleGenerationDrainDoesNotEraseFreshVacancyRetry() async {
+        let surface = makeSurface()
+        defer { surface.releaseSurfaceForTesting() }
+
+        let paneId = PaneID()
+        let oldOwner = NSView(frame: NSRect(x: 0, y: 0, width: 80, height: 24))
+        let freshOwner = NSView(frame: NSRect(x: 0, y: 0, width: 80, height: 24))
+        let oldCandidate = NSView()
+        let freshCandidate = NSView()
+        var retries: [Int] = []
+
+        surface.parkPortalVacancyRetry(
+            hostId: ObjectIdentifier(oldCandidate),
+            instanceSerial: 2
+        ) {
+            retries.append(2)
+        }
+        #expect(surface.claimPortalHost(
+            hostId: ObjectIdentifier(oldOwner),
+            paneId: paneId,
+            instanceSerial: 1,
+            inWindow: true,
+            bounds: oldOwner.bounds,
+            reason: "test.oldOwner"
+        ))
+        surface.releasePortalHostIfOwned(
+            hostId: ObjectIdentifier(oldOwner),
+            instanceSerial: 1,
+            reason: "test.oldVacancy"
+        )
+        #expect(surface.portalHostVacancyWakeScheduled)
+
+        surface.updateWorkspaceId(UUID())
+        surface.parkPortalVacancyRetry(
+            hostId: ObjectIdentifier(freshCandidate),
+            instanceSerial: 4
+        ) {
+            retries.append(4)
+        }
+        #expect(surface.claimPortalHost(
+            hostId: ObjectIdentifier(freshOwner),
+            paneId: paneId,
+            instanceSerial: 3,
+            inWindow: true,
+            bounds: freshOwner.bounds,
+            reason: "test.freshOwner"
+        ))
+        surface.releasePortalHostIfOwned(
+            hostId: ObjectIdentifier(freshOwner),
+            instanceSerial: 3,
+            reason: "test.freshVacancy"
+        )
+
+        drainMainRunLoop()
+
+        #expect(retries == [4])
+        #expect(!surface.portalHostVacancyWakeScheduled)
+    }
+
     private func drainMainRunLoop() {
         RunLoop.main.run(until: Date().addingTimeInterval(0.02))
     }

@@ -157,18 +157,22 @@ extension TerminalSurface {
             clearPortalHostVacancyRetries()
             return
         }
-        guard !portalHostVacancyRetries.isEmpty else { return }
-        guard !portalHostVacancyWakeScheduled else { return }
-        portalHostVacancyWakeScheduled = true
         let scheduledGeneration = portalLifecycleGeneration
+        guard portalHostVacancyRetries.values.contains(where: { $0.generation == scheduledGeneration }) else { return }
+        guard portalHostVacancyWakeGeneration != scheduledGeneration else { return }
+        portalHostVacancyWakeGeneration = scheduledGeneration
         RunLoop.main.perform(inModes: [.common]) { [weak self] in
             guard let self else { return }
-            self.portalHostVacancyWakeScheduled = false
+            guard self.portalHostVacancyWakeGeneration == scheduledGeneration else { return }
+            self.portalHostVacancyWakeGeneration = nil
             guard self.canAcceptPortalBinding(expectedSurfaceId: self.id, expectedGeneration: scheduledGeneration) else {
-                self.clearPortalHostVacancyRetries()
+                self.portalHostVacancyRetries = self.portalHostVacancyRetries.filter {
+                    $0.value.generation != scheduledGeneration
+                }
                 return
             }
             let retries = self.portalHostVacancyRetries.values
+                .filter { $0.generation == scheduledGeneration }
                 .sorted { $0.instanceSerial > $1.instanceSerial }
                 .map(\.retry)
             for retry in retries { retry() }
