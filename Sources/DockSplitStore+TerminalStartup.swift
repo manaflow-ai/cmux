@@ -1,6 +1,22 @@
 import Foundation
 
 extension DockSplitStore {
+    static func remoteControlStartupCommand(
+        command: String?,
+        useLoginShellWrapper: Bool,
+        workingDirectory: String,
+        environment: [String: String]
+    ) -> String? {
+        guard useLoginShellWrapper else {
+            return command.flatMap { $0.isEmpty ? nil : $0 }
+        }
+        return remoteShellStartupScript(
+            command: command,
+            workingDirectory: workingDirectory,
+            environment: environment
+        )
+    }
+
     static func resolvedWorkingDirectory(_ cwd: String?, baseDirectory: String) -> String {
         guard let cwd, !cwd.isEmpty else { return baseDirectory }
         if cwd.hasPrefix("/") {
@@ -53,11 +69,11 @@ extension DockSplitStore {
     }
 
     static func remoteShellStartupScript(
-        command: String,
+        command: String?,
         workingDirectory: String,
         environment: [String: String]
     ) -> String {
-        let encodedCommand = Data(command.utf8).base64EncodedString()
+        let encodedCommand = Data((command ?? "").utf8).base64EncodedString()
         let encodedWorkingDirectory = Data(workingDirectory.utf8).base64EncodedString()
         let exports = environment
             .filter { isValidEnvironmentVariableName($0.key) }

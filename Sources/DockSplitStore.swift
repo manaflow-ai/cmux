@@ -533,16 +533,12 @@ final class DockSplitStore: BonsplitDelegate {
             }
         case .remote(let remoteContext):
             localWorkingDirectory = FileManager.default.homeDirectoryForCurrentUser.path
-            let remoteCommand = command.flatMap { command -> String? in
-                guard !command.isEmpty else { return nil }
-                return useLoginShellWrapper
-                    ? Self.remoteShellStartupScript(
-                        command: command,
-                        workingDirectory: workingDirectory,
-                        environment: resolvedEnvironment
-                    )
-                    : command
-            }
+            let remoteCommand = Self.remoteControlStartupCommand(
+                command: command,
+                useLoginShellWrapper: useLoginShellWrapper,
+                workingDirectory: workingDirectory,
+                environment: resolvedEnvironment
+            )
             initialCommand = SSHPTYAttachStartupCommandBuilder.command(
                 foregroundAuth: remoteContext.foregroundAuth,
                 remoteCommand: remoteCommand,

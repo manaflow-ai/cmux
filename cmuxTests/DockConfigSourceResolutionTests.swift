@@ -167,4 +167,18 @@ struct DockConfigSourceResolutionTests {
         #expect(script.contains("export CMUX_DOCK_CONTROL_ID=logs"))
         #expect(script.contains(#"cd "$cmux_dock_working_directory""#))
     }
+
+    @Test("remote control startup without a command still carries cwd and Dock environment")
+    func remoteControlStartupWithoutCommandCarriesContext() throws {
+        let script = try #require(DockSplitStore.remoteControlStartupCommand(
+            command: nil,
+            useLoginShellWrapper: true,
+            workingDirectory: "/home/me/project",
+            environment: ["CMUX_DOCK_CONTROL_ID": "shell"]
+        ))
+
+        #expect(script.contains(Data("/home/me/project".utf8).base64EncodedString()))
+        #expect(script.contains("export CMUX_DOCK_CONTROL_ID=shell"))
+        #expect(script.contains(#"cd "$cmux_dock_working_directory""#))
+    }
 }
