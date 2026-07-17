@@ -11297,7 +11297,7 @@ extension Workspace: BonsplitDelegate {
 
         let content = CmuxAlertContent(informativeText: message)
         // Prefer a sheet if we can find a window, otherwise fall back to modal.
-        if let window = NSApp.keyWindow ?? NSApp.mainWindow,
+        if let window = NSApp.cmuxMainWindowForModalPresentation(),
            window.attachedSheet == nil {
             content.apply(to: alert, presentingWindow: window)
             return await withCheckedContinuation { continuation in
