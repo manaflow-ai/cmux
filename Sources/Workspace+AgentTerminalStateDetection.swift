@@ -53,7 +53,7 @@ extension Workspace {
         setDetectedAgentLifecycle(statusKey: nil, familyID: nil, panelId: panelId, state: .unknown)
     }
 
-    func debugDetectedAgentState(panelId: UUID) -> (family: String?, state: String, source: String) {
+    func observedAgentTerminalState(panelId: UUID) -> (family: String?, state: String, source: String) {
         let states = agentLifecycleStatesByPanelId[panelId] ?? [:]
         let lifecycle = states.filter {
             !AgentHibernationLifecycleStatusKeys.isManualKey($0.key) &&

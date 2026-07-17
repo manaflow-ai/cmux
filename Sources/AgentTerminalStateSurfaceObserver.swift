@@ -59,13 +59,10 @@ final class AgentTerminalStateSurfaceObserver {
         guard identityAfterCapture == identity,
               surface.runtimeSurfaceGeneration == runtimeGeneration,
               surface.foregroundProcessID() == rawPID else { return nil }
-        let title = AppDelegate.shared?.workspaceFor(tabId: workspaceID)?
-            .terminalPanel(for: surfaceID)?.displayTitle
         return AgentTerminalScreenSnapshot(
             processIdentity: identity,
             familyID: familyID,
             liveBottomVT: liveBottom,
-            title: title,
             previousReliableState: previousReliableIdentity == identity ? previousReliableState : nil
         )
     }

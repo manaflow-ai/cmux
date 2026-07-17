@@ -189,6 +189,14 @@ struct AgentTerminalStateClassifierTests {
     }
 
     @Test
+    func historyViewerWithoutPriorStateIsUnknown() {
+        #expect(classifier.classify(screen(
+            familyID: "codex",
+            text: "Session history\nWould you like to run the following command?\nYes\nNo"
+        )).state == .unknown)
+    }
+
+    @Test
     func lifecycleAuthorityOutranksContradictoryScreenState() {
         let resolver = AgentTerminalAuthorityResolver()
         #expect(resolver.resolve(authoritative: .blocked, screen: .working) == .blocked)
@@ -209,6 +217,27 @@ struct AgentTerminalStateClassifierTests {
         #expect(prior.profiles.count >= 26)
     }
 
+    @Test
+    func replacementCatalogNormalizesIdentityDataAndRejectsAmbiguity() throws {
+        let normalized = try #require(AgentTerminalProfileCatalog(profiles: [profile(
+            id: " Example_Agent ",
+            executable: " Example "
+        )]))
+        #expect(normalized.profiles[0].id == "example-agent")
+        #expect(normalized.profiles[0].executableBasenames == ["example"])
+
+        #expect(AgentTerminalProfileCatalog(profiles: [
+            profile(id: "one", executable: "shared"),
+            profile(id: "two", executable: " SHARED "),
+        ]) == nil)
+        #expect(AgentTerminalProfileCatalog(profiles: [
+            profile(id: "empty", executable: "empty", argumentNeedles: [" "]),
+        ]) == nil)
+        #expect(AgentTerminalProfileCatalog(profiles: [
+            profile(id: "empty-group", executable: "empty-group", working: [[]]),
+        ]) == nil)
+    }
+
     private var identity: AgentTerminalProcessIdentity {
         AgentTerminalProcessIdentity(pid: 42, startSeconds: 100, startMicroseconds: 5, runtimeGeneration: 3)
     }
@@ -226,6 +255,22 @@ struct AgentTerminalStateClassifierTests {
             processIdentity: identity,
             familyID: familyID,
             liveBottomVT: text
+        )
+    }
+
+    private func profile(
+        id: String,
+        executable: String,
+        argumentNeedles: [String] = [],
+        working: [[String]] = []
+    ) -> AgentTerminalFamilyProfile {
+        AgentTerminalFamilyProfile(
+            id: id,
+            statusKey: id,
+            displayName: id,
+            executableBasenames: [executable],
+            argumentNeedles: argumentNeedles,
+            workingEvidenceGroups: working
         )
     }
 }

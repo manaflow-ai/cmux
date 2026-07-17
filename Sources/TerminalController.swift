@@ -4944,7 +4944,7 @@ class TerminalController {
                 let requestedWorkingDirectory = workspace?.allowsLocalDirectoryFallback(panelId: panelId) == false ? nil : nonEmpty(terminalSurface.requestedWorkingDirectory)
                 let teardownRequest = terminalSurface.debugTeardownRequest()
                 let lastKnownWorkspaceId = terminalSurface.debugLastKnownWorkspaceId()
-                let detectedAgentState = workspace?.debugDetectedAgentState(panelId: panelId)
+                let detectedAgentState = workspace?.observedAgentTerminalState(panelId: panelId)
 
                 var item: [String: Any] = [
                     "index": index,

@@ -382,7 +382,7 @@ class GhosttyApp {
     static let terminalSurfaceRestoreSpawnScheduler = TerminalSurfaceRestoreSpawnScheduler()
     /// Process-wide coding-agent terminal-state runtime, constructed at the app composition root.
     @MainActor
-    private static let agentTerminalStateRuntime = AgentTerminalStateRuntime()
+    private let agentTerminalStateRuntime = AgentTerminalStateRuntime()
     /// Snapshotted once per app session so all workspaces use consistent values.
     static let terminalSessionPortBase: Int = {
         let val = UserDefaults.standard.integer(forKey: AutomationSettings.portBaseKey)
@@ -402,7 +402,7 @@ class GhosttyApp {
         engine: GhosttyApp.shared,
         viewProvider: TerminalSurfaceViewFactory(),
         spawnPolicy: TerminalSurfaceSpawnPolicyBridge(),
-        byteTee: TerminalOutputByteTeeBridge(agentStateRuntime: GhosttyApp.agentTerminalStateRuntime),
+        byteTee: TerminalOutputByteTeeBridge(agentStateRuntime: GhosttyApp.shared.agentTerminalStateRuntime),
         rendererRealization: RendererRealizationController.shared,
         hibernationRecorder: TerminalAgentHibernationRecorder(),
         runtimeTeardown: GhosttyApp.terminalSurfaceRuntimeTeardown,

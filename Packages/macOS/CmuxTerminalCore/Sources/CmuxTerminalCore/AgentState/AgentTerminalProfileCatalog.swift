@@ -13,13 +13,19 @@ public struct AgentTerminalProfileCatalog: Sendable {
     /// Invalid input returns `nil`, allowing a caller to retain its previous catalog.
     public init?(profiles: [AgentTerminalFamilyProfile]) {
         guard !profiles.isEmpty else { return nil }
+        var validatedProfiles: [AgentTerminalFamilyProfile] = []
         var byID: [String: AgentTerminalFamilyProfile] = [:]
         var byHint: [String: AgentTerminalFamilyProfile] = [:]
-        for profile in profiles {
-            let id = Self.normalized(profile.id)
-            let statusKey = profile.statusKey.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !id.isEmpty, !statusKey.isEmpty, byID[id] == nil,
-                  !profile.executableBasenames.isEmpty else { return nil }
+        var executableOwners: [String: String] = [:]
+        for rawProfile in profiles {
+            guard let profile = Self.validatedProfile(rawProfile) else { return nil }
+            let id = profile.id
+            guard byID[id] == nil else { return nil }
+            for executable in profile.executableBasenames {
+                guard executableOwners[executable] == nil else { return nil }
+                executableOwners[executable] = id
+            }
+            validatedProfiles.append(profile)
             byID[id] = profile
             for hint in profile.hintAliases.union([profile.id]) {
                 let normalizedHint = Self.normalized(hint)
@@ -28,7 +34,7 @@ public struct AgentTerminalProfileCatalog: Sendable {
                 byHint[normalizedHint] = profile
             }
         }
-        self.profiles = profiles
+        self.profiles = validatedProfiles
         self.byID = byID
         self.byHint = byHint
     }
@@ -55,6 +61,57 @@ public struct AgentTerminalProfileCatalog: Sendable {
         raw.trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
             .replacingOccurrences(of: "_", with: "-")
+    }
+
+    private static func validatedProfile(_ raw: AgentTerminalFamilyProfile) -> AgentTerminalFamilyProfile? {
+        let id = normalized(raw.id)
+        let statusKey = raw.statusKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayName = raw.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let executables = Set(raw.executableBasenames.map(normalizedNeedle))
+        guard !id.isEmpty, !statusKey.isEmpty, !displayName.isEmpty,
+              !executables.isEmpty, !executables.contains("") else { return nil }
+        guard let arguments = normalizedNeedles(raw.argumentNeedles),
+              let aliases = normalizedAliases(raw.hintAliases),
+              let idle = normalizedNeedles(raw.idleNeedles),
+              let working = normalizedEvidenceGroups(raw.workingEvidenceGroups),
+              let blocked = normalizedEvidenceGroups(raw.blockedEvidenceGroups),
+              let history = normalizedNeedles(raw.historyViewNeedles) else { return nil }
+        return AgentTerminalFamilyProfile(
+            id: id,
+            statusKey: statusKey,
+            displayName: displayName,
+            lifecycleAuthoritative: raw.lifecycleAuthoritative,
+            executableBasenames: executables,
+            argumentNeedles: arguments,
+            hintAliases: aliases,
+            idleNeedles: idle,
+            workingEvidenceGroups: working,
+            blockedEvidenceGroups: blocked,
+            historyViewNeedles: history
+        )
+    }
+
+    private static func normalizedNeedle(_ raw: String) -> String {
+        raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private static func normalizedNeedles(_ raw: [String]) -> [String]? {
+        let normalized = raw.map(normalizedNeedle)
+        return normalized.contains("") ? nil : normalized
+    }
+
+    private static func normalizedAliases(_ raw: Set<String>) -> Set<String>? {
+        let normalized = Set(raw.map(normalized))
+        return normalized.contains("") ? nil : normalized
+    }
+
+    private static func normalizedEvidenceGroups(_ raw: [[String]]) -> [[String]]? {
+        var result: [[String]] = []
+        for group in raw {
+            guard !group.isEmpty, let normalized = normalizedNeedles(group) else { return nil }
+            result.append(normalized)
+        }
+        return result
     }
 
     private static let commonHistoryNeedles = ["conversation history", "transcript viewer", "session history"]

@@ -8,6 +8,8 @@ final class AgentTerminalStateRuntime {
     private let classificationWorker = AgentTerminalClassificationWorker()
     private var observers: [UUID: AgentTerminalStateSurfaceObserver] = [:]
     private var registrationTasks: [UUID: Task<Void, Never>] = [:]
+    private var teardownTasks: [UUID: Task<Void, Never>] = [:]
+    private var teardownTokens: [UUID: UUID] = [:]
     private var updateTask: Task<Void, Never>?
 
     init() {
@@ -16,6 +18,8 @@ final class AgentTerminalStateRuntime {
 
     deinit {
         updateTask?.cancel()
+        registrationTasks.values.forEach { $0.cancel() }
+        teardownTasks.values.forEach { $0.cancel() }
     }
 
     func install(workspaceID: UUID, surfaceID: UUID, signal: AgentTerminalDirtySignal) {
@@ -38,10 +42,21 @@ final class AgentTerminalStateRuntime {
     func drop(surfaceID: UUID) {
         let observer = observers.removeValue(forKey: surfaceID)
         let registrationTask = registrationTasks.removeValue(forKey: surfaceID)
-        Task {
+        registrationTask?.cancel()
+        let teardownToken = UUID()
+        teardownTokens[surfaceID] = teardownToken
+        let scheduler = scheduler
+        let classificationWorker = classificationWorker
+        teardownTasks[surfaceID] = Task { [weak self] in
             _ = await registrationTask?.value
             await scheduler.stop(surfaceID: surfaceID)
             await classificationWorker.remove(surfaceID: surfaceID)
+            guard !Task.isCancelled else { return }
+            await MainActor.run { [weak self] in
+                guard self?.teardownTokens[surfaceID] == teardownToken else { return }
+                self?.teardownTasks.removeValue(forKey: surfaceID)
+                self?.teardownTokens.removeValue(forKey: surfaceID)
+            }
         }
         guard let observer, let workspace = AppDelegate.shared?.workspaceFor(tabId: observer.workspaceID) else { return }
         workspace.clearDetectedAgentLifecycle(panelId: surfaceID)
@@ -50,11 +65,12 @@ final class AgentTerminalStateRuntime {
     private func startUpdateConsumerIfNeeded() {
         guard updateTask == nil else { return }
         updateTask = Task { [weak self] in
-            guard let self else { return }
+            guard let scheduler = self?.scheduler else { return }
             let updates = await scheduler.updates()
             for await update in updates {
                 guard !Task.isCancelled else { return }
-                await self.apply(update)
+                guard let self else { return }
+                self.apply(update)
             }
         }
     }

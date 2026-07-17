@@ -120,7 +120,6 @@
 		A9E02000000000000000000D /* AgentSessionWebTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E01000000000000000000D /* AgentSessionWebTheme.swift */; };
 		A9F200000000000000000014 /* AgentSessionWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000014 /* AgentSessionWebView.swift */; };
 		FEA700020000000000000001 /* AgentTerminalClassificationWorker.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEA700020000000000000002 /* AgentTerminalClassificationWorker.swift */; };
-		FEA700010000000000000001 /* AgentTerminalProcessInspector.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEA700010000000000000002 /* AgentTerminalProcessInspector.swift */; };
 		FEA700040000000000000001 /* AgentTerminalStateRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEA700040000000000000002 /* AgentTerminalStateRuntime.swift */; };
 		FEA700030000000000000001 /* AgentTerminalStateSurfaceObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEA700030000000000000002 /* AgentTerminalStateSurfaceObserver.swift */; };
 		REE0CA0000000000000000F2 /* AIAccountCredentialSources.swift in Sources */ = {isa = PBXBuildFile; fileRef = REE0CA0000000000000000F1 /* AIAccountCredentialSources.swift */; };
@@ -2227,7 +2226,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A9E01000000000000000000D /* AgentSessionWebTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionWebTheme.swift; sourceTree = "<group>"; };
 		A9F100000000000000000014 /* AgentSessionWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionWebView.swift; sourceTree = "<group>"; };
 		FEA700020000000000000002 /* AgentTerminalClassificationWorker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTerminalClassificationWorker.swift; sourceTree = "<group>"; };
-		FEA700010000000000000002 /* AgentTerminalProcessInspector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTerminalProcessInspector.swift; sourceTree = "<group>"; };
 		FEA700040000000000000002 /* AgentTerminalStateRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTerminalStateRuntime.swift; sourceTree = "<group>"; };
 		FEA700030000000000000002 /* AgentTerminalStateSurfaceObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTerminalStateSurfaceObserver.swift; sourceTree = "<group>"; };
 		REE0CA0000000000000000F1 /* AIAccountCredentialSources.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AIAccountCredentialSources.swift; sourceTree = "<group>"; };
@@ -4727,7 +4725,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				791102020000000000000001 /* RemoteDisconnectPreparationService.swift */,
 				C0DE43000000000000000008 /* Workspace+AgentChat.swift */,
 				C3744E040000000000000001 /* AgentPIDProcessIdentity.swift */,
-				FEA700010000000000000002 /* AgentTerminalProcessInspector.swift */,
 				FEA700020000000000000002 /* AgentTerminalClassificationWorker.swift */,
 				FEA700030000000000000002 /* AgentTerminalStateSurfaceObserver.swift */,
 				FEA700040000000000000002 /* AgentTerminalStateRuntime.swift */,
@@ -6786,7 +6783,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A9E02000000000000000000D /* AgentSessionWebTheme.swift in Sources */,
 				A9F200000000000000000014 /* AgentSessionWebView.swift in Sources */,
 				FEA700020000000000000001 /* AgentTerminalClassificationWorker.swift in Sources */,
-				FEA700010000000000000001 /* AgentTerminalProcessInspector.swift in Sources */,
 				FEA700040000000000000001 /* AgentTerminalStateRuntime.swift in Sources */,
 				FEA700030000000000000001 /* AgentTerminalStateSurfaceObserver.swift in Sources */,
 				REE0CA0000000000000000F2 /* AIAccountCredentialSources.swift in Sources */,

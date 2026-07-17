@@ -55,13 +55,11 @@ public struct AgentTerminalStateClassifier: Sendable {
         let physicalLines = text.split(separator: "\n", omittingEmptySubsequences: false)
         let liveBottom = physicalLines.suffix(18).joined(separator: "\n")
         let currentInteraction = physicalLines.suffix(10).joined(separator: "\n")
-        let metadata = [snapshot.title, snapshot.progress].compactMap { $0?.lowercased() }.joined(separator: "\n")
-        let liveEvidence = String((liveBottom + "\n" + metadata).suffix(48 * 1024))
-        let interactionEvidence = String((currentInteraction + "\n" + metadata).suffix(24 * 1024))
+        let liveEvidence = String(liveBottom.suffix(48 * 1024))
+        let interactionEvidence = String(currentInteraction.suffix(24 * 1024))
         let state: AgentTerminalSemanticState
-        if profile.historyViewNeedles.contains(where: liveEvidence.contains),
-           let previous = snapshot.previousReliableState {
-            state = previous
+        if profile.historyViewNeedles.contains(where: liveEvidence.contains) {
+            state = snapshot.previousReliableState ?? .unknown
         } else if Self.matchesAnyEvidenceGroup(profile.blockedEvidenceGroups, in: interactionEvidence) {
             state = .blocked
         } else if Self.matchesAnyEvidenceGroup(profile.workingEvidenceGroups, in: liveEvidence) {
