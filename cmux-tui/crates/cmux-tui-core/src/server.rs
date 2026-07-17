@@ -3781,6 +3781,46 @@ mod tests {
     }
 
     #[test]
+    fn unattached_live_resize_still_obeys_visible_client_minimum() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
+        let viewer_writer = test_writer();
+        let viewer = mux.control_clients.register(ClientTransport::Unix, viewer_writer.clone());
+        let stream = viewer_writer.start_stream(&json!({"event": "test"})).unwrap();
+        mux.control_clients.attach_surface(viewer, surface.id, stream).unwrap();
+        handle_command(
+            &mux,
+            viewer,
+            Command::ResizeSurface { surface: surface.id, cols: 100, rows: 40 },
+            &viewer_writer,
+        )
+        .unwrap();
+
+        let control_writer = test_writer();
+        let control = mux.control_clients.register(ClientTransport::Unix, control_writer.clone());
+        handle_command(
+            &mux,
+            control,
+            Command::ResizeSurface { surface: surface.id, cols: 120, rows: 50 },
+            &control_writer,
+        )
+        .unwrap();
+        assert_eq!(surface.size(), (100, 40));
+
+        handle_command(
+            &mux,
+            control,
+            Command::ResizeSurface { surface: surface.id, cols: 70, rows: 20 },
+            &control_writer,
+        )
+        .unwrap();
+        assert_eq!(surface.size(), (70, 20));
+
+        assert!(disconnect_client(&mux, control, false));
+        assert_eq!(surface.size(), (100, 40));
+    }
+
+    #[test]
     fn reload_config_returns_path_and_emits_request() {
         let mux = test_mux();
         let events = mux.subscribe();
