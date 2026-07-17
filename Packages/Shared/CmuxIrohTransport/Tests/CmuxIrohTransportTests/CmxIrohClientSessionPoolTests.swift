@@ -136,7 +136,7 @@ struct CmxIrohClientSessionPoolTests {
                     pathHints: [relayHint]
                 )
             ),
-            expectedPeerDeviceID: fixture.request.expectedPeerDeviceID,
+            expectedPeerDeviceID: fixture.request.expectedPeerDeviceID?.uppercased(),
             authorizationMode: .transportAdmission
         )
         let second = try factory.makeTransport(for: routeVariant)
@@ -146,6 +146,7 @@ struct CmxIrohClientSessionPoolTests {
             try await second.connect()
         }
 
+        try #require(await waitForControlWaiter(pool, request: routeVariant))
         #expect(await endpoint.observedDialedAddresses().count == 1)
         #expect(await firstConnection.observedCloseCallCount() == 0)
         await first.close()
@@ -155,6 +156,45 @@ struct CmxIrohClientSessionPoolTests {
         #expect(await endpoint.observedDialedAddresses().count == 2)
         #expect(await secondConnection.observedCloseCallCount() == 0)
         await second.close()
+    }
+
+    @Test
+    func cancelledControlHandoffDoesNotBlockTheNextOwner() async throws {
+        let fixture = try PoolFixture()
+        let firstConnection = TestIrohConnection(
+            remoteIdentity: fixture.remoteIdentity,
+            bidirectionalStreams: [fixture.controlStream()]
+        )
+        let replacementConnection = TestIrohConnection(
+            remoteIdentity: fixture.remoteIdentity,
+            bidirectionalStreams: [fixture.controlStream()]
+        )
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: fixture.localIdentity,
+            dialResults: [
+                .connection(firstConnection),
+                .connection(replacementConnection),
+            ]
+        )
+        let pool = try await fixture.pool(endpoint: endpoint, generation: 1)
+        let factory = CmxIrohByteTransportFactory(sessionPool: pool)
+        let first = try factory.makeTransport(for: fixture.request)
+        let cancelled = try factory.makeTransport(for: fixture.request)
+        let replacement = try factory.makeTransport(for: fixture.request)
+        try await first.connect()
+
+        let cancelledConnect = Task { try await cancelled.connect() }
+        try #require(await waitForControlWaiter(pool, request: fixture.request))
+        cancelledConnect.cancel()
+        await #expect(throws: CancellationError.self) {
+            try await cancelledConnect.value
+        }
+
+        await first.close()
+        try await replacement.connect()
+        #expect(await endpoint.observedDialedAddresses().count == 2)
+        #expect(await replacementConnection.observedCloseCallCount() == 0)
+        await replacement.close()
     }
 
     @Test
@@ -538,6 +578,17 @@ struct CmxIrohClientSessionPoolTests {
         #expect(await iterator.next() != nil)
         #expect(await pool.selectedObservedPath() == .unavailable)
     }
+}
+
+private func waitForControlWaiter(
+    _ pool: CmxIrohClientSessionPool,
+    request: CmxByteTransportRequest
+) async -> Bool {
+    for _ in 0 ..< 1_000 {
+        if await pool.controlWaiterCount(for: request) == 1 { return true }
+        await Task.yield()
+    }
+    return false
 }
 
 private struct PoolFixture {
