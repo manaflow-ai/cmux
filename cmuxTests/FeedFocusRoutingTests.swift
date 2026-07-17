@@ -112,4 +112,10 @@ import Testing
 
         #expect(editor.needsLayout)
     }
+
+    @Test func feedTextRoutingReportsRejectedSurface() {
+        let appDelegate = AppDelegate()
+
+        #expect(!appDelegate.routeFeedText(surfaceId: "not-a-surface-id", text: "retry this"))
+    }
 }
