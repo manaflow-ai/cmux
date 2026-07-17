@@ -336,6 +336,8 @@ pub struct Mux {
     surface_options: Mutex<SurfaceOptions>,
     latest_client_size: Mutex<Option<(u16, u16)>>,
     client_surface_sizes: Mutex<ClientSurfaceSizes>,
+    #[cfg(test)]
+    client_resize_before_apply: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     cell_pixels: Mutex<(u16, u16)>,
     default_colors: Mutex<DefaultColors>,
@@ -376,6 +378,8 @@ impl Mux {
             surface_options: Mutex::new(surface_options),
             latest_client_size: Mutex::new(None),
             client_surface_sizes: Mutex::new(HashMap::new()),
+            #[cfg(test)]
+            client_resize_before_apply: Mutex::new(None),
             browser_runtime: Mutex::new(None),
             cell_pixels: Mutex::new((8, 16)),
             default_colors: Mutex::new(DefaultColors::default()),
@@ -599,6 +603,12 @@ impl Mux {
                 .fold(requested, |smallest, size| (smallest.0.min(size.0), smallest.1.min(size.1)));
             (effective, previous)
         };
+        #[cfg(test)]
+        let before_apply = self.client_resize_before_apply.lock().unwrap().clone();
+        #[cfg(test)]
+        if let Some(hook) = before_apply {
+            hook();
+        }
         match self.resize_surface_with_reservation(id, effective.0, effective.1) {
             Ok(changed) => {
                 self.record_client_size(effective.0, effective.1);
@@ -661,6 +671,11 @@ impl Mux {
             .unwrap()
             .get(&id)
             .and_then(|viewers| viewers.get(&client).copied())
+    }
+
+    #[cfg(test)]
+    fn set_client_resize_before_apply(&self, hook: Option<Arc<dyn Fn() + Send + Sync>>) {
+        *self.client_resize_before_apply.lock().unwrap() = hook;
     }
 
     fn browser_runtime(&self) -> anyhow::Result<Arc<BrowserRuntime>> {
@@ -2756,6 +2771,53 @@ mod tests {
         mux.remove_surface_size_client(surface.id, 2);
         assert_eq!(surface.size(), (120, 40));
         assert_eq!(mux.new_workspace(None, None).unwrap().size(), (120, 40));
+    }
+
+    #[test]
+    fn concurrent_viewer_reports_settle_at_shared_minimum() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let surface_id = surface.id;
+        let pause_first = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let (reached_tx, reached_rx) = std::sync::mpsc::sync_channel(1);
+        let release = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+        let hook_release = release.clone();
+        mux.set_client_resize_before_apply(Some(Arc::new(move || {
+            if pause_first.swap(false, Ordering::SeqCst) {
+                reached_tx.send(()).unwrap();
+                let (lock, ready) = &*hook_release;
+                let mut released = lock.lock().unwrap();
+                while !*released {
+                    released = ready.wait(released).unwrap();
+                }
+            }
+        })));
+
+        let first_mux = mux.clone();
+        let first = std::thread::spawn(move || {
+            first_mux.resize_surface_for_client(surface_id, 1, 120, 40).unwrap();
+        });
+        reached_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let second_mux = mux.clone();
+        let (second_done_tx, second_done_rx) = std::sync::mpsc::sync_channel(1);
+        let second = std::thread::spawn(move || {
+            second_mux.resize_surface_for_client(surface_id, 2, 80, 50).unwrap();
+            second_done_tx.send(()).unwrap();
+        });
+        let second_finished_before_release =
+            second_done_rx.recv_timeout(Duration::from_millis(250)).is_ok();
+
+        let (lock, ready) = &*release;
+        *lock.lock().unwrap() = true;
+        ready.notify_all();
+        first.join().unwrap();
+        if !second_finished_before_release {
+            second_done_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        }
+        second.join().unwrap();
+
+        assert_eq!(mux.surface(surface_id).unwrap().size(), (80, 40));
     }
 
     #[test]
