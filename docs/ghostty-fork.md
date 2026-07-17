@@ -12,10 +12,95 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `bb30526cd`. It advances the previous cmux pin
-`b4b6d69c8` through the already-merged theme, render-grid, and wrap-aware URL
-updates, then preserves authoritative sprite-font shaping runs. The commit is
-reachable from fork `main` through the merged
+Current cmux pinned fork head: `0f400d0f5`. It adds the external Metal
+presenter and atomic renderer-worker recovery state on top of `bb30526cd`.
+The two fork commits are `9a391205c` and `0f400d0f5` on
+`feat/cmux-external-metal-presenter`.
+
+### External Metal presentation and recoverable worker snapshots
+
+- Commits:
+  - `9a391205c` (feat: add external Metal presenter ABI)
+  - `0f400d0f5` (feat: serialize worker recovery state)
+- Files:
+  - `include/ghostty.h`
+  - `src/Surface.zig`
+  - `src/apprt/embedded.zig`
+  - `src/config/CApi.zig`
+  - `src/input/Binding.zig`
+  - `src/renderer/Metal.zig`
+  - `src/termio/Options.zig`
+  - `src/termio/Termio.zig`
+- Public C ABI:
+
+  ```c
+  typedef void (*ghostty_metal_external_present_cb)(void* userdata,
+                                                    void* iosurface,
+                                                    uint32_t width_px,
+                                                    uint32_t height_px);
+
+  typedef struct {
+    void* userdata;
+    ghostty_metal_external_present_cb present;
+  } ghostty_platform_metal_external_s;
+
+  // Appended to ghostty_surface_config_s.
+  ghostty_pty_tee_cb pty_tee_cb;
+  void* pty_tee_userdata;
+
+  GHOSTTY_API ghostty_string_s ghostty_config_serialize(ghostty_config_t);
+
+  GHOSTTY_API bool ghostty_surface_read_screen_tail_vt_with_output_sequence(
+      ghostty_surface_t surface,
+      uintptr_t max_rows,
+      uintptr_t max_bytes,
+      ghostty_text_s* result,
+      uint64_t* next_sequence);
+  ```
+
+  - `GHOSTTY_PLATFORM_METAL_EXTERNAL` selects a Metal presenter that does not
+    read or modify an `NSView`, `UIView`, or `CALayer`. The corresponding
+    `ghostty_platform_metal_external_s` stores embedder userdata and a required
+    `ghostty_metal_external_present_cb`.
+  - The present callback receives a borrowed `IOSurfaceRef` after Metal has
+    completed the frame, plus its pixel dimensions. The callback runs on a
+    Metal command-buffer completion thread, must be thread-safe and
+    nonblocking, and must retain the IOSurface or create its transport handle
+    before returning if the embedder needs it afterward.
+  - `ghostty_surface_config_s.pty_tee_cb` and
+    `ghostty_surface_config_s.pty_tee_userdata` install the existing PTY tee
+    before the IO thread starts. This closes the startup-byte race inherent in
+    installing the callback later with `ghostty_surface_set_pty_tee_cb`.
+    The callback receives every PTY byte slice before the local VT parser and
+    runs on the IO read thread.
+  - `ghostty_config_serialize(ghostty_config_t)` returns every public effective
+    configuration value as valid Ghostty config-file syntax in a
+    `ghostty_string_s`. The caller releases it with `ghostty_string_free`.
+  - `ghostty_surface_read_screen_tail_vt_with_output_sequence(...)` captures a
+    byte-bounded VT reconstruction and the modulo-`uint64_t` position of the
+    next PTY-output byte under the same renderer-state lock. The sequence
+    advances only after each byte slice has been applied to terminal state.
+    The caller releases the returned `ghostty_text_s` with
+    `ghostty_surface_free_text`.
+- Summary:
+  - A manual-IO Ghostty surface can render into IOSurfaces without constructing
+    an AppKit or UIKit presentation object. cmux uses this for visual mirrors in
+    its renderer worker.
+  - The authority surface can tee raw output from byte zero, then atomically
+    pair a bounded terminal snapshot with the exact replay position if the
+    worker restarts.
+  - Effective configuration serialization lets the worker build its mirrors
+    from the same finalized Ghostty configuration as the authority.
+- Conflict note: the new platform enum value, platform-union member, callback
+  shape, and appended `ghostty_surface_config_s` fields are public ABI. Future
+  upstream merges must keep their numeric values, ordering, and C/Zig layouts
+  synchronized. Keep the output counter update after VT parsing and keep the
+  snapshot plus sequence read inside one renderer-state critical section.
+
+The previous cmux pinned fork head was `bb30526cd`. It advances the earlier
+`b4b6d69c8` pin through the already-merged theme, render-grid, and wrap-aware
+URL updates, then preserves authoritative sprite-font shaping runs. The commit
+is reachable from fork `main` through the merged
 https://github.com/manaflow-ai/ghostty/pull/120.
 The corresponding universal ReleaseFast GhosttyKit archive is published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-bb30526cdab8f5fb08ae43e404e3aacc40d3ffc3-crashsubdir-cmux-crash-v1
