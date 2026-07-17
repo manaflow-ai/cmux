@@ -8,6 +8,7 @@ import UIKit
 /// values), an SF Symbol name, or a single emoji.
 struct TaskTemplateIcon: View {
     let value: String
+    var size: CGFloat = 18
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -17,15 +18,17 @@ struct TaskTemplateIcon: View {
             Image(uiImage: image)
                 .resizable()
                 .scaledToFit()
-                .frame(width: 18, height: 18)
+                .frame(width: size, height: size)
                 .accessibilityHidden(true)
         } else {
             switch MacAvatarIcon.resolve(custom: value, defaultSymbol: "terminal") {
             case .symbol(let name):
                 Image(systemName: name)
+                    .font(.system(size: size, weight: .semibold))
                     .accessibilityHidden(true)
             case .emoji(let emoji):
                 Text(emoji)
+                    .font(.system(size: size))
                     .accessibilityHidden(true)
             }
         }

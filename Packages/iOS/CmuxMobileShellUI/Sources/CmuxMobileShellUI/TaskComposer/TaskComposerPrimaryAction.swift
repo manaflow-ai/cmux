@@ -3,11 +3,14 @@ import CmuxMobileSupport
 import SwiftUI
 
 /// The composer's persistent primary action. Keeping it outside the virtualized
-/// form makes the visible action a stable accessibility element while the form
-/// scrolls on compact and regular-width layouts.
+/// scrolling content makes the visible action a stable accessibility element
+/// on compact and regular-width layouts.
 struct TaskComposerPrimaryAction: View {
     let isSubmitting: Bool
     let isEnabled: Bool
+    let templateIcon: String?
+    let actionTitle: String
+    let progressTitle: String
     let failureText: String?
     let completedOperationRecovery: TaskComposerCompletedOperationRecovery?
     let action: () -> Void
@@ -15,16 +18,20 @@ struct TaskComposerPrimaryAction: View {
     let requestStartAgain: () -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
-            Divider()
+        VStack(spacing: 10) {
             if let failureText {
-                Text(failureText)
-                    .font(.footnote)
-                    .foregroundStyle(.red)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 20)
-                    .padding(.top, 10)
-                    .accessibilityIdentifier("MobileTaskComposerFailure")
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .accessibilityHidden(true)
+                    Text(failureText)
+                        .font(.footnote.weight(.medium))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .foregroundStyle(.red)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(Color.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .accessibilityIdentifier("MobileTaskComposerFailure")
             }
             if let completedOperationRecovery {
                 HStack(spacing: 10) {
@@ -48,8 +55,7 @@ struct TaskComposerPrimaryAction: View {
                         }
                         .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
+                    .mobileGlassProminentButton()
                     .disabled(isSubmitting)
                     .accessibilityHint(TaskComposerSheet.recoveryRefreshAccessibilityHint)
                     .accessibilityIdentifier("MobileTaskComposerRefreshButton")
@@ -62,43 +68,59 @@ struct TaskComposerPrimaryAction: View {
                             ),
                             action: requestStartAgain
                         )
-                        .buttonStyle(.bordered)
-                        .controlSize(.large)
+                        .mobileGlassButton()
                         .disabled(isSubmitting)
                         .accessibilityHint(TaskComposerSheet.recoveryStartAgainAccessibilityHint)
                         .accessibilityIdentifier("MobileTaskComposerStartAgainButton")
                     }
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 10)
             } else {
                 Button(action: action) {
-                    Group {
+                    HStack(spacing: 10) {
                         if isSubmitting {
                             ProgressView()
-                        } else {
-                            Text(L10n.string("mobile.taskComposer.create", defaultValue: "Create"))
-                                .fontWeight(.semibold)
+                        } else if let templateIcon {
+                            TaskTemplateIcon(value: templateIcon, size: 18)
+                        }
+                        Text(isSubmitting ? progressTitle : actionTitle)
+                            .fontWeight(.semibold)
+                        if !isSubmitting {
+                            Image(systemName: "arrow.up.right")
+                                .font(.subheadline.weight(.bold))
+                                .accessibilityHidden(true)
                         }
                     }
                     .frame(maxWidth: .infinity)
+                    .contentShape(.capsule)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+                .mobileGlassProminentButton()
                 .disabled(isSubmitting || !isEnabled)
-                .accessibilityLabel(
-                    isSubmitting
-                        ? L10n.string("mobile.taskComposer.creating", defaultValue: "Creating Task")
-                        : L10n.string("mobile.taskComposer.create", defaultValue: "Create")
-                )
+                .accessibilityLabel(isSubmitting ? progressTitle : actionTitle)
                 .accessibilityHint(TaskComposerSheet.createAccessibilityHint)
                 .accessibilityIdentifier("MobileTaskComposerCreateButton")
-                .padding(.horizontal, 20)
-                .padding(.vertical, 10)
+
+                Text(
+                    L10n.string(
+                        "mobile.taskComposer.action.caption",
+                        defaultValue: "Creates a workspace and sends your prompt immediately."
+                    )
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
             }
         }
+        .frame(maxWidth: 680)
+        .padding(.horizontal, 20)
+        .padding(.top, 12)
+        .padding(.bottom, 8)
+        .frame(maxWidth: .infinity)
         .background(.bar)
         .accessibilityIdentifier("MobileTaskComposerPrimaryAction")
+        .sensoryFeedback(.impact(weight: .light), trigger: isSubmitting) { oldValue, newValue in
+            !oldValue && newValue
+        }
     }
 }
 #endif

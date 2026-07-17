@@ -344,15 +344,59 @@ import Testing
         await gate.waitForStarts(2)
 
         await gate.releaseAll()
-        let firstResponse = try Self.decodeMobileWorkspaceList(await first.value)
-        let secondResponse = try Self.decodeMobileWorkspaceList(await second.value)
+        let concurrentResults = [await first.value, await second.value]
+        let successfulResponses = concurrentResults.compactMap { try? Self.decodeMobileWorkspaceList($0) }
+        let completedErrors = concurrentResults.compactMap(Self.errorCode(from:))
         let created = try #require(manager.tabs.first { !baselineIDs.contains($0.id) })
+        let taskPanel = try #require(created.panels.values.compactMap { $0 as? TerminalPanel }.first)
         let initialCommands = created.panels.values.compactMap { ($0 as? TerminalPanel)?.surface.debugInitialCommand() }
+        let startupDeadline = ContinuousClock.now + .seconds(1)
+        while taskPanel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 0,
+              ContinuousClock.now < startupDeadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let attemptsAfterCreation = taskPanel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting()
 
         #expect(Set(manager.tabs.map(\.id)).subtracting(baselineIDs).count == 1)
         #expect(initialCommands.filter { $0 == "must-run-once" }.count == 1)
-        #expect(firstResponse.createdWorkspaceID == created.id.uuidString)
-        #expect(secondResponse.createdWorkspaceID == created.id.uuidString)
+        #expect(attemptsAfterCreation > 0)
+        #expect(!successfulResponses.isEmpty)
+        #expect(successfulResponses.count + completedErrors.count == concurrentResults.count)
+        #expect(successfulResponses.allSatisfy { $0.createdWorkspaceID == created.id.uuidString })
+        #expect(completedErrors.allSatisfy { $0 == "already_completed" })
+
+        let retry = await TerminalController.shared.v2MobileWorkspaceCreate(
+            params: params,
+            tabManager: manager,
+            idempotencyCache: cache
+        )
+        let retryResponse = try? Self.decodeMobileWorkspaceList(retry)
+        let retryError = Self.errorCode(from: retry)
+
+        #expect(
+            retryResponse?.createdWorkspaceID == created.id.uuidString
+                || retryError == "already_completed"
+        )
+        #expect(taskPanel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == attemptsAfterCreation)
+    }
+
+    @Test func emptyMobileWorkspaceCreateStaysMetadataOnly() async throws {
+        let manager = TabManager()
+        let baselineIDs = Set(manager.tabs.map(\.id))
+
+        let response = try Self.decodeMobileWorkspaceList(
+            await TerminalController.shared.v2MobileWorkspaceCreate(
+                params: ["title": "Lazy Mobile Workspace"],
+                tabManager: manager,
+                idempotencyCache: Self.makeCache()
+            )
+        )
+        let created = try #require(manager.tabs.first { !baselineIDs.contains($0.id) })
+        let panel = try #require(created.panels.values.compactMap { $0 as? TerminalPanel }.first)
+
+        #expect(response.createdWorkspaceID == created.id.uuidString)
+        #expect(!panel.surface.debugBackgroundSurfaceStartQueuedForTesting())
+        #expect(panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 0)
     }
 
     @Test func idempotencyCacheEvictsSuccessfulResultsInFIFOOrder() {

@@ -136,12 +136,13 @@ final class cmuxUITests: XCTestCase {
         let create = app.buttons["MobileTaskComposerCreateButton"]
         XCTAssertTrue(
             create.waitForExistence(timeout: 4),
-            "The visible Create action must be present in the accessibility hierarchy"
+            "The visible launch action must be present in the accessibility hierarchy"
         )
+        XCTAssertEqual(create.label, "Start Claude")
         XCTAssertGreaterThanOrEqual(
             create.frame.height,
             44,
-            "The Create action must expose at least a 44-point activation frame"
+            "The launch action must expose at least a 44-point activation frame"
         )
 
         for name in ["Claude", "Codex", "OpenCode", "Shell"] {
@@ -156,21 +157,36 @@ final class cmuxUITests: XCTestCase {
                 "The \(name) template must expose at least a 44-point activation frame"
             )
         }
+
+        for identifier in [
+            "MobileTaskComposerEditTemplatesButton",
+            "MobileTaskComposerMachineMenu",
+            "MobileTaskComposerDirectory",
+        ] {
+            let control = app.buttons[identifier]
+            XCTAssertTrue(control.waitForExistence(timeout: 2))
+            XCTAssertGreaterThanOrEqual(control.frame.height, 44)
+        }
     }
 
-    /// Regression: presenting the composer must not focus the prompt after the
-    /// medium sheet is already visible, which used to summon the keyboard and
-    /// promote the sheet through a blank full-screen transition.
+    /// The composer is a prompt-first launch surface: the prompt receives focus
+    /// immediately, while the hero and personalized action remain available.
     @MainActor
-    func testTaskComposerOpensAtStableBaseDetentWithoutAutomaticKeyboard() throws {
+    func testTaskComposerOpensFocusedWithPersonalizedLaunchAction() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
         ])
         defer { app.terminate() }
 
         XCTAssertTrue(app.textFields["MobileTaskComposerPrompt"].waitForExistence(timeout: 8))
-        XCTAssertFalse(app.keyboards.firstMatch.waitForExistence(timeout: 2))
-        XCTAssertFalse(app.buttons["Done"].exists)
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.descendants(matching: .any)["MobileTaskComposerHero"].exists)
+        XCTAssertEqual(app.buttons["MobileTaskComposerCreateButton"].label, "Start Claude")
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "task-composer-prompt-first"
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     /// Regression: the standalone preview must not inherit editable task state
@@ -263,7 +279,12 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.textFields["MobileTaskComposerPrompt"].waitForExistence(timeout: 8))
         let create = app.buttons["MobileTaskComposerCreateButton"]
         XCTAssertTrue(create.waitForExistence(timeout: 3))
+        XCTAssertEqual(create.label, "Start Claude")
         tap(create, in: app)
+
+        let startingPredicate = NSPredicate(format: "label == %@", "Starting Claude…")
+        expectation(for: startingPredicate, evaluatedWith: create)
+        waitForExpectations(timeout: 3)
 
         let draftState = app.staticTexts["MobileTaskComposerSubmissionDraftState"]
         XCTAssertTrue(draftState.waitForExistence(timeout: 3))

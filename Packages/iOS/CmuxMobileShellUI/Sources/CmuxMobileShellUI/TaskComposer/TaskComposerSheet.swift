@@ -7,14 +7,9 @@ import SwiftUI
 import UIKit
 
 struct TaskComposerSheet: View {
-    private enum Field: Hashable {
-        case prompt
-    }
-
     @Environment(\.dismiss) var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @Bindable var store: CMUXMobileShellStore
-    @FocusState private var focusedField: Field?
 
     @State var prompt = ""
     @State private var templates: [MobileTaskTemplate]
@@ -27,7 +22,6 @@ struct TaskComposerSheet: View {
     @State var failureText: String?
     @State private var isEditorPresented = false
     @State var isDirectoryPickerPresented = false
-    @State private var selectedDetent: PresentationDetent = .medium
     @State var shouldPersistDraftOnDisappear = true
     @State var submissionIdentity: MobileTaskSubmissionIdentity
     @State private var activeSubmissionSnapshot: MobileTaskSubmissionSnapshot?
@@ -152,52 +146,61 @@ struct TaskComposerSheet: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section(L10n.string("mobile.taskComposer.prompt", defaultValue: "Prompt")) {
-                    TextField(
-                        L10n.string("mobile.taskComposer.promptPlaceholder", defaultValue: "Describe the task"),
-                        text: promptBinding,
-                        axis: .vertical
-                    )
-                    .lineLimit(3...8)
-                    .focused($focusedField, equals: .prompt)
-                    .disabled(submissionPhase.disablesRequestEditing)
-                    .accessibilityIdentifier("MobileTaskComposerPrompt")
-                }
+            ZStack {
+                Color(uiColor: .systemGroupedBackground)
+                    .ignoresSafeArea()
 
-                Section(L10n.string("mobile.taskComposer.template", defaultValue: "Template")) {
-                    templatePicker
-                    if templates.isEmpty {
-                        validationText(
-                            L10n.string(
-                                "mobile.taskComposer.validation.template",
-                                defaultValue: "Add a template before creating a task."
-                            )
+                LinearGradient(
+                    colors: [
+                        Color.accentColor.opacity(0.12),
+                        Color.accentColor.opacity(0.035),
+                        .clear,
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 22) {
+                        TaskComposerHero()
+                        TaskComposerTemplatePicker(
+                            templates: templates,
+                            selectedTemplateID: selectedTemplateID,
+                            isDisabled: submissionPhase.disablesRequestEditing,
+                            selectTemplate: selectTemplateFromPicker,
+                            editTemplates: presentTemplateEditor
+                        )
+                        TaskComposerPromptCard(
+                            prompt: promptBinding,
+                            placeholder: promptPlaceholder,
+                            isDisabled: submissionPhase.disablesRequestEditing
+                        )
+                        TaskComposerContextSection(
+                            machines: machines,
+                            selectedMacDeviceID: selectedMacDeviceID,
+                            directory: directory,
+                            isDisabled: submissionPhase.disablesRequestEditing,
+                            selectMachine: selectMachine,
+                            selectDirectory: { isDirectoryPickerPresented = true }
                         )
                     }
+                    .frame(maxWidth: 680)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 12)
+                    .padding(.bottom, 28)
                 }
-                .disabled(submissionPhase.disablesRequestEditing)
-
-                Section(L10n.string("mobile.taskComposer.machine", defaultValue: "Machine")) {
-                    machineMenu
-                    if machines.isEmpty {
-                        validationText(
-                            L10n.string(
-                                "mobile.taskComposer.validation.machine",
-                                defaultValue: "Pair a Mac before creating a task."
-                            )
-                        )
-                    }
-                }
-                .disabled(submissionPhase.disablesRequestEditing)
-
-                directorySection
+                .scrollDismissesKeyboard(.interactively)
             }
-            .scrollDismissesKeyboard(.interactively)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 TaskComposerPrimaryAction(
                     isSubmitting: submissionPhase.showsProgress,
                     isEnabled: selectedTemplate != nil && selectedMachine != nil,
+                    templateIcon: selectedTemplate?.icon,
+                    actionTitle: primaryActionTitle,
+                    progressTitle: primaryActionProgressTitle,
                     failureText: failureText,
                     completedOperationRecovery: completedOperationRecovery,
                     action: startSubmission,
@@ -209,15 +212,19 @@ struct TaskComposerSheet: View {
             .mobileInlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel")) {
+                    Button {
                         submitTask?.cancel()
                         shouldPersistDraftOnDisappear = false
                         store.clearTaskComposerDraft(ifSessionGeneration: sessionGeneration)
                         dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
                     }
                     // Cancellation remains safe while routing and capability
                     // checks run. Lock only once the create boundary commits.
                     .disabled(submissionPhase.locksDismissal)
+                    .accessibilityLabel(L10n.string("mobile.common.cancel", defaultValue: "Cancel"))
+                    .accessibilityIdentifier("MobileTaskComposerCancelButton")
                 }
             }
             .sheet(isPresented: $isEditorPresented) {
@@ -263,7 +270,7 @@ struct TaskComposerSheet: View {
                 confirm: confirmStartAgain
             ))
         }
-        .presentationDetents([.medium, .large], selection: $selectedDetent)
+        .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         .interactiveDismissDisabled(submissionPhase.locksDismissal)
     }
@@ -276,13 +283,62 @@ struct TaskComposerSheet: View {
         availableMachines ?? store.displayPairedMacs
     }
 
-    private var selectedMachineName: String {
-        selectedMachine?.resolvedName
-            ?? selectedMacDeviceID
-    }
-
     private var selectedMachine: MobilePairedMac? {
         machines.first { $0.macDeviceID == selectedMacDeviceID }
+    }
+
+    private var promptPlaceholder: String {
+        guard let selectedTemplate else {
+            return L10n.string(
+                "mobile.taskComposer.promptPlaceholder",
+                defaultValue: "Describe what you want to accomplish"
+            )
+        }
+        if selectedTemplate.isPlainShell {
+            return L10n.string(
+                "mobile.taskComposer.promptPlaceholder.shell",
+                defaultValue: "Describe what you want to run"
+            )
+        }
+        return String(
+            format: L10n.string(
+                "mobile.taskComposer.promptPlaceholder.agentFormat",
+                defaultValue: "Tell %@ what to build, fix, or investigate"
+            ),
+            selectedTemplate.name
+        )
+    }
+
+    private var primaryActionTitle: String {
+        guard let selectedTemplate else {
+            return L10n.string("mobile.taskComposer.startTask", defaultValue: "Start Task")
+        }
+        if selectedTemplate.isPlainShell {
+            return L10n.string("mobile.taskComposer.openShell", defaultValue: "Open Shell")
+        }
+        return String(
+            format: L10n.string(
+                "mobile.taskComposer.startAgentFormat",
+                defaultValue: "Start %@"
+            ),
+            selectedTemplate.name
+        )
+    }
+
+    private var primaryActionProgressTitle: String {
+        guard let selectedTemplate else {
+            return L10n.string("mobile.taskComposer.startingTask", defaultValue: "Starting Task…")
+        }
+        if selectedTemplate.isPlainShell {
+            return L10n.string("mobile.taskComposer.openingShell", defaultValue: "Opening Shell…")
+        }
+        return String(
+            format: L10n.string(
+                "mobile.taskComposer.startingAgentFormat",
+                defaultValue: "Starting %@…"
+            ),
+            selectedTemplate.name
+        )
     }
 
     private var promptBinding: Binding<String> {
@@ -298,88 +354,26 @@ struct TaskComposerSheet: View {
         )
     }
 
-    private var templatePicker: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(templates) { template in
-                    templateChip(template)
-                }
-                Button {
-                    persistDraft()
-                    isEditorPresented = true
-                } label: {
-                    Label(L10n.string("mobile.common.edit", defaultValue: "Edit"), systemImage: "pencil")
-                        .labelStyle(.titleAndIcon)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-            }
-            .padding(.vertical, 2)
-        }
-        .contentMargins(.horizontal, 20, for: .scrollContent)
-        .listRowInsets(EdgeInsets(top: 10, leading: 0, bottom: 10, trailing: 0))
-    }
-
-    @ViewBuilder
-    private var machineMenu: some View {
-        if machines.isEmpty {
-            Text(L10n.string("mobile.taskComposer.machine.none", defaultValue: "No paired Macs"))
-                .foregroundStyle(.secondary)
-        } else {
-            Menu {
-                ForEach(machines) { mac in
-                    Button {
-                        guard !submissionPhase.disablesRequestEditing else { return }
-                        updateSubmissionRequest {
-                            selectedMacDeviceID = mac.macDeviceID
-                            syncSuggestedDirectory()
-                        }
-                        failureText = nil
-                    } label: {
-                        HStack {
-                            machineIcon(mac)
-                            Text(mac.resolvedName)
-                        }
-                    }
-                    .accessibilityAddTraits(mac.macDeviceID == selectedMacDeviceID ? .isSelected : [])
-                }
-            } label: {
-                HStack(spacing: 10) {
-                    if let mac = machines.first(where: { $0.macDeviceID == selectedMacDeviceID }) {
-                        machineIcon(mac)
-                    }
-                    Text(selectedMachineName)
-                    Spacer()
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .accessibilityLabel(L10n.string("mobile.taskComposer.machine", defaultValue: "Machine"))
-            .accessibilityHint(Self.machineAccessibilityHint)
-            .accessibilityValue(selectedMachineName)
-            .accessibilityIdentifier("MobileTaskComposerMachineMenu")
-        }
-    }
-
-    private func templateChip(_ template: MobileTaskTemplate) -> some View {
-        let isSelected = template.id == selectedTemplateID
-        return Button {
-            guard !submissionPhase.disablesRequestEditing else { return }
+    private func selectTemplateFromPicker(_ template: MobileTaskTemplate) {
+        guard !submissionPhase.disablesRequestEditing else { return }
+        withAnimation(.snappy(duration: 0.2)) {
             selectTemplate(template)
             failureText = nil
-        } label: {
-            HStack(spacing: 6) {
-                TaskTemplateIcon(value: template.icon)
-                Text(template.name)
-                    .lineLimit(1)
-            }
         }
-        .buttonStyle(.bordered)
-        .controlSize(.large)
-        .tint(isSelected ? .accentColor : .secondary)
-        .accessibilityHint(Self.templateAccessibilityHint)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private func presentTemplateEditor() {
+        persistDraft()
+        isEditorPresented = true
+    }
+
+    private func selectMachine(_ mac: MobilePairedMac) {
+        guard !submissionPhase.disablesRequestEditing else { return }
+        updateSubmissionRequest {
+            selectedMacDeviceID = mac.macDeviceID
+            syncSuggestedDirectory()
+        }
+        failureText = nil
     }
 
     func startSubmission() {

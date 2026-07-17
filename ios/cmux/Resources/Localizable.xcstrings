@@ -7379,6 +7379,40 @@
         }
       }
     },
+    "mobile.taskComposer.action.caption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creates a workspace and sends your prompt immediately."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを作成し、プロンプトをすぐに送信します。"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.agent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェント"
+          }
+        }
+      }
+    },
     "mobile.taskComposer.button.accessibilityHint": {
       "extractionState": "manual",
       "localizations": {
@@ -7413,6 +7447,23 @@
         }
       }
     },
+    "mobile.taskComposer.button.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New task"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいタスク"
+          }
+        }
+      }
+    },
     "mobile.taskComposer.create": {
       "extractionState": "manual",
       "localizations": {
@@ -7436,13 +7487,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Creates the task on the selected Mac."
+            "value": "Starts this task in a new workspace on the selected Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "選択したMacでタスクを作成します。"
+            "value": "選択したMacの新しいワークスペースでこのタスクを開始します。"
           }
         }
       }
@@ -7897,6 +7948,40 @@
         }
       }
     },
+    "mobile.taskComposer.hero.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Describe the outcome. cmux opens a workspace and puts your agent to work."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実現したいことを入力すると、cmuxがワークスペースを開き、エージェントを起動します。"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.hero.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start an agent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントを起動"
+          }
+        }
+      }
+    },
     "mobile.taskComposer.machine": {
       "extractionState": "manual",
       "localizations": {
@@ -7938,6 +8023,40 @@
         "ja": { "stringUnit": { "state": "translated", "value": "ペアリング済みのMacがありません" } }
       }
     },
+    "mobile.taskComposer.openingShell": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opening Shell…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シェルを開いています…"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.openShell": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Shell"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シェルを開く"
+          }
+        }
+      }
+    },
     "mobile.taskComposer.prompt": {
       "extractionState": "manual",
       "localizations": {
@@ -7961,13 +8080,47 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Describe the task"
+            "value": "Describe what you want to accomplish"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "タスクを説明"
+            "value": "実現したいことを入力"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.promptPlaceholder.agentFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tell %@ what to build, fix, or investigate"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@にビルド、修正、調査してほしい内容を入力"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.promptPlaceholder.shell": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Describe what you want to run"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行したい内容を入力"
           }
         }
       }
@@ -8131,13 +8284,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Selects this template for the task."
+            "value": "Selects this agent or command for the task."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このタスクに使用するテンプレートを選択します。"
+            "value": "このタスクで使うエージェントまたはコマンドを選択します。"
           }
         }
       }
@@ -8399,6 +8552,74 @@
         }
       }
     },
+    "mobile.taskComposer.startAgentFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@を起動"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.startingAgentFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starting %@…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@を起動中…"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.startingTask": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starting Task…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスクを開始中…"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.startTask": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start Task"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスクを開始"
+          }
+        }
+      }
+    },
     "mobile.taskComposer.template.seed.claude": {
       "extractionState": "manual",
       "localizations": {
@@ -8504,15 +8725,32 @@
     "mobile.taskComposer.validation.machine": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Pair a Mac before creating a task." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "タスクを作成する前にMacをペアリングしてください。" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Pair a Mac before starting a task." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "タスクを開始する前にMacをペアリングしてください。" } }
       }
     },
     "mobile.taskComposer.validation.template": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Add a template before creating a task." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "タスクを作成する前にテンプレートを追加してください。" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Add an agent before starting a task." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェントを追加してからタスクを開始してください。" } }
+      }
+    },
+    "mobile.taskComposer.workspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース"
+          }
+        }
       }
     },
     "mobile.toolbar.editor.addTitle": {

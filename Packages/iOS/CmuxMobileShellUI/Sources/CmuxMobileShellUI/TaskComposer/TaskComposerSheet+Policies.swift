@@ -43,7 +43,7 @@ extension TaskComposerSheet {
     static var createAccessibilityHint: String {
         L10n.string(
             "mobile.taskComposer.create.accessibilityHint",
-            defaultValue: "Creates the task on the selected Mac."
+            defaultValue: "Starts this task in a new workspace on the selected Mac."
         )
     }
 
@@ -71,7 +71,7 @@ extension TaskComposerSheet {
     static var templateAccessibilityHint: String {
         L10n.string(
             "mobile.taskComposer.template.accessibilityHint",
-            defaultValue: "Selects this template for the task."
+            defaultValue: "Selects this agent or command for the task."
         )
     }
 
