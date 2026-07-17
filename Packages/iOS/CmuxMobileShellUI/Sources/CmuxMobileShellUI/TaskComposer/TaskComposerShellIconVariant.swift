@@ -1,7 +1,7 @@
 #if os(iOS)
 import SwiftUI
 
-/// Temporary dogfood variants for tuning the task composer's Shell badge.
+/// Variants used by the debug-only Shell icon lab.
 ///
 /// Keep each option close to the current treatment so one visual variable can
 /// be judged at a time. The chosen values are applied at render time and never

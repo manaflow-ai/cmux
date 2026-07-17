@@ -328,7 +328,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertEqual(submittedMac.label, "task-composer-backup-preview-mac")
     }
 
-    /// The temporary dogfood lab must expose every Shell treatment, apply the
+    /// The debug-only lab must expose every Shell treatment, apply the
     /// selected variant immediately, and preserve it across an app relaunch.
     @MainActor
     func testShellIconLabSelectsAndPersistsVariant() throws {

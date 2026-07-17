@@ -3,7 +3,7 @@ import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
-/// Temporary Settings surface for comparing small Shell badge adjustments in
+/// Debug-only Settings surface for comparing small Shell badge adjustments in
 /// the exact task-composer card that ships in the app.
 struct TaskComposerShellIconLabView: View {
     @Environment(MobileDisplaySettings.self) private var displaySettings

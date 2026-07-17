@@ -4778,6 +4778,23 @@
         }
       }
     },
+    "mobile.settings.cmuxLabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CMUX Labs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CMUX ラボ"
+          }
+        }
+      }
+    },
     "mobile.settings.developer": {
       "extractionState": "manual",
       "localizations": {

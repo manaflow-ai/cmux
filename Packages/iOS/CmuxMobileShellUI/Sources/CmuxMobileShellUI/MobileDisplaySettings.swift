@@ -100,8 +100,7 @@ public final class MobileDisplaySettings {
         }
     }
 
-    /// Temporary DEBUG dogfood selection for the task composer's Shell badge.
-    /// The picker is removed after dogfood chooses the production treatment.
+    /// Persisted selection for the debug-only Shell icon lab.
     var taskComposerShellIconVariant: TaskComposerShellIconVariant {
         didSet {
             defaults.set(

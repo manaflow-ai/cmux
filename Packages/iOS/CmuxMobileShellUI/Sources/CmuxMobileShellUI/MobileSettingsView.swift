@@ -188,19 +188,6 @@ struct MobileSettingsView: View {
                     }
                     .accessibilityIdentifier("MobileSettingsTerminalLogDemo")
 
-                    NavigationLink {
-                        TaskComposerShellIconLabView()
-                    } label: {
-                        Label(
-                            L10n.string(
-                                "mobile.settings.shellIconLab",
-                                defaultValue: "Shell Icon Lab"
-                            ),
-                            systemImage: "terminal"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileSettingsShellIconLab")
-
                     debugLayoutSlider(
                         title: L10n.string(
                             "mobile.settings.unreadIndicatorLeftness",
@@ -228,6 +215,24 @@ struct MobileSettingsView: View {
                         range: MobileDisplaySettings.profilePictureSizeRange,
                         identifier: "MobileSettingsProfilePictureSize"
                     )
+                }
+
+                Section(L10n.string(
+                    "mobile.settings.cmuxLabs",
+                    defaultValue: "CMUX Labs"
+                )) {
+                    NavigationLink {
+                        TaskComposerShellIconLabView()
+                    } label: {
+                        Label(
+                            L10n.string(
+                                "mobile.settings.shellIconLab",
+                                defaultValue: "Shell Icon Lab"
+                            ),
+                            systemImage: "terminal"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsShellIconLab")
                 }
                 #endif
 
