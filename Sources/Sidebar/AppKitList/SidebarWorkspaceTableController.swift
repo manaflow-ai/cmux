@@ -187,7 +187,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         }
         synchronizeAppKitDropIndicator(actions: actions)
         recomputeHoveredRow()
-        enforceHoverOnVisibleCells()
+        reconcileVisibleCells()
         updateDropTargets()
         if !isWindowLiveResizeActive {
             remeasureRowsIfWidthChanged()
@@ -388,7 +388,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             remeasureRowsIfWidthChanged()
         }
         recomputeHoveredRow()
-        enforceHoverOnVisibleCells()
+        reconcileVisibleCells()
         updateDropTargets()
     }
 
@@ -444,12 +444,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         reconfigureVisibleRows(indexes)
     }
 
-    /// Authoritative pass over visible cells so hover-revealed chrome (close
-    /// button, header plus) cannot strand: per-transition repaints resolve
-    /// ids against a rows array that can mutate in the same tick (content
-    /// churn scrolling rows under a parked pointer), and a missed repaint
-    /// left multiple rows showing hover chrome at once.
-    private func enforceHoverOnVisibleCells() {
+    /// Authoritative pass over visible cells. Action bundles always refresh,
+    /// even when their value models are equivalent, and hover-revealed chrome
+    /// reconciles against the latest row identity after content churn.
+    private func reconcileVisibleCells() {
         guard let table = containerView?.tableView else { return }
         let visible = table.rows(in: table.visibleRect)
         for row in visible.lowerBound..<(visible.lowerBound + visible.length)
@@ -458,8 +456,14 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             let hovering = hoveredRowId == rowId && contextMenuRowId != rowId
             switch table.view(atColumn: 0, row: row, makeIfNecessary: false) {
             case let cell as SidebarGroupHeaderTableCellView:
+                if let actions = rows[row].appKitGroupHeaderActions {
+                    cell.updateActions(actions)
+                }
                 cell.enforcePointerHovering(hovering)
             case let cell as SidebarWorkspaceRowTableCellView:
+                if let actions = rows[row].appKitWorkspaceRowActions {
+                    cell.updateActions(actions)
+                }
                 cell.enforcePointerHovering(hovering)
             default:
                 break

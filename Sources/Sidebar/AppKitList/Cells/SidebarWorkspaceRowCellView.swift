@@ -205,7 +205,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         contextMenuDidClose: @escaping () -> Void
     ) {
         let previous = self.model
-        self.actions = actions
+        updateActions(actions)
         self.contextMenuDidOpen = contextMenuDidOpen
         self.contextMenuDidClose = contextMenuDidClose
         let hoverChanged = self.isPointerHovering != isPointerHovering
@@ -217,6 +217,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         self.model = model
         applyModel(model)
         needsLayout = true
+    }
+
+    func updateActions(_ actions: SidebarAppKitRowActions) {
+        self.actions = actions
+        checklistSection.updateActions(actions)
     }
 
     private func palette(_ model: SidebarWorkspaceRowModel) -> SidebarRowPalette {
