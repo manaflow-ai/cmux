@@ -7,8 +7,8 @@ struct WorktreeSidebarDeletionInspection: Equatable, Sendable {
     }
 
     let worktree: WorktreeSidebarWorktree
-    let statusFingerprint: WorktreeSidebarBoundedGitProbe.Fingerprint
-    let ignoredFingerprint: WorktreeSidebarBoundedGitProbe.Fingerprint
+    let statusFingerprint: WorktreeSidebarGitFingerprint
+    let ignoredFingerprint: WorktreeSidebarGitFingerprint
     let hasUncommittedChanges: Bool
     let hasIgnoredFiles: Bool
     let unpushedCommitCount: Int
@@ -21,8 +21,8 @@ struct WorktreeSidebarDeletionInspection: Equatable, Sendable {
 }
 
 struct WorktreeSidebarDeletionStatusSnapshot {
-    var statusFingerprint = WorktreeSidebarBoundedGitProbe.Fingerprint.empty
-    var ignoredFingerprint = WorktreeSidebarBoundedGitProbe.Fingerprint.empty
+    var statusFingerprint = WorktreeSidebarGitFingerprint.empty
+    var ignoredFingerprint = WorktreeSidebarGitFingerprint.empty
     var hasUncommittedChanges = false
     var hasIgnoredFiles = false
 }

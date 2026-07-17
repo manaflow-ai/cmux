@@ -3,21 +3,6 @@ import Foundation
 
 /// Runs worktree risk probes without retaining path-sized Git output in cmux.
 struct WorktreeSidebarBoundedGitProbe: Sendable {
-    struct Fingerprint: Equatable, Sendable {
-        static let empty = Fingerprint(
-            sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-        )
-
-        let sha256: String
-
-        var hasContent: Bool { self != .empty }
-    }
-
-    struct ContentFingerprint: Equatable, Sendable {
-        let fingerprint: Fingerprint
-        let hasContent: Bool
-    }
-
     private let commands: any CommandRunning
     private let gitEnvironment = WorktreeSidebarGitEnvironment()
     private let timeout: TimeInterval
@@ -45,7 +30,7 @@ struct WorktreeSidebarBoundedGitProbe: Sendable {
     func deletionChangesFingerprint(
         commandDirectory: String,
         worktreePath: String
-    ) async throws -> Fingerprint {
+    ) async throws -> WorktreeSidebarGitFingerprint {
         try await fingerprint(
             commandDirectory: commandDirectory,
             worktreePath: worktreePath,
@@ -57,7 +42,7 @@ struct WorktreeSidebarBoundedGitProbe: Sendable {
     func ignoredFilesSnapshot(
         commandDirectory: String,
         worktreePath: String
-    ) async throws -> ContentFingerprint {
+    ) async throws -> WorktreeSidebarGitContentFingerprint {
         try await contentFingerprint(
             commandDirectory: commandDirectory,
             worktreePath: worktreePath,
@@ -87,7 +72,7 @@ struct WorktreeSidebarBoundedGitProbe: Sendable {
         worktreePath: String,
         script: String,
         operation: WorktreeSidebarGitError.Operation
-    ) async throws -> ContentFingerprint {
+    ) async throws -> WorktreeSidebarGitContentFingerprint {
         let output = try await boundedOutput(
             commandDirectory: commandDirectory,
             worktreePath: worktreePath,
@@ -101,8 +86,8 @@ struct WorktreeSidebarBoundedGitProbe: Sendable {
               digest.allSatisfy(\.isHexDigit) else {
             throw WorktreeSidebarGitError.commandFailed(operation, details: output)
         }
-        return ContentFingerprint(
-            fingerprint: Fingerprint(sha256: String(digest).lowercased()),
+        return WorktreeSidebarGitContentFingerprint(
+            fingerprint: WorktreeSidebarGitFingerprint(sha256: String(digest).lowercased()),
             hasContent: byteCount > 0
         )
     }
@@ -112,7 +97,7 @@ struct WorktreeSidebarBoundedGitProbe: Sendable {
         worktreePath: String,
         script: String,
         operation: WorktreeSidebarGitError.Operation
-    ) async throws -> Fingerprint {
+    ) async throws -> WorktreeSidebarGitFingerprint {
         let output = try await boundedOutput(
             commandDirectory: commandDirectory,
             worktreePath: worktreePath,
@@ -124,7 +109,7 @@ struct WorktreeSidebarBoundedGitProbe: Sendable {
               digest.allSatisfy(\.isHexDigit) else {
             throw WorktreeSidebarGitError.commandFailed(operation, details: output)
         }
-        return Fingerprint(sha256: String(digest).lowercased())
+        return WorktreeSidebarGitFingerprint(sha256: String(digest).lowercased())
     }
 
     private func hasOutput(
