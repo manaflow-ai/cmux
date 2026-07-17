@@ -14,8 +14,11 @@ struct SidebarWorkspaceRowModel: Equatable {
     let index: Int
     let snapshot: SidebarWorkspaceSnapshotBuilder.Snapshot
     let settings: SidebarTabItemSettingsSnapshot
-    let isActive: Bool
-    let isMultiSelected: Bool
+    // `var` (not `let`) so the optimistic press/deselect paint can apply a
+    // selection-flipped copy of the model; the stored model stays
+    // authoritative and reconciles on the next configure.
+    var isActive: Bool
+    var isMultiSelected: Bool
     let canCloseWorkspace: Bool
     let accessibilityWorkspaceCount: Int
     let unreadCount: Int
