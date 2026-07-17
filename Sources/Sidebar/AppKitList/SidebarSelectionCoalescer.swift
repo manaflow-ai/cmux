@@ -16,9 +16,11 @@ final class SidebarSelectionCoalescer {
     private var trailingTask: Task<Void, Never>?
     private var lastApplied: CFTimeInterval = 0
     private let window: TimeInterval
+    private let clock: any Clock<Duration>
 
-    init(window: TimeInterval = 0.1) {
+    init(window: TimeInterval = 0.1, clock: any Clock<Duration> = ContinuousClock()) {
         self.window = window
+        self.clock = clock
     }
 
     func request(_ apply: @escaping @MainActor () -> Void) {
@@ -31,8 +33,10 @@ final class SidebarSelectionCoalescer {
         pendingApply = apply
         guard trailingTask == nil else { return }
         let delay = max(0, window - (now - lastApplied))
-        trailingTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+        // Injected-Clock sleep with cancellation wired to `cancel()`, per the
+        // bounded-delay policy (no raw Task.sleep in production paths).
+        trailingTask = Task { [weak self, clock] in
+            try? await clock.sleep(for: .seconds(delay))
             guard let self, !Task.isCancelled else { return }
             self.trailingTask = nil
             self.lastApplied = CACurrentMediaTime()

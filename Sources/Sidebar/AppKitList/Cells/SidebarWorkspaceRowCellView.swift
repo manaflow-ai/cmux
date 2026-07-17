@@ -495,7 +495,15 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     func enforcePointerHovering(_ hovering: Bool) {
         guard isPointerHovering != hovering else { return }
         isPointerHovering = hovering
-        updateCloseVisibility()
+        // Full re-apply: hover gates more than the close button (the
+        // trailing badge and spinner hide while the close button shows), and
+        // re-deriving that subset here would drift from applyModel.
+        if let model {
+            applyModel(model)
+            needsLayout = true
+        } else {
+            updateCloseVisibility()
+        }
     }
 
     private func configureMetadata(model: SidebarWorkspaceRowModel, palette: SidebarRowPalette) {
