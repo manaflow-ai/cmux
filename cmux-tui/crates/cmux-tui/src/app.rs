@@ -2942,9 +2942,9 @@ impl App {
             .active_screen()
             .map(|screen| {
                 if let Some(pane) = screen.zoomed_pane {
-                    layout_screen(&cmux_tui_core::Node::Leaf(pane), area)
+                    layout_screen(&cmux_tui_core::Node::Leaf(pane), area, Some(pane))
                 } else {
-                    layout_screen(&screen.layout, area)
+                    layout_screen(&screen.layout, area, Some(screen.active_pane))
                 }
             })
             .unwrap_or_default();
@@ -3918,7 +3918,8 @@ impl App {
             screen.layout.pane_ids(&mut panes);
             panes.push(PaneId::MAX);
             let layout = zellij_default_pane_layout(&panes)?;
-            let rect = layout_screen(&layout, self.content_area).rect_of(PaneId::MAX)?;
+            let rect = layout_screen(&layout, self.content_area, Some(PaneId::MAX))
+                .rect_of(PaneId::MAX)?;
             self.size_of_rect(rect)
         });
         if !self.prepare_pty_input_before_mutation() {
@@ -6263,8 +6264,14 @@ impl App {
         let Some((edge, target)) = candidates
             .into_iter()
             .filter_map(|(split_edge, pane_edge)| {
-                split_for_pane_edge(&screen.layout, self.content_area, pane, split_edge)
-                    .map(|target| (pane_edge, target))
+                split_for_pane_edge(
+                    &screen.layout,
+                    self.content_area,
+                    Some(screen.active_pane),
+                    pane,
+                    split_edge,
+                )
+                .map(|target| (pane_edge, target))
             })
             .min_by_key(|(_, target)| target.area.width as u32 * target.area.height as u32)
         else {
@@ -6313,8 +6320,13 @@ impl App {
             PaneEdge::Top => SplitEdge::Top,
             PaneEdge::Bottom => SplitEdge::Bottom,
         };
-        let Some(target) = split_for_pane_edge(&screen.layout, self.content_area, pane, split_edge)
-        else {
+        let Some(target) = split_for_pane_edge(
+            &screen.layout,
+            self.content_area,
+            Some(screen.active_pane),
+            pane,
+            split_edge,
+        ) else {
             return;
         };
         let (coord, start, extent, dir) = match edge {
@@ -6735,7 +6747,11 @@ mod tests {
         panes.sort_unstable();
         assert_eq!(panes.len(), 5);
 
-        let layout = layout_screen(&screen.layout, Rect { x: 0, y: 0, width: 200, height: 40 });
+        let layout = layout_screen(
+            &screen.layout,
+            Rect { x: 0, y: 0, width: 200, height: 40 },
+            Some(screen.active_pane),
+        );
         assert_eq!(
             layout.panes,
             vec![
@@ -6762,7 +6778,11 @@ mod tests {
         panes.sort_unstable();
         assert_eq!(panes.len(), 13);
 
-        let layout = layout_screen(&screen.layout, Rect { x: 0, y: 0, width: 200, height: 40 });
+        let layout = layout_screen(
+            &screen.layout,
+            Rect { x: 0, y: 0, width: 200, height: 40 },
+            Some(screen.active_pane),
+        );
         for (index, (pane, rect)) in layout.panes[..12].iter().enumerate() {
             assert_eq!(*pane, panes[index]);
             assert_eq!(*rect, Rect { x: 0, y: index as u16, width: 200, height: 1 });

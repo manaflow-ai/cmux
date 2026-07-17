@@ -17,11 +17,10 @@ pub enum Node {
         a: Box<Node>,
         b: Box<Node>,
     },
-    /// Zellij-style stacked panes. Every non-expanded pane renders as a
-    /// one-row title header and the expanded pane receives the remaining area.
+    /// Zellij-style stacked panes. `Screen::active_pane` selects the expanded
+    /// member; the node owns membership and order only.
     Stack {
         panes: Vec<PaneId>,
-        expanded: PaneId,
     },
 }
 
@@ -33,7 +32,7 @@ impl Node {
                 a.pane_ids(out);
                 b.pane_ids(out);
             }
-            Node::Stack { panes, .. } => out.extend(panes),
+            Node::Stack { panes } => out.extend(panes),
         }
     }
 
@@ -41,7 +40,17 @@ impl Node {
         match self {
             Node::Leaf(id) => *id == target,
             Node::Split { a, b, .. } => a.contains(target) || b.contains(target),
-            Node::Stack { panes, .. } => panes.contains(&target),
+            Node::Stack { panes } => panes.contains(&target),
+        }
+    }
+
+    pub(crate) fn contains_stack_pane(&self, target: PaneId) -> bool {
+        match self {
+            Node::Leaf(_) => false,
+            Node::Split { a, b, .. } => {
+                a.contains_stack_pane(target) || b.contains_stack_pane(target)
+            }
+            Node::Stack { panes } => panes.contains(&target),
         }
     }
 
@@ -62,18 +71,13 @@ impl Node {
                 a.swap_leaf_ids(first, second);
                 b.swap_leaf_ids(first, second);
             }
-            Node::Stack { panes, expanded } => {
+            Node::Stack { panes } => {
                 for pane in panes {
                     if *pane == first {
                         *pane = second;
                     } else if *pane == second {
                         *pane = first;
                     }
-                }
-                if *expanded == first {
-                    *expanded = second;
-                } else if *expanded == second {
-                    *expanded = first;
                 }
             }
         }
@@ -95,7 +99,7 @@ impl Node {
             Node::Split { a, b, .. } => {
                 a.split_leaf(target, dir, new_pane) || b.split_leaf(target, dir, new_pane)
             }
-            Node::Stack { panes, .. } if panes.contains(&target) => {
+            Node::Stack { panes } if panes.contains(&target) => {
                 let old = std::mem::replace(self, Node::Leaf(target));
                 *self = Node::Split {
                     dir,
@@ -125,19 +129,12 @@ impl Node {
                     (None, None) => None,
                 }
             }
-            Node::Stack { mut panes, expanded } => {
+            Node::Stack { mut panes } => {
                 panes.retain(|pane| *pane != target);
                 match panes.as_slice() {
                     [] => None,
                     [pane] => Some(Node::Leaf(*pane)),
-                    _ => {
-                        let expanded = if expanded == target {
-                            *panes.last().expect("non-empty stack")
-                        } else {
-                            expanded
-                        };
-                        Some(Node::Stack { panes, expanded })
-                    }
+                    _ => Some(Node::Stack { panes }),
                 }
             }
         }
@@ -169,28 +166,11 @@ impl Node {
                         (contains, false)
                     }
                 }
-                Node::Stack { panes, .. } => (panes.contains(&target), false),
+                Node::Stack { panes } => (panes.contains(&target), false),
             }
         }
 
         walk(self, target, dir, new_ratio).1
-    }
-
-    /// Expand `target` when it belongs to a stack. Returns whether geometry
-    /// changed.
-    pub(crate) fn expand_stack(&mut self, target: PaneId) -> bool {
-        match self {
-            Node::Leaf(_) => false,
-            Node::Split { a, b, .. } => a.expand_stack(target) || b.expand_stack(target),
-            Node::Stack { panes, expanded } => {
-                if panes.contains(&target) && *expanded != target {
-                    *expanded = target;
-                    true
-                } else {
-                    false
-                }
-            }
-        }
     }
 }
 

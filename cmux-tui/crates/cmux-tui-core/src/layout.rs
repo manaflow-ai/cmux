@@ -163,9 +163,9 @@ pub struct SplitResize {
 /// Compute pane rects for a screen. Panes tile the area exactly; each
 /// pane draws its own border box inside its rect, so no divider cells
 /// are reserved between siblings.
-pub fn layout_screen(root: &Node, area: Rect) -> LayoutResult {
+pub fn layout_screen(root: &Node, area: Rect, active_pane: Option<PaneId>) -> LayoutResult {
     let mut result = LayoutResult::default();
-    walk(root, area, &mut result);
+    walk(root, area, active_pane, &mut result);
     result
 }
 
@@ -196,8 +196,7 @@ pub fn zellij_default_pane_layout(panes: &[PaneId]) -> Option<Node> {
 }
 
 fn zellij_stacked_layout(panes: &[PaneId]) -> Node {
-    let expanded = *panes.last().expect("stack layout requires at least one pane");
-    Node::Stack { panes: panes.to_vec(), expanded }
+    Node::Stack { panes: panes.to_vec() }
 }
 
 fn equal_split(panes: &[PaneId], dir: SplitDir) -> Node {
@@ -214,7 +213,7 @@ fn equal_nodes(mut nodes: Vec<Node>, dir: SplitDir) -> Node {
     Node::Split { dir, ratio, a: Box::new(first), b: Box::new(equal_nodes(nodes, dir)) }
 }
 
-fn walk(node: &Node, area: Rect, out: &mut LayoutResult) {
+fn walk(node: &Node, area: Rect, active_pane: Option<PaneId>, out: &mut LayoutResult) {
     match node {
         Node::Leaf(id) => out.panes.push((*id, area)),
         Node::Split { dir, ratio, a, b } => {
@@ -226,15 +225,20 @@ fn walk(node: &Node, area: Rect, out: &mut LayoutResult) {
                 SplitDir::Down => area.height < 2,
             };
             if too_small {
-                walk(a, area, out);
-                walk(b, Rect { width: 0, height: 0, ..area }, out);
+                walk(a, area, active_pane, out);
+                walk(b, Rect { width: 0, height: 0, ..area }, active_pane, out);
                 return;
             }
             let (a_rect, b_rect) = split_sides(area, *dir, *ratio);
-            walk(a, a_rect, out);
-            walk(b, b_rect, out);
+            walk(a, a_rect, active_pane, out);
+            walk(b, b_rect, active_pane, out);
         }
-        Node::Stack { panes, expanded } => walk_stack(panes, *expanded, area, out),
+        Node::Stack { panes } => {
+            let expanded = active_pane
+                .filter(|pane| panes.contains(pane))
+                .unwrap_or_else(|| *panes.last().expect("stack layout requires at least one pane"));
+            walk_stack(panes, expanded, area, out);
+        }
     }
 }
 
@@ -269,18 +273,20 @@ fn walk_stack(panes: &[PaneId], expanded: PaneId, area: Rect, out: &mut LayoutRe
 pub fn split_for_pane_edge(
     root: &Node,
     area: Rect,
+    active_pane: Option<PaneId>,
     pane: PaneId,
     edge: SplitEdge,
 ) -> Option<SplitResize> {
-    let pane_rect = layout_screen(root, area).rect_of(pane)?;
+    let pane_rect = layout_screen(root, area, active_pane).rect_of(pane)?;
     let mut best = None;
-    split_for_pane_edge_walk(root, area, pane, pane_rect, edge, &mut best);
+    split_for_pane_edge_walk(root, area, active_pane, pane, pane_rect, edge, &mut best);
     best
 }
 
 fn split_for_pane_edge_walk(
     node: &Node,
     area: Rect,
+    active_pane: Option<PaneId>,
     pane: PaneId,
     pane_rect: Rect,
     edge: SplitEdge,
@@ -309,8 +315,8 @@ fn split_for_pane_edge_walk(
             SplitEdge::Top => pane_in_b && pane_rect.y == boundary,
         };
         if matches_boundary {
-            let first = leaf_without_crossing_dir(a, *dir);
-            let second = leaf_without_crossing_dir(b, *dir);
+            let first = leaf_without_crossing_dir(a, *dir, active_pane);
+            let second = leaf_without_crossing_dir(b, *dir, active_pane);
             let set_pane = if edge.after_first() { second.or(first) } else { first.or(second) };
             if let Some(set_pane) = set_pane {
                 *best = Some(SplitResize { area, set_pane });
@@ -318,23 +324,30 @@ fn split_for_pane_edge_walk(
         }
     }
     if a.contains(pane) {
-        split_for_pane_edge_walk(a, a_rect, pane, pane_rect, edge, best);
+        split_for_pane_edge_walk(a, a_rect, active_pane, pane, pane_rect, edge, best);
     } else if b.contains(pane) {
-        split_for_pane_edge_walk(b, b_rect, pane, pane_rect, edge, best);
+        split_for_pane_edge_walk(b, b_rect, active_pane, pane, pane_rect, edge, best);
     }
 }
 
-fn leaf_without_crossing_dir(node: &Node, dir: SplitDir) -> Option<PaneId> {
+fn leaf_without_crossing_dir(
+    node: &Node,
+    dir: SplitDir,
+    active_pane: Option<PaneId>,
+) -> Option<PaneId> {
     match node {
         Node::Leaf(id) => Some(*id),
         Node::Split { dir: split_dir, a, b, .. } => {
             if *split_dir == dir {
                 None
             } else {
-                leaf_without_crossing_dir(a, dir).or_else(|| leaf_without_crossing_dir(b, dir))
+                leaf_without_crossing_dir(a, dir, active_pane)
+                    .or_else(|| leaf_without_crossing_dir(b, dir, active_pane))
             }
         }
-        Node::Stack { expanded, .. } => Some(*expanded),
+        Node::Stack { panes } => {
+            active_pane.filter(|pane| panes.contains(pane)).or_else(|| panes.last().copied())
+        }
     }
 }
 
@@ -370,7 +383,7 @@ mod tests {
             a: Box::new(Node::Leaf(1)),
             b: Box::new(Node::Leaf(2)),
         };
-        let layout = layout_screen(&root, Rect { x: 0, y: 0, width: 80, height: 24 });
+        let layout = layout_screen(&root, Rect { x: 0, y: 0, width: 80, height: 24 }, None);
         let r1 = layout.rect_of(1).unwrap();
         let r2 = layout.rect_of(2).unwrap();
         assert_eq!(r1.width, 40);
@@ -384,7 +397,7 @@ mod tests {
     #[test]
     fn zellij_default_layout_fills_right_column_before_adding_another() {
         let root = zellij_default_pane_layout(&[1, 2, 3, 4, 5]).unwrap();
-        let layout = layout_screen(&root, Rect { x: 0, y: 0, width: 200, height: 40 });
+        let layout = layout_screen(&root, Rect { x: 0, y: 0, width: 200, height: 40 }, None);
 
         assert_eq!(
             layout.panes,
@@ -406,6 +419,7 @@ mod tests {
             let layout = layout_screen(
                 &root,
                 Rect { x: 0, y: 0, width: (count / 4 * 40) as u16, height: 40 },
+                None,
             );
 
             assert_eq!(layout.panes.iter().map(|(pane, _)| *pane).collect::<Vec<_>>(), panes);
@@ -417,7 +431,7 @@ mod tests {
     fn zellij_default_layout_stacks_above_twelve_panes() {
         let panes = (1..=13).collect::<Vec<_>>();
         let root = zellij_default_pane_layout(&panes).unwrap();
-        let layout = layout_screen(&root, Rect { x: 0, y: 0, width: 120, height: 40 });
+        let layout = layout_screen(&root, Rect { x: 0, y: 0, width: 120, height: 40 }, Some(13));
 
         assert_eq!(layout.panes.iter().map(|(pane, _)| *pane).collect::<Vec<_>>(), panes);
         for (index, (_, rect)) in layout.panes[..12].iter().enumerate() {
@@ -431,10 +445,8 @@ mod tests {
     #[test]
     fn zellij_stack_expands_focus_and_keeps_it_visible_in_short_areas() {
         let panes = (1..=13).collect::<Vec<_>>();
-        let mut root = zellij_default_pane_layout(&panes).unwrap();
-        assert!(root.expand_stack(1));
-
-        let layout = layout_screen(&root, Rect { x: 0, y: 0, width: 80, height: 5 });
+        let root = zellij_default_pane_layout(&panes).unwrap();
+        let layout = layout_screen(&root, Rect { x: 0, y: 0, width: 80, height: 5 }, Some(1));
         assert_eq!(layout.rect_of(1), Some(Rect { x: 0, y: 0, width: 80, height: 1 }));
         assert!(!layout.stacked_headers.contains(&1));
         assert_eq!(layout.stacked_headers.len(), 4);
@@ -454,7 +466,8 @@ mod tests {
             }),
             b: Box::new(Node::Leaf(2)),
         };
-        let target = split_for_pane_edge(&one_nested_side, area, 3, SplitEdge::Right).unwrap();
+        let target =
+            split_for_pane_edge(&one_nested_side, area, None, 3, SplitEdge::Right).unwrap();
         assert_eq!(target.area, area);
         assert_eq!(target.set_pane, 2);
         assert!(one_nested_side.set_deepest_ratio(target.set_pane, SplitDir::Right, 0.7));
@@ -483,16 +496,16 @@ mod tests {
                 b: Box::new(Node::Leaf(4)),
             }),
         };
-        assert!(split_for_pane_edge(&nested_both_sides, area, 3, SplitEdge::Right).is_none());
-        assert!(split_for_pane_edge(&nested_both_sides, area, 2, SplitEdge::Left).is_none());
+        assert!(split_for_pane_edge(&nested_both_sides, area, None, 3, SplitEdge::Right).is_none());
+        assert!(split_for_pane_edge(&nested_both_sides, area, None, 2, SplitEdge::Left).is_none());
 
         let left_inner =
-            split_for_pane_edge(&nested_both_sides, area, 1, SplitEdge::Right).unwrap();
+            split_for_pane_edge(&nested_both_sides, area, None, 1, SplitEdge::Right).unwrap();
         assert_eq!(left_inner.area, Rect { x: 0, y: 0, width: 50, height: 20 });
         assert!(nested_both_sides.set_deepest_ratio(left_inner.set_pane, SplitDir::Right, 0.3));
 
         let right_inner =
-            split_for_pane_edge(&nested_both_sides, area, 2, SplitEdge::Right).unwrap();
+            split_for_pane_edge(&nested_both_sides, area, None, 2, SplitEdge::Right).unwrap();
         assert_eq!(right_inner.area, Rect { x: 50, y: 0, width: 50, height: 20 });
         assert!(nested_both_sides.set_deepest_ratio(right_inner.set_pane, SplitDir::Right, 0.8));
 
@@ -511,6 +524,27 @@ mod tests {
     }
 
     #[test]
+    fn split_for_pane_edge_uses_the_active_stack_member_as_its_representative() {
+        let root = Node::Split {
+            dir: SplitDir::Right,
+            ratio: 0.5,
+            a: Box::new(Node::Stack { panes: vec![1, 2, 3] }),
+            b: Box::new(Node::Leaf(4)),
+        };
+
+        let target = split_for_pane_edge(
+            &root,
+            Rect { x: 0, y: 0, width: 100, height: 20 },
+            Some(2),
+            4,
+            SplitEdge::Left,
+        )
+        .unwrap();
+
+        assert_eq!(target.set_pane, 2);
+    }
+
+    #[test]
     fn degenerate_areas_do_not_underflow() {
         let root = Node::Split {
             dir: SplitDir::Right,
@@ -525,7 +559,7 @@ mod tests {
         };
         for w in 0..5u16 {
             for h in 0..5u16 {
-                let layout = layout_screen(&root, Rect { x: 0, y: 0, width: w, height: h });
+                let layout = layout_screen(&root, Rect { x: 0, y: 0, width: w, height: h }, None);
                 assert_eq!(layout.panes.len(), 3, "{w}x{h}");
             }
         }
@@ -544,7 +578,7 @@ mod tests {
                 b: Box::new(Node::Leaf(3)),
             }),
         };
-        let layout = layout_screen(&root, Rect { x: 0, y: 0, width: 80, height: 24 });
+        let layout = layout_screen(&root, Rect { x: 0, y: 0, width: 80, height: 24 }, None);
         assert_eq!(layout.neighbor(1, 1, 0), Some(2));
         assert_eq!(layout.neighbor(2, 0, 1), Some(3));
         assert_eq!(layout.neighbor(3, 0, -1), Some(2));

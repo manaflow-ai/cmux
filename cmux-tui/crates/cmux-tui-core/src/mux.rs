@@ -1562,8 +1562,10 @@ impl Mux {
                     let ws = &mut state.workspaces[wi];
                     ws.active_screen = si;
                     let screen = &mut ws.screens[si];
+                    let layout_changed = (screen.active_pane != pane
+                        && screen.root.contains_stack_pane(pane))
+                    .then_some(screen.id);
                     screen.active_pane = pane;
-                    let layout_changed = screen.root.expand_stack(pane).then_some(screen.id);
                     stamp_pane(&mut state, pane, active_at);
                     (true, Self::active_surface_in_state(&state), layout_changed)
                 }
@@ -1610,8 +1612,11 @@ impl Mux {
             };
             let screen = &state.workspaces[wi].screens[si];
             let (dx, dy) = dir.delta();
-            let layout =
-                layout_screen(&screen.root, Rect { x: 0, y: 0, width: 10_000, height: 10_000 });
+            let layout = layout_screen(
+                &screen.root,
+                Rect { x: 0, y: 0, width: 10_000, height: 10_000 },
+                Some(screen.active_pane),
+            );
             Ok(layout.neighbor(pane, dx, dy))
         })
     }
@@ -2067,9 +2072,6 @@ fn remove_surface(state: &mut State, target: SurfaceId) -> Option<Arc<Surface>> 
             if let Some(next) = next_active {
                 screen.active_pane = next;
             }
-            if screen.zellij_auto_layout.is_some() {
-                screen.root.expand_stack(screen.active_pane);
-            }
             return removed;
         }
         None => {
@@ -2128,9 +2130,6 @@ fn collapse_empty_pane(state: &mut State, pane_id: PaneId) {
             screen.zellij_auto_layout = zellij_auto_layout;
             if let Some(next) = next_active {
                 screen.active_pane = next;
-            }
-            if screen.zellij_auto_layout.is_some() {
-                screen.root.expand_stack(screen.active_pane);
             }
         }
         None => {
@@ -2206,7 +2205,6 @@ fn move_tab_in_state(
         ws.active_screen = si;
         let screen = &mut ws.screens[si];
         screen.active_pane = target_pane;
-        screen.root.expand_stack(target_pane);
     }
     true
 }
@@ -2415,7 +2413,7 @@ mod tests {
                 };
                 format!("{dir}:{ratio:.2}({}, {})", node_shape(a), node_shape(b))
             }
-            Node::Stack { panes, expanded } => format!("stack:{expanded}:{panes:?}"),
+            Node::Stack { panes } => format!("stack:{panes:?}"),
         }
     }
 
@@ -2670,7 +2668,11 @@ mod tests {
             let screen = &state.workspaces[0].screens[0];
             let order = screen.zellij_auto_layout.as_ref().unwrap();
             assert_eq!(order.len(), 4);
-            let layout = layout_screen(&screen.root, Rect { x: 0, y: 0, width: 200, height: 40 });
+            let layout = layout_screen(
+                &screen.root,
+                Rect { x: 0, y: 0, width: 200, height: 40 },
+                Some(screen.active_pane),
+            );
             assert_eq!(layout.rect_of(order[0]).unwrap().height, 40);
             let right_heights = order[1..]
                 .iter()
@@ -2698,10 +2700,14 @@ mod tests {
         mux.with_state(|state| {
             let screen = &state.workspaces[0].screens[0];
             assert_eq!(screen.active_pane, first_pane);
-            assert!(matches!(
+            assert!(matches!(&screen.root, Node::Stack { .. }));
+            let layout = layout_screen(
                 &screen.root,
-                Node::Stack { expanded, .. } if *expanded == first_pane
-            ));
+                Rect { x: 0, y: 0, width: 80, height: 40 },
+                Some(screen.active_pane),
+            );
+            assert!(!layout.stacked_headers.contains(&first_pane));
+            assert!(layout.rect_of(first_pane).unwrap().height > 1);
         });
     }
 
@@ -2722,10 +2728,67 @@ mod tests {
         mux.with_state(|state| {
             let screen = &state.workspaces[0].screens[0];
             assert_eq!(screen.active_pane, target);
-            assert!(matches!(
+            assert!(matches!(&screen.root, Node::Stack { .. }));
+            let layout = layout_screen(
                 &screen.root,
-                Node::Stack { expanded, .. } if *expanded == target
-            ));
+                Rect { x: 0, y: 0, width: 80, height: 40 },
+                Some(screen.active_pane),
+            );
+            assert!(!layout.stacked_headers.contains(&target));
+            assert!(layout.rect_of(target).unwrap().height > 1);
+        });
+    }
+
+    #[test]
+    fn swapping_zellij_stack_panes_keeps_active_pane_expanded() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, None).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let mut active = first_pane;
+        for _ in 1..13 {
+            let surface = mux.new_pane(active, None).unwrap();
+            active = mux.with_state(|state| state.pane_of(surface.id).unwrap());
+        }
+
+        assert!(mux.swap_panes(active, first_pane));
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            assert_eq!(screen.active_pane, active);
+            assert!(screen.zellij_auto_layout.is_none());
+            let layout = layout_screen(
+                &screen.root,
+                Rect { x: 0, y: 0, width: 80, height: 40 },
+                Some(screen.active_pane),
+            );
+            assert!(!layout.stacked_headers.contains(&active));
+            assert!(layout.rect_of(active).unwrap().height > 1);
+        });
+    }
+
+    #[test]
+    fn closing_active_pane_in_damaged_stack_expands_replacement() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, None).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let mut active_surface = first;
+        let mut active = first_pane;
+        for _ in 1..14 {
+            active_surface = mux.new_pane(active, None).unwrap();
+            active = mux.with_state(|state| state.pane_of(active_surface.id).unwrap());
+        }
+        assert!(mux.swap_panes(active, first_pane));
+
+        mux.close_surface(active_surface.id);
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            assert!(screen.zellij_auto_layout.is_none());
+            let layout = layout_screen(
+                &screen.root,
+                Rect { x: 0, y: 0, width: 80, height: 40 },
+                Some(screen.active_pane),
+            );
+            assert!(!layout.stacked_headers.contains(&screen.active_pane));
+            assert!(layout.rect_of(screen.active_pane).unwrap().height > 1);
         });
     }
 
@@ -2744,10 +2807,14 @@ mod tests {
         mux.with_state(|state| {
             let screen = &state.workspaces[0].screens[0];
             assert_eq!(screen.active_pane, first_pane);
-            assert!(matches!(
+            assert!(matches!(&screen.root, Node::Stack { .. }));
+            let layout = layout_screen(
                 &screen.root,
-                Node::Stack { expanded, .. } if *expanded == first_pane
-            ));
+                Rect { x: 0, y: 0, width: 80, height: 40 },
+                Some(screen.active_pane),
+            );
+            assert!(!layout.stacked_headers.contains(&first_pane));
+            assert!(layout.rect_of(first_pane).unwrap().height > 1);
         });
     }
 

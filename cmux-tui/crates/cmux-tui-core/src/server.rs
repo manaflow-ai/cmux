@@ -1403,20 +1403,24 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     difference == 0
 }
 
-fn node_json(node: &Node) -> Value {
+fn node_json(node: &Node, active_pane: PaneId) -> Value {
     match node {
         Node::Leaf(id) => json!({ "type": "leaf", "pane": id }),
         Node::Split { dir, ratio, a, b } => json!({
             "type": "split",
             "dir": match dir { SplitDir::Right => "right", SplitDir::Down => "down" },
             "ratio": ratio,
-            "a": node_json(a),
-            "b": node_json(b),
+            "a": node_json(a, active_pane),
+            "b": node_json(b, active_pane),
         }),
-        Node::Stack { panes, expanded } => json!({
+        Node::Stack { panes } => json!({
             "type": "stack",
             "panes": panes,
-            "expanded": expanded,
+            "expanded": if panes.contains(&active_pane) {
+                active_pane
+            } else {
+                *panes.last().expect("stack layout requires panes")
+            },
         }),
     }
 }
@@ -1483,7 +1487,7 @@ fn export_layout_json(state: &State, screen_id: Option<ScreenId>) -> anyhow::Res
     let mut pane_ids = Vec::new();
     screen.root.pane_ids(&mut pane_ids);
     Ok(json!({
-        "layout": node_json(&screen.root),
+        "layout": node_json(&screen.root, screen.active_pane),
         "panes": pane_ids.iter().map(|pane_id| {
             let surfaces = state
                 .panes
@@ -1554,7 +1558,7 @@ fn screen_json(
         "active": active,
         "active_pane": screen.active_pane,
         "zoomed_pane": screen.zoomed_pane,
-        "layout": node_json(&screen.root),
+        "layout": node_json(&screen.root, screen.active_pane),
         "panes": pane_ids.iter().map(|id| pane_json(state, *id, short_ids, notifications)).collect::<Vec<_>>(),
     })
 }
@@ -2689,6 +2693,14 @@ mod tests {
             outbound: Arc::new(BoundedOutbound::default()),
             control: None,
         })
+    }
+
+    #[test]
+    fn stack_json_derives_expansion_from_the_active_pane() {
+        let stack = Node::Stack { panes: vec![1, 2, 3] };
+
+        assert_eq!(node_json(&stack, 2)["expanded"], 2);
+        assert_eq!(node_json(&stack, 9)["expanded"], 3);
     }
 
     #[test]
