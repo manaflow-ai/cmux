@@ -244,7 +244,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             normalizedPersistentDaemonSlot,
             normalizedManagedCloudVMID,
         ]
-        if let daemonWebSocketEndpoint {
+        if transport == .websocket, let daemonWebSocketEndpoint {
             components.append(daemonWebSocketEndpoint.durableTrustKeyComponent(
                 includesSessionFallback: managedCloudVMID == nil
             ))
