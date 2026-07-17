@@ -1,6 +1,7 @@
 public import CmuxCore
 public import CmuxRemoteWorkspace
 internal import CmuxFoundation
+internal import Darwin
 internal import Foundation
 
 /// Owns cmux-native SSH master lifetimes and serializes reconnect attempts per endpoint.
@@ -15,11 +16,14 @@ public final class NativeSSHConnectionBroker {
     private let sharingOptions: SSHConnectionSharingOptions
     private let clock: any RemoteProxyRetryClock
     private let jitterMilliseconds: @MainActor @Sendable () -> Int
-    private let cleanupLauncher: @MainActor @Sendable (NativeSSHControlMasterCleanupRequest) -> Void
+    private let cleanupLauncherOverride: (@MainActor @Sendable (NativeSSHControlMasterCleanupRequest) -> Void)?
 
     private var ownerLeases: [UUID: [NativeSSHControlMasterKey: WorkspaceRemoteConfiguration]] = [:]
     private var ownersByControlMaster: [NativeSSHControlMasterKey: Set<UUID>] = [:]
     private var attemptStates: [NativeSSHConnectionKey: NativeSSHConnectionAttemptState] = [:]
+    private var cleanupProcesses: [UUID: Process] = [:]
+    private var cleanupTimeoutTasks: [UUID: Task<Void, Never>] = [:]
+    private var cleanupTerminationRequested: Set<UUID> = []
 
     /// Creates the process-wide broker with continuous-clock jitter and local cleanup launching.
     ///
@@ -28,7 +32,7 @@ public final class NativeSSHConnectionBroker {
         self.sharingOptions = SSHConnectionSharingOptions()
         self.clock = clock
         self.jitterMilliseconds = { Int.random(in: 100...350) }
-        self.cleanupLauncher = Self.launchCleanup
+        self.cleanupLauncherOverride = nil
     }
 
     /// Creates a broker with an injected cleanup launcher.
@@ -46,7 +50,7 @@ public final class NativeSSHConnectionBroker {
         self.sharingOptions = SSHConnectionSharingOptions()
         self.clock = clock
         self.jitterMilliseconds = { Int.random(in: 100...350) }
-        self.cleanupLauncher = cleanupLauncher
+        self.cleanupLauncherOverride = cleanupLauncher
     }
 
     nonisolated init(
@@ -58,7 +62,7 @@ public final class NativeSSHConnectionBroker {
         self.sharingOptions = sharingOptions
         self.clock = clock
         self.jitterMilliseconds = jitterMilliseconds
-        self.cleanupLauncher = cleanupLauncher
+        self.cleanupLauncherOverride = cleanupLauncher
     }
 
     /// Retains the cmux-owned master used by a configured workspace.
@@ -157,10 +161,21 @@ public final class NativeSSHConnectionBroker {
         let arguments = RemoteControlMasterCleanup().cleanupArguments(
             configuration: previousConfiguration
         )
-        cleanupLauncher(NativeSSHControlMasterCleanupRequest(
+        let authenticationLockPath = sharingOptions.foregroundAuthenticationLockPath(
+            destination: previousConfiguration.destination,
+            port: previousConfiguration.port,
+            options: previousConfiguration.sshOptions
+        )
+        let request = NativeSSHControlMasterCleanupRequest(
             arguments: arguments,
-            environment: previousConfiguration.sshProcessEnvironment
-        ))
+            environment: previousConfiguration.sshProcessEnvironment,
+            authenticationLockPath: authenticationLockPath
+        )
+        if let cleanupLauncherOverride {
+            cleanupLauncherOverride(request)
+        } else {
+            launchCleanup(request)
+        }
     }
 
     private func acquireConnectionAttempt(
@@ -268,14 +283,54 @@ public final class NativeSSHConnectionBroker {
         }
     }
 
-    private static func launchCleanup(_ request: NativeSSHControlMasterCleanupRequest) {
+    private func launchCleanup(_ request: NativeSSHControlMasterCleanupRequest) {
+        let cleanupID = UUID()
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
-        process.arguments = request.arguments
+        let invocation = request.processInvocation
+        process.executableURL = invocation.executableURL
+        process.arguments = invocation.arguments
         process.environment = request.environment
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
-        try? process.run()
+        process.terminationHandler = { [weak self] _ in
+            Task { @MainActor in
+                self?.cleanupProcessDidTerminate(cleanupID)
+            }
+        }
+        do {
+            try process.run()
+        } catch {
+            return
+        }
+        cleanupProcesses[cleanupID] = process
+        scheduleCleanupTimeout(cleanupID, afterMilliseconds: 5_000)
+    }
+
+    private func scheduleCleanupTimeout(_ cleanupID: UUID, afterMilliseconds delay: Int) {
+        let clock = self.clock
+        cleanupTimeoutTasks[cleanupID] = Task { @MainActor [weak self] in
+            guard (try? await clock.sleep(forMilliseconds: delay)) != nil else { return }
+            self?.cleanupProcessTimedOut(cleanupID)
+        }
+    }
+
+    private func cleanupProcessTimedOut(_ cleanupID: UUID) {
+        guard let process = cleanupProcesses[cleanupID], process.isRunning else {
+            cleanupProcessDidTerminate(cleanupID)
+            return
+        }
+        if cleanupTerminationRequested.insert(cleanupID).inserted {
+            process.terminate()
+            scheduleCleanupTimeout(cleanupID, afterMilliseconds: 1_000)
+        } else {
+            _ = Darwin.kill(process.processIdentifier, SIGKILL)
+        }
+    }
+
+    private func cleanupProcessDidTerminate(_ cleanupID: UUID) {
+        cleanupTimeoutTasks.removeValue(forKey: cleanupID)?.cancel()
+        cleanupTerminationRequested.remove(cleanupID)
+        cleanupProcesses.removeValue(forKey: cleanupID)
     }
 }

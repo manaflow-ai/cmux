@@ -10142,12 +10142,21 @@ struct CMUXCLI {
             remoteShellCommand: remoteShellCommand
         )
         var authScriptLines: [String] = []
-        if let lockPath = SSHConnectionSharingOptions().foregroundAuthenticationLockPath(
+        let authenticationLockPath = SSHConnectionSharingOptions().foregroundAuthenticationLockPath(
             destination: options.destination,
             port: options.port,
             options: effectiveSSHOptions(options.sshOptions, remoteRelayPort: options.remoteRelayPort)
-        ) {
+        )
+        if let lockPath = authenticationLockPath {
+            let inFlightPath = lockPath + ".inflight"
             authScriptLines += [
+                "cmux_ssh_auth_inflight_path=\(shellQuote(inFlightPath))",
+                "printf '%s\\n' \"$$\" > \"$cmux_ssh_auth_inflight_path\" || exit 255",
+                "cmux_ssh_clear_auth_inflight() { if [ \"$(/bin/cat -- \"$cmux_ssh_auth_inflight_path\" 2>/dev/null || true)\" = \"$$\" ]; then /bin/rm -f -- \"$cmux_ssh_auth_inflight_path\" 2>/dev/null || true; fi; }",
+                "trap 'cmux_ssh_clear_auth_inflight' EXIT",
+                "trap 'cmux_ssh_clear_auth_inflight; exit 129' HUP",
+                "trap 'cmux_ssh_clear_auth_inflight; exit 130' INT",
+                "trap 'cmux_ssh_clear_auth_inflight; exit 143' TERM",
                 "exec 9>\(shellQuote(lockPath))",
                 "if ! /usr/bin/lockf -s -t 45 9; then exit 255; fi",
             ]
@@ -10160,6 +10169,9 @@ struct CMUXCLI {
             "cmux_auth_status=$?",
             "if [ \"$cmux_auth_status\" -ne 0 ]; then exit \"$cmux_auth_status\"; fi",
         ]
+        if authenticationLockPath != nil {
+            authScriptLines.append("trap - EXIT HUP INT TERM")
+        }
         let authScript = authScriptLines.joined(separator: "\n")
         return buildReusableSSHStartupCommand(
             sshCommand: attachScript,

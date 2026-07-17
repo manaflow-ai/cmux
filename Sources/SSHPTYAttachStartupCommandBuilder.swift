@@ -155,12 +155,24 @@ enum SSHPTYAttachStartupCommandBuilder {
         ) else {
             return command
         }
+        let inFlightPath = lockPath + ".inflight"
         let lockedCommand = [
+            "cmux_ssh_auth_inflight_path=\(shellQuote(inFlightPath))",
+            "printf '%s\\n' \"$$\" > \"$cmux_ssh_auth_inflight_path\" || exit 255",
+            "cmux_ssh_clear_auth_inflight() { if [ \"$(/bin/cat -- \"$cmux_ssh_auth_inflight_path\" 2>/dev/null || true)\" = \"$$\" ]; then /bin/rm -f -- \"$cmux_ssh_auth_inflight_path\" 2>/dev/null || true; fi; }",
+            "trap 'cmux_ssh_clear_auth_inflight' EXIT",
+            "trap 'cmux_ssh_clear_auth_inflight; exit 129' HUP",
+            "trap 'cmux_ssh_clear_auth_inflight; exit 130' INT",
+            "trap 'cmux_ssh_clear_auth_inflight; exit 143' TERM",
             "exec 9>\(shellQuote(lockPath))",
             "if ! /usr/bin/lockf -s -t 45 9; then exit 255; fi",
             preflight,
             preflight == nil ? nil : "cmux_ssh_preflight_control_path",
-            "exec \(command)",
+            "command \(command)",
+            "cmux_ssh_auth_status=$?",
+            "if [ \"$cmux_ssh_auth_status\" -ne 0 ]; then exit \"$cmux_ssh_auth_status\"; fi",
+            "trap - EXIT HUP INT TERM",
+            "exit 0",
         ].compactMap { $0 }.joined(separator: "\n")
         return "/bin/sh -c \(shellQuote(lockedCommand))"
     }
