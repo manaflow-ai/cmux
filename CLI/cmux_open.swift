@@ -3130,7 +3130,11 @@ extension CMUXCLI {
         let directory = target.directory
         let mapper = target.mapper
         let groupID = target.groupID
-        let repoRoot = try gitRepoRootForDiff(context)
+        let repoRoot: String? = if selectedSource == .lastTurn {
+            nil
+        } else {
+            try gitRepoRootForDiff(context)
+        }
         let openingFileURL = directory.appendingPathComponent(
             "diff-\(groupID)-opening.html",
             isDirectory: false
