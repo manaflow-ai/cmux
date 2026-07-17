@@ -454,12 +454,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             in: self
         )
         let agentCount = model.snapshot.activeCodingAgentCount
-        let tooltip = agentCount == 1
-            ? String(localized: "sidebar.agentActivity.tooltip.one", defaultValue: "Loading (1 active task)")
-            : String.localizedStringWithFormat(
-                String(localized: "sidebar.agentActivity.tooltip.many", defaultValue: "Loading (%lld active tasks)"),
-                agentCount
-            )
+        let tooltip = SidebarWorkspaceLoadingTooltip.text(count: agentCount)
         leadingSpinner?.toolTip = tooltip
         trailingSpinner?.toolTip = tooltip
     }
