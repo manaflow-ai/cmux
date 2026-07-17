@@ -27,7 +27,7 @@ final class WindowDockWorkspaceObservation {
             ),
             observe(
                 workspace,
-                notification: .workspaceRemoteConnectionPresentationDidChange
+                notification: .workspaceWindowDockSnapshotDidChange
             ),
         ]
     }

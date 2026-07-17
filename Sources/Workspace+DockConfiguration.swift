@@ -1,7 +1,20 @@
 import CmuxCore
 import Foundation
 
+extension Notification.Name {
+    static let workspaceWindowDockSnapshotDidChange = Notification.Name(
+        "cmux.workspaceWindowDockSnapshotDidChange"
+    )
+}
+
 extension Workspace {
+    func postWindowDockWorkspaceSnapshotDidChange() {
+        NotificationCenter.default.post(
+            name: .workspaceWindowDockSnapshotDidChange,
+            object: self
+        )
+    }
+
     func windowDockConfigurationContext() -> DockConfigurationContext {
         dockConfigurationContext(includesGlobalFallback: true)
     }
