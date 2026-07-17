@@ -426,14 +426,24 @@ fn codex_last_turn_patch(
     let mut current_turn = None::<String>;
     let mut patch = String::new();
     for_json_lines(transcript, cancellation, |object| {
-        let Some(payload) = object
-            .get("payload")
-            .filter(|_| object.get("type").and_then(Value::as_str) == Some("event_msg"))
-        else {
+        let Some(payload) = object.get("payload") else {
             return Ok(false);
         };
+        let object_type = object.get("type").and_then(Value::as_str);
+        let turn_id = codex_turn_id(payload);
+        if object_type == Some("turn_context") {
+            if let Some(turn_id) = turn_id
+                && current_turn.as_deref() != Some(turn_id)
+            {
+                current_turn = Some(turn_id.to_owned());
+                patch.clear();
+            }
+            return Ok(false);
+        }
+        if object_type != Some("event_msg") {
+            return Ok(false);
+        }
         let event_type = payload.get("type").and_then(Value::as_str);
-        let turn_id = payload.get("turn_id").and_then(Value::as_str);
         if event_type == Some("task_started") {
             let Some(turn_id) = turn_id else {
                 current_turn = None;
@@ -449,12 +459,13 @@ fn codex_last_turn_patch(
         {
             return Ok(false);
         }
-        let Some(turn_id) = turn_id else {
-            return Ok(false);
-        };
-        if current_turn.as_deref() != Some(turn_id) {
-            current_turn = Some(turn_id.to_owned());
-            patch.clear();
+        if let Some(turn_id) = turn_id {
+            if current_turn.as_deref() != Some(turn_id) {
+                current_turn = Some(turn_id.to_owned());
+                patch.clear();
+            }
+        } else if current_turn.is_none() {
+            return Err(TrajectoryError::Invalid);
         }
         if let Some(changes) = payload.get("changes").and_then(Value::as_object) {
             for (path, change) in changes {
@@ -464,6 +475,13 @@ fn codex_last_turn_patch(
         Ok(false)
     })?;
     Ok(patch)
+}
+
+fn codex_turn_id(payload: &Value) -> Option<&str> {
+    payload
+        .get("turn_id")
+        .or_else(|| payload.get("turnId"))
+        .and_then(Value::as_str)
 }
 
 fn append_codex_change(
