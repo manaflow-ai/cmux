@@ -489,6 +489,15 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         closeButton.setRevealed(showsCloseNow)
     }
 
+    /// Authoritative hover enforcement: the controller sweeps visible cells
+    /// so hover-revealed chrome cannot strand on rows the pointer left
+    /// (row-index/id races during churn made per-transition repaints miss).
+    func enforcePointerHovering(_ hovering: Bool) {
+        guard isPointerHovering != hovering else { return }
+        isPointerHovering = hovering
+        updateCloseVisibility()
+    }
+
     private func configureMetadata(model: SidebarWorkspaceRowModel, palette: SidebarRowPalette) {
         let entries = model.snapshot.metadataEntries
         let visible = model.settings.visibleAuxiliaryDetails.showsMetadata ? Array(entries.prefix(3)) : []
