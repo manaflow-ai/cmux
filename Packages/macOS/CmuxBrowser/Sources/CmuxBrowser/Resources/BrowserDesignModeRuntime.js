@@ -64,6 +64,17 @@
   const styleOriginals = new Map();
   const textOriginals = new Map();
   const selectedReferences = [];
+  // Each selection gets a stable palette color by position, shared between
+  // its page outline and its composer pill so users can match them.
+  const selectionPalette = [
+    "#0A84FF", "#AF52DE", "#FF9F0A", "#30D158",
+    "#FF375F", "#64D2FF", "#FFD60A", "#5E5CE6",
+  ];
+  const selectionColor = (index) => selectionPalette[((index % selectionPalette.length) + selectionPalette.length) % selectionPalette.length];
+  // Colors stick to a selection for its lifetime (assigned at pick time);
+  // removals must not recolor the surviving pills/outlines.
+  let colorSequence = 0;
+
   // Marquee region captures: page-anchored rects drawn by dragging.
   const regionReferences = [];
   const maxRegionReferences = 6;
@@ -615,10 +626,21 @@
     };
   };
 
-  const selectionSnapshots = () => selectedReferences
-    .map((reference) => selectionSnapshotFor(reference))
-    .filter(Boolean)
-    .concat(regionReferences.map(regionSnapshotFor));
+  const selectionSnapshots = () => {
+    const elementItems = selectedReferences
+      .map((reference) => {
+        const item = selectionSnapshotFor(reference);
+        if (item) item.color = selectionColor(reference.colorIndex || 0);
+        return item;
+      })
+      .filter(Boolean);
+    const regionItems = regionReferences.map((region) => {
+      const item = regionSnapshotFor(region);
+      item.color = selectionColor(region.colorIndex || 0);
+      return item;
+    });
+    return elementItems.concat(regionItems);
+  };
 
   const cssDiff = () => {
     if (!selectedBaseline) return "";
@@ -1043,11 +1065,8 @@
         outline.style.display = "none";
         continue;
       }
-      // Cursor-style: the active (last) selection outlines purple, earlier
-      // stacked selections outline accent blue.
-      outline.style.borderColor = reference === activeReference
-        ? "rgb(175, 82, 222)"
-        : "rgb(10, 132, 255)";
+      // The selection's lifetime color, matching its composer pill.
+      outline.style.borderColor = selectionColor(reference.colorIndex || 0);
       place(outline, element.getBoundingClientRect());
     }
     refreshRegionOutlines();
@@ -1057,7 +1076,8 @@
     if (!overlay) return;
     while (overlay.regionOutlines.length < regionReferences.length) {
       const outline = selectedOutline();
-      outline.style.border = "1.5px dashed rgba(10, 132, 255, 0.85)";
+      outline.style.borderStyle = "dashed";
+      outline.style.borderWidth = "1.5px";
       overlay.regionOutlines.push(outline);
       overlay.selectionLayer.append(outline);
     }
@@ -1068,6 +1088,7 @@
         outline.style.display = "none";
         continue;
       }
+      outline.style.borderColor = selectionColor(region.colorIndex || 0);
       place(outline, {
         x: region.pageX - (globalThis.scrollX || 0),
         y: region.pageY - (globalThis.scrollY || 0),
@@ -1296,6 +1317,7 @@
     restoreAll();
     selectedReferences.length = 0;
     regionReferences.length = 0;
+    colorSequence = 0;
     setActiveReference(null);
     hoveredElement = null;
     selectionIdentityNeedsRefresh = false;
@@ -1363,7 +1385,12 @@
       reference.identity = identityFor(element);
     } else {
       if (selectedReferences.length >= maxSelectionReferences) return snapshot();
-      reference = { element, baseline: validatedBaseline, identity: identityFor(element) };
+      reference = {
+        element,
+        baseline: validatedBaseline,
+        identity: identityFor(element),
+        colorIndex: colorSequence++,
+      };
     }
     selectedReferences.push(reference);
     setActiveReference(reference);
@@ -1522,6 +1549,7 @@
       pageY: rect.y + (globalThis.scrollY || 0),
       width: rect.width,
       height: rect.height,
+      colorIndex: colorSequence++,
     });
     hoveredElement = null;
     revision += 1;

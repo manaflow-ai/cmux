@@ -612,15 +612,33 @@ final class BrowserDesignModeTokenCell: NSTextAttachmentCell {
     let identity: String
     private let tagTitle: String
     private let icon: NSImage?
+    private let tint: NSColor
+    private let titleAttributes: [NSAttributedString.Key: Any]
 
-    private static let titleAttributes: [NSAttributedString.Key: Any] = [
-        .font: NSFont.systemFont(ofSize: 12.5, weight: .medium),
-        .foregroundColor: BrowserDesignModeTokenStyle.blue,
-    ]
+    /// Parses the runtime's palette hex (#RRGGBB); falls back to accent blue.
+    private static func tintColor(fromHex hex: String) -> NSColor {
+        var value: UInt64 = 0
+        let trimmed = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
+        guard trimmed.count == 6, Scanner(string: trimmed).scanHexInt64(&value) else {
+            return BrowserDesignModeTokenStyle.blue
+        }
+        return NSColor(
+            calibratedRed: CGFloat((value >> 16) & 0xFF) / 255,
+            green: CGFloat((value >> 8) & 0xFF) / 255,
+            blue: CGFloat(value & 0xFF) / 255,
+            alpha: 1
+        )
+    }
 
     init(selection: BrowserDesignModeSelection) {
         identity = selection.selector
         tagTitle = selection.tagName
+        let tint = Self.tintColor(fromHex: selection.color)
+        self.tint = tint
+        titleAttributes = [
+            .font: NSFont.systemFont(ofSize: 12.5, weight: .medium),
+            .foregroundColor: tint,
+        ]
         let configuration = NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
         let symbol = NSImage(
             systemSymbolName: BrowserDesignModeTagSymbol.symbol(forTag: selection.tagName),
@@ -630,7 +648,7 @@ final class BrowserDesignModeTokenCell: NSTextAttachmentCell {
         icon = symbol.map { base in
             NSImage(size: base.size, flipped: false) { rect in
                 base.draw(in: rect)
-                BrowserDesignModeTokenStyle.blue.set()
+                tint.set()
                 rect.fill(using: .sourceAtop)
                 return true
             }
@@ -643,7 +661,7 @@ final class BrowserDesignModeTokenCell: NSTextAttachmentCell {
     required init(coder: NSCoder) { fatalError("unsupported") }
 
     private var titleSize: NSSize {
-        (tagTitle as NSString).size(withAttributes: Self.titleAttributes)
+        (tagTitle as NSString).size(withAttributes: titleAttributes)
     }
 
     override func cellSize() -> NSSize {
@@ -672,7 +690,7 @@ final class BrowserDesignModeTokenCell: NSTextAttachmentCell {
         }
         (tagTitle as NSString).draw(
             at: NSPoint(x: textX, y: cellFrame.midY - titleSize.height / 2),
-            withAttributes: Self.titleAttributes
+            withAttributes: titleAttributes
         )
     }
 }
