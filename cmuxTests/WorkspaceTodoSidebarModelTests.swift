@@ -288,6 +288,16 @@ struct WorkspaceTodoSidebarModelTests {
     }
 
     @Test
+    func checklistPopoverViewportDoesNotCollapseForShortLists() {
+        #expect(SidebarWorkspaceChecklistPopoverViewportModel.visibleRowCount(forItemCount: 0) == 0)
+        #expect(SidebarWorkspaceChecklistPopoverViewportModel.visibleRowCount(forItemCount: 1) == 5)
+        #expect(SidebarWorkspaceChecklistPopoverViewportModel.visibleRowCount(forItemCount: 2) == 5)
+        #expect(SidebarWorkspaceChecklistPopoverViewportModel.visibleRowCount(forItemCount: 5) == 5)
+        #expect(SidebarWorkspaceChecklistPopoverViewportModel.visibleRowCount(forItemCount: 6) == 6)
+        #expect(SidebarWorkspaceChecklistPopoverViewportModel.visibleRowCount(forItemCount: 12) == 6)
+    }
+
+    @Test
     func checklistTextFieldsSupportShiftReturnLineBreaks() throws {
         let pane = try Self.sourceText("Sources/Panels/WorkspaceTodoPanelView.swift")
         let popover = try Self.sourceText("Sources/SidebarWorkspaceChecklistPopover.swift")

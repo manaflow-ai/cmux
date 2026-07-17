@@ -16,6 +16,16 @@ struct SidebarWorkspaceChecklistPopoverModel: Equatable {
     let canAddItems: Bool
 }
 
+enum SidebarWorkspaceChecklistPopoverViewportModel {
+    static let minimumVisibleRowCount = 5
+    static let maximumVisibleRowCount = 6
+
+    static func visibleRowCount(forItemCount count: Int) -> Int {
+        guard count > 0 else { return 0 }
+        return min(max(count, minimumVisibleRowCount), maximumVisibleRowCount)
+    }
+}
+
 /// The checklist popover anchored to a workspace row's summary line
 /// (`sidebar.beta.workspaceTodos.checklistStyle` = `popover`): header with
 /// the workspace title and progress, the ordered item rows (completed sink
@@ -79,7 +89,6 @@ struct SidebarWorkspaceChecklistPopover: View {
     /// ``visibleRowCount`` rows instead of the previous flat 460pt cap
     /// (≈23 rows).
     private static let itemRowHeightEstimate: CGFloat = itemFontSize + 6
-    private static let visibleRowCount = 6
     private static let rowSpacing: CGFloat = 2
 
     /// Distance above a text line's baseline to its optical vertical center
@@ -92,12 +101,12 @@ struct SidebarWorkspaceChecklistPopover: View {
         return (font.ascender + font.descender) / 2
     }
 
-    /// Content height for `count` rows, capped at ``visibleRowCount`` rows —
-    /// short lists get exactly their own height (no dead space), longer
-    /// lists get the 6-row cap and scroll for the rest.
+    /// Content height for `count` rows. Non-empty short lists keep a
+    /// comfortable minimum viewport so two-item workspaces don't collapse
+    /// into the add row/footer; longer lists still cap at six rows and scroll.
     private func scrollViewportHeight(forItemCount count: Int) -> CGFloat {
         guard count > 0 else { return 0 }
-        let visibleCount = min(count, Self.visibleRowCount)
+        let visibleCount = SidebarWorkspaceChecklistPopoverViewportModel.visibleRowCount(forItemCount: count)
         return Self.itemRowHeightEstimate * CGFloat(visibleCount)
             + Self.rowSpacing * CGFloat(visibleCount - 1)
     }
