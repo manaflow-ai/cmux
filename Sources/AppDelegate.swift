@@ -2036,6 +2036,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         self.tabManager = tabManager
         self.settingsRuntime = settingsRuntime
         self.notificationStore = notificationStore
+        notificationStore.notificationRemovalHandler = { notificationIDs in
+            BrowserWebNotificationNativeAdapter.shared.removePersistentClickRegistrations(
+                notificationIDs: notificationIDs
+            )
+        }
         self.sidebarState = sidebarState
         self.auth = auth
         VMClient.bootstrap(auth: auth.coordinator)
@@ -16315,20 +16320,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
 #if DEBUG
-    func handleWebsiteNotificationResponseForTesting(
+    func handleNotificationResponseForTesting(
         actionIdentifier: String,
-        requestIdentifier: String
-    ) -> Bool {
-        guard actionIdentifier == UNNotificationDefaultActionIdentifier
-                || actionIdentifier == TerminalNotificationStore.actionShowIdentifier,
-              let id = UUID(uuidString: requestIdentifier),
-              let notification = notificationStore?.notifications.first(where: { $0.id == id }),
-              case .website(let displayOrigin) = notification.source else {
-            return false
-        }
-        return notificationNavigation.openWebsiteNotification(
-            id: id,
-            fallbackDisplayOrigin: displayOrigin
+        requestIdentifier: String,
+        userInfo: [AnyHashable: Any]
+    ) {
+        notificationDelivery.handle(
+            NotificationDeliveryResponse(
+                categoryIdentifier: TerminalNotificationStore.categoryIdentifier,
+                actionIdentifier: actionIdentifier,
+                requestIdentifier: requestIdentifier,
+                userInfo: userInfo
+            )
         )
     }
 #endif

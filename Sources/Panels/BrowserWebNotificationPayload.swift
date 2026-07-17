@@ -12,17 +12,10 @@ struct BrowserWebNotificationPayload: Equatable, Sendable {
     /// Validates an untrusted script-message body and bounds forwarded text.
     static func validated(
         body rawBody: Any,
-        expectedToken: String,
         originScheme: String,
-        originHost: String,
-        isMainFrame: Bool,
-        isCurrentWebView: Bool,
-        isCurrentGeneration: Bool
+        originHost: String
     ) -> BrowserWebNotificationPayload? {
-        guard isMainFrame, isCurrentWebView, isCurrentGeneration,
-              let body = rawBody as? [String: Any],
-              let token = body["token"] as? String,
-              token == expectedToken,
+        guard let body = rawBody as? [String: Any],
               let title = body["title"] as? String,
               let notificationBody = body["body"] as? String else {
             return nil

@@ -311,18 +311,17 @@ extension BrowserPanel {
         let origin = rawOrigin
         let displayOriginURL = Self.remoteProxyDisplayURL(for: origin) ?? origin
         let repository = BrowserProfileStore.shared.notificationPermissions
+        guard let originKey = BrowserNotificationPermissionRepository.canonicalOrigin(origin),
+              let displayOrigin = BrowserNotificationPermissionRepository.canonicalOrigin(displayOriginURL) else {
+            reply(false)
+            return
+        }
         switch storedWebNotificationPermissionDecision(for: origin, repository: repository) {
         case .allowed:
             reply(true)
         case .denied:
             reply(false)
         case .prompt:
-            guard let originKey = BrowserNotificationPermissionRepository.canonicalOrigin(origin) else {
-                reply(false)
-                return
-            }
-            let displayOrigin = BrowserNotificationPermissionRepository.canonicalOrigin(displayOriginURL)
-                ?? displayOriginURL.absoluteString
             if pendingWebNotificationPermissionReplies[originKey] != nil {
                 pendingWebNotificationPermissionReplies[originKey]?.append(reply)
                 return

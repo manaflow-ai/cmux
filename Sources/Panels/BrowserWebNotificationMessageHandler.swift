@@ -51,23 +51,24 @@ final class BrowserWebNotificationMessageHandler: NSObject, WKScriptMessageHandl
                 replyHandler(nil, "invalid_message")
                 return
             }
-
-            if body["type"] as? String == "permission" {
-                guard let originURL = origin.canonicalURL else {
+            let messageType = body["type"] as? String
+            guard let originURL = origin.canonicalURL else {
+                if messageType == "permission" || messageType == "status" {
                     replyHandler("denied", nil)
-                    return
+                } else {
+                    replyHandler(nil, "permission_denied")
                 }
+                return
+            }
+
+            if messageType == "permission" {
                 onPermissionRequest(originURL) { allowed in
                     replyHandler(allowed ? "granted" : "denied", nil)
                 }
                 return
             }
 
-            if body["type"] as? String == "status" {
-                guard let originURL = origin.canonicalURL else {
-                    replyHandler("denied", nil)
-                    return
-                }
+            if messageType == "status" {
                 switch permissionDecision(originURL) {
                 case .allowed:
                     replyHandler("granted", nil)
@@ -79,21 +80,16 @@ final class BrowserWebNotificationMessageHandler: NSObject, WKScriptMessageHandl
                 return
             }
 
-            guard let originURL = origin.canonicalURL,
-                  permissionDecision(originURL) == .allowed else {
+            guard permissionDecision(originURL) == .allowed else {
                 replyHandler(nil, "permission_denied")
                 return
             }
 
-            guard body["type"] as? String == "notification",
+            guard messageType == "notification",
                   let payload = BrowserWebNotificationPayload.validated(
                       body: body,
-                      expectedToken: token,
                       originScheme: origin.protocol,
-                      originHost: origin.host,
-                      isMainFrame: true,
-                      isCurrentWebView: true,
-                      isCurrentGeneration: true
+                      originHost: origin.host
                   ) else {
                 replyHandler(nil, "invalid_notification")
                 return
