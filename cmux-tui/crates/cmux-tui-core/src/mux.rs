@@ -797,6 +797,55 @@ impl Mux {
         true
     }
 
+    /// Atomically make one client the only sizing participant. This avoids
+    /// transient intermediate grids while a menu action updates many clients.
+    pub fn use_only_client_size(&self, target: u64) -> bool {
+        let attached_clients = self.control_clients.attached_client_ids();
+        let mut known_clients = self.control_clients.client_ids();
+        let mut sizing = self.client_sizing.lock().unwrap();
+        for viewers in sizing.surfaces.values() {
+            known_clients.extend(viewers.keys().copied());
+        }
+        let excluded =
+            known_clients.into_iter().filter(|client| *client != target).collect::<HashSet<_>>();
+        if sizing.excluded_clients == excluded {
+            return false;
+        }
+        sizing.excluded_clients = excluded;
+        let affected = sizing.surfaces.keys().copied().collect::<Vec<_>>();
+        let use_excluded = sizing.uses_excluded_fallback(&attached_clients);
+        let effective = sizing.effective_sizes(affected, use_excluded);
+        for (surface, (cols, rows)) in &effective {
+            let _ = self.resize_surface(*surface, *cols, *rows);
+        }
+        drop(sizing);
+        if let Some((_, (cols, rows))) = effective.last() {
+            self.record_client_size(*cols, *rows);
+        }
+        true
+    }
+
+    /// Atomically restore every connected or reporting client to sizing.
+    pub fn use_all_client_sizes(&self) -> bool {
+        let attached_clients = self.control_clients.attached_client_ids();
+        let mut sizing = self.client_sizing.lock().unwrap();
+        if sizing.excluded_clients.is_empty() {
+            return false;
+        }
+        sizing.excluded_clients.clear();
+        let affected = sizing.surfaces.keys().copied().collect::<Vec<_>>();
+        let effective = sizing.effective_sizes(affected, false);
+        debug_assert!(!sizing.uses_excluded_fallback(&attached_clients) || effective.is_empty());
+        for (surface, (cols, rows)) in &effective {
+            let _ = self.resize_surface(*surface, *cols, *rows);
+        }
+        drop(sizing);
+        if let Some((_, (cols, rows))) = effective.last() {
+            self.record_client_size(*cols, *rows);
+        }
+        true
+    }
+
     pub fn client_size_participates(&self, client: u64) -> bool {
         !self.client_sizing.lock().unwrap().excluded_clients.contains(&client)
     }

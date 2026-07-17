@@ -347,6 +347,23 @@ test("setClientSizing serializes client participation", async () => {
   await client.close();
 });
 
+test("client sizing modes serialize as one atomic command", async () => {
+  const expected = [
+    { id: 1, cmd: "set-client-sizing", client: 7, enabled: true, exclusive: true },
+    { id: 2, cmd: "set-client-sizing", enabled: true },
+  ];
+  const transport = new ScriptedTransport((request, connection) => {
+    assert.deepEqual(request, expected.shift());
+    connection.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({ transport });
+
+  await client.useOnlyClientSizing(7);
+  await client.useAllClientSizing();
+  assert.equal(expected.length, 0);
+  await client.close();
+});
+
 test("readScrollback serializes the request and returns styled rows", async () => {
   const response = {
     rows: [{ row: 0, runs: [{ text: "cargo test", fg: null, bg: null, attrs: 0 }] }],

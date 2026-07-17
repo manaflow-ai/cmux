@@ -347,6 +347,12 @@ export class CmuxClient {
   setClientSizing(client: Id, enabled: boolean): Promise<EmptyResult> {
     return this.request("set-client-sizing", { client, enabled });
   }
+  useOnlyClientSizing(client: Id): Promise<EmptyResult> {
+    return this.request("set-client-sizing", { client, enabled: true, exclusive: true });
+  }
+  useAllClientSizing(): Promise<EmptyResult> {
+    return this.request("set-client-sizing", { enabled: true });
+  }
   reloadConfig(): Promise<ReloadConfigResult> { return this.request("reload-config"); }
   setWindowTitle(title: string): Promise<EmptyResult> { return this.request("set-window-title", { title }); }
   clearWindowTitle(): Promise<EmptyResult> { return this.request("clear-window-title"); }

@@ -148,6 +148,38 @@ impl Session {
         }
     }
 
+    pub fn use_only_client_sizing(&self, client: u64) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => {
+                mux.use_only_client_size(client);
+                Ok(())
+            }
+            Session::Remote(remote) => remote
+                .request(json!({
+                    "cmd": "set-client-sizing",
+                    "client": client,
+                    "enabled": true,
+                    "exclusive": true,
+                }))
+                .map(|_| ()),
+        }
+    }
+
+    pub fn use_all_client_sizing(&self) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => {
+                mux.use_all_client_sizes();
+                Ok(())
+            }
+            Session::Remote(remote) => remote
+                .request(json!({
+                    "cmd": "set-client-sizing",
+                    "enabled": true,
+                }))
+                .map(|_| ()),
+        }
+    }
+
     pub fn disconnect_client(&self, client: u64) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {

@@ -78,8 +78,11 @@ enum Command {
     },
     ListClients,
     SetClientSizing {
-        client: u64,
+        #[serde(default)]
+        client: Option<u64>,
         enabled: bool,
+        #[serde(default)]
+        exclusive: bool,
     },
     PairingResponse {
         request: u64,
@@ -1122,6 +1125,10 @@ impl ClientRegistry {
 
     fn contains(&self, client: u64) -> bool {
         self.clients.lock().unwrap().contains_key(&client)
+    }
+
+    pub(crate) fn client_ids(&self) -> HashSet<u64> {
+        self.clients.lock().unwrap().keys().copied().collect()
     }
 
     pub(crate) fn attached_client_ids(&self) -> HashSet<u64> {
@@ -2205,11 +2212,24 @@ fn handle_command(
             Ok(json!({}))
         }
         Command::ListClients => Ok(mux.control_clients_json(client)),
-        Command::SetClientSizing { client: target, enabled } => {
-            if !mux.control_clients.contains(target) && !mux.has_size_client(target) {
-                anyhow::bail!("unknown client {target}");
+        Command::SetClientSizing { client: target, enabled, exclusive } => {
+            if exclusive && !enabled {
+                anyhow::bail!("exclusive client sizing must be enabled");
             }
-            mux.set_client_size_participation(target, enabled);
+            if let Some(target) = target {
+                if !mux.control_clients.contains(target) && !mux.has_size_client(target) {
+                    anyhow::bail!("unknown client {target}");
+                }
+                if exclusive {
+                    mux.use_only_client_size(target);
+                } else {
+                    mux.set_client_size_participation(target, enabled);
+                }
+            } else if enabled {
+                mux.use_all_client_sizes();
+            } else {
+                anyhow::bail!("client is required when disabling sizing");
+            }
             Ok(json!({}))
         }
         Command::PairingResponse { request, approve } => {
@@ -3579,10 +3599,61 @@ mod tests {
         let listed = handle_command(&mux, client, Command::ListClients, &writer).unwrap();
         assert_eq!(listed[0]["size_participating"], true);
 
-        handle_command(&mux, client, Command::SetClientSizing { client, enabled: false }, &writer)
-            .unwrap();
+        handle_command(
+            &mux,
+            client,
+            Command::SetClientSizing { client: Some(client), enabled: false, exclusive: false },
+            &writer,
+        )
+        .unwrap();
         let listed = handle_command(&mux, client, Command::ListClients, &writer).unwrap();
         assert_eq!(listed[0]["size_participating"], false);
+    }
+
+    #[test]
+    fn client_sizing_command_applies_exclusive_and_all_modes_atomically() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((120, 40))).unwrap();
+        let first_writer = test_writer();
+        let second_writer = test_writer();
+        let first = mux.control_clients.register(ClientTransport::Unix, first_writer.clone());
+        let second = mux.control_clients.register(ClientTransport::Unix, second_writer.clone());
+        for (client, writer, size) in
+            [(first, &first_writer, (120, 40)), (second, &second_writer, (80, 30))]
+        {
+            let stream = writer.start_stream(&json!({"event": "test"})).unwrap();
+            mux.control_clients.attach_surface(client, surface.id, stream).unwrap();
+            handle_command(
+                &mux,
+                client,
+                Command::ResizeSurface { surface: surface.id, cols: size.0, rows: size.1 },
+                writer,
+            )
+            .unwrap();
+        }
+        assert_eq!(surface.size(), (80, 30));
+
+        handle_command(
+            &mux,
+            first,
+            Command::SetClientSizing { client: Some(first), enabled: true, exclusive: true },
+            &first_writer,
+        )
+        .unwrap();
+        assert_eq!(surface.size(), (120, 40));
+        assert!(mux.client_size_participates(first));
+        assert!(!mux.client_size_participates(second));
+
+        handle_command(
+            &mux,
+            first,
+            Command::SetClientSizing { client: None, enabled: true, exclusive: false },
+            &first_writer,
+        )
+        .unwrap();
+        assert_eq!(surface.size(), (80, 30));
+        assert!(mux.client_size_participates(first));
+        assert!(mux.client_size_participates(second));
     }
 
     #[test]
@@ -3639,7 +3710,7 @@ mod tests {
         handle_command(
             &mux,
             reporter,
-            Command::SetClientSizing { client: reporter, enabled: false },
+            Command::SetClientSizing { client: Some(reporter), enabled: false, exclusive: false },
             &reporter_writer,
         )
         .unwrap();
@@ -3661,7 +3732,7 @@ mod tests {
         handle_command(
             &mux,
             blocker,
-            Command::SetClientSizing { client: blocker, enabled: false },
+            Command::SetClientSizing { client: Some(blocker), enabled: false, exclusive: false },
             &blocker_writer,
         )
         .unwrap();

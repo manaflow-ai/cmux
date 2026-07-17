@@ -712,6 +712,14 @@ impl OrderedSession {
         self.inner.set_client_sizing(client, enabled)
     }
 
+    fn use_only_client_sizing(&self, client: u64) -> anyhow::Result<()> {
+        self.inner.use_only_client_sizing(client)
+    }
+
+    fn use_all_client_sizing(&self) -> anyhow::Result<()> {
+        self.inner.use_all_client_sizing()
+    }
+
     fn disconnect_client(&self, client: u64) {
         self.enqueue_coalescing_session_mutation(
             "disconnect client",
@@ -5175,17 +5183,11 @@ impl App {
                 self.refresh_clients();
             }
             MenuAction::UseClientSize(client) => {
-                let clients = self.session.clients()?;
-                for info in clients {
-                    self.session.set_client_sizing(info.client, info.client == client)?;
-                }
+                self.session.use_only_client_sizing(client)?;
                 self.refresh_clients();
             }
             MenuAction::RestoreAllClientSizing => {
-                let clients = self.session.clients()?;
-                for info in clients {
-                    self.session.set_client_sizing(info.client, true)?;
-                }
+                self.session.use_all_client_sizing()?;
                 self.refresh_clients();
             }
             MenuAction::DisconnectClient(client) => {
