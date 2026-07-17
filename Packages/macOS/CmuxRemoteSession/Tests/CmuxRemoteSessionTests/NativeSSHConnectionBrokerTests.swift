@@ -45,7 +45,7 @@ struct NativeSSHConnectionBrokerTests {
         #expect(lockPath?.contains("cmux-ssh-501-auth-") == true)
         #expect(request.processInvocation.executableURL.path == "/bin/zsh")
         #expect(request.processInvocation.arguments.contains(lockPath.map { $0 + ".inflight" } ?? "") == true)
-        #expect(request.processInvocation.arguments[1].contains("zsystem flock -t 45 -e"))
+        #expect(request.processInvocation.arguments[1].contains("zsystem flock -t 4 -e"))
         #expect(request.processInvocation.arguments[1].contains("/bin/kill -0"))
     }
 
@@ -207,7 +207,7 @@ struct NativeSSHConnectionBrokerTests {
         try process.run()
         process.waitUntilExit()
 
-        #expect(process.terminationStatus == 0)
+        #expect(process.terminationStatus == 75)
         #expect(FileManager.default.fileExists(atPath: markerPath))
     }
 

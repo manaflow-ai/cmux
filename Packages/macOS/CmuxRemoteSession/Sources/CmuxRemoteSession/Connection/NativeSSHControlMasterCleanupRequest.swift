@@ -29,6 +29,8 @@ public struct NativeSSHControlMasterCleanupRequest: Sendable {
 }
 
 extension NativeSSHControlMasterCleanupRequest {
+    static let retryExitStatus: Int32 = 75
+
     var processInvocation: (executableURL: URL, arguments: [String]) {
         guard let authenticationLockPath else {
             return (URL(fileURLWithPath: "/usr/bin/ssh"), arguments)
@@ -38,17 +40,17 @@ extension NativeSSHControlMasterCleanupRequest {
         umask 077
         : >> "$1" || exit 0
         zmodload zsh/system || exit 0
-        zsystem flock -t 45 -e -f cmux_ssh_auth_lock_fd "$1" || exit 0
+        zsystem flock -t 4 -e -f cmux_ssh_auth_lock_fd "$1" || exit \(Self.retryExitStatus)
         cmux_auth_pid="$(/bin/cat -- "$2" 2>/dev/null || true)"
         case "$cmux_auth_pid" in
           ''|*[!0-9]*) ;;
           *)
-            if /bin/kill -0 "$cmux_auth_pid" 2>/dev/null; then exit 0; fi
+            if /bin/kill -0 "$cmux_auth_pid" 2>/dev/null; then exit \(Self.retryExitStatus); fi
             cmux_auth_mtime="$(/usr/bin/stat -f %m -- "$2" 2>/dev/null || true)"
             cmux_now="$(/bin/date +%s)"
             case "$cmux_auth_mtime:$cmux_now" in
               *[!0-9:]*|:*) ;;
-              *) if [ $((cmux_now - cmux_auth_mtime)) -le 30 ]; then exit 0; fi ;;
+              *) if [ $((cmux_now - cmux_auth_mtime)) -le 30 ]; then exit \(Self.retryExitStatus); fi ;;
             esac
             ;;
         esac
