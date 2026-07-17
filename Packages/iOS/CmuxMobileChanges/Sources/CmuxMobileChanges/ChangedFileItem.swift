@@ -12,6 +12,8 @@ public struct ChangedFileItem: Sendable, Equatable, Identifiable {
     public let deletions: Int
     /// Whether Git identified the file as binary.
     public let isBinary: Bool
+    /// Raw file size when the mounting layer has already loaded it.
+    public let byteSize: Int64?
 
     /// Stable list identity derived from ``path``.
     public var id: String { path }
@@ -24,13 +26,15 @@ public struct ChangedFileItem: Sendable, Equatable, Identifiable {
     ///   - additions: Number of added lines.
     ///   - deletions: Number of deleted lines.
     ///   - isBinary: Whether the content is binary.
+    ///   - byteSize: Raw file size when known.
     public init(
         path: String,
         oldPath: String? = nil,
         kind: FileChangeKind,
         additions: Int,
         deletions: Int,
-        isBinary: Bool
+        isBinary: Bool,
+        byteSize: Int64? = nil
     ) {
         self.path = path
         self.oldPath = oldPath
@@ -38,6 +42,7 @@ public struct ChangedFileItem: Sendable, Equatable, Identifiable {
         self.additions = additions
         self.deletions = deletions
         self.isBinary = isBinary
+        self.byteSize = byteSize
     }
 }
 

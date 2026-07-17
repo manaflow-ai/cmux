@@ -42,7 +42,10 @@ extension MobileHostService {
             // List-shaped reads may span the Mac's workspaces; same-account
             // Stack authorization remains the authoritative data-plane gate.
             return nil
-        case "mobile.workspace.changes.files", "mobile.workspace.changes.file_diff":
+        case "mobile.workspace.changes.files",
+             "mobile.workspace.changes.file_diff",
+             "mobile.workspace.changes.file_stat",
+             "mobile.workspace.changes.file_fetch":
             // Single-workspace reads honor a workspace-scoped attach ticket in
             // the same way as workspace.action / workspace.close below.
             return ticketWorkspaceAuthorizationError(

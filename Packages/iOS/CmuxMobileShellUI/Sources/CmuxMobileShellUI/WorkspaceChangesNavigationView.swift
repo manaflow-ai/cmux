@@ -12,8 +12,9 @@ struct WorkspaceChangesNavigationView: View {
     let fontSize: Double
     let listActions: WorkspaceChangesListActions
     let pagerActions: WorkspaceFileDiffPagerActions
+    @Binding var path: [WorkspaceChangesNavigationRoute]
+    let previewDestination: @MainActor (_ index: Int, _ revision: FileDiffPreviewRevision, _ onDone: @escaping () -> Void) -> AnyView
     let onClose: @MainActor @Sendable () -> Void
-    @State private var path: [Int]
 
     init(
         branch: String,
@@ -23,9 +24,10 @@ struct WorkspaceChangesNavigationView: View {
         listState: WorkspaceChangesListState,
         cachedDocuments: [String: FileDiffDocument],
         fontSize: Double,
-        initialFileIndex: Int?,
         listActions: WorkspaceChangesListActions,
         pagerActions: WorkspaceFileDiffPagerActions,
+        path: Binding<[WorkspaceChangesNavigationRoute]>,
+        previewDestination: @escaping @MainActor (_ index: Int, _ revision: FileDiffPreviewRevision, _ onDone: @escaping () -> Void) -> AnyView,
         onClose: @escaping @MainActor @Sendable () -> Void
     ) {
         self.branch = branch
@@ -37,8 +39,9 @@ struct WorkspaceChangesNavigationView: View {
         self.fontSize = fontSize
         self.listActions = listActions
         self.pagerActions = pagerActions
+        _path = path
+        self.previewDestination = previewDestination
         self.onClose = onClose
-        _path = State(initialValue: initialFileIndex.map { [$0] } ?? [])
     }
 
     var body: some View {
@@ -50,19 +53,26 @@ struct WorkspaceChangesNavigationView: View {
                 files: files,
                 state: listState,
                 actions: WorkspaceChangesListActions(
-                    onSelectFile: { path.append($0) },
+                    onSelectFile: { path.append(.diff($0)) },
                     onRefresh: listActions.onRefresh,
                     onRetry: listActions.onRetry
                 )
             )
-            .navigationDestination(for: Int.self) { index in
-                WorkspaceFileDiffPagerView(
-                    files: files,
-                    initialSelectedIndex: index,
-                    cachedDocuments: cachedDocuments,
-                    initialFontSize: fontSize,
-                    actions: pagerActions
-                )
+            .navigationDestination(for: WorkspaceChangesNavigationRoute.self) { route in
+                switch route {
+                case .diff(let index):
+                    WorkspaceFileDiffPagerView(
+                        files: files,
+                        initialSelectedIndex: index,
+                        cachedDocuments: cachedDocuments,
+                        initialFontSize: fontSize,
+                        actions: pagerActions
+                    )
+                case .preview(let index, let revision):
+                    previewDestination(index, revision) {
+                        if !path.isEmpty { path.removeLast() }
+                    }
+                }
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

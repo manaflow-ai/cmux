@@ -13813,6 +13813,10 @@ class TerminalController {
             result = await v2MobileWorkspaceChangesFiles(params: request.params)
         case "mobile.workspace.changes.file_diff":
             result = await v2MobileWorkspaceChangesFileDiff(params: request.params)
+        case "mobile.workspace.changes.file_stat":
+            result = await v2MobileWorkspaceChangesFileStat(params: request.params)
+        case "mobile.workspace.changes.file_fetch":
+            result = await v2MobileWorkspaceChangesFileFetch(params: request.params)
         case "workspace.create":
             result = v2MobileWorkspaceCreate(params: request.params)
         case "mobile.terminal.create", "terminal.create":

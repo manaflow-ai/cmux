@@ -22,7 +22,8 @@ struct ChangesPreviewFixture: Sendable {
                 kind: .modified,
                 additions: 0,
                 deletions: 0,
-                isBinary: true
+                isBinary: true,
+                byteSize: 2_485_760
             ),
             ChangedFileItem(
                 path: "Sources/SessionStore.swift",

@@ -12,13 +12,16 @@ public struct ChangesPreviewView: View {
     @State private var cachedDocuments: [String: FileDiffDocument] = [:]
     @State private var fontSize: Double
     @State private var stateVariant: ChangesPreviewStateVariant = .loading
+    @State private var navigationPath: [WorkspaceChangesNavigationRoute] = []
 
     /// Creates the preview from the current UI-test environment.
     public init() {
-        mode = UITestConfig.changesPreviewMode ?? "1"
+        let resolvedMode = UITestConfig.changesPreviewMode ?? "1"
+        mode = resolvedMode
         let preference = DiffFontPreference(defaults: .standard)
         fontPreference = preference
         _fontSize = State(initialValue: preference.pointSize)
+        _navigationPath = State(initialValue: resolvedMode == "diff" ? [.diff(2)] : [])
     }
 
     public var body: some View {
@@ -53,9 +56,10 @@ public struct ChangesPreviewView: View {
                 listState: displayedState,
                 cachedDocuments: cachedDocuments,
                 fontSize: fontSize,
-                initialFileIndex: mode == "diff" ? 2 : nil,
                 listActions: listActions,
                 pagerActions: pagerActions,
+                path: $navigationPath,
+                previewDestination: { _, _, _ in AnyView(EmptyView()) },
                 onClose: {}
             )
         }
@@ -105,7 +109,8 @@ public struct ChangesPreviewView: View {
                 fontSize = pointSize
                 fontPreference.pointSize = pointSize
             },
-            onCopy: { UIPasteboard.general.string = $0 }
+            onCopy: { UIPasteboard.general.string = $0 },
+            onPreviewFile: { _, _ in }
         )
     }
 }

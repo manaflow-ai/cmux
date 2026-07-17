@@ -1,3 +1,4 @@
+public import CmuxAgentChat
 import Foundation
 
 /// Reads committed, staged, unstaged, and untracked changes for a workspace directory.
@@ -28,6 +29,8 @@ public struct WorkspaceChangesService: Sendable {
 
     private let runner: any WorkspaceChangesGitRunning
     private let summaryCache: WorkspaceChangesSummaryCache
+    private let authorizedPathCache: WorkspaceChangesAuthorizedPathCache
+    private let baseContentCache: WorkspaceChangesBaseContentCache
     private let parser = WorkspaceChangesParser()
     private let pathValidator = WorkspaceChangesPathValidator()
     private let diffTruncator = WorkspaceDiffTruncator()
@@ -36,14 +39,20 @@ public struct WorkspaceChangesService: Sendable {
     public init() {
         runner = SystemWorkspaceChangesGitRunner()
         summaryCache = WorkspaceChangesSummaryCache()
+        authorizedPathCache = WorkspaceChangesAuthorizedPathCache()
+        baseContentCache = WorkspaceChangesBaseContentCache()
     }
 
     init(
         runner: any WorkspaceChangesGitRunning,
-        summaryCache: WorkspaceChangesSummaryCache = WorkspaceChangesSummaryCache()
+        summaryCache: WorkspaceChangesSummaryCache = WorkspaceChangesSummaryCache(),
+        authorizedPathCache: WorkspaceChangesAuthorizedPathCache = WorkspaceChangesAuthorizedPathCache(),
+        baseContentCache: WorkspaceChangesBaseContentCache = WorkspaceChangesBaseContentCache()
     ) {
         self.runner = runner
         self.summaryCache = summaryCache
+        self.authorizedPathCache = authorizedPathCache
+        self.baseContentCache = baseContentCache
     }
 
     /// Reads aggregate changes for the repository enclosing `directory`.
@@ -139,9 +148,148 @@ public struct WorkspaceChangesService: Sendable {
         return fileDiffValue(file: file, unifiedDiff: bounded.text, truncated: bounded.truncated)
     }
 
+    /// Reads artifact-compatible metadata for an authorized changed file revision.
+    ///
+    /// The authorization snapshot is reused for 15 seconds so a chunked preview
+    /// does not rerun Git status for every request. Base blobs are materialized
+    /// once in the bounded temporary-file cache.
+    ///
+    /// - Parameters:
+    ///   - directory: An absolute workspace directory inside the repository.
+    ///   - path: The current changed path, or a rename's old path for ``WorkspaceChangesFileRevision/base``.
+    ///   - revision: The working-tree or comparison-base revision to inspect.
+    /// - Returns: Metadata compatible with the shared artifact viewer.
+    /// - Throws: ``WorkspaceChangesServiceError`` when validation, authorization, or reading fails.
+    public nonisolated func fileStat(
+        forDirectory directory: String,
+        path: String,
+        revision: WorkspaceChangesFileRevision
+    ) async throws -> ChatArtifactStat {
+        let fileURL = try await authorizedFileURL(
+            forDirectory: directory,
+            path: path,
+            revision: revision
+        )
+        do {
+            return try ArtifactByteReader().stat(path: fileURL.path)
+        } catch ArtifactByteReader.Error.fileNotFound {
+            throw WorkspaceChangesServiceError.fileNotFound
+        } catch {
+            throw WorkspaceChangesServiceError.gitFailure
+        }
+    }
+
+    /// Reads one bounded byte slice for an authorized changed file revision.
+    ///
+    /// Current content is sliced directly from the working-tree file. Base
+    /// content is sliced from the actor-owned materialization cache, so Git is
+    /// invoked at most once per `(repository, base, path)` cache entry.
+    ///
+    /// - Parameters:
+    ///   - directory: An absolute workspace directory inside the repository.
+    ///   - path: The current changed path, or a rename's old path for ``WorkspaceChangesFileRevision/base``.
+    ///   - revision: The working-tree or comparison-base revision to read.
+    ///   - offset: Requested byte offset; values outside the file are clamped.
+    ///   - length: Requested byte count, clamped to the artifact transfer limit.
+    /// - Returns: One artifact-compatible byte chunk with honest total size and EOF metadata.
+    /// - Throws: ``WorkspaceChangesServiceError`` when validation, authorization, or reading fails.
+    public nonisolated func fileFetch(
+        forDirectory directory: String,
+        path: String,
+        revision: WorkspaceChangesFileRevision,
+        offset: Int64,
+        length: Int
+    ) async throws -> ChatArtifactChunk {
+        let fileURL = try await authorizedFileURL(
+            forDirectory: directory,
+            path: path,
+            revision: revision
+        )
+        let clampedLength = ChatArtifactTransferPolicy.defaultPolicy.clampedChunkLength(length)
+        do {
+            return try ArtifactByteReader().fetch(
+                path: fileURL.path,
+                offset: max(0, offset),
+                length: clampedLength
+            )
+        } catch ArtifactByteReader.Error.fileNotFound {
+            throw WorkspaceChangesServiceError.fileNotFound
+        } catch {
+            throw WorkspaceChangesServiceError.gitFailure
+        }
+    }
+
     /// Pins the SE-0338 executor-hop contract that keeps Git off the caller's actor.
     nonisolated func executionHopsOffCallersThread() async -> Bool {
         pthread_main_np() == 0
+    }
+
+    private nonisolated func authorizedFileURL(
+        forDirectory directory: String,
+        path: String,
+        revision: WorkspaceChangesFileRevision
+    ) async throws -> URL {
+        guard let scope = resolveScope(forDirectory: directory) else {
+            throw WorkspaceChangesServiceError.notARepository
+        }
+        let normalizedPath = try pathValidator.validatedPath(path, repoRoot: scope.repoRoot)
+        let authorization = try await authorizationSnapshot(scope: scope)
+        let authorizedPaths = revision == .current
+            ? authorization.currentPaths
+            : authorization.basePaths
+        guard authorizedPaths.contains(normalizedPath) else {
+            throw WorkspaceChangesServiceError.forbidden
+        }
+
+        switch revision {
+        case .current:
+            return URL(fileURLWithPath: authorization.repoRoot, isDirectory: true)
+                .appendingPathComponent(normalizedPath, isDirectory: false)
+        case .base:
+            let key = WorkspaceChangesBaseContentCache.Key(
+                repoRoot: authorization.repoRoot,
+                baseRef: authorization.diffBase,
+                path: normalizedPath
+            )
+            let runner = self.runner
+            return try await baseContentCache.fileURL(for: key) { destination in
+                let result = try runner.run(
+                    arguments: ["show", "\(authorization.diffBase):\(normalizedPath)"],
+                    in: URL(fileURLWithPath: authorization.repoRoot, isDirectory: true)
+                )
+                guard result.exitCode == 0 else {
+                    throw WorkspaceChangesServiceError.fileNotFound
+                }
+                try result.output.write(to: destination, options: .atomic)
+                return Int64(result.output.count)
+            }
+        }
+    }
+
+    private nonisolated func authorizationSnapshot(
+        scope: Scope
+    ) async throws -> WorkspaceChangesAuthorizedPathCache.Snapshot {
+        if let cached = await authorizedPathCache.snapshot(forRepoRoot: scope.repoRoot) {
+            return cached
+        }
+        guard let snapshot = loadSnapshot(scope: scope) else {
+            throw WorkspaceChangesServiceError.gitFailure
+        }
+        let currentPaths = Set(snapshot.files.map(\.path))
+        let basePaths = Set(snapshot.files.flatMap { file in
+            if let oldPath = file.oldPath {
+                return [file.path, oldPath]
+            }
+            return [file.path]
+        })
+        let authorization = WorkspaceChangesAuthorizedPathCache.Snapshot(
+            repoRoot: scope.repoRoot,
+            diffBase: scope.diffBase,
+            currentPaths: currentPaths,
+            basePaths: basePaths
+        )
+        await authorizedPathCache.store(authorization)
+        return authorization
     }
 
     private nonisolated func resolveScope(forDirectory directory: String) -> Scope? {

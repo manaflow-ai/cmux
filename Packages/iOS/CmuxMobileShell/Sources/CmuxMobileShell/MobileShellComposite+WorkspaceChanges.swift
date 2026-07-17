@@ -208,7 +208,7 @@ extension MobileShellComposite {
         }
     }
 
-    private func workspaceChangesClient() throws -> MobileCoreRPCClient {
+    func workspaceChangesClient() throws -> MobileCoreRPCClient {
         guard workspaceChangesCapable else {
             throw MobileShellConnectionError.invalidResponse
         }

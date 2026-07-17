@@ -73,13 +73,15 @@ public struct WorkspaceFileDiffPagerView: View {
         TabView(selection: $selection) {
             ForEach(Array(files.enumerated()), id: \.element.path) { index, file in
                 FileDiffPageView(
+                    fileIndex: index,
                     file: file,
                     initialDocument: cachedDocuments[file.path],
                     fontSize: fontSize,
                     onFontSizeChanged: { fontSize = $0 },
                     onPersistFontSize: actions.onPersistFontSize,
                     onLoad: actions.onLoad,
-                    onCopy: actions.onCopy
+                    onCopy: actions.onCopy,
+                    onPreviewFile: actions.onPreviewFile
                 )
                 .tag(index)
             }

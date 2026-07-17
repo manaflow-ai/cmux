@@ -1,19 +1,23 @@
+internal import Foundation
 public import SwiftUI
 
 /// One independently loading, refreshable diff page.
 public struct FileDiffPageView: View {
+    private let fileIndex: Int
     private let file: ChangedFileItem
     private let fontSize: Double
     private let onFontSizeChanged: @MainActor @Sendable (Double) -> Void
     private let onPersistFontSize: @MainActor @Sendable (Double) -> Void
     private let onLoad: @MainActor @Sendable (String, Bool) async throws -> FileDiffDocument
     private let onCopy: @MainActor @Sendable (String) -> Void
+    private let onPreviewFile: (@MainActor @Sendable (_ index: Int, _ revision: FileDiffPreviewRevision) -> Void)?
     @State private var loadState: FileDiffLoadState
     @State private var magnificationStart: Double?
     @Environment(\.colorScheme) private var colorScheme
 
     /// Creates one value-driven diff page.
     /// - Parameters:
+    ///   - fileIndex: Stable index in the pager's changed-file snapshot.
     ///   - file: File metadata snapshot.
     ///   - initialDocument: Mount-cache hit, when available.
     ///   - fontSize: Current live diff font size.
@@ -21,21 +25,26 @@ public struct FileDiffPageView: View {
     ///   - onPersistFontSize: End-of-pinch persistence callback.
     ///   - onLoad: Parsed document loader with a force-refresh flag.
     ///   - onCopy: Clipboard seam.
+    ///   - onPreviewFile: Optional binary-file preview navigation callback.
     public init(
+        fileIndex: Int,
         file: ChangedFileItem,
         initialDocument: FileDiffDocument?,
         fontSize: Double,
         onFontSizeChanged: @escaping @MainActor @Sendable (Double) -> Void,
         onPersistFontSize: @escaping @MainActor @Sendable (Double) -> Void,
         onLoad: @escaping @MainActor @Sendable (String, Bool) async throws -> FileDiffDocument,
-        onCopy: @escaping @MainActor @Sendable (String) -> Void
+        onCopy: @escaping @MainActor @Sendable (String) -> Void,
+        onPreviewFile: (@MainActor @Sendable (_ index: Int, _ revision: FileDiffPreviewRevision) -> Void)? = nil
     ) {
+        self.fileIndex = fileIndex
         self.file = file
         self.fontSize = fontSize
         self.onFontSizeChanged = onFontSizeChanged
         self.onPersistFontSize = onPersistFontSize
         self.onLoad = onLoad
         self.onCopy = onCopy
+        self.onPreviewFile = onPreviewFile
         _loadState = State(initialValue: initialDocument.map(FileDiffLoadState.loaded) ?? .loading)
     }
 
@@ -139,12 +148,63 @@ public struct FileDiffPageView: View {
     }
 
     private var binaryView: some View {
-        ContentUnavailableView {
-            Label(
-                String(localized: "changes.binary.title", defaultValue: "Binary file not shown", bundle: .module),
-                systemImage: "doc.circle"
+        VStack(spacing: 14) {
+            Image(systemName: "doc.richtext")
+                .font(.system(size: 34, weight: .medium))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(.secondary)
+            Text(file.displayFilename)
+                .font(.headline)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .truncationMode(.middle)
+            if let byteSize = file.byteSize {
+                Text(ByteCountFormatter.string(fromByteCount: max(0, byteSize), countStyle: .file))
+                    .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            if onPreviewFile != nil {
+                binaryPreviewButtons
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: 360)
+        .background(.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .padding(20)
+    }
+
+    @ViewBuilder
+    private var binaryPreviewButtons: some View {
+        switch file.kind {
+        case .modified, .renamed:
+            HStack(spacing: 10) {
+                previewButton(
+                    title: String(localized: "changes.binary.view_before", defaultValue: "View Before", bundle: .module),
+                    revision: .base
+                )
+                previewButton(
+                    title: String(localized: "changes.binary.view_after", defaultValue: "View After", bundle: .module),
+                    revision: .current
+                )
+            }
+        case .deleted:
+            previewButton(
+                title: String(localized: "changes.binary.view_file", defaultValue: "View File", bundle: .module),
+                revision: .base
+            )
+        case .added, .untracked, .unknown:
+            previewButton(
+                title: String(localized: "changes.binary.view_file", defaultValue: "View File", bundle: .module),
+                revision: .current
             )
         }
+    }
+
+    private func previewButton(title: String, revision: FileDiffPreviewRevision) -> some View {
+        Button(title) {
+            onPreviewFile?(fileIndex, revision)
+        }
+        .buttonStyle(.borderedProminent)
     }
 
     private func truncatedFooter(lineCount: Int) -> some View {

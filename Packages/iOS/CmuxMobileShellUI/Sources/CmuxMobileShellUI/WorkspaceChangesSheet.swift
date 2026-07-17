@@ -1,4 +1,6 @@
 #if os(iOS)
+import CmuxAgentChat
+import CmuxAgentChatUI
 import CmuxMobileChanges
 import CmuxMobileShell
 import Foundation
@@ -18,6 +20,7 @@ public struct WorkspaceChangesSheet: View {
     @State private var listState: WorkspaceChangesListState = .loading
     @State private var cachedDocuments: [String: FileDiffDocument] = [:]
     @State private var fontSize: Double
+    @State private var navigationPath: [WorkspaceChangesNavigationRoute] = []
     @Environment(\.dismiss) private var dismiss
 
     /// Creates a changes sheet for one remote workspace.
@@ -47,9 +50,10 @@ public struct WorkspaceChangesSheet: View {
             listState: listState,
             cachedDocuments: cachedDocuments,
             fontSize: fontSize,
-            initialFileIndex: nil,
             listActions: listActions,
             pagerActions: pagerActions,
+            path: $navigationPath,
+            previewDestination: artifactPreviewDestination,
             onClose: { dismiss() }
         )
         .task(id: workspaceID) {
@@ -76,7 +80,46 @@ public struct WorkspaceChangesSheet: View {
             },
             onCopy: { text in
                 UIPasteboard.general.string = text
+            },
+            onPreviewFile: { index, revision in
+                navigationPath.append(.preview(index: index, revision: revision))
             }
+        )
+    }
+
+    @MainActor
+    private func artifactPreviewDestination(
+        index: Int,
+        revision: FileDiffPreviewRevision,
+        onDone: @escaping () -> Void
+    ) -> AnyView {
+        guard files.indices.contains(index) else {
+            return AnyView(EmptyView())
+        }
+        let file = files[index]
+        let resolvedPath = revision == .base ? (file.oldPath ?? file.path) : file.path
+        let swipeOrder = ChatArtifactGallerySwipeOrder(items: [
+            ChatArtifactGalleryItem(
+                path: resolvedPath,
+                kind: .binary,
+                displayName: URL(fileURLWithPath: resolvedPath).lastPathComponent,
+                size: file.byteSize
+            ),
+        ])
+        let loader = store.workspaceChangesArtifactLoader(
+            workspaceID: workspaceID,
+            path: file.path,
+            oldPath: file.oldPath,
+            revision: revision
+        )
+        return AnyView(
+            ChatArtifactViewerDestination(
+                path: resolvedPath,
+                scope: .terminal,
+                swipeOrder: swipeOrder,
+                onDone: onDone
+            )
+            .environment(\.chatArtifactLoader, loader)
         )
     }
 

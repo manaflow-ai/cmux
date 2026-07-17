@@ -152,6 +152,79 @@ extension TerminalController {
         }
     }
 
+    /// Returns artifact-compatible metadata for one changed file revision.
+    ///
+    /// `workspace_id`, `path`, and `revision` arrive across the mobile trust
+    /// boundary. Workspace lookup is explicit; `WorkspaceChangesService` then
+    /// requires the normalized path to remain contained by the repository and
+    /// to belong to the current changed-file authorization snapshot. Rename old
+    /// paths are accepted only for the base revision.
+    @MainActor
+    func v2MobileWorkspaceChangesFileStat(params: [String: Any]) async -> V2CallResult {
+        guard let context = mobileWorkspaceChangesContentContext(params: params) else {
+            return .err(
+                code: "invalid_params",
+                message: Self.mobileWorkspaceChangesInvalidContentRequest,
+                data: nil
+            )
+        }
+        guard let directory = mobileWorkspaceChangesDirectory(workspaceID: context.workspaceID) else {
+            return .err(code: "not_found", message: Self.mobileWorkspaceChangesUnavailable, data: [
+                "workspace_id": context.workspaceID.uuidString,
+            ])
+        }
+        do {
+            let stat = try await MobileHostService.shared.workspaceChangesService.fileStat(
+                forDirectory: directory,
+                path: context.path,
+                revision: context.revision
+            )
+            return mobileWorkspaceChangesWireResult(stat)
+        } catch let error as WorkspaceChangesServiceError {
+            return mobileWorkspaceChangesContentErrorResult(error, path: context.path)
+        } catch {
+            return .err(code: "internal_error", message: Self.mobileWorkspaceChangesReadFailed, data: nil)
+        }
+    }
+
+    /// Returns one bounded byte chunk for one changed file revision.
+    ///
+    /// The same repository-containment and current-change authorization gates
+    /// as `file_stat` run before any bytes are read. The package service clamps
+    /// each response to the shared 3 MiB artifact chunk policy and reports the
+    /// uncapped total size and exact EOF state.
+    @MainActor
+    func v2MobileWorkspaceChangesFileFetch(params: [String: Any]) async -> V2CallResult {
+        guard let context = mobileWorkspaceChangesContentContext(params: params) else {
+            return .err(
+                code: "invalid_params",
+                message: Self.mobileWorkspaceChangesInvalidContentRequest,
+                data: nil
+            )
+        }
+        guard let directory = mobileWorkspaceChangesDirectory(workspaceID: context.workspaceID) else {
+            return .err(code: "not_found", message: Self.mobileWorkspaceChangesUnavailable, data: [
+                "workspace_id": context.workspaceID.uuidString,
+            ])
+        }
+        let offset = max(0, Int64(v2Int(params, "offset") ?? 0))
+        let length = v2Int(params, "length") ?? 0
+        do {
+            let chunk = try await MobileHostService.shared.workspaceChangesService.fileFetch(
+                forDirectory: directory,
+                path: context.path,
+                revision: context.revision,
+                offset: offset,
+                length: length
+            )
+            return mobileWorkspaceChangesWireResult(chunk)
+        } catch let error as WorkspaceChangesServiceError {
+            return mobileWorkspaceChangesContentErrorResult(error, path: context.path)
+        } catch {
+            return .err(code: "internal_error", message: Self.mobileWorkspaceChangesReadFailed, data: nil)
+        }
+    }
+
     @MainActor
     private func explicitMobileWorkspaceChangesID(params: [String: Any]) -> UUID? {
         guard v2HasNonNullParam(params, "workspace_id") else { return nil }
@@ -230,9 +303,51 @@ extension TerminalController {
                 ),
                 data: ["path": path]
             )
+        case .forbidden:
+            return .err(code: "forbidden", message: Self.mobileWorkspaceChangesReadFailed, data: ["path": path])
+        case .fileNotFound:
+            return .err(code: "file_not_found", message: Self.mobileWorkspaceChangesReadFailed, data: ["path": path])
         case .gitFailure:
             return .err(code: "internal_error", message: Self.mobileWorkspaceChangesReadFailed, data: nil)
         }
+    }
+
+    @MainActor
+    private func mobileWorkspaceChangesContentContext(
+        params: [String: Any]
+    ) -> (workspaceID: UUID, path: String, revision: WorkspaceChangesFileRevision)? {
+        guard let workspaceID = explicitMobileWorkspaceChangesID(params: params),
+              let path = v2RawString(params, "path"),
+              !path.isEmpty,
+              let revisionRaw = v2RawString(params, "revision"),
+              let revision = WorkspaceChangesFileRevision(rawValue: revisionRaw) else {
+            return nil
+        }
+        return (workspaceID, path, revision)
+    }
+
+    private func mobileWorkspaceChangesContentErrorResult(
+        _ error: WorkspaceChangesServiceError,
+        path: String
+    ) -> V2CallResult {
+        switch error {
+        case .invalidPath, .fileNotChanged, .forbidden:
+            return .err(code: "forbidden", message: Self.mobileWorkspaceChangesReadFailed, data: ["path": path])
+        case .fileNotFound:
+            return .err(code: "file_not_found", message: Self.mobileWorkspaceChangesReadFailed, data: ["path": path])
+        case .notARepository:
+            return .err(code: "not_a_repo", message: Self.mobileWorkspaceChangesNotARepository, data: nil)
+        case .gitFailure:
+            return .err(code: "internal_error", message: Self.mobileWorkspaceChangesReadFailed, data: nil)
+        }
+    }
+
+    private func mobileWorkspaceChangesWireResult<T: Encodable>(_ value: T) -> V2CallResult {
+        guard let data = try? JSONEncoder().encode(value),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return .err(code: "internal_error", message: Self.mobileWorkspaceChangesReadFailed, data: nil)
+        }
+        return .ok(object)
     }
 
     private static var mobileWorkspaceChangesInvalidWorkspaceID: String {
@@ -260,6 +375,13 @@ extension TerminalController {
         String(
             localized: "mobile.workspaceChanges.error.readFailed",
             defaultValue: "Failed to read workspace diff"
+        )
+    }
+
+    private static var mobileWorkspaceChangesInvalidContentRequest: String {
+        String(
+            localized: "mobile.workspaceChanges.error.invalidContentRequest",
+            defaultValue: "Missing or invalid workspace_id, path, or revision"
         )
     }
 }

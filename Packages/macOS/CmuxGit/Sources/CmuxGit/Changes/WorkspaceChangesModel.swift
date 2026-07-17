@@ -240,6 +240,10 @@ public enum WorkspaceChangesServiceError: Error, Sendable, Equatable {
     case notARepository
     /// The requested path is not in the current changes snapshot.
     case fileNotChanged
+    /// The path is not authorized for the requested changes revision.
+    case forbidden
+    /// The authorized file no longer exists at the requested revision.
+    case fileNotFound
     /// Git failed while producing the requested diff.
     case gitFailure
 }

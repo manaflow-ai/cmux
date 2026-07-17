@@ -51,6 +51,18 @@ let slugs = await git.repositorySlugs(forDirectory: checkoutPath)
 let changes = WorkspaceChangesService()
 let summary = await changes.summary(forDirectory: checkoutPath)
 let files = await changes.changedFiles(forDirectory: checkoutPath)
+let stat = try await changes.fileStat(
+    forDirectory: checkoutPath,
+    path: "Resources/preview.png",
+    revision: .current
+)
+let firstChunk = try await changes.fileFetch(
+    forDirectory: checkoutPath,
+    path: "Resources/preview.png",
+    revision: .current,
+    offset: 0,
+    length: 3 * 1024 * 1024
+)
 ```
 
 `GitMetadataService` is stateless and `Sendable`. `WorkspaceChangesService` is
@@ -70,7 +82,9 @@ parsing helpers are exercised via `@testable import CmuxGit`.
 Workspace-changes tests inject `WorkspaceChangesGitRunning` and an actor-backed
 fake clock for parser/cache unit coverage. Behavior tests create isolated
 throwaway repositories under `FileManager.temporaryDirectory` and invoke real
-Git commands with a scratch `HOME` and system/global config disabled.
+Git commands with a scratch `HOME` and system/global config disabled. Content
+tests use the same fixture to verify changed-path authorization, rename/base
+selection, stable base materialization, chunk limits, slices, and EOF metadata.
 
 ```swift
 let fixture = try GitRepositoryFixture()
