@@ -10,7 +10,8 @@ final class SidebarWorkspaceTableCellModel {
     func configure(
         row: SidebarWorkspaceTableRowConfiguration,
         isPointerHovering: Bool,
-        contextMenuActions: SidebarWorkspaceTableContextMenuActions
+        contextMenuActions: SidebarWorkspaceTableContextMenuActions,
+        editingDidChange: @escaping (Bool) -> Void
     ) -> Bool {
         if let state,
            state.row.id == row.id,
@@ -21,7 +22,8 @@ final class SidebarWorkspaceTableCellModel {
         state = SidebarWorkspaceTableCellState(
             row: row,
             isPointerHovering: isPointerHovering,
-            contextMenuActions: contextMenuActions
+            contextMenuActions: contextMenuActions,
+            editingDidChange: editingDidChange
         )
         return true
     }

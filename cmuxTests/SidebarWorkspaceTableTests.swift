@@ -142,36 +142,6 @@ struct SidebarWorkspaceTableTests {
 
     @Test
     @MainActor
-    func groupHeaderBeginsAnchorDragAndWorkspaceRowBeginsOwnDrag() {
-        let controller = SidebarWorkspaceTableController()
-        let container = controller.makeContainerView()
-        let groupId = UUID()
-        let anchorId = UUID()
-        let workspaceId = UUID()
-        var draggedWorkspaceIds: [UUID] = []
-        let group = makeRowConfiguration(
-            id: .group(groupId),
-            workspaceId: anchorId,
-            groupId: groupId,
-            isGroupHeader: true
-        )
-        let workspace = makeRowConfiguration(workspaceId: workspaceId)
-        controller.apply(
-            rows: [group, workspace],
-            actions: makeTableActions(beginWorkspaceDrag: { draggedWorkspaceIds.append($0) }),
-            workspaceIds: [anchorId, workspaceId],
-            selectedWorkspaceId: nil,
-            selectedScrollTargetWorkspaceId: nil
-        )
-        flushStagedTableMutations()
-        #expect(controller.tableView(container.tableView, pasteboardWriterForRow: 0) != nil)
-        #expect(draggedWorkspaceIds == [anchorId])
-        #expect(controller.tableView(container.tableView, pasteboardWriterForRow: 1) != nil)
-        #expect(draggedWorkspaceIds == [anchorId, workspaceId])
-    }
-
-    @Test
-    @MainActor
     func dropTargetGeometryIsIdleDuringScrollAndTracksDragLifecycle() {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
@@ -385,7 +355,7 @@ struct SidebarWorkspaceTableTests {
             isPinned: false,
             environment: environment,
             equivalenceValue: TestRowContent(token: contentToken)
-        ) { _, _ in
+        ) { _, _, _ in
             AnyView(TestRowContent(token: contentToken))
         }
     }
@@ -415,7 +385,7 @@ struct SidebarWorkspaceTableTests {
             isPinned: false,
             environment: environment,
             equivalenceValue: 0
-        ) { _, _ in
+        ) { _, _, _ in
             AnyView(ExpandingTestRow(model: model))
         }
     }

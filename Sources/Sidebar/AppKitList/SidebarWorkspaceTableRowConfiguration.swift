@@ -5,7 +5,8 @@ import SwiftUI
 struct SidebarWorkspaceTableRowConfiguration {
     typealias ContentFactory = (
         _ isPointerHovering: Bool,
-        _ contextMenuActions: SidebarWorkspaceTableContextMenuActions
+        _ contextMenuActions: SidebarWorkspaceTableContextMenuActions,
+        _ editingDidChange: @escaping (Bool) -> Void
     ) -> AnyView
 
     let id: SidebarWorkspaceRenderItemID

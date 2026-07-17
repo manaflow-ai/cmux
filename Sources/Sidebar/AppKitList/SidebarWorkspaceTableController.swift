@@ -183,6 +183,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
         guard rows.indices.contains(row), let actions else { return nil }
+        if let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false)
+            as? SidebarWorkspaceTableCellView, cell.suppressesWorkspaceDrag { return nil }
         let workspaceId = rows[row].workspaceId
         actions.beginWorkspaceDrag(workspaceId)
         workspaceDragSessionDidBegin()
@@ -193,7 +195,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         )
         return item
     }
-
     func tableView(
         _ tableView: NSTableView,
         draggingSession session: NSDraggingSession,
@@ -212,7 +213,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             positionAppKitDropIndicator()
         }
     }
-
     func workspaceDragSessionDidEnd() {
         dropTargetGeometry.setWorkspaceDragSessionActive(false, rows: rows)
         dropTargetGeometry.setReorderTargetCollectionActive(false, rows: rows)

@@ -4,4 +4,5 @@ struct SidebarWorkspaceTableCellState {
     let row: SidebarWorkspaceTableRowConfiguration
     let isPointerHovering: Bool
     let contextMenuActions: SidebarWorkspaceTableContextMenuActions
+    let editingDidChange: (Bool) -> Void
 }

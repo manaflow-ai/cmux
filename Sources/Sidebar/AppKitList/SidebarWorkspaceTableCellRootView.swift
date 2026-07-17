@@ -10,7 +10,8 @@ struct SidebarWorkspaceTableCellRootView: View {
             if let state = model.state {
                 state.row.makeContent(
                     state.isPointerHovering,
-                    state.contextMenuActions
+                    state.contextMenuActions,
+                    state.editingDidChange
                 )
             } else {
                 EmptyView()

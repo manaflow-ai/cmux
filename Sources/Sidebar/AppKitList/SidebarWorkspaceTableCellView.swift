@@ -8,6 +8,7 @@ final class SidebarWorkspaceTableCellView: NSTableCellView {
 
     let model: SidebarWorkspaceTableCellModel
     private let hostingView: SidebarWorkspaceTableHostingView
+    private(set) var suppressesWorkspaceDrag = false
 
     var hostedContentSizeDidInvalidate: (() -> Void)? {
         get { hostingView.contentSizeDidInvalidate }
@@ -55,13 +56,20 @@ final class SidebarWorkspaceTableCellView: NSTableCellView {
         contextMenuDidOpen: @escaping () -> Void,
         contextMenuDidClose: @escaping () -> Void
     ) -> Bool {
+        if representedRowId != row.id {
+            suppressesWorkspaceDrag = false
+        }
         let didReconfigure = model.configure(
             row: row,
             isPointerHovering: isPointerHovering,
             contextMenuActions: SidebarWorkspaceTableContextMenuActions(
                 didOpen: contextMenuDidOpen,
                 didClose: contextMenuDidClose
-            )
+            ),
+            editingDidChange: { [weak self] isEditing in
+                guard self?.representedRowId == row.id else { return }
+                self?.suppressesWorkspaceDrag = isEditing
+            }
         )
         return didReconfigure
     }

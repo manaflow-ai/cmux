@@ -47,18 +47,24 @@ struct SidebarWorkspaceRowActions {
     let onToggleChecklistExpansion: () -> Void
     let onConsumeChecklistAddFieldActivation: () -> Void
     let onChecklistPopoverPresentedChange: (Bool) -> Void
+    var onEditingChange: (Bool) -> Void = { _ in }
     var onContextMenuAppear: () -> Void
     var onContextMenuDisappear: () -> Void
 
-    /// Returns a copy whose context-menu callbacks also notify the AppKit
-    /// table cell, so the controller can pin hover while a row's menu is open.
-    func composingContextMenuCallbacks(
+    /// Returns a copy whose cell-lifecycle callbacks also notify the AppKit host.
+    func composingCellCallbacks(
         didOpen: @escaping () -> Void,
-        didClose: @escaping () -> Void
+        didClose: @escaping () -> Void,
+        editingDidChange: @escaping (Bool) -> Void
     ) -> Self {
         var composed = self
+        let baseEditingChange = onEditingChange
         let baseAppear = onContextMenuAppear
         let baseDisappear = onContextMenuDisappear
+        composed.onEditingChange = {
+            baseEditingChange($0)
+            editingDidChange($0)
+        }
         composed.onContextMenuAppear = {
             baseAppear()
             didOpen()

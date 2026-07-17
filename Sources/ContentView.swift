@@ -10655,11 +10655,11 @@ struct VerticalTabsSidebar: View {
             isPinned: isPinned,
             environment: environment,
             equivalenceValue: input.rowSnapshot(list: listSnapshot, isPointerHovering: false)
-        ) { isPointerHovering, contextMenuActions in
+        ) { isPointerHovering, contextMenuActions, editingDidChange in
             let snapshot = input.rowSnapshot(list: listSnapshot, isPointerHovering: isPointerHovering)
-            let actions = actionFactory(input).composingContextMenuCallbacks(
-                didOpen: contextMenuActions.didOpen,
-                didClose: contextMenuActions.didClose
+            let actions = actionFactory(input).composingCellCallbacks(
+                didOpen: contextMenuActions.didOpen, didClose: contextMenuActions.didClose,
+                editingDidChange: editingDidChange
             )
             return AnyView(
                 environment.apply(
@@ -10668,7 +10668,6 @@ struct VerticalTabsSidebar: View {
             )
         }
     }
-
     private func workspaceTableActions(
         renderContext: WorkspaceListRenderContext
     ) -> SidebarWorkspaceTableActions {
@@ -10790,7 +10789,6 @@ struct VerticalTabsSidebar: View {
             }
         )
     }
-
     // Applies one stable overlay/autohide scroller config and never toggles it.
     // Toggling `hasVerticalScroller`/style from SwiftUI re-renders (constant
     // while agents update rows) re-flashes the overlay knob so it never reaches
@@ -14115,6 +14113,8 @@ struct TabItemView: View, Equatable {
                 beginInlineRename()
             }
         )
+        .onChange(of: isEditing, initial: true) { _, isEditing in actions.onEditingChange(isEditing) }
+        .onDisappear { actions.onEditingChange(false) }
         .safeHelp(workspaceSnapshot.title)
         .modifier(SidebarRowAccessibilityModifier(
             isEditing: isEditing,
