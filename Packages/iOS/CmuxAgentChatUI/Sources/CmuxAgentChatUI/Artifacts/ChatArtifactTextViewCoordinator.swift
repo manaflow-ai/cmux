@@ -4,7 +4,17 @@ import UIKit
 
 /// Tracks which streamed chunks have been applied to one text-storage instance.
 @MainActor
-final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
+final class ChatArtifactTextViewCoordinator:
+    NSObject,
+    UITextViewDelegate,
+    UIGestureRecognizerDelegate
+{
+    private enum BottomPinTrigger {
+        case layoutChanged
+        case appendsFlushed
+        case reachedEOF
+    }
+
     var documentID: String?
     var appliedChunkCount = 0
     var handledTopRequestID = 0
@@ -18,7 +28,7 @@ final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
     private var pendingLineNumberUpdate: (index: ChatArtifactLineIndex, isVisible: Bool)?
     private var latestPostAppendWork: (() -> Void)?
     private var topJumpConvergence: ChatArtifactTextJumpConvergence?
-    private var endJumpTarget: ChatArtifactTextEndJumpTarget?
+    private var bottomPin = ChatArtifactTextBottomPinStateMachine()
     private var endJumpConvergence: ChatArtifactTextJumpConvergence?
     private var isSettlingBoundaryJump = false
     private weak var containerView: ChatArtifactTextContainerView?
@@ -55,6 +65,12 @@ final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
         recognizer.cancelsTouchesInView = false
         return recognizer
     }()
+    private lazy var bottomPinExitTapGestureRecognizer: UITapGestureRecognizer = {
+        let recognizer = UITapGestureRecognizer(target: self, action: #selector(handleUserTap(_:)))
+        recognizer.cancelsTouchesInView = false
+        recognizer.delegate = self
+        return recognizer
+    }()
 
     init(searchDebounce: Duration = .milliseconds(160)) {
         self.searchDebounce = searchDebounce
@@ -64,6 +80,13 @@ final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
     func attach(_ containerView: ChatArtifactTextContainerView) {
         self.containerView = containerView
         containerView.textView.addGestureRecognizer(fontPinchGestureRecognizer)
+        containerView.textView.addGestureRecognizer(bottomPinExitTapGestureRecognizer)
+        if let textView = containerView.textView as? ChatArtifactUIKitTextView {
+            textView.onLayoutDidChange = { [weak self, weak textView] in
+                guard let textView else { return }
+                self?.textViewLayoutDidChange(in: textView)
+            }
+        }
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
@@ -71,9 +94,7 @@ final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
-        topJumpConvergence = nil
-        endJumpTarget = nil
-        endJumpConvergence = nil
+        cancelBoundaryJumpOwnership()
         appendPolicy.beginTracking()
         suspendTextStorageWork()
     }
@@ -99,6 +120,20 @@ final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
         )
     }
 
+    private func textViewLayoutDidChange(in textView: UITextView) {
+        settleBoundaryJumpIfReady(in: textView, bottomPinTrigger: .layoutChanged)
+    }
+
+    private func cancelBottomPinOwnership() {
+        endJumpConvergence = nil
+        bottomPin.userInteracted()
+    }
+
+    private func cancelBoundaryJumpOwnership() {
+        topJumpConvergence = nil
+        cancelBottomPinOwnership()
+    }
+
     func resetStreamingText() {
         appendPolicy.reset()
         pendingTextChunks.removeAll(keepingCapacity: false)
@@ -106,7 +141,7 @@ final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
         pendingLineNumberUpdate = nil
         latestPostAppendWork = nil
         topJumpConvergence = nil
-        endJumpTarget = nil
+        bottomPin = ChatArtifactTextBottomPinStateMachine()
         endJumpConvergence = nil
         appliedChunkCount = 0
     }
@@ -140,8 +175,7 @@ final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
     }
 
     func scrollToTop(in textView: UITextView, animated: Bool) {
-        endJumpTarget = nil
-        endJumpConvergence = nil
+        cancelBottomPinOwnership()
         let target = documentTopContentOffset(in: textView)
         guard animated else {
             topJumpConvergence = nil
@@ -162,32 +196,27 @@ final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
         in textView: UITextView
     ) {
         topJumpConvergence = nil
-        endJumpTarget = target
-        let contentOffset = documentEndContentOffset(in: textView)
+        let boundary = documentEndBoundary(in: textView)
         endJumpConvergence = ChatArtifactTextJumpConvergence(
-            initialTargetOffset: Double(contentOffset.y)
+            initialTargetOffset: boundary.contentOffsetY
         )
-        if !setContentOffset(contentOffset, animated: true, in: textView) {
+        let action = bottomPin.engage(target: target, boundary: boundary)
+        if !applyBottomPinAction(action, in: textView) {
             settleBoundaryJumpIfReady(in: textView)
         }
     }
 
     func reconcileEndJump(reachedEOF: Bool, in textView: UITextView) {
-        if reachedEOF, endJumpTarget == .latest {
-            endJumpTarget = .end
-            if endJumpConvergence == nil {
-                endJumpConvergence = ChatArtifactTextJumpConvergence(
-                    initialTargetOffset: Double(textView.contentOffset.y)
-                )
-            }
+        guard reachedEOF else { return }
+        if endJumpConvergence != nil || appendPolicy.isDeferring {
+            bottomPin.markReachedEOF()
+            return
         }
-        settleBoundaryJumpIfReady(in: textView)
+        settleBoundaryJumpIfReady(in: textView, bottomPinTrigger: .reachedEOF)
     }
 
     func scrollToUTF16Offset(_ offset: Int, in textView: UITextView) {
-        topJumpConvergence = nil
-        endJumpTarget = nil
-        endJumpConvergence = nil
+        cancelBoundaryJumpOwnership()
         textView.scrollRangeToVisible(NSRange(
             location: min(max(offset, 0), textView.textStorage.length),
             length: 0
@@ -205,7 +234,7 @@ final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
         applyPendingLineNumbersIfReady()
         runPostAppendWorkIfReady()
         if let textView {
-            settleBoundaryJumpIfReady(in: textView)
+            settleBoundaryJumpIfReady(in: textView, bottomPinTrigger: .layoutChanged)
         }
     }
 
@@ -229,27 +258,44 @@ final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
         textView.selectedRange = selection
         textView.setContentOffset(contentOffset, animated: false)
 
-        settleBoundaryJumpIfReady(in: textView)
+        settleBoundaryJumpIfReady(in: textView, bottomPinTrigger: .appendsFlushed)
         applyPendingLineNumbersIfReady()
         runPostAppendWorkIfReady()
     }
 
-    /// Retargets a boundary intent after each animation or streamed edit changes layout.
-    private func settleBoundaryJumpIfReady(in textView: UITextView) {
+    /// Settles the bounded initial animation, then lets the durable pin own later changes.
+    private func settleBoundaryJumpIfReady(
+        in textView: UITextView,
+        bottomPinTrigger: BottomPinTrigger? = nil
+    ) {
         // UIKit may synchronously report animation completion while a fallback
         // range is being materialized. The active settle already owns that edge.
         guard !isSettlingBoundaryJump else { return }
         isSettlingBoundaryJump = true
         defer { isSettlingBoundaryJump = false }
 
+        guard !appendPolicy.isDeferring,
+              pendingTextChunks.isEmpty else { return }
+
         while settleBoundaryJumpOnceIfReady(in: textView) {}
+
+        guard endJumpConvergence == nil,
+              let bottomPinTrigger else { return }
+        let boundary = documentEndBoundary(in: textView)
+        let action: ChatArtifactTextBottomPinStateMachine.Action
+        switch bottomPinTrigger {
+        case .layoutChanged:
+            action = bottomPin.layoutChanged(to: boundary)
+        case .appendsFlushed:
+            action = bottomPin.appendsFlushed(at: boundary)
+        case .reachedEOF:
+            action = bottomPin.reachedEOF(at: boundary)
+        }
+        _ = applyBottomPinAction(action, in: textView)
     }
 
     /// Performs one budgeted settle step and reports whether layout must be sampled again now.
     private func settleBoundaryJumpOnceIfReady(in textView: UITextView) -> Bool {
-        guard !appendPolicy.isDeferring,
-              pendingTextChunks.isEmpty else { return false }
-
         if var convergence = topJumpConvergence {
             let target = documentTopContentOffset(in: textView)
             let decision = convergence.decision(
@@ -260,20 +306,16 @@ final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
             return applyTopJumpDecision(decision, target: target, in: textView)
         }
 
-        guard let endJumpTarget else { return false }
-        let target = documentEndContentOffset(in: textView)
-        var convergence = endJumpConvergence ?? ChatArtifactTextJumpConvergence(
-            initialTargetOffset: Double(textView.contentOffset.y)
-        )
+        guard var convergence = endJumpConvergence else { return false }
+        let boundary = documentEndBoundary(in: textView)
         let decision = convergence.decision(
             observedOffset: Double(textView.contentOffset.y),
-            targetOffset: Double(target.y)
+            targetOffset: boundary.contentOffsetY
         )
         endJumpConvergence = convergence
         return applyEndJumpDecision(
             decision,
-            target: target,
-            semanticTarget: endJumpTarget,
+            boundary: boundary,
             in: textView
         )
     }
@@ -302,18 +344,22 @@ final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
 
     private func applyEndJumpDecision(
         _ decision: ChatArtifactTextJumpConvergence.Decision,
-        target: CGPoint,
-        semanticTarget: ChatArtifactTextEndJumpTarget,
+        boundary: ChatArtifactTextBottomBoundary,
         in textView: UITextView
     ) -> Bool {
         switch decision {
         case .finish:
             endJumpConvergence = nil
-            if semanticTarget == .end {
-                endJumpTarget = nil
-            }
+            _ = applyBottomPinAction(
+                bottomPin.initialAnimationSettled(at: boundary),
+                in: textView
+            )
             return false
         case .retarget:
+            let target = CGPoint(
+                x: textView.contentOffset.x,
+                y: CGFloat(boundary.contentOffsetY)
+            )
             if !setContentOffset(target, animated: true, in: textView) {
                 textView.layoutIfNeeded()
                 return true
@@ -321,10 +367,35 @@ final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
             return false
         case .force:
             endJumpConvergence = nil
-            if semanticTarget == .end {
-                endJumpTarget = nil
+            _ = applyBottomPinAction(
+                bottomPin.initialAnimationSettled(at: boundary),
+                in: textView
+            )
+            return false
+        }
+    }
+
+    /// Applies the state-machine decision; only the first End movement may animate.
+    private func applyBottomPinAction(
+        _ action: ChatArtifactTextBottomPinStateMachine.Action,
+        in textView: UITextView
+    ) -> Bool {
+        switch action {
+        case .none:
+            return false
+        case .scrollToBottom(let boundary, let animated):
+            if animated {
+                return setContentOffset(
+                    CGPoint(
+                        x: textView.contentOffset.x,
+                        y: CGFloat(boundary.contentOffsetY)
+                    ),
+                    animated: true,
+                    in: textView
+                )
             }
             settleAtDocumentEnd(in: textView)
+            bottomPin.didApplyPin(at: documentEndBoundary(in: textView))
             return false
         }
     }
@@ -391,6 +462,16 @@ final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
                     - textView.bounds.height
                     + textView.adjustedContentInset.bottom
             )
+        )
+    }
+
+    private func documentEndBoundary(
+        in textView: UITextView
+    ) -> ChatArtifactTextBottomBoundary {
+        let contentOffset = documentEndContentOffset(in: textView)
+        return ChatArtifactTextBottomBoundary(
+            storageEnd: textView.textStorage.length,
+            contentOffsetY: Double(contentOffset.y)
         )
     }
 
@@ -463,6 +544,7 @@ final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
         guard let textView = containerView?.textView else { return }
         switch recognizer.state {
         case .began:
+            cancelBoundaryJumpOwnership()
             pinchStartFontPointSize = appliedFontPointSize > 0
                 ? appliedFontPointSize
                 : Double(textView.font?.pointSize ?? 15)
@@ -484,6 +566,20 @@ final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
         default:
             break
         }
+    }
+
+    @objc
+    private func handleUserTap(_ recognizer: UITapGestureRecognizer) {
+        guard recognizer.state == .ended else { return }
+        cancelBoundaryJumpOwnership()
+    }
+
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+        gestureRecognizer === bottomPinExitTapGestureRecognizer
+            || otherGestureRecognizer === bottomPinExitTapGestureRecognizer
     }
 
     private func applyFontSize(_ pointSize: Double, to textView: UITextView) {
@@ -791,7 +887,7 @@ final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
         )
         appliedSearchRange = currentRange
         if scrollToMatch {
-            endJumpTarget = nil
+            cancelBoundaryJumpOwnership()
             textView.scrollRangeToVisible(currentRange)
         }
     }

@@ -11,7 +11,7 @@ final class ChatArtifactTextContainerView: UIView {
     private var wrapsLines = true
 
     override init(frame: CGRect) {
-        textView = UITextView(usingTextLayoutManager: false)
+        textView = ChatArtifactUIKitTextView()
         gutterWidthConstraint = gutterView.widthAnchor.constraint(equalToConstant: 0)
         super.init(frame: frame)
 

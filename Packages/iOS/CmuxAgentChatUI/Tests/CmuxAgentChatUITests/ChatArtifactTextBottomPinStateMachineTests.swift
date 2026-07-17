@@ -97,4 +97,29 @@ struct ChatArtifactTextBottomPinStateMachineTests {
         #expect(pin.phase == .following)
         #expect(pin.visibleBoundary?.storageEnd == finalBoundary.storageEnd)
     }
+
+    @Test("EOF during the initial animation is retained for the terminal settle")
+    func eofDuringInitialAnimationIsRetained() {
+        var pin = ChatArtifactTextBottomPinStateMachine()
+        let partialBoundary = ChatArtifactTextBottomBoundary(
+            storageEnd: 120_000,
+            contentOffsetY: 112_000
+        )
+        let finalBoundary = ChatArtifactTextBottomBoundary(
+            storageEnd: 174_000,
+            contentOffsetY: 168_000
+        )
+
+        _ = pin.engage(target: .latest, boundary: partialBoundary)
+        let didMarkEOF = pin.markReachedEOF()
+        #expect(didMarkEOF)
+        #expect(pin.target == .end)
+        #expect(
+            pin.initialAnimationSettled(at: finalBoundary)
+                == .scrollToBottom(boundary: finalBoundary, animated: false)
+        )
+        pin.didApplyPin(at: finalBoundary)
+
+        #expect(pin.visibleBoundary == finalBoundary)
+    }
 }

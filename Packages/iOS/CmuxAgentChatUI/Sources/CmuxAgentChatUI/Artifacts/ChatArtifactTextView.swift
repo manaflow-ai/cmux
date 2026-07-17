@@ -28,8 +28,8 @@ struct ChatArtifactTextView: UIViewRepresentable {
     }
 
     func makeUIView(context: Context) -> ChatArtifactTextContainerView {
-        // The container constructs `UITextView(usingTextLayoutManager: false)`
-        // so non-contiguous TextKit 1 layout remains genuinely viewport-lazy.
+        // The container constructs an explicit TextKit 1 storage/layout stack
+        // so non-contiguous layout remains genuinely viewport-lazy.
         let containerView = ChatArtifactTextContainerView()
         containerView.textView.delegate = context.coordinator
         context.coordinator.attach(containerView)
