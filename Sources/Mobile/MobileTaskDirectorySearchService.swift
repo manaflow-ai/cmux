@@ -17,6 +17,7 @@ actor MobileTaskDirectorySearchService {
         var maximumFilesystemEntries = 24_000
         var indexBuildTimeout: Duration = .seconds(3)
         var maximumConcurrentIndexBuilds = 2
+        var maximumForegroundFilesystemEntries = 8_000
     }
 
     static let shared = MobileTaskDirectorySearchService()
@@ -37,7 +38,7 @@ actor MobileTaskDirectorySearchService {
         let id: UUID
         let rootIDs: Set<Data>
         var waiters: [UUID: CheckedContinuation<BuildOutcome, Never>]
-        let deadlineTask: Task<Void, Never>
+        var deadlineTask: Task<Void, Never>?
     }
 
     struct SearchablePath: Sendable {
@@ -59,14 +60,21 @@ actor MobileTaskDirectorySearchService {
         let task: Task<[String], Never>
     }
 
+    private struct PendingForegroundSearch {
+        let id: UUID
+        let task: Task<[String], Never>
+    }
+
     typealias IndexBuilder = @Sendable ([URL], Configuration) async -> [SearchablePath]
     typealias RankOperation = @Sendable ([SearchablePath], String, Int) async -> [String]
+    typealias ForegroundSearchOperation = @Sendable ([URL], String, Int, Configuration) async -> [String]
     typealias DeadlineSleep = @Sendable (Duration) async -> Void
 
     private let homeDirectory: URL
     private let configuration: Configuration
     private let indexBuilder: IndexBuilder
     private let rankOperation: RankOperation
+    private let foregroundSearchOperation: ForegroundSearchOperation
     private let deadlineSleep: DeadlineSleep
     private var snapshot: Snapshot?
     private var pendingBuildIDsByRoots: [Set<Data>: UUID] = [:]
@@ -74,12 +82,14 @@ actor MobileTaskDirectorySearchService {
     private var activeBuildIDs: Set<UUID> = []
     private var searchRevision: UInt64 = 0
     private var pendingRank: PendingRank?
+    private var pendingForegroundSearch: PendingForegroundSearch?
 
     init(
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
         configuration: Configuration = Configuration(),
         indexBuilder: IndexBuilder? = nil,
         rankOperation: RankOperation? = nil,
+        foregroundSearchOperation: ForegroundSearchOperation? = nil,
         deadlineSleep: DeadlineSleep? = nil
     ) {
         precondition(configuration.maximumConcurrentIndexBuilds > 0)
@@ -90,6 +100,14 @@ actor MobileTaskDirectorySearchService {
         }
         self.rankOperation = rankOperation ?? { paths, query, limit in
             Self.rank(searchablePaths: paths, query: query, limit: limit)
+        }
+        self.foregroundSearchOperation = foregroundSearchOperation ?? { roots, query, limit, configuration in
+            Self.exactForegroundMatches(
+                roots: roots,
+                query: query,
+                limit: limit,
+                configuration: configuration
+            )
         }
         self.deadlineSleep = deadlineSleep ?? { timeout in
             try? await ContinuousClock().sleep(for: timeout)
@@ -105,6 +123,7 @@ actor MobileTaskDirectorySearchService {
         searchRevision &+= 1
         let revision = searchRevision
         pendingRank?.task.cancel()
+        pendingForegroundSearch?.task.cancel()
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty, limit > 0 else { return [] }
         let expandedQuery = Self.expandHome(query, homeDirectory: homeDirectory.path)
@@ -121,6 +140,30 @@ actor MobileTaskDirectorySearchService {
         if !seededMatches.isEmpty { return seededMatches }
 
         let roots = Self.searchRoots(homeDirectory: homeDirectory, seedPaths: seedPaths)
+        let cachedPaths = cachedPaths(roots: roots, now: now)
+        if let cachedPaths {
+            let cachedMatches = await rankLatest(
+                paths: cachedPaths,
+                query: expandedQuery,
+                limit: maximumResults,
+                revision: revision
+            )
+            guard !Task.isCancelled, revision == searchRevision else { return [] }
+            if !cachedMatches.isEmpty { return cachedMatches }
+        } else {
+            ensureIndexBuildStarted(roots: roots, builtAt: now)
+        }
+
+        let foregroundMatches = await foregroundMatchesLatest(
+            roots: Self.foregroundSearchRoots(homeDirectory: homeDirectory, seedPaths: seedPaths),
+            query: expandedQuery,
+            limit: maximumResults,
+            revision: revision
+        )
+        guard !Task.isCancelled, revision == searchRevision else { return [] }
+        if !foregroundMatches.isEmpty { return foregroundMatches }
+        if cachedPaths != nil { return [] }
+
         let paths = try await indexedPaths(roots: roots, now: now)
         guard !Task.isCancelled, revision == searchRevision else { return [] }
         return await rankLatest(
@@ -133,11 +176,7 @@ actor MobileTaskDirectorySearchService {
 
     private func indexedPaths(roots: [URL], now: Date) async throws -> [SearchablePath] {
         let rootIDs = Set(roots.map { Data($0.path.utf8) })
-        if let snapshot,
-           now.timeIntervalSince(snapshot.builtAt) < configuration.cacheLifetime,
-           rootIDs == snapshot.rootIDs {
-            return snapshot.paths
-        }
+        if let cachedPaths = cachedPaths(rootIDs: rootIDs, now: now) { return cachedPaths }
         guard !Task.isCancelled else { throw CancellationError() }
         let waiterID = UUID()
         let outcome = await withTaskCancellationHandler {
@@ -163,6 +202,25 @@ actor MobileTaskDirectorySearchService {
         }
     }
 
+    private func cachedPaths(roots: [URL], now: Date) -> [SearchablePath]? {
+        cachedPaths(rootIDs: Set(roots.map { Data($0.path.utf8) }), now: now)
+    }
+
+    private func cachedPaths(rootIDs: Set<Data>, now: Date) -> [SearchablePath]? {
+        guard let snapshot,
+              now.timeIntervalSince(snapshot.builtAt) < configuration.cacheLifetime,
+              rootIDs == snapshot.rootIDs else { return nil }
+        return snapshot.paths
+    }
+
+    private func ensureIndexBuildStarted(roots: [URL], builtAt: Date) {
+        let rootIDs = Set(roots.map { Data($0.path.utf8) })
+        guard cachedPaths(rootIDs: rootIDs, now: builtAt) == nil,
+              pendingBuildIDsByRoots[rootIDs] == nil,
+              activeBuildIDs.count < configuration.maximumConcurrentIndexBuilds else { return }
+        launchIndexBuild(roots: roots, rootIDs: rootIDs, builtAt: builtAt, waiters: [:])
+    }
+
     private func registerBuildWaiter(
         waiterID: UUID,
         roots: [URL],
@@ -173,6 +231,9 @@ actor MobileTaskDirectorySearchService {
         if let buildID = pendingBuildIDsByRoots[rootIDs],
            var build = pendingBuildsByID[buildID] {
             build.waiters[waiterID] = continuation
+            if build.deadlineTask == nil {
+                build.deadlineTask = makeBuildDeadlineTask(buildID)
+            }
             pendingBuildsByID[buildID] = build
             return
         }
@@ -181,18 +242,26 @@ actor MobileTaskDirectorySearchService {
             return
         }
 
+        launchIndexBuild(
+            roots: roots,
+            rootIDs: rootIDs,
+            builtAt: builtAt,
+            waiters: [waiterID: continuation]
+        )
+    }
+
+    private func launchIndexBuild(
+        roots: [URL],
+        rootIDs: Set<Data>,
+        builtAt: Date,
+        waiters: [UUID: CheckedContinuation<BuildOutcome, Never>]
+    ) {
         let buildID = UUID()
-        let timeout = configuration.indexBuildTimeout
-        let deadlineTask = Task { [weak self, deadlineSleep] in
-            await deadlineSleep(timeout)
-            guard !Task.isCancelled else { return }
-            await self?.timeoutBuild(buildID)
-        }
         pendingBuildsByID[buildID] = PendingBuild(
             id: buildID,
             rootIDs: rootIDs,
-            waiters: [waiterID: continuation],
-            deadlineTask: deadlineTask
+            waiters: waiters,
+            deadlineTask: waiters.isEmpty ? nil : makeBuildDeadlineTask(buildID)
         )
         pendingBuildIDsByRoots[rootIDs] = buildID
         activeBuildIDs.insert(buildID)
@@ -200,6 +269,15 @@ actor MobileTaskDirectorySearchService {
         Task.detached(priority: .utility) { [weak self, indexBuilder] in
             let paths = await indexBuilder(roots, configuration)
             await self?.completeBuild(buildID, paths: paths, builtAt: builtAt)
+        }
+    }
+
+    private func makeBuildDeadlineTask(_ buildID: UUID) -> Task<Void, Never> {
+        let timeout = configuration.indexBuildTimeout
+        return Task { [weak self, deadlineSleep] in
+            await deadlineSleep(timeout)
+            guard !Task.isCancelled else { return }
+            await self?.timeoutBuild(buildID)
         }
     }
 
@@ -224,7 +302,7 @@ actor MobileTaskDirectorySearchService {
     private func completeBuild(_ buildID: UUID, paths: [SearchablePath], builtAt: Date) {
         activeBuildIDs.remove(buildID)
         guard let build = pendingBuildsByID.removeValue(forKey: buildID) else { return }
-        build.deadlineTask.cancel()
+        build.deadlineTask?.cancel()
         if pendingBuildIDsByRoots[build.rootIDs] == buildID {
             pendingBuildIDsByRoots.removeValue(forKey: build.rootIDs)
         }
@@ -260,6 +338,35 @@ actor MobileTaskDirectorySearchService {
         if pendingRank?.id == rankID { pendingRank = nil }
         guard !Task.isCancelled, revision == searchRevision else { return [] }
         return ranked
+    }
+
+    private func foregroundMatchesLatest(
+        roots: [URL],
+        query: String,
+        limit: Int,
+        revision: UInt64
+    ) async -> [String] {
+        if let prior = pendingForegroundSearch {
+            prior.task.cancel()
+            _ = await prior.task.value
+            if pendingForegroundSearch?.id == prior.id { pendingForegroundSearch = nil }
+        }
+        guard !roots.isEmpty, !Task.isCancelled, revision == searchRevision else { return [] }
+        let searchID = UUID()
+        let foregroundSearchOperation = foregroundSearchOperation
+        let configuration = configuration
+        let task = Task.detached(priority: .userInitiated) {
+            await foregroundSearchOperation(roots, query, limit, configuration)
+        }
+        pendingForegroundSearch = PendingForegroundSearch(id: searchID, task: task)
+        let matches = await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
+        if pendingForegroundSearch?.id == searchID { pendingForegroundSearch = nil }
+        guard !Task.isCancelled, revision == searchRevision else { return [] }
+        return matches
     }
 
     nonisolated static func rank(paths: [String], query: String, limit: Int) -> [String] {
@@ -374,6 +481,118 @@ actor MobileTaskDirectorySearchService {
         return paths
     }
 
+    private nonisolated static func exactForegroundMatches(
+        roots: [URL],
+        query: String,
+        limit: Int,
+        configuration: Configuration
+    ) -> [String] {
+        guard limit > 0,
+              configuration.maximumDirectories > 0,
+              configuration.maximumForegroundFilesystemEntries > 0 else { return [] }
+        let foldedQuery = fold(query)
+        let queryComponents = components(foldedQuery)
+        let queryBasename = queryComponents.last ?? foldedQuery
+        guard !queryBasename.isEmpty else { return [] }
+
+        let fileManager = FileManager.default
+        let keys: Set<URLResourceKey> = [.isDirectoryKey, .isSymbolicLinkKey, .isPackageKey]
+        var priorityQueue: [(url: URL, depth: Int)] = []
+        var regularQueue: [(url: URL, depth: Int)] = roots.map { ($0, 0) }
+        var priorityIndex = 0
+        var regularIndex = 0
+        var seen = Set<Data>()
+        var remainingFilesystemEntries = min(
+            configuration.maximumFilesystemEntries,
+            configuration.maximumForegroundFilesystemEntries
+        )
+
+        func nextEntry() -> (url: URL, depth: Int)? {
+            if priorityIndex < priorityQueue.count {
+                defer { priorityIndex += 1 }
+                return priorityQueue[priorityIndex]
+            }
+            guard regularIndex < regularQueue.count else { return nil }
+            defer { regularIndex += 1 }
+            return regularQueue[regularIndex]
+        }
+
+        while let entry = nextEntry(),
+              seen.count < configuration.maximumDirectories,
+              remainingFilesystemEntries > 0 {
+            guard !Task.isCancelled else { return [] }
+            remainingFilesystemEntries -= 1
+            guard let values = try? entry.url.resourceValues(forKeys: keys),
+                  values.isDirectory == true else { continue }
+            let path = entry.url.standardizedFileURL.path
+            let identity = Data(path.utf8)
+            guard seen.insert(identity).inserted else { continue }
+            if exactForegroundMatch(
+                path: path,
+                rawQuery: query,
+                foldedQuery: foldedQuery,
+                queryBasename: queryBasename,
+                queryComponents: queryComponents
+            ) {
+                return [path]
+            }
+
+            guard entry.depth < configuration.maximumDepth,
+                  values.isSymbolicLink != true,
+                  values.isPackage != true,
+                  !skipsDescendants(named: entry.url.lastPathComponent) else { continue }
+            let queuedDirectoryCount = priorityQueue.count - priorityIndex
+                + regularQueue.count - regularIndex
+            let availableDirectorySlots = configuration.maximumDirectories
+                - seen.count
+                - queuedDirectoryCount
+            guard availableDirectorySlots > 0 else { continue }
+            let children = boundedChildDirectories(
+                at: entry.url,
+                fileManager: fileManager,
+                keys: keys,
+                maximumDirectories: availableDirectorySlots,
+                remainingFilesystemEntries: &remainingFilesystemEntries
+            )
+            for child in children {
+                let childPath = child.standardizedFileURL.path
+                if exactForegroundMatch(
+                    path: childPath,
+                    rawQuery: query,
+                    foldedQuery: foldedQuery,
+                    queryBasename: queryBasename,
+                    queryComponents: queryComponents
+                ) {
+                    return [childPath]
+                }
+                if foregroundTraversalPriority(child.lastPathComponent) == 0 {
+                    priorityQueue.append((child, entry.depth + 1))
+                } else {
+                    regularQueue.append((child, entry.depth + 1))
+                }
+            }
+        }
+        return []
+    }
+
+    private nonisolated static func exactForegroundMatch(
+        path: String,
+        rawQuery: String,
+        foldedQuery: String,
+        queryBasename: String,
+        queryComponents: [String]
+    ) -> Bool {
+        guard let candidate = prepare(paths: [path]).first,
+              candidate.foldedPath == foldedQuery || candidate.basename == queryBasename else { return false }
+        return match(
+            candidate: candidate,
+            rawQuery: rawQuery,
+            foldedQuery: foldedQuery,
+            queryBasename: queryBasename,
+            queryComponents: queryComponents
+        ) != nil
+    }
+
     private nonisolated static func boundedChildDirectories(
         at directory: URL,
         fileManager: FileManager,
@@ -413,6 +632,39 @@ actor MobileTaskDirectorySearchService {
             guard seedURL.path != homeDirectory.path, !seedURL.path.hasPrefix(homePrefix) else { continue }
             let root = parentSearchRoot(for: seedURL)
             guard seen.insert(Data(root.path.utf8)).inserted else { continue }
+            roots.append(root)
+        }
+        return roots
+    }
+
+    private nonisolated static func foregroundSearchRoots(
+        homeDirectory: URL,
+        seedPaths: [String]
+    ) -> [URL] {
+        let fileManager = FileManager.default
+        var roots: [URL] = []
+        var seen = Set<Data>()
+        for name in ["Dev", "Developer", "Projects", "Code", "src", "Work", "Repos"] {
+            let root = homeDirectory.appendingPathComponent(name, isDirectory: true).standardizedFileURL
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: root.path, isDirectory: &isDirectory),
+                  isDirectory.boolValue,
+                  seen.insert(Data(root.path.utf8)).inserted else { continue }
+            roots.append(root)
+        }
+
+        let homePrefix = homeDirectory.path.hasSuffix("/") ? homeDirectory.path : homeDirectory.path + "/"
+        for seedPath in seedPaths {
+            let trimmed = seedPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            let expanded = expandHome(trimmed, homeDirectory: homeDirectory.path)
+            let seedURL = URL(fileURLWithPath: expanded, isDirectory: true).standardizedFileURL
+            guard seedURL.path != homeDirectory.path, !seedURL.path.hasPrefix(homePrefix) else { continue }
+            let root = parentSearchRoot(for: seedURL)
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: root.path, isDirectory: &isDirectory),
+                  isDirectory.boolValue,
+                  seen.insert(Data(root.path.utf8)).inserted else { continue }
             roots.append(root)
         }
         return roots
@@ -531,6 +783,13 @@ actor MobileTaskDirectorySearchService {
         case "dev", "developer", "projects", "code", "src", "work", "repos": 0
         case "desktop", "documents", "downloads": 1
         default: 2
+        }
+    }
+
+    private nonisolated static func foregroundTraversalPriority(_ name: String) -> Int {
+        switch name.lowercased() {
+        case "worktrees", "projects", "repos": 0
+        default: 1
         }
     }
 }
