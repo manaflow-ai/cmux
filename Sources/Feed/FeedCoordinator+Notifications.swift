@@ -189,66 +189,63 @@ extension FeedCoordinator {
         )
 
         let center = UNUserNotificationCenter.current()
-        center.getNotificationSettings { settings in
-            Task { @MainActor [weak self] in
-                guard let self, await self.isAwaitingDecision(requestId: requestId) else { return }
-                switch settings.authorizationStatus {
-                case .authorized, .provisional:
-                    await self.addNotificationIfStillAwaiting(
-                        center: center,
-                        request: request,
-                        requestId: requestId,
-                        effects: effects
-                    )
-                case .notDetermined:
-                    var granted = false
-                    var requestFailed = false
-                    do {
-                        granted = try await center.requestAuthorization(options: [.alert, .sound])
-                    } catch {
-                        requestFailed = true
-                    }
-                    guard await self.isAwaitingDecision(requestId: requestId) else { return }
-                    if granted {
-                        await self.addNotificationIfStillAwaiting(
-                            center: center,
-                            request: request,
-                            requestId: requestId,
-                            effects: effects
-                        )
-                    } else {
-                        // A non-grant without an error is the user declining
-                        // the prompt just now: honor the fresh denial on this
-                        // very notification. A request error is not a user
-                        // decision, so the fallback stays audible (fail-open).
-                        await self.runFallbackEffectsIfStillAwaiting(
-                            requestId: requestId,
-                            title: title,
-                            subtitle: subtitle,
-                            body: body,
-                            effects: TerminalNotificationStore.fallbackEffects(
-                                effects,
-                                authorizationState: requestFailed ? .unknown : .denied
-                            ),
-                            runCommand: false
-                        )
-                    }
-                default:
-                    await self.runFallbackEffectsIfStillAwaiting(
-                        requestId: requestId,
-                        title: title,
-                        subtitle: subtitle,
-                        body: body,
-                        effects: TerminalNotificationStore.fallbackEffects(
-                            effects,
-                            authorizationState: TerminalNotificationStore.authorizationState(
-                                from: settings.authorizationStatus
-                            )
-                        ),
-                        runCommand: false
-                    )
-                }
+        let settings = await center.notificationSettings()
+        guard await isAwaitingDecision(requestId: requestId) else { return }
+        switch settings.authorizationStatus {
+        case .authorized, .provisional:
+            await addNotificationIfStillAwaiting(
+                center: center,
+                request: request,
+                requestId: requestId,
+                effects: effects
+            )
+        case .notDetermined:
+            var granted = false
+            var requestFailed = false
+            do {
+                granted = try await center.requestAuthorization(options: [.alert, .sound])
+            } catch {
+                requestFailed = true
             }
+            guard await isAwaitingDecision(requestId: requestId) else { return }
+            if granted {
+                await addNotificationIfStillAwaiting(
+                    center: center,
+                    request: request,
+                    requestId: requestId,
+                    effects: effects
+                )
+            } else {
+                // A non-grant without an error is the user declining
+                // the prompt just now: honor the fresh denial on this
+                // very notification. A request error is not a user
+                // decision, so the fallback stays audible (fail-open).
+                await runFallbackEffectsIfStillAwaiting(
+                    requestId: requestId,
+                    title: title,
+                    subtitle: subtitle,
+                    body: body,
+                    effects: TerminalNotificationStore.fallbackEffects(
+                        effects,
+                        authorizationState: requestFailed ? .unknown : .denied
+                    ),
+                    runCommand: false
+                )
+            }
+        default:
+            await runFallbackEffectsIfStillAwaiting(
+                requestId: requestId,
+                title: title,
+                subtitle: subtitle,
+                body: body,
+                effects: TerminalNotificationStore.fallbackEffects(
+                    effects,
+                    authorizationState: TerminalNotificationStore.authorizationState(
+                        from: settings.authorizationStatus
+                    )
+                ),
+                runCommand: false
+            )
         }
     }
 
@@ -263,33 +260,29 @@ extension FeedCoordinator {
         let title = request.content.title
         let subtitle = request.content.subtitle
         let body = request.content.body
-        center.add(request) { error in
-            let didFail = error != nil
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                if !(await self.isAwaitingDecision(requestId: requestId)) {
-                    self.cancelNotification(requestId: requestId)
-                    return
-                }
-                if didFail {
-                    await self.runFallbackEffectsIfStillAwaiting(
-                        requestId: requestId,
-                        title: title,
-                        subtitle: subtitle,
-                        body: body,
-                        effects: effects,
-                        runCommand: false
-                    )
-                    return
-                }
-                if effects.command {
-                    NotificationSoundSettings.runCustomCommand(
-                        title: title,
-                        subtitle: subtitle,
-                        body: body
-                    )
-                }
-            }
+        do {
+            try await center.add(request)
+        } catch {
+            await runFallbackEffectsIfStillAwaiting(
+                requestId: requestId,
+                title: title,
+                subtitle: subtitle,
+                body: body,
+                effects: effects,
+                runCommand: false
+            )
+            return
+        }
+        guard await isAwaitingDecision(requestId: requestId) else {
+            cancelNotification(requestId: requestId)
+            return
+        }
+        if effects.command {
+            NotificationSoundSettings.runCustomCommand(
+                title: title,
+                subtitle: subtitle,
+                body: body
+            )
         }
     }
 
