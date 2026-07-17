@@ -74,3 +74,15 @@ def test_extract_rejects_paths_outside_package_root(tmp_path: Path) -> None:
     extracted = run_helper("extract", "--archive", archive, "--out", tmp_path)
     assert extracted.returncode != 0
     assert not (tmp_path.parent / "outside").exists()
+
+
+def test_publish_workflows_restore_the_mode_preserving_archive() -> None:
+    build = (ROOT / ".github/workflows/cmux-tui-build-package.yml").read_text()
+    stable = (ROOT / ".github/workflows/tui-publish-npm.yml").read_text()
+    nightly = (ROOT / ".github/workflows/cmux-tui-nightly.yml").read_text()
+
+    assert "package_npm_artifact.py create" in build
+    assert "path: dist/npm-packages.tar.gz" in build
+    for workflow in (stable, nightly):
+        assert "package_npm_artifact.py extract" in workflow
+        assert "--archive dist/npm-packages.tar.gz" in workflow
