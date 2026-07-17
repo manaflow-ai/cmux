@@ -542,23 +542,29 @@ final class cmuxUITests: XCTestCase {
         let showMore = app.buttons["MobileTaskDirectoryBrowseMore"]
         XCTAssertTrue(showMore.waitForExistence(timeout: 3))
         XCTAssertTrue(showMore.isHittable)
-        XCTAssertGreaterThanOrEqual(showMore.frame.height, 44)
+        let showMoreFrame = showMore.frame
+        XCTAssertGreaterThanOrEqual(showMoreFrame.height, 44)
         tap(showMore, in: app)
 
         let retry = app.buttons["TaskComposerDirectoryBrowseRetry"]
         XCTAssertTrue(retry.waitForExistence(timeout: 4))
-        XCTAssertTrue(app.staticTexts["Couldn’t Load More Folders"].exists)
         XCTAssertTrue(pageOneFolder.exists)
         XCTAssertTrue(unreadableFolder.exists)
         XCTAssertFalse(unreadableFolder.isEnabled)
-        XCTAssertFalse(app.buttons["second-page-folder"].exists)
+        XCTAssertFalse(app.buttons["z-second-page-folder"].exists)
 
         XCTAssertTrue(retry.isHittable)
-        XCTAssertGreaterThanOrEqual(retry.frame.height, 44)
+        let retryFrame = retry.frame
+        XCTAssertGreaterThanOrEqual(retryFrame.height, 44)
+        let hasAppendFailureTitle = app.staticTexts["Couldn’t Load More Folders"].exists
         tap(retry, in: app)
-        XCTAssertTrue(app.buttons["second-page-folder"].waitForExistence(timeout: 4))
+        XCTAssertTrue(app.buttons["z-second-page-folder"].waitForExistence(timeout: 4))
         XCTAssertTrue(pageOneFolder.exists)
         XCTAssertFalse(retry.waitForExistence(timeout: 1))
+        XCTAssertTrue(
+            hasAppendFailureTitle,
+            "Expected the page-2 failure title. Show More frame: \(showMoreFrame); Retry frame: \(retryFrame)"
+        )
     }
 
     /// The production editor must persist add, edit, and delete mutations in

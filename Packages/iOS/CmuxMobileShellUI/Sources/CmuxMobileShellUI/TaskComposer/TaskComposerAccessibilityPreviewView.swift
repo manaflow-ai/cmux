@@ -308,7 +308,7 @@ private actor TaskComposerDirectoryPaginationRecoveryPreview {
 
         return Self.page(
             entries: [
-                ("second-page-folder", "/Users/ui/second-page-folder", true),
+                ("z-second-page-folder", "/Users/ui/z-second-page-folder", true),
             ],
             offset: 2,
             nextOffset: nil
