@@ -265,12 +265,15 @@ check_screen_oracle() {
     # Same re-read discipline as every other judge: a probe can land inside
     # the one-frame handoff of a tab switch, and only a state that persists
     # through a fresh census is a defect.
-    refresh_pane_surfaces || true
-    on_screen_windows=$(printf '%s' "$PANE_SURFACES_JSON" | jq -r '
-      [.panes[]? | select(.on_screen == true) | .window_id] | unique | join(" ")
-    ' 2>/dev/null)
-    if [ "$(printf '%s\n' $on_screen_windows | grep -c .)" -gt 1 ]; then
-      note_fail "$iter" "overlay: surfaces from multiple windows on screen at once [$on_screen_windows]"
+    # Judging the stale snapshot again would just repeat the first read, so
+    # a failed refresh defers the verdict to the next iteration entirely.
+    if refresh_pane_surfaces; then
+      on_screen_windows=$(printf '%s' "$PANE_SURFACES_JSON" | jq -r '
+        [.panes[]? | select(.on_screen == true) | .window_id] | unique | join(" ")
+      ' 2>/dev/null)
+      if [ "$(printf '%s\n' $on_screen_windows | grep -c .)" -gt 1 ]; then
+        note_fail "$iter" "overlay: surfaces from multiple windows on screen at once [$on_screen_windows]"
+      fi
     fi
   fi
   for window in $on_screen_windows; do
@@ -500,7 +503,7 @@ check_iter() {
   done
   echo "  settle $((SECONDS - settle_start))s (iter $iter)"
   if [ "$settled" != 1 ]; then
-    note_fail "$iter" "settle exceeded ${budget}s budget (healthy baseline ~0.4s): $(printf '%s' "$settled_json" | jq -c '{counters, windows}' 2>/dev/null || printf '%s' "$settled_json" | tr -d '\n' | cut -c1-300)"
+    note_fail "$iter" "settle exceeded ${budget}s budget (healthy baseline ~0.4s): $(printf '%s' "$settled_json" | jq -ce '{counters, windows}' 2>/dev/null || printf '%s' "$settled_json" | tr -d '\n' | cut -c1-300)"
   elif settlement_has_render_mismatch "$settled_json"; then
     # Mismatch WHILE settled: re-read twice before failing, so a probe that
     # raced the last frame of a transition cannot manufacture a defect.

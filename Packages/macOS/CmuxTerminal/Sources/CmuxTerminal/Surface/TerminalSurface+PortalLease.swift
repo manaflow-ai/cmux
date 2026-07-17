@@ -162,7 +162,13 @@ extension TerminalSurface {
             area: Self.portalHostArea(for: bounds)
         )
 
-        let alreadyOwnsLease = activePortalHostLease?.hostId == hostId
+        // Owner identity is host AND creation serial: ObjectIdentifier values
+        // are reused after dealloc, and a new incarnation at a recycled address
+        // must not inherit the old owner's standing (or bypass
+        // allowsAuthorityAcquisition through it).
+        let alreadyOwnsLease = activePortalHostLease.map {
+            $0.hostId == hostId && $0.instanceSerial == instanceSerial
+        } ?? false
         guard alreadyOwnsLease || allowsAuthorityAcquisition else {
 #if DEBUG
             logDebugEvent(
@@ -190,7 +196,7 @@ extension TerminalSurface {
 #endif
 
         if let current = activePortalHostLease {
-            if current.hostId == hostId {
+            if current.hostId == hostId, current.instanceSerial == instanceSerial {
                 guard reservePortalHostAuthority(
                     hostId: hostId,
                     paneId: paneId,
