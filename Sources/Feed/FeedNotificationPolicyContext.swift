@@ -42,9 +42,11 @@ extension FeedNotificationPolicyContext {
   ) -> FeedNotificationPolicySnapshot {
     let appDelegate = AppDelegate.shared
     let workspaceID = event.workspaceId.flatMap(UUID.init(uuidString:))
-    let context = workspaceID.flatMap { appDelegate?.contextContainingTabId($0) }
+    let workspaceContext = workspaceID.flatMap { appDelegate?.contextContainingTabId($0) }
+    let configContext = workspaceContext
+      ?? appDelegate?.mainWindowContexts.values.first(where: { $0.cmuxConfigStore != nil })
     let workspace = workspaceID.flatMap { id in
-      context?.tabManager.tabs.first(where: { $0.id == id })
+      workspaceContext?.tabManager.tabs.first(where: { $0.id == id })
     }
     let cwd =
       normalizedCWD(event.cwd)
@@ -61,12 +63,10 @@ extension FeedNotificationPolicyContext {
     effects.paneFlash = false
 
     let workspaceIdentity = workspaceID?.uuidString ?? ""
-    let globalConfigPath = workspace == nil ? nil : context?.cmuxConfigStore?.globalConfigPath
-    let hookSearchDirectory = workspace.flatMap { workspace in
-      workspace.isRemoteWorkspace
-        ? nil
-        : (normalizedCWD(event.cwd) ?? workspace.surfaceTabBarDirectory)
-    }
+    let globalConfigPath = configContext?.cmuxConfigStore?.globalConfigPath
+    let hookSearchDirectory = workspace?.isRemoteWorkspace == true
+      ? nil
+      : (normalizedCWD(event.cwd) ?? workspace?.surfaceTabBarDirectory)
     return FeedNotificationPolicySnapshot(
       envelope: TerminalNotificationPolicyEnvelope(
         notification: TerminalNotificationPolicyPayload(

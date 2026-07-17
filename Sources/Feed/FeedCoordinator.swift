@@ -279,22 +279,49 @@ final class FeedCoordinator: @unchecked Sendable {
       decision,
       requestID: requestId
     )
-    guard delivery.accepted else {
-      return false
-    }
 
     // The user decided: conclude the needs-input overlay so the agent's
     // running/idle state shows through (refcounted so an overlapping
     // decision on the same panel keeps it lit until it too concludes).
-    concludeAttentionOnMain(delivery.attentionTarget)
-
-    await MainActor.run {
-      guard let store, let itemID = delivery.itemID else { return }
-      store.markResolved(itemID, decision: decision)
+    if delivery.accepted {
+      concludeAttentionOnMain(delivery.attentionTarget)
     }
 
+    let resolvedItemID = await MainActor.run { () -> UUID? in
+      guard let store else { return nil }
+      let itemID: UUID?
+      if delivery.accepted {
+        itemID = delivery.itemID ?? Self.findPendingItemID(for: requestId, in: store.items)
+      } else if !delivery.registered {
+        itemID = Self.findPendingItemID(for: requestId, in: store.items)
+      } else {
+        itemID = nil
+      }
+      guard let itemID else { return nil }
+      store.markResolved(itemID, decision: decision)
+      return itemID
+    }
+
+    guard delivery.accepted || resolvedItemID != nil else { return false }
     cancelNotification(requestId: requestId)
     return true
+  }
+
+  private static func findPendingItemID(
+    for requestID: String,
+    in items: [WorkstreamItem]
+  ) -> UUID? {
+    items.reversed().first { item in
+      guard item.status.isPending else { return false }
+      switch item.payload {
+      case .permissionRequest(let candidate, _, _, _),
+           .exitPlan(let candidate, _, _),
+           .question(let candidate, _):
+        return candidate == requestID
+      default:
+        return false
+      }
+    }?.id
   }
 
   func isAwaitingDecision(requestId: String) async -> Bool {

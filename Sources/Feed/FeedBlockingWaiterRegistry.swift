@@ -42,15 +42,23 @@ actor FeedBlockingWaiterRegistry {
     func deliver(
         _ decision: WorkstreamDecision,
         requestID: String
-    ) -> (accepted: Bool, itemID: UUID?, attentionTarget: FeedCoordinator.AttentionTarget?) {
-        guard var waiter = waiters[requestID], waiter.decision == nil else {
-            return (false, nil, nil)
+    ) -> (
+        accepted: Bool,
+        registered: Bool,
+        itemID: UUID?,
+        attentionTarget: FeedCoordinator.AttentionTarget?
+    ) {
+        guard var waiter = waiters[requestID] else {
+            return (false, false, nil, nil)
+        }
+        guard waiter.decision == nil else {
+            return (false, true, waiter.itemID, waiter.attentionTarget)
         }
         waiter.decision = decision
         waiters[requestID] = waiter
         waiter.continuation.yield(decision)
         waiter.continuation.finish()
-        return (true, waiter.itemID, waiter.attentionTarget)
+        return (true, true, waiter.itemID, waiter.attentionTarget)
     }
 
     func remove(requestID: String) -> FeedPendingWaiter? {
