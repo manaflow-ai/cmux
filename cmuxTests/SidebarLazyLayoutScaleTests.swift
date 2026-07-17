@@ -305,8 +305,8 @@ final class SidebarLazyLayoutScaleTests {
 
     /// TabItemView.body must never build a workspace snapshot. The parent owns
     /// the full per-workspace projection (bonsplit tree walk, git summaries,
-    /// PR rows) and passes the resulting value across the LazyVStack boundary.
-    /// Building it while a row is being realized would read the live workspace
+    /// PR rows) and passes the resulting value across the AppKit table boundary.
+    /// Building it while a hosted row is rendering would read the live workspace
     /// graph from inside SwiftUI layout and recreate the #6707 reentry path.
     @Test
     @MainActor
@@ -326,14 +326,14 @@ final class SidebarLazyLayoutScaleTests {
             """
             A single TabItemView.body evaluation built the workspace snapshot \(worstBody) \
             times. Workspace snapshots must be built by VerticalTabsSidebar before the \
-            LazyVStack realization closure and passed to rows as immutable values.
+            AppKit table configuration and passed to hosted rows as immutable values.
             """
         )
     }
 
     /// A simultaneous workspace-publisher burst must cross the parent snapshot
     /// boundary once per batch. Re-projecting all 300 row inputs once per
-    /// emitting workspace is O(N²) main-actor work even though LazyVStack only
+    /// emitting workspace is O(N²) main-actor work even though NSTableView only
     /// realizes the viewport rows. This also bounds the table's complete
     /// row-equivalence projection: single-row context-menu aggregation is
     /// bounded independently of N, and selected rows share one aggregate.

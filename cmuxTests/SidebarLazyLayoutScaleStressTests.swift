@@ -1,4 +1,6 @@
 import AppKit
+import Combine
+import CmuxWorkspaces
 import OSLog
 import SwiftUI
 import Testing
@@ -10,6 +12,134 @@ import Testing
 #endif
 
 extension SidebarLazyLayoutScaleTests {
+    /// A noisy workspace must not starve another workspace's pending change.
+    /// The stream never goes quiet for the coalescing interval, so a debounce
+    /// implementation would emit nothing until the loop stops. Keyed bounded
+    /// coalescing must instead keep delivering and retain the quiet id.
+    @Test
+    @MainActor
+    func testMergedObservationBatchIsLosslessAndNonStarvingDuringSustainedChurn() {
+        let source = PassthroughSubject<UUID, Never>()
+        let noisyWorkspaceId = UUID()
+        let quietWorkspaceId = UUID()
+        let subscriber = SidebarObservationBatchDemandSubscriber()
+        SidebarWorkspaceObservationBatch.mergedChanges(
+            from: [source.eraseToAnyPublisher()],
+            for: .milliseconds(20)
+        )
+        .subscribe(subscriber)
+        defer { subscriber.cancel() }
+
+        // The first two values establish the operator's replay and leading
+        // edges. The quiet id then enters the keyed accumulator while the
+        // noisy id keeps the source continuously active.
+        source.send(noisyWorkspaceId)
+        source.send(noisyWorkspaceId)
+        source.send(quietWorkspaceId)
+        for _ in 0..<10 {
+            Self.turnMainRunLoopOnce(layingOut: nil)
+        }
+
+        #expect(subscriber.receivedBatches.isEmpty)
+        subscriber.request(.unlimited)
+        #expect(
+            subscriber.receivedBatches.contains {
+                $0.contains(noisyWorkspaceId) && $0.contains(quietWorkspaceId)
+            },
+            "Backpressure discarded a workspace identity while wakeups were conflated."
+        )
+
+        let deliveriesBeforeChurn = subscriber.receivedBatches.count
+        let churnDeadline = ProcessInfo.processInfo.systemUptime + 0.3
+        while ProcessInfo.processInfo.systemUptime < churnDeadline {
+            source.send(noisyWorkspaceId)
+            Self.turnMainRunLoopOnce(layingOut: nil)
+        }
+        for _ in 0..<5 {
+            Self.turnMainRunLoopOnce(layingOut: nil)
+        }
+
+        #expect(
+            subscriber.receivedBatches.contains { $0.contains(quietWorkspaceId) },
+            "A quiet workspace identity was lost behind another workspace's sustained updates."
+        )
+        #expect(
+            subscriber.receivedBatches.count >= deliveriesBeforeChurn + 3,
+            """
+            Sustained input produced only \(subscriber.receivedBatches.count - deliveriesBeforeChurn) \
+            deliveries; batching must have a bounded cadence, not wait for silence.
+            """
+        )
+    }
+
+    /// Group anchors have exactly one rendered identity: the header. This is
+    /// the invariant used by table scrolling and drop-indicator lookup, and it
+    /// rules out duplicate workspace ids in both expanded and collapsed lists.
+    @Test
+    @MainActor
+    func testGroupedRenderItemsKeepAnchorExclusiveAndWorkspaceIdsUnique() {
+        let top = Workspace(title: "Top")
+        let anchor = Workspace(title: "Anchor")
+        let firstMember = Workspace(title: "First member")
+        let secondMember = Workspace(title: "Second member")
+        let bottom = Workspace(title: "Bottom")
+        let groupId = UUID()
+        anchor.groupId = groupId
+        firstMember.groupId = groupId
+        secondMember.groupId = groupId
+
+        var group = WorkspaceGroup(
+            id: groupId,
+            name: "Grouped",
+            isCollapsed: false,
+            isPinned: false,
+            anchorWorkspaceId: anchor.id,
+            customColor: nil,
+            iconSymbol: nil
+        )
+        let tabs = [top, anchor, firstMember, secondMember, bottom]
+
+        let expanded = SidebarWorkspaceRenderItem.renderItems(
+            tabs: tabs,
+            groupsById: [groupId: group]
+        )
+        let expandedWorkspaceIds = expanded.compactMap { item -> UUID? in
+            guard case .workspace(let workspaceId) = item else { return nil }
+            return workspaceId
+        }
+        let expandedHeaderCount = expanded.filter { item in
+            guard case .groupHeader(let renderedGroupId, let anchorWorkspaceId) = item else {
+                return false
+            }
+            return renderedGroupId == groupId && anchorWorkspaceId == anchor.id
+        }.count
+
+        #expect(expandedHeaderCount == 1)
+        #expect(expandedWorkspaceIds == [top.id, firstMember.id, secondMember.id, bottom.id])
+        #expect(!expandedWorkspaceIds.contains(anchor.id))
+        #expect(Set(expanded.map(\.rowWorkspaceId)).count == expanded.count)
+
+        group.isCollapsed = true
+        let collapsed = SidebarWorkspaceRenderItem.renderItems(
+            tabs: tabs,
+            groupsById: [groupId: group]
+        )
+        let collapsedWorkspaceIds = collapsed.compactMap { item -> UUID? in
+            guard case .workspace(let workspaceId) = item else { return nil }
+            return workspaceId
+        }
+        let collapsedHeaderCount = collapsed.filter { item in
+            guard case .groupHeader(let renderedGroupId, let anchorWorkspaceId) = item else {
+                return false
+            }
+            return renderedGroupId == groupId && anchorWorkspaceId == anchor.id
+        }.count
+
+        #expect(collapsedHeaderCount == 1)
+        #expect(collapsedWorkspaceIds == [top.id, bottom.id])
+        #expect(Set(collapsed.map(\.rowWorkspaceId)).count == collapsed.count)
+    }
+
     /// Churn variable-height content, scroll the table, and drive synthetic
     /// table-owned hover, then assert the run emitted zero SwiftUI/AppKit
     /// runtime faults. The #8004 hover-bridge loop and the #6707 scroll
@@ -108,6 +238,34 @@ extension SidebarLazyLayoutScaleTests {
             are not protecting anything. Fix the harness before trusting them.
             """
         )
+    }
+}
+
+private final class SidebarObservationBatchDemandSubscriber: Subscriber {
+    typealias Input = Set<UUID>
+    typealias Failure = Never
+
+    private var subscription: Subscription?
+    private(set) var receivedBatches: [Set<UUID>] = []
+
+    func receive(subscription: Subscription) {
+        self.subscription = subscription
+    }
+
+    func receive(_ input: Set<UUID>) -> Subscribers.Demand {
+        receivedBatches.append(input)
+        return .none
+    }
+
+    func receive(completion: Subscribers.Completion<Never>) {}
+
+    func request(_ demand: Subscribers.Demand) {
+        subscription?.request(demand)
+    }
+
+    func cancel() {
+        subscription?.cancel()
+        subscription = nil
     }
 }
 

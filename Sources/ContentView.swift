@@ -9930,9 +9930,10 @@ struct VerticalTabsSidebar: View {
     // invalidating the full parent projection once per emitting workspace.
     @State private var workspaceSnapshotRefreshCoalescer = SidebarWorkspaceSnapshotRefreshCoalescer()
     // Parent-owned immutable workspace projections. Workspace publishers and
-    // async observation streams terminate here, above the LazyVStack; rows
-    // receive only values and action closures. This is the ownership boundary
-    // that prevents layout/realization from publishing row state (#6707).
+    // async observation streams terminate here, above the AppKit table; hosted
+    // rows receive only values and action closures. This is the ownership
+    // boundary that prevents layout/realization from publishing row state
+    // (#6707).
     @State private var workspaceSnapshotsById: [UUID: SidebarWorkspaceSnapshotBuilder.Snapshot] = [:]
     @State private var extensionSidebarUpdateToken: UInt64 = 0
     // Stable, memoized merged observation publishers for the extension
@@ -12499,9 +12500,9 @@ struct VerticalTabsSidebar: View {
     }
 
     /// Captures the parent action surface once per list evaluation. Invoking
-    /// this factory below `LazyVStack` only binds immutable ids/values into
-    /// closures; live models are resolved later when the user performs an
-    /// action, never while SwiftUI realizes or lays out a row.
+    /// this factory for a realized table cell only binds immutable ids/values
+    /// into closures; live models are resolved later when the user performs an
+    /// action, never while SwiftUI renders or AppKit lays out a row.
     private func makeWorkspaceRowActionFactory() -> SidebarWorkspaceRowActionFactory {
         return { input in
         let tabId = input.workspaceId
@@ -13272,7 +13273,7 @@ private struct SidebarHelpMenuButton: View {
 // PERF: TabItemView is an Equatable value projection. The parent owns every
 // workspace/store observation and passes one immutable render snapshot plus a
 // closure capability bundle. No live model, binding, or observable store may
-// cross this LazyVStack boundary (#6707 / #2586).
+// cross this hosted-cell boundary (#6707 / #2586).
 struct TabItemView: View, Equatable {
     nonisolated static func == (lhs: TabItemView, rhs: TabItemView) -> Bool {
         lhs.snapshot == rhs.snapshot
@@ -14048,11 +14049,11 @@ struct TabItemView: View, Equatable {
         // background) to ~60%; hit-testing is unaffected by opacity.
         .opacity(workspaceSnapshot.taskStatus == .done ? 0.6 : 1)
         // No implicit .animation(value:) on agent-mutable fields: animating a
-        // row-height change interpolates the LazyVStack's measured height over
-        // every frame of the 0.2s curve, and with dozens of agent sessions some
-        // row is always animating, so the sidebar-wide layout re-runs at display
-        // refresh rate (#5764 / #5845). Lazy rows must be height-stable after
-        // they appear; content changes now apply in one discrete layout pass.
+        // hosted row-height change invalidates intrinsic content size on every
+        // frame of the 0.2s curve. With dozens of agent sessions some row is
+        // always animating, so table-height reconciliation runs at display
+        // refresh rate (#5764 / #5845). Content changes apply in one discrete
+        // measurement pass instead.
         .padding(.horizontal, SidebarWorkspaceListMetrics.rowContentHorizontalPadding)
         .padding(.vertical, 8)
         .background(

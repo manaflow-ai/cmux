@@ -14,13 +14,13 @@ private struct SidebarPanelObservationState: Equatable {
 }
 
 extension View {
-    /// Observes row-affecting workspace publishers above the lazy-list boundary.
+    /// Observes row-affecting workspace publishers above the AppKit table boundary.
     ///
     /// The merged streams retain the workspace identity that produced each
-    /// change. Debounced publishers collect into one keyed batch before the
-    /// parent snapshot boundary, so a simultaneous N-workspace burst cannot
-    /// publish and re-project the full list N times. Initial CombineLatest
-    /// values are intentionally delivered to close the subscription-setup gap.
+    /// change. Both publisher families accumulate keyed changes before bounded
+    /// coalescing, so a simultaneous N-workspace burst cannot publish and
+    /// re-project the full list N times or lose a quiet workspace behind a
+    /// noisy one. Initial CombineLatest values close the subscription-setup gap.
     func sidebarWorkspaceObservations(
         ids: [UUID],
         workspaces: [Workspace],
@@ -31,36 +31,32 @@ extension View {
             let sources = zip(ids, workspaces).map { id, workspace in
                 (id: id, workspace: workspace)
             }
-            let immediateChanges = Publishers.MergeMany(sources.map { source in
-                source.workspace.sidebarImmediateObservationPublisher
-                    .map { source.id }
-                    .eraseToAnyPublisher()
-            })
-            .buffer(
-                size: max(1, sources.count * 2),
-                prefetch: .keepFull,
-                whenFull: .dropOldest
+            let immediateChangeBatches = SidebarWorkspaceObservationBatch.mergedChanges(
+                from: sources.map { source in
+                    source.workspace.sidebarImmediateObservationPublisher
+                        .map { source.id }
+                        .eraseToAnyPublisher()
+                },
+                for: Workspace.sidebarImmediateObservationCoalesceInterval
             )
             .values
-            let debouncedBatch = SidebarWorkspaceObservationBatch()
-            let debouncedChangeBatches = Publishers.MergeMany(sources.map { source in
-                source.workspace.sidebarObservationPublisher
-                    .map { source.id }
-                    .eraseToAnyPublisher()
-            })
-            .receive(on: RunLoop.main)
-            .handleEvents(receiveOutput: { debouncedBatch.insert($0) })
-            .debounce(for: debouncedInterval, scheduler: RunLoop.main)
-            .map { _ in debouncedBatch.take() }
-            .filter { !$0.isEmpty }
-            .buffer(size: 1, prefetch: .byRequest, whenFull: .dropOldest)
+            let debouncedChangeBatches = SidebarWorkspaceObservationBatch.mergedChanges(
+                from: sources.map { source in
+                    source.workspace.sidebarObservationPublisher
+                        .map { source.id }
+                        .eraseToAnyPublisher()
+                },
+                for: debouncedInterval
+            )
             .values
 
             await withTaskGroup(of: Void.self) { group in
                 group.addTask { @MainActor in
-                    for await workspaceId in immediateChanges {
+                    for await workspaceIds in immediateChangeBatches {
                         if Task.isCancelled { break }
-                        onChange(workspaceId)
+                        for workspaceId in workspaceIds {
+                            onChange(workspaceId)
+                        }
                     }
                 }
                 group.addTask { @MainActor in
@@ -131,7 +127,7 @@ extension View {
         }
     }
 
-    /// Observes every default-sidebar workspace above the lazy row boundary.
+    /// Observes every default-sidebar workspace above the hosted-row boundary.
     /// The callback identifies the changed workspace so the owner can rebuild
     /// its immutable projection without mounting an observation task per row.
     func sidebarProcessTitleObservations(
@@ -217,7 +213,7 @@ extension Workspace {
     // process titles settle separately: agent TUIs can animate their terminal
     // title at 10 Hz, and per-workspace burst coalescing cannot reduce changes
     // spaced farther apart than its window. Waiting for the title to settle
-    // prevents those frames from continuously invalidating LazyVStack rows,
+    // prevents those frames from continuously invalidating hosted table rows,
     // and the settle model's deferral deadline still republishes during
     // sustained churn so a row's title cannot stay stale until the agent
     // goes quiet. See https://github.com/manaflow-ai/cmux/issues/5570.

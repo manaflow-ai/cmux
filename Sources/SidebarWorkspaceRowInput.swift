@@ -3,10 +3,10 @@ import CmuxSidebar
 import CmuxWorkspaces
 import Foundation
 
-/// Immutable inputs used to assemble one workspace row when a lazy stack realizes it.
+/// Immutable inputs used to assemble one realized workspace table row.
 ///
 /// The sidebar owner resolves every live model read into this value before the
-/// `LazyVStack`. Context-menu notifications and row-specific action closures
+/// AppKit table boundary. Context-menu notifications and row-specific actions
 /// are intentionally assembled later so parent invalidations stay O(values),
 /// not O(full row subtrees).
 struct SidebarWorkspaceRowInput {
