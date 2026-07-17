@@ -587,8 +587,9 @@ PY
     if [[ "$NO_SETUP" -eq 1 || "$NO_SIGN_IN" -eq 1 ]]; then
       xcrun simctl launch "$SIM_ID" "$BUNDLE_ID" >/dev/null
     elif ! auto_setup_launch simulator "$SIM_ID"; then
-      echo "warning: signed launch failed; launching plain (sign in manually)" >&2
-      xcrun simctl launch "$SIM_ID" "$BUNDLE_ID" >/dev/null
+      echo "error: installed $BUNDLE_ID, but signed setup failed; refusing an unpaired fallback launch" >&2
+      echo "error: repair the tagged Mac/Iroh route, or pass --no-attach, --no-sign-in, or --no-setup explicitly" >&2
+      return 1
     fi
   fi
 
@@ -708,13 +709,12 @@ reload_device() {
         echo "warning: installed but could not launch $BUNDLE_ID (device locked? unlock the iPhone and tap the app)" >&2
       fi
     elif ! auto_setup_launch device "$selected_device_install_id"; then
-      # Auto sign-in/pair failed (e.g. missing dogfood creds, helper, or Mac).
-      # Fall back to a plain launch so the freshly installed app still opens,
-      # matching the simulator path and the previous device behavior.
-      echo "warning: signed launch failed; launching plain (sign in manually)" >&2
-      if ! xcrun devicectl device process launch --terminate-existing --device "$selected_device_install_id" "$BUNDLE_ID" >/dev/null 2>&1; then
-        echo "warning: installed but could not launch $BUNDLE_ID (device locked? unlock the iPhone and tap the app)" >&2
-      fi
+      # A plain fallback can reuse stale pairing state and look dogfood-ready
+      # while the matching tagged Iroh route is absent. Fail closed unless the
+      # caller explicitly requested a plain launch above.
+      echo "error: installed $BUNDLE_ID, but signed setup failed; refusing an unpaired fallback launch" >&2
+      echo "error: repair the tagged Mac/Iroh route, or pass --no-attach, --no-sign-in, or --no-setup explicitly" >&2
+      return 1
     fi
   fi
 

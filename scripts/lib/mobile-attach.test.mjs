@@ -231,7 +231,7 @@ test("local iOS reload never hides a requested setup failure with a plain launch
   );
   assert.match(
     iosReload,
-    /elif ! auto_setup_launch device \"\$selected_device_install_id\"; then[\s\S]{0,320}return 1/,
+    /elif ! auto_setup_launch device \"\$selected_device_install_id\"; then[\s\S]{0,640}return 1/,
   );
 });
 
