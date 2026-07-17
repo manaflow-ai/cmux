@@ -601,14 +601,13 @@ extension TerminalController {
                             let expectedPane = mirror.paneIdByPaneId[leaf].map {
                                 String($0.id.uuidString.prefix(5))
                             } ?? "none"
-                            mismatches.append(
-                                "%\(leaf) native-geometry"
-                                    + " plan=\(Int(plannedContent.width))x\(Int(plannedContent.height))"
-                                    + " view=\(Int(actual.width))x\(Int(actual.height))"
-                                    + " lease_pane=\(leasePane) expected_pane=\(expectedPane)"
-                                    + " lease_inWin=\(lease?.inWindow == true ? 1 : 0)"
-                                    + " in \(Self.ancestryDescription(of: hostedView))"
-                            )
+                            let planText = "\(Int(plannedContent.width))x\(Int(plannedContent.height))"
+                            let viewText = "\(Int(actual.width))x\(Int(actual.height))"
+                            let leaseInWin = lease?.inWindow == true ? 1 : 0
+                            var line = "%\(leaf) native-geometry plan=\(planText) view=\(viewText)"
+                            line += " lease_pane=\(leasePane) expected_pane=\(expectedPane)"
+                            line += " lease_inWin=\(leaseInWin)"
+                            mismatches.append(line)
                         }
                     } else {
                         nativeGeometryReady = false
