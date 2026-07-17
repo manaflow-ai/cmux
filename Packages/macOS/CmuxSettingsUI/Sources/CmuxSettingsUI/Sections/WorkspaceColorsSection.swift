@@ -9,6 +9,7 @@ import SwiftUI
 /// action.
 @MainActor
 public struct WorkspaceColorsSection: View {
+    private let defaultsStore: UserDefaultsSettingsStore
     private let jsonStore: JSONConfigStore
     private let catalog: SettingCatalog
     private let errorLog: SettingsErrorLog
@@ -16,6 +17,8 @@ public struct WorkspaceColorsSection: View {
     @State private var indicator: DefaultsValueModel<WorkspaceIndicatorStyle>
     @State private var selectionHex: DefaultsValueModel<String>
     @State private var badgeHex: DefaultsValueModel<String>
+    @State private var paneBorderHex: DefaultsValueModel<String>
+    @State private var activePaneBorderHex: DefaultsValueModel<String>
     @State private var paletteModel: DefaultsValueModel<[String: String]>
     @State private var paletteReconcileTracker = WorkspacePaletteColorReconcileTracker()
 
@@ -49,18 +52,22 @@ public struct WorkspaceColorsSection: View {
         catalog: SettingCatalog,
         errorLog: SettingsErrorLog
     ) {
+        self.defaultsStore = defaultsStore
         self.jsonStore = jsonStore
         self.catalog = catalog
         self.errorLog = errorLog
         _indicator = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.indicatorStyle))
         _selectionHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.selectionColorHex))
         _badgeHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.notificationBadgeColorHex))
+        _paneBorderHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.paneChrome.paneBorderColorHex))
+        _activePaneBorderHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.paneChrome.activePaneBorderColorHex))
         _paletteModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.palette))
     }
 
     public var body: some View {
         Group {
-            SettingsSectionHeader(String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors"), section: .workspaceColors)
+            SettingsSectionHeader(String(localized: "settings.section.appearance", defaultValue: "Appearance"), section: .workspaceColors)
+            InterfaceAppearanceCards(defaultsStore: defaultsStore, catalog: catalog)
             mainCard
         }
         .task {
@@ -77,6 +84,8 @@ public struct WorkspaceColorsSection: View {
             indicator,
             selectionHex,
             badgeHex,
+            paneBorderHex,
+            activePaneBorderHex,
             paletteModel,
         ]
         models.forEach { $0.startObserving() }
@@ -114,6 +123,22 @@ public struct WorkspaceColorsSection: View {
                 json: "workspaceColors.notificationBadgeColor",
                 resetLabel: String(localized: "settings.workspaceColors.notificationBadgeColor.reset", defaultValue: "Reset"),
                 model: badgeHex
+            )
+            SettingsCardDivider()
+            colorRow(
+                title: String(localized: "settings.appearance.color.paneBorder", defaultValue: "Pane Dividers"),
+                subtitle: String(localized: "settings.appearance.color.paneBorder.subtitle", defaultValue: "Divider color between split panes."),
+                json: "paneBorderColor",
+                resetLabel: String(localized: "settings.workspaceColors.selectionColor.reset", defaultValue: "Reset"),
+                model: paneBorderHex
+            )
+            SettingsCardDivider()
+            colorRow(
+                title: String(localized: "settings.appearance.color.activePaneBorder", defaultValue: "Focused Pane Border"),
+                subtitle: String(localized: "settings.appearance.color.activePaneBorder.subtitle", defaultValue: "Border color around the focused split pane."),
+                json: "activePaneBorderColor",
+                resetLabel: String(localized: "settings.workspaceColors.selectionColor.reset", defaultValue: "Reset"),
+                model: activePaneBorderHex
             )
             SettingsCardDivider()
 

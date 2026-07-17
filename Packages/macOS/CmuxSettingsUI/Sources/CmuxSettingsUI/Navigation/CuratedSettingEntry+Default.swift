@@ -150,6 +150,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .textBox, id: "textbox-max-lines", title: "TextBox Max Lines", synonyms: "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll beta"),
 
             // Sidebar appearance + sidebar workspace row details
+            .init(section: .sidebarAppearance, id: "sidebar-style", title: "Sidebar Style", synonyms: "liquid glass translucent opaque material blur tint sidebar only sidebarAppearance.preset"),
             .init(section: .sidebarAppearance, id: "match-terminal", title: "Match Terminal Background", synonyms: "sidebarAppearance.matchTerminalBackground transparent background material terminal background sync"),
             .init(section: .sidebarAppearance, id: "hide-sidebar-details", title: "Hide All Sidebar Details", synonyms: "sidebar.hideAllDetails compact sidebar hide details only title minimal left rail"),
             .init(section: .sidebarAppearance, id: "wrap-workspace-titles", title: "Wrap Workspace Titles in Sidebar", synonyms: "sidebar.wrapWorkspaceTitles workspace title wrap multiline pr pull request"),
@@ -308,6 +309,8 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .workspaceColors, id: "selection", title: "Selection Highlight", synonyms: "workspaceColors.selectionColor selected workspace color highlight background active tab"),
             .init(section: .workspaceColors, id: "badge", title: "Notification Badge", synonyms: "workspaceColors.notificationBadgeColor unread notification badge color dot count"),
             .init(section: .workspaceColors, id: "palette", title: "Reset Palette", synonyms: "reset palette named colors restore built-in custom remove default"),
+            .init(section: .workspaceColors, id: "interface-colors", title: "Interface Colors", synonyms: "appearance colors highlights hover notification drag drop bonsplit status accent"),
+            .init(section: .workspaceColors, id: "interface-icons", title: "Interface Icons", synonyms: "appearance icons sf symbols terminal browser split close pin add"),
 
             // cmux.json
             .init(section: .settingsJSON, id: "open-file", title: "User config file", synonyms: "open config file json jsonc config editor ~/.config cmux preferences"),

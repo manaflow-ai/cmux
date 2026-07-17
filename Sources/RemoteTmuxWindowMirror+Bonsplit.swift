@@ -65,7 +65,7 @@ extension RemoteTmuxWindowMirror {
             guard panelsByPaneId[paneId] != nil else { return nil }
             guard let tabId = bonsplitController.createTab(
                 title: title(forPane: paneId),
-                icon: "terminal",
+                icon: CmuxInterfaceAppearance.current().icon(defaultSystemName: "terminal"),
                 kind: "terminal",
                 inPane: pane
             ) else { return nil }
@@ -479,7 +479,7 @@ extension RemoteTmuxWindowMirror {
     func makeBonsplitTab(forPane paneId: Int) -> Bonsplit.Tab {
         Bonsplit.Tab(
             title: title(forPane: paneId),
-            icon: "terminal",
+            icon: CmuxInterfaceAppearance.current().icon(defaultSystemName: "terminal"),
             kind: "terminal"
         )
     }

@@ -137,12 +137,13 @@ final class SidebarRowIconTextLine: NSView {
             default: color = palette.secondary(0.9)
             }
         } else {
+            let interfaceAppearance = CmuxInterfaceAppearance.current()
             switch log.level {
             case .info: color = .secondaryLabelColor
-            case .progress: color = .systemBlue
-            case .success: color = .systemGreen
-            case .warning: color = .systemOrange
-            case .error: color = .systemRed
+            case .progress: color = interfaceAppearance.color(.accent, fallback: .systemBlue)
+            case .success: color = interfaceAppearance.color(.success, fallback: .systemGreen)
+            case .warning: color = interfaceAppearance.color(.warning, fallback: .systemOrange)
+            case .error: color = interfaceAppearance.color(.error, fallback: .systemRed)
             }
         }
         iconView.isHidden = false

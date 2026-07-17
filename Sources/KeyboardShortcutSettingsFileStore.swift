@@ -412,6 +412,9 @@ final class CmuxSettingsFileStore {
         if let sidebarAppearanceSection = root["sidebarAppearance"] as? [String: Any] {
             parseSidebarAppearanceSection(sidebarAppearanceSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
+        if let appearanceSection = root["appearance"] as? [String: Any] {
+            parseInterfaceAppearanceSection(appearanceSection, sourcePath: sourcePath, snapshot: &snapshot)
+        }
         if let automationSection = root["automation"] as? [String: Any] {
             parseAutomationSection(automationSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
@@ -899,6 +902,61 @@ final class CmuxSettingsFileStore {
         if let value = jsonDouble(section["tintOpacity"]) {
             let clamped = min(max(value, 0), 1)
             snapshot.managedUserDefaults["sidebarTintOpacity"] = .double(clamped)
+        }
+        if let value = jsonDouble(section["blurOpacity"]) {
+            snapshot.managedUserDefaults["sidebarBlurOpacity"] = .double(min(max(value, 0), 1))
+        }
+        if let value = jsonDouble(section["cornerRadius"]) {
+            snapshot.managedUserDefaults["sidebarCornerRadius"] = .double(min(max(value, 0), 40))
+        }
+        if let raw = jsonString(section["preset"]), SidebarPresetOption(rawValue: raw) != nil {
+            snapshot.managedUserDefaults["sidebarPreset"] = .string(raw)
+        }
+        if let raw = jsonString(section["material"]), SidebarMaterialOption(rawValue: raw) != nil {
+            snapshot.managedUserDefaults["sidebarMaterial"] = .string(raw)
+        }
+        if let raw = jsonString(section["blendMode"]), SidebarBlendModeOption(rawValue: raw) != nil {
+            snapshot.managedUserDefaults["sidebarBlendMode"] = .string(raw)
+        }
+        if let raw = jsonString(section["state"]), SidebarStateOption(rawValue: raw) != nil {
+            snapshot.managedUserDefaults["sidebarState"] = .string(raw)
+        }
+    }
+
+    private func parseInterfaceAppearanceSection(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        let catalog = InterfaceAppearanceCatalogSection()
+        if let rawColors = section["colors"] as? [String: Any] {
+            var colors: [String: String] = [:]
+            for (role, value) in rawColors {
+                guard let rawHex = jsonString(value),
+                      let normalized = WorkspaceTabColorSettings.normalizedHex(rawHex) else {
+                    logInvalid("appearance.colors.\(role)", sourcePath: sourcePath)
+                    continue
+                }
+                colors[role] = normalized
+            }
+            snapshot.managedUserDefaults[catalog.colorsJSON.userDefaultsKey] = .string(
+                CmuxInterfaceAppearance.encodeMap(colors)
+            )
+        }
+        if let rawIcons = section["icons"] as? [String: Any] {
+            var icons: [String: String] = [:]
+            for (original, value) in rawIcons {
+                guard let replacement = jsonString(value)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !original.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                      !replacement.isEmpty else {
+                    logInvalid("appearance.icons.\(original)", sourcePath: sourcePath)
+                    continue
+                }
+                icons[original] = replacement
+            }
+            snapshot.managedUserDefaults[catalog.iconsJSON.userDefaultsKey] = .string(
+                CmuxInterfaceAppearance.encodeMap(icons)
+            )
         }
     }
 

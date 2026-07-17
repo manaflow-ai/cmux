@@ -53,7 +53,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .browserImport: return "Import Browser Data"
         case .globalHotkey: return "Global Hotkey"
         case .keyboardShortcuts: return "Keyboard Shortcuts"
-        case .workspaceColors: return "Workspace Colors"
+        case .workspaceColors: return String(localized: "settings.section.appearance", defaultValue: "Appearance")
         case .settingsJSON: return "cmux.json"
         case .reset: return "Reset"
         }
@@ -103,7 +103,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .browserImport: return "browser import bookmarks history cookies"
         case .globalHotkey: return "system wide shortcut"
         case .keyboardShortcuts: return "keybindings commands chords"
-        case .workspaceColors: return "palette tabs indicator"
+        case .workspaceColors: return "appearance colors icons palette tabs indicator highlights drag drop bonsplit theme"
         case .settingsJSON: return "config file preferences editor schema jsonc reload"
         case .reset: return "defaults reset"
         }

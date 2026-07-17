@@ -119,4 +119,34 @@ struct RenderableSystemSymbolTests {
         #expect(cache.isRenderable("not.an.sf.symbol") == false)
         #expect(resolveCount == 2)
     }
+
+    @Test func interfaceAppearanceUsesValidIconOverridesAndRejectsInvalidSymbols() {
+        let appearance = CmuxInterfaceAppearance(
+            colors: [:],
+            icons: [
+                "plus": "star.fill",
+                "bell": "not.an.sf.symbol",
+            ]
+        )
+
+        #expect(appearance.icon(defaultSystemName: "plus") == "star.fill")
+        #expect(appearance.icon(defaultSystemName: "bell") == "bell")
+        #expect(appearance.icon(defaultSystemName: "gearshape") == "gearshape")
+    }
+
+    @Test func interfaceAppearanceResolvesSemanticColorsAndPreservesFallbacks() throws {
+        let appearance = CmuxInterfaceAppearance(
+            colors: ["dropTarget": "#12AB34"],
+            icons: [:]
+        )
+
+        let overridden = appearance.color(.dropTarget, fallback: .systemPink)
+        let fallback = appearance.color(.warning, fallback: .systemOrange)
+        #expect(try #require(overridden.usingColorSpace(.sRGB)).greenComponent > 0.6)
+        #expect(fallback == .systemOrange)
+    }
+
+    @Test func interfaceAppearanceMapEncodingIsStableJSON() {
+        #expect(CmuxInterfaceAppearance.encodeMap(["z": "last", "a": "first"]) == #"{"a":"first","z":"last"}"#)
+    }
 }

@@ -105,10 +105,10 @@ public enum WorkspaceAttentionFlashReason: String, Equatable, Sendable {
 enum WorkspaceAttentionFlashAccent: Equatable, Sendable {
     case notificationBlue
 
-    var strokeColor: NSColor {
+    @MainActor var strokeColor: NSColor {
         switch self {
         case .notificationBlue:
-            return .systemBlue
+            return CmuxInterfaceAppearance.current().color(.notification, fallback: .systemBlue)
         }
     }
 }
@@ -339,6 +339,9 @@ public protocol Panel: AnyObject, Identifiable, ObservableObject where ID == UUI
 /// Extension providing default implementations
 extension Panel {
     public var displayIcon: String? { nil }
+    var interfaceDisplayIcon: String? {
+        displayIcon.map { CmuxInterfaceAppearance.current().icon(defaultSystemName: $0) }
+    }
     public var isDirty: Bool { false }
 
     func captureFocusIntent(in window: NSWindow?) -> PanelFocusIntent {

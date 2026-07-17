@@ -3,6 +3,7 @@ import CmuxSettings
 import SwiftUI
 @MainActor
 public struct SidebarSection: View {
+    private let defaultsStore: UserDefaultsSettingsStore
     private let catalog: SettingCatalog
     private let hostActions: SettingsHostActions
     private let rightSidebarWidthSettings = RightSidebarWidthSettings()
@@ -35,6 +36,7 @@ public struct SidebarSection: View {
     @State private var rightMaxWidth: DefaultsValueModel<Double>
     @State private var rememberedRightMaxWidth: DefaultsValueModel<Double>
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog, hostActions: SettingsHostActions) {
+        self.defaultsStore = defaultsStore
         self.catalog = catalog
         self.hostActions = hostActions
         _sidebarFont = State(initialValue: hostActions.sidebarFontSize())
@@ -68,6 +70,7 @@ public struct SidebarSection: View {
     public var body: some View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar"), section: .sidebarAppearance)
+            SidebarMaterialCard(defaultsStore: defaultsStore, catalog: catalog)
             mainCard
         }
         .task { startObservingSettings() }

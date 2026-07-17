@@ -178,6 +178,10 @@ struct WorkspaceContentView: View {
     @State private var config = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "stateInit")
     @State private var lastAppliedUsesHostLayerBackground = GhosttyApp.shared.usesHostLayerBackground
     @State private var deferredThemeRefresh: DeferredThemeRefresh?
+    @AppStorage(CmuxInterfaceAppearance.colorsDefaultsKey)
+    private var interfaceColorsJSON = "{}"
+    @AppStorage(CmuxInterfaceAppearance.iconsDefaultsKey)
+    private var interfaceIconsJSON = "{}"
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var notificationStore: TerminalNotificationStore
 #if DEBUG
@@ -206,6 +210,8 @@ struct WorkspaceContentView: View {
 #if DEBUG
         let _ = { minimalModeInvalidationProbe.workspaceContentBody?() }()
 #endif
+        let _ = interfaceColorsJSON
+        let _ = interfaceIconsJSON
         let appearance = PanelAppearance.fromConfig(config)
         let isSplit = workspace.bonsplitController.allPaneIds.count > 1 ||
             workspace.panels.count > 1
@@ -336,6 +342,22 @@ struct WorkspaceContentView: View {
                 }
         }
         .internalOnlyTabDrag()
+        .tint(
+            Color(
+                nsColor: CmuxInterfaceAppearance.current().color(
+                    .dropTarget,
+                    fallback: .controlAccentColor
+                )
+            )
+        )
+        .accentColor(
+            Color(
+                nsColor: CmuxInterfaceAppearance.current().color(
+                    .dropTarget,
+                    fallback: .controlAccentColor
+                )
+            )
+        )
         // Split zoom swaps Bonsplit between the full split tree and a single pane view.
         // Recreate the Bonsplit subtree on zoom enter/exit so stale pre-zoom pane chrome
         // cannot remain stacked above portal-hosted browser content.
@@ -344,6 +366,7 @@ struct WorkspaceContentView: View {
         .onAppear {
             updateAgentHibernationPresentationVisibility()
             syncBonsplitNotificationBadges()
+            syncBonsplitInterfaceIcons()
             refreshGhosttyAppearanceConfig(reason: "onAppear")
         }
         .onChange(of: isWorkspaceVisible) { _, isVisible in
@@ -381,6 +404,12 @@ struct WorkspaceContentView: View {
         .onChange(of: colorScheme) { oldValue, newValue in
             // Keep split overlay color/opacity in sync with light/dark theme transitions.
             refreshGhosttyAppearanceConfig(reason: "colorSchemeChanged:\(oldValue)->\(newValue)")
+        }
+        .onChange(of: interfaceColorsJSON) { _, _ in
+            workspace.applyGhosttyChrome(from: config, reason: "interfaceColorsChanged")
+        }
+        .onChange(of: interfaceIconsJSON) { _, _ in
+            syncBonsplitInterfaceIcons()
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { notification in
             let payloadHex = (notification.userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor)?.hexString() ?? "nil"
@@ -452,6 +481,24 @@ struct WorkspaceContentView: View {
                         isPinned: expectedPinned
                     )
                 }
+            }
+        }
+    }
+
+    private func syncBonsplitInterfaceIcons() {
+        for paneId in workspace.bonsplitController.allPaneIds {
+            for tab in workspace.bonsplitController.tabs(inPane: paneId) {
+                let expectedIcon: String?
+                if let panelId = workspace.panelIdFromSurfaceId(tab.id),
+                   let panel = workspace.panels[panelId] {
+                    expectedIcon = panel.interfaceDisplayIcon
+                } else {
+                    expectedIcon = tab.icon.map {
+                        CmuxInterfaceAppearance.current().icon(defaultSystemName: $0)
+                    }
+                }
+                guard tab.icon != expectedIcon else { continue }
+                workspace.bonsplitController.updateTab(tab.id, icon: .some(expectedIcon))
             }
         }
     }

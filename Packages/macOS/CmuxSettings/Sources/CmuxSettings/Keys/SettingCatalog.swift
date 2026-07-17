@@ -30,6 +30,8 @@ public struct SettingCatalog: SettingCatalogSection {
     /// Settings for cmux pane divider and focused-pane chrome.
     public let paneChrome = PaneChromeCatalogSection()
     public let workspaceColors = WorkspaceColorsCatalogSection()
+    /// Semantic cmux chrome colors and global SF Symbol substitutions.
+    public let interfaceAppearance = InterfaceAppearanceCatalogSection()
     /// Settings for sidebar workspace groups (the `workspaceGroups.*` keys).
     public let workspaceGroups = WorkspaceGroupsCatalogSection()
     public let automation = AutomationCatalogSection()

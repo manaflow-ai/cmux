@@ -2672,6 +2672,7 @@ final class Workspace: Identifiable, ObservableObject {
             configuredHex: paneBorderColorHex,
             fallback: defaultBorderHex
         )
+        let iconHex = CmuxInterfaceAppearance.storedColorHex(.tabIcon)
 
         if sharesWindowBackdrop {
             return .init(
@@ -2679,7 +2680,8 @@ final class Workspace: Identifiable, ObservableObject {
                 tabBarBackgroundHex: "#00000000",
                 splitButtonBackdropHex: "#00000000",
                 paneBackgroundHex: "#00000000",
-                borderHex: borderHex
+                borderHex: borderHex,
+                iconHex: iconHex
             )
         }
 
@@ -2694,7 +2696,8 @@ final class Workspace: Identifiable, ObservableObject {
             tabBarBackgroundHex: surfaceHex,
             splitButtonBackdropHex: surfaceHex,
             paneBackgroundHex: paneBackgroundHex,
-            borderHex: borderHex
+            borderHex: borderHex,
+            iconHex: iconHex
         )
     }
 
@@ -2714,6 +2717,7 @@ final class Workspace: Identifiable, ObservableObject {
             configuredHex: paneBorderColorHex,
             fallback: defaultBorderHex
         )
+        let iconHex = CmuxInterfaceAppearance.storedColorHex(.tabIcon)
 
         if sharesWindowBackdrop {
             return .init(
@@ -2721,7 +2725,8 @@ final class Workspace: Identifiable, ObservableObject {
                 tabBarBackgroundHex: "#00000000",
                 splitButtonBackdropHex: "#00000000",
                 paneBackgroundHex: "#00000000",
-                borderHex: borderHex
+                borderHex: borderHex,
+                iconHex: iconHex
             )
         }
 
@@ -2736,7 +2741,8 @@ final class Workspace: Identifiable, ObservableObject {
             tabBarBackgroundHex: backgroundHex,
             splitButtonBackdropHex: backgroundHex,
             paneBackgroundHex: paneBackgroundHex,
-            borderHex: borderHex
+            borderHex: borderHex,
+            iconHex: iconHex
         )
     }
 
@@ -2748,7 +2754,8 @@ final class Workspace: Identifiable, ObservableObject {
             lhs.tabBarBackgroundHex == rhs.tabBarBackgroundHex &&
             lhs.splitButtonBackdropHex == rhs.splitButtonBackdropHex &&
             lhs.paneBackgroundHex == rhs.paneBackgroundHex &&
-            lhs.borderHex == rhs.borderHex
+            lhs.borderHex == rhs.borderHex &&
+            lhs.iconHex == rhs.iconHex
     }
 
     private static func bonsplitChromeColorsLogDescription(
@@ -2758,7 +2765,8 @@ final class Workspace: Identifiable, ObservableObject {
             "tabBarBg=\(colors.tabBarBackgroundHex ?? "nil") " +
             "splitBackdrop=\(colors.splitButtonBackdropHex ?? "nil") " +
             "paneBg=\(colors.paneBackgroundHex ?? "nil") " +
-            "border=\(colors.borderHex ?? "nil")"
+            "border=\(colors.borderHex ?? "nil") " +
+            "icon=\(colors.iconHex ?? "nil")"
     }
 
     private static func bonsplitAppearance(
@@ -3006,7 +3014,7 @@ final class Workspace: Identifiable, ObservableObject {
 
             if let tabId = bonsplitController.createTab(
                 title: browserPanel.displayTitle,
-                icon: browserPanel.displayIcon,
+                icon: browserPanel.interfaceDisplayIcon,
                 kind: SurfaceKind.browser.rawValue,
                 isDirty: browserPanel.isDirty,
                 isLoading: browserPanel.isLoading,
@@ -3025,7 +3033,7 @@ final class Workspace: Identifiable, ObservableObject {
 
             if let tabId = bonsplitController.createTab(
                 title: loadingPanel.displayTitle,
-                icon: loadingPanel.displayIcon,
+                icon: loadingPanel.interfaceDisplayIcon,
                 kind: SurfaceKind.cloudVMLoading.rawValue,
                 isDirty: loadingPanel.isDirty,
                 isLoading: true,
@@ -7123,7 +7131,7 @@ final class Workspace: Identifiable, ObservableObject {
         // mutates layout state (avoids transient "Empty Panel" flashes during split).
         let newTab = Bonsplit.Tab(
             title: newPanel.displayTitle,
-            icon: newPanel.displayIcon,
+            icon: newPanel.interfaceDisplayIcon,
             kind: SurfaceKind.terminal.rawValue,
             isDirty: newPanel.isDirty,
             isPinned: false
@@ -7404,7 +7412,7 @@ final class Workspace: Identifiable, ObservableObject {
         // Create tab in bonsplit
         guard let newTabId = bonsplitController.createTab(
             title: newPanel.displayTitle,
-            icon: newPanel.displayIcon,
+            icon: newPanel.interfaceDisplayIcon,
             kind: SurfaceKind.terminal.rawValue,
             isDirty: newPanel.isDirty,
             isPinned: false,
@@ -7638,7 +7646,7 @@ final class Workspace: Identifiable, ObservableObject {
         bonsplitController.updateTab(
             tabId,
             title: replacementPanel.displayTitle,
-            icon: .some(replacementPanel.displayIcon),
+            icon: .some(replacementPanel.interfaceDisplayIcon),
             iconImageData: .some(nil),
             iconAsset: .some(nil),
             kind: .some(SurfaceKind.terminal.rawValue),
@@ -7782,7 +7790,7 @@ final class Workspace: Identifiable, ObservableObject {
         bonsplitController.updateTab(
             tabId,
             title: resolvedTitle,
-            icon: .some(replacementPanel.displayIcon),
+            icon: .some(replacementPanel.interfaceDisplayIcon),
             iconImageData: .some(nil),
             iconAsset: .some(nil),
             kind: .some(SurfaceKind.terminal.rawValue),
@@ -7888,7 +7896,7 @@ final class Workspace: Identifiable, ObservableObject {
         // Pre-generate the bonsplit tab ID so the mapping exists before the split lands.
         let newTab = Bonsplit.Tab(
             title: browserPanel.displayTitle,
-            icon: browserPanel.displayIcon,
+            icon: browserPanel.interfaceDisplayIcon,
             kind: SurfaceKind.browser.rawValue,
             isDirty: browserPanel.isDirty,
             isLoading: browserPanel.isLoading,
@@ -7996,7 +8004,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         guard let newTabId = bonsplitController.createTab(
             title: browserPanel.displayTitle,
-            icon: browserPanel.displayIcon,
+            icon: browserPanel.interfaceDisplayIcon,
             kind: SurfaceKind.browser.rawValue,
             isDirty: browserPanel.isDirty,
             isLoading: browserPanel.isLoading,
@@ -8064,7 +8072,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         guard let newTabId = bonsplitController.createTab(
             title: extensionBrowserPanel.displayTitle,
-            icon: extensionBrowserPanel.displayIcon,
+            icon: extensionBrowserPanel.interfaceDisplayIcon,
             kind: SurfaceKind.extensionBrowser.rawValue,
             isDirty: false,
             isLoading: false,
@@ -8154,7 +8162,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         let newTab = Bonsplit.Tab(
             title: markdownPanel.displayTitle,
-            icon: markdownPanel.displayIcon,
+            icon: markdownPanel.interfaceDisplayIcon,
             kind: SurfaceKind.markdown.rawValue,
             isDirty: markdownPanel.isDirty,
             isLoading: false,
@@ -8209,7 +8217,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         guard let newTabId = bonsplitController.createTab(
             title: markdownPanel.displayTitle,
-            icon: markdownPanel.displayIcon,
+            icon: markdownPanel.interfaceDisplayIcon,
             kind: SurfaceKind.markdown.rawValue,
             isDirty: markdownPanel.isDirty,
             isLoading: false,
@@ -8261,7 +8269,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         guard let newTabId = bonsplitController.createTab(
             title: projectPanel.displayTitle,
-            icon: projectPanel.displayIcon,
+            icon: projectPanel.interfaceDisplayIcon,
             kind: SurfaceKind.project.rawValue,
             isDirty: false,
             isLoading: false,
@@ -8327,7 +8335,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         let newTab = Bonsplit.Tab(
             title: markdownPanel.displayTitle,
-            icon: markdownPanel.displayIcon,
+            icon: markdownPanel.interfaceDisplayIcon,
             kind: SurfaceKind.markdown.rawValue,
             isDirty: markdownPanel.isDirty,
             isLoading: false,
@@ -8419,7 +8427,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         guard let newTabId = bonsplitController.createTab(
             title: filePreviewPanel.displayTitle,
-            icon: RenderableSystemSymbol.resolvedSurfaceTabIcon(filePreviewPanel.displayIcon),
+            icon: RenderableSystemSymbol.resolvedSurfaceTabIcon(filePreviewPanel.interfaceDisplayIcon),
             kind: SurfaceKind.filePreview.rawValue,
             isDirty: filePreviewPanel.isDirty,
             isLoading: false,
@@ -8491,7 +8499,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         guard let newTabId = bonsplitController.createTab(
             title: toolPanel.displayTitle,
-            icon: toolPanel.displayIcon,
+            icon: toolPanel.interfaceDisplayIcon,
             kind: SurfaceKind.rightSidebarTool.rawValue,
             isDirty: false,
             isLoading: false,
@@ -8558,7 +8566,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         guard let newTabId = bonsplitController.createTab(
             title: agentPanel.displayTitle,
-            icon: agentPanel.displayIcon,
+            icon: agentPanel.interfaceDisplayIcon,
             kind: SurfaceKind.agentSession.rawValue,
             isDirty: agentPanel.isDirty,
             isLoading: false,
@@ -8613,7 +8621,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         let newTab = Bonsplit.Tab(
             title: filePreviewPanel.displayTitle,
-            icon: RenderableSystemSymbol.resolvedSurfaceTabIcon(filePreviewPanel.displayIcon),
+            icon: RenderableSystemSymbol.resolvedSurfaceTabIcon(filePreviewPanel.interfaceDisplayIcon),
             kind: SurfaceKind.filePreview.rawValue,
             isDirty: filePreviewPanel.isDirty,
             isLoading: false,
@@ -9856,7 +9864,7 @@ final class Workspace: Identifiable, ObservableObject {
         // Create tab in bonsplit
         if let newTabId = bonsplitController.createTab(
             title: newPanel.displayTitle,
-            icon: newPanel.displayIcon,
+            icon: newPanel.interfaceDisplayIcon,
             kind: SurfaceKind.terminal.rawValue,
             isDirty: newPanel.isDirty,
             isPinned: false
@@ -10972,7 +10980,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         let newTab = Bonsplit.Tab(
             title: newPanel.displayTitle,
-            icon: newPanel.displayIcon,
+            icon: newPanel.interfaceDisplayIcon,
             kind: SurfaceKind.terminal.rawValue,
             isDirty: newPanel.isDirty,
             isPinned: false
@@ -12028,7 +12036,7 @@ extension Workspace: BonsplitDelegate {
                 panelId: panelId,
                 panel: panel,
                 title: resolvedPanelTitle(panelId: panelId, fallback: transferFallbackTitle),
-                icon: panel.displayIcon,
+                icon: panel.interfaceDisplayIcon,
                 iconImageData: browserPanel?.faviconPNGData,
                 kind: surfaceKind(for: panel),
                 isLoading: browserPanel?.isLoading ?? false,
@@ -12423,7 +12431,7 @@ extension Workspace: BonsplitDelegate {
                     bonsplitController.updateTab(
                         replacementTab.id,
                         title: replacementPanel.displayTitle,
-                        icon: .some(replacementPanel.displayIcon),
+                        icon: .some(replacementPanel.interfaceDisplayIcon),
                         iconImageData: .some(nil),
                         kind: .some(SurfaceKind.terminal.rawValue),
                         hasCustomTitle: false,
@@ -12490,7 +12498,7 @@ extension Workspace: BonsplitDelegate {
 
         guard let newTabId = bonsplitController.createTab(
             title: newPanel.displayTitle,
-            icon: newPanel.displayIcon,
+            icon: newPanel.interfaceDisplayIcon,
             kind: SurfaceKind.terminal.rawValue,
             isDirty: newPanel.isDirty,
             isPinned: false,

@@ -2,6 +2,8 @@ import Foundation
 
 /// AppKit `NSVisualEffectView.Material` choice for the sidebar.
 public enum SidebarMaterialOption: String, CaseIterable, Sendable, SettingCodable {
+    case none
+    case liquidGlass
     case sidebar
     case titlebar
     case selection
