@@ -715,6 +715,12 @@ struct TaskComposerDirectoryPickerView: View {
     }
 
     private func browseFailureTitle(_ failure: MobileTaskDirectoryListFailure) -> String {
+        if browseState.failure?.request.kind == .append {
+            return L10n.string(
+                "mobile.taskComposer.directoryPicker.browse.more.failure.title",
+                defaultValue: "Couldn’t Load More Folders"
+            )
+        }
         switch failure {
         case .permissionDenied, .unreadable:
             L10n.string(
