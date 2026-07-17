@@ -196,6 +196,7 @@ describe("TerminalPane shared minimum size", () => {
         attached: [7],
         sizes: [{ surface: 7, cols: 126, rows: 38 }],
         self: true,
+        size_participating: true,
       },
       {
         client: 2,
@@ -206,6 +207,7 @@ describe("TerminalPane shared minimum size", () => {
         attached: [7],
         sizes: [{ surface: 7, cols: 126, rows: 38 }],
         self: false,
+        size_participating: true,
       },
     ];
 
@@ -232,6 +234,7 @@ describe("TerminalPane shared minimum size", () => {
       attached: [7],
       sizes: [{ surface: 7, cols: 126, rows: 38 }],
       self: false,
+      size_participating: true,
     }));
 
     const { queryByText } = render(<TerminalPane {...props} screen={terminalScreenView()} />);
