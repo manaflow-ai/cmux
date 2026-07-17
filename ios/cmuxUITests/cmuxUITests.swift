@@ -189,6 +189,51 @@ final class cmuxUITests: XCTestCase {
         add(attachment)
     }
 
+    /// Agent templates need an instruction before launch, while the plain
+    /// shell remains a useful zero-prompt workspace shortcut.
+    @MainActor
+    func testTaskComposerRequiresAgentPromptButAllowsEmptyShell() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        let prompt = app.textFields["MobileTaskComposerPrompt"]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+        let create = app.buttons["MobileTaskComposerCreateButton"]
+        XCTAssertTrue(create.waitForExistence(timeout: 3))
+        XCTAssertEqual(create.label, "Start Claude")
+        XCTAssertFalse(create.isEnabled)
+        XCTAssertEqual(
+            app.staticTexts["MobileTaskComposerActionCaption"].label,
+            "Add a prompt to put Claude to work."
+        )
+
+        tap(app.buttons["Shell"], in: app)
+        let shellReady = NSPredicate(format: "label == %@ AND enabled == true", "Open Shell")
+        expectation(for: shellReady, evaluatedWith: create)
+        waitForExpectations(timeout: 3)
+        XCTAssertEqual(
+            app.staticTexts["MobileTaskComposerActionCaption"].label,
+            "Opens a workspace with an interactive shell."
+        )
+
+        tap(app.buttons["Claude"], in: app)
+        let agentNeedsPrompt = NSPredicate(format: "label == %@ AND enabled == false", "Start Claude")
+        expectation(for: agentNeedsPrompt, evaluatedWith: create)
+        waitForExpectations(timeout: 3)
+
+        tap(prompt, in: app)
+        prompt.typeText("Fix the race")
+        let agentReady = NSPredicate(format: "label == %@ AND enabled == true", "Start Claude")
+        expectation(for: agentReady, evaluatedWith: create)
+        waitForExpectations(timeout: 3)
+        XCTAssertEqual(
+            app.staticTexts["MobileTaskComposerActionCaption"].label,
+            "Creates a workspace and sends your prompt immediately."
+        )
+    }
+
     /// Regression: the standalone preview must not inherit editable task state
     /// from the app's production UserDefaults store.
     @MainActor
@@ -245,6 +290,7 @@ final class cmuxUITests: XCTestCase {
         tap(prompt, in: app)
         let keyboard = app.keyboards.firstMatch
         XCTAssertTrue(keyboard.waitForExistence(timeout: 3))
+        prompt.typeText("Exercise failure recovery")
         let create = app.buttons["MobileTaskComposerCreateButton"]
         XCTAssertTrue(create.waitForExistence(timeout: 3))
 
@@ -276,7 +322,9 @@ final class cmuxUITests: XCTestCase {
         ])
         defer { app.terminate() }
 
-        XCTAssertTrue(app.textFields["MobileTaskComposerPrompt"].waitForExistence(timeout: 8))
+        let prompt = app.textFields["MobileTaskComposerPrompt"]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+        prompt.typeText("Persist this task")
         let create = app.buttons["MobileTaskComposerCreateButton"]
         XCTAssertTrue(create.waitForExistence(timeout: 3))
         XCTAssertEqual(create.label, "Start Claude")
