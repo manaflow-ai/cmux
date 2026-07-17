@@ -9,6 +9,7 @@ import UIKit
 struct TaskTemplateIcon: View {
     let value: String
     var size: CGFloat = 18
+    var shellVariant: TaskComposerShellIconVariant = .current
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -23,8 +24,13 @@ struct TaskTemplateIcon: View {
         } else {
             switch MacAvatarIcon.resolve(custom: value, defaultSymbol: "terminal") {
             case .symbol(let name):
+                let usesShellTreatment = name == "terminal"
                 Image(systemName: name)
-                    .font(.system(size: size, weight: .semibold))
+                    .font(.system(
+                        size: size * (usesShellTreatment ? shellVariant.glyphScale : 1),
+                        weight: usesShellTreatment ? shellVariant.glyphWeight : .semibold
+                    ))
+                    .opacity(usesShellTreatment ? shellVariant.glyphOpacity : 1)
                     .accessibilityHidden(true)
             case .emoji(let emoji):
                 Text(emoji)

@@ -5,6 +5,7 @@ import SwiftUI
 /// One agent/template choice in the horizontal launch selector.
 struct TaskComposerTemplateOption: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(MobileDisplaySettings.self) private var displaySettings
     @ScaledMetric(relativeTo: .caption) private var cardWidth: CGFloat = 86
     @ScaledMetric(relativeTo: .caption) private var cardHeight: CGFloat = 78
     @ScaledMetric(relativeTo: .caption) private var iconDiameter: CGFloat = 40
@@ -13,16 +14,42 @@ struct TaskComposerTemplateOption: View {
     let template: MobileTaskTemplate
     let isSelected: Bool
     let isDisabled: Bool
+    var shellIconVariant: TaskComposerShellIconVariant?
     let action: () -> Void
+
+    init(
+        template: MobileTaskTemplate,
+        isSelected: Bool,
+        isDisabled: Bool,
+        shellIconVariant: TaskComposerShellIconVariant? = nil,
+        action: @escaping () -> Void
+    ) {
+        self.template = template
+        self.isSelected = isSelected
+        self.isDisabled = isDisabled
+        self.shellIconVariant = shellIconVariant
+        self.action = action
+    }
 
     var body: some View {
         Button(action: action) {
             VStack(spacing: 8) {
                 ZStack(alignment: .topTrailing) {
                     Circle()
-                        .fill(isSelected ? Color.accentColor.opacity(0.16) : Color.primary.opacity(0.055))
-                        .frame(width: resolvedIconDiameter, height: resolvedIconDiameter)
-                    TaskTemplateIcon(value: template.icon, size: resolvedIconSize)
+                        .fill(
+                            isSelected
+                                ? Color.accentColor.opacity(0.16 * resolvedShellIconVariant.circleOpacityScale)
+                                : Color.primary.opacity(0.055 * resolvedShellIconVariant.circleOpacityScale)
+                        )
+                        .frame(
+                            width: resolvedIconDiameter * resolvedShellIconVariant.circleScale,
+                            height: resolvedIconDiameter * resolvedShellIconVariant.circleScale
+                        )
+                    TaskTemplateIcon(
+                        value: template.icon,
+                        size: resolvedIconSize,
+                        shellVariant: resolvedShellIconVariant
+                    )
                         .frame(width: resolvedIconDiameter, height: resolvedIconDiameter)
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
@@ -77,6 +104,11 @@ struct TaskComposerTemplateOption: View {
 
     private var resolvedIconSize: CGFloat {
         min(iconSize, dynamicTypeSize.isAccessibilitySize ? 28 : 24)
+    }
+
+    private var resolvedShellIconVariant: TaskComposerShellIconVariant {
+        guard template.icon == "terminal" else { return .current }
+        return shellIconVariant ?? displaySettings.taskComposerShellIconVariant
     }
 }
 #endif

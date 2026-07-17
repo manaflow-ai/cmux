@@ -5271,6 +5271,74 @@
         }
       }
     },
+    "mobile.settings.shellIconLab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell Icon Lab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シェルアイコンラボ"
+          }
+        }
+      }
+    },
+    "mobile.settings.shellIconLab.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The first value is icon size. Stroke weights are 400 regular, 500 medium, and 600 semibold. α changes contrast; ○ changes circle size. Choose a variant, then reopen New Task."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最初の値はアイコンサイズです。線の太さは 400 がレギュラー、500 がミディアム、600 がセミボールドです。α はコントラスト、○ は円のサイズを変更します。バリエーションを選び、もう一度「新規タスク」を開いてください。"
+          }
+        }
+      }
+    },
+    "mobile.settings.shellIconLab.selected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selected Shell Card"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択中のシェルカード"
+          }
+        }
+      }
+    },
+    "mobile.settings.shellIconLab.variants": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Variants"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バリエーション"
+          }
+        }
+      }
+    },
     "mobile.settings.unreadIndicatorLeftness": {
       "extractionState": "manual",
       "localizations": {

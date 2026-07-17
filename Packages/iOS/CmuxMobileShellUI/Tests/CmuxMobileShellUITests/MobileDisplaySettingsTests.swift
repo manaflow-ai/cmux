@@ -71,6 +71,18 @@ import Testing
         #expect(defaults.object(forKey: "cmux.mobile.debug.unreadIndicatorLeftShift.v2") == nil)
         #expect(defaults.object(forKey: "cmux.mobile.debug.profilePictureLeftShift") == nil)
         #expect(defaults.object(forKey: "cmux.mobile.debug.profilePictureSize") == nil)
+        #expect(settings.taskComposerShellIconVariant == .current)
+        #expect(defaults.object(forKey: "cmux.mobile.debug.taskComposerShellIconVariant.v1") == nil)
+    }
+
+    @Test func shellIconVariantPersistsAndRejectsUnknownValues() throws {
+        let defaults = try makeDefaults("shellIconVariant")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        settings.taskComposerShellIconVariant = .medium86
+        #expect(MobileDisplaySettings(defaults: defaults).taskComposerShellIconVariant == .medium86)
+
+        defaults.set("removed-variant", forKey: "cmux.mobile.debug.taskComposerShellIconVariant.v1")
+        #expect(MobileDisplaySettings(defaults: defaults).taskComposerShellIconVariant == .current)
     }
 
     @Test func debugLayoutSettingsPersistAcrossInstances() throws {

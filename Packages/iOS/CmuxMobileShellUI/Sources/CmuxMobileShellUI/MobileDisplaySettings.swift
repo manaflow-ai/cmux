@@ -26,6 +26,7 @@ public final class MobileDisplaySettings {
     private static let unreadIndicatorLeftShiftKey = "cmux.mobile.debug.unreadIndicatorLeftShift.v2"
     private static let profilePictureLeftShiftKey = "cmux.mobile.debug.profilePictureLeftShift"
     private static let profilePictureSizeKey = "cmux.mobile.debug.profilePictureSize"
+    private static let taskComposerShellIconVariantKey = "cmux.mobile.debug.taskComposerShellIconVariant.v1"
 
     /// The preview line counts the "Preview Lines" setting offers.
     public static let workspacePreviewLineCountRange = 1...2
@@ -99,6 +100,17 @@ public final class MobileDisplaySettings {
         }
     }
 
+    /// Temporary DEBUG dogfood selection for the task composer's Shell badge.
+    /// The picker is removed after dogfood chooses the production treatment.
+    var taskComposerShellIconVariant: TaskComposerShellIconVariant {
+        didSet {
+            defaults.set(
+                taskComposerShellIconVariant.rawValue,
+                forKey: Self.taskComposerShellIconVariantKey
+            )
+        }
+    }
+
     /// Creates the display settings, seeding stored values from `defaults`.
     /// - Parameter defaults: The store backing the persisted preferences.
     ///   Defaults to `.standard`; tests pass a scoped suite. Stored properties
@@ -127,6 +139,9 @@ public final class MobileDisplaySettings {
             storedProfilePictureSize ?? Self.defaultProfilePictureSize,
             to: Self.profilePictureSizeRange
         )
+        self.taskComposerShellIconVariant = defaults.string(
+            forKey: Self.taskComposerShellIconVariantKey
+        ).flatMap(TaskComposerShellIconVariant.init(rawValue:)) ?? .current
     }
 
     /// Clamps a stored or assigned preview line count to the supported range.

@@ -278,6 +278,233 @@ final class cmuxUITests: XCTestCase {
             app.staticTexts["MobileTaskComposerActionCaption"].label,
             "Creates a workspace and sends your prompt immediately."
         )
+
+        let templates = [
+            (name: "Claude", action: "Start Claude"),
+            (name: "Codex", action: "Start Codex"),
+            (name: "OpenCode", action: "Start OpenCode"),
+            (name: "Shell", action: "Open Shell"),
+        ]
+        for template in templates {
+            tap(app.buttons[template.name], in: app)
+            let selectedAction = NSPredicate(
+                format: "label == %@ AND enabled == true",
+                template.action
+            )
+            expectation(for: selectedAction, evaluatedWith: create)
+            waitForExpectations(timeout: 3)
+            for candidate in templates {
+                XCTAssertEqual(
+                    app.buttons[candidate.name].isSelected,
+                    candidate.name == template.name,
+                    "Only the chosen task template should expose the selected trait"
+                )
+            }
+        }
+    }
+
+    /// Selecting another paired Mac must cross the production composer submit
+    /// boundary with that Mac's stable device identity.
+    @MainActor
+    func testTaskComposerSubmitsToSelectedPairedMac() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        let prompt = app.textFields["MobileTaskComposerPrompt"]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+        let machineMenu = app.buttons["MobileTaskComposerMachineMenu"]
+        revealTaskComposerControl(machineMenu, in: app)
+        machineMenu.tap()
+        tapMenuItem(app.buttons["Backup Preview Mac"], in: app)
+        XCTAssertEqual(machineMenu.value as? String, "Backup Preview Mac")
+
+        try typeText("Route this task to the backup Mac", into: prompt, in: app)
+        tap(app.buttons["MobileTaskComposerCreateButton"], in: app)
+
+        let submittedMac = app.staticTexts["MobileTaskComposerSubmittedMacDeviceID"]
+        XCTAssertTrue(submittedMac.waitForExistence(timeout: 4))
+        XCTAssertEqual(submittedMac.label, "task-composer-backup-preview-mac")
+    }
+
+    /// The temporary dogfood lab must expose every Shell treatment, apply the
+    /// selected variant immediately, and preserve it across an app relaunch.
+    @MainActor
+    func testShellIconLabSelectsAndPersistsVariant() throws {
+        var app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+        ])
+
+        func openShellIconLab(in app: XCUIApplication) {
+            let settings = app.buttons["MobileWorkspaceSettingsMenu"]
+            XCTAssertTrue(settings.waitForExistence(timeout: 8))
+            tap(settings, in: app)
+
+            let link = app.descendants(matching: .any)["MobileSettingsShellIconLab"]
+            for _ in 0..<6 where !link.exists || !link.isHittable {
+                app.swipeUp(velocity: .slow)
+            }
+            XCTAssertTrue(link.waitForExistence(timeout: 4))
+            XCTAssertTrue(link.isHittable)
+            tap(link, in: app)
+            XCTAssertTrue(
+                app.descendants(matching: .any)["MobileShellIconLab"].waitForExistence(timeout: 4)
+            )
+        }
+
+        openShellIconLab(in: app)
+        XCTAssertTrue(app.buttons["MobileShellIconVariant-A"].exists)
+        XCTAssertTrue(app.buttons["MobileShellIconVariant-B"].exists)
+        XCTAssertTrue(app.buttons["MobileShellIconVariant-C"].exists)
+
+        let medium86 = app.buttons["MobileShellIconVariant-G"]
+        for _ in 0..<3 where !medium86.isHittable {
+            app.swipeUp(velocity: .slow)
+        }
+        XCTAssertTrue(medium86.isHittable)
+        tap(medium86, in: app)
+        XCTAssertTrue(medium86.isSelected)
+
+        let selectedScreenshot = XCTAttachment(screenshot: app.screenshot())
+        selectedScreenshot.name = "shell-icon-lab-medium-86"
+        selectedScreenshot.lifetime = .keepAlways
+        add(selectedScreenshot)
+
+        app.terminate()
+        app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+        ])
+        openShellIconLab(in: app)
+        let persistedMedium86 = app.buttons["MobileShellIconVariant-G"]
+        for _ in 0..<3 where !persistedMedium86.isHittable {
+            app.swipeUp(velocity: .slow)
+        }
+        XCTAssertTrue(persistedMedium86.isHittable)
+        XCTAssertTrue(persistedMedium86.isSelected)
+
+        let baseline = app.buttons["MobileShellIconVariant-A"]
+        for _ in 0..<4 where !baseline.isHittable {
+            app.swipeDown(velocity: .slow)
+        }
+        XCTAssertTrue(baseline.isHittable)
+        tap(baseline, in: app)
+        XCTAssertTrue(baseline.isSelected)
+        app.terminate()
+    }
+
+    /// The production composer must preserve each built-in template's exact
+    /// startup parameters when it crosses the submit boundary.
+    @MainActor
+    func testTaskComposerSubmitsEveryBuiltInTemplateWithExactWorkspaceSpec() throws {
+        let prompt = "Inspect the task composer"
+        let templates: [(name: String, action: String, command: String?, prompt: String?)] = [
+            ("Claude", "Start Claude", "claude -- \"$CMUX_TASK_PROMPT\"", prompt),
+            ("Codex", "Start Codex", "codex -- \"$CMUX_TASK_PROMPT\"", prompt),
+            ("OpenCode", "Start OpenCode", "opencode --prompt \"$CMUX_TASK_PROMPT\"", prompt),
+            ("Shell", "Open Shell", nil, nil),
+        ]
+
+        for template in templates {
+            let app = launchApp(mockData: false, environment: [
+                "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            ])
+            let promptField = app.textFields["MobileTaskComposerPrompt"]
+            XCTAssertTrue(promptField.waitForExistence(timeout: 8))
+            tap(app.buttons[template.name], in: app)
+            if let templatePrompt = template.prompt {
+                try typeText(templatePrompt, into: promptField, in: app)
+            }
+
+            let create = app.buttons["MobileTaskComposerCreateButton"]
+            let ready = NSPredicate(format: "label == %@ AND enabled == true", template.action)
+            expectation(for: ready, evaluatedWith: create)
+            waitForExpectations(timeout: 4)
+            tap(create, in: app)
+
+            let submittedCommand = app.staticTexts["MobileTaskComposerSubmittedInitialCommand"]
+            XCTAssertTrue(submittedCommand.waitForExistence(timeout: 4))
+            XCTAssertEqual(submittedCommand.label, template.command ?? "<nil>")
+            XCTAssertEqual(
+                app.staticTexts["MobileTaskComposerSubmittedPrompt"].label,
+                template.prompt ?? "<nil>"
+            )
+            XCTAssertEqual(
+                app.staticTexts["MobileTaskComposerSubmittedWorkingDirectory"].label,
+                "~"
+            )
+            XCTAssertNotEqual(
+                app.staticTexts["MobileTaskComposerSubmittedOperationID"].label,
+                "<nil>"
+            )
+            app.terminate()
+        }
+    }
+
+    /// Folder search must rank an exact project root before descendants and
+    /// reflect the selected exact path from the production picker.
+    @MainActor
+    func testTaskComposerDirectorySearchOrdersAndSelectsRemoteFolder() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_DIRECTORY_PICKER_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        let search = app.searchFields["Search folders"]
+        XCTAssertTrue(search.waitForExistence(timeout: 8))
+        try typeText("mobile-root", into: search, in: app)
+        let root = app.buttons["mobile-root"]
+        let sources = app.buttons["Sources"]
+        XCTAssertTrue(root.waitForExistence(timeout: 5))
+        XCTAssertTrue(sources.waitForExistence(timeout: 5))
+        XCTAssertLessThan(root.frame.minY, sources.frame.minY)
+        XCTAssertTrue((root.value as? String)?.contains("/Users/ui/mobile-root") == true)
+        XCTAssertTrue((root.value as? String)?.contains("On this Mac") == true)
+        XCTAssertTrue((sources.value as? String)?.contains("/Users/ui/mobile-root/Sources") == true)
+
+        tap(sources, in: app)
+        let selectedPath = app.staticTexts["MobileTaskComposerSelectedDirectory"]
+        XCTAssertTrue(selectedPath.waitForExistence(timeout: 4))
+        XCTAssertEqual(selectedPath.label, "/Users/ui/mobile-root/Sources")
+    }
+
+    /// The production editor must persist add, edit, and delete mutations in
+    /// one isolated composer session.
+    @MainActor
+    func testTaskComposerTemplateEditorAddsEditsAndDeletesTemplate() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.textFields["MobileTaskComposerPrompt"].waitForExistence(timeout: 8))
+        tap(app.buttons["MobileTaskComposerEditTemplatesButton"], in: app)
+        XCTAssertTrue(app.navigationBars["Task Templates"].waitForExistence(timeout: 4))
+        tap(app.buttons["Add Template"], in: app)
+        XCTAssertTrue(app.navigationBars["Add Template"].waitForExistence(timeout: 4))
+
+        let originalName = "Spark Custom"
+        let editedName = "Spark Review"
+        try typeText(originalName, into: app.textFields["Name"], in: app)
+        tap(app.buttons["Save"], in: app)
+
+        let originalRow = taskTemplateEditorRow(named: originalName, in: app)
+        XCTAssertTrue(originalRow.waitForExistence(timeout: 4))
+        tap(originalRow, in: app)
+        XCTAssertTrue(app.navigationBars["Edit Template"].waitForExistence(timeout: 4))
+        try replaceText(editedName, in: app.textFields["Name"], app: app)
+        tap(app.buttons["Save"], in: app)
+
+        let editedRow = taskTemplateEditorRow(named: editedName, in: app)
+        XCTAssertTrue(editedRow.waitForExistence(timeout: 4))
+        XCTAssertFalse(originalRow.exists)
+        editedRow.swipeLeft()
+        tap(app.buttons["Delete"], in: app)
+        XCTAssertFalse(editedRow.waitForExistence(timeout: 2))
+
+        tap(app.buttons["Done"], in: app)
+        XCTAssertFalse(app.buttons[editedName].exists)
     }
 
     /// Regression: the standalone preview must not inherit editable task state
@@ -2655,6 +2882,42 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(focusTextInput(element, in: app), "Expected text input to accept keyboard focus: \(element.debugDescription)")
         element.typeText(text)
         dismissKeyboard(in: app, preferAddDeviceAccessoryDoneButton: isAddDeviceField(element))
+    }
+
+    @MainActor
+    private func taskTemplateEditorRow(named name: String, in app: XCUIApplication) -> XCUIElement {
+        app.buttons.matching(
+            NSPredicate(
+                format: "label CONTAINS %@ AND label CONTAINS %@",
+                name,
+                "Plain shell"
+            )
+        ).firstMatch
+    }
+
+    @MainActor
+    private func revealTaskComposerControl(
+        _ control: XCUIElement,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertTrue(control.waitForExistence(timeout: 4), file: file, line: line)
+        let hero = app.descendants(matching: .any)["MobileTaskComposerHero"]
+        for _ in 0..<3 where !control.isHittable {
+            if hero.exists, hero.isHittable {
+                hero.swipeUp(velocity: .slow)
+            } else {
+                app.coordinate(withNormalizedOffset: .zero)
+                    .withOffset(CGVector(dx: 200, dy: 360))
+                    .press(
+                        forDuration: 0.05,
+                        thenDragTo: app.coordinate(withNormalizedOffset: .zero)
+                            .withOffset(CGVector(dx: 200, dy: 160))
+                    )
+            }
+        }
+        XCTAssertTrue(control.isHittable, "Task composer control stayed behind the keyboard", file: file, line: line)
     }
 
     @MainActor
