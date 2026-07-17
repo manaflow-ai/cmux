@@ -36,7 +36,8 @@ struct TaskTemplateIcon: View {
 }
 
 /// Brand PNGs are shipped as loose package resources and loaded by explicit
-/// file path. This deliberately avoids asset-catalog and `UIImage(named:in:)`
+/// file path. SwiftPM flattens processed resource directories into the bundle
+/// root. This deliberately avoids asset-catalog and `UIImage(named:in:)`
 /// lookups: dev reloads apply PRODUCT_BUNDLE_IDENTIFIER to every target, so
 /// the SwiftPM resource bundle shares the app's identifier and CoreUI's
 /// per-identifier catalog registration resolves against the wrong catalog.
@@ -58,8 +59,7 @@ extension TaskTemplateIcon {
         }
         guard let url = Bundle.module.url(
             forResource: "\(fileName)@3x",
-            withExtension: "png",
-            subdirectory: "AgentIcons"
+            withExtension: "png"
         ), let data = try? Data(contentsOf: url),
               let image = UIImage(data: data, scale: 3) else {
             return nil
