@@ -5,6 +5,15 @@ struct SidebarWorkspaceTableContextMenuActions {
     let didClose: () -> Void
 }
 
+/// Mutable, non-observed holder for the last-built table rows. The sidebar
+/// container freezes row building against it during interactive divider
+/// drags (rows cannot change while the resizer owns the mouse), so
+/// per-width-tick body evals skip the row-projection prelude.
+@MainActor
+final class SidebarAppKitFrozenRowsBox {
+    var rows: [SidebarWorkspaceTableRowConfiguration]?
+}
+
 /// Immutable description of one AppKit-owned sidebar row.
 @MainActor
 struct SidebarWorkspaceTableRowConfiguration {

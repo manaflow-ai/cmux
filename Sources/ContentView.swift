@@ -1414,8 +1414,12 @@ struct ContentView: View {
             // Ground-truth failsafe: a cancelled SwiftUI drag gesture never
             // fires onEnded, stranding isResizerDragging and pinning the
             // resize cursor. If the physical button is up, the drag is over.
+            // End the registry session too — clearing only the local flag
+            // left portals latched in interactive-resize mode (deferred PTY
+            // resizes, immediate-path syncs) until the next real drag.
             if isResizerDragging,
                !CGEventSource.buttonState(.combinedSessionState, button: .left) {
+                TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: tabManager)
                 isResizerDragging = false
                 sidebarDragStartWidth = nil
                 fileExplorerDragStartWidth = nil
@@ -9984,6 +9988,10 @@ struct VerticalTabsSidebar: View {
     @State private var bonsplitWorkspaceDropTargetBridge = SidebarBonsplitTabWorkspaceDropOverlay.TargetBridge()
     @State private var workspaceReorderDropTargetBridge = SidebarWorkspaceReorderDropOverlay.TargetBridge()
     @State private var appKitRowSnapshotCache = SidebarRowSnapshotCache()
+    /// Last-built table rows, reused verbatim while a divider drag is active
+    /// so per-width-tick body evals skip the row-projection prelude. Plain
+    /// (non-observed) box: writing it from body cannot re-trigger a render.
+    @State private var appKitFrozenTableRowsBox = SidebarAppKitFrozenRowsBox()
     @State private var workspaceScrollContentMinHeight: CGFloat = 0
     @State private var checklistPopoverWorkspaceId: UUID?
     // Pending keyed refresh ids are intentionally non-observed. Workspace
@@ -10741,66 +10749,22 @@ struct VerticalTabsSidebar: View {
     }
 
     private func appKitWorkspaceScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
-        let unreadSummariesByWorkspaceId = sidebarUnread.summaryByWorkspaceId
-        let notificationIndex = SidebarWorkspaceNotificationIndex(
-            notifications: notificationStore.notifications
-        )
-        let workspaceRowInputsById = Dictionary(uniqueKeysWithValues: renderContext.tabs.map { workspace in
-            (
-                workspace.id,
-                workspaceRowInput(
-                    workspace,
-                    renderContext: renderContext,
-                    unreadSummariesByWorkspaceId: unreadSummariesByWorkspaceId
-                )
-            )
-        })
         let _ = anchorCwdRevision
-        let groupRowSnapshotsById = Dictionary(uniqueKeysWithValues: renderContext.workspaceGroups.map { group in
-            (
-                group.id,
-                sidebarWorkspaceGroupRowSnapshot(
-                    group: group,
-                    memberWorkspaceIds: renderContext.memberWorkspaceIdsByGroupId[group.id] ?? [],
-                    renderContext: renderContext,
-                    unreadSummariesByWorkspaceId: unreadSummariesByWorkspaceId,
-                    notificationIndex: notificationIndex,
-                    shouldCollectWorkspaceDropTargets: false,
-                    showModifierHoldHints: showModifierHoldHints
-                )
-            )
-        })
-        let listSnapshot = SidebarWorkspaceRowsSnapshot(
-            workspaceRowsById: workspaceRowInputsById,
-            groupRowsById: groupRowSnapshotsById,
-            selectedContextTargetIds: renderContext.selectedContextTargetIds,
-            anchorWorkspaceIds: Set(renderContext.workspaceGroups.map(\.anchorWorkspaceId)),
-            workspaceGroupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
-            canCreateEmptyGroup: tabManager.selectedTab?.isRemoteTmuxMirror != true,
-            notificationIndex: notificationIndex
+        let tableRows: [SidebarWorkspaceTableRowConfiguration]
+        let isDividerDragActive = TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(
+            in: observedWindow
         )
-        let tableRows: [SidebarWorkspaceTableRowConfiguration] = renderContext.workspaceRenderItems.compactMap { item -> SidebarWorkspaceTableRowConfiguration? in
-            switch item {
-            case .groupHeader(let groupId, _):
-                guard let group = renderContext.workspaceGroups.first(where: { $0.id == groupId }) else { return nil }
-                return sidebarWorkspaceGroupTableConfiguration(
-                    group: group,
-                    memberWorkspaceIds: renderContext.memberWorkspaceIdsByGroupId[groupId] ?? [],
-                    renderContext: renderContext,
-                    showModifierHoldHints: showModifierHoldHints
-                )
-            case .workspace(let workspaceId):
-                guard let workspace = renderContext.workspaceById[workspaceId],
-                      let input = workspaceRowInputsById[workspaceId] else { return nil }
-                return workspaceTableRowConfiguration(
-                    workspace,
-                    input: input,
-                    listSnapshot: listSnapshot,
-                    renderContext: renderContext
-                )
-            }
+        if isDividerDragActive, let frozenRows = appKitFrozenTableRowsBox.rows {
+            // Rows cannot change while the resizer owns the mouse; reuse the
+            // last-built rows so per-width-tick body evals skip the row
+            // projection prelude (14% of drag-loop time in a Time Profiler
+            // capture). The first eval after mouse-up rebuilds fresh rows.
+            tableRows = frozenRows
+        } else {
+            tableRows = appKitWorkspaceTableRows(renderContext: renderContext)
+            appKitFrozenTableRowsBox.rows = tableRows
+            appKitRowSnapshotCache.prune(keeping: Set(renderContext.workspaceIds))
         }
-        appKitRowSnapshotCache.prune(keeping: Set(renderContext.workspaceIds))
         let selectedScrollTargetWorkspaceId: UUID? = tabManager.selectedTabId.map { selectedId in
             let group = renderContext.workspaceById[selectedId]?.groupId
                 .flatMap { renderContext.workspaceGroupById[$0] }
@@ -10885,6 +10849,69 @@ struct VerticalTabsSidebar: View {
                     lastSidebarSelectionIndex = index
                 }
             }
+    }
+
+    private func appKitWorkspaceTableRows(
+        renderContext: WorkspaceListRenderContext
+    ) -> [SidebarWorkspaceTableRowConfiguration] {
+        let unreadSummariesByWorkspaceId = sidebarUnread.summaryByWorkspaceId
+        let notificationIndex = SidebarWorkspaceNotificationIndex(
+            notifications: notificationStore.notifications
+        )
+        let workspaceRowInputsById = Dictionary(uniqueKeysWithValues: renderContext.tabs.map { workspace in
+            (
+                workspace.id,
+                workspaceRowInput(
+                    workspace,
+                    renderContext: renderContext,
+                    unreadSummariesByWorkspaceId: unreadSummariesByWorkspaceId
+                )
+            )
+        })
+        let groupRowSnapshotsById = Dictionary(uniqueKeysWithValues: renderContext.workspaceGroups.map { group in
+            (
+                group.id,
+                sidebarWorkspaceGroupRowSnapshot(
+                    group: group,
+                    memberWorkspaceIds: renderContext.memberWorkspaceIdsByGroupId[group.id] ?? [],
+                    renderContext: renderContext,
+                    unreadSummariesByWorkspaceId: unreadSummariesByWorkspaceId,
+                    notificationIndex: notificationIndex,
+                    shouldCollectWorkspaceDropTargets: false,
+                    showModifierHoldHints: showModifierHoldHints
+                )
+            )
+        })
+        let listSnapshot = SidebarWorkspaceRowsSnapshot(
+            workspaceRowsById: workspaceRowInputsById,
+            groupRowsById: groupRowSnapshotsById,
+            selectedContextTargetIds: renderContext.selectedContextTargetIds,
+            anchorWorkspaceIds: Set(renderContext.workspaceGroups.map(\.anchorWorkspaceId)),
+            workspaceGroupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
+            canCreateEmptyGroup: tabManager.selectedTab?.isRemoteTmuxMirror != true,
+            notificationIndex: notificationIndex
+        )
+        return renderContext.workspaceRenderItems.compactMap { item -> SidebarWorkspaceTableRowConfiguration? in
+            switch item {
+            case .groupHeader(let groupId, _):
+                guard let group = renderContext.workspaceGroupById[groupId] else { return nil }
+                return sidebarWorkspaceGroupTableConfiguration(
+                    group: group,
+                    memberWorkspaceIds: renderContext.memberWorkspaceIdsByGroupId[groupId] ?? [],
+                    renderContext: renderContext,
+                    showModifierHoldHints: showModifierHoldHints
+                )
+            case .workspace(let workspaceId):
+                guard let workspace = renderContext.workspaceById[workspaceId],
+                      let input = workspaceRowInputsById[workspaceId] else { return nil }
+                return workspaceTableRowConfiguration(
+                    workspace,
+                    input: input,
+                    listSnapshot: listSnapshot,
+                    renderContext: renderContext
+                )
+            }
+        }
     }
 
         private func workspaceTableActions(
@@ -13112,7 +13139,6 @@ struct VerticalTabsSidebar: View {
             activeTodoOverride: activeTodoOverride,
             isTodoStatusHidden: tab.todoState.statusHidden
         )
-        SidebarProfilingSignposts.end(signpost)
         return result
     }
 
