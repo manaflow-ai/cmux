@@ -690,12 +690,17 @@ switch_mirror_tab() {
     "{\"host\":\"$HOST\",\"session\":\"$SESSION\"}" 2>/dev/null) || return 0
   mirrored=$(printf '%s' "$grids" | jq -r '[.windows[]?.window_id] | join(" ")' 2>/dev/null)
   [ -n "$mirrored" ] || return 0
+  # Demand exactly one on-screen window, not panes[0]'s window: during an
+  # overlapping tab handoff two windows are briefly on screen at once and [0]
+  # could name either of them.
   shown=$(printf '%s' "$PANE_SURFACES_JSON" | jq -r '
-    [.panes[] | select(.on_screen == true)][0].window_id // empty' 2>/dev/null)
-  # A vacuous landing check is worse than none: with no window shown, any window
-  # appearing later "differs" and the op would claim it proved a switch.
+    [.panes[] | select(.on_screen == true) | .window_id] | unique
+    | if length == 1 then .[0] else empty end' 2>/dev/null)
+  # A vacuous landing check is worse than none: without a single shown window,
+  # any window appearing later "differs" and the op would claim it proved a
+  # switch it cannot attribute.
   if [ -z "$shown" ]; then
-    echo "  (op10 skipped: no mirror on screen to switch away from)"
+    echo "  (op10 skipped: zero or several windows on screen; no clean start state)"
     return 0
   fi
   case " $mirrored " in *" $shown "*) : ;; *)
@@ -737,7 +742,12 @@ switch_mirror_tab() {
   for _ in 1 2 3 4 5 6; do
     if "$TIMEOUT_BIN" 3 "$CLI" rpc remote.tmux.pane_surfaces \
       "{\"host\":\"$HOST\",\"session\":\"$SESSION\"}" > "$RUN_DIR/op10.json" 2>/dev/null; then
-      after=$(jq -r '[.panes[] | select(.on_screen == true)][0].window_id // empty' \
+      # Same singleton rule as the start state: the landing only counts once
+      # the target is the ONLY on-screen window. Mid-handoff, target-plus-old
+      # is still on screen and must keep polling, not bank the switch early.
+      after=$(jq -r '
+        [.panes[] | select(.on_screen == true) | .window_id] | unique
+        | if length == 1 then .[0] else "\(length) windows: \(join(","))" end' \
         "$RUN_DIR/op10.json" 2>/dev/null)
       if [ -n "$after" ] && [ "$after" = "$target_window" ]; then
         OP10_SWITCHES=$((OP10_SWITCHES + 1))
@@ -748,7 +758,7 @@ switch_mirror_tab() {
     sleep 0.5
   done
   rm -f "$RUN_DIR/op10.json"
-  note_fail "$iter" "op10: focused $target but the shown window is @${after:-none}, not the target @$target_window (was @$shown) — the mirror tab never switched to it"
+  note_fail "$iter" "op10: focused $target but the shown window is ${after:-none}, not solely the target @$target_window (was @$shown) — the mirror tab never switched to it"
 }
 
 do_op() {
