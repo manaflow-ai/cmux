@@ -14,16 +14,7 @@ struct TaskComposerDirectoryPickerView: View {
     @State private var searchFailure: MobileTaskDirectorySearchFailure?
     @State private var searchRetryGeneration = 0
 
-    @State private var browsePath: String
-    @State private var currentPath: String?
-    @State private var parentPath: String?
-    @State private var browseEntries: [MobileTaskDirectoryListEntry] = []
-    @State private var nextOffset: Int?
-    @State private var totalCount = 0
-    @State private var isLoadingDirectory = false
-    @State private var browseFailure: MobileTaskDirectoryListFailure?
-    @State private var browseRetryGeneration = 0
-    @State private var requestedPageOffset: Int?
+    @State private var browseState: TaskComposerDirectoryBrowseState
 
     private let candidates: [MobileTaskDirectoryCandidate]
     private let selectedPathID: MobileTaskDirectoryPathID
@@ -53,8 +44,9 @@ struct TaskComposerDirectoryPickerView: View {
         self.select = select
         self.searchMac = searchMac
         self.listMac = listMac
-        let trimmedPath = selectedPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        _browsePath = State(initialValue: trimmedPath.isEmpty ? "~" : trimmedPath)
+        _browseState = State(
+            initialValue: TaskComposerDirectoryBrowseState(initialPath: selectedPath)
+        )
     }
 
     var body: some View {
@@ -108,15 +100,8 @@ struct TaskComposerDirectoryPickerView: View {
             .task(id: SearchRequest(query: query, retryGeneration: searchRetryGeneration)) {
                 await updateRemoteSuggestions()
             }
-            .task(id: BrowseRequest(path: browsePath, retryGeneration: browseRetryGeneration)) {
-                await loadDirectory(path: browsePath)
-            }
-            .task(id: requestedPageOffset) {
-                guard let requestedPageOffset else { return }
-                await loadDirectory(path: browsePath, offset: requestedPageOffset, appending: true)
-                if !Task.isCancelled {
-                    self.requestedPageOffset = nil
-                }
+            .task(id: browseState.pendingRequest) {
+                await loadPendingDirectoryRequest()
             }
         }
     }
@@ -128,7 +113,9 @@ struct TaskComposerDirectoryPickerView: View {
 
         if let browseFailure, !isLoadingDirectory {
             browseFailureCard(browseFailure)
-        } else if isLoadingDirectory, browseEntries.isEmpty {
+        }
+
+        if isLoadingDirectory, browseEntries.isEmpty {
             HStack(spacing: 10) {
                 ProgressView()
                 Text(
@@ -141,7 +128,7 @@ struct TaskComposerDirectoryPickerView: View {
             }
             .frame(maxWidth: .infinity, minHeight: 120)
             .accessibilityElement(children: .combine)
-        } else if browseEntries.isEmpty {
+        } else if browseEntries.isEmpty, browseFailure == nil {
             ContentUnavailableView(
                 L10n.string(
                     "mobile.taskComposer.directoryPicker.browse.empty.title",
@@ -156,11 +143,13 @@ struct TaskComposerDirectoryPickerView: View {
                 )
             )
             .frame(maxWidth: .infinity, minHeight: 180)
-        } else {
+        } else if !browseEntries.isEmpty {
             VStack(spacing: 0) {
                 ForEach(browseEntries, id: \.path) { entry in
                     Button {
-                        navigate(to: entry.path)
+                        if let destination = browseState.navigationDestination(for: entry) {
+                            navigate(to: destination)
+                        }
                     } label: {
                         HStack(spacing: 12) {
                             directoryIcon(for: entry)
@@ -185,23 +174,28 @@ struct TaskComposerDirectoryPickerView: View {
                                     .foregroundStyle(.orange)
                                     .accessibilityHidden(true)
                             }
-                            Image(systemName: "chevron.right")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.tertiary)
-                                .accessibilityHidden(true)
+                            if entry.isReadable {
+                                Image(systemName: "chevron.right")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.tertiary)
+                                    .accessibilityHidden(true)
+                            }
                         }
                         .padding(.horizontal, 14)
                         .frame(minHeight: 58)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .disabled(!entry.isReadable)
                     .accessibilityLabel(entry.name)
                     .accessibilityValue(entry.path)
                     .accessibilityHint(
-                        L10n.string(
-                            "mobile.taskComposer.directoryPicker.browse.open.hint",
-                            defaultValue: "Shows the folders inside this folder."
-                        )
+                        entry.isReadable
+                            ? L10n.string(
+                                "mobile.taskComposer.directoryPicker.browse.open.hint",
+                                defaultValue: "Shows the folders inside this folder."
+                            )
+                            : browseFailureMessage(.unreadable)
                     )
 
                     if entry.path != browseEntries.last?.path {
@@ -215,9 +209,9 @@ struct TaskComposerDirectoryPickerView: View {
                     .strokeBorder(Color.primary.opacity(0.07), lineWidth: 1)
             }
 
-            if let nextOffset {
+            if browseFailure == nil, nextOffset != nil {
                 Button {
-                    requestedPageOffset = nextOffset
+                    browseState.requestNextPage()
                 } label: {
                     HStack(spacing: 8) {
                         if isLoadingDirectory {
@@ -312,7 +306,7 @@ struct TaskComposerDirectoryPickerView: View {
                 Text(currentDirectoryName)
                     .font(.headline)
                     .lineLimit(1)
-                Text(currentPath ?? browsePath)
+                Text(browseState.displayPath)
                     .font(.caption.monospaced())
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -511,8 +505,36 @@ struct TaskComposerDirectoryPickerView: View {
         !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    private var currentPath: String? {
+        browseState.snapshot?.currentPath
+    }
+
+    private var parentPath: String? {
+        browseState.snapshot?.parentPath
+    }
+
+    private var browseEntries: [MobileTaskDirectoryListEntry] {
+        browseState.snapshot?.entries ?? []
+    }
+
+    private var nextOffset: Int? {
+        browseState.snapshot?.nextOffset
+    }
+
+    private var totalCount: Int {
+        browseState.snapshot?.totalCount ?? 0
+    }
+
+    private var isLoadingDirectory: Bool {
+        browseState.isLoading
+    }
+
+    private var browseFailure: MobileTaskDirectoryListFailure? {
+        browseState.failure?.reason
+    }
+
     private var currentDirectoryName: String {
-        let path = currentPath ?? browsePath
+        let path = browseState.displayPath
         guard path != "/" else {
             return L10n.string(
                 "mobile.taskComposer.directoryPicker.browse.computer",
@@ -557,37 +579,14 @@ struct TaskComposerDirectoryPickerView: View {
     }
 
     @MainActor
-    private func loadDirectory(path: String, offset: Int = 0, appending: Bool = false) async {
-        if !appending {
-            browseEntries = []
-            currentPath = nil
-            parentPath = nil
-            nextOffset = nil
-            totalCount = 0
-            browseFailure = nil
+    private func loadPendingDirectoryRequest() async {
+        guard let request = browseState.pendingRequest else { return }
+        let result = await listMac(request.path, request.offset)
+        guard !Task.isCancelled else {
+            browseState.cancel(request)
+            return
         }
-        isLoadingDirectory = true
-        let result = await listMac(path, offset)
-        guard !Task.isCancelled, path == browsePath else { return }
-        isLoadingDirectory = false
-
-        switch result {
-        case let .success(page):
-            browseFailure = nil
-            currentPath = page.currentPath
-            parentPath = page.parentPath
-            nextOffset = page.nextOffset
-            totalCount = page.totalCount
-            if appending, browseEntries.last?.path != page.entries.first?.path {
-                browseEntries.append(contentsOf: page.entries)
-            } else {
-                browseEntries = page.entries
-            }
-        case .failure(.cancelled):
-            break
-        case let .failure(failure):
-            browseFailure = failure
-        }
+        browseState.resolve(result, for: request)
     }
 
     @MainActor
@@ -629,10 +628,7 @@ struct TaskComposerDirectoryPickerView: View {
     }
 
     private func navigate(to path: String) {
-        guard path != browsePath || browseFailure != nil else { return }
-        requestedPageOffset = nil
-        browsePath = path
-        browseRetryGeneration &+= 1
+        browseState.navigate(to: path)
     }
 
     private func choose(path: String) {
@@ -656,7 +652,7 @@ struct TaskComposerDirectoryPickerView: View {
         failureCard(
             title: browseFailureTitle(failure),
             message: browseFailureMessage(failure),
-            retry: { browseRetryGeneration &+= 1 },
+            retry: { browseState.retryFailedRequest() },
             identifier: "TaskComposerDirectoryBrowseRetry"
         )
     }
@@ -824,9 +820,5 @@ struct TaskComposerDirectoryPickerView: View {
         let retryGeneration: Int
     }
 
-    private struct BrowseRequest: Hashable {
-        let path: String
-        let retryGeneration: Int
-    }
 }
 #endif
