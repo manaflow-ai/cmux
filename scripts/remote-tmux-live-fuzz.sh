@@ -146,8 +146,8 @@ settlement_digest() {
   # jq's status is honored: a payload of one valid value followed by garbage makes
   # jq print and then exit non-zero, which a discarded status would report as a
   # clean digest.
-  if digest=$(printf '%s' "$1" | jq -c '
-        {counters, windows: [.windows[]? | select(.settled != true)]}
+  if digest=$(printf '%s' "$1" | jq -ce '
+        {connected, counters, windows: [.windows[]? | select(.settled != true)]}
       ' 2>/dev/null) && [ -n "$digest" ]; then
     printf '%s' "$digest"
     return
