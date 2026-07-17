@@ -47,6 +47,7 @@ import Testing
             macDeviceID: "mac-a",
             displayName: "A",
             routes: [try route("10.0.0.1")],
+            instanceTag: "feature",
             markActive: true,
             stackUserID: "user-1",
             teamID: "team-a",
@@ -56,6 +57,7 @@ import Testing
             macDeviceID: "mac-b",
             displayName: "B",
             routes: [try route("10.0.0.2")],
+            instanceTag: "other",
             markActive: true,
             stackUserID: "user-1",
             teamID: "team-a",
@@ -98,6 +100,7 @@ import Testing
             macDeviceID: "teamless",
             displayName: "Teamless",
             routes: [try route("10.0.0.1")],
+            instanceTag: "feature",
             markActive: true,
             stackUserID: "user-1",
             teamID: nil,
@@ -107,6 +110,7 @@ import Testing
             macDeviceID: "other-scope",
             displayName: "Other",
             routes: [try route("10.0.0.2")],
+            instanceTag: "other",
             markActive: true,
             stackUserID: "user-1",
             teamID: nil,
@@ -121,9 +125,10 @@ import Testing
     @Test func buildScopeHidesSiblingTagAndMatchingLegacyPeer() async throws {
         let (inner, directory) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: directory) }
+        let scope = try #require(MobileIOSBuildScope("feature"))
         let feature = IOSBuildScopedPairedMacStore(
             inner: inner,
-            scope: try #require(MobileIOSBuildScope("feature"))
+            scope: scope
         )
 
         try await feature.upsert(
@@ -136,24 +141,24 @@ import Testing
             teamID: "team-a",
             now: Date(timeIntervalSince1970: 30)
         )
-        try await feature.upsert(
+        try await inner.upsert(
             macDeviceID: "mac-a",
             displayName: "Other app instance",
             routes: [try irohRoute("b")],
             instanceTag: "other",
             markActive: false,
             stackUserID: "user-1",
-            teamID: nil,
+            teamID: "\u{1F}\(scope.serializedScope)",
             now: Date(timeIntervalSince1970: 20)
         )
-        try await feature.upsert(
+        try await inner.upsert(
             macDeviceID: "mac-a",
             displayName: "Legacy alias",
             routes: [try irohRoute("a")],
             instanceTag: nil,
             markActive: false,
             stackUserID: "user-1",
-            teamID: nil,
+            teamID: "\u{1F}\(scope.serializedScope)",
             now: Date(timeIntervalSince1970: 10)
         )
 
@@ -165,28 +170,29 @@ import Testing
     @Test func newerTeamlessSiblingTagIsNotVisibleOrActive() async throws {
         let (inner, directory) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: directory) }
+        let scope = try #require(MobileIOSBuildScope("feature"))
         let feature = IOSBuildScopedPairedMacStore(
             inner: inner,
-            scope: try #require(MobileIOSBuildScope("feature"))
+            scope: scope
         )
         try await feature.upsert(
             macDeviceID: "mac-a",
             displayName: "Selected",
             routes: [try route("10.0.0.1")],
-            instanceTag: "feature-a",
+            instanceTag: "feature",
             markActive: true,
             stackUserID: "user-1",
             teamID: "team-a",
             now: Date(timeIntervalSince1970: 1)
         )
-        try await feature.upsert(
+        try await inner.upsert(
             macDeviceID: "mac-a",
             displayName: "Fallback",
             routes: [try route("10.0.0.2")],
             instanceTag: "feature-b",
             markActive: false,
             stackUserID: "user-1",
-            teamID: nil,
+            teamID: "\u{1F}\(scope.serializedScope)",
             now: Date(timeIntervalSince1970: 2)
         )
 
@@ -194,13 +200,13 @@ import Testing
             stackUserID: "user-1", teamID: "team-a"
         )
         #expect(rows.count == 1)
-        let selected = try #require(rows.first { $0.instanceTag == "feature-a" })
+        let selected = try #require(rows.first { $0.instanceTag == "feature" })
         #expect(selected.teamID == "team-a")
         #expect(selected.routes == [try route("10.0.0.1")])
         #expect(selected.isActive)
         #expect(try await feature.activeMac(
             stackUserID: "user-1", teamID: "team-a"
-        )?.instanceTag == "feature-a")
+        )?.instanceTag == "feature")
     }
 
     @Test func selectedTeamUpsertClaimsTeamlessScopedRow() async throws {
@@ -212,6 +218,7 @@ import Testing
             macDeviceID: "mac-a",
             displayName: "A",
             routes: [try route("10.0.0.1")],
+            instanceTag: "feature",
             markActive: true,
             stackUserID: "user-1",
             teamID: nil,
@@ -230,6 +237,7 @@ import Testing
             macDeviceID: "mac-a",
             displayName: "A",
             routes: [try route("10.0.0.9")],
+            instanceTag: "feature",
             markActive: true,
             stackUserID: "user-1",
             teamID: "team-a",
@@ -254,6 +262,7 @@ import Testing
             macDeviceID: "teamless",
             displayName: "Teamless",
             routes: [try route("10.0.0.1")],
+            instanceTag: "feature",
             markActive: true,
             stackUserID: "user-1",
             teamID: nil,
@@ -263,6 +272,7 @@ import Testing
             macDeviceID: "team-row",
             displayName: "Team",
             routes: [try route("10.0.0.2")],
+            instanceTag: "feature",
             markActive: true,
             stackUserID: "user-1",
             teamID: "team-a",
@@ -282,13 +292,13 @@ import Testing
         )
         try await feature.upsert(
             macDeviceID: "mac-b", displayName: "B", routes: [try route("10.0.0.2")],
-            instanceTag: "feature-b", markActive: true, stackUserID: "user-1",
+            instanceTag: "feature", markActive: true, stackUserID: "user-1",
             teamID: nil, now: Date(timeIntervalSince1970: 20)
         )
 
         _ = try await feature.upsertIfNewer(
             macDeviceID: "mac-a", displayName: "A", routes: [try route("10.0.0.1")],
-            instanceTag: "feature-a", customName: nil, customColor: nil,
+            instanceTag: "feature", customName: nil, customColor: nil,
             customIcon: nil, markActive: true, stackUserID: "user-1",
             teamID: "team-a", now: Date(timeIntervalSince1970: 10)
         )
@@ -306,7 +316,7 @@ import Testing
         )
         try await feature.upsert(
             macDeviceID: "mac-a", displayName: "A", routes: [try route("10.0.0.1")],
-            instanceTag: "feature-a", markActive: false, stackUserID: "user-1",
+            instanceTag: "feature", markActive: false, stackUserID: "user-1",
             teamID: nil, now: Date(timeIntervalSince1970: 1)
         )
         try await feature.setActive(
@@ -315,7 +325,7 @@ import Testing
 
         _ = try await feature.upsertIfNewer(
             macDeviceID: "mac-a", displayName: "A", routes: [try route("10.0.0.9")],
-            instanceTag: "feature-a", customName: nil, customColor: nil,
+            instanceTag: "feature", customName: nil, customColor: nil,
             customIcon: nil, markActive: false, stackUserID: "user-1",
             teamID: "team-a", now: Date(timeIntervalSince1970: 10)
         )
@@ -333,7 +343,7 @@ import Testing
         let seedStore = IOSBuildScopedPairedMacStore(inner: inner, scope: scope)
         try await seedStore.upsert(
             macDeviceID: "mac-a", displayName: "A", routes: [try route("10.0.0.1")],
-            instanceTag: "feature-a", markActive: true, stackUserID: "user-1",
+            instanceTag: "feature", markActive: true, stackUserID: "user-1",
             teamID: nil, now: Date(timeIntervalSince1970: 1)
         )
         let gatedInner = GatedUpsertStore(inner: inner)
@@ -342,7 +352,7 @@ import Testing
         let restore = Task {
             try await feature.upsertIfNewer(
                 macDeviceID: "mac-a", displayName: "Restored A",
-                routes: [try route("10.0.0.9")], instanceTag: "feature-a",
+                routes: [try route("10.0.0.9")], instanceTag: "feature",
                 customName: nil, customColor: nil, customIcon: nil,
                 markActive: true, stackUserID: "user-1", teamID: "team-a",
                 now: Date(timeIntervalSince1970: 10)
@@ -352,7 +362,7 @@ import Testing
         let liveWrite = Task {
             try await feature.upsert(
                 macDeviceID: "mac-a", displayName: "Live B",
-                routes: [try route("10.0.0.2")], instanceTag: "feature-b",
+                routes: [try route("10.0.0.2")], instanceTag: "feature",
                 markActive: true, stackUserID: "user-1", teamID: nil,
                 now: Date(timeIntervalSince1970: 20)
             )
@@ -364,7 +374,7 @@ import Testing
         let current = try #require(await feature.loadAll(
             stackUserID: "user-1", teamID: "team-a"
         ).first(where: { $0.macDeviceID == "mac-a" }))
-        #expect(current.instanceTag == "feature-b")
+        #expect(current.instanceTag == "feature")
         #expect(current.displayName == "Live B")
         #expect(current.routes.first?.endpoint == .hostPort(host: "10.0.0.2", port: 22))
         #expect(current.isActive)
@@ -380,6 +390,7 @@ import Testing
             macDeviceID: "mac-a",
             displayName: "A",
             routes: [try route("10.0.0.1")],
+            instanceTag: "feature",
             markActive: true,
             stackUserID: "user-1",
             teamID: "team-a",
@@ -389,6 +400,7 @@ import Testing
             macDeviceID: "mac-b",
             displayName: "B",
             routes: [try route("10.0.0.2")],
+            instanceTag: "other",
             markActive: true,
             stackUserID: "user-1",
             teamID: "team-a",

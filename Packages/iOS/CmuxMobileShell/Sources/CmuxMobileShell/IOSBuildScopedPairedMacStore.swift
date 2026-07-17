@@ -4,19 +4,22 @@ public import Foundation
 
 /// Scopes the iOS saved-Mac list to one tagged iOS app build.
 ///
-/// QR pairing still accepts any Mac build because the Mac's device id and routes
-/// are unchanged. This decorator only decides where that successful pairing is
-/// stored, so two iOS dev tags stop restoring or aggregating each other's saved
-/// Macs.
+/// The scoped store also enforces exact Mac app-instance compatibility, so a
+/// tagged iOS build cannot display, restore, or reconnect another tag that was
+/// saved into its partition by an older build.
 public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
     private static let separator = "\u{1F}"
 
+    private let rawInner: any MobilePairedMacStoring
     private let inner: any MobilePairedMacStoring
     private let scope: MobileIOSBuildScope
     private let mutationGate: PairedMacMutationGate
 
     public init(inner: any MobilePairedMacStoring, scope: MobileIOSBuildScope) {
-        self.inner = inner
+        self.rawInner = inner
+        self.inner = MobileMacBuildCompatibilityPolicy
+            .development(expectedInstanceTag: scope.value)
+            .scoping(inner)
         self.scope = scope
         self.mutationGate = PairedMacMutationGate()
     }
@@ -453,8 +456,8 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
     }
 
     private func removeAllUnlocked() async throws {
-        for mac in try await inner.loadAll(stackUserID: nil, teamID: nil) where isScoped(mac) {
-            try await inner.remove(
+        for mac in try await rawInner.loadAll(stackUserID: nil, teamID: nil) where isScoped(mac) {
+            try await rawInner.remove(
                 macDeviceID: mac.macDeviceID,
                 instanceTag: mac.instanceTag,
                 stackUserID: mac.stackUserID,
