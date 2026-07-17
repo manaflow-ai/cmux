@@ -143,6 +143,8 @@ final class SimulatorHIDTransport {
 
     @discardableResult
     func send(_ event: SimulatorPointerEvent) -> Bool {
+        guard Self.isNormalized(event.primary),
+              event.secondary.map(Self.isNormalized) ?? true else { return false }
         if let pointerSenderOverride {
             let result = pointerSenderOverride(event)
             if result {
@@ -196,6 +198,11 @@ final class SimulatorHIDTransport {
         guard let rawMessage, send(rawMessage) else { return false }
         updatePointerState(after: event)
         return true
+    }
+
+    private static func isNormalized(_ point: SimulatorPoint) -> Bool {
+        point.x.isFinite && point.y.isFinite
+            && (0...1).contains(point.x) && (0...1).contains(point.y)
     }
 
     @discardableResult

@@ -63,12 +63,14 @@ extension SimulatorControlService {
 
     /// Boots a device, treating an already booted device as success.
     public func boot(deviceID: String) async throws {
-        let arguments = ["simctl", "boot", deviceID]
-        let result = await run(arguments: arguments)
-        if succeeded(result) || diagnostic(for: result).localizedCaseInsensitiveContains("current state: Booted") {
-            return
+        try await mutationGate.withLocks([.device(deviceIdentifier: deviceID)]) {
+            let arguments = ["simctl", "boot", deviceID]
+            let result = await run(arguments: arguments)
+            if succeeded(result) || diagnostic(for: result).localizedCaseInsensitiveContains("current state: Booted") {
+                return
+            }
+            throw failure(result: result, arguments: arguments)
         }
-        throw failure(result: result, arguments: arguments)
     }
 
     /// Waits for device boot and data migration to finish.
@@ -81,12 +83,14 @@ extension SimulatorControlService {
 
     /// Shuts down a device, treating an already stopped device as success.
     public func shutdown(deviceID: String) async throws {
-        let arguments = ["simctl", "shutdown", deviceID]
-        let result = await run(arguments: arguments)
-        if succeeded(result) || diagnostic(for: result).localizedCaseInsensitiveContains("current state: Shutdown") {
-            return
+        try await mutationGate.withLocks([.device(deviceIdentifier: deviceID)]) {
+            let arguments = ["simctl", "shutdown", deviceID]
+            let result = await run(arguments: arguments)
+            if succeeded(result) || diagnostic(for: result).localizedCaseInsensitiveContains("current state: Shutdown") {
+                return
+            }
+            throw failure(result: result, arguments: arguments)
         }
-        throw failure(result: result, arguments: arguments)
     }
 
     func parseDate(_ value: String) -> Date? {

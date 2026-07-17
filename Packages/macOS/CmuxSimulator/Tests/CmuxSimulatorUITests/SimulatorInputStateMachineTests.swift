@@ -60,6 +60,30 @@ struct SimulatorInputStateMachineTests {
         ])
     }
 
+    @Test("Parallel pan translates both fingers inside the display bounds")
+    func parallelTwoFingerPanStaysNormalized() {
+        var input = SimulatorInputStateMachine()
+        _ = input.pointerBegan(
+            at: SimulatorPoint(x: 0.25, y: 0.25),
+            optionPinch: true,
+            parallelPan: true
+        )
+
+        let messages = input.pointerMoved(to: SimulatorPoint(x: 0.8, y: 0.9))
+
+        guard case let .pointer(event) = messages.first,
+              let secondary = event.secondary else {
+            Issue.record("Expected a two-finger pointer event")
+            return
+        }
+        #expect((0...1).contains(event.primary.x))
+        #expect((0...1).contains(event.primary.y))
+        #expect((0...1).contains(secondary.x))
+        #expect((0...1).contains(secondary.y))
+        #expect(abs((secondary.x - event.primary.x) - 0.5) < 0.000_001)
+        #expect(abs((secondary.y - event.primary.y) - 0.5) < 0.000_001)
+    }
+
     @Test("Focus cleanup cancels touch, releases keys, and resets worker state")
     func focusCleanup() {
         var input = SimulatorInputStateMachine()

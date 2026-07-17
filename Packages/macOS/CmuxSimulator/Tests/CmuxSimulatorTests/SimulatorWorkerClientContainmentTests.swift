@@ -382,6 +382,25 @@ extension SimulatorWorkerClientTests {
         await client.stop()
     }
 
+    @Test("Process worker drops ambient credentials and keeps required launch values")
+    func processWorkerEnvironmentIsAllowlisted() {
+        let environment = SimulatorProcessWorkerLauncher.workerEnvironment(
+            inherited: [
+                "HOME": "/Users/test",
+                "PATH": "/usr/bin",
+                "GITHUB_TOKEN": "secret",
+                "CMUX_SOCKET_TOKEN": "secret",
+            ],
+            additional: ["CMUX_SIMULATOR_PROTOCOL": "1"]
+        )
+
+        #expect(environment["HOME"] == "/Users/test")
+        #expect(environment["PATH"] == "/usr/bin")
+        #expect(environment["CMUX_SIMULATOR_PROTOCOL"] == "1")
+        #expect(environment["GITHUB_TOKEN"] == nil)
+        #expect(environment["CMUX_SOCKET_TOKEN"] == nil)
+    }
+
     private func replacementEndpoint(_ launcher: TestWorkerLauncher) async throws -> TestWorkerEndpoint {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(2))

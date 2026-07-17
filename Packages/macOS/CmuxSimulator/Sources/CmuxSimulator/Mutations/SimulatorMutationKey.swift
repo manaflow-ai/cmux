@@ -14,6 +14,8 @@ package struct SimulatorMutationKey: Hashable, Sendable {
     package static let location = SimulatorMutationKeyFactory(namespace: "location")
     /// Factory for attached Web Inspector target leases.
     package static let webInspector = SimulatorMutationKeyFactory(namespace: "web-inspector")
+    /// Factory for the device-wide lifecycle exclusion key.
+    package static let device = SimulatorMutationKeyFactory(namespace: "device")
 
     /// Canonical value used for ordering and lock-file identity.
     package let value: String
@@ -21,5 +23,12 @@ package struct SimulatorMutationKey: Hashable, Sendable {
     /// Creates a key from an already canonical resource value.
     package init(value: String) {
         self.value = value
+    }
+
+    package var deviceScope: SimulatorMutationKey? {
+        let components = value.split(separator: "\0", omittingEmptySubsequences: false)
+        guard components.count >= 2, components[0] != "device",
+              components[0] != "web-inspector" else { return nil }
+        return .device(deviceIdentifier: String(components[1]))
     }
 }

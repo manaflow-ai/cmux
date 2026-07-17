@@ -26,14 +26,10 @@ struct SimulatorProcessWorkerLauncher: SimulatorWorkerLaunching {
         let process = Process()
         process.executableURL = executableURL
         process.arguments = arguments
-        var workerEnvironment = ProcessInfo.processInfo.environment
-        for key in [
-            "CMUX_WORKSPACE_ID", "CMUX_TAB_ID", "CMUX_SURFACE_ID", "CMUX_PANEL_ID",
-            "CMUX_PANE_ID",
-        ] {
-            workerEnvironment.removeValue(forKey: key)
-        }
-        process.environment = workerEnvironment.merging(environment) { _, replacement in replacement }
+        process.environment = Self.workerEnvironment(
+            inherited: ProcessInfo.processInfo.environment,
+            additional: environment
+        )
 
         let stdin = Pipe()
         let stdout = Pipe()
@@ -114,5 +110,19 @@ struct SimulatorProcessWorkerLauncher: SimulatorWorkerLaunching {
             },
             terminalFailure: { processBox.terminalFailure() }
         )
+    }
+
+    static func workerEnvironment(
+        inherited: [String: String],
+        additional: [String: String]
+    ) -> [String: String] {
+        let allowedKeys = [
+            "DEVELOPER_DIR", "DYLD_FRAMEWORK_PATH", "HOME", "LANG", "LC_ALL",
+            "LC_CTYPE", "PATH", "SDKROOT", "TMPDIR", "XCODE_DEVELOPER_DIR_PATH",
+        ]
+        let workerEnvironment = Dictionary(uniqueKeysWithValues: allowedKeys.compactMap { key in
+            inherited[key].map { (key, $0) }
+        })
+        return workerEnvironment.merging(additional) { _, replacement in replacement }
     }
 }

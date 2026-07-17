@@ -41,7 +41,8 @@ package struct SimulatorMutationGate: Sendable {
         isolation: isolated (any Actor)? = #isolation
     ) async throws -> SimulatorMutationLease {
         _ = isolation
-        let orderedKeys = Array(Set(keys)).sorted { $0.value < $1.value }
+        let scopedKeys = keys + keys.compactMap(\.deviceScope)
+        let orderedKeys = Array(Set(scopedKeys)).sorted { $0.value < $1.value }
         guard !orderedKeys.isEmpty else {
             return SimulatorMutationLease(fileSystem: fileSystem, descriptors: [])
         }

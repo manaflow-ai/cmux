@@ -475,6 +475,7 @@ final class SimulatorWorkerCoordinator {
         case .releaseInputs:
             scrollWheel?.cancel()
             hid?.releaseInputs()
+            hidCapture.setMode(.none, device: attachedDevice)
         case .terminateRenderer:
             #if DEBUG
                 _exit(86)

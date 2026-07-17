@@ -185,7 +185,9 @@ final class CmuxFeatureFlags {
     @ObservationIgnored
     private let remoteFlagValueProvider: (String) -> Any?
     @ObservationIgnored
-    private var flagsObserver: (any NSObjectProtocol)?
+    private let remoteFlagLoader: @Sendable () async -> [String: Bool]?
+    @ObservationIgnored
+    private var refreshTask: Task<Void, Never>?
 
     private var localOverridesByKey: [String: Bool] = [:]
     private var remoteValuesByKey: [String: Bool] = [:]
@@ -193,10 +195,14 @@ final class CmuxFeatureFlags {
 
     init(
         defaults: UserDefaults = .standard,
-        remoteFlagValueProvider: @escaping (String) -> Any? = { PostHogSDK.shared.getFeatureFlag($0) }
+        remoteFlagValueProvider: @escaping (String) -> Any? = { PostHogSDK.shared.getFeatureFlag($0) },
+        remoteFlagLoader: @escaping @Sendable () async -> [String: Bool]? = {
+            await CmuxFeatureFlags.loadPostHogControlPlaneFlags()
+        }
     ) {
         self.defaults = defaults
         self.remoteFlagValueProvider = remoteFlagValueProvider
+        self.remoteFlagLoader = remoteFlagLoader
         localOverridesByKey = Self.allFlags.reduce(into: [:]) { values, definition in
             if let value = Self.storedOverrideValue(for: definition.key, defaults: defaults) {
                 values[definition.key] = value
@@ -213,21 +219,74 @@ final class CmuxFeatureFlags {
         recomputeEffectiveValues()
     }
 
-    /// Called once from AppDelegate after PostHog analytics starts. Safe when
-    /// the SDK never sets up, because cached remote values remain authoritative.
+    /// Loads release-control values without initializing analytics. The request
+    /// uses one product-wide identifier, so it cannot correlate an installation
+    /// or reuse PostHog's analytics identity.
     func start() {
-        guard flagsObserver == nil else { return }
-        PostHogAnalytics.shared.configureFeatureFlagControlPlane()
-        flagsObserver = NotificationCenter.default.addObserver(
-            forName: PostHogSDK.didReceiveFeatureFlags,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.applyLoadedFlags()
+        guard refreshTask == nil else { return }
+        let loader = remoteFlagLoader
+        refreshTask = Task { @MainActor [weak self] in
+            guard let values = await loader(), !Task.isCancelled else { return }
+            self?.applyRemoteFlagValues(values)
+        }
+    }
+
+    private func applyRemoteFlagValues(_ values: [String: Bool]) {
+        let previousEffectiveValues = effectiveValuesByKey
+        for definition in Self.allFlags {
+            if let value = values[definition.key] {
+                remoteValuesByKey[definition.key] = value
+                defaults.set(value, forKey: Self.remoteCacheKey(for: definition.key))
+            } else if remoteValuesByKey[definition.key] == true {
+                remoteValuesByKey.removeValue(forKey: definition.key)
+                defaults.removeObject(forKey: Self.remoteCacheKey(for: definition.key))
             }
         }
-        PostHogSDK.shared.reloadFeatureFlags()
+        recomputeEffectiveValues()
+        postChangeIfNeeded(previousEffectiveValues: previousEffectiveValues)
+    }
+
+    nonisolated static func postHogControlPlaneRequest() -> URLRequest? {
+        guard let url = URL(string: "https://us.i.posthog.com/flags?v=2&config=true") else { return nil }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 10
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: [
+            "api_key": "phc_opOVu7oFzR9wD3I6ZahFGOV2h3mqGpl5EHyQvmHciDP",
+            "distinct_id": "cmux-desktop-release-control",
+            "groups": [:],
+        ])
+        return request
+    }
+
+    nonisolated private static func loadPostHogControlPlaneFlags() async -> [String: Bool]? {
+        guard let request = postHogControlPlaneRequest() else { return nil }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 10
+        configuration.timeoutIntervalForResource = 15
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        guard let (data, response) = try? await session.data(for: request),
+              data.count <= 1_048_576,
+              let http = response as? HTTPURLResponse,
+              (200..<300).contains(http.statusCode),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        guard let values = object["featureFlags"] as? [String: Any] else { return nil }
+        return values.reduce(into: [String: Bool]()) { result, entry in
+            if let value = entry.value as? Bool {
+                result[entry.key] = value
+            } else if let value = entry.value as? NSNumber {
+                result[entry.key] = value.boolValue
+            } else if let value = entry.value as? String {
+                switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+                case "true", "1", "yes", "on": result[entry.key] = true
+                case "false", "0", "no", "off": result[entry.key] = false
+                default: break
+                }
+            }
+        }
     }
 
     func effectiveValue(for definition: CmuxFeatureFlagDefinition) -> Bool {

@@ -134,10 +134,11 @@ struct SimulatorInputStateMachine {
     }
 
     private func pointer(_ phase: SimulatorTouchPhase, at point: SimulatorPoint) -> SimulatorWorkerInbound {
+        let points = touchPoints(for: point)
         let event = SimulatorPointerEvent(
             phase: phase,
-            primary: point,
-            secondary: secondaryPoint(for: point),
+            primary: points.primary,
+            secondary: points.secondary,
             edge: activeEdge
         )
         return .pointer(orientationGeometry?.rawPointerEvent(event) ?? event)
@@ -161,12 +162,21 @@ struct SimulatorInputStateMachine {
         return [message]
     }
 
-    private func secondaryPoint(for point: SimulatorPoint) -> SimulatorPoint? {
-        guard usesSecondaryTouch else { return nil }
+    private func touchPoints(for point: SimulatorPoint) -> (
+        primary: SimulatorPoint,
+        secondary: SimulatorPoint?
+    ) {
+        guard usesSecondaryTouch else { return (point, nil) }
         if let offset = secondaryTouchOffset {
-            return SimulatorPoint(x: point.x + offset.x, y: point.y + offset.y)
+            let secondary = SimulatorInputDelta(x: point.x + offset.x, y: point.y + offset.y)
+            let correctionX = secondary.x < 0 ? -secondary.x : (secondary.x > 1 ? 1 - secondary.x : 0)
+            let correctionY = secondary.y < 0 ? -secondary.y : (secondary.y > 1 ? 1 - secondary.y : 0)
+            return (
+                SimulatorPoint(x: point.x + correctionX, y: point.y + correctionY),
+                SimulatorPoint(x: secondary.x + correctionX, y: secondary.y + correctionY)
+            )
         }
-        return SimulatorPoint(x: 1 - point.x, y: 1 - point.y)
+        return (point, SimulatorPoint(x: 1 - point.x, y: 1 - point.y))
     }
 
     private func scrolledPoint(from point: SimulatorPoint, deltaX: Double, deltaY: Double) -> SimulatorPoint {
