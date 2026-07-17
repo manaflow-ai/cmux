@@ -58,6 +58,20 @@ struct MobileIrohRuntimeCompositionTests {
     }
 
     @Test
+    func connectionReadinessIgnoresSupersededLifecycleCompletion() async {
+        let readiness = MobileIrohConnectionReadinessSignal()
+        readiness.begin(revision: 1)
+        readiness.begin(revision: 2)
+
+        #expect(readiness.complete(revision: 1) == false)
+        #expect(readiness.isPending)
+        #expect(readiness.complete(revision: 2))
+        #expect(readiness.isPending == false)
+
+        await readiness.wait()
+    }
+
+    @Test
     func discoveryCatalogRetainsFortyConcurrentDevelopmentBindings() async throws {
         let bindings = (0..<40).map { index in
             mobileIrohBinding(
