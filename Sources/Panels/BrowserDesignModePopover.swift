@@ -362,6 +362,7 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             // wrapped pill rows evenly spaced instead of jumping per line.
             let paragraph = NSMutableParagraphStyle()
             paragraph.minimumLineHeight = 20
+            paragraph.maximumLineHeight = 20
             paragraph.lineSpacing = 3
             return [
                 .font: BrowserDesignModeTokenStyle.font,
@@ -542,9 +543,12 @@ final class BrowserDesignModeTokenTextView: NSTextView {
                 forGlyphRange: NSRange(location: lastGlyph, length: 1),
                 in: textContainer
             ).width
+            // location.y is the baseline within the fragment; draw the hint
+            // exactly where typed text would sit on that line.
+            let font = BrowserDesignModeTokenStyle.font
             origin = NSPoint(
                 x: textContainerInset.width + location.x + advance + 2,
-                y: textContainerInset.height + fragment.minY + 1
+                y: textContainerInset.height + fragment.minY + location.y - font.ascender
             )
         }
         (placeholder as NSString).draw(
@@ -597,6 +601,7 @@ final class BrowserDesignModeTokenAttachment: NSTextAttachment {
         // same fragment height as plain text rows.
         let paragraph = NSMutableParagraphStyle()
         paragraph.minimumLineHeight = 20
+        paragraph.maximumLineHeight = 20
         paragraph.lineSpacing = 3
         token.addAttribute(
             .paragraphStyle,
@@ -672,7 +677,10 @@ final class BrowserDesignModeTokenCell: NSTextAttachmentCell {
     }
 
     override func cellBaselineOffset() -> NSPoint {
-        NSPoint(x: 0, y: -4)
+        // Ascent = cell height + offset.y. Matching the font's ascender keeps
+        // the line's baseline identical with and without pills, so text never
+        // shifts vertically when a pill joins or leaves a row.
+        NSPoint(x: 0, y: BrowserDesignModeTokenStyle.font.ascender - 18)
     }
 
     override func draw(withFrame cellFrame: NSRect, in controlView: NSView?) {
