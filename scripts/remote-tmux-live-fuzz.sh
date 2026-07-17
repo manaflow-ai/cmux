@@ -262,11 +262,18 @@ check_screen_oracle() {
     [.panes[]? | select(.on_screen == true) | .window_id] | unique | join(" ")
   ' 2>/dev/null)
   if [ "$(printf '%s\n' $on_screen_windows | grep -c .)" -gt 1 ]; then
-    note_fail "$iter" "overlay: surfaces from multiple windows on screen at once [$on_screen_windows]"
+    # Same re-read discipline as every other judge: a probe can land inside
+    # the one-frame handoff of a tab switch, and only a state that persists
+    # through a fresh census is a defect.
+    refresh_pane_surfaces || true
+    on_screen_windows=$(printf '%s' "$PANE_SURFACES_JSON" | jq -r '
+      [.panes[]? | select(.on_screen == true) | .window_id] | unique | join(" ")
+    ' 2>/dev/null)
+    if [ "$(printf '%s\n' $on_screen_windows | grep -c .)" -gt 1 ]; then
+      note_fail "$iter" "overlay: surfaces from multiple windows on screen at once [$on_screen_windows]"
+    fi
   fi
-  for window in $(printf '%s' "$PANE_SURFACES_JSON" | jq -r '
-    [.panes[]? | select(.on_screen == true) | .window_id] | unique[]
-  ' 2>/dev/null); do
+  for window in $on_screen_windows; do
     # A zoomed window presents only its active pane; tmux itself hides the
     # rest, so the census for it is that one pane, not the full pane list.
     zoom_flag=$(t display-message -p -t "$window" '#{window_zoomed_flag}' 2>/dev/null)
