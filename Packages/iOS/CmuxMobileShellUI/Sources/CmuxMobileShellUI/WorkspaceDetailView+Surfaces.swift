@@ -22,7 +22,7 @@ extension WorkspaceDetailView {
             // The surface strip stays visible across terminal/chat/browser
             // modes: switching tabs is always one tap away.
             SurfaceTabStrip(snapshot: navigatorSnapshot, actions: navigatorActions)
-                .background(TerminalPalette.background)
+                .background(store.activeTerminalTheme.terminalBackgroundColor)
             ZStack {
                 detailContent()
                     .opacity(surface == .terminal ? 1 : 0)
@@ -30,10 +30,10 @@ extension WorkspaceDetailView {
                     .accessibilityHidden(surface != .terminal)
                 if surface == .chat, let session = chosenChatSession {
                     chatContent(session)
-                        .background(TerminalPalette.background)
+                        .background(store.activeTerminalTheme.terminalBackgroundColor)
                 } else if surface == .browser, let browser = activeBrowser {
                     browserContent(browser)
-                        .background(TerminalPalette.background)
+                        .background(store.activeTerminalTheme.terminalBackgroundColor)
                 }
             }
         }

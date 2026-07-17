@@ -10,6 +10,8 @@ struct SurfaceTabStrip: View {
     let snapshot: SurfaceNavigatorSnapshot
     let actions: SurfaceNavigatorActions
 
+    private var palette: SurfaceNavigatorSnapshot.Palette { snapshot.palette }
+
     var body: some View {
         HStack(spacing: 8) {
             mapButton
@@ -27,15 +29,15 @@ struct SurfaceTabStrip: View {
             PaneLayoutGlyph(
                 layout: snapshot.layout,
                 selectedTabID: snapshot.selectedTabID,
-                lineColor: TerminalPalette.dimForeground.opacity(0.75),
-                highlightColor: TerminalPalette.foreground.opacity(0.9)
+                lineColor: palette.dimForeground.opacity(0.75),
+                highlightColor: palette.foreground.opacity(0.9)
             )
             .frame(width: 20, height: 15)
             .frame(width: 32, height: 30)
-            .background(TerminalPalette.foreground.opacity(0.07), in: .rect(cornerRadius: 9))
+            .background(palette.foreground.opacity(0.07), in: .rect(cornerRadius: 9))
             .overlay(
                 RoundedRectangle(cornerRadius: 9)
-                    .strokeBorder(TerminalPalette.foreground.opacity(0.12), lineWidth: 1)
+                    .strokeBorder(palette.foreground.opacity(0.12), lineWidth: 1)
             )
             .contentShape(.rect)
         }
@@ -50,12 +52,12 @@ struct SurfaceTabStrip: View {
         } label: {
             Image(systemName: "plus")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(TerminalPalette.dimForeground)
+                .foregroundStyle(palette.dimForeground)
                 .frame(width: 32, height: 30)
-                .background(TerminalPalette.foreground.opacity(0.07), in: .rect(cornerRadius: 9))
+                .background(palette.foreground.opacity(0.07), in: .rect(cornerRadius: 9))
                 .overlay(
                     RoundedRectangle(cornerRadius: 9)
-                        .strokeBorder(TerminalPalette.foreground.opacity(0.12), lineWidth: 1)
+                        .strokeBorder(palette.foreground.opacity(0.12), lineWidth: 1)
                 )
                 .contentShape(.rect)
         }
@@ -73,6 +75,7 @@ struct SurfaceTabStrip: View {
                             group: group,
                             showsPaneChrome: snapshot.groups.count > 1,
                             canCloseTab: snapshot.canCloseTab,
+                            palette: palette,
                             actions: actions
                         )
                         .id(group.id.rawValue)
@@ -111,23 +114,29 @@ private struct SurfacePaneGroupView: View {
     let group: SurfaceNavigatorSnapshot.PaneGroup
     let showsPaneChrome: Bool
     let canCloseTab: Bool
+    let palette: SurfaceNavigatorSnapshot.Palette
     let actions: SurfaceNavigatorActions
 
     var body: some View {
         HStack(spacing: 3) {
             ForEach(group.chips) { chip in
-                SurfaceTabChip(chip: chip, canCloseTab: canCloseTab, actions: actions)
-                    .id("surface-chip-\(chip.id.rawValue)")
+                SurfaceTabChip(
+                    chip: chip,
+                    canCloseTab: canCloseTab,
+                    palette: palette,
+                    actions: actions
+                )
+                .id("surface-chip-\(chip.id.rawValue)")
             }
         }
         .padding(showsPaneChrome ? 3 : 0)
         .background {
             if showsPaneChrome {
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(TerminalPalette.foreground.opacity(0.045))
+                    .fill(palette.foreground.opacity(0.045))
                     .overlay(
                         RoundedRectangle(cornerRadius: 12)
-                            .strokeBorder(TerminalPalette.foreground.opacity(0.10), lineWidth: 1)
+                            .strokeBorder(palette.foreground.opacity(0.10), lineWidth: 1)
                     )
             }
         }
@@ -140,6 +149,7 @@ private struct SurfacePaneGroupView: View {
 private struct SurfaceTabChip: View {
     let chip: SurfaceNavigatorSnapshot.Chip
     let canCloseTab: Bool
+    let palette: SurfaceNavigatorSnapshot.Palette
     let actions: SurfaceNavigatorActions
 
     var body: some View {
@@ -162,7 +172,7 @@ private struct SurfaceTabChip: View {
         }
         .buttonStyle(.plain)
         .foregroundStyle(
-            chip.isSelected ? TerminalPalette.foreground : TerminalPalette.dimForeground.opacity(0.9)
+            chip.isSelected ? palette.foreground : palette.dimForeground.opacity(0.9)
         )
         .contextMenu { contextMenuItems }
         .accessibilityIdentifier("MobileSurfaceChip-\(chip.id.rawValue)")
@@ -193,15 +203,15 @@ private struct SurfaceTabChip: View {
 
     private var fillColor: Color {
         chip.isSelected
-            ? TerminalPalette.foreground.opacity(0.17)
-            : TerminalPalette.foreground.opacity(0.055)
+            ? palette.foreground.opacity(0.17)
+            : palette.foreground.opacity(0.055)
     }
 
     private var strokeColor: Color {
         if chip.status == .needsInput, !chip.isSelected {
             return .orange.opacity(0.55)
         }
-        return TerminalPalette.foreground.opacity(chip.isSelected ? 0.26 : 0.09)
+        return palette.foreground.opacity(chip.isSelected ? 0.26 : 0.09)
     }
 
     @ViewBuilder

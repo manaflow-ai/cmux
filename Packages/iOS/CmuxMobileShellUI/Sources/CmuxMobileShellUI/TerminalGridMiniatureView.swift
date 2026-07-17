@@ -48,7 +48,7 @@ struct TerminalGridMiniatureView: View {
                 )
             }
         }
-        .background(Self.color(frame.terminalBackground) ?? TerminalPalette.background)
+        .background(Self.color(frame.terminalBackground) ?? .black)
         .clipped()
         .accessibilityHidden(true)
     }

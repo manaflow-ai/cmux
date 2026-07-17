@@ -8,15 +8,16 @@ import SwiftUI
 struct SurfacePlaceholderPage: View {
     let title: String
     let kind: MobileWorkspacePaneLayout.Tab.Kind
+    let palette: SurfaceNavigatorSnapshot.Palette
 
     var body: some View {
         VStack(spacing: 12) {
             Image(systemName: kind == .browser ? "globe" : "square.dashed")
                 .font(.system(size: 34, weight: .light))
-                .foregroundStyle(TerminalPalette.dimForeground.opacity(0.7))
+                .foregroundStyle(palette.dimForeground.opacity(0.7))
             Text(title)
                 .font(.headline)
-                .foregroundStyle(TerminalPalette.foreground)
+                .foregroundStyle(palette.foreground)
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
             Text(
@@ -31,12 +32,12 @@ struct SurfacePlaceholderPage: View {
                     )
             )
             .font(.footnote)
-            .foregroundStyle(TerminalPalette.dimForeground)
+            .foregroundStyle(palette.dimForeground)
             .multilineTextAlignment(.center)
         }
         .padding(32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(TerminalPalette.background)
+        .background(palette.background)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("MobileSurfacePlaceholderPage")
     }

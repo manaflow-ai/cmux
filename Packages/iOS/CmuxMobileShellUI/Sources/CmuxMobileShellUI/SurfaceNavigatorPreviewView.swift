@@ -11,6 +11,13 @@ import SwiftUI
 struct SurfaceNavigatorPreviewView: View {
     private typealias Layout = MobileWorkspacePaneLayout
 
+    /// Fixed Monokai palette so fixture pixels are deterministic without a
+    /// live theme store.
+    private static let palette = SurfaceNavigatorSnapshot.Palette(
+        background: Color(red: 0x27 / 255.0, green: 0x28 / 255.0, blue: 0x22 / 255.0),
+        foreground: Color(red: 0xF8 / 255.0, green: 0xF8 / 255.0, blue: 0xF2 / 255.0)
+    )
+
     @State private var selectedTabID: MobileTerminalPreview.ID = "tab-agent"
     @State private var isMapPresented = false
     @State private var closedTabIDs: Set<MobileTerminalPreview.ID> = []
@@ -80,7 +87,8 @@ struct SurfaceNavigatorPreviewView: View {
             groups: groups,
             selectedTabID: selectedTabID,
             layout: layout,
-            canCloseTab: layout.orderedTabs.filter { $0.kind == .terminal }.count > 1
+            canCloseTab: layout.orderedTabs.filter { $0.kind == .terminal }.count > 1,
+            palette: Self.palette
         )
     }
 
@@ -102,7 +110,7 @@ struct SurfaceNavigatorPreviewView: View {
         let snapshot = snapshot
         VStack(spacing: 0) {
             SurfaceTabStrip(snapshot: snapshot, actions: actions)
-                .background(TerminalPalette.background)
+                .background(Self.palette.background)
             SurfacePagerView(
                 pageIDs: snapshot.orderedChips.map(\.id.rawValue),
                 currentID: selectedTabID.rawValue,
@@ -112,7 +120,7 @@ struct SurfaceNavigatorPreviewView: View {
                 }
             )
         }
-        .background(TerminalPalette.background.ignoresSafeArea())
+        .background(Self.palette.background.ignoresSafeArea())
         .overlay {
             if isMapPresented {
                 WorkspaceMapView(
@@ -139,23 +147,23 @@ struct SurfaceNavigatorPreviewView: View {
     private func fakePage(id: MobileTerminalPreview.ID, isCurrent: Bool) -> some View {
         let tab = layout.orderedTabs.first { $0.id == id }
         if tab?.kind == .browser {
-            SurfacePlaceholderPage(title: tab?.title ?? "", kind: .browser)
+            SurfacePlaceholderPage(title: tab?.title ?? "", kind: .browser, palette: Self.palette)
         } else {
             VStack(alignment: .leading, spacing: 3) {
                 ForEach(Self.fakeLines(for: id), id: \.self) { line in
                     Text(line)
                         .font(.system(size: 12, design: .monospaced))
-                        .foregroundStyle(TerminalPalette.foreground.opacity(0.9))
+                        .foregroundStyle(Self.palette.foreground.opacity(0.9))
                         .lineLimit(1)
                 }
                 Spacer()
                 Text(verbatim: isCurrent ? "▌" : "")
                     .font(.system(size: 12, design: .monospaced))
-                    .foregroundStyle(TerminalPalette.foreground)
+                    .foregroundStyle(Self.palette.foreground)
             }
             .padding(12)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(TerminalPalette.background)
+            .background(Self.palette.background)
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("MobileSurfaceFakePage-\(id.rawValue)")
         }

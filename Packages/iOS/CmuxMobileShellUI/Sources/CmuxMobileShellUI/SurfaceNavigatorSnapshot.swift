@@ -1,6 +1,7 @@
 import CmuxAgentChat
 import CmuxMobileShellModel
 import Foundation
+import SwiftUI
 
 /// Immutable per-render snapshot driving the surface strip, the surface
 /// pager, and the workspace map. Built from the workspace preview, the
@@ -21,6 +22,16 @@ struct SurfaceNavigatorSnapshot: Equatable {
             case .needsInput: 2
             }
         }
+    }
+
+    /// Theme-derived chrome colors for the navigator views (strip, map,
+    /// placeholder pages), captured as plain values so the views stay
+    /// store-free. Built from the live terminal theme by the bridge, and from
+    /// fixed Monokai constants by the fixture.
+    struct Palette: Equatable {
+        let background: Color
+        let foreground: Color
+        var dimForeground: Color { foreground.opacity(0.78) }
     }
 
     /// One tab chip.
@@ -49,6 +60,8 @@ struct SurfaceNavigatorSnapshot: Equatable {
     let layout: MobileWorkspacePaneLayout
     /// Whether closing a tab is currently allowed (more than one terminal).
     let canCloseTab: Bool
+    /// Theme-derived chrome colors.
+    let palette: Palette
 
     /// Chips across every pane, in spatial order — the pager's page order.
     var orderedChips: [Chip] {
@@ -73,7 +86,8 @@ struct SurfaceNavigatorSnapshot: Equatable {
     static func build(
         workspace: MobileWorkspacePreview,
         selectedTabID: MobileTerminalPreview.ID?,
-        sessions: [ChatSessionDescriptor]
+        sessions: [ChatSessionDescriptor],
+        palette: Palette
     ) -> SurfaceNavigatorSnapshot {
         var layout = workspace.paneLayout
             ?? .singlePane(terminals: workspace.terminals)
@@ -124,7 +138,8 @@ struct SurfaceNavigatorSnapshot: Equatable {
             groups: groups,
             selectedTabID: resolvedSelection,
             layout: layout,
-            canCloseTab: workspace.terminals.count > 1
+            canCloseTab: workspace.terminals.count > 1,
+            palette: palette
         )
     }
 }

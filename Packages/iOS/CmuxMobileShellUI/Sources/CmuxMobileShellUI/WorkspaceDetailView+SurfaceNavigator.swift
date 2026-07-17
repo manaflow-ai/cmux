@@ -12,7 +12,11 @@ extension WorkspaceDetailView {
         SurfaceNavigatorSnapshot.build(
             workspace: workspace,
             selectedTabID: navigatorDisplayTabID,
-            sessions: visibleChatSessions
+            sessions: visibleChatSessions,
+            palette: SurfaceNavigatorSnapshot.Palette(
+                background: store.activeTerminalTheme.terminalBackgroundColor,
+                foreground: store.activeTerminalTheme.terminalForegroundColor
+            )
         )
     }
 
@@ -111,12 +115,13 @@ extension WorkspaceDetailView {
             if context.isMounted {
                 terminalArtifactSurface(terminalID: pageID, isCurrent: context.isCurrent)
             } else {
-                TerminalPalette.background
+                store.activeTerminalTheme.terminalBackgroundColor
             }
         case .browser, .other:
             SurfacePlaceholderPage(
                 title: tab?.title ?? "",
-                kind: tab?.kind ?? .other
+                kind: tab?.kind ?? .other,
+                palette: navigatorSnapshot.palette
             )
         }
     }

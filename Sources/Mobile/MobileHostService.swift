@@ -216,7 +216,7 @@ enum MobileHostPortApplyOutcome: Equatable {
 final class MobileHostService {
     static let shared = MobileHostService()
     nonisolated private static let maximumActiveConnectionCount = 10
-
+    nonisolated private static let terminalThemeRevisionEpoch = UUID().uuidString
     /// The single shape every public `mobile.host.status` reply uses (the
     /// public-status cache, the network status gate, and
     /// `TerminalController`'s no-private-metadata branch), so the fields
@@ -239,7 +239,6 @@ final class MobileHostService {
             "theme": theme.mobileHostJSONObject,
         ]
     }
-
     /// `publicStatusPayload` plus the Mac's identity, for a caller that has
     /// proven same-account Stack ownership. The pairing QR no longer carries
     /// the display name or the device id, so this reply is where a freshly
@@ -248,6 +247,7 @@ final class MobileHostService {
     nonisolated static func identityStatusPayload(routes: [CmxAttachRoute], now: Date = Date()) -> [String: Any] {
         var payload = publicStatusPayload(routes: [], now: now)
         payload["routes"] = routes.mobileHostJSONObjects(for: .authenticated, at: now)
+        payload["terminal_theme_revision_epoch"] = terminalThemeRevisionEpoch
         payload["mac_device_id"] = MobileHostIdentity.deviceID()
         payload["mac_instance_tag"] = MobileHostIdentity.instanceTag()
         if let displayName = MobileHostIdentity.instanceDisplayName() {
@@ -416,6 +416,10 @@ final class MobileHostService {
     /// User-default key for the opt-in Mac-side iOS pairing listener.
     nonisolated static let listeningEnabledDefaultsKey = SettingCatalog().mobile.iOSPairingHost.userDefaultsKey
 
+    /// Key written by released builds before the setting moved into the
+    /// canonical settings catalog. Read only as a migration fallback.
+    nonisolated private static let legacyListeningEnabledDefaultsKey = "cmuxMobilePairingHostEnabled"
+
     /// Whether the mobile pairing host should bind a network listener at all.
     ///
     /// Defaults off in every build so macOS does not ask for Local Network
@@ -439,6 +443,9 @@ final class MobileHostService {
     nonisolated static func isListeningEnabled(defaults: UserDefaults) -> Bool {
         if let override = defaults.object(forKey: listeningEnabledDefaultsKey) as? Bool {
             return override
+        }
+        if let legacyOverride = defaults.object(forKey: legacyListeningEnabledDefaultsKey) as? Bool {
+            return legacyOverride
         }
         return SettingCatalog().mobile.iOSPairingHost.defaultValue
     }
@@ -694,6 +701,7 @@ final class MobileHostService {
     nonisolated private static func canPublishRoutesWithoutListenerForXCTest(defaults: UserDefaults) -> Bool {
         guard isRunningUnderXCTest else { return false }
         return defaults.object(forKey: listeningEnabledDefaultsKey) == nil
+            && defaults.object(forKey: legacyListeningEnabledDefaultsKey) == nil
     }
 
     private func publishRoutesWithoutListenerForXCTest() {
@@ -1005,6 +1013,9 @@ final class MobileHostService {
                 )
             },
             onAuthorizedRequest: { request in
+                await MobileHostService.shared.retireSupersededIrohConnections(
+                    newestConnectionID: id
+                )
                 guard let clientID = Self.clientID(from: request.params) else {
                     return
                 }
@@ -1192,6 +1203,14 @@ final class MobileHostService {
             )
         }
         MobileHostRequestActivity.endConnection()
+    }
+
+    private func retireSupersededIrohConnections(newestConnectionID: UUID) async {
+        let superseded = MobileHostConnectionRegistry.shared
+            .removeOlderIrohConnectionsIfNewest(id: newestConnectionID)
+        for connection in superseded {
+            await connection.close(reason: "superseded by newer authenticated iroh session")
+        }
     }
 
     private func recordClientID(_ clientID: String, for connectionID: UUID) {
@@ -1898,12 +1917,12 @@ actor MobileHostConnection {
             guard !isClosed, !Task.isCancelled else {
                 return
             }
-            if let intercepted = await handleSubscriptionRPC(request) {
-                _ = await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: request.id, result: intercepted))
-                return
-            }
             await onAuthorizedRequest(request)
             guard !isClosed, !Task.isCancelled else {
+                return
+            }
+            if let intercepted = await handleSubscriptionRPC(request) {
+                _ = await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: request.id, result: intercepted))
                 return
             }
             let result = await handleRequest(request)

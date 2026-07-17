@@ -20,6 +20,8 @@ struct WorkspaceMapView: View {
     @State private var previews: [MobileTerminalPreview.ID: MobileTerminalRenderGridFrame] = [:]
     @State private var dragOffset: CGFloat = 0
 
+    private var palette: SurfaceNavigatorSnapshot.Palette { snapshot.palette }
+
     var body: some View {
         VStack(spacing: 14) {
             header
@@ -36,13 +38,13 @@ struct WorkspaceMapView: View {
                 defaultValue: "Tap a pane to open it"
             ))
             .font(.caption)
-            .foregroundStyle(TerminalPalette.dimForeground.opacity(0.7))
+            .foregroundStyle(palette.dimForeground.opacity(0.7))
             Spacer(minLength: 0)
         }
         .padding(16)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
-            TerminalPalette.background
+            palette.background
                 .ignoresSafeArea()
         }
         .offset(y: max(dragOffset, 0))
@@ -59,14 +61,14 @@ struct WorkspaceMapView: View {
             Text(workspaceName)
                 .font(.headline)
                 .lineLimit(1)
-                .foregroundStyle(TerminalPalette.foreground)
+                .foregroundStyle(palette.foreground)
             Spacer()
             Button(action: dismiss) {
                 Image(systemName: "xmark")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(TerminalPalette.dimForeground)
+                    .foregroundStyle(palette.dimForeground)
                     .frame(width: 30, height: 30)
-                    .background(TerminalPalette.foreground.opacity(0.08), in: .circle)
+                    .background(palette.foreground.opacity(0.08), in: .circle)
                     .contentShape(.circle)
             }
             .buttonStyle(.plain)
@@ -121,6 +123,7 @@ struct WorkspaceMapView: View {
 private struct MapNodeView: View {
     let node: MobileWorkspacePaneLayout.Node
     let snapshot: SurfaceNavigatorSnapshot
+    var palette: SurfaceNavigatorSnapshot.Palette { snapshot.palette }
     let previews: [MobileTerminalPreview.ID: MobileTerminalRenderGridFrame]
     let openTab: (MobileTerminalPreview.ID) -> Void
 
@@ -133,6 +136,7 @@ private struct MapNodeView: View {
                 MapPaneCard(
                     pane: pane,
                     chips: snapshot.groups.first { $0.id == pane.id }?.chips ?? [],
+                    palette: snapshot.palette,
                     isSelectedPane: snapshot.selectedPaneID == pane.id,
                     preview: pane.selectedTab.flatMap { previews[$0.id] },
                     openTab: openTab
@@ -162,6 +166,7 @@ private struct MapNodeView: View {
 private struct MapPaneCard: View {
     let pane: MobileWorkspacePaneLayout.Pane
     let chips: [SurfaceNavigatorSnapshot.Chip]
+    let palette: SurfaceNavigatorSnapshot.Palette
     let isSelectedPane: Bool
     let preview: MobileTerminalRenderGridFrame?
     let openTab: (MobileTerminalPreview.ID) -> Void
@@ -171,14 +176,14 @@ private struct MapPaneCard: View {
             miniature
             footer
         }
-        .background(TerminalPalette.foreground.opacity(0.035))
+        .background(palette.foreground.opacity(0.035))
         .clipShape(.rect(cornerRadius: 10))
         .overlay(
             RoundedRectangle(cornerRadius: 10)
                 .strokeBorder(
                     isSelectedPane
-                        ? TerminalPalette.foreground.opacity(0.45)
-                        : TerminalPalette.foreground.opacity(0.14),
+                        ? palette.foreground.opacity(0.45)
+                        : palette.foreground.opacity(0.14),
                     lineWidth: isSelectedPane ? 1.5 : 1
                 )
         )
@@ -202,7 +207,7 @@ private struct MapPaneCard: View {
             } else if pane.selectedTab?.kind == .other {
                 placeholderIcon("square.dashed")
             } else {
-                TerminalPalette.background.opacity(0.6)
+                palette.background.opacity(0.6)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -211,10 +216,10 @@ private struct MapPaneCard: View {
 
     private func placeholderIcon(_ systemName: String) -> some View {
         ZStack {
-            TerminalPalette.background.opacity(0.6)
+            palette.background.opacity(0.6)
             Image(systemName: systemName)
                 .font(.system(size: 22, weight: .light))
-                .foregroundStyle(TerminalPalette.dimForeground.opacity(0.6))
+                .foregroundStyle(palette.dimForeground.opacity(0.6))
         }
     }
 
@@ -228,13 +233,13 @@ private struct MapPaneCard: View {
                     .font(.system(size: 10, weight: .medium))
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .foregroundStyle(TerminalPalette.dimForeground)
+                    .foregroundStyle(palette.dimForeground)
             }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 7)
         .frame(height: 22)
-        .background(TerminalPalette.foreground.opacity(0.06))
+        .background(palette.foreground.opacity(0.06))
     }
 
     private var tabPills: some View {
@@ -255,20 +260,20 @@ private struct MapPaneCard: View {
                     .frame(maxWidth: 84)
                     .background(
                         chip.isSelected
-                            ? TerminalPalette.foreground.opacity(0.2)
-                            : TerminalPalette.foreground.opacity(0.07),
+                            ? palette.foreground.opacity(0.2)
+                            : palette.foreground.opacity(0.07),
                         in: .capsule
                     )
                     .contentShape(.capsule)
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(TerminalPalette.dimForeground)
+                .foregroundStyle(palette.dimForeground)
                 .accessibilityIdentifier("MobileWorkspaceMapPill-\(chip.id.rawValue)")
             }
             if chips.count > 3 {
                 Text(verbatim: "+\(chips.count - 3)")
                     .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(TerminalPalette.dimForeground.opacity(0.7))
+                    .foregroundStyle(palette.dimForeground.opacity(0.7))
             }
         }
     }
