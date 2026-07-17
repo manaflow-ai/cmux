@@ -3,7 +3,10 @@ import Foundation
 extension TerminalController {
     /// Searches indexed directories across mounted volumes for the iOS task
     /// composer and reports the filesystem coverage limits on the wire.
-    func v2MobileDirectorySearch(params: [String: Any]) async -> V2CallResult {
+    func v2MobileDirectorySearch(
+        params: [String: Any],
+        filesystemJobQuota: MobileTaskFilesystemJobQuota
+    ) async -> V2CallResult {
         guard let rawQuery = params["query"] as? String else {
             return .err(code: "invalid_params", message: "Missing query", data: nil)
         }
@@ -11,6 +14,15 @@ extension TerminalController {
         guard !query.isEmpty, query.unicodeScalars.count <= 256 else {
             return .err(code: "invalid_params", message: "Query must contain 1 to 256 characters", data: nil)
         }
+        guard filesystemJobQuota.acquire() else {
+            return .err(
+                code: "busy",
+                message: "Too many filesystem requests are already in progress",
+                data: nil
+            )
+        }
+        defer { filesystemJobQuota.release() }
+
         let seedPaths = mobileDirectorySearchSeedPaths()
         do {
             // Construct per request until the controller composition root can

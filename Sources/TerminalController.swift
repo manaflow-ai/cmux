@@ -117,6 +117,8 @@ class TerminalController {
     static let shared = TerminalController()
     private nonisolated let remotePTYControllerAvailabilityCondition = NSCondition()
     private nonisolated(unsafe) var remotePTYControllerAvailabilityGeneration: UInt64 = 0
+    /// One process-wide admission budget shared by every mobile connection.
+    nonisolated let mobileTaskFilesystemJobQuota: MobileTaskFilesystemJobQuota
     var tabManager: TabManager?
     let workspaceCreateIdempotencyCache = WorkspaceCreateIdempotencyCache(capacity: 256)
     /// Auth coordinator and browser flow are injected by `attachAuth` before socket startup.
@@ -349,6 +351,7 @@ class TerminalController {
         socketClientPreauthorizationLimiter: SocketClientPreauthorizationLimiter = .init(
             maximumConcurrentClaims: 32
         ),
+        mobileTaskFilesystemJobQuota: MobileTaskFilesystemJobQuota = .init(),
         remoteProxyBroker: any RemoteProxyBrokering = RemoteProxyBroker(
             tunnelProvider: RemoteDaemonProxyTunnelProvider(strings: .appLocalized, ptyBridgeStrings: AppRemotePTYBridgeStrings())
         )
@@ -360,6 +363,7 @@ class TerminalController {
         self.socketPasswordFileWatcher = socketPasswordFileWatcher
         self.socketClientCapabilityAuthority = Self.makeSocketClientCapabilityAuthority()
         self.socketClientPreauthorizationLimiter = socketClientPreauthorizationLimiter
+        self.mobileTaskFilesystemJobQuota = mobileTaskFilesystemJobQuota
         self.transport = transport
         self.remoteProxyBroker = remoteProxyBroker
         let serverEventTarget = ServerEventTarget()
@@ -13802,9 +13806,15 @@ class TerminalController {
         case "mobile.workspace.list", "workspace.list":
             result = v2MobileWorkspaceList(params: request.params)
         case "mobile.directory.search":
-            result = await v2MobileDirectorySearch(params: request.params)
+            result = await v2MobileDirectorySearch(
+                params: request.params,
+                filesystemJobQuota: mobileTaskFilesystemJobQuota
+            )
         case "mobile.directory.list":
-            result = await v2MobileDirectoryList(params: request.params)
+            result = await v2MobileDirectoryList(
+                params: request.params,
+                filesystemJobQuota: mobileTaskFilesystemJobQuota
+            )
         case "workspace.create":
             result = await v2MobileWorkspaceCreate(params: request.params)
         case "mobile.terminal.create", "terminal.create":

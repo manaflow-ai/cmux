@@ -3,7 +3,10 @@ import Foundation
 extension TerminalController {
     /// Lists a stable page of direct child directories for the iOS task
     /// composer while preserving typed filesystem failures on the RPC wire.
-    func v2MobileDirectoryList(params: [String: Any]) async -> V2CallResult {
+    func v2MobileDirectoryList(
+        params: [String: Any],
+        filesystemJobQuota: MobileTaskFilesystemJobQuota
+    ) async -> V2CallResult {
         guard let path = params["path"] as? String,
               let offset = params["offset"] as? Int,
               let limit = params["limit"] as? Int,
@@ -15,6 +18,14 @@ extension TerminalController {
                 data: nil
             )
         }
+        guard filesystemJobQuota.acquire() else {
+            return .err(
+                code: "busy",
+                message: "Too many filesystem requests are already in progress",
+                data: nil
+            )
+        }
+        defer { filesystemJobQuota.release() }
 
         do {
             let page = try await MobileTaskDirectoryListService().list(
