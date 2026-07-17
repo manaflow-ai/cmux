@@ -190,6 +190,52 @@ struct MobileIrohRuntimeCompositionTests {
     }
 
     @Test
+    func zeroTouchDiscoveryIgnoresUnreachableStaleBindingForSameDeviceTag() async throws {
+        let now = Date()
+        let observedAt = now.addingTimeInterval(-30).timeIntervalSinceReferenceDate
+        let expiresAt = now.addingTimeInterval(30 * 60).timeIntervalSinceReferenceDate
+        let deviceID = "30000000-0000-4000-8000-000000000021"
+        let reachableBindingID = "30000000-0000-4000-8000-000000000022"
+        let discovery = try mobileIrohDiscovery(bindings: [
+            mobileIrohBinding(
+                bindingID: "30000000-0000-4000-8000-000000000023",
+                deviceID: deviceID,
+                appInstanceID: "30000000-0000-4000-8000-000000000024",
+                endpointID: String(repeating: "e", count: 64),
+                platform: "mac",
+                pairingEnabled: true,
+                lastSeenAt: "2027-07-10T11:00:00.000Z"
+            ),
+            mobileIrohBinding(
+                bindingID: reachableBindingID,
+                deviceID: deviceID,
+                appInstanceID: "30000000-0000-4000-8000-000000000025",
+                endpointID: String(repeating: "f", count: 64),
+                platform: "mac",
+                pairingEnabled: true,
+                lastSeenAt: "2027-07-10T12:00:00.000Z",
+                pathHints: [[
+                    "kind": "relay_url",
+                    "value": "https://use1-1.relay.lawrence.cmux.iroh.link/",
+                    "source": "native",
+                    "privacy_scope": "public_internet",
+                    "observed_at": observedAt,
+                    "expires_at": expiresAt,
+                ]]
+            ),
+        ])
+        let catalog = MobileIrohRouteCatalog()
+        await catalog.activate(scope: 31)
+        await catalog.replace(with: discovery, scope: 31)
+
+        let candidates = await catalog.liveMacCandidates(preferredTag: "test")
+        #expect(candidates.count == 1)
+        #expect(candidates.first?.routes.map(\.id) == [
+            "iroh-personal-\(reachableBindingID)",
+        ])
+    }
+
+    @Test
     func taggedDevelopmentDiscoveryCannotCrossIntoAnotherAgentLane() async throws {
         let discovery = try mobileIrohDiscovery(bindings: [
             mobileIrohBinding(
@@ -1396,7 +1442,8 @@ private func mobileIrohBinding(
     platform: String,
     pairingEnabled: Bool,
     tag: String = "test",
-    lastSeenAt: String = "2027-07-10T12:00:00.000Z"
+    lastSeenAt: String = "2027-07-10T12:00:00.000Z",
+    pathHints: [[String: Any]] = []
 ) -> [String: Any] {
     [
         "binding_id": bindingID,
@@ -1408,7 +1455,7 @@ private func mobileIrohBinding(
         "identity_generation": 1,
         "pairing_enabled": pairingEnabled,
         "capabilities": ["mobile-rpc-v1"],
-        "path_hints": [],
+        "path_hints": pathHints,
         "last_seen_at": lastSeenAt,
     ]
 }
