@@ -89,6 +89,56 @@ struct WorktreeSidebarSchedulingTests {
         await waiter.wait(for: model) { $0.rows.isEmpty }
     }
 
+    @MainActor
+    @Test("a recreated worktree at a removed path becomes actionable")
+    func recreatedWorktreeAtRemovedPathBecomesActionable() async throws {
+        let projectRoot = "/tmp/worktree-sidebar-replacement-project"
+        let worktreePath = projectRoot + "/linked"
+        let manager = TabManager(
+            initialWorkingDirectory: projectRoot,
+            autoWelcomeIfNeeded: false
+        )
+        let git = WorktreeSidebarReviewRegressionGit(
+            projectRootPath: projectRoot,
+            worktreePath: worktreePath,
+            returnsReplacementOnFourthListing: true
+        )
+        let model = WorktreeSidebarModel(
+            projectRootPath: projectRoot,
+            git: git,
+            dialogs: WorktreeSidebarReviewRegressionDialogs(),
+            workspaces: WorktreeSidebarWorkspaceController(tabManager: manager)
+        )
+        let waiter = WorktreeSidebarModelWaiter()
+        model.start()
+        defer { model.stop() }
+        await waiter.wait(for: model) { !$0.rows.isEmpty }
+        let removedRow = try #require(model.rows.first)
+
+        model.refreshAll()
+        await git.waitUntilListingCall(2)
+        model.requestDeletion(for: removedRow)
+        await waiter.wait(for: model) { $0.operationPhase == .idle }
+        let workspaceCount = manager.tabs.count
+
+        await git.resumeListingCall(2)
+        await git.waitUntilListingCall(3)
+        await git.resumeListingCall(3)
+        await waiter.wait(for: model) { $0.listingPhase == .loaded }
+
+        model.refreshAll()
+        await git.waitUntilListingCall(4)
+        model.openTerminal(for: removedRow)
+        #expect(manager.tabs.count == workspaceCount)
+
+        await git.resumeListingCall(4)
+        await waiter.wait(for: model) { $0.listingPhase == .loaded }
+        let replacementRow = try #require(model.rows.first)
+        model.openTerminal(for: replacementRow)
+
+        #expect(manager.tabs.count == workspaceCount + 1)
+    }
+
     @Test("keep-unmerged disposition preserves a branch already merged into HEAD")
     func keepUnmergedDispositionPreservesBranchMergedIntoHEAD() async throws {
         let container = FileManager.default.temporaryDirectory

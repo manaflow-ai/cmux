@@ -10,12 +10,18 @@ import Observation
 /// Controllable dependencies for worktree-sidebar review regressions.
 actor WorktreeSidebarReviewRegressionGit: WorktreeSidebarGitOperating {
     let worktree: WorktreeSidebarWorktree
+    private let returnsReplacementOnFourthListing: Bool
     private var listingCallCount = 0
     private var blockedListingCalls: Set<Int> = [2, 3, 4]
     private var listingContinuations: [Int: CheckedContinuation<Void, Never>] = [:]
     private var listingCallWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
 
-    init(projectRootPath: String, worktreePath: String) {
+    init(
+        projectRootPath: String,
+        worktreePath: String,
+        returnsReplacementOnFourthListing: Bool = false
+    ) {
+        self.returnsReplacementOnFourthListing = returnsReplacementOnFourthListing
         worktree = WorktreeSidebarWorktree(
             path: worktreePath,
             head: "1111111111111111111111111111111111111111",
@@ -42,7 +48,7 @@ actor WorktreeSidebarReviewRegressionGit: WorktreeSidebarGitOperating {
                 listingContinuations[call] = continuation
             }
         }
-        return call < 4 ? [worktree] : []
+        return call < 4 || returnsReplacementOnFourthListing ? [worktree] : []
     }
 
     func waitUntilListingCall(_ call: Int) async {
