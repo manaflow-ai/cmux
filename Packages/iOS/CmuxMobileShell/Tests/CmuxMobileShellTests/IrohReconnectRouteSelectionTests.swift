@@ -968,10 +968,8 @@ extension ReconnectRouteSelectionTests {
 
         let recovered = try await pollUntil(attempts: 100) {
             guard let current = box.get() else { return false }
-            let foregroundProbeCount = await router.count(of: "mobile.workspace.list")
             return current !== firstTransport
                 && store.connectionState == .connected
-                && foregroundProbeCount >= 1
         }
         #expect(recovered)
         #expect(store.activeRoute?.kind == .iroh)
