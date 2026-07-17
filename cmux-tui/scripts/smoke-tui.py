@@ -404,7 +404,7 @@ print("prefix-S returns focus to the pane ok")
 with open(config_path, "w", encoding="utf-8") as f:
     json.dump({"sidebar": {"width": 22}}, f)
 assert rpc({"id": 31, "cmd": "reload-config"})["ok"]
-wait_render_contains("workspaces")
+wait_render_contains("+ new workspace")
 print("sidebar plugin config reload falls back to default workspaces sidebar ok")
 os.write(fd, b"\x02S")
 drain(0.4)
