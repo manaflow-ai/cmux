@@ -660,19 +660,32 @@ final class CmuxWebView: WKWebView {
         }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
-        if let focusModeHandled = performBrowserFocusModeKeyEquivalent(
-            with: event,
-            normalizedFlags: normalizedFlags
-        ) {
-            return finish(focusModeHandled)
+        if let decision = AppDelegate.shared?.handleBrowserFocusModeKeyEvent(
+            event,
+            webView: self,
+            source: "web.performKeyEquivalent"
+        ), decision != .inactive {
+            switch decision {
+            case .inactive:
+                break
+            case .forwardToWebView:
+                let isReturnKey = event.keyCode == 36 || event.keyCode == 76
+                if (normalizedFlags.isEmpty && event.keyCode == 53) ||
+                    (isReturnKey && !normalizedFlags.contains(.command)) {
+                    forwardKeyDownToWebKit(event)
+                    return finish(true)
+                }
+                let result = super.performKeyEquivalent(with: event)
+                // While focus mode is active, the page gets the shortcut once and cmux/main-menu
+                // fallback must not see unhandled command equivalents.
+                return finish(result || normalizedFlags.contains(.command))
+            case .consume:
+                return finish(true)
+            }
         }
 
         if event.keyCode == 36 || event.keyCode == 76 {
             return finish(AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true)
-        }
-
-        if AppDelegate.shared?.performBrowserWebExtensionCommandKeyEquivalent(event) == true {
-            return finish(true)
         }
 
         // Menu/app shortcut routing is only needed for Command equivalents

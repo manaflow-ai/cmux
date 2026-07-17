@@ -65,7 +65,6 @@ extension TabManager {
                 workingDirectory: normalizedWorkingDirectory(detached.directory) ?? snapshot.preferredWorkingDirectory,
                 portOrdinal: ordinal,
                 configTemplate: inheritedConfig,
-                browserWebExtensionHost: browserWebExtensionHost,
                 initialDetachedSurface: detached,
                 nativeSSHConnectionBroker: nativeSSHConnectionBroker
             )
