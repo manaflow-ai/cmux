@@ -104,14 +104,33 @@ extension DockSplitStore {
     }
 
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
+        let shouldRestoreDockFocus = dockOwnsKeyboardFocus()
+        let closedPanelWasWebExtensionActive = surfaceIdToPanelId[tabId].map {
+            browserWebExtensionHost?.isPanelActiveInWindow($0) == true
+        } ?? false
         forceCloseDockTabIds.remove(tabId)
         pendingCloseConfirmDockTabIds.remove(tabId)
         tabCloseButtonCloseDockTabIds.remove(tabId)
         reconcilePanels()
+        applyFocusedDockSelection(
+            shouldFocus: shouldRestoreDockFocus,
+            shouldActivateWebExtension: shouldRestoreDockFocus || closedPanelWasWebExtensionActive
+        )
     }
 
     func splitTabBar(_ controller: BonsplitController, didClosePane paneId: PaneID) {
+        let shouldRestoreDockFocus = dockOwnsKeyboardFocus()
+        let liveTabIDs = Set(controller.allPaneIds.flatMap { paneID in
+            controller.tabs(inPane: paneID).map(\.id)
+        })
+        let closedPanelWasWebExtensionActive = surfaceIdToPanelId.contains { tabID, panelID in
+            !liveTabIDs.contains(tabID) && browserWebExtensionHost?.isPanelActiveInWindow(panelID) == true
+        }
         reconcilePanels()
+        applyFocusedDockSelection(
+            shouldFocus: shouldRestoreDockFocus,
+            shouldActivateWebExtension: shouldRestoreDockFocus || closedPanelWasWebExtensionActive
+        )
     }
 
     func splitTabBar(_ controller: BonsplitController, didRequestNewTab kind: String, inPane pane: PaneID) {

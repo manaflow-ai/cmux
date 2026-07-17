@@ -7,7 +7,7 @@ import CmuxTerminal
 import CmuxWorkspaces
 import Observation
 import SwiftUI
-
+import WebKit
 @MainActor
 @Observable
 final class DockSplitStore: BonsplitDelegate {
@@ -33,7 +33,21 @@ final class DockSplitStore: BonsplitDelegate {
     private let baseDirectoryProvider: () -> String?
     private let remoteBrowserSettingsProvider: () -> DockRemoteBrowserSettings
     private let browserAvailabilityProvider: () -> Bool
-    var panels: [UUID: any Panel] = [:]
+    let browserWebExtensionHost: (any BrowserWebExtensionHosting)?
+    var panels: [UUID: any Panel] = [:] {
+        didSet {
+            let addedUserOwnedPanel = panels.contains { panelID, panel in
+                guard !(panel is BrowserPanel) else { return false }
+                guard let previousPanel = oldValue[panelID] else { return true }
+                return previousPanel !== panel
+            }
+            guard addedUserOwnedPanel else { return }
+            browserWebExtensionHost?.noteUserOwnedPanelAdded(
+                nativeWindow: AppDelegate.shared?.dockReferenceTabManager(for: self)?.window,
+                alongsidePanelIDs: panels.compactMap { $0.value is BrowserPanel ? $0.key : nil }
+            )
+        }
+    }
     var surfaceIdToPanelId: [TabID: UUID] = [:]
     var panelCancellables: [UUID: AnyCancellable] = [:]
     @ObservationIgnored var detachedSurfaceTransfersByPanelId: [UUID: Workspace.DetachedSurfaceTransfer] = [:]
@@ -76,13 +90,15 @@ final class DockSplitStore: BonsplitDelegate {
         scope: DockScope = .workspace,
         baseDirectoryProvider: @escaping () -> String?,
         remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings = { .local },
-        browserAvailabilityProvider: @escaping () -> Bool = { BrowserAvailabilitySettings.isEnabled() }
+        browserAvailabilityProvider: @escaping () -> Bool = { BrowserAvailabilitySettings.isEnabled() },
+        browserWebExtensionHost: (any BrowserWebExtensionHosting)? = nil
     ) {
         self.workspaceId = workspaceId
         self.scope = scope
         self.baseDirectoryProvider = baseDirectoryProvider
         self.remoteBrowserSettingsProvider = remoteBrowserSettingsProvider
         self.browserAvailabilityProvider = browserAvailabilityProvider
+        self.browserWebExtensionHost = browserWebExtensionHost
         self.bonsplitController = BonsplitController(configuration: Self.makeConfiguration())
         self.sourceLabel = String(localized: "dock.source.title", defaultValue: "Dock")
         self.bonsplitController.delegate = self
@@ -256,7 +272,8 @@ final class DockSplitStore: BonsplitDelegate {
         tmuxStartCommand: String? = nil,
         focus: Bool = true,
         preferredProfileID: UUID? = nil,
-        bypassInsecureHTTPHostOnce: String? = nil
+        creationPolicy: Workspace.BrowserPanelCreationPolicy = .userInitiated,
+        bypassInsecureHTTPHostOnce: String? = nil, webViewConfiguration: WKWebViewConfiguration? = nil, allowWebExtensionInitialNavigationConfiguration: Bool = true
     ) -> UUID? {
         ensureLoaded()
         guard let panel = makePanel(
@@ -268,7 +285,8 @@ final class DockSplitStore: BonsplitDelegate {
             workingDirectory: workingDirectory ?? currentBaseDirectory(),
             tmuxStartCommand: tmuxStartCommand,
             preferredProfileID: preferredProfileID,
-            bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
+            creationPolicy: creationPolicy,
+            bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce, webViewConfiguration: webViewConfiguration, allowWebExtensionInitialNavigationConfiguration: allowWebExtensionInitialNavigationConfiguration
         ) else { return nil }
         let previousFocus = focus ? nil : focusedDockPaneSelection()
         guard let tabId = attachPanelAsTab(panel, kind: kind, title: panel.displayTitle, inPane: paneId, tracksTerminalTitle: true) else {
@@ -438,7 +456,8 @@ final class DockSplitStore: BonsplitDelegate {
         workingDirectory: String,
         tmuxStartCommand: String? = nil,
         preferredProfileID: UUID? = nil,
-        bypassInsecureHTTPHostOnce: String? = nil
+        creationPolicy: Workspace.BrowserPanelCreationPolicy = .userInitiated,
+        bypassInsecureHTTPHostOnce: String? = nil, webViewConfiguration: WKWebViewConfiguration? = nil, allowWebExtensionInitialNavigationConfiguration: Bool = true
     ) -> (any Panel)? {
         switch kind {
         case .terminal:
@@ -453,14 +472,17 @@ final class DockSplitStore: BonsplitDelegate {
             )
         case .browser:
             guard browserAvailabilityProvider() else {
-                if let externalURL = url ?? initialRequest?.url { _ = NSWorkspace.shared.open(externalURL) }
+                if creationPolicy.opensExternallyWhenBrowserDisabled,
+                   let externalURL = url ?? initialRequest?.url {
+                    _ = NSWorkspace.shared.open(externalURL)
+                }
                 return nil
             }
             return makeBrowserPanel(
                 url: url,
                 initialRequest: initialRequest,
                 preferredProfileID: preferredProfileID,
-                bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
+                bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce, webViewConfiguration: webViewConfiguration, allowWebExtensionInitialNavigationConfiguration: allowWebExtensionInitialNavigationConfiguration
             )
         }
     }
@@ -554,22 +576,22 @@ final class DockSplitStore: BonsplitDelegate {
 
     func installSubscription(for panel: any Panel, tracksTerminalTitle: Bool) {
         if let browser = panel as? BrowserPanel {
+            browser.registerWebExtensionIfNeeded()
+            browser.browserWebExtensionHost?.noteWindowChanged(panelID: browser.id)
+            if focusedPanelId == browser.id { browser.noteWebExtensionActivated() }
             let cancellable = Publishers.CombineLatest4(
-                browser.$pageTitle.removeDuplicates(),
+                browser.$pageTitle.removeDuplicates(), browser.$currentURL.removeDuplicates(),
                 browser.$isLoading.removeDuplicates(),
-                browser.$faviconPNGData.removeDuplicates(by: { $0 == $1 }),
-                browser.$isMuted.removeDuplicates()
+                browser.$faviconPNGData.removeDuplicates(by: { $0 == $1 })
             )
+            .combineLatest(browser.$isMuted.removeDuplicates())
             .receive(on: DispatchQueue.main)
             .sink { [weak self, weak browser] _ in
                 guard let self, let browser, let tabId = self.surfaceId(forPanelId: browser.id),
                       let existing = self.bonsplitController.tab(tabId) else { return }
-                // Only push fields that actually changed. CombineLatest4 fires on
-                // ANY of the four publishers, so an `isLoading` flicker during a
-                // page load would otherwise re-publish the (unchanged) title and
-                // favicon, mutating the @Observable BonsplitController and
-                // re-rendering the Dock tree for nothing. Mirrors the main area's
-                // guarded path in Workspace.installBrowserPanelSubscription.
+                browser.browserWebExtensionHost?.noteTabMetadataChanged(panelID: browser.id)
+                // Only push changed fields; otherwise unchanged metadata would
+                // mutate Bonsplit. Mirrors Workspace.installBrowserPanelSubscription.
                 let resolvedTitle = browser.displayTitle
                 let favicon = browser.faviconPNGData
                 let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
