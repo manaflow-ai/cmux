@@ -162,6 +162,39 @@ struct SimulatorWebInspectorServiceFailureTests {
         second.shutdown()
     }
 
+    @Test("Attach fails closed when the target occupancy listing times out")
+    func attachRejectsIncompleteOccupancyRefresh() async throws {
+        let sleeper = ManualWebInspectorSleeper()
+        let service = SimulatorWebInspectorService(
+            subprocessRunner: SimulatorSubprocessRunner(),
+            sleeper: sleeper
+        )
+        let transport = SuccessfulWebInspectorTransport(
+            service: service,
+            respondsToListings: false
+        )
+        service.socket = transport
+        service.currentDeviceIdentifier = "DEVICE"
+        Self.seedTarget(into: service)
+
+        let attach = Task { @MainActor in
+            try await service.attach(targetIdentifier: "APP|7")
+        }
+        await eventually { await sleeper.pendingCount == 1 }
+        await sleeper.resumeAll()
+
+        do {
+            _ = try await attach.value
+            Issue.record("Expected incomplete occupancy refresh to reject attachment")
+        } catch let error as SimulatorWebInspectorError {
+            guard case .timedOut = error else {
+                Issue.record("Unexpected Web Inspector error: \(error)")
+                return
+            }
+        }
+        #expect(service.session == nil)
+    }
+
     private static func service() -> SimulatorWebInspectorService {
         SimulatorWebInspectorService(subprocessRunner: SimulatorSubprocessRunner())
     }
@@ -203,9 +236,14 @@ struct SimulatorWebInspectorServiceFailureTests {
 private final class SuccessfulWebInspectorTransport: SimulatorWebInspectorTransport {
     nonisolated let messages: AsyncStream<Data> = AsyncStream { _ in }
     weak var service: SimulatorWebInspectorService?
+    let respondsToListings: Bool
 
-    init(service: SimulatorWebInspectorService) {
+    init(
+        service: SimulatorWebInspectorService,
+        respondsToListings: Bool = true
+    ) {
         self.service = service
+        self.respondsToListings = respondsToListings
     }
 
     func send(propertyList: [String: Any]) throws {
@@ -225,6 +263,7 @@ private final class SuccessfulWebInspectorTransport: SimulatorWebInspectorTransp
             return
         }
         if selector == "_rpc_forwardGetListing:" {
+            guard respondsToListings else { return }
             deliver([
                 "__selector": "_rpc_applicationSentListing:",
                 "__argument": [
