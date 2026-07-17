@@ -131,7 +131,6 @@ final class BrowserWebExtensionWindowAdapter: NSObject, WKWebExtensionWindow {
     func activeTab(for context: WKWebExtensionContext) -> (any WKWebExtensionTab)? {
         let focusedPanelID = activePanelID()
         return compactTabs().first { $0.panel?.id == focusedPanelID }
-            ?? compactTabs().first
     }
 
     func windowType(for context: WKWebExtensionContext) -> WKWebExtension.WindowType {

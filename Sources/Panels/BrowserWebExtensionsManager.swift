@@ -80,6 +80,14 @@ final class BrowserWebExtensionsManager: NSObject {
         let context: WKWebExtensionContext
     }
 
+    private struct PresentationIconCacheEntry {
+        let image: NSImage
+        let data: Data?
+    }
+
+    private static let actionUpdateMinimumInterval: Duration = .milliseconds(50)
+    private var presentationIconCache: [ActionUpdateKey: PresentationIconCacheEntry] = [:]
+
     init(
         directory: URL,
         controllerIdentifier: UUID? = nil,
@@ -121,6 +129,7 @@ final class BrowserWebExtensionsManager: NSObject {
         actionUpdateFlushTask?.cancel()
         actionUpdateFlushTask = nil
         pendingActionUpdates.removeAll()
+        presentationIconCache.removeAll()
         pendingActionInvocations.removeAll()
         lastActionInvocations.removeAll()
         popupWebViews.removeAll()
@@ -274,6 +283,8 @@ final class BrowserWebExtensionsManager: NSObject {
         // be loaded once by each path when a user installs during app launch.
         await waitUntilLoaded()
         try requireActive()
+        try await directoryRepository.validatePackageSize(at: source)
+        try requireActive()
         // Validate before copying. WKWebExtension accepts either a directory or
         // ZIP archive and parses the manifest plus referenced resources.
         _ = try await WKWebExtension(resourceBaseURL: source)
@@ -368,6 +379,8 @@ final class BrowserWebExtensionsManager: NSObject {
     func unregister(panelID: UUID) {
         pendingActionInvocations = pendingActionInvocations.filter { $0.key.panelID != panelID }
         lastActionInvocations = lastActionInvocations.filter { $0.key.panelID != panelID }
+        pendingActionUpdates = pendingActionUpdates.filter { $0.key.panelID != panelID }
+        presentationIconCache = presentationIconCache.filter { $0.key.panelID != panelID }
         guard let tabAdapter = tabAdapters.removeValue(forKey: panelID) else { return }
         controller.didCloseTab(tabAdapter, windowIsClosing: false)
         guard let windowAdapter = tabAdapter.windowAdapter else { return }
@@ -554,7 +567,7 @@ final class BrowserWebExtensionsManager: NSObject {
             state: isLoaded ? .ready : .loading,
             extensions: loadedContexts.map { context in
                 let action = tabAdapter.flatMap { context.action(for: $0) }
-                return Self.presentationItem(for: context, action: action)
+                return presentationItem(for: context, action: action, panelID: panelID)
             },
             failures: loadErrors.map { failure in
                 BrowserWebExtensionsPresentationSnapshot.Failure(
@@ -762,17 +775,26 @@ final class BrowserWebExtensionsManager: NSObject {
             || webExtension.manifest["page_action"] != nil
     }
 
-    private static func presentationItem(
+    private func presentationItem(
         for context: WKWebExtensionContext,
-        action: WKWebExtension.Action?
+        action: WKWebExtension.Action?,
+        panelID: UUID?
     ) -> BrowserWebExtensionsPresentationSnapshot.Item {
-        BrowserWebExtensionsPresentationSnapshot.Item(
+        let key = ActionUpdateKey(
+            extensionIdentifier: context.uniqueIdentifier,
+            panelID: panelID
+        )
+        return BrowserWebExtensionsPresentationSnapshot.Item(
             id: context.uniqueIdentifier,
             name: context.webExtension.displayName ?? context.uniqueIdentifier,
-            hasAction: definesAction(context.webExtension),
-            isActionEnabled: action?.isEnabled ?? definesAction(context.webExtension),
+            hasAction: Self.definesAction(context.webExtension),
+            isActionEnabled: action?.isEnabled ?? Self.definesAction(context.webExtension),
             badgeText: action?.badgeText ?? "",
-            iconData: presentationIconData(for: action, webExtension: context.webExtension)
+            iconData: presentationIconData(
+                for: action,
+                webExtension: context.webExtension,
+                cacheKey: key
+            )
         )
     }
 
@@ -788,13 +810,21 @@ final class BrowserWebExtensionsManager: NSObject {
         pendingActionUpdates[key] = PendingActionUpdate(action: action, context: context)
         guard actionUpdateFlushTask == nil else { return }
         actionUpdateFlushTask = Task { @MainActor [weak self] in
-            await Task.yield()
+            do {
+                try await Task.sleep(for: Self.actionUpdateMinimumInterval)
+            } catch {
+                return
+            }
             guard !Task.isCancelled, let self else { return }
             self.actionUpdateFlushTask = nil
             let updates = self.pendingActionUpdates
             self.pendingActionUpdates.removeAll()
             for (key, update) in updates {
-                let item = Self.presentationItem(for: update.context, action: update.action)
+                let item = self.presentationItem(
+                    for: update.context,
+                    action: update.action,
+                    panelID: key.panelID
+                )
                 NotificationCenter.default.post(
                     name: .browserWebExtensionActionDidChange,
                     object: key.extensionIdentifier,
@@ -808,19 +838,29 @@ final class BrowserWebExtensionsManager: NSObject {
         }
     }
 
-    private static func presentationIconData(
+    private func presentationIconData(
         for action: WKWebExtension.Action?,
-        webExtension: WKWebExtension
+        webExtension: WKWebExtension,
+        cacheKey: ActionUpdateKey
     ) -> Data? {
         let size = CGSize(width: 32, height: 32)
         guard let image = action?.icon(for: size)
                 ?? webExtension.actionIcon(for: size)
-                ?? webExtension.icon(for: size),
-              let tiffData = image.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiffData) else {
+                ?? webExtension.icon(for: size) else {
+            presentationIconCache.removeValue(forKey: cacheKey)
             return nil
         }
-        return bitmap.representation(using: .png, properties: [:])
+        if let cached = presentationIconCache[cacheKey], cached.image === image {
+            return cached.data
+        }
+        guard let tiffData = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData) else {
+            presentationIconCache[cacheKey] = PresentationIconCacheEntry(image: image, data: nil)
+            return nil
+        }
+        let data = bitmap.representation(using: .png, properties: [:])
+        presentationIconCache[cacheKey] = PresentationIconCacheEntry(image: image, data: data)
+        return data
     }
 }
 

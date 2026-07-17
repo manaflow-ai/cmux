@@ -3146,6 +3146,9 @@ final class BrowserPanel: Panel, ObservableObject {
     }
     private var pendingRemoteNavigation: PendingRemoteNavigation?
     private var pendingWebExtensionNavigationTask: Task<Void, Never>?
+    var isWaitingForWebExtensionsBeforeNavigation: Bool {
+        pendingWebExtensionNavigationTask != nil
+    }
     private let bypassesRemoteWorkspaceProxy: Bool
     /// Marks this surface as transparent internal cmux UI (e.g. the diff viewer
     /// or other custom UI) rather than a normal web page. When set, the webview
@@ -4605,6 +4608,8 @@ final class BrowserPanel: Panel, ObservableObject {
             return false
         }
 
+        cancelPendingWebExtensionNavigation()
+
         let previousWebView = webView
         let wasRenderable = shouldRenderWebView
         let restoreURL = restorableDisplayURLForCurrentErrorPage(liveURL: previousWebView.url)
@@ -4674,11 +4679,14 @@ final class BrowserPanel: Panel, ObservableObject {
         }
 
         if shouldRestoreURL, let restoreURL {
-            navigateWithoutInsecureHTTPPrompt(
-                to: restoreURL,
-                recordTypedNavigation: false,
-                preserveRestoredSessionHistory: true
-            )
+            runWhenWebExtensionsLoaded { [weak self] in
+                guard let self, self.profileID == resolvedProfileID else { return }
+                self.navigateWithoutInsecureHTTPPrompt(
+                    to: restoreURL,
+                    recordTypedNavigation: false,
+                    preserveRestoredSessionHistory: true
+                )
+            }
         } else {
             refreshNavigationAvailability()
         }
@@ -7662,8 +7670,10 @@ extension BrowserPanel {
               )?.workspace {
             return workspace.openBrowserExtensionsManager(from: id)?.id
         }
-        showBrowserExtensionsManager()
-        return id
+        return DockSplitStore.liveStores
+            .first(where: { $0.containsPanel(id) })?
+            .openBrowserExtensionsManager(from: id)?
+            .id
     }
 
     func browserWebExtensionsPresentationSnapshot() async -> BrowserWebExtensionsPresentationSnapshot {

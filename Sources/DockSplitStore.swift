@@ -290,6 +290,42 @@ final class DockSplitStore: BonsplitDelegate {
         return panel.id
     }
 
+    /// Opens the extensions manager as a sibling Dock tab, preserving the
+    /// caller's page and providing the Dock tab bar as the return path.
+    @discardableResult
+    func openBrowserExtensionsManager(from sourcePanelId: UUID) -> BrowserPanel? {
+        guard let source = browserPanel(for: sourcePanelId),
+              let paneId = paneId(forPanelId: sourcePanelId) else {
+            return nil
+        }
+        if let existing = panels.values
+            .compactMap({ $0 as? BrowserPanel })
+            .first(where: {
+                $0.internalPage == .extensions && $0.profileID == source.profileID
+            }) {
+            focusPanel(existing.id)
+            return existing
+        }
+        guard let managerID = newSurface(
+            kind: .browser,
+            inPane: paneId,
+            focus: true,
+            preferredProfileID: source.profileID
+        ), let manager = browserPanel(for: managerID) else {
+            return nil
+        }
+        manager.showBrowserExtensionsManager()
+        if let tabId = surfaceId(forPanelId: managerID) {
+            bonsplitController.updateTab(
+                tabId,
+                title: manager.displayTitle,
+                icon: .some(manager.displayIcon),
+                iconImageData: .some(nil)
+            )
+        }
+        return manager
+    }
+
     /// Creates a new surface by splitting an existing Dock pane. Used by
     /// `pane.create --placement dock`. When the Dock tree is empty, seeds the
     /// root pane instead of splitting.

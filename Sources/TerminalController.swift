@@ -8176,21 +8176,55 @@ class TerminalController {
             guard let tabManager = self.v2ResolveTabManager(params: params) else {
                 return (nil, nil, nil, .err(code: "unavailable", message: "TabManager not available", data: nil))
             }
-            let resolution = self.v2ResolveBrowserPanelContext(params: params, tabManager: tabManager)
+            let resolution = self.v2ResolveBrowserPanelContext(
+                params: params,
+                tabManager: tabManager,
+                allowSoleBrowserFallback: true
+            )
             if let error = resolution.error {
-                return (nil, nil, nil, error)
+                let hasExplicitSurface = self.v2HasNonNullParam(params, "surface_id")
+                    || self.v2HasNonNullParam(params, "tab_id")
+                    || self.v2HasNonNullParam(params, "pane_id")
+                guard !hasExplicitSurface,
+                      let browserServices = tabManager.browserServices else {
+                    return (nil, nil, nil, error)
+                }
+                return (
+                    browserServices,
+                    BrowserProfileStore.shared.builtInDefaultProfileID,
+                    nil,
+                    nil
+                )
             }
             guard let context = resolution.context,
                   let browserServices = context.browserPanel.browserServices else {
-                return (nil, nil, nil, .err(code: "unavailable", message: "Browser extension service is unavailable", data: nil))
+                return (
+                    nil,
+                    nil,
+                    nil,
+                    .err(
+                        code: "unavailable",
+                        message: String(
+                            localized: "cli.browser.extensions.error.serviceUnavailable",
+                            defaultValue: "Browser extension service is unavailable"
+                        ),
+                        data: nil
+                    )
+                )
             }
             return (browserServices, context.browserPanel.profileID, context.surfaceId, nil)
         }
         if let error = target.error { return error }
         guard let browserServices = target.browserServices,
-              let profileID = target.profileID,
-              let surfaceID = target.surfaceID else {
-            return .err(code: "unavailable", message: "Browser extension service is unavailable", data: nil)
+              let profileID = target.profileID else {
+            return .err(
+                code: "unavailable",
+                message: String(
+                    localized: "cli.browser.extensions.error.serviceUnavailable",
+                    defaultValue: "Browser extension service is unavailable"
+                ),
+                data: nil
+            )
         }
 
         do {
@@ -8201,7 +8235,14 @@ class TerminalController {
             case "browser.extensions.add":
 #if DEBUG
                 guard let path = params["path"] as? String, !path.isEmpty else {
-                    return .err(code: "invalid_request", message: "Missing extension path", data: nil)
+                    return .err(
+                        code: "invalid_request",
+                        message: String(
+                            localized: "cli.browser.extensions.error.missingPath",
+                            defaultValue: "Missing extension path"
+                        ),
+                        data: nil
+                    )
                 }
                 let source = URL(fileURLWithPath: path).standardizedFileURL
                 let receipt = try await browserServices.installWebExtension(
@@ -8213,12 +8254,15 @@ class TerminalController {
                     "name": receipt.name,
                     "source": source.path,
                     "profile_id": profileID.uuidString,
-                    "surface_id": surfaceID.uuidString,
+                    "surface_id": v2OrNull(target.surfaceID?.uuidString),
                 ])
 #else
                 return .err(
                     code: "unavailable",
-                    message: "CLI extension installation is available only in cmux development builds",
+                    message: String(
+                        localized: "cli.browser.extensions.error.developmentBuildRequired",
+                        defaultValue: "CLI extension installation is available only in cmux development builds"
+                    ),
                     data: nil
                 )
 #endif
@@ -8234,10 +8278,24 @@ class TerminalController {
                 ))
             case "browser.extensions.eval":
                 guard let identifier, !identifier.isEmpty else {
-                    return .err(code: "invalid_request", message: "Missing extension identifier", data: nil)
+                    return .err(
+                        code: "invalid_request",
+                        message: String(
+                            localized: "cli.browser.extensions.error.missingIdentifier",
+                            defaultValue: "Missing extension identifier"
+                        ),
+                        data: nil
+                    )
                 }
                 guard let script = params["script"] as? String, !script.isEmpty else {
-                    return .err(code: "invalid_request", message: "Missing JavaScript", data: nil)
+                    return .err(
+                        code: "invalid_request",
+                        message: String(
+                            localized: "cli.browser.extensions.error.missingJavaScript",
+                            defaultValue: "Missing JavaScript"
+                        ),
+                        data: nil
+                    )
                 }
                 return .ok(try await browserServices.evaluateWebExtensionJavaScript(
                     script,
@@ -8247,14 +8305,28 @@ class TerminalController {
                 ))
             case "browser.extensions.console":
                 guard let identifier, !identifier.isEmpty else {
-                    return .err(code: "invalid_request", message: "Missing extension identifier", data: nil)
+                    return .err(
+                        code: "invalid_request",
+                        message: String(
+                            localized: "cli.browser.extensions.error.missingIdentifier",
+                            defaultValue: "Missing extension identifier"
+                        ),
+                        data: nil
+                    )
                 }
                 return .ok(try await browserServices.webExtensionConsole(
                     matching: identifier,
                     profileID: profileID
                 ))
             default:
-                return .err(code: "method_not_found", message: "Unsupported extension command", data: nil)
+                return .err(
+                    code: "method_not_found",
+                    message: String(
+                        localized: "cli.browser.extensions.error.unsupportedCommand",
+                        defaultValue: "Unsupported extension command"
+                    ),
+                    data: nil
+                )
             }
         } catch {
             return .err(

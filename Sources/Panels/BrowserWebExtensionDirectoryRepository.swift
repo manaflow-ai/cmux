@@ -62,6 +62,16 @@ actor BrowserWebExtensionDirectoryRepository {
         try writeApprovals(approvals, in: directory)
     }
 
+    func validatePackageSize(at candidate: URL) throws {
+        try requireActive()
+        let values = try candidate.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey])
+        guard values.isDirectory != false
+                || (values.fileSize ?? Int.max)
+                    <= BrowserWebExtensionPackageSession.defaultMaximumResponseByteCount else {
+            throw BrowserWebExtensionInstallError.packageTooLarge
+        }
+    }
+
     func installCandidate(from source: URL, into directory: URL) throws -> URL {
         try requireActive()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -108,12 +118,24 @@ actor BrowserWebExtensionDirectoryRepository {
     }
 
     private func packageDigest(for candidate: URL) throws -> String {
-        let values = try candidate.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        let values = try candidate.resourceValues(
+            forKeys: [.isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey]
+        )
         guard values.isSymbolicLink != true else {
             throw BrowserWebExtensionInstallError.symbolicLinksNotAllowed
         }
         if values.isDirectory != true {
-            return Self.hexDigest(SHA256.hash(data: try Data(contentsOf: candidate)))
+            guard let fileSize = values.fileSize,
+                  fileSize <= BrowserWebExtensionPackageSession.defaultMaximumResponseByteCount else {
+                throw BrowserWebExtensionInstallError.packageTooLarge
+            }
+            let handle = try FileHandle(forReadingFrom: candidate)
+            defer { try? handle.close() }
+            var hasher = SHA256()
+            while let chunk = try handle.read(upToCount: 1024 * 1024), !chunk.isEmpty {
+                hasher.update(data: chunk)
+            }
+            return Self.hexDigest(hasher.finalize())
         }
 
         let keys: [URLResourceKey] = [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey]
@@ -159,6 +181,7 @@ enum BrowserWebExtensionInstallError: LocalizedError {
     case outsideManagedDirectory
     case symbolicLinksNotAllowed
     case invalidPackage(String)
+    case packageTooLarge
 
     var errorDescription: String? {
         switch self {
@@ -181,6 +204,11 @@ enum BrowserWebExtensionInstallError: LocalizedError {
             return String(
                 localized: "browser.extensions.install.invalidPackage",
                 defaultValue: "\(name) is not a readable extension package."
+            )
+        case .packageTooLarge:
+            return String(
+                localized: "browser.extensions.store.error.tooLarge",
+                defaultValue: "The extension package is larger than 25 MB."
             )
         }
     }

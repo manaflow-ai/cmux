@@ -622,11 +622,11 @@ struct BrowserWebExtensionsManagerTests {
         defer { panel.close() }
 
         #expect(panel.switchToProfile(alternateProfile.id))
-        #expect(panel.hasPendingWebExtensionNavigationForTesting)
+        #expect(panel.isWaitingForWebExtensionsBeforeNavigation)
 
         await alternateManager.loadExtensions()
         for _ in 0..<4 { await Task.yield() }
-        #expect(!panel.hasPendingWebExtensionNavigationForTesting)
+        #expect(!panel.isWaitingForWebExtensionsBeforeNavigation)
     }
 
     @available(macOS 15.4, *)
