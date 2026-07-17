@@ -336,6 +336,40 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertEqual(replacedIds, [oldNotification.id.uuidString])
     }
 
+    func testGlobalWebsiteNotificationsDoNotReplaceEachOther() throws {
+        let bus = CmuxEventBus(retainedEventLimit: 8)
+        let firstOrigin = try XCTUnwrap(URL(string: "https://first.example"))
+        let secondOrigin = try XCTUnwrap(URL(string: "https://second.example"))
+        let oldNotification = TerminalNotification(
+            id: UUID(),
+            surfaceId: nil,
+            title: "First website",
+            subtitle: "first.example",
+            body: "Done",
+            createdAt: Date(),
+            isRead: false,
+            source: .website(origin: firstOrigin),
+            target: .global
+        )
+        let newNotification = TerminalNotification(
+            id: UUID(),
+            surfaceId: nil,
+            title: "Second website",
+            subtitle: "second.example",
+            body: "Ready",
+            createdAt: Date(),
+            isRead: false,
+            source: .website(origin: secondOrigin),
+            target: .global
+        )
+
+        bus.publishNotificationChanges(oldValue: [oldNotification], newValue: [newNotification])
+
+        let createdEvent = try XCTUnwrap(bus.retainedSnapshot().last)
+        let payload = try XCTUnwrap(createdEvent["payload"] as? [String: Any])
+        XCTAssertEqual(payload["replaced_notification_ids"] as? [String], [])
+    }
+
     func testNotificationRemovalDeduplicatesDuplicateOldIds() throws {
         let bus = CmuxEventBus(retainedEventLimit: 8)
         let workspaceId = UUID()

@@ -82,4 +82,29 @@ struct BrowserNotificationPermissionRepositoryTests {
         #expect(BrowserNotificationPermissionRepository.canonicalOrigin(loopback) == "http://[::1]:8080")
         #expect(BrowserNotificationPermissionRepository.canonicalOrigin(expanded) == "https://[2001:db8::7]:9443")
     }
+
+    @Test func liveRepositoryInstancesObserveEachOthersPersistedMutations() throws {
+        let suite = "cmux.notification-permissions.test.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let profileID = UUID()
+        let firstOrigin = try #require(URL(string: "https://first.example"))
+        let secondOrigin = try #require(URL(string: "https://second.example"))
+        let first = BrowserNotificationPermissionRepository(defaults: defaults)
+        let second = BrowserNotificationPermissionRepository(defaults: defaults)
+
+        first.setDecision(.allowed, for: firstOrigin, profileID: profileID)
+        #expect(second.decision(for: firstOrigin, profileID: profileID) == .allowed)
+
+        second.setDecision(.denied, for: secondOrigin, profileID: profileID)
+        #expect(first.decision(for: secondOrigin, profileID: profileID) == .denied)
+        #expect(first.allowedOrigins(for: profileID) == ["https://first.example"])
+        #expect(first.deniedOrigins(for: profileID) == ["https://second.example"])
+
+        second.clear(profileID: profileID)
+        #expect(first.origins(for: profileID).allowed.isEmpty)
+        #expect(first.origins(for: profileID).denied.isEmpty)
+    }
 }

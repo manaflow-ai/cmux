@@ -576,6 +576,54 @@ struct BrowserWebNotificationTests {
         #expect(store.notifications.count == 1)
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func enablingForwardingRebindsAnAlreadyLoadedBrowserWithoutReplacement() async throws {
+        let setting = SettingCatalog().browser.forwardWebNotifications
+        let defaults = UserDefaults.standard
+        let previousSetting = defaults.object(forKey: setting.userDefaultsKey)
+        let profileID = BrowserProfileRepository.builtInDefaultProfileID
+        let origin = try #require(URL(string: "https://live-enable.example"))
+        let repository = BrowserProfileStore.shared.notificationPermissions
+        let previousDecision = repository.decision(for: origin, profileID: profileID)
+        BrowserWebNotificationNativeAdapter.shared.forceForegroundFallbackForTesting = true
+        defer {
+            BrowserWebNotificationNativeAdapter.shared.forceForegroundFallbackForTesting = false
+            repository.setDecision(previousDecision, for: origin, profileID: profileID)
+            if let previousSetting { defaults.set(previousSetting, forKey: setting.userDefaultsKey) }
+            else { defaults.removeObject(forKey: setting.userDefaultsKey) }
+        }
+
+        setting.set(false, in: defaults)
+        repository.setDecision(.allowed, for: origin, profileID: profileID)
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let panel = BrowserPanel(workspaceId: workspace.id, profileID: profileID, renderInitialNavigation: false)
+        defer { panel.close() }
+        workspace.panels[panel.id] = panel
+        let originalWebView = panel.webView
+        let loadProbe = BrowserWebNotificationLoadProbe()
+        panel.webView.navigationDelegate = loadProbe
+        defer { panel.webView.navigationDelegate = nil }
+        try await loadProbe.load(
+            "<!doctype html><html><body>live enable probe</body></html>",
+            in: panel.webView,
+            baseURL: origin
+        )
+        #expect(panel.webNotificationBridgeToken == nil)
+
+        setting.set(true, in: defaults)
+        NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
+
+        #expect(panel.webView === originalWebView)
+        #expect(panel.webNotificationBridgeToken != nil)
+        #expect(try await panel.webView.evaluateJavaScript("Notification.permission") as? String == "granted")
+        #expect(
+            BrowserWebNotificationNativeAdapter.shared.notificationPermissions(
+                for: panel.webView.configuration.websiteDataStore
+            )["https://live-enable.example"]?.boolValue == true
+        )
+    }
+
     @Test func replacementRotatesTokenAndRemovesOldHandler() async throws {
         let setting = SettingCatalog().browser.forwardWebNotifications
         let defaults = UserDefaults.standard
@@ -685,6 +733,57 @@ struct BrowserWebNotificationTests {
             contentWorld: .page
         ) as? String
         #expect(permission == "granted")
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func retainedPopupKeepsItsBoundProfileAfterTheOpenerSwitchesProfiles() async throws {
+        let setting = SettingCatalog().browser.forwardWebNotifications
+        let defaults = UserDefaults.standard
+        let previousSetting = defaults.object(forKey: setting.userDefaultsKey)
+        let sourceProfileID = BrowserProfileRepository.builtInDefaultProfileID
+        let targetProfile = try #require(BrowserProfileStore.shared.createProfile(named: "Popup target \(UUID())"))
+        let origin = try #require(URL(string: "https://popup-profile.example"))
+        let repository = BrowserProfileStore.shared.notificationPermissions
+        let previousSourceDecision = repository.decision(for: origin, profileID: sourceProfileID)
+        BrowserWebNotificationNativeAdapter.shared.forceForegroundFallbackForTesting = true
+        defer {
+            BrowserWebNotificationNativeAdapter.shared.forceForegroundFallbackForTesting = false
+            repository.setDecision(previousSourceDecision, for: origin, profileID: sourceProfileID)
+            repository.clear(profileID: targetProfile.id)
+            _ = BrowserProfileStore.shared.deleteProfile(id: targetProfile.id)
+            if let previousSetting { defaults.set(previousSetting, forKey: setting.userDefaultsKey) }
+            else { defaults.removeObject(forKey: setting.userDefaultsKey) }
+        }
+        setting.set(true, in: defaults)
+        repository.setDecision(.denied, for: origin, profileID: sourceProfileID)
+        repository.setDecision(.allowed, for: origin, profileID: targetProfile.id)
+        let panel = BrowserPanel(workspaceId: UUID(), profileID: sourceProfileID, renderInitialNavigation: false)
+        defer { panel.close() }
+        let popupWebView = try #require(panel.createFloatingPopup(
+            configuration: WKWebViewConfiguration(),
+            windowFeatures: WKWindowFeatures()
+        ))
+        defer { popupWebView.window?.close() }
+        let loadProbe = BrowserWebNotificationLoadProbe()
+        popupWebView.navigationDelegate = loadProbe
+        defer { popupWebView.navigationDelegate = nil }
+        try await loadProbe.load(
+            "<!doctype html><html><body>popup profile probe</body></html>",
+            in: popupWebView,
+            baseURL: origin
+        )
+
+        #expect(panel.switchToProfile(targetProfile.id))
+        let permission = try await popupWebView.callAsyncJavaScript(
+            "return await Notification.requestPermission()",
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        ) as? String
+
+        #expect(permission == "denied")
+        #expect(repository.decision(for: origin, profileID: sourceProfileID) == .denied)
+        #expect(repository.decision(for: origin, profileID: targetProfile.id) == .allowed)
     }
 
     @Test func fallbackHandlerRejectsDirectPostsWithoutStoredPermission() async throws {
@@ -817,6 +916,67 @@ struct BrowserWebNotificationTests {
         )
         adapter.showPersistentNotification(notification, from: dataStore)
         #expect(store.notifications.isEmpty)
+    }
+
+    @Test func persistentDeliveryBoundsWebsiteControlledText() throws {
+        let setting = SettingCatalog().browser.forwardWebNotifications
+        let defaults = UserDefaults.standard
+        let previousSetting = defaults.object(forKey: setting.userDefaultsKey)
+        let store = TerminalNotificationStore.shared
+        let adapter = BrowserWebNotificationNativeAdapter.shared
+        let dataStore = WKWebsiteDataStore.nonPersistent()
+        let profileID = UUID()
+        let origin = try #require(URL(string: "https://bounded.example"))
+        let repository = BrowserProfileStore.shared.notificationPermissions
+        let previousDecision = repository.decision(for: origin, profileID: profileID)
+        adapter.setProfileForTesting(profileID, on: dataStore)
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        defer {
+            adapter.setProfileForTesting(nil, on: dataStore)
+            repository.setDecision(previousDecision, for: origin, profileID: profileID)
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            if let previousSetting { defaults.set(previousSetting, forKey: setting.userDefaultsKey) }
+            else { defaults.removeObject(forKey: setting.userDefaultsKey) }
+        }
+        setting.set(true, in: defaults)
+        repository.setDecision(.allowed, for: origin, profileID: profileID)
+
+        adapter.showPersistentNotification(
+            BrowserPersistentNotificationProbe(
+                title: String(repeating: "t", count: 300),
+                body: String(repeating: "b", count: 5_000),
+                origin: origin
+            ),
+            from: dataStore
+        )
+
+        let delivered = try #require(store.notifications.first)
+        #expect(delivered.title.count == BrowserWebNotificationPayload.maximumTitleLength)
+        #expect(delivered.body.count == BrowserWebNotificationPayload.maximumBodyLength)
+    }
+
+    @Test func shimIPv6HostnameProducesAnIPv6Subtitle() {
+        let setting = SettingCatalog().browser.forwardWebNotifications
+        let defaults = UserDefaults.standard
+        let previousSetting = defaults.object(forKey: setting.userDefaultsKey)
+        defer {
+            if let previousSetting { defaults.set(previousSetting, forKey: setting.userDefaultsKey) }
+            else { defaults.removeObject(forKey: setting.userDefaultsKey) }
+        }
+        setting.set(true, in: defaults)
+        let panel = BrowserPanel(workspaceId: UUID(), renderInitialNavigation: false)
+        defer { panel.close() }
+        var subtitle: String?
+        panel.deliverWebNotification = { _, _, _, value, _ in subtitle = value }
+
+        panel.handleWebNotificationPayload(
+            BrowserWebNotificationPayload(title: "IPv6", body: "Ready", hostname: "::1"),
+            fromWebViewInstanceID: panel.webViewInstanceID
+        )
+
+        #expect(subtitle == "::1")
     }
 
     @Test func persistentDeliveryRechecksTheProfilesLivePermission() throws {
