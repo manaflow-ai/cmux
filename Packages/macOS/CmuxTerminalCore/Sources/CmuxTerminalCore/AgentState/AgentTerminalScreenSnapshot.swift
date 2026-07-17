@@ -4,8 +4,8 @@ public struct AgentTerminalScreenSnapshot: Sendable, Equatable {
     public let processIdentity: AgentTerminalProcessIdentity
     /// The recognized profile identifier, or `nil` for an unsupported process.
     public let familyID: String?
-    /// VT-formatted physical rows from the live terminal bottom.
-    public let liveBottomVT: String
+    /// Plain rendered text from the bounded active-screen bottom.
+    public let liveBottomText: String
     /// The last reliable state, used only while an agent-owned history view is current.
     public let previousReliableState: AgentTerminalSemanticState?
 
@@ -13,12 +13,12 @@ public struct AgentTerminalScreenSnapshot: Sendable, Equatable {
     public init(
         processIdentity: AgentTerminalProcessIdentity,
         familyID: String?,
-        liveBottomVT: String,
+        liveBottomText: String,
         previousReliableState: AgentTerminalSemanticState? = nil
     ) {
         self.processIdentity = processIdentity
         self.familyID = familyID
-        self.liveBottomVT = liveBottomVT
+        self.liveBottomText = liveBottomText
         self.previousReliableState = previousReliableState
     }
 }

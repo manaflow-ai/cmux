@@ -47,9 +47,8 @@ final class AgentTerminalStateSurfaceObserver {
         guard surface.runtimeSurfaceGeneration == runtimeGeneration,
               surface.foregroundProcessID() == rawPID else { return nil }
         guard let gridRows = surface.rawSizingSample()?.rows, gridRows > 0 else { return nil }
-        let capturedRows = min(gridRows, 48)
-        guard let liveBottom = await surface.boundedScreenTailVT(
-            maxRows: capturedRows,
+        guard let liveBottom = await surface.boundedActiveScreenTailText(
+            maxRows: 48,
             maxBytes: 48 * 1024
         ) else { return nil }
         guard surface.runtimeSurfaceGeneration == runtimeGeneration,
@@ -62,7 +61,7 @@ final class AgentTerminalStateSurfaceObserver {
         return AgentTerminalScreenSnapshot(
             processIdentity: identity,
             familyID: familyID,
-            liveBottomVT: liveBottom,
+            liveBottomText: liveBottom,
             previousReliableState: previousReliableIdentity == identity ? previousReliableState : nil
         )
     }

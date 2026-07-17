@@ -37,6 +37,12 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         request.read()
     }
 
+    /// Reads plain active-screen evidence on the same serialized native lane as
+    /// surface teardown, so the borrowed pointer cannot be freed mid-read.
+    func readActiveScreenTailText(_ request: TerminalSurfaceRuntimeVisibleTextRequest) -> String? {
+        request.read()
+    }
+
     /// Queues a native-surface free from any isolation (the surface model's
     /// `deinit` is nonisolated and cannot await).
     ///

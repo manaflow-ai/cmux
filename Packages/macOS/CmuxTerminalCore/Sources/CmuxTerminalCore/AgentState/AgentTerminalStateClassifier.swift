@@ -41,7 +41,7 @@ public struct AgentTerminalStateClassifier: Sendable {
         }
     }
 
-    /// Classifies current live-bottom evidence for one recognized generation.
+    /// Classifies bounded plain-text evidence for one recognized generation.
     public func classify(_ snapshot: AgentTerminalScreenSnapshot) -> AgentTerminalStateClassification {
         guard let familyID = snapshot.familyID, let profile = catalog.profile(id: familyID) else {
             return AgentTerminalStateClassification(
@@ -51,10 +51,7 @@ public struct AgentTerminalStateClassifier: Sendable {
                 processIdentity: snapshot.processIdentity
             )
         }
-        let text = Self.normalizedVisibleText(snapshot.liveBottomVT)
-        let physicalLines = text.split(separator: "\n", omittingEmptySubsequences: false)
-        let liveBottom = physicalLines.suffix(18).joined(separator: "\n")
-        let liveEvidence = String(liveBottom.suffix(48 * 1024))
+        let liveEvidence = snapshot.liveBottomText.lowercased()
         let state: AgentTerminalSemanticState
         if profile.historyViewNeedles.contains(where: liveEvidence.contains) {
             state = snapshot.previousReliableState ?? .unknown
@@ -82,29 +79,4 @@ public struct AgentTerminalStateClassifier: Sendable {
         }
     }
 
-    private static func normalizedVisibleText(_ raw: String) -> String {
-        var result = ""
-        result.reserveCapacity(min(raw.utf8.count, 48 * 1024))
-        var iterator = raw.unicodeScalars.makeIterator()
-        while let scalar = iterator.next() {
-            if scalar == "\u{1B}" {
-                guard let next = iterator.next() else { break }
-                if next == "[" {
-                    while let control = iterator.next() {
-                        if control.value >= 0x40 && control.value <= 0x7E { break }
-                    }
-                } else if next == "]" {
-                    var previous: Unicode.Scalar?
-                    while let control = iterator.next() {
-                        if control == "\u{7}" || (previous == "\u{1B}" && control == "\\") { break }
-                        previous = control
-                    }
-                }
-                continue
-            }
-            if scalar == "\r" { result.append("\n") }
-            else if scalar.value >= 0x20 || scalar == "\n" || scalar == "\t" { result.unicodeScalars.append(scalar) }
-        }
-        return result.lowercased()
-    }
 }

@@ -218,7 +218,7 @@ struct AgentTerminalStateClassifierTests {
         let snapshot = AgentTerminalScreenSnapshot(
             processIdentity: identity,
             familyID: "codex",
-            liveBottomVT: "Session history\nPermission required",
+            liveBottomText: "Session history\nPermission required",
             previousReliableState: .working
         )
         #expect(classifier.classify(snapshot).state == .working)
@@ -290,7 +290,7 @@ struct AgentTerminalStateClassifierTests {
         AgentTerminalScreenSnapshot(
             processIdentity: identity,
             familyID: familyID,
-            liveBottomVT: text
+            liveBottomText: text
         )
     }
 
