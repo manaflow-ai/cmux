@@ -13055,7 +13055,7 @@ struct CMUXCLI {
         var surfaceRaw = surfaceOpt
         var args = argsWithoutSurfaceFlag
 
-        let verbsWithoutSurface: Set<String> = ["open", "open-split", "new", "identify", "import", "profile", "profiles", "react-grab", "reactgrab", "devtools", "dev-tools", "focus-mode", "zoom", "history"]
+        let verbsWithoutSurface: Set<String> = ["open", "open-split", "new", "identify", "import", "profile", "profiles", "react-grab", "reactgrab", "devtools", "dev-tools", "focus-mode", "design-mode", "zoom", "history"]
         if surfaceRaw == nil, let first = args.first {
             if !first.hasPrefix("-") && !verbsWithoutSurface.contains(first.lowercased()) {
                 surfaceRaw = first
@@ -13671,19 +13671,19 @@ struct CMUXCLI {
             output(payload, fallback: "OK")
             return
         }
-
-        if subcommand == "focus-mode" {
-            let mode = browserActionVerbArgs().first?.lowercased() ?? "toggle"
-            guard ["enter", "exit", "toggle", "on", "off"].contains(mode) else {
-                throw CLIError(message: "browser focus-mode requires one of: enter, exit, toggle, on, off")
-            }
+        if subcommand == "focus-mode" || subcommand == "design-mode" {
+            let isDesignMode = subcommand == "design-mode"
+            let mode = browserActionVerbArgs().first?.lowercased() ?? (isDesignMode ? "status" : "toggle")
+            let validModes = isDesignMode ? ["enable", "disable", "toggle", "status"] : ["enter", "exit", "toggle", "on", "off"]
+            guard validModes.contains(mode) else { throw CLIError(message: isDesignMode ? String(localized: "cli.browser.designMode.expectedModes", defaultValue: "browser design-mode requires one of: enable, disable, toggle, status") : "browser focus-mode requires one of: enter, exit, toggle, on, off") }
             var params = try optionalSurfaceParams()
             params["mode"] = mode
-            let payload = try client.sendV2(method: "browser.focus_mode.set", params: params)
-            output(payload, fallback: "OK")
+            let method = isDesignMode ? (mode == "status" ? "browser.design_mode.status" : "browser.design_mode.set") : "browser.focus_mode.set"
+            let payload = try client.sendV2(method: method, params: params)
+            let fallback = isDesignMode ? ((payload["enabled"] as? Bool) == true ? String(localized: "cli.browser.designMode.enabled", defaultValue: "enabled") : String(localized: "cli.browser.designMode.disabled", defaultValue: "disabled")) : "OK"
+            output(payload, fallback: fallback)
             return
         }
-
         if subcommand == "zoom" {
             guard let direction = browserActionVerbArgs().first?.lowercased(), ["in", "out", "reset"].contains(direction) else {
                 throw CLIError(message: "browser zoom requires one of: in, out, reset")
@@ -13694,7 +13694,6 @@ struct CMUXCLI {
             output(payload, fallback: "OK")
             return
         }
-
         if subcommand == "history" {
             let verb = browserActionVerbArgs().first?.lowercased() ?? "clear"
             guard verb == "clear" else {
@@ -35305,6 +35304,7 @@ export default CMUXSessionRestore;
           browser react-grab toggle [--surface <id>] [--return-to <terminal-surface>]
           browser devtools toggle|console [--surface <id>]
           browser focus-mode enter|exit|toggle [--surface <id>]
+          \(String(localized: "cli.browser.designMode.help", defaultValue: "browser design-mode enable|disable|toggle|status [--surface <id>]"))
           browser zoom in|out|reset [--surface <id>]
           browser history clear --force   (clears the default profile's history; mirrors the View menu)
           browser url|get-url

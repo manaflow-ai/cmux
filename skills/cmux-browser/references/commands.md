@@ -56,6 +56,16 @@ cmux browser <surface> check|uncheck <selector-or-ref>
 cmux browser <surface> scroll [--selector <css>] [--dx <n>] [--dy <n>]
 ```
 
+### Design Mode
+
+```bash
+cmux browser design-mode enable --surface <surface>
+cmux browser design-mode status --surface <surface> --json
+cmux browser design-mode disable --surface <surface>
+```
+
+Design mode lets a user select page elements and copy their DOM, style, URL, and screenshot context for pasting into an agent. CLI enable/disable never moves application focus or copies context automatically.
+
 Keyboard names follow Playwright/W3C conventions, including `Enter`, `Tab`,
 `Escape`, `ArrowLeft`, and `Space`. `Space`, `Spacebar`, and `space` all emit
 DOM key `" "` with code `"Space"`; use `--key ' '` to pass the raw DOM key.

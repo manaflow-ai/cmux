@@ -15,7 +15,9 @@ final class QuitConfirmationAlertPresenter: NSObject, NSWindowDelegate {
         completion: @escaping Completion
     ) {
         self.alert = alert ?? Self.makeAlert()
-        self.presentingWindowProvider = presentingWindowProvider ?? { cmuxMainWindowForModalPresentation() }
+        self.presentingWindowProvider = presentingWindowProvider ?? {
+            NSApp.cmuxMainWindowForModalPresentation()
+        }
         self.completion = completion
         super.init()
     }
