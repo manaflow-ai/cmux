@@ -1,0 +1,56 @@
+name: CmuxLite
+options:
+  bundleIdPrefix: org.cmux
+  deploymentTarget:
+    macOS: "14.0"
+targets:
+  CmuxLiteCore:
+    type: framework
+    platform: macOS
+    sources:
+      - Sources/CmuxLiteCore
+    resources:
+      - Sources/CmuxLiteCore/Resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.cmux.cmux-lite.core
+        SWIFT_VERSION: "6.0"
+  CmuxLite:
+    type: application
+    platform: macOS
+    sources:
+      - Sources/CmuxLiteApp
+    resources:
+      - Sources/CmuxLiteApp/Resources
+    dependencies:
+      - target: CmuxLiteCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.cmux.cmux-lite
+        PRODUCT_NAME: cmux-lite
+        SWIFT_VERSION: "6.0"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: cmux-lite
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
+        INFOPLIST_KEY_NSHumanReadableCopyright: ""
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+  CmuxLiteCoreTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - Tests/CmuxLiteCoreTests
+    dependencies:
+      - target: CmuxLiteCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.cmux.cmux-lite.core-tests
+        SWIFT_VERSION: "6.0"
+schemes:
+  CmuxLite:
+    build:
+      targets:
+        CmuxLite: all
+        CmuxLiteCoreTests: [test]
+    test:
+      targets:
+        - CmuxLiteCoreTests

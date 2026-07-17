@@ -16,23 +16,6 @@ public protocol PullRequestProbing: AnyObject {
     /// Requests a refresh for one panel (marks its poll deadline immediate,
     /// or queues a rerun if a refresh is already in flight).
     func scheduleWorkspacePullRequestRefresh(workspaceId: UUID, panelId: UUID, reason: String)
-    /// Seeds polling from a local git snapshot. An unchanged normalized
-    /// directory/branch source is a no-op; changed sources are coalesced into
-    /// one refresh pass for the current main-actor turn.
-    ///
-    /// - Parameters:
-    ///   - workspaceId: Workspace containing the panel.
-    ///   - panelId: Panel whose source was observed.
-    ///   - directory: Local repository directory.
-    ///   - branch: Current checked-out branch.
-    ///   - reason: Diagnostic reason for the refresh request.
-    func seedWorkspacePullRequestRefreshIfNeeded(
-        workspaceId: UUID,
-        panelId: UUID,
-        directory: String,
-        branch: String,
-        reason: String
-    )
     /// Runs one refresh pass over every tracked panel whose deadline is due.
     func refreshTrackedWorkspacePullRequestsIfNeeded(reason: String)
     /// Reacts to the pull-request polling setting toggling.

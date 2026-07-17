@@ -223,86 +223,6 @@ import CmuxGit
         #expect(service.workspacePullRequestTrackedPanelIds(workspaceId: workspaceId).isEmpty)
     }
 
-    /// A local source change can arrive after a refresh has started but before
-    /// its stale result applies. The queued source seed and stale-result rerun
-    /// must collapse into one global traversal.
-    @Test(.timeLimit(.minutes(1)))
-    func staleApplyAndQueuedSourceSeedRunOneFollowUpTraversal() async throws {
-        let directory = "/tmp/repo"
-        let host = RecordingSidebarGitHost()
-        host.pollingEnabled = true
-        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: directory)
-        host.workspaces[0].state.panels[panelId]?.branch = SidebarPanelGitBranch(
-            branch: "feature/a",
-            isDirty: false
-        )
-        let service = makeService(host: host, clock: ManualGitPollClock())
-        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
-        let sourceA = PullRequestPollService.SourceIdentity(
-            directory: directory,
-            branch: "feature/a"
-        )
-
-        service.workspacePullRequestSourceByKey[key] = sourceA
-        service.workspacePullRequestProbeStateByKey[key] = .inFlight(rerunPending: false)
-        host.workspaces[0].state.panels[panelId]?.branch = SidebarPanelGitBranch(
-            branch: "feature/b",
-            isDirty: false
-        )
-        service.seedWorkspacePullRequestRefreshIfNeeded(
-            workspaceId: workspaceId,
-            panelId: panelId,
-            directory: directory,
-            branch: "feature/b",
-            reason: "localGitProbe"
-        )
-        #expect(service.workspacePullRequestSeedRefreshTask != nil)
-
-        let workspaceReadsBeforeApply = host.orderedWorkspaceIdsReadCount
-        let branchReadsBeforeApply = host.panelGitBranchPanelIdsReadCount
-        let badgeReadsBeforeApply = host.panelPullRequestPanelIdsReadCount
-        service.applyWorkspacePullRequestRefreshResults(
-            [],
-            repoResults: [:],
-            requestedKeys: [key],
-            requestedSourceByKey: [key: sourceA],
-            now: Date(),
-            reason: "localGitProbe"
-        )
-
-        while service.workspacePullRequestSeedRefreshTask != nil {
-            await Task.yield()
-        }
-        while service.workspacePullRequestRefreshTask != nil {
-            await Task.yield()
-        }
-
-        #expect(host.orderedWorkspaceIdsReadCount == workspaceReadsBeforeApply + 1)
-        #expect(host.panelGitBranchPanelIdsReadCount == branchReadsBeforeApply + 1)
-        #expect(host.panelPullRequestPanelIdsReadCount == badgeReadsBeforeApply + 1)
-
-        let workspaceReadsBeforeUnchangedSeed = host.orderedWorkspaceIdsReadCount
-        service.seedWorkspacePullRequestRefreshIfNeeded(
-            workspaceId: workspaceId,
-            panelId: panelId,
-            directory: directory,
-            branch: " feature/b ",
-            reason: "localGitProbe"
-        )
-        await Task.yield()
-        #expect(host.orderedWorkspaceIdsReadCount == workspaceReadsBeforeUnchangedSeed)
-
-        let workspaceReadsBeforeCommandHint = host.orderedWorkspaceIdsReadCount
-        service.handleWorkspacePullRequestCommandHint(
-            workspaceId: workspaceId,
-            panelId: panelId,
-            action: "merge",
-            target: nil
-        )
-        #expect(host.orderedWorkspaceIdsReadCount == workspaceReadsBeforeCommandHint + 1)
-        service.resetWorkspacePullRequestRefreshState()
-    }
-
     @Test func resolvedBadgeWithMismatchedBranchSchedulesGitMetadataProbe() throws {
         let host = RecordingSidebarGitHost()
         host.pollingEnabled = true
@@ -432,5 +352,98 @@ import CmuxGit
         #expect(host.events.contains(.clearAllPullRequestMetadata))
         #expect(host.workspaces[0].state.panels[panelId]?.badge == nil)
         #expect(service.workspacePullRequestTrackedPanelIds(workspaceId: workspaceId).isEmpty)
+    }
+
+    @Test func rateLimitResetOverridesNormalTransientFailureCadence() {
+        let host = RecordingSidebarGitHost()
+        host.pollingEnabled = true
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: "/tmp/repo")
+        host.workspaces[0].state.panels[panelId]?.branch = SidebarPanelGitBranch(
+            branch: "issue-8175",
+            isDirty: false
+        )
+        let service = makeService(host: host, clock: ManualGitPollClock())
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        service.workspacePullRequestProbeStateByKey[key] = .inFlight(rerunPending: false)
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let retryDate = now.addingTimeInterval(300)
+
+        service.applyWorkspacePullRequestRefreshResults(
+            [
+                WorkspacePullRequestRefreshResult(
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    resolution: .transientFailure,
+                    usedCachedRepoData: false
+                ),
+            ],
+            repoResults: [:],
+            requestedKeys: [key],
+            now: now,
+            reason: "rateLimited",
+            rateLimitRetryDate: retryDate
+        )
+
+        #expect(service.workspacePullRequestNextPollAtByKey[key] == retryDate)
+    }
+
+    @Test func rateLimitClampsEarlyContinuesAndPreservesDeferredCacheBypass() {
+        let host = RecordingSidebarGitHost()
+        host.pollingEnabled = true
+        let (rerunWorkspaceId, rerunPanelId) = host.addWorkspace(panelDirectory: "/tmp/repo")
+        let (missingWorkspaceId, missingPanelId) = host.addWorkspace(panelDirectory: "/tmp/repo")
+        let service = makeService(host: host, clock: ManualGitPollClock())
+        let rerunKey = WorkspaceGitProbeKey(
+            workspaceId: rerunWorkspaceId,
+            panelId: rerunPanelId
+        )
+        let missingResultKey = WorkspaceGitProbeKey(
+            workspaceId: missingWorkspaceId,
+            panelId: missingPanelId
+        )
+        service.workspacePullRequestProbeStateByKey[rerunKey] = .inFlight(rerunPending: true)
+        service.workspacePullRequestProbeStateByKey[missingResultKey] = .inFlight(rerunPending: false)
+        service.workspacePullRequestNextPollAtByKey[rerunKey] = .distantPast
+        service.workspacePullRequestFollowUpShouldBypassRepoCache = true
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let retryDate = now.addingTimeInterval(300)
+
+        service.applyWorkspacePullRequestRefreshResults(
+            [
+                WorkspacePullRequestRefreshResult(
+                    workspaceId: rerunWorkspaceId,
+                    panelId: rerunPanelId,
+                    resolution: .transientFailure,
+                    usedCachedRepoData: true
+                ),
+            ],
+            repoResults: [:],
+            requestedKeys: [rerunKey, missingResultKey],
+            now: now,
+            reason: "rateLimited",
+            rateLimitRetryDate: retryDate
+        )
+
+        #expect(service.workspacePullRequestNextPollAtByKey[rerunKey] == retryDate)
+        #expect(service.workspacePullRequestNextPollAtByKey[missingResultKey] == retryDate)
+        #expect(service.workspacePullRequestFollowUpShouldBypassRepoCache)
+
+        service.workspacePullRequestProbeStateByKey[rerunKey] = .inFlight(rerunPending: false)
+        service.applyWorkspacePullRequestRefreshResults(
+            [
+                WorkspacePullRequestRefreshResult(
+                    workspaceId: rerunWorkspaceId,
+                    panelId: rerunPanelId,
+                    resolution: .transientFailure,
+                    usedCachedRepoData: false
+                ),
+            ],
+            repoResults: [:],
+            requestedKeys: [rerunKey],
+            now: retryDate,
+            reason: "postReset"
+        )
+
+        #expect(!service.workspacePullRequestFollowUpShouldBypassRepoCache)
     }
 }

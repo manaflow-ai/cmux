@@ -766,6 +766,38 @@ private func waitForReplayRequestCount(
     #expect(queue.completeInFlight() == policyOnly)
 }
 
+@Test func terminalOutputQueueCoalescesAlternatingThemeAndViewportFrames() throws {
+    var queue = TerminalOutputDeliveryQueue()
+    let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)
+    let oldFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "terminal",
+        stateSeq: 1,
+        columns: 12,
+        rows: 1,
+        text: "old"
+    )
+    let latestFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "terminal",
+        stateSeq: 2,
+        columns: 12,
+        rows: 1,
+        text: "latest"
+    )
+    let latestTheme = TerminalOutputDelivery(theme: latestFrame)
+    let latestViewport = TerminalOutputDelivery(renderGrid: latestFrame, replaceable: true)
+
+    #expect(queue.enqueue(inFlight) == inFlight)
+    #expect(queue.enqueue(TerminalOutputDelivery(theme: oldFrame)) == nil)
+    #expect(queue.enqueue(TerminalOutputDelivery(renderGrid: oldFrame, replaceable: true)) == nil)
+    #expect(queue.enqueue(latestTheme) == nil)
+    #expect(queue.enqueue(latestViewport) == nil)
+
+    #expect(queue.pendingCount == 2)
+    #expect(queue.completeInFlight() == latestTheme)
+    #expect(queue.completeInFlight() == latestViewport)
+    #expect(queue.completeInFlight() == nil)
+}
+
 @Test func terminalOutputQueuePreservesNonreplaceableBarriers() {
     var queue = TerminalOutputDeliveryQueue()
     let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)

@@ -1,0 +1,102 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "app.title" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "cmux-lite" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "cmux-lite" } }
+      }
+    },
+    "pane.accessibility_label" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Pane %lld" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ペイン %lld" } }
+      }
+    },
+    "sidebar.workspaces" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "workspaces" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ワークスペース" } }
+      }
+    },
+    "sidebar.new_workspace" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "+ new workspace" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "＋ 新規ワークスペース" } }
+      }
+    },
+    "status.connected" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Protocol %lld · surface %lld" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "プロトコル %1$lld · サーフェス %2$lld" } }
+      }
+    },
+    "status.connecting" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Connecting…" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "接続中…" } }
+      }
+    },
+    "status.connection_failed" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Connection failed: %@" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "接続に失敗しました: %@" } }
+      }
+    },
+    "status.detached" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Surface detached" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "サーフェスが切断されました" } }
+      }
+    },
+    "status.new_screen" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "New screen" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "新規スクリーン" } }
+      }
+    },
+    "status.screen_accessibility" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Screen %lld" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "スクリーン %lld" } }
+      }
+    },
+    "status.screens" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "screens" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "スクリーン" } }
+      }
+    },
+    "terminal.shell" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "shell" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "シェル" } }
+      }
+    },
+    "terminal.accessibility_label" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Remote terminal" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "リモートターミナル" } }
+      }
+    },
+    "terminal.back_to_live" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Back to live" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ライブ表示に戻る" } }
+      }
+    },
+    "tabs.new" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "New tab" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "新規タブ" } }
+      }
+    },
+    "tabs.unnamed" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Tab %lld" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "タブ %lld" } }
+      }
+    }
+  },
+  "version" : "1.0"
+}
