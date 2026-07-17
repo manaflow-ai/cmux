@@ -2930,6 +2930,18 @@ mod tests {
     }
 
     #[test]
+    fn removing_last_viewer_restores_default_for_unsized_creation() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+
+        mux.resize_surface_for_client(surface.id, 1, 117, 30).unwrap();
+        mux.remove_size_client(1);
+
+        assert_eq!(surface.size(), (117, 30));
+        assert_eq!(mux.new_workspace(None, None).unwrap().size(), (80, 24));
+    }
+
+    #[test]
     fn excluded_viewer_keeps_reporting_without_constraining_the_shared_grid() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();

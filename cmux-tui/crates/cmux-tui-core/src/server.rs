@@ -3609,6 +3609,73 @@ mod tests {
     }
 
     #[test]
+    fn attached_unreported_client_suppresses_global_ignore_size_fallback() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
+        let reporter_writer = test_writer();
+        let reporter = mux.control_clients.register(ClientTransport::Unix, reporter_writer.clone());
+        let reporter_stream = reporter_writer.start_stream(&json!({"event": "test"})).unwrap();
+        mux.control_clients.attach_surface(reporter, surface.id, reporter_stream).unwrap();
+        handle_command(
+            &mux,
+            reporter,
+            Command::ResizeSurface { surface: surface.id, cols: 100, rows: 40 },
+            &reporter_writer,
+        )
+        .unwrap();
+        handle_command(
+            &mux,
+            reporter,
+            Command::SetClientSizing { client: reporter, enabled: false },
+            &reporter_writer,
+        )
+        .unwrap();
+
+        let blocker_writer = test_writer();
+        let blocker = mux.control_clients.register(ClientTransport::Unix, blocker_writer.clone());
+        let blocker_stream = blocker_writer.start_stream(&json!({"event": "test"})).unwrap();
+        mux.control_clients.attach_surface(blocker, surface.id, blocker_stream).unwrap();
+
+        handle_command(
+            &mux,
+            reporter,
+            Command::ResizeSurface { surface: surface.id, cols: 70, rows: 20 },
+            &reporter_writer,
+        )
+        .unwrap();
+        assert_eq!(surface.size(), (100, 40));
+
+        handle_command(
+            &mux,
+            blocker,
+            Command::SetClientSizing { client: blocker, enabled: false },
+            &blocker_writer,
+        )
+        .unwrap();
+        assert_eq!(surface.size(), (70, 20));
+    }
+
+    #[test]
+    fn detached_client_cannot_fall_through_to_direct_resize() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        assert!(disconnect_client(&mux, client, false));
+
+        let error = handle_command(
+            &mux,
+            client,
+            Command::ResizeSurface { surface: surface.id, cols: 70, rows: 20 },
+            &writer,
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains(&format!("unknown client {client}")));
+        assert_eq!(surface.size(), (100, 40));
+    }
+
+    #[test]
     fn reload_config_returns_path_and_emits_request() {
         let mux = test_mux();
         let events = mux.subscribe();
