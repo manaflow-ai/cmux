@@ -104,6 +104,6 @@ extension Workspace {
     static func remoteDockTrustIdentity(
         _ configuration: WorkspaceRemoteConfiguration
     ) -> String {
-        configuration.proxyBrokerTransportKey
+        configuration.durableTransportTrustKey
     }
 }

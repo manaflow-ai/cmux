@@ -148,7 +148,7 @@ struct DockConfigSourceResolutionTests {
         let first = configuration(identityFile: "/keys/first", proxyJump: "bastion-a")
         let second = configuration(identityFile: "/keys/second", proxyJump: "bastion-b")
 
-        #expect(Workspace.remoteDockTrustIdentity(first) == first.proxyBrokerTransportKey)
+        #expect(Workspace.remoteDockTrustIdentity(first) == first.durableTransportTrustKey)
         #expect(Workspace.remoteDockTrustIdentity(first) != Workspace.remoteDockTrustIdentity(second))
     }
 

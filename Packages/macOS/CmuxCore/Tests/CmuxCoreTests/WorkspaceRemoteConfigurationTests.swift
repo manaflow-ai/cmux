@@ -96,7 +96,9 @@ struct WorkspaceRemoteConfigurationValueTests {
         persistentDaemonSlot: String? = nil,
         managedCloudVMID: String? = nil,
         skipDaemonBootstrap: Bool = false,
-        ownerWorkspaceID: UUID? = nil
+        ownerWorkspaceID: UUID? = nil,
+        localProxyPort: Int? = nil,
+        daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint? = nil
     ) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             transport: transport,
@@ -104,7 +106,7 @@ struct WorkspaceRemoteConfigurationValueTests {
             port: port,
             identityFile: identityFile,
             sshOptions: sshOptions,
-            localProxyPort: nil,
+            localProxyPort: localProxyPort,
             relayPort: relayPort,
             relayID: nil,
             relayToken: nil,
@@ -112,6 +114,7 @@ struct WorkspaceRemoteConfigurationValueTests {
             ownerWorkspaceID: ownerWorkspaceID,
             managedCloudVMID: managedCloudVMID,
             terminalStartupCommand: nil,
+            daemonWebSocketEndpoint: daemonWebSocketEndpoint,
             preserveAfterTerminalExit: preserveAfterTerminalExit,
             persistentDaemonSlot: persistentDaemonSlot,
             skipDaemonBootstrap: skipDaemonBootstrap
@@ -170,6 +173,60 @@ struct WorkspaceRemoteConfigurationValueTests {
 
         let otherHost = makeConfiguration(destination: "user@other")
         #expect(base.proxyBrokerTransportKey != otherHost.proxyBrokerTransportKey)
+    }
+
+    @Test("durable trust key separates SSH routes but ignores tunnel instances")
+    func durableTransportTrustKey() {
+        let firstRoute = makeConfiguration(
+            identityFile: "/keys/first",
+            sshOptions: ["ProxyJump=bastion-a"],
+            ownerWorkspaceID: UUID(),
+            localProxyPort: 41001
+        )
+        let sameRouteNewTunnel = makeConfiguration(
+            identityFile: "/keys/first",
+            sshOptions: ["ProxyJump=bastion-a"],
+            ownerWorkspaceID: UUID(),
+            localProxyPort: 41002
+        )
+        let secondRoute = makeConfiguration(
+            identityFile: "/keys/second",
+            sshOptions: ["ProxyJump=bastion-b"]
+        )
+
+        #expect(firstRoute.durableTransportTrustKey == sameRouteNewTunnel.durableTransportTrustKey)
+        #expect(firstRoute.durableTransportTrustKey != secondRoute.durableTransportTrustKey)
+
+        let firstBrokerSession = WorkspaceRemoteWebSocketDaemonEndpoint(
+            url: "wss://broker.example/session-a",
+            headers: [:],
+            token: "token-a",
+            sessionId: "session-a",
+            expiresAtUnix: 100
+        )
+        let refreshedBrokerSession = WorkspaceRemoteWebSocketDaemonEndpoint(
+            url: "wss://broker.example/session-b",
+            headers: [:],
+            token: "token-b",
+            sessionId: "session-b",
+            expiresAtUnix: 200
+        )
+        let firstWebSocket = makeConfiguration(
+            transport: .websocket,
+            destination: "cloud-vm",
+            managedCloudVMID: "vm-1",
+            ownerWorkspaceID: UUID(),
+            daemonWebSocketEndpoint: firstBrokerSession
+        )
+        let refreshedWebSocket = makeConfiguration(
+            transport: .websocket,
+            destination: "cloud-vm",
+            managedCloudVMID: "vm-1",
+            ownerWorkspaceID: UUID(),
+            daemonWebSocketEndpoint: refreshedBrokerSession
+        )
+
+        #expect(firstWebSocket.durableTransportTrustKey == refreshedWebSocket.durableTransportTrustKey)
     }
 
     @Test("hasSamePersistentPTYIdentity requires preserve on both sides and a matching slot")

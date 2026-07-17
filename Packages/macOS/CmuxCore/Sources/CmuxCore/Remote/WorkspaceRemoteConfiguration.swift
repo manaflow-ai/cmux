@@ -218,6 +218,34 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             .joined(separator: "\u{1e}")
     }
 
+    /// Stable, non-secret transport identity for authorizing remote-sourced configuration.
+    ///
+    /// Unlike ``proxyBrokerTransportKey``, this deliberately excludes tunnel-instance
+    /// details such as the owner workspace, local proxy port, and WebSocket broker
+    /// session. Those values can rotate while the durable remote security boundary
+    /// (account, SSH route, daemon slot, or managed VM) remains unchanged.
+    public var durableTransportTrustKey: String {
+        let normalizedTransport = transport.rawValue
+        let normalizedBootstrapMode = skipDaemonBootstrap ? "vm-baked" : "bootstrap"
+        let normalizedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedPort = port.map(String.init) ?? ""
+        let normalizedIdentity = Self.normalizedIdentityPath(identityFile) ?? ""
+        let normalizedOptions = Self.durableSSHOptions(sshOptions).joined(separator: "\u{1f}")
+        let normalizedPersistentDaemonSlot = persistentDaemonSlot ?? ""
+        let normalizedManagedCloudVMID = managedCloudVMID ?? ""
+        return [
+            normalizedTransport,
+            normalizedBootstrapMode,
+            normalizedDestination,
+            normalizedPort,
+            normalizedIdentity,
+            normalizedOptions,
+            normalizedPersistentDaemonSlot,
+            normalizedManagedCloudVMID,
+        ]
+            .joined(separator: "\u{1e}")
+    }
+
     private static func proxyBrokerSSHOptions(_ options: [String]) -> [String] {
         durableSSHOptions(options)
     }
