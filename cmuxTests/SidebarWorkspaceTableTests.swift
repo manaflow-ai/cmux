@@ -12,6 +12,26 @@ import Testing
 struct SidebarWorkspaceTableTests {
     @Test
     @MainActor
+    func appKitRowRenameEnterCommitsLiveFieldEditorText() {
+        let field = SidebarRowInlineRenameField()
+        field.stringValue = "Original"
+        var committedTitle: String?
+        field.onCommit = { committedTitle = $0 }
+        let editor = NSTextView()
+        editor.string = "Renamed"
+
+        let handled = field.control(
+            field,
+            textView: editor,
+            doCommandBy: #selector(NSResponder.insertNewline(_:))
+        )
+
+        #expect(handled)
+        #expect(committedTitle == "Renamed")
+    }
+
+    @Test
+    @MainActor
     func containerHasNoStructuralHorizontalRowInsetAndAlwaysActiveHoverTracking() throws {
         let container = SidebarWorkspaceTableController().makeContainerView()
         let column = try #require(container.tableView.tableColumns.first)
