@@ -409,12 +409,16 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 return AnyView(EmptyView())
             }
             let connectionStatus = workspace.macConnectionStatus ?? configuration.connectionStatus
+            let changesChip = configuration.workspaceChangesCapable
+                ? configuration.workspaceChangeChipsByWorkspaceID[workspace.rpcWorkspaceID.rawValue]
+                : nil
             return AnyView(
                 WorkspaceRow(
                     workspace: workspace,
                     connectionStatus: connectionStatus,
                     isSelected: configuration.navigationStyle == .sidebar
                         && configuration.selectedWorkspaceID == workspace.id,
+                    changesChip: changesChip,
                     wrapWorkspaceTitles: configuration.wrapWorkspaceTitles,
                     previewLineLimit: configuration.previewLineLimit,
                     unreadIndicatorLeftShift: configuration.unreadIndicatorLeftShift,
@@ -554,6 +558,22 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         )
     }
 
+    /// Whether a workspace row's changes chip differs between configurations,
+    /// so chip arrivals reconfigure exactly the affected cells.
+    private func workspaceChangesChipChanged(
+        id: MobileWorkspacePreview.ID,
+        previous: WorkspaceListTable,
+        next: WorkspaceListTable
+    ) -> Bool {
+        guard let rpcID = next.workspacesByID[id]?.rpcWorkspaceID.rawValue
+            ?? previous.workspacesByID[id]?.rpcWorkspaceID.rawValue else { return false }
+        let previousChip = previous.workspaceChangesCapable
+            ? previous.workspaceChangeChipsByWorkspaceID[rpcID] : nil
+        let nextChip = next.workspaceChangesCapable
+            ? next.workspaceChangeChipsByWorkspaceID[rpcID] : nil
+        return previousChip != nextChip
+    }
+
     private func itemPayloadChanged(
         _ item: WorkspaceListTableItem,
         oldItem: WorkspaceListTableItem,
@@ -563,6 +583,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         switch item {
         case .workspace(let id, _):
             return previous.workspacesByID[id] != next.workspacesByID[id]
+                || workspaceChangesChipChanged(id: id, previous: previous, next: next)
                 || oldItem.isIndentedWorkspace != item.isIndentedWorkspace
                 || previous.selectedWorkspaceID != next.selectedWorkspaceID
                 || previous.navigationStyle != next.navigationStyle

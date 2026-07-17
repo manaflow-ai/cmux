@@ -73,6 +73,8 @@ extension WorkspaceListView {
             profilePictureLeftShift: profilePictureLeftShift,
             profilePictureSize: profilePictureSize,
             connectionStatus: connectionStatus,
+            workspaceChangesCapable: workspaceChangesCapable,
+            workspaceChangeChipsByWorkspaceID: workspaceChangeChipsByWorkspaceID,
             connectionRequiresReauth: store?.connectionRequiresReauth ?? false,
             connectionRecoveryFailed: store?.connectionRecoveryFailed ?? false,
             isRecoveringConnection: store?.isRecoveringConnection ?? false,

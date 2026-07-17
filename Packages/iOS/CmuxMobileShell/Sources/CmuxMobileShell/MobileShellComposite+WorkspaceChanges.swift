@@ -1,4 +1,5 @@
 public import CmuxMobileRPC
+internal import CmuxMobileDiagnostics
 internal import CmuxMobileShellModel
 internal import Foundation
 
@@ -44,7 +45,12 @@ extension MobileShellComposite {
     ) async {
         guard workspaceChangesCapable,
               connectionState == .connected,
-              let client = remoteClient else { return }
+              let client = remoteClient else {
+            MobileDebugLog.anchormux(
+                "changes.summary skip capable=\(workspaceChangesCapable) state=\(connectionState) client=\(remoteClient != nil)"
+            )
+            return
+        }
         let now = runtime?.now() ?? Date()
         let batches = workspaceChangesSummaryFetchPolicy.batches(
             workspaceIDs: workspaceIDs,
@@ -79,10 +85,14 @@ extension MobileShellComposite {
                     }
                 }
                 setWorkspaceChangeChipsByWorkspaceID(chips)
+                MobileDebugLog.anchormux(
+                    "changes.summary ok requested=\(batch.count) summaries=\(response.summaries.count) chips=\(chips.count) sample=\(chips.keys.sorted().first.map { String($0.prefix(8)) } ?? "-") reqSample=\(batch.first.map { String($0.prefix(8)) } ?? "-")"
+                )
                 for workspaceID in batch {
                     workspaceChangesSummaryFetchedAtByWorkspaceID[workspaceID] = now
                 }
             } catch {
+                MobileDebugLog.anchormux("changes.summary error \(error)")
                 guard !Task.isCancelled, remoteClient === client else { return }
                 _ = disconnectForAuthorizationFailureIfNeeded(error)
             }
@@ -157,7 +167,10 @@ extension MobileShellComposite {
               connectionState == .connected,
               remoteClient != nil else { return }
         let workspaceIDs = explicitWorkspaceIDs ?? foregroundWorkspaceChangesIDs
-        guard !workspaceIDs.isEmpty else { return }
+        guard !workspaceIDs.isEmpty else {
+            MobileDebugLog.anchormux("changes.schedule skip: no foreground workspace ids")
+            return
+        }
 
         workspaceChangesSummaryRefreshForce = workspaceChangesSummaryRefreshForce || force
         workspaceChangesSummaryRefreshTask?.cancel()
