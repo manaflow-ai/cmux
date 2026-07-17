@@ -96,7 +96,11 @@ final class MobileRouteResolver: @unchecked Sendable {
 
         if let manualHost = manualHost.flatMap(CmxManualHost.init(routeHost:)),
            manualHost.isAdvertisable {
-            let manualPriority = 10 + (tailscaleHosts.count * 10)
+            // Continue the EMITTED tailscale sequence, not the discovered-host
+            // count: discovery can include hosts (like the MagicDNS name) that
+            // are filtered out above, and `CmxPairingQRCode.encodableRoutes`
+            // rejects any priority gap in the canonical 10, 20, ... sequence.
+            let manualPriority = 10 + (numericTailscaleHosts.count * 10)
             if let manualRoute = try? CmxAttachRoute(
                 id: CmxAttachTransportKind.manualHost.rawValue,
                 kind: .manualHost,
