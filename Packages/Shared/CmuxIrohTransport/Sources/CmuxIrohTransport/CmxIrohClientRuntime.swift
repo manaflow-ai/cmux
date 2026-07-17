@@ -346,11 +346,31 @@ public actor CmxIrohClientRuntime {
     public func didBecomeActive() async throws {
         guard lifecyclePhase == .active else { return }
         let revision = lifecycleRevision
-        let checked = try await supervisor.ensureHealthy()
-        try requireCurrent(revision)
-        await sessionPool.activate(runtimeGeneration: checked.runtimeGeneration)
-        _ = try await refreshLiveDiscoveryThrowing()
-        try requireCurrent(revision)
+        // A registration refresh reads the active endpoint. Keep the preserved
+        // generation installed until any existing refresh finishes, then pause
+        // new refreshes across the brief unbound window used for stale-driver
+        // replacement. Supervisor events become one pending refresh that the
+        // explicit foreground refresh below consumes.
+        registrationRefreshEnabled = false
+        do {
+            if let refresh = registrationRefreshTask {
+                try await refresh.value
+                try requireCurrent(revision)
+            }
+            let checked = try await supervisor.ensureHealthy()
+            try requireCurrent(revision)
+            await sessionPool.activate(runtimeGeneration: checked.runtimeGeneration)
+            try requireCurrent(revision)
+            registrationRefreshPending = false
+            registrationRefreshEnabled = true
+            _ = try await refreshLiveDiscoveryThrowing()
+            try requireCurrent(revision)
+        } catch {
+            if lifecyclePhase == .active, lifecycleRevision == revision {
+                registrationRefreshEnabled = true
+            }
+            throw error
+        }
     }
 
     /// Opens a terminal or artifact lane on the admitted pooled peer connection.
