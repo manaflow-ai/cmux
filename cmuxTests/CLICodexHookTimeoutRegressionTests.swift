@@ -3,6 +3,32 @@ import Testing
 
 @Suite(.serialized)
 struct CLICodexHookTimeoutRegressionTests {
+    @Test func codexLifecycleHooksEnqueueWithoutDetachedProcessTrees() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-inbox-hook-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let install = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "install", "--yes"],
+            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
+            timeout: 10
+        )
+        #expect(install.status == 0, Comment(rawValue: install.stderr))
+
+        let lifecycleHooks = try codexHookEntries(in: codexHome).filter {
+            ["SessionStart", "UserPromptSubmit", "Stop"].contains($0.eventName)
+        }
+        #expect(lifecycleHooks.count == 3)
+        #expect(lifecycleHooks.allSatisfy { $0.body.contains("hooks codex enqueue") })
+        #expect(lifecycleHooks.allSatisfy { !$0.body.contains("nohup") })
+        #expect(lifecycleHooks.allSatisfy { !$0.body.contains("mktemp") })
+        #expect(lifecycleHooks.allSatisfy { !$0.body.contains("sleep 30") })
+    }
+
     @Test func codexHookInstallReplacesSynchronousBundledHook() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
