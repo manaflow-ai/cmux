@@ -222,6 +222,37 @@ struct IrohZeroTouchDiscoveryTests {
         #expect(fixture.factory.attemptedRouteIDs() == ["iroh-mac-a"])
     }
 
+    @Test
+    func transientDialFailureCoalescesIdenticalPresenceRecoveryStorm() async throws {
+        let live = try candidate(deviceID: "mac-a", endpointByte: "a")
+        let discovery = ScriptedIrohDiscovery(snapshots: [[live]])
+        let fixture = try await makeFixture(
+            discovery: discovery,
+            reportedDeviceID: "mac-a",
+            failingRouteIDs: ["iroh-mac-a"]
+        )
+        defer { fixture.cleanup() }
+
+        #expect(!(await fixture.shell.reconnectActiveMacIfAvailable(stackUserID: "user-1")))
+        #expect(fixture.factory.attemptedRouteIDs() == ["iroh-mac-a"])
+        let scope = try #require(await fixture.shell.currentScopeSnapshot(userID: "user-1"))
+        let unchanged = PresenceInstance(
+            deviceId: "presence-trigger-only",
+            tag: "stable",
+            platform: "mac",
+            online: true,
+            lastSeenAt: Self.fixedNow.timeIntervalSince1970 * 1_000
+        )
+
+        for _ in 0 ..< 5 {
+            fixture.shell.applyPresenceUpdate(.online(unchanged), scope: scope)
+            await fixture.shell.pushedRouteSyncTask?.value
+            #expect(try await pollUntil { !fixture.shell.isRecoveringConnection })
+        }
+
+        #expect(fixture.factory.attemptedRouteIDs() == ["iroh-mac-a"])
+    }
+
     private func makeFixture(
         candidates: [MobileDiscoveredIrohMac],
         reportedDeviceID: String,
