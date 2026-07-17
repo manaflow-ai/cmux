@@ -1,8 +1,6 @@
 import AppKit
-import Combine
 import CmuxFoundation
 import CmuxSidebar
-import CmuxWorkspaces
 import SwiftUI
 
 /// Pure-AppKit workspace row cell: renders every TabItemView slot without
@@ -57,40 +55,6 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
     /// Drag initiation is disabled while the inline rename editor owns the row.
     var suppressesWorkspaceDrag: Bool { isEditing }
-    private var pumpCancellables: [AnyCancellable] = []
-
-    /// Per-row churn pump: mirrors TabItemView's onReceive subscriptions so
-    /// metadata/branch/PR updates repaint just this cell without any
-    /// container re-render. Installed per configure; replaced on reuse.
-    func installPump(
-        workspace: Workspace,
-        rebuild: @escaping @MainActor () -> Void
-    ) {
-        pumpCancellables.removeAll()
-        workspace.sidebarImmediateObservationPublisher
-            .receive(on: RunLoop.main)
-            .sink { _ in
-                MainActor.assumeIsolated { rebuild() }
-            }
-            .store(in: &pumpCancellables)
-        workspace.sidebarObservationPublisher
-            .debounce(for: .milliseconds(40), scheduler: RunLoop.main)
-            .sink { _ in
-                MainActor.assumeIsolated { rebuild() }
-            }
-            .store(in: &pumpCancellables)
-    }
-
-    /// Measurement/apply entry used by the pump path.
-    func applyRebuiltModel(_ model: SidebarWorkspaceRowModel) {
-        guard self.model != model else { return }
-        self.model = model
-        applyModel(model)
-        needsLayout = true
-    }
-
-    var currentModelForMeasurement: SidebarWorkspaceRowModel? { model }
-
     /// Paints the FULL selected treatment instantly on press by applying a
     /// selection-flipped copy of the model — every selection-derived color
     /// (background, title, secondary text, notification preview, badges)

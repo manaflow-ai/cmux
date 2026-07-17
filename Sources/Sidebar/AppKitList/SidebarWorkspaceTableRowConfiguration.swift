@@ -24,11 +24,6 @@ struct SidebarWorkspaceTableRowConfiguration {
     /// Present when this row renders through the pure-AppKit workspace cell.
     let appKitWorkspaceRowModel: SidebarWorkspaceRowModel?
     let appKitWorkspaceRowActions: SidebarAppKitRowActions?
-    /// Live workspace reference + fresh-model factory for the per-row churn
-    /// pump (metadata/branch/PR updates repaint one cell, no container render).
-    let appKitWorkspaceRowWorkspace: Workspace?
-    let appKitWorkspaceRowRebuild: (@MainActor () -> SidebarWorkspaceRowModel)?
-
     private let environment: SidebarWorkspaceTableEnvironmentSnapshot
     private let equivalenceValue: Any
     private let isEquivalentValue: (Any) -> Bool
@@ -48,8 +43,6 @@ struct SidebarWorkspaceTableRowConfiguration {
         self.appKitGroupHeaderActions = actions
         self.appKitWorkspaceRowModel = nil
         self.appKitWorkspaceRowActions = nil
-        self.appKitWorkspaceRowWorkspace = nil
-        self.appKitWorkspaceRowRebuild = nil
         self.equivalenceValue = groupHeaderModel
         self.isEquivalentValue = { value in
             guard let value = value as? SidebarGroupHeaderRowModel else { return false }
@@ -62,9 +55,7 @@ struct SidebarWorkspaceTableRowConfiguration {
         actions: SidebarAppKitRowActions,
         groupId: UUID?,
         isPinned: Bool,
-        environment: SidebarWorkspaceTableEnvironmentSnapshot,
-        workspace: Workspace? = nil,
-        rebuild: (@MainActor () -> SidebarWorkspaceRowModel)? = nil
+        environment: SidebarWorkspaceTableEnvironmentSnapshot
     ) {
         self.id = .workspace(workspaceRowModel.workspaceId)
         self.workspaceId = workspaceRowModel.workspaceId
@@ -76,8 +67,6 @@ struct SidebarWorkspaceTableRowConfiguration {
         self.appKitGroupHeaderActions = nil
         self.appKitWorkspaceRowModel = workspaceRowModel
         self.appKitWorkspaceRowActions = actions
-        self.appKitWorkspaceRowWorkspace = workspace
-        self.appKitWorkspaceRowRebuild = rebuild
         self.equivalenceValue = workspaceRowModel
         self.isEquivalentValue = { value in
             guard let value = value as? SidebarWorkspaceRowModel else { return false }

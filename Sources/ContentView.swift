@@ -11185,7 +11185,9 @@ struct VerticalTabsSidebar: View, Equatable {
         .sidebarWorkspaceObservations(
             ids: renderContext.workspaceIds,
             workspaces: renderContext.tabs,
-            debouncedInterval: Self.extensionSidebarObservationCoalesceInterval
+            debouncedInterval: .seconds(
+                Self.extensionSidebarObservationCoalesceInterval.magnitude
+            )
         ) { workspaceId in
             scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
         }

@@ -1,5 +1,4 @@
 import AppKit
-import Combine
 import CmuxWorkspaces
 import OSLog
 import SwiftUI
@@ -12,60 +11,57 @@ import Testing
 #endif
 
 extension SidebarLazyLayoutScaleTests {
-    /// A noisy workspace must not starve another workspace's pending change.
-    /// The stream never goes quiet for the coalescing interval, so a debounce
-    /// implementation would emit nothing until the loop stops. Keyed bounded
-    /// coalescing must instead keep delivering and retain the quiet id.
+    /// Removing the observing view must tear down both merged Combine producers
+    /// and their actor-stream consumers; later workspace changes cannot escape
+    /// the cancelled SwiftUI task tree.
     @Test
     @MainActor
-    func testMergedObservationBatchIsLosslessAndNonStarvingDuringSustainedChurn() {
-        let source = PassthroughSubject<UUID, Never>()
-        let noisyWorkspaceId = UUID()
-        let quietWorkspaceId = UUID()
-        let subscriber = SidebarObservationBatchDemandSubscriber()
-        let scheduler = VirtualCoalesceScheduler()
-        SidebarWorkspaceObservationBatch.mergedChanges(
-            from: [source.eraseToAnyPublisher()],
-            for: .milliseconds(20),
-            scheduler: scheduler
+    func testWorkspaceObservationProducersAndConsumersCancelWithView() async throws {
+        _ = NSApplication.shared
+
+        let workspace = Workspace(title: "Observed")
+        let counter = RowBodyCounter()
+        var observationLifetime: NSObject? = NSObject()
+        weak var weakObservationLifetime = observationLifetime
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 200, height: 120),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
         )
-        .subscribe(subscriber)
-        defer { subscriber.cancel() }
-
-        // The first two values establish the operator's replay and leading
-        // edges. The quiet id then enters the keyed accumulator while the
-        // noisy id keeps the source continuously active.
-        source.send(noisyWorkspaceId)
-        source.send(noisyWorkspaceId)
-        source.send(quietWorkspaceId)
-
-        #expect(subscriber.receivedBatches.isEmpty)
-        subscriber.request(.unlimited)
-        #expect(
-            subscriber.receivedBatches.contains {
-                $0.contains(noisyWorkspaceId) && $0.contains(quietWorkspaceId)
-            },
-            "Backpressure discarded a workspace identity while wakeups were conflated."
-        )
-
-        let deliveriesBeforeChurn = subscriber.receivedBatches.count
-        for _ in 0..<3 {
-            source.send(noisyWorkspaceId)
-            scheduler.advance(by: 0.02)
-            scheduler.runScheduledActions()
+        window.isReleasedWhenClosed = false
+        defer {
+            window.contentView = nil
+            window.close()
         }
+        window.contentView = NSHostingView(
+            rootView: Color.clear.sidebarWorkspaceObservations(
+                ids: [workspace.id],
+                workspaces: [workspace],
+                debouncedInterval: .milliseconds(40)
+            ) { [observationLifetime] workspaceId in
+                _ = observationLifetime
+                if workspaceId == workspace.id {
+                    counter.workspaceSnapshotBuilds += 1
+                }
+            }
+        )
+        observationLifetime = nil
 
+        await Self.drainMainRunLoop(for: window, iterations: 20)
+        #expect(counter.workspaceSnapshotBuilds > 0)
+
+        window.contentView = nil
+        await Self.drainMainRunLoop(for: window, iterations: 20)
+        let deliveriesAfterCancellation = counter.workspaceSnapshotBuilds
         #expect(
-            subscriber.receivedBatches.contains { $0.contains(quietWorkspaceId) },
-            "A quiet workspace identity was lost behind another workspace's sustained updates."
+            weakObservationLifetime == nil,
+            "Removing the view must release its observation task without a later publisher event."
         )
-        #expect(
-            subscriber.receivedBatches.count >= deliveriesBeforeChurn + 3,
-            """
-            Sustained input produced only \(subscriber.receivedBatches.count - deliveriesBeforeChurn) \
-            deliveries; batching must have a bounded cadence, not wait for silence.
-            """
-        )
+
+        workspace.isPinned.toggle()
+        await Self.drainMainRunLoop(for: window, iterations: 20)
+        #expect(counter.workspaceSnapshotBuilds == deliveriesAfterCancellation)
     }
 
     /// Group anchors have exactly one rendered identity: the header. This is
@@ -192,24 +188,15 @@ extension SidebarLazyLayoutScaleTests {
         #expect(faults.isEmpty, "Sidebar churn emitted runtime faults: \(faults)")
     }
 
-    /// Harness self-test: prove the drain loop + body counter actually detect
-    /// a layout feedback loop. This fixture reproduces the historical
-    /// GeometryReader → @State row-height shape (#6556) in divergent form; if
-    /// the harness cannot flag THIS, the tests above are vacuous.
+    /// Harness self-test: prove the drain loop + body counter detect an
+    /// autonomous invalidation chain without embedding the banned
+    /// GeometryReader → @State feedback shape in test code.
     @Test
     @MainActor
-    func testHarnessDetectsGeometryFeedbackLoopCanary() async throws {
+    func testHarnessDetectsRepeatedBodyInvalidationCanary() async throws {
         _ = NSApplication.shared
 
         let counter = RowBodyCounter()
-        let rows = 8
-        let root = VStack(spacing: 2) {
-            ForEach(0..<rows, id: \.self) { _ in
-                DivergentGeometryFeedbackRowFixture(onBody: { counter.workspaceRowBodies += 1 })
-            }
-        }
-        .frame(width: 200)
-
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 200, height: 400),
             styleMask: [.titled, .closable, .resizable],
@@ -221,71 +208,36 @@ extension SidebarLazyLayoutScaleTests {
             window.contentView = nil
             window.close()
         }
-        window.contentView = NSHostingView(rootView: root)
-
-        await Self.drainMainRunLoop(for: window, iterations: 40)
+        window.contentView = NSHostingView(rootView: AutonomousBodyInvalidationFixture(
+            onBody: { counter.workspaceRowBodies += 1 }
+        ))
+        await Self.drainMainRunLoop(for: window, iterations: 80)
 
         #expect(
-            counter.workspaceRowBodies > rows * 3,
+            counter.workspaceRowBodies >= 24,
             """
-            The divergent GeometryReader → @State fixture only produced \
-            \(counter.workspaceRowBodies) body evaluations for \(rows) rows; the harness \
-            can no longer observe layout feedback loops, so the lazy-contract tests above \
-            are not protecting anything. Fix the harness before trusting them.
+            The bounded autonomous invalidation fixture produced only \
+            \(counter.workspaceRowBodies) body evaluations; the scale-test counter or \
+            drain loop can no longer observe a self-sustaining render chain. \
+            Fix the harness before trusting its livelock bounds.
             """
         )
     }
 }
 
-private final class SidebarObservationBatchDemandSubscriber: Subscriber {
-    typealias Input = Set<UUID>
-    typealias Failure = Never
-
-    private var subscription: Subscription?
-    private(set) var receivedBatches: [Set<UUID>] = []
-
-    func receive(subscription: Subscription) {
-        self.subscription = subscription
-    }
-
-    func receive(_ input: Set<UUID>) -> Subscribers.Demand {
-        receivedBatches.append(input)
-        return .none
-    }
-
-    func receive(completion: Subscribers.Completion<Never>) {}
-
-    func request(_ demand: Subscribers.Demand) {
-        subscription?.request(demand)
-    }
-
-    func cancel() {
-        subscription?.cancel()
-        subscription = nil
-    }
-}
-
-/// Reproduces the #6556 anti-pattern in deliberately divergent form: a
-/// GeometryReader writes measured height back into `@State` that feeds the
-/// row's own frame, so every layout pass invalidates the next. Test fixture
-/// only — this shape is banned in real sidebar rows by
-/// `scripts/check-sidebar-lazy-layout.py`.
-private struct DivergentGeometryFeedbackRowFixture: View {
+/// Bounded test-only render chain that mutates state after each body pass.
+private struct AutonomousBodyInvalidationFixture: View {
     let onBody: () -> Void
-    @State private var rowHeight: CGFloat = 20
+    @State private var revision = 0
 
     var body: some View {
         let _ = { onBody() }()
         Color.gray
-            .frame(height: rowHeight)
-            .background {
-                GeometryReader { proxy in
-                    Color.clear
-                        .onAppear { rowHeight = proxy.size.height + 1 }
-                        .onChange(of: proxy.size.height) { _, newHeight in
-                            rowHeight = newHeight + 1
-                        }
-                }
+            .frame(height: 20)
+            .id(revision)
+            .task(id: revision) {
+                guard revision < 32 else { return }
+                revision += 1
             }
     }
 }

@@ -44,7 +44,12 @@ struct WorkspaceForkConversationContextMenuTests {
         return processIdentifier
     }
 
-    private func waitForForkProbeProcessExit(_ processIdentifier: pid_t) async -> Bool {
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    nonisolated private func waitForForkProbeProcessExit(_ processIdentifier: pid_t) async -> Bool {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(
             by: .nanoseconds(AgentForkSupport.commandTerminateTimeoutNanoseconds)
@@ -54,7 +59,13 @@ struct WorkspaceForkConversationContextMenuTests {
             if Darwin.kill(processIdentifier, 0) == -1 {
                 return errno == ESRCH
             }
-            await Task.yield()
+            do {
+                // The daemonized fixture exposes only a PID, so poll its real
+                // liveness predicate at a bounded cadence instead of spinning.
+                try await clock.sleep(for: .milliseconds(10))
+            } catch {
+                return false
+            }
         } while clock.now < deadline
         return false
     }
@@ -1223,7 +1234,7 @@ struct WorkspaceForkConversationContextMenuTests {
             indexLoader: {
                 let snapshot = snapshot.withLock { $0 }
                 return (
-                    index: index(for: snapshot),
+                    index: index(snapshot),
                     liveAgentProcessFingerprint: [],
                     processScopeFingerprint: [snapshot.launchCommand?.launcher ?? ""],
                     forkValidatedPanels: [

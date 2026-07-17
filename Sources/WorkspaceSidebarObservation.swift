@@ -1,9 +1,26 @@
 import Combine
 import CmuxCore
+import CmuxSidebar
 import CmuxWorkspaces
 import Foundation
-import CmuxSidebar
 import SwiftUI
+
+private extension AsyncStream.Continuation {
+    /// Retains every identity while keeping the legacy-Combine bridge to one buffered set.
+    func yieldCoalescingWorkspaceId(_ workspaceId: UUID) where Element == Set<UUID> {
+        var mergedWorkspaceIds: Set<UUID> = [workspaceId]
+        while true {
+            switch yield(mergedWorkspaceIds) {
+            case .dropped(let displacedWorkspaceIds):
+                let nextWorkspaceIds = mergedWorkspaceIds.union(displacedWorkspaceIds)
+                guard nextWorkspaceIds != mergedWorkspaceIds else { return }
+                mergedWorkspaceIds = nextWorkspaceIds
+            default:
+                return
+            }
+        }
+    }
+}
 
 private struct SidebarPanelObservationState: Equatable {
     let panelIds: [UUID]
@@ -24,49 +41,93 @@ extension View {
     func sidebarWorkspaceObservations(
         ids: [UUID],
         workspaces: [Workspace],
-        debouncedInterval: RunLoop.SchedulerTimeType.Stride,
+        debouncedInterval: Duration,
         onChange: @MainActor @escaping (UUID) -> Void
     ) -> some View {
         task(id: ids) { @MainActor in
             let sources = zip(ids, workspaces).map { id, workspace in
                 (id: id, workspace: workspace)
             }
-            let immediateChangeBatches = SidebarWorkspaceObservationBatch.mergedChanges(
-                from: sources.map { source in
-                    source.workspace.sidebarImmediateObservationPublisher
-                        .map { source.id }
-                        .eraseToAnyPublisher()
-                },
-                for: Workspace.sidebarImmediateObservationCoalesceInterval
+            let immediateBatch = SidebarWorkspaceObservationBatch(
+                deliveryInterval: .seconds(
+                    Workspace.sidebarImmediateObservationCoalesceInterval.magnitude
+                )
             )
-            .values
-            let debouncedChangeBatches = SidebarWorkspaceObservationBatch.mergedChanges(
-                from: sources.map { source in
-                    source.workspace.sidebarObservationPublisher
-                        .map { source.id }
-                        .eraseToAnyPublisher()
-                },
-                for: debouncedInterval
+            let debouncedBatch = SidebarWorkspaceObservationBatch(
+                deliveryInterval: debouncedInterval
             )
-            .values
+            let immediateChanges = AsyncStream<Set<UUID>>.makeStream(
+                bufferingPolicy: .bufferingNewest(1)
+            )
+            let debouncedChanges = AsyncStream<Set<UUID>>.makeStream(
+                bufferingPolicy: .bufferingNewest(1)
+            )
+            let immediateSubscription = Publishers.MergeMany(sources.map { source in
+                source.workspace.sidebarImmediateObservationPublisher
+                    .map { source.id }
+                    .eraseToAnyPublisher()
+            })
+            .receive(on: RunLoop.main)
+            .sink(
+                receiveCompletion: { _ in immediateChanges.continuation.finish() },
+                receiveValue: { immediateChanges.continuation.yieldCoalescingWorkspaceId($0) }
+            )
+            let debouncedSubscription = Publishers.MergeMany(sources.map { source in
+                source.workspace.sidebarObservationPublisher
+                    .map { source.id }
+                    .eraseToAnyPublisher()
+            })
+            .receive(on: RunLoop.main)
+            .sink(
+                receiveCompletion: { _ in debouncedChanges.continuation.finish() },
+                receiveValue: { debouncedChanges.continuation.yieldCoalescingWorkspaceId($0) }
+            )
+            defer {
+                immediateSubscription.cancel()
+                debouncedSubscription.cancel()
+                immediateChanges.continuation.finish()
+                debouncedChanges.continuation.finish()
+            }
 
-            await withTaskGroup(of: Void.self) { group in
-                group.addTask { @MainActor in
-                    for await workspaceIds in immediateChangeBatches {
-                        if Task.isCancelled { break }
-                        for workspaceId in workspaceIds {
-                            onChange(workspaceId)
+            await withTaskCancellationHandler {
+                await withTaskGroup(of: Void.self) { group in
+                    group.addTask { @MainActor in
+                        for await workspaceIds in immediateChanges.stream {
+                            if Task.isCancelled { break }
+                            await immediateBatch.record(contentsOf: workspaceIds)
+                        }
+                        await immediateBatch.cancel()
+                    }
+                    group.addTask { @MainActor in
+                        for await workspaceIds in immediateBatch.changes {
+                            if Task.isCancelled { break }
+                            for workspaceId in workspaceIds {
+                                onChange(workspaceId)
+                            }
+                        }
+                    }
+                    group.addTask { @MainActor in
+                        for await workspaceIds in debouncedChanges.stream {
+                            if Task.isCancelled { break }
+                            await debouncedBatch.record(contentsOf: workspaceIds)
+                        }
+                        await debouncedBatch.cancel()
+                    }
+                    group.addTask { @MainActor in
+                        for await workspaceIds in debouncedBatch.changes {
+                            if Task.isCancelled { break }
+                            for workspaceId in workspaceIds {
+                                onChange(workspaceId)
+                            }
                         }
                     }
                 }
-                group.addTask { @MainActor in
-                    for await workspaceIds in debouncedChangeBatches {
-                        if Task.isCancelled { break }
-                        for workspaceId in workspaceIds {
-                            onChange(workspaceId)
-                        }
-                    }
-                }
+            } onCancel: {
+                // AsyncStream iteration does not wake solely because its task
+                // was cancelled. Finish the producer bridges so both input
+                // tasks can cancel their batch actors and release the group.
+                immediateChanges.continuation.finish()
+                debouncedChanges.continuation.finish()
             }
         }
     }
