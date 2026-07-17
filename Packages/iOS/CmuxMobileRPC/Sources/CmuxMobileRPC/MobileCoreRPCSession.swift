@@ -337,27 +337,43 @@ actor MobileCoreRPCSession {
             throw CancellationError()
         }
 
-        connectionTask = nil
-        installedConnectionID = connectionID
-        transport = candidate
-        await beforeSuccessfulConnectBookkeeping?()
-        await connectAttemptRegistry.recordSuccessfulConnect(lease: connectLease)
-        readerTask = Task { [weak self] in
-            await self?.readLoop(
+        let (stream, continuation) = AsyncStream<PendingWrite>.makeStream(
+            bufferingPolicy: .unbounded
+        )
+        let nextReaderTask = Task { [weak self] in
+            guard let self else { return }
+            await self.readLoop(
                 transport: candidate,
                 connectionID: connectionID
             )
         }
-        let (stream, continuation) = AsyncStream<PendingWrite>.makeStream(bufferingPolicy: .unbounded)
-        writeQueue = continuation
-        writerTask = Task { [weak self] in
-            await self?.writeLoop(
+        let nextWriterTask = Task { [weak self] in
+            guard let self else { return }
+            await self.writeLoop(
                 transport: candidate,
                 connectionID: connectionID,
                 frames: stream
             )
         }
-        if callerCancelled {
+
+        // Publish one coherent installed generation without suspending. Readers
+        // use `transport` as the fast-path readiness flag, so it must become
+        // visible only after its reader and writer infrastructure is installed.
+        connectionTask = nil
+        installedConnectionID = connectionID
+        readerTask = nextReaderTask
+        writeQueue = continuation
+        writerTask = nextWriterTask
+        transport = candidate
+
+        await beforeSuccessfulConnectBookkeeping?()
+        await connectAttemptRegistry.recordSuccessfulConnect(lease: connectLease)
+        guard installedConnectionID == connectionID,
+              transport != nil,
+              !isTearingDown else {
+            throw MobileShellConnectionError.connectionClosed
+        }
+        if callerCancelled || Task.isCancelled {
             throw CancellationError()
         }
         return candidate
