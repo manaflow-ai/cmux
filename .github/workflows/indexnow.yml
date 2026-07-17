@@ -1,0 +1,30 @@
+name: Notify IndexNow
+
+on:
+  deployment_status:
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    if: >-
+      github.event.deployment_status.state == 'success' &&
+      github.event.deployment.environment == 'Production – cmux'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Submit changed URLs
+        env:
+          INDEXNOW_TRIGGER_SECRET: ${{ secrets.INDEXNOW_TRIGGER_SECRET }}
+        run: |
+          test -n "$INDEXNOW_TRIGGER_SECRET"
+          curl --request POST \
+            --fail-with-body \
+            --silent \
+            --show-error \
+            --max-time 30 \
+            --retry 2 \
+            --retry-all-errors \
+            --header "Authorization: Bearer $INDEXNOW_TRIGGER_SECRET" \
+            https://cmux.com/api/cron/indexnow
