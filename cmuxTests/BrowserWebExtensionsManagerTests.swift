@@ -701,6 +701,42 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
+    @Test func managerPaneReturnsToExtensionTabRegistryAfterNavigation() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let extensionDirectory = try Self.writeExtension(
+            named: "manager-registry",
+            in: root,
+            manifest: Self.minimalManifest
+        )
+        let extensionContext = WKWebExtensionContext(
+            for: try await WKWebExtension(resourceBaseURL: extensionDirectory)
+        )
+        let services = BrowserServices(extensionDirectory: root)
+        let tabManager = TabManager(autoWelcomeIfNeeded: false, browserServices: services)
+        let workspace = try #require(tabManager.selectedWorkspace)
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let source = try #require(workspace.newBrowserSurface(
+            inPane: pane,
+            focus: false,
+            creationPolicy: .restoration
+        ))
+        let managerPage = try #require(workspace.openBrowserExtensionsManager(from: source.id))
+        let manager = try #require(services.webExtensionsManager)
+
+        let registeredWebViews = {
+            manager.webExtensionController(manager.controller, openWindowsFor: extensionContext)
+                .flatMap { $0.tabs(for: extensionContext) }
+                .compactMap { $0.webView(for: extensionContext) }
+        }
+        #expect(!registeredWebViews().contains(managerPage.webView))
+
+        managerPage.navigate(to: try #require(URL(string: "https://example.com")))
+
+        #expect(registeredWebViews().contains(managerPage.webView))
+    }
+
+    @available(macOS 15.4, *)
     @Test func extensionControllerReportsNoFocusedWindowWithoutAKeyCmuxWindow() async throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -1072,6 +1108,44 @@ struct BrowserWebExtensionsManagerTests {
         #expect(snapshot.extensions.map(\.name) == ["cmux test extension"])
         #expect(snapshot.failures.map(\.entryName) == ["broken"])
         #expect(snapshot.directoryPath == root.path)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func invalidApprovedPackageDoesNotBlockHealthyExtensions() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let healthy = try Self.writeExtension(
+            named: "healthy",
+            in: root,
+            manifest: Self.minimalManifest
+        )
+        let damaged = try Self.writeExtension(
+            named: "damaged",
+            in: root,
+            manifest: Self.minimalManifest
+        )
+        for directory in [healthy, damaged] {
+            try "// no-op".write(
+                to: directory.appendingPathComponent("content.js"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+        let manager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent()
+        )
+        try await manager.approveInstalledCandidate(healthy)
+        try await manager.approveInstalledCandidate(damaged)
+        try FileManager.default.createSymbolicLink(
+            at: damaged.appendingPathComponent("post-approval-link"),
+            withDestinationURL: healthy.appendingPathComponent("content.js")
+        )
+
+        await manager.loadExtensions()
+
+        #expect(manager.loadedContexts.map(\.uniqueIdentifier) == ["cmux-browser-extension-healthy"])
+        #expect(manager.loadErrors.map { $0.url.lastPathComponent } == ["damaged"])
     }
 }
 
