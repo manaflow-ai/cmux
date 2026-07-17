@@ -235,9 +235,14 @@ struct SurfaceRoute {
 
 #[derive(Default)]
 struct SurfaceRouteState {
-    events: VecDeque<CdpEvent>,
+    events: VecDeque<QueuedSurfaceEvent>,
     retained_bytes: usize,
     closed: bool,
+}
+
+struct QueuedSurfaceEvent {
+    event: CdpEvent,
+    retained_bytes: usize,
 }
 
 impl SurfaceRoute {
@@ -253,18 +258,19 @@ impl SurfaceRoute {
         }
 
         let replacement = match &event {
-            CdpEvent::ScreencastFrame(_) =>
-                state.events.iter().position(|queued| matches!(queued, CdpEvent::ScreencastFrame(_))),
+            CdpEvent::ScreencastFrame(_) => state
+                .events
+                .iter()
+                .position(|queued| matches!(&queued.event, CdpEvent::ScreencastFrame(_))),
             CdpEvent::TargetInfoChanged(info) => state.events.iter().position(|queued| {
-                matches!(queued, CdpEvent::TargetInfoChanged(existing) if existing.target_id == info.target_id)
+                matches!(&queued.event, CdpEvent::TargetInfoChanged(existing) if existing.target_id == info.target_id)
             }),
             _ => None,
         };
         if let Some(index) = replacement
             && let Some(removed) = state.events.remove(index)
         {
-            state.retained_bytes =
-                state.retained_bytes.saturating_sub(cmux_tui_cdp::event_retained_bytes(&removed));
+            state.retained_bytes = state.retained_bytes.saturating_sub(removed.retained_bytes);
         }
         let event_bytes = cmux_tui_cdp::event_retained_bytes(&event);
         if state.events.len() >= CDP_EVENT_QUEUE_CAPACITY
@@ -274,7 +280,7 @@ impl SurfaceRoute {
             self.ready.notify_one();
             return true;
         }
-        state.events.push_back(event);
+        state.events.push_back(QueuedSurfaceEvent { event, retained_bytes: event_bytes });
         state.retained_bytes += event_bytes;
         self.ready.notify_one();
         false
@@ -283,10 +289,9 @@ impl SurfaceRoute {
     fn recv(&self) -> Option<CdpEvent> {
         let mut state = self.state.lock().unwrap();
         loop {
-            if let Some(event) = state.events.pop_front() {
-                state.retained_bytes =
-                    state.retained_bytes.saturating_sub(cmux_tui_cdp::event_retained_bytes(&event));
-                return Some(event);
+            if let Some(queued) = state.events.pop_front() {
+                state.retained_bytes = state.retained_bytes.saturating_sub(queued.retained_bytes);
+                return Some(queued.event);
             }
             if state.closed {
                 return None;
@@ -312,18 +317,18 @@ impl SurfaceRoute {
     #[cfg(test)]
     fn try_recv(&self) -> Option<CdpEvent> {
         let mut state = self.state.lock().unwrap();
-        let event = state.events.pop_front()?;
-        state.retained_bytes =
-            state.retained_bytes.saturating_sub(cmux_tui_cdp::event_retained_bytes(&event));
-        Some(event)
+        let queued = state.events.pop_front()?;
+        state.retained_bytes = state.retained_bytes.saturating_sub(queued.retained_bytes);
+        Some(queued.event)
     }
 }
 
 fn fail_surface_route(state: &mut SurfaceRouteState, reason: &str) {
     state.events.clear();
     let event = CdpEvent::Closed(reason.to_string());
-    state.retained_bytes = cmux_tui_cdp::event_retained_bytes(&event);
-    state.events.push_back(event);
+    let retained_bytes = cmux_tui_cdp::event_retained_bytes(&event);
+    state.retained_bytes = retained_bytes;
+    state.events.push_back(QueuedSurfaceEvent { event, retained_bytes });
     state.closed = true;
 }
 
