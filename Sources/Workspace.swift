@@ -2658,7 +2658,8 @@ final class Workspace: Identifiable, ObservableObject {
         backgroundOpacity: Double,
         sharesWindowBackdrop: Bool = false,
         renderingMode: GhosttyTerminalBackdropRenderingMode = .windowHostBackdrop,
-        paneBorderColorHex: String? = nil
+        paneBorderColorHex: String? = nil,
+        defaults: UserDefaults = .standard
     ) -> BonsplitConfiguration.Appearance.ChromeColors {
         let surfaceHex = bonsplitChromeHex(
             backgroundColor: backgroundColor,
@@ -2672,7 +2673,10 @@ final class Workspace: Identifiable, ObservableObject {
             configuredHex: paneBorderColorHex,
             fallback: defaultBorderHex
         )
-        let iconHex = CmuxInterfaceAppearance.storedColorHex(.tabIcon)
+        let iconHex = CmuxInterfaceAppearance.storedColorHex(.tabIcon, defaults: defaults)
+        let accentHex = CmuxInterfaceAppearance.storedColorHex(.accent, defaults: defaults)
+        let dropTargetHex = CmuxInterfaceAppearance.storedColorHex(.dropTarget, defaults: defaults)
+        let notificationHex = CmuxInterfaceAppearance.storedColorHex(.notification, defaults: defaults)
 
         if sharesWindowBackdrop {
             return .init(
@@ -2681,7 +2685,10 @@ final class Workspace: Identifiable, ObservableObject {
                 splitButtonBackdropHex: "#00000000",
                 paneBackgroundHex: "#00000000",
                 borderHex: borderHex,
-                iconHex: iconHex
+                iconHex: iconHex,
+                accentHex: accentHex,
+                dropTargetHex: dropTargetHex,
+                notificationHex: notificationHex
             )
         }
 
@@ -2697,7 +2704,10 @@ final class Workspace: Identifiable, ObservableObject {
             splitButtonBackdropHex: surfaceHex,
             paneBackgroundHex: paneBackgroundHex,
             borderHex: borderHex,
-            iconHex: iconHex
+            iconHex: iconHex,
+            accentHex: accentHex,
+            dropTargetHex: dropTargetHex,
+            notificationHex: notificationHex
         )
     }
 
@@ -2705,7 +2715,8 @@ final class Workspace: Identifiable, ObservableObject {
         from backgroundColor: NSColor,
         sharesWindowBackdrop: Bool = false,
         renderingMode: GhosttyTerminalBackdropRenderingMode = .windowHostBackdrop,
-        paneBorderColorHex: String? = nil
+        paneBorderColorHex: String? = nil,
+        defaults: UserDefaults = .standard
     ) -> BonsplitConfiguration.Appearance.ChromeColors {
         // Keep this signature aligned with bonsplitChromeHex for settings tests
         // and future background-image handling.
@@ -2717,7 +2728,10 @@ final class Workspace: Identifiable, ObservableObject {
             configuredHex: paneBorderColorHex,
             fallback: defaultBorderHex
         )
-        let iconHex = CmuxInterfaceAppearance.storedColorHex(.tabIcon)
+        let iconHex = CmuxInterfaceAppearance.storedColorHex(.tabIcon, defaults: defaults)
+        let accentHex = CmuxInterfaceAppearance.storedColorHex(.accent, defaults: defaults)
+        let dropTargetHex = CmuxInterfaceAppearance.storedColorHex(.dropTarget, defaults: defaults)
+        let notificationHex = CmuxInterfaceAppearance.storedColorHex(.notification, defaults: defaults)
 
         if sharesWindowBackdrop {
             return .init(
@@ -2726,7 +2740,10 @@ final class Workspace: Identifiable, ObservableObject {
                 splitButtonBackdropHex: "#00000000",
                 paneBackgroundHex: "#00000000",
                 borderHex: borderHex,
-                iconHex: iconHex
+                iconHex: iconHex,
+                accentHex: accentHex,
+                dropTargetHex: dropTargetHex,
+                notificationHex: notificationHex
             )
         }
 
@@ -2742,7 +2759,10 @@ final class Workspace: Identifiable, ObservableObject {
             splitButtonBackdropHex: backgroundHex,
             paneBackgroundHex: paneBackgroundHex,
             borderHex: borderHex,
-            iconHex: iconHex
+            iconHex: iconHex,
+            accentHex: accentHex,
+            dropTargetHex: dropTargetHex,
+            notificationHex: notificationHex
         )
     }
 
@@ -2755,7 +2775,10 @@ final class Workspace: Identifiable, ObservableObject {
             lhs.splitButtonBackdropHex == rhs.splitButtonBackdropHex &&
             lhs.paneBackgroundHex == rhs.paneBackgroundHex &&
             lhs.borderHex == rhs.borderHex &&
-            lhs.iconHex == rhs.iconHex
+            lhs.iconHex == rhs.iconHex &&
+            lhs.accentHex == rhs.accentHex &&
+            lhs.dropTargetHex == rhs.dropTargetHex &&
+            lhs.notificationHex == rhs.notificationHex
     }
 
     private static func bonsplitChromeColorsLogDescription(
@@ -2766,7 +2789,10 @@ final class Workspace: Identifiable, ObservableObject {
             "splitBackdrop=\(colors.splitButtonBackdropHex ?? "nil") " +
             "paneBg=\(colors.paneBackgroundHex ?? "nil") " +
             "border=\(colors.borderHex ?? "nil") " +
-            "icon=\(colors.iconHex ?? "nil")"
+            "icon=\(colors.iconHex ?? "nil") " +
+            "accent=\(colors.accentHex ?? "nil") " +
+            "dropTarget=\(colors.dropTargetHex ?? "nil") " +
+            "notification=\(colors.notificationHex ?? "nil")"
     }
 
     private static func bonsplitAppearance(

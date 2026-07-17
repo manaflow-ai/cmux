@@ -149,4 +149,30 @@ struct RenderableSystemSymbolTests {
     @Test func interfaceAppearanceMapEncodingIsStableJSON() {
         #expect(CmuxInterfaceAppearance.encodeMap(["z": "last", "a": "first"]) == #"{"a":"first","z":"last"}"#)
     }
+
+    @Test func bonsplitChromeUsesConfiguredInteractionColors() {
+        let suiteName = "RenderableSystemSymbolTests.bonsplitChrome.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(
+            CmuxInterfaceAppearance.encodeMap([
+                CmuxInterfaceColorRole.accent.rawValue: "#7C3AED",
+                CmuxInterfaceColorRole.dropTarget.rawValue: "#F59E0B",
+                CmuxInterfaceColorRole.notification.rawValue: "#22D3EE",
+                CmuxInterfaceColorRole.tabIcon.rawValue: "#A78BFA",
+            ]),
+            forKey: CmuxInterfaceAppearance.colorsDefaultsKey
+        )
+
+        let colors = Workspace.bonsplitChromeColors(
+            backgroundColor: .windowBackgroundColor,
+            backgroundOpacity: 1,
+            defaults: defaults
+        )
+
+        #expect(colors.accentHex == "#7C3AED")
+        #expect(colors.dropTargetHex == "#F59E0B")
+        #expect(colors.notificationHex == "#22D3EE")
+        #expect(colors.iconHex == "#A78BFA")
+    }
 }
