@@ -25,4 +25,43 @@ struct ChatArtifactTextJumpConvergenceTests {
         #expect(convergence.decision(observedOffset: 20_000, targetOffset: 40_000) == .retarget(offset: 40_000))
         #expect(convergence.decision(observedOffset: 40_000, targetOffset: 80_000) == .force(offset: 80_000))
     }
+
+    @Test("a cold-open synchronous settle callback cannot recurse beyond the budget")
+    func coldOpenSynchronousSettleCallbackCannotExceedBudget() {
+        let maximumRetargetCount = 2
+        let recursionSafetyLimit = 64
+        var convergence = ChatArtifactTextJumpConvergence(
+            initialTargetOffset: 0,
+            maximumRetargetCount: maximumRetargetCount
+        )
+        var callbackCount = 0
+        var forcedBoundaryMaterializationCount = 0
+
+        func settle(targetOffset: Double) {
+            guard callbackCount < recursionSafetyLimit else { return }
+            callbackCount += 1
+
+            switch convergence.decision(
+                observedOffset: 0,
+                targetOffset: targetOffset
+            ) {
+            case .finish:
+                return
+            case .retarget(let offset):
+                // An empty cold-open layout window can synchronously complete
+                // the retarget while discovering a later document boundary.
+                settle(targetOffset: offset + 20_000)
+            case .force(let offset):
+                forcedBoundaryMaterializationCount += 1
+                // UITextView can synchronously report animation completion
+                // while the bounded final-character range is materialized.
+                settle(targetOffset: offset + 20_000)
+            }
+        }
+
+        settle(targetOffset: 20_000)
+
+        #expect(callbackCount <= maximumRetargetCount + 2)
+        #expect(forcedBoundaryMaterializationCount == 1)
+    }
 }
