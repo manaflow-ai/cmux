@@ -52,13 +52,14 @@ public struct AgentTerminalStateClassifier: Sendable {
             )
         }
         let liveEvidence = snapshot.liveBottomText.lowercased()
+        let workingEvidence = Self.bottomRows(liveEvidence, maximumRows: 12)
         let state: AgentTerminalSemanticState
         if profile.historyViewNeedles.contains(where: liveEvidence.contains) {
             state = snapshot.previousReliableState ?? .unknown
         } else if Self.matchesAnyEvidenceGroup(profile.blockedEvidenceGroups, in: liveEvidence)
                     || Self.matchesAnyExactLine(profile.blockedExactLines, in: liveEvidence) {
             state = .blocked
-        } else if Self.matchesAnyEvidenceGroup(profile.workingEvidenceGroups, in: liveEvidence) {
+        } else if Self.matchesAnyEvidenceGroup(profile.workingEvidenceGroups, in: workingEvidence) {
             state = .working
         } else {
             // An explicit idle marker and a known-agent fallback have the same
@@ -86,6 +87,23 @@ public struct AgentTerminalStateClassifier: Sendable {
             $0.trimmingCharacters(in: .whitespaces)
         }
         return needles.contains { needle in lines.contains(needle) }
+    }
+
+    private static func bottomRows(_ evidence: String, maximumRows: Int) -> String {
+        guard maximumRows > 0 else { return "" }
+        var rowStart = evidence.endIndex
+        var newlineCount = 0
+        while rowStart > evidence.startIndex {
+            let previous = evidence.index(before: rowStart)
+            if evidence[previous] == "\n" {
+                newlineCount += 1
+                if newlineCount == maximumRows {
+                    return String(evidence[rowStart...])
+                }
+            }
+            rowStart = previous
+        }
+        return evidence
     }
 
 }
