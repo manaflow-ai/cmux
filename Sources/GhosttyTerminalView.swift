@@ -12482,6 +12482,16 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 terminalSurface.flushPendingManualSizeReportIfAttached()
             }
             if ownsCurrentPane, isVisibleInUI {
+                // If an earlier update parked this host on a different surface,
+                // unregister there first: the stale trampoline would fire THIS
+                // coordinator's current retry, so a vacancy on the old surface
+                // could drive a claim against the new one.
+                if let previous = coordinator.vacancyParkedSurface, previous !== terminalSurface {
+                    previous.removePortalVacancyRetry(
+                        hostId: ObjectIdentifier(host),
+                        instanceSerial: host.instanceSerial
+                    )
+                }
                 coordinator.vacancyParkedSurface = terminalSurface
                 terminalSurface.parkPortalVacancyRetry(
                     hostId: ObjectIdentifier(host),
