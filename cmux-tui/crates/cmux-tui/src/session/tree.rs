@@ -12,6 +12,7 @@ use serde_json::Value;
 #[derive(Clone, Default)]
 pub struct TreeView {
     pub workspaces: Vec<WorkspaceView>,
+    #[allow(dead_code)]
     pub workspace_revision: u64,
     pub active_workspace: usize,
 }
@@ -340,9 +341,13 @@ fn parse_screen(value: &Value) -> Option<ScreenView> {
 
 /// Parse the remote `list-workspaces` response.
 pub fn parse_tree(data: &Value) -> TreeView {
-    let mut tree = TreeView::default();
-    tree.workspace_revision =
-        data.get("workspace_revision").and_then(Value::as_u64).unwrap_or_default();
+    let mut tree = TreeView {
+        workspace_revision: data
+            .get("workspace_revision")
+            .and_then(Value::as_u64)
+            .unwrap_or_default(),
+        ..TreeView::default()
+    };
     let Some(workspaces) = data.get("workspaces").and_then(|v| v.as_array()) else {
         return tree;
     };

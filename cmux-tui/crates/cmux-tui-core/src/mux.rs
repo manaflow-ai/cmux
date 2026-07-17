@@ -1641,6 +1641,124 @@ impl Mux {
         Ok(surface)
     }
 
+    /// Create a terminal in a specific workspace without changing the mux's
+    /// active workspace. An empty workspace gets its first screen and pane;
+    /// otherwise the new surface becomes a tab in that workspace's active
+    /// pane. The target is re-resolved under the attach lock so concurrent
+    /// first-terminal requests cannot accidentally create another workspace.
+    pub fn create_terminal_in_workspace(
+        self: &Arc<Self>,
+        workspace: WorkspaceId,
+        argv: Option<Vec<String>>,
+        cwd: Option<String>,
+        name: Option<String>,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<RunPlacement> {
+        let inherited_cwd = {
+            let state = self.state.lock().unwrap();
+            let Some(workspace) =
+                state.workspaces.iter().find(|candidate| candidate.id == workspace)
+            else {
+                anyhow::bail!("unknown workspace {workspace}");
+            };
+            workspace.active_screen_ref().map(|screen| screen.active_pane)
+        }
+        .and_then(|pane| self.pane_cwd(pane));
+        let surface = self.spawn_surface_with_command(cwd.or(inherited_cwd), size, argv)?;
+        if let Some(name) = name {
+            surface.set_name(Some(name));
+        }
+        let notifications = self.surface_notifications();
+        let active_at = self.next_active_at();
+        let attached = {
+            let mut state = self.state.lock().unwrap();
+            let Some(wi) = state.workspaces.iter().position(|candidate| candidate.id == workspace)
+            else {
+                state.surfaces.remove(&surface.id);
+                surface.kill();
+                anyhow::bail!("workspace disappeared while creating terminal");
+            };
+            let target = state.workspaces[wi].active_screen_ref().map(|screen| screen.active_pane);
+            if let Some(target) = target {
+                let Some((_, si)) = state.screen_of(target) else {
+                    state.surfaces.remove(&surface.id);
+                    surface.kill();
+                    anyhow::bail!("workspace active pane disappeared while creating terminal");
+                };
+                let Some(pane) = state.panes.get_mut(&target) else {
+                    state.surfaces.remove(&surface.id);
+                    surface.kill();
+                    anyhow::bail!("workspace active pane disappeared while creating terminal");
+                };
+                pane.tabs.push(surface.id);
+                pane.active_tab = pane.tabs.len() - 1;
+                pane.active_at = active_at;
+                let index = pane.tabs.len() - 1;
+                let screen = state.workspaces[wi].screens[si].id;
+                let entity = crate::server::tree_entity_json(
+                    &state,
+                    &notifications,
+                    TreeDeltaKind::TabAdded,
+                    surface.id,
+                )
+                .expect("new terminal tab is present in tree snapshot");
+                (
+                    RunPlacement { surface: surface.id, pane: target, screen, workspace },
+                    TreeDelta {
+                        kind: TreeDeltaKind::TabAdded,
+                        workspace,
+                        screen: Some(screen),
+                        pane: Some(target),
+                        surface: Some(surface.id),
+                        index: Some(index),
+                        entity,
+                        workspace_revision: None,
+                    },
+                )
+            } else {
+                let (pane_id, pane) = self.make_pane(surface.id);
+                let screen_id = self.next_id();
+                state.panes.insert(pane_id, pane);
+                state.workspaces[wi].screens.push(Screen {
+                    id: screen_id,
+                    name: None,
+                    root: Node::Leaf(pane_id),
+                    active_pane: pane_id,
+                    zoomed_pane: None,
+                });
+                state.workspaces[wi].active_screen = 0;
+                let entity = crate::server::tree_entity_json(
+                    &state,
+                    &notifications,
+                    TreeDeltaKind::ScreenAdded,
+                    screen_id,
+                )
+                .expect("first workspace screen is present in tree snapshot");
+                (
+                    RunPlacement {
+                        surface: surface.id,
+                        pane: pane_id,
+                        screen: screen_id,
+                        workspace,
+                    },
+                    TreeDelta {
+                        kind: TreeDeltaKind::ScreenAdded,
+                        workspace,
+                        screen: Some(screen_id),
+                        pane: None,
+                        surface: None,
+                        index: Some(0),
+                        entity,
+                        workspace_revision: None,
+                    },
+                )
+            }
+        };
+        self.emit(MuxEvent::TreeDelta(attached.1));
+        self.reap_if_dead(&surface);
+        Ok(attached.0)
+    }
+
     /// Create a browser tab in a pane (default: the active pane). When
     /// the session has no workspaces yet, a workspace is created around
     /// the browser tab.
@@ -4005,6 +4123,25 @@ mod tests {
             assert_eq!(state.workspaces[0].screens.len(), 1);
             assert_eq!(state.pane_of(surface.id), state.active_pane());
             assert_eq!(state.workspace_revision, 1);
+        });
+    }
+
+    #[test]
+    fn create_terminal_targets_inactive_empty_workspace() {
+        let mux = test_mux();
+        let target = mux.create_empty_workspace(Some("target".into()), None, None).unwrap();
+        let active = mux.create_empty_workspace(Some("active".into()), None, None).unwrap();
+        let placement = mux
+            .create_terminal_in_workspace(target.workspace, None, None, None, Some((80, 24)))
+            .unwrap();
+        mux.with_state(|state| {
+            assert_eq!(state.active_workspace, 1);
+            assert_eq!(state.workspaces[1].id, active.workspace);
+            assert!(state.workspaces[1].screens.is_empty());
+            assert_eq!(placement.workspace, target.workspace);
+            assert_eq!(state.workspaces[0].screens.len(), 1);
+            assert_eq!(state.pane_of(placement.surface), Some(placement.pane));
+            assert_eq!(state.workspace_revision, 2);
         });
     }
 

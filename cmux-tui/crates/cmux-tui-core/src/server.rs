@@ -293,6 +293,26 @@ enum Command {
         #[serde(default)]
         expected_revision: Option<u64>,
     },
+    /// Create a terminal inside an existing workspace selected by stable key
+    /// or legacy numeric id.
+    CreateTerminal {
+        #[serde(default)]
+        workspace: Option<WorkspaceId>,
+        #[serde(default)]
+        key: Option<String>,
+        #[serde(default)]
+        argv: Option<Vec<String>>,
+        #[serde(default)]
+        command: Option<String>,
+        #[serde(default)]
+        cwd: Option<String>,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        cols: Option<u16>,
+        #[serde(default)]
+        rows: Option<u16>,
+    },
     /// New screen in a workspace (default: the active one).
     NewScreen {
         #[serde(default)]
@@ -2651,6 +2671,34 @@ fn handle_command(
                 "key": placement.key,
                 "index": placement.index,
                 "workspace_revision": placement.revision,
+            }))
+        }
+        Command::CreateTerminal { workspace, key, argv, command, cwd, name, cols, rows } => {
+            if argv.is_some() && command.is_some() {
+                anyhow::bail!("argv and command are mutually exclusive");
+            }
+            let argv = match (argv, command) {
+                (Some(argv), None) if !argv.is_empty() => Some(argv),
+                (None, Some(command)) if !command.is_empty() => {
+                    Some(vec![platform::default_shell(), "-lc".to_string(), command])
+                }
+                (None, None) => None,
+                _ => anyhow::bail!("argv or command must be non-empty when provided"),
+            };
+            let (workspace, key) = resolve_workspace(mux, workspace, key.as_deref())?;
+            let placement = mux.create_terminal_in_workspace(
+                workspace,
+                argv,
+                cwd,
+                name,
+                optional_surface_size(cols, rows),
+            )?;
+            Ok(json!({
+                "surface": placement.surface,
+                "pane": placement.pane,
+                "screen": placement.screen,
+                "workspace": placement.workspace,
+                "key": key,
             }))
         }
         Command::NewScreen { workspace, cols, rows } => {

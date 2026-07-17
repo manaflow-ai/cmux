@@ -1294,7 +1294,7 @@ fn tree_event_modes_receive_delta_or_exact_coarse_fallback() {
 #[test]
 fn create_empty_workspace_is_visible_and_materialized_in_place() {
     let mux = Mux::new(unique_session("test-empty-workspace"), shell_opts("sleep 30"));
-    let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
+    let sock_path = cmux_tui_core::server::serve(mux, None).unwrap();
     let commands = connect(&sock_path);
     let mut writer = commands.try_clone_box().unwrap();
     let mut reader = BufReader::new(commands);
@@ -1358,9 +1358,17 @@ fn create_empty_workspace_is_visible_and_materialized_in_place() {
     let tab = socket_request(
         &mut writer,
         &mut reader,
-        serde_json::json!({"id": 3, "cmd": "new-tab", "cols": 80, "rows": 24}),
+        serde_json::json!({
+            "id": 3,
+            "cmd": "create-terminal",
+            "key": key,
+            "cols": 80,
+            "rows": 24,
+        }),
     );
-    assert_eq!(tab["ok"], true, "new-tab failed: {tab}");
+    assert_eq!(tab["ok"], true, "create-terminal failed: {tab}");
+    assert_eq!(tab["data"]["workspace"], workspace);
+    assert_eq!(tab["data"]["key"], key);
     let snapshot = socket_request(
         &mut writer,
         &mut reader,
