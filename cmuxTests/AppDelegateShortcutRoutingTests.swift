@@ -2203,6 +2203,54 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(loadCount.withLock { $0 }, 2)
     }
 
+    func testDiffViewerAgentSnapshotRejectsProcessInferredIdentity() async {
+        let workspaceID = UUID()
+        let panelID = UUID()
+        let panelKey = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: workspaceID,
+            panelId: panelID
+        )
+        let inferredSnapshot = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "latest-session-file-guess",
+            workingDirectory: "/tmp/project",
+            launchCommand: nil
+        )
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: "/tmp/cmux-missing-agent-home-\(UUID().uuidString)",
+            fileManager: .default,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [
+                panelKey: (
+                    snapshot: inferredSnapshot,
+                    updatedAt: 10,
+                    processIDs: [123],
+                    agentProcessIDs: [123],
+                    sessionIDSource: .inferredLatestSessionFile
+                ),
+            ],
+            processArgumentsProvider: { _ in nil },
+            processIdentityProvider: { _ in nil }
+        )
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                (
+                    index: index,
+                    liveAgentProcessFingerprint: [],
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: []
+                )
+            }
+        )
+
+        let snapshot = await sharedIndex.freshSnapshot(
+            workspaceId: workspaceID,
+            panelId: panelID
+        )
+
+        XCTAssertNil(snapshot)
+    }
+
     func testCmdCtrlWPromptsBeforeClosingWindow() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")

@@ -969,7 +969,15 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(sessionSource["kind"] as? String, "agentTurn")
         XCTAssertEqual(sessionSource["provider"] as? String, "codex")
         XCTAssertEqual(sessionSource["sessionId"] as? String, "codex-session-123")
-        XCTAssertEqual((payload["repoOptions"] as? [[String: Any]])?.count, 0)
+        XCTAssertEqual(payload["repoRoot"] as? String, repoURL.path)
+        let sourceOptions = try XCTUnwrap(payload["sourceOptions"] as? [[String: Any]])
+        for option in sourceOptions where option["value"] as? String != "last-turn" {
+            XCTAssertEqual(option["disabled"] as? Bool, false)
+            XCTAssertEqual(
+                (option["sessionSource"] as? [String: Any])?["repoRoot"] as? String,
+                repoURL.path
+            )
+        }
     }
 
     func testDiffCommandSupportsAgentTurnOutsideGitRepository() throws {

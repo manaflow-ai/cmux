@@ -965,3 +965,35 @@ fn ensure_patch_limit(output: &str) -> Result<(), TrajectoryError> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod environment_tests {
+    use super::*;
+    use std::ffi::OsString;
+
+    #[test]
+    fn claude_specific_hook_path_wins_and_expands_home() {
+        let values = HashMap::from([
+            ("HOME", OsString::from("/tmp/cmux-home")),
+            (
+                "CMUX_AGENT_HOOK_STATE_DIR",
+                OsString::from("~/generic-hook-state"),
+            ),
+            (
+                "CMUX_CLAUDE_HOOK_STATE_PATH",
+                OsString::from("~/claude/state.json"),
+            ),
+        ]);
+        let roots = TrajectoryRoots::from_environment_values(|key| values.get(key).cloned())
+            .expect("resolve fixture environment");
+
+        assert_eq!(
+            roots.hook_store(AgentProvider::Claude),
+            PathBuf::from("/tmp/cmux-home/claude/state.json")
+        );
+        assert_eq!(
+            roots.hook_store(AgentProvider::Codex),
+            PathBuf::from("/tmp/cmux-home/generic-hook-state/codex-hook-sessions.json")
+        );
+    }
+}
