@@ -85,11 +85,32 @@ struct AgentTerminalStateClassifierTests {
     func launchHintRecognizesOpaqueWrapperOnlyAfterDirectIdentityMisses() throws {
         let wrapped = AgentTerminalProcessSnapshot(
             identity: identity,
-            executablePath: "/usr/bin/env",
-            arguments: ["env", "opaque-wrapper"],
+            executablePath: "/usr/bin/sandbox-exec",
+            arguments: ["sandbox-exec", "opaque-wrapper"],
             environment: ["CMUX_AGENT_LAUNCH_KIND": "claude"]
         )
         #expect(try #require(classifier.recognize(wrapped)).id == "claude-code")
+    }
+
+    @Test
+    func shellArgumentsAndInheritedHintsCannotImpersonateAnAgent() {
+        let shell = AgentTerminalProcessSnapshot(
+            identity: identity,
+            executablePath: "/bin/zsh",
+            arguments: ["zsh", "-c", "echo codex opencode"],
+            environment: ["CMUX_AGENT_LAUNCH_KIND": "claude"]
+        )
+        #expect(classifier.recognize(shell) == nil)
+    }
+
+    @Test
+    func versionedAgentPathRecognizesWithoutGenericArgumentHost() throws {
+        let versioned = AgentTerminalProcessSnapshot(
+            identity: identity,
+            executablePath: "/Users/test/.local/share/claude/versions/2.1.212",
+            arguments: ["2.1.212"]
+        )
+        #expect(try #require(classifier.recognize(versioned)).id == "claude-code")
     }
 
     @Test

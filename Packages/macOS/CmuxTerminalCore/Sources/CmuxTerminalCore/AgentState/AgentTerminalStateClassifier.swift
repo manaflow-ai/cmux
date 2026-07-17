@@ -3,6 +3,11 @@ import Foundation
 /// Pure recognition and live-bottom classification using a prevalidated catalog.
 public struct AgentTerminalStateClassifier: Sendable {
     private let catalog: AgentTerminalProfileCatalog
+    private static let argumentWrapperBasenames: Set<String> = [
+        "bun", "deno", "node", "npm", "npx", "pnpm", "python", "python3",
+        "sandbox-exec", "ts-node", "tsx", "uv", "uvx", "yarn",
+    ]
+    private static let shellBasenames: Set<String> = ["bash", "fish", "nu", "sh", "zsh"]
 
     /// Creates a classifier that reuses a catalog across evaluations.
     public init(catalog: AgentTerminalProfileCatalog = .builtIn) {
@@ -11,12 +16,20 @@ public struct AgentTerminalStateClassifier: Sendable {
 
     /// Recognizes the foreground process, including generic runtime wrappers and cmux hints.
     public func recognize(_ process: AgentTerminalProcessSnapshot) -> AgentTerminalFamilyProfile? {
-        let executable = process.executablePath.map { URL(fileURLWithPath: $0).lastPathComponent.lowercased() }
-        if executable == "tmux" { return nil }
+        let normalizedPath = process.executablePath?.lowercased()
+        let executable = normalizedPath.map { URL(fileURLWithPath: $0).lastPathComponent.lowercased() }
+        if executable == "tmux" || executable.map(Self.shellBasenames.contains) == true { return nil }
         if let executable,
            let direct = catalog.profiles.first(where: { $0.executableBasenames.contains(executable) }) {
             return direct
         }
+        if let normalizedPath,
+           let pathMatch = catalog.profiles.first(where: { profile in
+               profile.argumentNeedles.contains { normalizedPath.contains($0.lowercased()) }
+           }) {
+            return pathMatch
+        }
+        guard let executable, Self.argumentWrapperBasenames.contains(executable) else { return nil }
         for key in ["CMUX_AGENT", "CMUX_AGENT_LAUNCH_KIND"] {
             if let hint = process.environment[key], let profile = catalog.profile(hint: hint) {
                 return profile
