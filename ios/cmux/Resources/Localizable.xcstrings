@@ -7691,6 +7691,7 @@
     "mobile.taskComposer.directoryPicker.browse.home": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Home"}},"ja":{"stringUnit":{"state":"translated","value":"ホーム"}}}},
     "mobile.taskComposer.directoryPicker.browse.loading": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Loading folders…"}},"ja":{"stringUnit":{"state":"translated","value":"フォルダを読み込み中…"}}}},
     "mobile.taskComposer.directoryPicker.browse.more": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Show More"}},"ja":{"stringUnit":{"state":"translated","value":"さらに表示"}}}},
+    "mobile.taskComposer.directoryPicker.browse.more.failure.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Couldn’t Load More Folders"}},"ja":{"stringUnit":{"state":"translated","value":"追加のフォルダを読み込めませんでした"}}}},
     "mobile.taskComposer.directoryPicker.browse.open.hint": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Shows the folders inside this folder."}},"ja":{"stringUnit":{"state":"translated","value":"このフォルダ内のフォルダを表示します。"}}}},
     "mobile.taskComposer.directoryPicker.browse.parent": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Parent Folder"}},"ja":{"stringUnit":{"state":"translated","value":"親フォルダ"}}}},
     "mobile.taskComposer.directoryPicker.browse.useFormat": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Use “%@”"}},"ja":{"stringUnit":{"state":"translated","value":"“%@”を使用"}}}},
@@ -8931,6 +8932,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "新規タスク"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.tryAgain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try Again"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "もう一度試す"
           }
         }
       }
