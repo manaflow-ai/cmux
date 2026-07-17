@@ -276,6 +276,28 @@ import Testing
         #expect(retry.prompt == failed.prompt)
     }
 
+    @Test func retryKeepsFailedOperationIdentityUntilTheRequestChanges() throws {
+        let template = MobileTaskTemplate(name: "Codex", icon: "agent:codex", command: "codex")
+        let failed = snapshot(template: template, prompt: "A")
+        var identity = MobileTaskSubmissionIdentity(
+            id: failed.operationID,
+            initialRequest: failed
+        )
+
+        identity.adoptResolvedRequest(failed)
+        let unchangedRetry = try #require(identity.resolveCurrentRequest { nil })
+        #expect(unchangedRetry.operationID == failed.operationID)
+
+        identity.markRequestDirty()
+        let editedRequest = try #require(identity.resolveCurrentRequest {
+            self.snapshot(template: template, prompt: "B")
+        })
+        #expect(editedRequest.operationID != failed.operationID)
+
+        let editedRetry = try #require(identity.resolveCurrentRequest { nil })
+        #expect(editedRetry.operationID == editedRequest.operationID)
+    }
+
     @Test func rebindingOperationIDPreservesExactWireRequest() {
         let original = snapshot(
             template: MobileTaskTemplate(name: "Codex", icon: "agent:codex", command: "codex caf\u{00E9}"),
