@@ -65,6 +65,38 @@ import Testing
         #expect(store.workspaceGroups.isEmpty)
     }
 
+    @Test func networkChangeKeepsLegacyNoStoreConnectionAvailable() throws {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        store.pairingCode = "debug"
+        store.connectPreviewHost()
+        let route = try hostPortRoute(
+            kind: .debugLoopback,
+            host: "127.0.0.1",
+            port: CmxMobileDefaults.defaultHostPort
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-main",
+            terminalID: "terminal-main",
+            macDeviceID: "legacy-mac",
+            macDisplayName: "Legacy Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(60)
+        )
+        store.remoteClient = MobileCoreRPCClient(
+            runtime: PairingDeadlineRuntime(),
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+
+        store.recoverMobileConnection(trigger: .networkChange)
+
+        #expect(store.connectionState == .connected)
+        #expect(store.macConnectionStatus == .reconnecting)
+        #expect(!store.connectionRecoveryFailed)
+    }
+
     @Test func currentTeamDidChangeKeepsForegroundWorkspacesLive() {
         let store = MobileShellComposite.preview()
         store.signIn()
