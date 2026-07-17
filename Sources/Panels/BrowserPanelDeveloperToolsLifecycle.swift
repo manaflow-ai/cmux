@@ -2,29 +2,6 @@ import AppKit
 
 @MainActor
 extension BrowserPanel {
-    func prepareDeveloperToolsForWebViewReplacement(preserveVisibleIntent: Bool) {
-        developerToolsTransitionSettleWorkItem?.cancel()
-        developerToolsTransitionSettleWorkItem = nil
-        pendingDeveloperToolsTransitionTargetVisible = nil
-        developerToolsTransitionTargetVisible = nil
-        cancelPendingDeveloperToolsVisibilityLossCheck()
-        cancelDetachedDeveloperToolsWindowCloseResolution()
-        cancelDetachedDeveloperToolsWindowDismissal()
-        developerToolsDockControlNormalizationTask?.cancel()
-        developerToolsDockControlNormalizationTask = nil
-        cancelDeveloperToolsRestoreRetry()
-
-        _ = WebViewInspectorTeardown.closeInspector(for: webView)
-        // WebKit can synchronously post the detached inspector's close while
-        // tearing down the old view. It must not clear the replacement intent.
-        cancelDetachedDeveloperToolsWindowCloseResolution()
-        developerToolsDetachedOpenGraceDeadline = nil
-        developerToolsLastKnownVisibleAt = nil
-        developerToolsLastAttachedHostAt = nil
-        setPreferredDeveloperToolsVisible(preserveVisibleIntent)
-        developerToolsPreservedVisibleIntentForNextAttach = preserveVisibleIntent
-    }
-
     func detachedDeveloperToolsWindowsForPanel() -> [NSWindow] {
         NSApp.windows.filter { ($0.isVisible || $0.isMiniaturized) && detachedDeveloperToolsWindowBelongsToPanel($0) }
     }

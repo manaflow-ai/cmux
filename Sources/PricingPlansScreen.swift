@@ -23,7 +23,8 @@ enum ProUpgradePresenter {
     @MainActor
     static func prefetch() {
         guard BrowserAvailabilitySettings.isEnabled() else { return }
-        // Skip prewarm when present() will refocus and navigate an existing upgrade workspace.
+        // When an upgrade workspace already exists, present() refocuses it and
+        // navigates its existing panel, so a prewarmed webview would go unused.
         if let workspaceId = workspaceReuseState.workspaceId,
            let appDelegate = AppDelegate.shared,
            appDelegate.proUpgradeWorkspaceExists(workspaceId: workspaceId) {
@@ -31,8 +32,7 @@ enum ProUpgradePresenter {
         }
         BrowserPrewarmedWebViewPool.shared.prewarm(
             url: appPricingURLForCurrentAppearance(),
-            profileID: BrowserPanel.resolvedProfileID(requested: nil),
-            browserWebExtensionHost: AppDelegate.shared?.browserWebExtensionHost
+            profileID: BrowserPanel.resolvedProfileID(requested: nil)
         )
     }
 
