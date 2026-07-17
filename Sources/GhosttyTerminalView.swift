@@ -12430,10 +12430,26 @@ struct GhosttyTerminalView: NSViewRepresentable {
             // can re-anchor on-screen content but can never reveal a hidden
             // tab (bind is a show path — a hidden survivor waits for its own
             // update instead).
+            // Snapshot every representable member the stored retry needs.
+            // `parkPortalVacancyRetry` stores a closure on TerminalSurface, so
+            // the retry body must not implicitly retain `self`, which would
+            // retain the same TerminalSurface and form a teardown cycle.
+            let vacancyIsCurrentPaneOwner = isCurrentPaneOwner
+            let vacancyPaneId = paneId
+            let vacancyOwnershipGeneration = ownershipGeneration
+            let vacancySessionContentWidthPresentation = sessionContentWidthPresentation
+            let vacancyOnFocus = onFocus
+            let vacancyOnTriggerFlash = onTriggerFlash
+            let vacancyInactiveOverlayColor = inactiveOverlayColor
+            let vacancyInactiveOverlayOpacity = inactiveOverlayOpacity
+            let vacancyShowsInactiveOverlay = showsInactiveOverlay
+            let vacancyShowsUnreadNotificationRing = showsUnreadNotificationRing
+            let vacancySearchState = searchState
+            let vacancyDropZone = forwardedDropZone
             coordinator.vacancyRetry = { [weak host, weak hostedView, weak coordinator, weak terminalSurface] in
                 guard let host, let hostedView, let coordinator, let terminalSurface else { return }
                 guard coordinator.attachGeneration == generation else { return }
-                guard isCurrentPaneOwner() else { return }
+                guard vacancyIsCurrentPaneOwner() else { return }
                 guard coordinator.desiredIsVisibleInUI else { return }
                 guard host.window != nil else { return }
                 guard terminalSurface.canAcceptPortalBinding(
@@ -12442,9 +12458,9 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 ) else { return }
                 guard terminalSurface.claimPortalHost(
                     hostId: ObjectIdentifier(host),
-                    paneId: paneId,
+                    paneId: vacancyPaneId,
                     instanceSerial: host.instanceSerial,
-                    ownershipGeneration: ownershipGeneration,
+                    ownershipGeneration: vacancyOwnershipGeneration,
                     inWindow: true,
                     bounds: host.bounds,
                     allowsAuthorityAcquisition: true,
@@ -12465,26 +12481,26 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 // handlers, and this survivor skipped its own configuration
                 // when it lost the earlier claim. Restore the owner-owned
                 // non-visibility state; visible/active stay with updates.
-                hostedView.setSessionContentWidthPresentation(sessionContentWidthPresentation)
+                hostedView.setSessionContentWidthPresentation(vacancySessionContentWidthPresentation)
                 hostedView.setFocusHandler { [weak terminalSurface] in
                     guard let terminalSurface else { return }
-                    onFocus?(terminalSurface.id)
+                    vacancyOnFocus?(terminalSurface.id)
                 }
-                hostedView.setTriggerFlashHandler(onTriggerFlash)
+                hostedView.setTriggerFlashHandler(vacancyOnTriggerFlash)
                 hostedView.setPaneDropContext(TerminalPaneDropContext(
                     workspaceId: terminalSurface.tabId,
                     panelId: terminalSurface.id,
-                    paneId: paneId
+                    paneId: vacancyPaneId
                 ))
                 hostedView.setInactiveOverlay(
-                    color: inactiveOverlayColor,
-                    opacity: CGFloat(inactiveOverlayOpacity),
-                    visible: showsInactiveOverlay
+                    color: vacancyInactiveOverlayColor,
+                    opacity: CGFloat(vacancyInactiveOverlayOpacity),
+                    visible: vacancyShowsInactiveOverlay
                 )
-                hostedView.setNotificationRing(visible: showsUnreadNotificationRing)
-                hostedView.setSearchOverlay(searchState: searchState)
+                hostedView.setNotificationRing(visible: vacancyShowsUnreadNotificationRing)
+                hostedView.setSearchOverlay(searchState: vacancySearchState)
                 hostedView.syncKeyStateIndicator(text: terminalSurface.currentKeyStateIndicatorText)
-                hostedView.setDropZoneOverlay(zone: forwardedDropZone)
+                hostedView.setDropZoneOverlay(zone: vacancyDropZone)
                 terminalSurface.flushPendingManualSizeReportIfAttached()
             }
             if ownsCurrentPane, isVisibleInUI {
