@@ -162,6 +162,26 @@ struct DockConfigSourceResolutionTests {
         #expect(resolution.controls.map(\.id) == ["logs"])
     }
 
+    @Test("local metadata preserves a symlinked directory's target kind")
+    func localDirectorySymlinkRemainsDirectory() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-dock-directory-symlink-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let target = root.appendingPathComponent("target", isDirectory: true)
+        let link = root.appendingPathComponent("link", isDirectory: true)
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let metadata = try await LocalDockConfigFileSystem().metadata(
+            at: link.path,
+            deadline: .distantFuture
+        )
+
+        #expect(metadata.kind == .directory)
+    }
+
     @Test("config resolution applies one bounded operation deadline")
     func configResolutionHonorsOperationDeadline() async {
         let root = "/srv/repo/apps/web/src"
