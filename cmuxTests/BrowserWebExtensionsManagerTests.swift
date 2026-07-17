@@ -533,24 +533,24 @@ struct BrowserWebExtensionsManagerTests {
 
         #expect(defaultManager
             .webExtensionController(defaultManager.controller, openWindowsFor: extensionContext)
-            .flatMap { $0.tabs(for: extensionContext) }
-            .contains { $0.webView(for: extensionContext) === panel.webView })
+            .flatMap { $0.tabs?(for: extensionContext) ?? [] }
+            .contains { $0.webView?(for: extensionContext) === panel.webView })
         #expect(!alternateManager
             .webExtensionController(alternateManager.controller, openWindowsFor: extensionContext)
-            .flatMap { $0.tabs(for: extensionContext) }
-            .contains { $0.webView(for: extensionContext) === panel.webView })
+            .flatMap { $0.tabs?(for: extensionContext) ?? [] }
+            .contains { $0.webView?(for: extensionContext) === panel.webView })
 
         #expect(panel.switchToProfile(alternateProfile.id))
 
         #expect(panel.webView.configuration.webExtensionController === alternateManager.controller)
         #expect(!defaultManager
             .webExtensionController(defaultManager.controller, openWindowsFor: extensionContext)
-            .flatMap { $0.tabs(for: extensionContext) }
-            .contains { $0.webView(for: extensionContext) === panel.webView })
+            .flatMap { $0.tabs?(for: extensionContext) ?? [] }
+            .contains { $0.webView?(for: extensionContext) === panel.webView })
         #expect(alternateManager
             .webExtensionController(alternateManager.controller, openWindowsFor: extensionContext)
-            .flatMap { $0.tabs(for: extensionContext) }
-            .contains { $0.webView(for: extensionContext) === panel.webView })
+            .flatMap { $0.tabs?(for: extensionContext) ?? [] }
+            .contains { $0.webView?(for: extensionContext) === panel.webView })
     }
 
     @available(macOS 15.4, *)
@@ -688,12 +688,12 @@ struct BrowserWebExtensionsManagerTests {
         let window = try #require(manager
             .webExtensionController(manager.controller, openWindowsFor: extensionContext)
             .first { window in
-                window.tabs(for: extensionContext).contains {
-                    $0.webView(for: extensionContext) === first.webView
+                (window.tabs?(for: extensionContext) ?? []).contains {
+                    $0.webView?(for: extensionContext) === first.webView
                 }
             })
-        let visibleTabs = window.tabs(for: extensionContext)
-        #expect(visibleTabs.map { $0.webView(for: extensionContext) } == [second.webView, first.webView])
+        let visibleTabs = window.tabs?(for: extensionContext) ?? []
+        #expect(visibleTabs.compactMap { $0.webView?(for: extensionContext) } == [second.webView, first.webView])
         let secondAdapter = try #require(visibleTabs.first as? BrowserWebExtensionTabAdapter)
         let firstAdapter = try #require(visibleTabs.last as? BrowserWebExtensionTabAdapter)
         #expect(secondAdapter.indexInWindow(for: extensionContext) == 0)
@@ -726,8 +726,8 @@ struct BrowserWebExtensionsManagerTests {
 
         let registeredWebViews = {
             manager.webExtensionController(manager.controller, openWindowsFor: extensionContext)
-                .flatMap { $0.tabs(for: extensionContext) }
-                .compactMap { $0.webView(for: extensionContext) }
+                .flatMap { $0.tabs?(for: extensionContext) ?? [] }
+                .compactMap { $0.webView?(for: extensionContext) }
         }
         #expect(!registeredWebViews().contains(managerPage.webView))
 
@@ -943,17 +943,17 @@ struct BrowserWebExtensionsManagerTests {
 
         let windows = manager.webExtensionController(manager.controller, openWindowsFor: extensionContext)
         let dockWindow = try #require(windows.first(where: { window in
-            window.tabs(for: extensionContext).contains {
-                $0.webView(for: extensionContext) === firstPanel.webView
+            (window.tabs?(for: extensionContext) ?? []).contains {
+                $0.webView?(for: extensionContext) === firstPanel.webView
             }
         }))
-        let registeredTabs = dockWindow.tabs(for: extensionContext)
-        #expect(registeredTabs.contains { $0.webView(for: extensionContext) === firstPanel.webView })
-        #expect(registeredTabs.contains { $0.webView(for: extensionContext) === secondPanel.webView })
-        #expect(dockWindow.activeTab(for: extensionContext)?.webView(for: extensionContext) === firstPanel.webView)
+        let registeredTabs = dockWindow.tabs?(for: extensionContext) ?? []
+        #expect(registeredTabs.contains { $0.webView?(for: extensionContext) === firstPanel.webView })
+        #expect(registeredTabs.contains { $0.webView?(for: extensionContext) === secondPanel.webView })
+        #expect(dockWindow.activeTab?(for: extensionContext)?.webView?(for: extensionContext) === firstPanel.webView)
 
         let secondTab = try #require(registeredTabs.first {
-            $0.webView(for: extensionContext) === secondPanel.webView
+            $0.webView?(for: extensionContext) === secondPanel.webView
         })
         await confirmation("Dock-owned extension tab activated") { activated in
             secondTab.activate(for: extensionContext) { error in
@@ -966,8 +966,8 @@ struct BrowserWebExtensionsManagerTests {
         #expect(store.closePanel(firstPanelID, force: true))
         let remainingTabs = manager
             .webExtensionController(manager.controller, openWindowsFor: extensionContext)
-            .flatMap { $0.tabs(for: extensionContext) }
-        #expect(!remainingTabs.contains { $0.webView(for: extensionContext) === firstPanel.webView })
+            .flatMap { $0.tabs?(for: extensionContext) ?? [] }
+        #expect(!remainingTabs.contains { $0.webView?(for: extensionContext) === firstPanel.webView })
     }
 
     @available(macOS 15.4, *)
