@@ -3154,6 +3154,27 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         window.close()
     }
 
+    func attachPanelPresentationIfNeeded(
+        _ panel: BrowserPanel,
+        to contentView: NSView
+    ) {
+        let presentationView = panel.webView.cmuxBrowserViewportPresentationView
+        guard presentationView.superview == nil else { return }
+        presentationView.autoresizingMask = [.width, .height]
+        if let portalRoot = contentView.superview {
+            presentationView.frame = contentView.frame
+            portalRoot.addSubview(
+                presentationView,
+                positioned: .above,
+                relativeTo: contentView
+            )
+        } else {
+            presentationView.frame = contentView.bounds
+            contentView.addSubview(presentationView)
+        }
+        panel.webView.cmuxApplyBrowserViewportLayout(in: contentView.bounds)
+    }
+
     func tearDownMainWindow(
         _ window: NSWindow,
         manager: TabManager
@@ -3221,9 +3242,8 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         let inspector = FakeInspector()
         browserPanel.webView.cmuxSetUnitTestInspector(inspector)
-        if browserPanel.webView.superview == nil {
-            browserPanel.webView.frame = window.contentView?.bounds ?? .zero
-            window.contentView?.addSubview(browserPanel.webView)
+        if let contentView = window.contentView {
+            attachPanelPresentationIfNeeded(browserPanel, to: contentView)
         }
 
         XCTAssertTrue(browserPanel.showDeveloperTools())
@@ -3329,9 +3349,8 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         let inspector = FakeInspector()
         browserPanel.webView.cmuxSetUnitTestInspector(inspector)
-        if browserPanel.webView.superview == nil {
-            browserPanel.webView.frame = mainWindow.contentView?.bounds ?? .zero
-            mainWindow.contentView?.addSubview(browserPanel.webView)
+        if let contentView = mainWindow.contentView {
+            attachPanelPresentationIfNeeded(browserPanel, to: contentView)
         }
 
         let inspectorWindow = NSWindow(
@@ -3433,10 +3452,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         let inspector = FakeInspector()
         browserPanel.webView.cmuxSetUnitTestInspector(inspector)
-        if browserPanel.webView.superview == nil {
-            browserPanel.webView.frame = contentView.bounds
-            contentView.addSubview(browserPanel.webView)
-        }
+        attachPanelPresentationIfNeeded(browserPanel, to: contentView)
 
         let frontendWebView = WKInspectorProbeWebView(
             frame: NSRect(
@@ -3487,9 +3503,8 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         let inspector = FakeInspector()
         browserPanel.webView.cmuxSetUnitTestInspector(inspector)
-        if browserPanel.webView.superview == nil {
-            browserPanel.webView.frame = mainWindow.contentView?.bounds ?? .zero
-            mainWindow.contentView?.addSubview(browserPanel.webView)
+        if let contentView = mainWindow.contentView {
+            attachPanelPresentationIfNeeded(browserPanel, to: contentView)
         }
 
         let inspectorWindow = NSWindow(
@@ -3909,6 +3924,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             portalZPriority: 0,
             paneDropZone: nil,
             searchOverlay: nil,
+            designComposer: nil,
             omnibarSuggestions: nil,
             paneTopChromeHeight: 0
         )
@@ -3952,6 +3968,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             portalZPriority: 0,
             paneDropZone: nil,
             searchOverlay: nil,
+            designComposer: nil,
             omnibarSuggestions: nil,
             paneTopChromeHeight: 0
         )
@@ -4125,6 +4142,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             portalZPriority: 0,
             paneDropZone: nil,
             searchOverlay: nil,
+            designComposer: nil,
             omnibarSuggestions: nil,
             paneTopChromeHeight: 0
         )
@@ -4217,6 +4235,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             portalZPriority: 0,
             paneDropZone: nil,
             searchOverlay: nil,
+            designComposer: nil,
             omnibarSuggestions: nil,
             paneTopChromeHeight: 0
         )

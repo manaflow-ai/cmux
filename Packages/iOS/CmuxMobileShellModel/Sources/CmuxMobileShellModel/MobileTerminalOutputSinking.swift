@@ -30,17 +30,21 @@ public struct MobileTerminalOutputChunk: Sendable {
     public let viewportPolicy: MobileTerminalOutputViewportPolicy?
     /// The complete producer-authored visual frame, when the host supports render grids.
     public let renderGrid: MobileTerminalRenderGridFrame?
+    /// Raw Ghostty defaults that must be installed before this chunk's VT replay.
+    public let terminalConfigTheme: TerminalTheme?
 
     public init(
         data: Data,
         streamToken: UUID,
         viewportPolicy: MobileTerminalOutputViewportPolicy? = nil,
-        renderGrid: MobileTerminalRenderGridFrame? = nil
+        renderGrid: MobileTerminalRenderGridFrame? = nil,
+        terminalConfigTheme: TerminalTheme? = nil
     ) {
         self.data = data
         self.streamToken = streamToken
         self.viewportPolicy = viewportPolicy
         self.renderGrid = renderGrid
+        self.terminalConfigTheme = terminalConfigTheme
     }
 }
 

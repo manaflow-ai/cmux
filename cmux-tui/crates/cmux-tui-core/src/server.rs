@@ -18,35 +18,39 @@
 //! {"id":1,"ok":true,"data":{"app":"cmux-tui","session":"main",...}}
 //! ```
 
-use std::collections::{BTreeMap, HashMap};
-use std::io::{BufRead, BufReader, Write};
+use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{Sender, TryRecvError, channel};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use base64::Engine;
-use ghostty_vt::{KeyEncoder, key_input_from_chord};
+use ghostty_vt::{
+    Dirty, KeyEncoder, StyledRun, UnderlineStyle, key_input_from_chord, rows_to_runs,
+};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tungstenite::protocol::CloseFrame;
 use tungstenite::protocol::frame::coding::CloseCode;
-use tungstenite::{Error as WebSocketError, Message, accept};
+use tungstenite::protocol::{Role, WebSocketConfig};
+use tungstenite::{Message, WebSocket, accept_with_config};
 
 use crate::model::{Screen, State};
 use crate::platform::{self, transport};
+use crate::surface::AttachLifecycle;
 use crate::{
     AgentRecord, AgentSource, AgentState, AttachFrame, DefaultColors, Direction, LayoutLeafSpec,
-    LayoutSpec, Mux, MuxEvent, Node, NotificationLevel, PaneId, Rgb, ScreenId, SidebarPluginStatus,
-    SplitDir, SurfaceId, SurfaceKind, SurfaceNotification, TerminalColors, WorkspaceId, ZoomMode,
+    LayoutSpec, Mux, MuxEvent, Node, NotificationLevel, PairingDecision, PaneId, RenderAttachFrame,
+    Rgb, ScreenId, SidebarPluginStatus, SplitDir, SurfaceId, SurfaceKind, SurfaceNotification,
+    SurfaceRenderFrame, TerminalColors, TreeDelta, TreeDeltaKind, WorkspaceId, ZoomMode,
     assign_short_ids,
 };
 
-pub const PROTOCOL_VERSION: u32 = 6;
+pub const PROTOCOL_VERSION: u32 = 7;
 
 /// Default socket path for a session.
 pub fn default_socket_path(session: &str) -> PathBuf {
@@ -72,6 +76,10 @@ enum Command {
         kind: Option<String>,
     },
     ListClients,
+    PairingResponse {
+        request: u64,
+        approve: bool,
+    },
     DetachClient {
         client: u64,
     },
@@ -103,9 +111,16 @@ enum Command {
         /// Base64-encoded raw bytes, written verbatim to the pty.
         #[serde(default)]
         bytes: Option<String>,
+        #[serde(default)]
+        paste: bool,
     },
     ReadScreen {
         surface: SurfaceId,
+    },
+    ReadScrollback {
+        surface: SurfaceId,
+        start: u32,
+        count: u32,
     },
     SidebarPlugin {
         cols: u16,
@@ -390,10 +405,15 @@ enum Command {
         delta: Option<isize>,
     },
     /// Stream mux events on this connection.
-    Subscribe,
+    Subscribe {
+        #[serde(default)]
+        tree_events: Option<String>,
+    },
     /// Stream a surface: vt-state event followed by live output events.
     AttachSurface {
         surface: SurfaceId,
+        #[serde(default)]
+        mode: Option<String>,
     },
     /// Scroll a surface's viewport by a row delta (negative is up).
     ScrollSurface {
@@ -431,17 +451,55 @@ struct Response {
 }
 
 const STREAM_DISCONNECT_POLL: Duration = Duration::from_millis(100);
+const STREAM_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
+#[cfg(not(test))]
+const WEBSOCKET_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
+#[cfg(test)]
+const WEBSOCKET_HANDSHAKE_TIMEOUT: Duration = Duration::from_millis(100);
+const MAX_SERVER_CONNECTIONS: usize = 64;
+const MAX_WEBSOCKET_MESSAGE_SIZE: usize = 4 * 1024 * 1024;
+const OUTBOUND_CAPACITY: usize = 256;
+const OUTBOUND_CONTROL_RESERVE: usize = 256;
+const OUTBOUND_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
+const OUTBOUND_CONTROL_BYTE_RESERVE: usize = 16 * 1024 * 1024;
 const CLIENT_DETACH_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
 
-trait MessageSink: Send + Sync {
-    fn send(&self, value: &Value) -> std::io::Result<()>;
-    /// Best-effort send that must never block behind another writer. Sinks
-    /// whose `send` can park on a stream mutex skip on contention; queue-based
-    /// sinks may delegate to `send`.
-    fn try_send(&self, value: &Value) -> std::io::Result<()> {
-        self.send(value)
+#[derive(Clone)]
+struct OutboundStream {
+    id: u64,
+    open: Arc<AtomicBool>,
+    terminal_enqueued: Arc<AtomicBool>,
+    overflow_text: Arc<str>,
+}
+
+impl OutboundStream {
+    fn new(id: u64, overflow_text: String) -> Self {
+        Self {
+            id,
+            open: Arc::new(AtomicBool::new(true)),
+            terminal_enqueued: Arc::new(AtomicBool::new(false)),
+            overflow_text: overflow_text.into(),
+        }
     }
-    fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()>;
+
+    fn is_open(&self) -> bool {
+        self.open.load(Ordering::Acquire)
+    }
+
+    fn close(&self) {
+        self.open.store(false, Ordering::Release);
+    }
+}
+
+trait MessageSink: Send + Sync {
+    fn send_initial(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()>;
+    fn send_stream(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()>;
+    fn send_control(&self, value: &Value) -> std::io::Result<()>;
+    fn send_terminal(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()>;
+    fn set_write_timeout(&self, _timeout: Option<Duration>) -> std::io::Result<()> {
+        Ok(())
+    }
+    fn is_open(&self) -> bool;
     fn close(&self);
 }
 
@@ -450,29 +508,71 @@ trait MessageSink: Send + Sync {
 struct MessageWriter {
     sink: Arc<dyn MessageSink>,
     open: Arc<AtomicBool>,
+    next_stream_id: Arc<AtomicU64>,
 }
 
 impl MessageWriter {
     fn new(sink: impl MessageSink + 'static) -> Self {
-        Self { sink: Arc::new(sink), open: Arc::new(AtomicBool::new(true)) }
+        Self {
+            sink: Arc::new(sink),
+            open: Arc::new(AtomicBool::new(true)),
+            next_stream_id: Arc::new(AtomicU64::new(1)),
+        }
     }
 
-    fn send(&self, value: &Value) -> std::io::Result<()> {
+    fn start_stream(&self, overflow: &Value) -> std::io::Result<OutboundStream> {
+        Ok(OutboundStream::new(
+            self.next_stream_id.fetch_add(1, Ordering::Relaxed),
+            serde_json::to_string(overflow)?,
+        ))
+    }
+
+    fn send_stream(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()> {
         if !self.is_open() {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
-        self.sink.send(value)
+        let result = self.sink.send_stream(value, stream);
+        if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
+            stream.close();
+        }
+        result
     }
 
-    fn try_send(&self, value: &Value) -> std::io::Result<()> {
+    fn send_initial(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()> {
         if !self.is_open() {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
-        self.sink.try_send(value)
+        let result = self.sink.send_initial(value, stream);
+        if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
+            stream.close();
+        }
+        result
+    }
+
+    fn send_terminal(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()> {
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        let result = self.sink.send_terminal(value, stream);
+        if result.is_err() {
+            self.close();
+        }
+        result
+    }
+
+    fn send_control(&self, value: &Value) -> std::io::Result<()> {
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        let result = self.sink.send_control(value);
+        if result.is_err() {
+            self.close();
+        }
+        result
     }
 
     fn is_open(&self) -> bool {
-        self.open.load(Ordering::Acquire)
+        self.open.load(Ordering::Acquire) && self.sink.is_open()
     }
 
     fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
@@ -486,73 +586,343 @@ impl MessageWriter {
     }
 }
 
-struct LineSink {
-    writer: Arc<Mutex<Box<dyn transport::Stream>>>,
-    control: Box<dyn transport::Stream>,
+#[derive(Default)]
+struct BoundedOutbound {
+    state: Mutex<BoundedOutboundState>,
+    changed: Condvar,
 }
 
-impl LineSink {
-    fn new(stream: Box<dyn transport::Stream>) -> std::io::Result<Self> {
-        let control = stream.try_clone_box()?;
-        Ok(Self { writer: Arc::new(Mutex::new(stream)), control })
-    }
+#[derive(Default)]
+struct BoundedOutboundState {
+    initial: VecDeque<RegularOutbound>,
+    control: VecDeque<String>,
+    regular: VecDeque<RegularOutbound>,
+    control_bytes: usize,
+    regular_bytes: usize,
+    closed: bool,
 }
 
-impl MessageSink for LineSink {
-    fn send(&self, value: &Value) -> std::io::Result<()> {
-        let mut bytes = serde_json::to_vec(value)?;
-        bytes.push(b'\n');
-        let mut stream = self.writer.lock().unwrap();
-        stream.write_all(&bytes)
-    }
+struct RegularOutbound {
+    text: String,
+    stream: OutboundStream,
+}
 
-    fn try_send(&self, value: &Value) -> std::io::Result<()> {
-        // A wedged attach-out thread can hold the writer mutex inside one
-        // blocked write_all forever (SO_SNDTIMEO armed later cannot wake an
-        // already-sleeping write). Never wait on it: skip the courtesy event
-        // and let close() shut the socket down via the lock-free handle.
-        let mut bytes = serde_json::to_vec(value)?;
-        bytes.push(b'\n');
-        let Ok(mut stream) = self.writer.try_lock() else {
-            return Err(std::io::Error::new(std::io::ErrorKind::WouldBlock, "writer busy"));
-        };
-        stream.write_all(&bytes)
-    }
+struct ConnectionPermit(Arc<AtomicU64>);
 
-    fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
-        self.control.set_write_timeout(timeout)
-    }
-
-    fn close(&self) {
-        let _ = self.control.shutdown(Shutdown::Both);
+impl Drop for ConnectionPermit {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
     }
 }
 
-struct WebSocketSink {
-    outbound: Sender<String>,
-    control: TcpStream,
-}
-
-impl MessageSink for WebSocketSink {
-    fn send(&self, value: &Value) -> std::io::Result<()> {
-        let text = serde_json::to_string(value)?;
-        self.outbound.send(text).map_err(|_| {
-            std::io::Error::new(std::io::ErrorKind::BrokenPipe, "WebSocket connection closed")
+fn claim_connection(active: &Arc<AtomicU64>) -> Option<ConnectionPermit> {
+    active
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+            (count < MAX_SERVER_CONNECTIONS as u64).then_some(count + 1)
         })
+        .ok()
+        .map(|_| ConnectionPermit(active.clone()))
+}
+
+impl BoundedOutbound {
+    fn push_regular(&self, text: String, stream: &OutboundStream) -> std::io::Result<()> {
+        self.push_regular_with_priority(text, stream, false)
     }
 
-    fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
-        self.control.set_write_timeout(timeout)
+    fn push_initial(&self, text: String, stream: &OutboundStream) -> std::io::Result<()> {
+        self.push_regular_with_priority(text, stream, true)
+    }
+
+    fn push_regular_with_priority(
+        &self,
+        text: String,
+        stream: &OutboundStream,
+        initial: bool,
+    ) -> std::io::Result<()> {
+        let mut state = self.state.lock().unwrap();
+        if state.closed {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        if !stream.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "stream closed"));
+        }
+        let bytes = text.len();
+        if bytes > OUTBOUND_BYTE_CAPACITY {
+            Self::terminate_stream_locked(&mut state, stream)?;
+            self.changed.notify_one();
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                "outbound queue overflowed",
+            ));
+        }
+        loop {
+            let byte_full = bytes > OUTBOUND_BYTE_CAPACITY.saturating_sub(state.regular_bytes);
+            let count_full = state.initial.len() + state.regular.len() >= OUTBOUND_CAPACITY;
+            if !byte_full && !count_full {
+                break;
+            }
+            let Some(victim) = Self::largest_stream(&state, byte_full) else {
+                Self::terminate_stream_locked(&mut state, stream)?;
+                self.changed.notify_one();
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::WouldBlock,
+                    "outbound queue overflowed",
+                ));
+            };
+            let incoming_terminated = victim.id == stream.id;
+            Self::terminate_stream_locked(&mut state, &victim)?;
+            if incoming_terminated {
+                self.changed.notify_one();
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::WouldBlock,
+                    "outbound queue overflowed",
+                ));
+            }
+        }
+        state.regular_bytes += bytes;
+        let message = RegularOutbound { text, stream: stream.clone() };
+        if initial {
+            state.initial.push_back(message);
+        } else {
+            state.regular.push_back(message);
+        }
+        self.changed.notify_one();
+        Ok(())
+    }
+
+    fn push_control(&self, text: String) -> std::io::Result<()> {
+        let mut state = self.state.lock().unwrap();
+        Self::push_control_locked(&mut state, text)?;
+        self.changed.notify_one();
+        Ok(())
+    }
+
+    fn push_terminal(&self, text: String, stream: &OutboundStream) -> std::io::Result<()> {
+        let mut state = self.state.lock().unwrap();
+        stream.close();
+        Self::purge_stream_locked(&mut state, stream.id);
+        if stream.terminal_enqueued.swap(true, Ordering::AcqRel) {
+            return Ok(());
+        }
+        Self::push_control_locked(&mut state, text)?;
+        self.changed.notify_one();
+        Ok(())
+    }
+
+    fn terminate_stream_locked(
+        state: &mut BoundedOutboundState,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        stream.close();
+        Self::purge_stream_locked(state, stream.id);
+        if stream.terminal_enqueued.swap(true, Ordering::AcqRel) {
+            return Ok(());
+        }
+        if let Err(error) = Self::push_control_locked(state, stream.overflow_text.to_string()) {
+            state.closed = true;
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                format!("could not report stream overflow: {error}"),
+            ));
+        }
+        Ok(())
+    }
+
+    fn purge_stream_locked(state: &mut BoundedOutboundState, stream_id: u64) {
+        let mut removed_bytes = 0;
+        state.initial.retain(|message| {
+            if message.stream.id == stream_id {
+                removed_bytes += message.text.len();
+                false
+            } else {
+                true
+            }
+        });
+        state.regular.retain(|message| {
+            if message.stream.id == stream_id {
+                removed_bytes += message.text.len();
+                false
+            } else {
+                true
+            }
+        });
+        state.regular_bytes -= removed_bytes;
+    }
+
+    fn largest_stream(state: &BoundedOutboundState, by_bytes: bool) -> Option<OutboundStream> {
+        let mut usage = HashMap::<u64, (usize, usize, OutboundStream)>::new();
+        for message in state.initial.iter().chain(&state.regular) {
+            let entry =
+                usage.entry(message.stream.id).or_insert_with(|| (0, 0, message.stream.clone()));
+            entry.0 += 1;
+            entry.1 += message.text.len();
+        }
+        usage
+            .into_values()
+            .max_by_key(|(messages, bytes, _)| if by_bytes { *bytes } else { *messages })
+            .map(|(_, _, stream)| stream)
+    }
+
+    fn push_control_locked(state: &mut BoundedOutboundState, text: String) -> std::io::Result<()> {
+        if state.closed {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        let bytes = text.len();
+        if state.control.len() >= OUTBOUND_CONTROL_RESERVE
+            || bytes > OUTBOUND_CONTROL_BYTE_RESERVE.saturating_sub(state.control_bytes)
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                "outbound control reserve overflowed",
+            ));
+        }
+        state.control_bytes += bytes;
+        state.control.push_back(text);
+        Ok(())
+    }
+
+    #[cfg(test)]
+    fn try_pop(&self) -> Option<String> {
+        let mut state = self.state.lock().unwrap();
+        Self::pop_locked(&mut state)
+    }
+
+    fn recv(&self) -> Option<String> {
+        let mut state = self.state.lock().unwrap();
+        loop {
+            if let Some(text) = Self::pop_locked(&mut state) {
+                return Some(text);
+            }
+            if state.closed {
+                return None;
+            }
+            state = self.changed.wait(state).unwrap();
+        }
+    }
+
+    fn pop_locked(state: &mut BoundedOutboundState) -> Option<String> {
+        if let Some(message) = state.initial.pop_front() {
+            state.regular_bytes -= message.text.len();
+            return Some(message.text);
+        }
+        if let Some(text) = state.control.pop_front() {
+            state.control_bytes -= text.len();
+            return Some(text);
+        }
+        let message = state.regular.pop_front()?;
+        state.regular_bytes -= message.text.len();
+        Some(message.text)
+    }
+
+    fn is_open(&self) -> bool {
+        !self.state.lock().unwrap().closed
     }
 
     fn close(&self) {
-        // No socket shutdown here: the connection thread's read already polls
-        // on STREAM_DISCONNECT_POLL, so it observes the closed writer within
-        // one interval with an UNPOISONED tungstenite session — shutting down
-        // the read side made its own read() fail mid-stream, which poisons
-        // the session and turns the final close handshake into a raw TCP
-        // reset at the peer. A wedged peer is still bounded: the final drain
-        // and close-frame writes run under CLIENT_DETACH_WRITE_TIMEOUT.
+        self.state.lock().unwrap().closed = true;
+        self.changed.notify_all();
+    }
+}
+
+struct QueuedSink {
+    outbound: Arc<BoundedOutbound>,
+    control: Option<SinkControl>,
+}
+
+enum SinkControl {
+    Unix(Box<dyn transport::Stream>),
+    WebSocket(TcpStream),
+}
+
+/// Cloned TCP streams share one write boundary so independent Tungstenite
+/// reader and writer contexts cannot interleave frame bytes. Reads remain
+/// fully blocking and are interrupted by shutting down a clone.
+struct SynchronizedTcpStream {
+    stream: TcpStream,
+    write_lock: Arc<Mutex<()>>,
+}
+
+impl SynchronizedTcpStream {
+    fn new(stream: TcpStream) -> Self {
+        Self { stream, write_lock: Arc::new(Mutex::new(())) }
+    }
+
+    fn try_clone(&self) -> std::io::Result<Self> {
+        Ok(Self { stream: self.stream.try_clone()?, write_lock: self.write_lock.clone() })
+    }
+
+    fn try_clone_raw(&self) -> std::io::Result<TcpStream> {
+        self.stream.try_clone()
+    }
+
+    fn set_read_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.stream.set_read_timeout(timeout)
+    }
+
+    fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.stream.set_write_timeout(timeout)
+    }
+}
+
+impl Read for SynchronizedTcpStream {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.stream.read(buf)
+    }
+}
+
+impl Write for SynchronizedTcpStream {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let _guard = self.write_lock.lock().unwrap();
+        self.stream.write_all(buf)?;
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        let _guard = self.write_lock.lock().unwrap();
+        self.stream.flush()
+    }
+}
+
+impl SinkControl {
+    fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        match self {
+            Self::Unix(stream) => stream.set_write_timeout(timeout),
+            Self::WebSocket(stream) => stream.set_write_timeout(timeout),
+        }
+    }
+}
+
+impl MessageSink for QueuedSink {
+    fn send_initial(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()> {
+        let text = serde_json::to_string(value)?;
+        self.outbound.push_initial(text, stream)
+    }
+
+    fn send_stream(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()> {
+        let text = serde_json::to_string(value)?;
+        self.outbound.push_regular(text, stream)
+    }
+
+    fn send_control(&self, value: &Value) -> std::io::Result<()> {
+        let text = serde_json::to_string(value)?;
+        self.outbound.push_control(text)
+    }
+
+    fn send_terminal(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()> {
+        let text = serde_json::to_string(value)?;
+        self.outbound.push_terminal(text, stream)
+    }
+
+    fn is_open(&self) -> bool {
+        self.outbound.is_open()
+    }
+
+    fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.control.as_ref().map_or(Ok(()), |control| control.set_write_timeout(timeout))
+    }
+
+    fn close(&self) {
+        self.outbound.close();
     }
 }
 
@@ -576,7 +946,7 @@ impl ClientTransport {
 
 #[derive(Default)]
 struct AttachedSurface {
-    streams: usize,
+    streams: BTreeMap<u64, OutboundStream>,
     size: Option<(u16, u16)>,
 }
 
@@ -615,6 +985,14 @@ impl ClientRegistry {
             },
         );
         client
+    }
+
+    fn is_unix(&self, client: u64) -> bool {
+        self.clients
+            .lock()
+            .unwrap()
+            .get(&client)
+            .is_some_and(|record| matches!(record.transport, ClientTransport::Unix))
     }
 
     fn set_info(
@@ -673,11 +1051,12 @@ impl ClientRegistry {
         &self,
         client: u64,
         surface: SurfaceId,
+        stream: OutboundStream,
     ) -> anyhow::Result<Option<ClientAnnouncement>> {
         let mut clients = self.clients.lock().unwrap();
         let record =
             clients.get_mut(&client).ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
-        record.attached.entry(surface).or_default().streams += 1;
+        record.attached.entry(surface).or_default().streams.insert(stream.id, stream);
         if record.announced_attached {
             return Ok(None);
         }
@@ -685,22 +1064,27 @@ impl ClientRegistry {
         Ok(Some((record.transport.as_str().to_string(), record.name.clone(), record.kind.clone())))
     }
 
-    fn detach_surface(&self, client: u64, surface: SurfaceId) {
+    fn detach_surface(&self, client: u64, surface: SurfaceId, stream: u64) -> bool {
         let mut clients = self.clients.lock().unwrap();
-        let Some(record) = clients.get_mut(&client) else { return };
-        let Some(attached) = record.attached.get_mut(&surface) else { return };
-        attached.streams = attached.streams.saturating_sub(1);
-        if attached.streams == 0 {
+        let Some(record) = clients.get_mut(&client) else { return false };
+        let Some(attached) = record.attached.get_mut(&surface) else { return false };
+        attached.streams.remove(&stream);
+        if attached.streams.is_empty() {
             record.attached.remove(&surface);
+            return true;
         }
+        false
     }
 
-    fn record_size(&self, client: u64, surface: SurfaceId, cols: u16, rows: u16) {
+    fn record_size(&self, client: u64, surface: SurfaceId, cols: u16, rows: u16) -> bool {
         let mut clients = self.clients.lock().unwrap();
         if let Some(attached) =
             clients.get_mut(&client).and_then(|record| record.attached.get_mut(&surface))
         {
             attached.size = Some((cols, rows));
+            true
+        } else {
+            false
         }
     }
 
@@ -736,14 +1120,17 @@ pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
     }
     let listener = transport::listen(&path)?;
     platform::restrict_file(&path)?;
+    let active_connections = Arc::new(AtomicU64::new(0));
 
     std::thread::Builder::new().name("mux-server".into()).spawn(move || {
         loop {
             let Ok(stream) = listener.accept() else { continue };
+            let Some(permit) = claim_connection(&active_connections) else { continue };
             let mux = mux.clone();
-            let _ = std::thread::Builder::new()
-                .name("mux-conn".into())
-                .spawn(move || handle_connection(mux, stream));
+            let _ = std::thread::Builder::new().name("mux-conn".into()).spawn(move || {
+                let _permit = permit;
+                handle_connection(mux, stream);
+            });
         }
     })?;
     Ok(path)
@@ -769,7 +1156,9 @@ impl Drop for WebSocketServer {
         for stream in self.connections.lock().unwrap().values() {
             let _ = stream.shutdown(Shutdown::Both);
         }
-        let _ = TcpStream::connect(self.local_addr);
+        if let Ok(stream) = TcpStream::connect(self.local_addr) {
+            let _ = stream.set_nodelay(true);
+        }
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
@@ -793,12 +1182,13 @@ pub fn serve_websocket(
     let shutdown = Arc::new(AtomicBool::new(false));
     let connections = Arc::new(Mutex::new(HashMap::new()));
     let next_connection = Arc::new(AtomicU64::new(1));
+    let active_connections = Arc::new(AtomicU64::new(0));
     let thread_shutdown = shutdown.clone();
     let thread_connections = connections.clone();
     let thread = std::thread::Builder::new().name("mux-ws-server".into()).spawn(move || {
         while !thread_shutdown.load(Ordering::Acquire) {
-            let stream = match listener.accept() {
-                Ok((stream, _)) => stream,
+            let (stream, peer) = match listener.accept() {
+                Ok(connection) => connection,
                 Err(_) => {
                     if thread_shutdown.load(Ordering::Acquire) {
                         break;
@@ -809,9 +1199,13 @@ pub fn serve_websocket(
                     continue;
                 }
             };
+            if stream.set_nodelay(true).is_err() {
+                continue;
+            }
             if thread_shutdown.load(Ordering::Acquire) {
                 break;
             }
+            let Some(permit) = claim_connection(&active_connections) else { continue };
             let id = next_connection.fetch_add(1, Ordering::Relaxed);
             if let Ok(tracked) = stream.try_clone() {
                 thread_connections.lock().unwrap().insert(id, tracked);
@@ -819,10 +1213,18 @@ pub fn serve_websocket(
             let mux = mux.clone();
             let token = token.clone();
             let connections = thread_connections.clone();
-            let _ = std::thread::Builder::new().name("mux-ws-conn".into()).spawn(move || {
-                handle_websocket_connection(mux, stream, token.as_deref());
-                connections.lock().unwrap().remove(&id);
-            });
+            let cleanup_connections = thread_connections.clone();
+            if std::thread::Builder::new()
+                .name("mux-ws-conn".into())
+                .spawn(move || {
+                    let _permit = permit;
+                    handle_websocket_connection(mux, stream, peer, token.as_deref());
+                    connections.lock().unwrap().remove(&id);
+                })
+                .is_err()
+            {
+                cleanup_connections.lock().unwrap().remove(&id);
+            }
         }
     })?;
     Ok(WebSocketServer { local_addr, shutdown, connections, thread: Some(thread) })
@@ -844,9 +1246,34 @@ fn sanitize_window_title(title: &str) -> String {
 }
 
 fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
-    let Ok(write_half) = stream.try_clone_box() else { return };
-    let Ok(sink) = LineSink::new(write_half) else { return };
-    let writer = MessageWriter::new(sink);
+    let Ok(mut write_half) = stream.try_clone_box() else { return };
+    let Ok(control) = write_half.try_clone_box() else { return };
+    if write_half.set_write_timeout(Some(STREAM_WRITE_TIMEOUT)).is_err() {
+        return;
+    }
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink {
+        outbound: outbound.clone(),
+        control: Some(SinkControl::Unix(control)),
+    });
+    let writer_outbound = outbound;
+    let Ok(writer_thread) =
+        std::thread::Builder::new().name("mux-line-out".into()).spawn(move || {
+            while let Some(text) = writer_outbound.recv() {
+                if write_half.write_all(text.as_bytes()).is_err()
+                    || write_half.write_all(b"\n").is_err()
+                {
+                    writer_outbound.close();
+                    let _ = write_half.shutdown(Shutdown::Both);
+                    break;
+                }
+            }
+            let _ = write_half.shutdown(Shutdown::Both);
+        })
+    else {
+        writer.close();
+        return;
+    };
     let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
     let reader = BufReader::new(stream);
     for line in reader.lines() {
@@ -859,59 +1286,73 @@ fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
         }
     }
     disconnect_client(&mux, client, false);
+    let _ = writer_thread.join();
 }
 
-fn handle_websocket_connection(mux: Arc<Mux>, stream: TcpStream, token: Option<&str>) {
-    let Ok(mut websocket) = accept(stream) else { return };
-
-    if let Some(expected) = token {
-        let authenticated = match websocket.read() {
-            Ok(Message::Text(text)) => auth_token(&text)
-                .is_some_and(|provided| constant_time_eq(provided.as_bytes(), expected.as_bytes())),
-            _ => false,
-        };
-        if !authenticated {
-            let frame =
-                CloseFrame { code: CloseCode::Policy, reason: "authentication failed".into() };
-            let _ = websocket.close(Some(frame));
-            return;
-        }
+fn handle_websocket_connection(
+    mux: Arc<Mux>,
+    stream: TcpStream,
+    peer: SocketAddr,
+    token: Option<&str>,
+) {
+    let stream = SynchronizedTcpStream::new(stream);
+    if stream.set_read_timeout(Some(WEBSOCKET_HANDSHAKE_TIMEOUT)).is_err()
+        || stream.set_write_timeout(Some(WEBSOCKET_HANDSHAKE_TIMEOUT)).is_err()
+    {
+        return;
     }
-    let _ = websocket.get_mut().set_read_timeout(Some(STREAM_DISCONNECT_POLL));
-    let Ok(control) = websocket.get_ref().try_clone() else { return };
-    let (outbound_tx, outbound_rx) = channel();
-    let writer = MessageWriter::new(WebSocketSink { outbound: outbound_tx, control });
-    let client = mux.control_clients.register(ClientTransport::WebSocket, writer.clone());
+    let config = WebSocketConfig::default()
+        .read_buffer_size(4 * 1024)
+        .max_message_size(Some(MAX_WEBSOCKET_MESSAGE_SIZE))
+        .max_frame_size(Some(MAX_WEBSOCKET_MESSAGE_SIZE));
+    let Ok(mut websocket) = accept_with_config(stream, Some(config)) else { return };
 
-    'connection: loop {
-        loop {
-            match outbound_rx.try_recv() {
-                Ok(text) => {
-                    if websocket.send(Message::Text(text.into())).is_err() {
-                        break 'connection;
-                    }
-                }
-                Err(TryRecvError::Empty) => break,
-                Err(TryRecvError::Disconnected) => break 'connection,
-            }
-        }
-
-        if !writer.is_open() {
-            while let Ok(text) = outbound_rx.try_recv() {
+    if !authenticate_websocket(&mux, &mut websocket, peer, token) {
+        let frame = CloseFrame { code: CloseCode::Policy, reason: "authentication failed".into() };
+        let _ = websocket.close(Some(frame));
+        return;
+    }
+    let _ = websocket.get_mut().set_read_timeout(None);
+    let _ = websocket.get_mut().set_write_timeout(Some(STREAM_WRITE_TIMEOUT));
+    let Ok(writer_stream) = websocket.get_ref().try_clone() else { return };
+    let Ok(writer_shutdown) = writer_stream.try_clone_raw() else { return };
+    let Ok(control) = writer_stream.try_clone_raw() else { return };
+    let _ = writer_stream.set_write_timeout(Some(STREAM_WRITE_TIMEOUT));
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink {
+        outbound: outbound.clone(),
+        control: Some(SinkControl::WebSocket(control)),
+    });
+    let writer_outbound = outbound;
+    let Ok(writer_thread) =
+        std::thread::Builder::new().name("mux-ws-out".into()).spawn(move || {
+            let mut websocket = WebSocket::from_raw_socket(writer_stream, Role::Server, None);
+            while let Some(text) = writer_outbound.recv() {
                 if websocket.send(Message::Text(text.into())).is_err() {
+                    writer_outbound.close();
                     break;
                 }
             }
+            let _ = websocket.close(None);
+            let _ = websocket.flush();
+            let _ = writer_shutdown.shutdown(Shutdown::Both);
+        })
+    else {
+        writer.close();
+        return;
+    };
+    let client = mux.control_clients.register(ClientTransport::WebSocket, writer.clone());
+
+    loop {
+        if !writer.is_open() {
             break;
         }
 
-        match websocket.read() {
+        let incoming = websocket.read();
+        match incoming {
             Ok(Message::Text(text)) => {
                 if !handle_message(&mux, client, &text, &writer) {
-                    if writer.is_open() {
-                        break;
-                    }
-                    continue;
+                    break;
                 }
             }
             Ok(Message::Ping(_)) | Ok(Message::Pong(_)) => {
@@ -919,31 +1360,83 @@ fn handle_websocket_connection(mux: Arc<Mux>, stream: TcpStream, token: Option<&
             }
             Ok(Message::Close(_)) => break,
             Ok(_) => break,
-            Err(WebSocketError::Io(error))
-                if matches!(
-                    error.kind(),
-                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                ) => {}
-            Err(_) if !writer.is_open() => continue,
             Err(_) => break,
         }
     }
     disconnect_client(&mux, client, false);
+    let _ = writer_thread.join();
     let _ = websocket.close(None);
+}
+
+fn authenticate_websocket(
+    mux: &Arc<Mux>,
+    websocket: &mut WebSocket<SynchronizedTcpStream>,
+    peer: SocketAddr,
+    configured_token: Option<&str>,
+) -> bool {
+    let Ok(Message::Text(text)) = websocket.read() else { return false };
+    if let Some(provided) = auth_token(&text) {
+        return configured_token
+            .is_some_and(|expected| constant_time_eq(provided.as_bytes(), expected.as_bytes()))
+            || mux.authenticate_pairing_credential(&provided);
+    }
+    if !pairing_request(&text) {
+        return false;
+    }
+
+    let (challenge, decision) = match mux.begin_pairing(peer.ip()) {
+        Ok(pairing) => pairing,
+        Err(error) => {
+            let _ = websocket.send(Message::Text(
+                json!({"pairing_error": {"code": error.code(), "message": error.to_string()}})
+                    .to_string()
+                    .into(),
+            ));
+            return false;
+        }
+    };
+    if websocket
+        .send(Message::Text(
+            json!({"pairing": {
+                "id": challenge.id,
+                "code": challenge.code,
+                "peer": challenge.peer,
+                "expires_in": challenge.expires_in,
+            }})
+            .to_string()
+            .into(),
+        ))
+        .is_err()
+    {
+        mux.cancel_pairing(challenge.id);
+        return false;
+    }
+
+    match decision.recv_timeout(Duration::from_secs(challenge.expires_in)) {
+        Ok(PairingDecision::Approved { credential }) => websocket
+            .send(Message::Text(json!({"paired": {"credential": credential}}).to_string().into()))
+            .is_ok(),
+        Ok(PairingDecision::Denied) | Err(_) => {
+            mux.cancel_pairing(challenge.id);
+            false
+        }
+    }
 }
 
 fn disconnect_client(mux: &Mux, client: u64, send_detached: bool) -> bool {
     let Some(record) = mux.control_clients.remove(client) else { return false };
     if send_detached {
         let _ = record.writer.set_write_timeout(Some(CLIENT_DETACH_WRITE_TIMEOUT));
-        for surface in record.attached.keys() {
-            // Best effort per the spec's "where deliverable": a busy or wedged
-            // writer skips the courtesy event rather than blocking the
-            // requester; close() below wakes any stuck write either way.
-            let _ = record.writer.try_send(&json!({"event": "detached", "surface": surface}));
+        for (surface, attached) in &record.attached {
+            for stream in attached.streams.values() {
+                let _ = record
+                    .writer
+                    .send_terminal(&json!({"event": "detached", "surface": surface}), stream);
+            }
         }
     }
     record.writer.close();
+    mux.remove_size_client(client);
     mux.emit(MuxEvent::ClientDetached(client));
     true
 }
@@ -965,7 +1458,8 @@ fn handle_message(mux: &Arc<Mux>, client: u64, message: &str, writer: &MessageWr
         }
     };
     let response_ok = response.ok;
-    let sent = serde_json::to_value(&response).is_ok_and(|value| writer.send(&value).is_ok());
+    let sent =
+        serde_json::to_value(&response).is_ok_and(|value| writer.send_control(&value).is_ok());
     if detach_self && response_ok && sent {
         disconnect_client(mux, client, true);
         return false;
@@ -984,6 +1478,16 @@ fn auth_token(message: &str) -> Option<String> {
         return None;
     }
     auth.get("token")?.as_str().map(str::to_string)
+}
+
+fn pairing_request(message: &str) -> bool {
+    let Ok(value) = serde_json::from_str::<Value>(message) else { return false };
+    let Some(object) = value.as_object() else { return false };
+    if object.len() != 1 {
+        return false;
+    }
+    let Some(pair) = object.get("pair").and_then(Value::as_object) else { return false };
+    pair.len() == 1 && pair.get("request").and_then(Value::as_bool) == Some(true)
 }
 
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
@@ -1179,6 +1683,75 @@ fn workspaces_json(
     })
 }
 
+pub(crate) fn tree_entity_json(
+    state: &State,
+    notifications: &HashMap<SurfaceId, SurfaceNotification>,
+    kind: TreeDeltaKind,
+    id: u64,
+) -> Option<Value> {
+    let tree = workspaces_json(state, notifications);
+    let workspaces = tree.get("workspaces")?.as_array()?;
+    match kind {
+        TreeDeltaKind::WorkspaceAdded
+        | TreeDeltaKind::WorkspaceClosed
+        | TreeDeltaKind::WorkspaceRenamed => workspaces
+            .iter()
+            .find(|workspace| workspace.get("id").and_then(Value::as_u64) == Some(id))
+            .cloned(),
+        TreeDeltaKind::ScreenAdded | TreeDeltaKind::ScreenClosed | TreeDeltaKind::ScreenRenamed => {
+            workspaces
+                .iter()
+                .flat_map(|workspace| {
+                    workspace.get("screens").and_then(Value::as_array).into_iter().flatten()
+                })
+                .find(|screen| screen.get("id").and_then(Value::as_u64) == Some(id))
+                .cloned()
+        }
+        TreeDeltaKind::PaneAdded | TreeDeltaKind::PaneClosed => workspaces
+            .iter()
+            .flat_map(|workspace| {
+                workspace.get("screens").and_then(Value::as_array).into_iter().flatten()
+            })
+            .flat_map(|screen| screen.get("panes").and_then(Value::as_array).into_iter().flatten())
+            .find(|pane| pane.get("id").and_then(Value::as_u64) == Some(id))
+            .cloned(),
+        TreeDeltaKind::TabAdded | TreeDeltaKind::TabClosed | TreeDeltaKind::TabRenamed => {
+            workspaces
+                .iter()
+                .flat_map(|workspace| {
+                    workspace.get("screens").and_then(Value::as_array).into_iter().flatten()
+                })
+                .flat_map(|screen| {
+                    screen.get("panes").and_then(Value::as_array).into_iter().flatten()
+                })
+                .flat_map(|pane| pane.get("tabs").and_then(Value::as_array).into_iter().flatten())
+                .find(|tab| tab.get("surface").and_then(Value::as_u64) == Some(id))
+                .cloned()
+        }
+    }
+}
+
+fn tree_delta_json(delta: &TreeDelta) -> Value {
+    let mut value = json!({
+        "event": delta.kind.as_str(),
+        "workspace": delta.workspace,
+        "entity": delta.entity,
+    });
+    if let Some(screen) = delta.screen {
+        value["screen"] = json!(screen);
+    }
+    if let Some(pane) = delta.pane {
+        value["pane"] = json!(pane);
+    }
+    if let Some(surface) = delta.surface {
+        value["surface"] = json!(surface);
+    }
+    if let Some(index) = delta.index {
+        value["index"] = json!(index);
+    }
+    value
+}
+
 fn ids_json(state: &State, kind: Option<&str>) -> anyhow::Result<Value> {
     let allowed = ["workspace", "screen", "pane", "surface"];
     if let Some(kind) = kind
@@ -1320,6 +1893,134 @@ fn terminal_colors_json(colors: TerminalColors) -> Value {
     })
 }
 
+fn rgb_hex(color: Rgb) -> String {
+    format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b)
+}
+
+fn styled_run_json(run: &StyledRun) -> Value {
+    let underline = run.underline.map(|style| match style {
+        UnderlineStyle::Single => "single",
+        UnderlineStyle::Double => "double",
+        UnderlineStyle::Curly => "curly",
+        UnderlineStyle::Dotted => "dotted",
+        UnderlineStyle::Dashed => "dashed",
+    });
+    let mut value = json!({
+        "text": run.text,
+        "fg": run.fg.map(rgb_hex),
+        "bg": run.bg.map(rgb_hex),
+        "attrs": run.attrs,
+    });
+    if let Some(underline) = underline {
+        value["underline"] = json!(underline);
+    }
+    if let Some(width_hint) = run.width_hint {
+        value["width_hint"] = json!(width_hint);
+    }
+    value
+}
+
+fn render_rows_json(frame: &SurfaceRenderFrame, rows: impl IntoIterator<Item = u16>) -> Vec<Value> {
+    rows.into_iter()
+        .filter_map(|row| {
+            frame.frame.row_runs(row).map(|runs| {
+                json!({
+                    "row": row,
+                    "runs": runs.iter().map(styled_run_json).collect::<Vec<_>>(),
+                })
+            })
+        })
+        .collect()
+}
+
+fn render_cursor_json(frame: &SurfaceRenderFrame) -> Value {
+    let (style, blink) = frame.frame.cursor_visual;
+    let style = match style {
+        ghostty_vt::CursorShape::Bar => "bar",
+        ghostty_vt::CursorShape::Underline => "underline",
+        ghostty_vt::CursorShape::Block | ghostty_vt::CursorShape::BlockHollow => "block",
+    };
+    let (x, y, visible) =
+        frame.frame.cursor.map(|cursor| (cursor.x, cursor.y, true)).unwrap_or((0, 0, false));
+    json!({
+        "x": x,
+        "y": y,
+        "style": style,
+        "blink": blink,
+        "visible": visible,
+        "color": frame.frame.cursor_color.map(rgb_hex),
+    })
+}
+
+fn render_state_json(surface: SurfaceId, frame: &SurfaceRenderFrame) -> Value {
+    let (cols, rows) = frame.frame.size;
+    json!({
+        "event": "render-state",
+        "surface": surface,
+        "size": { "cols": cols, "rows": rows },
+        "cursor": render_cursor_json(frame),
+        "default_fg": rgb_hex(frame.frame.default_colors.1),
+        "default_bg": rgb_hex(frame.frame.default_colors.0),
+        "scrollback_rows": frame.scrollback_rows,
+        "rows": render_rows_json(frame, 0..rows),
+    })
+}
+
+struct RenderClientState {
+    size: (u16, u16),
+    default_colors: (Rgb, Rgb),
+    scrollback_rows: u32,
+}
+
+impl RenderClientState {
+    fn new(frame: &SurfaceRenderFrame) -> Self {
+        Self {
+            size: frame.frame.size,
+            default_colors: frame.frame.default_colors,
+            scrollback_rows: frame.scrollback_rows,
+        }
+    }
+
+    fn delta_json(&mut self, surface: SurfaceId, frame: &SurfaceRenderFrame) -> Value {
+        let size_changed = self.size != frame.frame.size;
+        let foreground_changed = self.default_colors.1 != frame.frame.default_colors.1;
+        let background_changed = self.default_colors.0 != frame.frame.default_colors.0;
+        let scrollback_changed = self.scrollback_rows != frame.scrollback_rows;
+        let full = size_changed
+            || foreground_changed
+            || background_changed
+            || frame.frame.dirty == Dirty::Full;
+        let rows = if full {
+            render_rows_json(frame, 0..frame.frame.size.1)
+        } else {
+            render_rows_json(frame, frame.frame.dirty_rows.iter().copied())
+        };
+        let mut value = json!({
+            "event": "render-delta",
+            "surface": surface,
+            "cursor": render_cursor_json(frame),
+            "full": full,
+            "rows": rows,
+        });
+        if size_changed {
+            value["size"] = json!({ "cols": frame.frame.size.0, "rows": frame.frame.size.1 });
+        }
+        if foreground_changed {
+            value["default_fg"] = json!(rgb_hex(frame.frame.default_colors.1));
+        }
+        if background_changed {
+            value["default_bg"] = json!(rgb_hex(frame.frame.default_colors.0));
+        }
+        if scrollback_changed {
+            value["scrollback_rows"] = json!(frame.scrollback_rows);
+        }
+        self.size = frame.frame.size;
+        self.default_colors = frame.frame.default_colors;
+        self.scrollback_rows = frame.scrollback_rows;
+        value
+    }
+}
+
 fn browser_state_json(
     surface: SurfaceId,
     state: &crate::BrowserAttachState,
@@ -1354,12 +2055,14 @@ fn spawn_attach_notification_stream(
     mux: Arc<Mux>,
     surface_id: SurfaceId,
     writer: MessageWriter,
+    lifecycle: AttachLifecycle,
+    outbound_stream: OutboundStream,
 ) -> std::io::Result<()> {
-    let events = mux.subscribe();
+    let events = mux.subscribe_attached_surface(surface_id);
     std::thread::Builder::new()
         .name("mux-attach-notifications".into())
         .spawn(move || {
-            while writer.is_open() {
+            while writer.is_open() && outbound_stream.is_open() && !lifecycle.is_canceled() {
                 let event = match events.recv_timeout(STREAM_DISCONNECT_POLL) {
                     Ok(event) => event,
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
@@ -1390,16 +2093,47 @@ fn spawn_attach_notification_stream(
                     }
                     _ => continue,
                 };
-                if writer.send(&value).is_err() {
+                if let Err(error) = writer.send_stream(&value, &outbound_stream) {
+                    handle_attach_send_error(&lifecycle, &error);
                     break;
                 }
             }
+            if events.overflowed() {
+                lifecycle.mark_overflow();
+            }
+            report_attach_overflow(&writer, surface_id, &lifecycle, &outbound_stream);
         })
         .map(|_| ())
 }
 
-fn mark_client_attached(mux: &Mux, client: u64, surface: SurfaceId) -> anyhow::Result<()> {
-    if let Some((transport, name, kind)) = mux.control_clients.attach_surface(client, surface)? {
+fn report_attach_overflow(
+    writer: &MessageWriter,
+    surface_id: SurfaceId,
+    lifecycle: &AttachLifecycle,
+    outbound_stream: &OutboundStream,
+) {
+    if lifecycle.claim_overflow_report() {
+        let _ = writer.send_terminal(&attach_overflow_json(surface_id), outbound_stream);
+    }
+}
+
+fn handle_attach_send_error(lifecycle: &AttachLifecycle, error: &std::io::Error) {
+    if error.kind() == std::io::ErrorKind::WouldBlock {
+        lifecycle.mark_overflow();
+    } else {
+        lifecycle.cancel();
+    }
+}
+
+fn mark_client_attached(
+    mux: &Mux,
+    client: u64,
+    surface: SurfaceId,
+    stream: OutboundStream,
+) -> anyhow::Result<()> {
+    if let Some((transport, name, kind)) =
+        mux.control_clients.attach_surface(client, surface, stream)?
+    {
         mux.emit(MuxEvent::ClientAttached { client, transport, name, kind });
     }
     Ok(())
@@ -1430,6 +2164,15 @@ fn handle_command(
             Ok(json!({}))
         }
         Command::ListClients => Ok(mux.control_clients.list_json(client)),
+        Command::PairingResponse { request, approve } => {
+            if !mux.control_clients.is_unix(client) {
+                anyhow::bail!("pairing decisions require a trusted local connection");
+            }
+            if !mux.respond_pairing(request, approve) {
+                anyhow::bail!("unknown or expired pairing request {request}");
+            }
+            Ok(json!({}))
+        }
         Command::DetachClient { client: target } => {
             if target == client {
                 if !mux.control_clients.contains(target) {
@@ -1473,15 +2216,23 @@ fn handle_command(
                 }).collect::<Vec<_>>(),
             }))
         }
-        Command::Send { surface, text, bytes } => {
+        Command::Send { surface, text, bytes, paste } => {
             let surface = get_surface(mux, surface)?;
             require_pty(&surface)?;
-            if let Some(text) = text {
-                surface.write_bytes(text.as_bytes())?;
-            }
-            if let Some(b64) = bytes {
-                let raw = base64::engine::general_purpose::STANDARD.decode(b64)?;
-                surface.write_bytes(&raw)?;
+            if paste {
+                let mut payload = text.unwrap_or_default().into_bytes();
+                if let Some(b64) = bytes {
+                    payload.extend(base64::engine::general_purpose::STANDARD.decode(b64)?);
+                }
+                surface.write_paste(&payload)?;
+            } else {
+                if let Some(text) = text {
+                    surface.write_bytes(text.as_bytes())?;
+                }
+                if let Some(b64) = bytes {
+                    let raw = base64::engine::general_purpose::STANDARD.decode(b64)?;
+                    surface.write_bytes(&raw)?;
+                }
             }
             Ok(json!({}))
         }
@@ -1490,6 +2241,28 @@ fn handle_command(
             require_pty(&surface)?;
             let text = surface.try_with_terminal(|t| t.viewport_text())??;
             Ok(json!({ "text": text }))
+        }
+        Command::ReadScrollback { surface, start, count } => {
+            let surface = get_surface(mux, surface)?;
+            require_pty(&surface)?;
+            let count = u16::try_from(count).map_err(|_| anyhow::anyhow!("count out of range"))?;
+            let (start, total, rows) = surface.try_with_terminal(|term| {
+                let total = term.history_rows();
+                let start = start.min(total);
+                term.styled_history_rows(start, count).map(|rows| (start, total, rows))
+            })??;
+            let runs = rows_to_runs(&rows);
+            let rows = runs
+                .iter()
+                .enumerate()
+                .map(|(row, runs)| {
+                    json!({
+                        "row": row as u16,
+                        "runs": runs.iter().map(styled_run_json).collect::<Vec<_>>(),
+                    })
+                })
+                .collect::<Vec<_>>();
+            Ok(json!({ "rows": rows, "start": start, "total": total }))
         }
         Command::SidebarPlugin { cols, rows, relaunch } => {
             Ok(sidebar_plugin_status_json(mux.ensure_sidebar_plugin(cols, rows, relaunch)))
@@ -1651,7 +2424,8 @@ fn handle_command(
             let surface = get_surface(mux, surface)?;
             require_pty(&surface)?;
             let (cols, rows, replay) = surface.try_with_terminal(|t| {
-                t.vt_replay().map(|replay| (t.cols(), t.rows(), replay))
+                t.vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES)
+                    .map(|replay| (t.cols(), t.rows(), replay))
             })??;
             Ok(json!({
                 "cols": cols,
@@ -1668,8 +2442,30 @@ fn handle_command(
             Ok(json!({ "surface": surface.id }))
         }
         Command::SetCellPixels { width_px, height_px } => {
-            mux.set_cell_pixel_size(width_px, height_px);
-            Ok(json!({}))
+            let update = mux.set_cell_pixel_size(width_px, height_px);
+            let resizes = update
+                .resizes
+                .into_iter()
+                .map(|(surface, (cols, rows), reservation_id)| {
+                    json!({
+                        "surface": surface,
+                        "cols": cols,
+                        "rows": rows,
+                        "reservation_id": reservation_id,
+                    })
+                })
+                .collect::<Vec<_>>();
+            let failures = update
+                .failures
+                .into_iter()
+                .map(|failure| {
+                    json!({
+                        "surface": failure.surface,
+                        "error": failure.error,
+                    })
+                })
+                .collect::<Vec<_>>();
+            Ok(json!({"resizes": resizes, "failures": failures}))
         }
         Command::BrowserMouse { surface, kind, x_px, y_px, button, click_count } => {
             let surface = get_surface(mux, surface)?;
@@ -1844,8 +2640,7 @@ fn handle_command(
                     Some(value) => Some(parse_hex_color(&value)?),
                     None => current.bg,
                 },
-                cursor_style: current.cursor_style,
-                cursor_blink: current.cursor_blink,
+                ..current
             };
             mux.set_default_colors(colors);
             Ok(json!({}))
@@ -1899,10 +2694,16 @@ fn handle_command(
             Ok(json!({}))
         }
         Command::ResizeSurface { surface, cols, rows } => {
-            mux.resize_surface(surface, cols, rows)?;
-            mux.record_client_size(cols, rows);
-            mux.control_clients.record_size(client, surface, cols.max(1), rows.max(1));
-            Ok(json!({}))
+            let attached =
+                mux.control_clients.record_size(client, surface, cols.max(1), rows.max(1));
+            let (accepted, reservation_id) = if attached {
+                mux.resize_surface_for_client_with_reservation(surface, client, cols, rows)?
+            } else {
+                let result = mux.resize_surface_with_reservation(surface, cols, rows)?;
+                mux.record_client_size(cols, rows);
+                result
+            };
+            Ok(json!({"accepted": accepted, "reservation_id": reservation_id}))
         }
         Command::FocusPane { pane } => {
             if !mux.focus_pane(pane) {
@@ -1928,108 +2729,185 @@ fn handle_command(
             surface.scroll_delta(delta)?;
             Ok(json!({}))
         }
-        Command::Subscribe => {
+        Command::Subscribe { tree_events } => {
+            let tree_deltas = match tree_events.as_deref().unwrap_or("coarse") {
+                "coarse" => false,
+                "deltas" => true,
+                other => anyhow::bail!("bad request: unsupported tree_events {other:?}"),
+            };
             let events = mux.subscribe();
+            let trusted_pairing_client = mux.control_clients.is_unix(client);
+            let pending_pairings =
+                if trusted_pairing_client { mux.pending_pairings() } else { Vec::new() };
             let writer = writer.clone();
+            let outbound_stream = writer.start_stream(&subscription_overflow_json())?;
             std::thread::Builder::new().name("mux-events-out".into()).spawn(move || {
-                while writer.is_open() {
+                let mut transport_overflow = false;
+                for challenge in pending_pairings {
+                    let value = json!({
+                        "event": "pairing-requested",
+                        "request": challenge.id,
+                        "code": challenge.code,
+                        "peer": challenge.peer,
+                        "expires_in": challenge.expires_in,
+                    });
+                    if let Err(error) = writer.send_stream(&value, &outbound_stream) {
+                        transport_overflow = error.kind() == std::io::ErrorKind::WouldBlock;
+                        break;
+                    }
+                }
+                while writer.is_open() && outbound_stream.is_open() {
                     let event = match events.recv_timeout(STREAM_DISCONNECT_POLL) {
                         Ok(event) => event,
                         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
                     };
                     let value = match &event {
-                        MuxEvent::SurfaceOutput(id) => {
-                            json!({"event": "surface-output", "surface": id})
+                        MuxEvent::PairingRequested(_) | MuxEvent::PairingResolved { .. }
+                            if !trusted_pairing_client =>
+                        {
+                            continue;
                         }
-                        MuxEvent::SurfaceResized { surface, cols, rows } => {
-                            json!({
-                                "event": "surface-resized",
-                                "surface": surface,
-                                "cols": cols,
-                                "rows": rows,
-                            })
-                        }
-                        MuxEvent::SurfaceExited(id) => {
-                            json!({"event": "surface-exited", "surface": id})
-                        }
-                        MuxEvent::TitleChanged(id) => {
-                            json!({"event": "title-changed", "surface": id})
-                        }
-                        MuxEvent::Bell(id) => json!({"event": "bell", "surface": id}),
-                        MuxEvent::Notification(notification) => json!({
-                            "event": "notification",
-                            "notification": notification.notification,
-                            "title": notification.title,
-                            "body": notification.body,
-                            "level": notification.level.as_str(),
-                            "surface": notification.surface,
+                        MuxEvent::PairingRequested(challenge) => json!({
+                            "event": "pairing-requested",
+                            "request": challenge.id,
+                            "code": challenge.code,
+                            "peer": challenge.peer,
+                            "expires_in": challenge.expires_in,
                         }),
-                        MuxEvent::Status(message) => {
-                            json!({"event": "status", "message": message})
-                        }
-                        MuxEvent::ConfigReloadRequested => {
-                            json!({"event": "config-reload-requested"})
-                        }
-                        MuxEvent::WindowTitleRequested(title) => {
-                            json!({"event": "window-title-requested", "title": title})
-                        }
-                        MuxEvent::ScrollChanged { surface, offset, at_bottom } => json!({
-                            "event": "scroll-changed",
-                            "surface": surface,
-                            "offset": offset,
-                            "at_bottom": at_bottom,
+                        MuxEvent::PairingResolved { request } => json!({
+                            "event": "pairing-resolved",
+                            "request": request,
                         }),
-                        MuxEvent::TreeChanged => json!({"event": "tree-changed"}),
-                        MuxEvent::LayoutChanged(screen) => {
-                            json!({"event": "layout-changed", "screen": screen})
-                        }
-                        MuxEvent::ClientAttached { client, transport, name, kind } => json!({
-                            "event": "client-attached",
-                            "client": client,
-                            "transport": transport,
-                            "name": name,
-                            "kind": kind,
-                        }),
-                        MuxEvent::ClientChanged { client, name, kind } => json!({
-                            "event": "client-changed",
-                            "client": client,
-                            "name": name,
-                            "kind": kind,
-                        }),
-                        MuxEvent::ClientDetached(client) => {
-                            json!({"event": "client-detached", "client": client})
-                        }
-                        MuxEvent::Empty => json!({"event": "empty"}),
+                        MuxEvent::TreeDelta(delta) if tree_deltas => tree_delta_json(delta),
+                        MuxEvent::TreeDelta(_) => json!({"event": "tree-changed"}),
+                        _ => subscribed_event_json(&event),
                     };
-                    if writer.send(&value).is_err() {
+                    if let Err(error) = writer.send_stream(&value, &outbound_stream) {
+                        transport_overflow = error.kind() == std::io::ErrorKind::WouldBlock;
                         break;
                     }
+                }
+                if events.overflowed() || transport_overflow {
+                    let _ = writer.send_terminal(&subscription_overflow_json(), &outbound_stream);
                 }
             })?;
             Ok(json!({}))
         }
-        Command::AttachSurface { surface: surface_id } => {
+        Command::AttachSurface { surface: surface_id, mode } => {
             let surface = get_surface(mux, surface_id)?;
+            let lifecycle = AttachLifecycle::default();
+            let outbound_stream = writer.start_stream(&attach_overflow_json(surface_id))?;
+            let render_mode = match mode.as_deref().unwrap_or("bytes") {
+                "bytes" => false,
+                "render" => true,
+                other => anyhow::bail!("bad attach mode {other}"),
+            };
+            if render_mode {
+                require_pty(&surface)?;
+                let attach = surface.attach_render_stream()?;
+                if let Err(error) = writer
+                    .send_initial(&render_state_json(surface_id, &attach.initial), &outbound_stream)
+                {
+                    handle_attach_send_error(&lifecycle, &error);
+                    return Err(error.into());
+                }
+                mark_client_attached(mux, client, surface_id, outbound_stream.clone())?;
+                let writer = writer.clone();
+                let mux = mux.clone();
+                std::thread::Builder::new().name("mux-render-attach-out".into()).spawn(
+                    move || {
+                        let mut state = RenderClientState::new(&attach.initial);
+                        while writer.is_open()
+                            && outbound_stream.is_open()
+                            && !lifecycle.is_canceled()
+                        {
+                            let value = match attach.stream.recv_timeout(STREAM_DISCONNECT_POLL) {
+                                Ok(RenderAttachFrame::Frame(frame)) => {
+                                    state.delta_json(surface_id, &frame)
+                                }
+                                Ok(RenderAttachFrame::ScrollChanged { offset, at_bottom }) => {
+                                    json!({
+                                        "event": "scroll-changed",
+                                        "surface": surface_id,
+                                        "offset": offset,
+                                        "at_bottom": at_bottom,
+                                    })
+                                }
+                                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                            };
+                            if let Err(error) = writer.send_stream(&value, &outbound_stream) {
+                                handle_attach_send_error(&lifecycle, &error);
+                                break;
+                            }
+                        }
+                        if writer.is_open() && !lifecycle.overflowed() {
+                            let _ = writer.send_stream(
+                                &json!({"event": "detached", "surface": surface_id}),
+                                &outbound_stream,
+                            );
+                        }
+                        report_attach_overflow(&writer, surface_id, &lifecycle, &outbound_stream);
+                        if mux.control_clients.detach_surface(
+                            client,
+                            surface_id,
+                            outbound_stream.id,
+                        ) {
+                            mux.remove_surface_size_client(surface_id, client);
+                        }
+                    },
+                )?;
+                return Ok(json!({}));
+            }
             if surface.kind() == SurfaceKind::Browser {
-                let (state, frames) = surface.attach_frames()?;
-                mark_client_attached(mux, client, surface_id)?;
-                spawn_attach_notification_stream(mux.clone(), surface_id, writer.clone())?;
-                writer.send(&browser_state_json(surface_id, &state, true))?;
+                let (state, frames) = match surface.attach_frames() {
+                    Ok(attach) => attach,
+                    Err(error) => {
+                        lifecycle.cancel();
+                        return Err(error);
+                    }
+                };
+                if let Err(error) = writer
+                    .send_initial(&browser_state_json(surface_id, &state, true), &outbound_stream)
+                {
+                    handle_attach_send_error(&lifecycle, &error);
+                    return Err(error.into());
+                }
+                mark_client_attached(mux, client, surface_id, outbound_stream.clone())?;
+                spawn_attach_notification_stream(
+                    mux.clone(),
+                    surface_id,
+                    writer.clone(),
+                    lifecycle.clone(),
+                    outbound_stream.clone(),
+                )?;
                 let writer = writer.clone();
                 let mux = mux.clone();
                 std::thread::Builder::new().name("mux-attach-out".into()).spawn(move || {
-                    while writer.is_open() {
+                    while writer.is_open() && outbound_stream.is_open() && !lifecycle.is_canceled()
+                    {
                         match frames.notify.recv_timeout(STREAM_DISCONNECT_POLL) {
                             Ok(()) => {}
                             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
-                            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                                lifecycle.cancel();
+                                if writer.is_open() {
+                                    let _ = writer.send_stream(
+                                        &json!({"event": "detached", "surface": surface_id}),
+                                        &outbound_stream,
+                                    );
+                                }
+                                break;
+                            }
                         }
                         let update = std::mem::take(&mut *frames.slot.lock().unwrap());
-                        if let Some(state) = update.state
-                            && writer.send(&browser_state_json(surface_id, &state, false)).is_err()
-                        {
-                            break;
+                        if let Some(state) = update.state {
+                            let value = browser_state_json(surface_id, &state, false);
+                            if let Err(error) = writer.send_stream(&value, &outbound_stream) {
+                                handle_attach_send_error(&lifecycle, &error);
+                                break;
+                            }
                         }
                         if let Some(frame) = update.frame {
                             let value = json!({
@@ -2040,35 +2918,68 @@ fn handle_command(
                                 "height": frame.css_height,
                                 "data": frame.data_b64,
                             });
-                            if writer.send(&value).is_err() {
+                            if let Err(error) = writer.send_stream(&value, &outbound_stream) {
+                                handle_attach_send_error(&lifecycle, &error);
                                 break;
                             }
                         }
                     }
-                    let _ = writer.send(&json!({"event": "detached", "surface": surface_id}));
-                    mux.control_clients.detach_surface(client, surface_id);
+                    report_attach_overflow(&writer, surface_id, &lifecycle, &outbound_stream);
+                    if mux.control_clients.detach_surface(client, surface_id, outbound_stream.id) {
+                        mux.remove_surface_size_client(surface_id, client);
+                    }
                 })?;
                 return Ok(json!({}));
             }
-            let attach = surface.attach_stream()?;
-            mark_client_attached(mux, client, surface_id)?;
-            spawn_attach_notification_stream(mux.clone(), surface_id, writer.clone())?;
-            writer.send(&json!({
-                "event": "vt-state",
-                "surface": surface_id,
-                "cols": attach.cols,
-                "rows": attach.rows,
-                "data": base64::engine::general_purpose::STANDARD.encode(attach.replay),
-                "colors": terminal_colors_json(attach.colors),
-            }))?;
+            let attach = match surface.attach_stream_with_lifecycle(lifecycle.clone()) {
+                Ok(attach) => attach,
+                Err(error) => {
+                    lifecycle.cancel();
+                    return Err(error.into());
+                }
+            };
+            if let Err(error) = writer.send_initial(
+                &json!({
+                    "event": "vt-state",
+                    "surface": surface_id,
+                    "cols": attach.cols,
+                    "rows": attach.rows,
+                    "data": base64::engine::general_purpose::STANDARD.encode(attach.replay),
+                    "colors": terminal_colors_json(attach.colors),
+                }),
+                &outbound_stream,
+            ) {
+                handle_attach_send_error(&lifecycle, &error);
+                return Err(error.into());
+            }
+            mark_client_attached(mux, client, surface_id, outbound_stream.clone())?;
+            spawn_attach_notification_stream(
+                mux.clone(),
+                surface_id,
+                writer.clone(),
+                lifecycle,
+                outbound_stream.clone(),
+            )?;
             let writer = writer.clone();
             let mux = mux.clone();
             std::thread::Builder::new().name("mux-attach-out".into()).spawn(move || {
-                while writer.is_open() {
+                while writer.is_open()
+                    && outbound_stream.is_open()
+                    && !attach.lifecycle.is_canceled()
+                {
                     let frame = match attach.stream.recv_timeout(STREAM_DISCONNECT_POLL) {
                         Ok(frame) => frame,
                         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
-                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                            attach.lifecycle.cancel();
+                            if writer.is_open() {
+                                let _ = writer.send_stream(
+                                    &json!({"event": "detached", "surface": surface_id}),
+                                    &outbound_stream,
+                                );
+                            }
+                            break;
+                        }
                     };
                     let value = match frame {
                         AttachFrame::Output(chunk) => json!({
@@ -2081,25 +2992,127 @@ fn handle_command(
                             "surface": surface_id,
                             "cols": cols,
                             "rows": rows,
-                            "data": base64::engine::general_purpose::STANDARD.encode(replay),
+                            "replay": base64::engine::general_purpose::STANDARD.encode(replay),
                         }),
                         AttachFrame::ColorsChanged(colors) => {
                             let mut value = terminal_colors_json(colors);
                             value["event"] = json!("colors-changed");
+                            value["surface"] = json!(surface_id);
                             value
                         }
                     };
-                    if writer.send(&value).is_err() {
+                    if let Err(error) = writer.send_stream(&value, &outbound_stream) {
+                        handle_attach_send_error(&attach.lifecycle, &error);
                         break;
                     }
                 }
-                // Surface gone (or reader stopped): signal end of stream.
-                let _ = writer.send(&json!({"event": "detached", "surface": surface_id}));
-                mux.control_clients.detach_surface(client, surface_id);
+                report_attach_overflow(&writer, surface_id, &attach.lifecycle, &outbound_stream);
+                if mux.control_clients.detach_surface(client, surface_id, outbound_stream.id) {
+                    mux.remove_surface_size_client(surface_id, client);
+                }
             })?;
             Ok(json!({}))
         }
     }
+}
+
+fn subscribed_event_json(event: &MuxEvent) -> Value {
+    match event {
+        MuxEvent::SurfaceOutput(id) => json!({"event": "surface-output", "surface": id}),
+        MuxEvent::SurfaceResized { surface, cols, rows, reservation_id } => json!({
+            "event": "surface-resized",
+            "surface": surface,
+            "cols": cols,
+            "rows": rows,
+            "reservation_id": reservation_id,
+        }),
+        MuxEvent::SurfaceResizeFailed {
+            surface,
+            cols,
+            rows,
+            error,
+            retry_after_ms,
+            reservation_id,
+        } => json!({
+            "event": "surface-resize-failed",
+            "surface": surface,
+            "cols": cols,
+            "rows": rows,
+            "error": error.as_ref(),
+            "retry_after_ms": retry_after_ms,
+            "reservation_id": reservation_id,
+        }),
+        MuxEvent::SurfaceExited(id) => json!({"event": "surface-exited", "surface": id}),
+        MuxEvent::TitleChanged { surface, title } => {
+            json!({"event": "title-changed", "surface": surface, "title": title.as_ref()})
+        }
+        MuxEvent::Bell(id) => json!({"event": "bell", "surface": id}),
+        MuxEvent::Notification(notification) => json!({
+            "event": "notification",
+            "notification": notification.notification,
+            "title": notification.title,
+            "body": notification.body,
+            "level": notification.level.as_str(),
+            "surface": notification.surface,
+        }),
+        MuxEvent::Status(message) => json!({"event": "status", "message": message}),
+        MuxEvent::ConfigReloadRequested => json!({"event": "config-reload-requested"}),
+        MuxEvent::WindowTitleRequested(title) => {
+            json!({"event": "window-title-requested", "title": title})
+        }
+        MuxEvent::ScrollChanged { surface, offset, at_bottom } => json!({
+            "event": "scroll-changed",
+            "surface": surface,
+            "offset": offset,
+            "at_bottom": at_bottom,
+        }),
+        MuxEvent::TreeChanged => json!({"event": "tree-changed"}),
+        MuxEvent::TreeDelta(_) => json!({"event": "tree-changed"}),
+        MuxEvent::LayoutChanged(screen) => json!({"event": "layout-changed", "screen": screen}),
+        MuxEvent::ClientAttached { client, transport, name, kind } => json!({
+            "event": "client-attached",
+            "client": client,
+            "transport": transport,
+            "name": name,
+            "kind": kind,
+        }),
+        MuxEvent::ClientChanged { client, name, kind } => json!({
+            "event": "client-changed",
+            "client": client,
+            "name": name,
+            "kind": kind,
+        }),
+        MuxEvent::ClientDetached(client) => {
+            json!({"event": "client-detached", "client": client})
+        }
+        MuxEvent::PairingRequested(challenge) => json!({
+            "event": "pairing-requested",
+            "request": challenge.id,
+            "code": challenge.code,
+            "peer": challenge.peer,
+            "expires_in": challenge.expires_in,
+        }),
+        MuxEvent::PairingResolved { request } => {
+            json!({"event": "pairing-resolved", "request": request})
+        }
+        MuxEvent::Empty => json!({"event": "empty"}),
+    }
+}
+
+fn subscription_overflow_json() -> Value {
+    json!({
+        "event": "overflow",
+        "error": "subscriber fell behind; resubscribe to continue receiving events",
+    })
+}
+
+fn attach_overflow_json(surface: SurfaceId) -> Value {
+    json!({
+        "event": "overflow",
+        "scope": "surface",
+        "surface": surface,
+        "error": "surface stream fell behind; reattach the surface",
+    })
 }
 
 /// Remove the socket file (call on clean shutdown).
@@ -2111,54 +3124,245 @@ pub fn cleanup(path: &Path) {
 mod tests {
     use super::*;
     use crate::SurfaceOptions;
-    use std::io::{Read, Write};
     use std::sync::mpsc::TryRecvError;
     use std::time::Duration;
-
-    struct NullStream;
-
-    impl Read for NullStream {
-        fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
-            Ok(0)
-        }
-    }
-
-    impl Write for NullStream {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            Ok(buf.len())
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-
-    impl transport::Stream for NullStream {
-        fn try_clone_box(&self) -> std::io::Result<Box<dyn transport::Stream>> {
-            Ok(Box::new(NullStream))
-        }
-
-        fn set_read_timeout(&self, _timeout: Option<Duration>) -> std::io::Result<()> {
-            Ok(())
-        }
-
-        fn set_write_timeout(&self, _timeout: Option<Duration>) -> std::io::Result<()> {
-            Ok(())
-        }
-
-        fn shutdown(&self, _how: Shutdown) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
 
     fn test_mux() -> Arc<Mux> {
         Mux::new_for_test("test", SurfaceOptions::default())
     }
 
     fn test_writer() -> MessageWriter {
-        MessageWriter::new(
-            LineSink::new(Box::new(NullStream) as Box<dyn transport::Stream>).unwrap(),
-        )
+        MessageWriter::new(QueuedSink {
+            outbound: Arc::new(BoundedOutbound::default()),
+            control: None,
+        })
+    }
+
+    #[test]
+    fn bounded_writer_reserves_a_control_lane_for_responses_and_overflow() {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+        let backlog = writer.start_stream(&json!({"event": "overflow"})).unwrap();
+
+        for sequence in 0..OUTBOUND_CAPACITY - 1 {
+            writer
+                .send_stream(&json!({"event": "output", "sequence": sequence}), &backlog)
+                .unwrap();
+        }
+
+        let failed_stream = writer.start_stream(&subscription_overflow_json()).unwrap();
+        writer.send_control(&json!({"id": 42, "ok": true, "data": {}})).unwrap();
+        writer.send_terminal(&subscription_overflow_json(), &failed_stream).unwrap();
+        let response: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(response["id"], 42);
+        let terminal: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(terminal["event"], "overflow");
+        let drained = (0..OUTBOUND_CAPACITY - 1)
+            .map(|_| outbound.try_pop().expect("accepted output"))
+            .collect::<Vec<_>>();
+        assert!(drained[0].contains("\"sequence\":0"));
+        assert!(writer.is_open());
+    }
+
+    #[test]
+    fn initial_stream_state_precedes_its_response_and_overflows_only_its_stream() {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+        let stream = writer.start_stream(&attach_overflow_json(7)).unwrap();
+
+        writer.send_initial(&json!({"event": "vt-state", "surface": 7}), &stream).unwrap();
+        writer.send_control(&json!({"id": 1, "ok": true})).unwrap();
+        let initial: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(initial["event"], "vt-state");
+        let response: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(response["id"], 1);
+
+        let oversized = writer.start_stream(&attach_overflow_json(8)).unwrap();
+        let error = writer
+            .send_initial(
+                &json!({"event": "vt-state", "data": "x".repeat(OUTBOUND_BYTE_CAPACITY)}),
+                &oversized,
+            )
+            .unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
+        let overflow: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(overflow["event"], "overflow");
+        assert_eq!(overflow["surface"], 8);
+        assert!(writer.is_open());
+    }
+
+    #[test]
+    fn server_connection_permits_enforce_and_release_the_cap() {
+        let active = Arc::new(AtomicU64::new(MAX_SERVER_CONNECTIONS as u64));
+        assert!(claim_connection(&active).is_none());
+        active.store(MAX_SERVER_CONNECTIONS as u64 - 1, Ordering::Release);
+        let permit = claim_connection(&active).expect("last connection slot");
+        assert_eq!(active.load(Ordering::Acquire), MAX_SERVER_CONNECTIONS as u64);
+        drop(permit);
+        assert_eq!(active.load(Ordering::Acquire), MAX_SERVER_CONNECTIONS as u64 - 1);
+    }
+
+    #[test]
+    fn shutting_down_a_writer_clone_unblocks_the_reader() {
+        let path = std::env::temp_dir().join(format!(
+            "cmux-tui-shutdown-{}-{}.sock",
+            std::process::id(),
+            Instant::now().elapsed().as_nanos()
+        ));
+        let _ = std::fs::remove_file(&path);
+        let listener = transport::listen(&path).unwrap();
+        let _client = transport::connect(&path).unwrap();
+        let mut reader = listener.accept().unwrap();
+        let writer = reader.try_clone_box().unwrap();
+        let (done, finished) = std::sync::mpsc::channel();
+        let read_thread = std::thread::spawn(move || {
+            let mut byte = [0_u8; 1];
+            done.send(reader.read(&mut byte)).unwrap();
+        });
+
+        writer.shutdown(Shutdown::Both).unwrap();
+        assert_eq!(finished.recv_timeout(Duration::from_secs(1)).unwrap().unwrap(), 0);
+        read_thread.join().unwrap();
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn stalled_websocket_handshake_times_out() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (server, peer) = listener.accept().unwrap();
+        let (done, finished) = std::sync::mpsc::channel();
+        let handler = std::thread::spawn(move || {
+            handle_websocket_connection(test_mux(), server, peer, None);
+            done.send(()).unwrap();
+        });
+
+        finished
+            .recv_timeout(Duration::from_secs(1))
+            .expect("stalled handshake must not occupy a connection slot indefinitely");
+        drop(client);
+        handler.join().unwrap();
+    }
+
+    #[test]
+    fn stalled_websocket_authentication_times_out() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let client_stream = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (server, peer) = listener.accept().unwrap();
+        let (done, finished) = std::sync::mpsc::channel();
+        let handler = std::thread::spawn(move || {
+            handle_websocket_connection(test_mux(), server, peer, Some("secret"));
+            done.send(()).unwrap();
+        });
+        let (client, _) = tungstenite::client("ws://localhost/", client_stream).unwrap();
+
+        finished
+            .recv_timeout(Duration::from_secs(1))
+            .expect("stalled authentication must not occupy a connection slot indefinitely");
+        drop(client);
+        handler.join().unwrap();
+    }
+
+    #[test]
+    fn global_pressure_terminates_the_stream_occupying_the_backlog() {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+        let noisy = writer.start_stream(&json!({"event": "overflow", "stream": "noisy"})).unwrap();
+        let quiet = writer.start_stream(&json!({"event": "overflow", "stream": "quiet"})).unwrap();
+
+        for sequence in 0..OUTBOUND_CAPACITY {
+            writer.send_stream(&json!({"event": "output", "sequence": sequence}), &noisy).unwrap();
+        }
+        writer.send_stream(&json!({"event": "tree-changed"}), &quiet).unwrap();
+
+        let terminal: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(terminal["stream"], "noisy");
+        let quiet_event: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(quiet_event["event"], "tree-changed");
+        assert_eq!(outbound.try_pop(), None);
+        assert_eq!(
+            writer.send_stream(&json!({"event": "late"}), &noisy).unwrap_err().kind(),
+            std::io::ErrorKind::BrokenPipe
+        );
+        assert!(quiet.is_open());
+        assert!(writer.is_open());
+    }
+
+    #[test]
+    fn bounded_writer_rejects_payloads_beyond_each_byte_budget() {
+        let outbound = BoundedOutbound::default();
+        let stream = OutboundStream::new(1, r#"{"event":"overflow"}"#.to_string());
+
+        let regular =
+            outbound.push_regular("x".repeat(OUTBOUND_BYTE_CAPACITY + 1), &stream).unwrap_err();
+        assert_eq!(regular.kind(), std::io::ErrorKind::WouldBlock);
+        let control =
+            outbound.push_control("x".repeat(OUTBOUND_CONTROL_BYTE_RESERVE + 1)).unwrap_err();
+        assert_eq!(control.kind(), std::io::ErrorKind::WouldBlock);
+        let terminal: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(terminal["event"], "overflow");
+        assert_eq!(outbound.try_pop(), None);
+    }
+
+    #[test]
+    fn terminal_overflow_purges_only_its_stream_and_rejects_late_frames() {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+        let stale = writer.start_stream(&subscription_overflow_json()).unwrap();
+        let unrelated = writer.start_stream(&subscription_overflow_json()).unwrap();
+
+        writer.send_stream(&json!({"event": "output", "stream": "stale"}), &stale).unwrap();
+        writer.send_stream(&json!({"event": "output", "stream": "unrelated"}), &unrelated).unwrap();
+        writer.send_terminal(&subscription_overflow_json(), &stale).unwrap();
+
+        let late = writer.send_stream(&json!({"event": "output", "stream": "late"}), &stale);
+        assert_eq!(late.unwrap_err().kind(), std::io::ErrorKind::BrokenPipe);
+        let terminal: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(terminal["event"], "overflow");
+        let remaining: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(remaining["stream"], "unrelated");
+        assert_eq!(outbound.try_pop(), None);
+        assert!(writer.is_open());
+    }
+
+    #[test]
+    fn client_detach_purges_attach_backlog_before_terminal_event() {
+        let mux = Mux::new("detach-order-test", SurfaceOptions::default());
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+        let stream = writer.start_stream(&attach_overflow_json(41)).unwrap();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        mux.control_clients.attach_surface(client, 41, stream.clone()).unwrap();
+        writer.send_initial(&json!({"event": "vt-state", "surface": 41}), &stream).unwrap();
+        writer.send_stream(&json!({"event": "output", "surface": 41}), &stream).unwrap();
+
+        assert!(disconnect_client(&mux, client, true));
+
+        let terminal: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(terminal, json!({"event": "detached", "surface": 41}));
+        assert_eq!(outbound.try_pop(), None);
+    }
+
+    #[test]
+    fn closing_bounded_writer_wakes_a_waiting_drain() {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let waiting = outbound.clone();
+        let drain = std::thread::spawn(move || waiting.recv());
+
+        outbound.close();
+
+        assert_eq!(drain.join().unwrap(), None);
+    }
+
+    #[test]
+    fn websocket_overflow_marks_attach_lifecycle() {
+        let lifecycle = AttachLifecycle::default();
+        let error = std::io::Error::new(std::io::ErrorKind::WouldBlock, "queue full");
+
+        handle_attach_send_error(&lifecycle, &error);
+
+        assert!(lifecycle.is_canceled());
+        assert!(lifecycle.overflowed());
     }
 
     #[test]
@@ -2269,6 +3473,46 @@ mod tests {
     fn window_title_osc_uses_osc_0_and_2_and_strips_controls() {
         assert_eq!(window_title_osc("hello").as_slice(), b"\x1b]0;hello\x07\x1b]2;hello\x07");
         assert_eq!(window_title_osc("a\x1bb\x07c").as_slice(), b"\x1b]0;a b c\x07\x1b]2;a b c\x07");
+    }
+
+    #[test]
+    fn title_changed_event_includes_authoritative_surface_title() {
+        let mux = Mux::new(
+            "title-event-test",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "printf '\\033]2;server title\\007'; exec cat".to_string(),
+                ]),
+                ..SurfaceOptions::default()
+            },
+        );
+        let events = mux.subscribe();
+        let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
+        loop {
+            match events.recv_timeout(Duration::from_secs(1)).unwrap() {
+                MuxEvent::TitleChanged { surface: id, title }
+                    if id == surface.id && title.as_ref() == "server title" =>
+                {
+                    break;
+                }
+                _ => {}
+            }
+        }
+
+        assert_eq!(surface.title(), "server title");
+        assert_eq!(
+            subscribed_event_json(&MuxEvent::TitleChanged {
+                surface: surface.id,
+                title: Arc::<str>::from("server title"),
+            }),
+            json!({
+                "event": "title-changed",
+                "surface": surface.id,
+                "title": "server title",
+            })
+        );
     }
 
     #[test]

@@ -16,6 +16,8 @@ extension MobileTerminalRenderGridFrame {
             terminalBackground: terminalBackground,
             terminalCursorColor: terminalCursorColor,
             terminalCursorTextColor: terminalCursorTextColor,
+            terminalTheme: terminalTheme,
+            terminalConfigTheme: terminalConfigTheme,
             rowSignatures: rowSignatures()
         )
     }
@@ -47,6 +49,8 @@ extension MobileTerminalRenderGridFrame {
             terminalBackground: terminalBackground,
             terminalCursorColor: terminalCursorColor,
             terminalCursorTextColor: terminalCursorTextColor,
+            terminalTheme: terminalTheme,
+            terminalConfigTheme: terminalConfigTheme,
             rowSignatures: nextSignatures
         )
         if let previous, previous.producerEpoch != producerEpoch {
@@ -58,6 +62,12 @@ extension MobileTerminalRenderGridFrame {
             return (self, nextState)
         }
         if previous.activeScreen != activeScreen {
+            return (self, nextState)
+        }
+        if previous.terminalTheme != terminalTheme {
+            return (self, nextState)
+        }
+        if previous.terminalConfigTheme != terminalConfigTheme {
             return (self, nextState)
         }
 

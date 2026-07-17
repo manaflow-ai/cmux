@@ -11,7 +11,7 @@ extension TerminalSurface {
         guard let surface = liveSurfaceForGhosttyAccess(reason: "mobileOutputSequence") else {
             return nil
         }
-        return ghostty_surface_output_sequence(surface)
+        return ghostty_surface_pty_output_sequence(surface)
     }
 
     /// Forward a mobile scroll gesture to this real surface. libghostty does the
@@ -62,7 +62,8 @@ extension TerminalSurface {
     }
 
     /// Exports the surface grid as a mobile render frame (optionally filtered
-    /// to changed rows).
+    /// to changed rows). Ghostty captures the grid and its parser sequence under
+    /// one terminal-state lock, so callers never assign a guessed sequence.
     @MainActor
     public func mobileRenderGridFrame(
         full: Bool = true,
@@ -71,21 +72,28 @@ extension TerminalSurface {
     ) -> (frame: MobileTerminalRenderGridFrame, rows: [String])? {
         guard let surface = liveSurfaceForGhosttyAccess(reason: "mobileRenderGrid") else { return nil }
         let surfaceID = id.uuidString
+        var capturedStateSeq: UInt64 = 0
+        var status = GHOSTTY_RENDER_GRID_FAILURE
         let exported = surfaceID.withCString { ptr in
             ghostty_surface_render_grid_json(
                 surface,
                 ptr,
                 UInt(surfaceID.utf8.count),
-                UInt(max(0, scrollbackLines))
+                UInt(max(0, scrollbackLines)),
+                &capturedStateSeq,
+                &status
             )
         }
         defer { ghostty_string_free(exported) }
-        guard let ptr = exported.ptr, exported.len > 0 else { return nil }
+        guard status == GHOSTTY_RENDER_GRID_SUCCESS,
+              let ptr = exported.ptr,
+              exported.len > 0 else { return nil }
 
         let data = Data(bytes: ptr, count: Int(exported.len))
         guard var fullFrame = try? JSONDecoder().decode(MobileTerminalRenderGridFrame.self, from: data) else {
             return nil
         }
+        guard fullFrame.stateSeq == capturedStateSeq else { return nil }
         mobileRenderRevision &+= 1
         fullFrame.producerEpoch = mobileRenderProducerEpoch
         fullFrame.renderRevision = mobileRenderRevision

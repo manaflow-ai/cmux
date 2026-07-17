@@ -18,16 +18,24 @@ const defaultSubrouterBaseUrl = (): string =>
     ? "https://subrouter.cmux.dev"
     : "https://subrouter-staging.cmux.dev";
 
+const isDocsZone =
+  process.env.CMUX_DOCS_CHANNEL === "release" ||
+  process.env.CMUX_DOCS_CHANNEL === "nightly";
 const skipEnvValidation =
   process.env.SKIP_ENV_VALIDATION === "1" ||
-  process.env.VERCEL_ENV === "preview";
-const allowPreviewStackPlaceholders = process.env.VERCEL_ENV === "preview";
+  process.env.VERCEL_ENV === "preview" ||
+  isDocsZone;
+const allowPreviewStackPlaceholders =
+  process.env.VERCEL_ENV === "preview" || isDocsZone;
 const isVercelNonPreviewDeployment =
   process.env.VERCEL === "1" &&
   typeof process.env.VERCEL_ENV === "string" &&
-  process.env.VERCEL_ENV !== "preview";
+  process.env.VERCEL_ENV !== "preview" &&
+  !isDocsZone;
 const isVercelProductionDeployment =
-  process.env.VERCEL === "1" && process.env.VERCEL_ENV === "production";
+  process.env.VERCEL === "1" &&
+  process.env.VERCEL_ENV === "production" &&
+  !isDocsZone;
 const irohMinterUrlPolicy: IrohMinterUrlPolicy = {
   allowInsecureLoopback:
     trimEnv(process.env.CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER) === "1",
@@ -70,6 +78,14 @@ const irohMinterUrl = z.string().url().superRefine((value, context) => {
       code: z.ZodIssueCode.custom,
       message:
         "CMUX_IROH_MINT_URL must use HTTPS, except for an opted-in local loopback development minter",
+    });
+  }
+});
+const irohBindingLimit = z.string().regex(/^[1-9][0-9]{0,3}$/).superRefine((value, context) => {
+  if (Number(value) > 4_096) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Iroh binding limits must not exceed 4096",
     });
   }
 });
@@ -182,6 +198,8 @@ export const env = createEnv({
     CMUX_IROH_DEV_BINDING_OVERRIDE_ENABLED: z.enum(["0", "1"]).optional(),
     CMUX_IROH_DEV_BINDING_OVERRIDE_USER_IDS: z.string().max(8_192).optional(),
     CMUX_IROH_DEV_BINDING_OVERRIDE_ENVIRONMENTS: z.string().max(256).optional(),
+    CMUX_IROH_DEV_BINDING_ACCOUNT_LIMIT: irohBindingLimit.optional(),
+    CMUX_IROH_DEV_BINDING_DEVICE_LIMIT: irohBindingLimit.optional(),
   },
   client: {
     NEXT_PUBLIC_STACK_PROJECT_ID: z.string().min(1),
@@ -234,6 +252,8 @@ export const env = createEnv({
     CMUX_IROH_DEV_BINDING_OVERRIDE_ENABLED: trimEnv(process.env.CMUX_IROH_DEV_BINDING_OVERRIDE_ENABLED),
     CMUX_IROH_DEV_BINDING_OVERRIDE_USER_IDS: trimEnv(process.env.CMUX_IROH_DEV_BINDING_OVERRIDE_USER_IDS),
     CMUX_IROH_DEV_BINDING_OVERRIDE_ENVIRONMENTS: trimEnv(process.env.CMUX_IROH_DEV_BINDING_OVERRIDE_ENVIRONMENTS),
+    CMUX_IROH_DEV_BINDING_ACCOUNT_LIMIT: trimEnv(process.env.CMUX_IROH_DEV_BINDING_ACCOUNT_LIMIT),
+    CMUX_IROH_DEV_BINDING_DEVICE_LIMIT: trimEnv(process.env.CMUX_IROH_DEV_BINDING_DEVICE_LIMIT),
     NEXT_PUBLIC_STACK_PROJECT_ID: stackEnv(
       process.env.NEXT_PUBLIC_STACK_PROJECT_ID,
       "00000000-0000-4000-8000-000000000000"

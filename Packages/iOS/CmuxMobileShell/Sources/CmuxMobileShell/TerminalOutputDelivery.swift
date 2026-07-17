@@ -7,12 +7,14 @@ struct TerminalOutputDelivery: Equatable, Sendable {
     enum ReplacementScope: Equatable, Sendable {
         case byteViewport
         case renderGridViewport
+        case terminalTheme
         case viewportPolicy
     }
 
     private enum Payload: Equatable, Sendable {
         case bytes(Data)
         case renderGrid(MobileTerminalRenderGridFrame)
+        case theme(MobileTerminalRenderGridFrame)
     }
 
     private var payload: Payload
@@ -32,6 +34,12 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         self.payload = .bytes(bytes)
         self.replacementScope = replaceable ? (replacementScope ?? .byteViewport) : nil
         self.viewportPolicy = viewportPolicy
+    }
+
+    init(theme frame: MobileTerminalRenderGridFrame) {
+        self.payload = .theme(frame)
+        self.replacementScope = .terminalTheme
+        self.viewportPolicy = nil
     }
 
     init(
@@ -54,6 +62,17 @@ struct TerminalOutputDelivery: Equatable, Sendable {
             // replaying their VT patch. Direct-grid consumers receive the
             // typed frame and never read this byte representation.
             frame.vtPatchBytes()
+        case .theme(let frame):
+            MobileTerminalRenderGridReplay(frame).themePatchBytes()
+        }
+    }
+
+    var terminalConfigTheme: TerminalTheme? {
+        switch payload {
+        case .renderGrid(let frame), .theme(let frame):
+            frame.terminalConfigTheme
+        case .bytes:
+            nil
         }
     }
 
@@ -115,14 +134,20 @@ struct TerminalOutputDeliveryQueue: Sendable {
     }
 
     private mutating func appendPending(_ delivery: TerminalOutputDelivery) {
-        if let replacementScope = delivery.replacementScope,
-           let lastIndex = pending.indices.last,
-           lastIndex >= pendingHeadIndex,
-           pending[lastIndex].replacementScope == replacementScope {
-            pending[lastIndex] = delivery
-        } else {
+        guard let replacementScope = delivery.replacementScope else {
             pending.append(delivery)
+            return
         }
+        var candidateIndex = pending.count
+        while candidateIndex > pendingHeadIndex {
+            candidateIndex -= 1
+            guard pending[candidateIndex].replaceable else { break }
+            if pending[candidateIndex].replacementScope == replacementScope {
+                pending.remove(at: candidateIndex)
+                break
+            }
+        }
+        pending.append(delivery)
     }
 
     private mutating func compactPendingStorageIfNeeded() {

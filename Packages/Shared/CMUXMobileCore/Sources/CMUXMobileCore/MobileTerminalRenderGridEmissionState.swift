@@ -22,6 +22,10 @@ public struct MobileTerminalRenderGridEmissionState: Equatable, Sendable {
     public let terminalBackground: String?
     public let terminalCursorColor: String?
     public let terminalCursorTextColor: String?
+    /// Resolved terminal theme represented by the source full frame.
+    public let terminalTheme: TerminalTheme?
+    /// Raw terminal configuration theme represented by the source full frame.
+    public let terminalConfigTheme: TerminalTheme?
     /// Per-row text/style signatures from ``MobileTerminalRenderGridFrame/rowSignatures()``.
     public let rowSignatures: [String]
 
@@ -32,6 +36,8 @@ public struct MobileTerminalRenderGridEmissionState: Equatable, Sendable {
     ///   - rows: Number of rows in the frame that produced this state.
     ///   - stateSeq: Terminal byte sequence covered by the source frame.
     ///   - activeScreen: Terminal screen represented by the source frame.
+    ///   - terminalTheme: Resolved terminal theme represented by the source frame.
+    ///   - terminalConfigTheme: Raw configuration defaults represented by the source frame.
     ///   - rowSignatures: Per-row text/style signatures for the source frame.
     ///     The count must match `rows`.
     public init(
@@ -46,6 +52,8 @@ public struct MobileTerminalRenderGridEmissionState: Equatable, Sendable {
         terminalBackground: String?,
         terminalCursorColor: String?,
         terminalCursorTextColor: String?,
+        terminalTheme: TerminalTheme? = nil,
+        terminalConfigTheme: TerminalTheme? = nil,
         rowSignatures: [String]
     ) {
         precondition(columns >= 0, "columns must be non-negative")
@@ -62,6 +70,8 @@ public struct MobileTerminalRenderGridEmissionState: Equatable, Sendable {
         self.terminalBackground = terminalBackground
         self.terminalCursorColor = terminalCursorColor
         self.terminalCursorTextColor = terminalCursorTextColor
+        self.terminalTheme = terminalTheme
+        self.terminalConfigTheme = terminalConfigTheme
         self.rowSignatures = rowSignatures
     }
 }

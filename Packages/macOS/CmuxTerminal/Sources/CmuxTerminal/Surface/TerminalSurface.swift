@@ -70,8 +70,22 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     public typealias ClaudeCommandShim = TerminalSurfaceClaudeCommandShim
     public typealias CodexCommandShim = TerminalSurfaceCodexCommandShim
     public typealias CmuxContextEnvironment = TerminalSurfaceCmuxContextEnvironment
+    private var runtimeSurface: ghostty_surface_t?
     /// The live runtime surface pointer, or nil before creation/after teardown.
-    public internal(set) var surface: ghostty_surface_t?
+    public internal(set) var surface: ghostty_surface_t? {
+        get { runtimeSurface }
+        set {
+            guard runtimeSurface != newValue else { return }
+            runtimeSurface = newValue
+            runtimeSurfaceGeneration &+= 1
+        }
+    }
+    /// Monotonic lifetime identity for the native Ghostty surface.
+    ///
+    /// The generation advances whenever the runtime handle is installed or
+    /// removed, so clients can invalidate pointer-backed caches even when an
+    /// allocator later reuses the same address.
+    public private(set) var runtimeSurfaceGeneration: UInt64 = 0
     weak var attachedView: (any TerminalSurfaceNativeViewing)?
     // MARK: Injected collaborators (see TerminalSurfaceRuntimeDependencies)
     let registry: any TerminalSurfaceRegistering
@@ -191,8 +205,11 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// For MANUAL-I/O remote tmux display surfaces: whether to suppress
     /// ghostty primary-screen reflow on resize.
     var manualIONoReflow = true
-    /// Retained userdata for the MANUAL-mode `io_write_cb`; released alongside
-    /// the surface.
+    /// Retained userdata for the MANUAL-mode `io_write_cb`. ghostty's io
+    /// thread can invoke the callback until `ghostty_surface_free` returns, so
+    /// every teardown path releases this strictly after the native free
+    /// (inline in the free task, or transported through the teardown
+    /// coordinator's request).
     var manualIOContext: Unmanaged<TerminalManualIOWriteBox>?
     /// Output delivered before the runtime surface exists. Flushed once the
     /// surface is created so background mirror output is not lost.
@@ -230,6 +247,14 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var mobileRenderRevision: UInt64 = 0
     /// Process-local incarnation fence for same-UUID TerminalSurface replacement.
     let mobileRenderProducerEpoch = TerminalSurfaceMobileProducerEpoch.allocate()
+    /// tmux-assigned cell grid for manual-IO mirror panes. A mirror's grid
+    /// must EQUAL tmux's assignment, not merely fit it: a wider grid never
+    /// sets wrap flags where tmux wrapped (unwrapped reads split one tmux
+    /// line into many), a taller grid keeps stale rows tmux never repaints,
+    /// and a shorter grid drops assigned cells outright. The view renders
+    /// the pinned grid and clips or letterboxes the difference — the same
+    /// answer tmux gives a client whose size disagrees with the window.
+    var assignedGrid: (columns: Int, rows: Int)?
     /// Runtime font size to restore when mobile viewport fitting clears.
     var mobileFitBaseFontPointSize: Float?
     /// Last runtime font size applied by mobile viewport fitting.
@@ -262,10 +287,16 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var claudeCommandShimPendingCreationSource: RuntimeSurfaceCreationSource?
     /// The retained byte-tee lease for the libghostty PTY tee callback (cmux
     /// fork extension). Installed in `createSurface` after
-    /// `ghostty_surface_new` succeeds; released alongside
-    /// `surfaceCallbackContext` whenever we tear down or rebuild the
-    /// surface. The Mac sync server reads the tee'd bytes to broadcast
-    /// raw PTY output to paired iPhones (`MobileTerminalByteTee`).
+    /// `ghostty_surface_new` succeeds. The Mac sync server reads the tee'd
+    /// bytes to broadcast raw PTY output to paired iPhones
+    /// (`MobileTerminalByteTee`).
+    ///
+    /// Lifetime: the tee callback fires on ghostty's io-reader thread for
+    /// every output chunk until `ghostty_surface_free` joins that thread, so
+    /// every teardown path releases the lease strictly after the native free
+    /// (inline in the free task, or transported through the teardown
+    /// coordinator's request). Releasing earlier is a use-after-free on the
+    /// io-reader thread.
     var mobileByteTeeLease: (any TerminalByteTeeLease)?
     /// The desired focus state for the Ghostty C surface. May be set before the
     /// C surface exists (e.g. during layout restoration); `createSurface`
@@ -288,12 +319,15 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let debugForceRefreshCountLock = NSLock()
     var debugForceRefreshCountValue = 0
     /// Test-only override for the native free used by teardown paths.
-    @MainActor
-    public static var runtimeSurfaceFreeOverrideForTesting: (@Sendable (ghostty_surface_t) -> Void)?
+    // nonisolated(unsafe) so the nonisolated deinit teardown path can read it,
+    // like the @MainActor teardownSurface/suspend paths already do; tests only
+    // set and clear it on the main actor.
+    public nonisolated(unsafe) static var runtimeSurfaceFreeOverrideForTesting: (@Sendable (ghostty_surface_t) -> Void)?
 #endif
     var portalLifecycleState: PortalLifecycleState = .live
     var portalLifecycleGeneration: UInt64 = 1
     var activePortalHostLease: PortalHostLease?
+    var portalHostAuthority: TerminalPortalHostAuthority?
 
     /// The live find session, or nil when find is closed. Setting it arms the
     /// debounced needle pipeline; clearing it ends the runtime search.
@@ -491,6 +525,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// Rebinds the surface (and its views) to a new owning workspace id.
     @MainActor
     public func updateWorkspaceId(_ newTabId: UUID) {
+        if tabId != newTabId {
+            portalLifecycleGeneration &+= 1
+        }
         tabId = newTabId
         attachedView?.tabId = newTabId
         surfaceView.tabId = newTabId
@@ -586,19 +623,35 @@ public final class TerminalSurface: Identifiable, ObservableObject {
 #endif
 
         // Keep teardown asynchronous to avoid re-entrant close/deinit loops, but retain
-        // callback userdata until surface free completes so callbacks never dereference
-        // a deallocated view pointer.
+        // ALL callback userdata until the native free completes: ghostty's io-reader
+        // thread keeps firing the PTY tee callback (and the io thread the MANUAL-mode
+        // io_write_cb) until ghostty_surface_free joins those threads, so releasing
+        // manualIOContext or teeLease here would leave a use-after-free window until
+        // the coordinator's deferred free runs.
+#if DEBUG
+        if let freeSurface = Self.runtimeSurfaceFreeOverrideForTesting {
+            runtimeTeardown.enqueueRuntimeTeardown(
+                id: id,
+                workspaceId: tabId,
+                reason: "deinit",
+                surface: surfaceToFree,
+                callbackContext: callbackContext,
+                manualIOContext: manualIOContext,
+                byteTeeLease: teeLease,
+                freeSurface: freeSurface
+            )
+            return
+        }
+#endif
         runtimeTeardown.enqueueRuntimeTeardown(
             id: id,
             workspaceId: tabId,
             reason: "deinit",
             surface: surfaceToFree,
-            callbackContext: callbackContext
+            callbackContext: callbackContext,
+            manualIOContext: manualIOContext,
+            byteTeeLease: teeLease
         )
-        // The teardown coordinator releases callbackContext; manualIOContext and
-        // teeLease are not transported through the request, so release them here.
-        manualIOContext?.release()
-        teeLease?.release()
     }
 }
 

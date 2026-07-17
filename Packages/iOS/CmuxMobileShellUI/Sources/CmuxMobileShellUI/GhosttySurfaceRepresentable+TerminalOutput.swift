@@ -88,6 +88,10 @@ extension GhosttySurfaceRepresentable.Coordinator {
         store: CMUXMobileShellStore,
         surfaceID: String
     ) async -> Bool {
+        if let chunkConfigTheme = chunk.terminalConfigTheme,
+           chunkConfigTheme != store.terminalConfigTheme(for: surfaceID) {
+            return reject(chunk, store: store, surfaceID: surfaceID)
+        }
         if let renderGrid = chunk.renderGrid {
             return await presentAuthoritativeGrid(
                 renderGrid,
@@ -154,7 +158,7 @@ extension GhosttySurfaceRepresentable.Coordinator {
             // waits for the first non-empty byte chunk.
             surfaceView.useRawTerminalRenderer()
         }
-        if chunk.data.isEmpty {
+        if chunk.data.isEmpty, chunk.terminalConfigTheme == nil {
             return await applyViewportPolicy(
                 chunk,
                 to: surfaceView,
@@ -168,7 +172,10 @@ extension GhosttySurfaceRepresentable.Coordinator {
             store: store,
             surfaceID: surfaceID
         ) else { return false }
-        let applied = await surfaceView.processOutputAndWait(chunk.data)
+        let applied = await surfaceView.processOutputAndWait(
+            chunk.data,
+            terminalConfigTheme: chunk.terminalConfigTheme
+        )
         if !applied {
             store.terminalOutputDidReset(
                 surfaceID: surfaceID,

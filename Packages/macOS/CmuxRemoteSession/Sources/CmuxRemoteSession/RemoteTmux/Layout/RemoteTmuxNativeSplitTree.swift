@@ -13,10 +13,23 @@ public indirect enum RemoteTmuxNativeSplitTree: Sendable {
         case .pane:
             self = .atomic(layout)
         case .horizontal(let children):
-            self = Self.joined(children: children, orientation: .horizontal) ?? .atomic(layout)
+            self = Self.joined(children: children, orientation: .horizontal)?
+                .replacingTopLayout(with: layout) ?? .atomic(layout)
         case .vertical(let children):
-            self = Self.joined(children: children, orientation: .vertical) ?? .atomic(layout)
+            self = Self.joined(children: children, orientation: .vertical)?
+                .replacingTopLayout(with: layout) ?? .atomic(layout)
         }
+    }
+
+    /// The synthesized join spans only the children's bounds; the ORIGINAL
+    /// node's span also holds any window-edge title row tmux placed outside
+    /// every child. The top of each joined group keeps the original node so
+    /// span-derived accounting (actual gap cells, minimum spans) sees the
+    /// coordinates tmux actually assigned. Nested synthesized joins keep
+    /// their child-bounds — their gaps are interior by construction.
+    private func replacingTopLayout(with layout: RemoteTmuxLayoutNode) -> RemoteTmuxNativeSplitTree {
+        guard case .split(_, let orientation, let first, let second) = self else { return self }
+        return .split(layout: layout, orientation: orientation, first: first, second: second)
     }
 
     public var layout: RemoteTmuxLayoutNode {
@@ -76,7 +89,12 @@ public indirect enum RemoteTmuxNativeSplitTree: Sendable {
     /// Tmux resizes the target pane's nearest split along the requested axis.
     /// Select a pane whose path reaches this subtree without crossing a nearer
     /// same-axis split; otherwise this ancestor cannot be addressed safely.
-    private func resizeCommandTargetPaneID(avoiding orientation: RemoteTmuxSplitOrientation) -> Int? {
+    /// Public because every resize-pane sender must apply this same rule:
+    /// the control path routes through paneResizeContext, and the
+    /// divider-drag path addresses a split's first subtree directly — naming
+    /// a pane behind an inner same-axis split there made tmux resize the
+    /// inner split instead of the dragged one.
+    public func resizeCommandTargetPaneID(avoiding orientation: RemoteTmuxSplitOrientation) -> Int? {
         switch self {
         case .atomic(let pane):
             guard case .pane(let paneID) = pane.content else { return nil }
