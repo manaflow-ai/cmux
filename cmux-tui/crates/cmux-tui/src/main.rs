@@ -99,7 +99,7 @@ CLI VERBS
   swap-pane, zoom-pane, process-info, set-default-colors,
   close-surface, close-pane, close-screen, close-workspace,
   rename-pane, rename-surface, rename-screen, rename-workspace,
-  resize-surface, focus-pane, select-tab, select-screen,
+  resize-surface, release-surface-size, focus-pane, select-tab, select-screen,
   select-workspace, move-tab, move-workspace, scroll-surface,
   subscribe, attach-surface, wait-for, run, send-key, copy, ids,
   notify, list-agents, report-agent

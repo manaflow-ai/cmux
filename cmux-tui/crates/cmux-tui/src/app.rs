@@ -724,6 +724,10 @@ impl OrderedSession {
         self.inner.has_surface(id)
     }
 
+    fn has_surface_size_report(&self, id: SurfaceId) -> bool {
+        self.inner.has_surface_size_report(id)
+    }
+
     fn surface_overflow_retry_due(&self) -> bool {
         self.inner.surface_overflow_retry_due()
     }
@@ -1121,6 +1125,14 @@ impl OrderedSession {
                 pending.defer(SessionMutationOutcome::Success { tree: None });
                 Ok(())
             },
+        );
+    }
+
+    fn release_surface_size(&self, surface: SurfaceId) {
+        self.enqueue_coalescing_session_mutation(
+            "release hidden surface sizing",
+            ("surface size release", surface),
+            move |session| session.release_surface_size(surface),
         );
     }
 
@@ -1677,7 +1689,7 @@ impl MenuAction {
             MenuAction::ClosePane(_) => "Close pane",
             MenuAction::SetClientSizing { enabled: true, .. } => "Use for sizing",
             MenuAction::SetClientSizing { enabled: false, .. } => "Exclude from sizing",
-            MenuAction::UseClientSize(_) => "Use only this client's size",
+            MenuAction::UseClientSize(_) => "Use only this client size",
             MenuAction::RestoreAllClientSizing => "Use all client sizes",
             MenuAction::DisconnectClient(_) => "Disconnect",
         }
@@ -1947,7 +1959,17 @@ fn client_menu_item(clients: &[ClientInfo], surface: SurfaceId) -> Option<MenuIt
     if clients.is_empty() {
         return None;
     }
-    let mut items = vec![MenuItem::Action(MenuAction::RestoreAllClientSizing), MenuItem::Separator];
+    let mut items = Vec::new();
+    if let Some(current) = clients.iter().find(|client| {
+        client.is_self
+            && client
+                .sizes
+                .iter()
+                .any(|size| size.surface == surface && size.cols.is_some() && size.rows.is_some())
+    }) {
+        items.push(MenuItem::Action(MenuAction::UseClientSize(current.client)));
+    }
+    items.extend([MenuItem::Action(MenuAction::RestoreAllClientSizing), MenuItem::Separator]);
     for client in clients {
         let reported_size = client
             .sizes
@@ -2181,6 +2203,10 @@ pub struct App {
     pub graphics_supported: bool,
     stdout_lock: Arc<Mutex<()>>,
     pub pane_areas: Vec<PaneArea>,
+    /// Surfaces whose active tabs were visible in the previous layout pass.
+    /// Attach streams may outlive this set, but only members hold size leases.
+    visible_size_surfaces: HashSet<SurfaceId>,
+    client_view_follow: ClientViewFollow,
     pub prefix_armed: bool,
     pub session_label: String,
     pub sidebar_visible: bool,
@@ -2242,6 +2268,96 @@ pub struct App {
     encoder: KeyEncoder,
     encode_buf: Vec<u8>,
     quit: bool,
+}
+
+#[derive(Default)]
+struct ClientViewFollow {
+    workspace: bool,
+    screens: HashSet<WorkspaceId>,
+    panes: HashSet<cmux_tui_core::ScreenId>,
+    tabs: HashSet<PaneId>,
+}
+
+fn preserve_client_view(previous: &TreeView, next: &mut TreeView, follow: &mut ClientViewFollow) {
+    let previous_workspace_ids =
+        previous.workspaces.iter().map(|workspace| workspace.id).collect::<HashSet<_>>();
+    let added_workspace = next
+        .workspaces
+        .iter()
+        .position(|workspace| !previous_workspace_ids.contains(&workspace.id));
+    if follow.workspace && added_workspace.is_some() {
+        next.active_workspace = added_workspace.unwrap();
+        follow.workspace = false;
+    } else if let Some(active) = previous.active_workspace().map(|workspace| workspace.id)
+        && let Some(index) = next.workspaces.iter().position(|workspace| workspace.id == active)
+    {
+        next.active_workspace = index;
+    }
+
+    for previous_workspace in &previous.workspaces {
+        let Some(next_workspace) =
+            next.workspaces.iter_mut().find(|workspace| workspace.id == previous_workspace.id)
+        else {
+            continue;
+        };
+        let previous_screen_ids =
+            previous_workspace.screens.iter().map(|screen| screen.id).collect::<HashSet<_>>();
+        let added_screen = next_workspace
+            .screens
+            .iter()
+            .position(|screen| !previous_screen_ids.contains(&screen.id));
+        if follow.screens.contains(&previous_workspace.id) && added_screen.is_some() {
+            next_workspace.active_screen = added_screen.unwrap();
+            follow.screens.remove(&previous_workspace.id);
+        } else if let Some(active) =
+            previous_workspace.screens.get(previous_workspace.active_screen).map(|screen| screen.id)
+            && let Some(index) =
+                next_workspace.screens.iter().position(|screen| screen.id == active)
+        {
+            next_workspace.active_screen = index;
+        }
+
+        for previous_screen in &previous_workspace.screens {
+            let Some(next_screen) =
+                next_workspace.screens.iter_mut().find(|screen| screen.id == previous_screen.id)
+            else {
+                continue;
+            };
+            let previous_panes =
+                previous_screen.panes.iter().map(|pane| pane.id).collect::<HashSet<_>>();
+            let added_pane = next_screen
+                .panes
+                .iter()
+                .find(|pane| !previous_panes.contains(&pane.id))
+                .map(|pane| pane.id);
+            if follow.panes.contains(&previous_screen.id) && added_pane.is_some() {
+                next_screen.active_pane = added_pane.unwrap();
+                follow.panes.remove(&previous_screen.id);
+            } else if next_screen.panes.iter().any(|pane| pane.id == previous_screen.active_pane) {
+                next_screen.active_pane = previous_screen.active_pane;
+            }
+
+            for previous_pane in &previous_screen.panes {
+                let Some(next_pane) =
+                    next_screen.panes.iter_mut().find(|pane| pane.id == previous_pane.id)
+                else {
+                    continue;
+                };
+                let previous_surfaces =
+                    previous_pane.tabs.iter().map(|tab| tab.surface).collect::<HashSet<_>>();
+                let added_tab =
+                    next_pane.tabs.iter().position(|tab| !previous_surfaces.contains(&tab.surface));
+                if follow.tabs.contains(&previous_pane.id) && added_tab.is_some() {
+                    next_pane.active_tab = added_tab.unwrap();
+                    follow.tabs.remove(&previous_pane.id);
+                } else if let Some(active) = previous_pane.active_surface()
+                    && let Some(index) = next_pane.tabs.iter().position(|tab| tab.surface == active)
+                {
+                    next_pane.active_tab = index;
+                }
+            }
+        }
+    }
 }
 
 /// Sidebar width for a terminal width: the configured width, hidden on
@@ -2502,6 +2618,8 @@ pub fn run(
         graphics_supported,
         stdout_lock: stdout_lock.clone(),
         pane_areas: Vec::new(),
+        visible_size_surfaces: HashSet::new(),
+        client_view_follow: ClientViewFollow::default(),
         prefix_armed: false,
         session_label,
         sidebar_visible: true,
@@ -2847,7 +2965,10 @@ impl App {
         changed
     }
 
-    fn replace_tree(&mut self, tree: TreeView) {
+    fn replace_tree(&mut self, mut tree: TreeView) {
+        if self.session.remote {
+            preserve_client_view(&self.tree, &mut tree, &mut self.client_view_follow);
+        }
         let live_browsers = tree
             .workspaces
             .iter()
@@ -3208,7 +3329,14 @@ impl App {
             .unwrap_or_default();
 
         self.pane_areas.clear();
-        let Some(screen) = self.tree.active_screen().cloned() else { return };
+        let Some(screen) = self.tree.active_screen().cloned() else {
+            if self.visible_size_surfaces.is_empty() || self.prepare_pty_input_before_mutation() {
+                for surface in std::mem::take(&mut self.visible_size_surfaces) {
+                    self.session.release_surface_size(surface);
+                }
+            }
+            return;
+        };
         for (pane_id, rect) in layout.panes {
             let Some(pane) = screen.pane(pane_id) else { continue };
             let Some(surface_id) = pane.active_surface() else { continue };
@@ -3225,49 +3353,70 @@ impl App {
                 content,
                 track,
             });
-            if content.width == 0 || content.height == 0 {
-                continue;
-            }
-            // Size every tab in the pane, so switching tabs doesn't
-            // trigger a resize flash. Passing the size means remote
-            // mirrors attach at final geometry (replay is taken after the
-            // server-side resize, so no post-attach reflow artifacts).
-            let size = Some((content.width, content.height));
+        }
+
+        let visible = self
+            .pane_areas
+            .iter()
+            .filter(|area| area.content.width > 0 && area.content.height > 0)
+            .map(|area| area.surface)
+            .collect::<HashSet<_>>();
+        let hidden = self.visible_size_surfaces.difference(&visible).copied().collect::<Vec<_>>();
+        if !hidden.is_empty() && !self.prepare_pty_input_before_mutation() {
+            return;
+        }
+        for surface in hidden {
+            self.session.release_surface_size(surface);
+        }
+        let newly_visible =
+            visible.difference(&self.visible_size_surfaces).copied().collect::<HashSet<_>>();
+        self.visible_size_surfaces = visible;
+
+        // Keep inactive tabs attached for instant rendering, but give only
+        // each pane's active tab a sizing lease. This makes visibility, not
+        // cached transport state, the shared-size ownership boundary.
+        for index in 0..self.pane_areas.len() {
+            let area = self.pane_areas[index];
+            let Some(pane) = screen.pane(area.pane) else { continue };
             for tab in &pane.tabs {
-                if !self.session.has_surface(tab.surface) {
-                    if self.session.can_attach_surface(tab.surface)
-                        && self.prepare_pty_input_before_mutation()
-                    {
-                        self.session.attach_surface(tab.surface, size);
-                    }
+                if self.session.has_surface(tab.surface) {
                     continue;
                 }
-                if let Some(surface) = self.session.surface(tab.surface) {
-                    let desired = (content.width, content.height);
-                    if surface.kind() == SurfaceKind::Browser
-                        && self.browser_input.resize_failed(tab.surface, desired)
-                    {
-                        continue;
-                    }
-                    let needs = surface.resize_needed(content.width, content.height, false);
-                    if let SurfaceResizeDecision::NeedsQueue(claim) =
-                        self.session.surface_resize_decision(
-                            tab.surface,
-                            (content.width, content.height),
-                            needs,
-                        )
-                        && self.prepare_pty_input_before_mutation()
-                    {
-                        self.enqueue_surface_resize(
-                            tab.surface,
-                            surface,
-                            content.width,
-                            content.height,
-                            false,
-                            Some(claim),
-                        );
-                    }
+                let size = (tab.surface == area.surface)
+                    .then_some((area.content.width, area.content.height))
+                    .filter(|(cols, rows)| *cols > 0 && *rows > 0);
+                if self.session.can_attach_surface(tab.surface)
+                    && self.prepare_pty_input_before_mutation()
+                {
+                    self.session.attach_surface(tab.surface, size);
                 }
+            }
+
+            if area.content.width == 0 || area.content.height == 0 {
+                continue;
+            }
+            let Some(surface) = self.session.surface(area.surface) else { continue };
+            let desired = (area.content.width, area.content.height);
+            if surface.kind() == SurfaceKind::Browser
+                && self.browser_input.resize_failed(area.surface, desired)
+            {
+                continue;
+            }
+            let needs = newly_visible.contains(&area.surface)
+                || !self.session.has_surface_size_report(area.surface)
+                || surface.resize_needed(area.content.width, area.content.height, false);
+            if let SurfaceResizeDecision::NeedsQueue(claim) =
+                self.session.surface_resize_decision(area.surface, desired, needs)
+                && self.prepare_pty_input_before_mutation()
+            {
+                self.enqueue_surface_resize(
+                    area.surface,
+                    surface,
+                    area.content.width,
+                    area.content.height,
+                    false,
+                    Some(claim),
+                );
             }
         }
     }
@@ -4189,7 +4338,44 @@ impl App {
         if !self.prepare_pty_input_before_mutation() {
             return Ok(());
         }
-        self.session.split(pane, dir, hint)
+        let followed_screen = self
+            .session
+            .remote
+            .then(|| {
+                self.tree
+                    .workspaces
+                    .iter()
+                    .flat_map(|workspace| workspace.screens.iter())
+                    .find(|screen| screen.panes.iter().any(|candidate| candidate.id == pane))
+                    .map(|screen| screen.id)
+            })
+            .flatten();
+        if let Some(screen) = followed_screen {
+            self.client_view_follow.panes.insert(screen);
+        }
+        let result = self.session.split(pane, dir, hint);
+        if result.is_err()
+            && let Some(screen) = followed_screen
+        {
+            self.client_view_follow.panes.remove(&screen);
+        }
+        result
+    }
+
+    fn new_terminal_tab(&mut self, pane: Option<PaneId>) -> anyhow::Result<()> {
+        let pane = pane.or_else(|| self.active_pane());
+        if self.session.remote
+            && let Some(pane) = pane
+        {
+            self.client_view_follow.tabs.insert(pane);
+        }
+        let result = self.session.new_tab(pane, self.terminal_tab_size_hint(pane));
+        if result.is_err()
+            && let Some(pane) = pane
+        {
+            self.client_view_follow.tabs.remove(&pane);
+        }
+        result
     }
 
     fn terminal_tab_size_hint(&self, pane: Option<PaneId>) -> Option<(u16, u16)> {
@@ -4219,14 +4405,31 @@ impl App {
         if !self.prepare_pty_input_before_mutation() {
             return Ok(());
         }
-        self.session.new_workspace(self.size_of_rect(self.content_area))
+        self.client_view_follow.workspace |= self.session.remote;
+        let result = self.session.new_workspace(self.size_of_rect(self.content_area));
+        if result.is_err() {
+            self.client_view_follow.workspace = false;
+        }
+        result
     }
 
     fn new_screen(&mut self) -> anyhow::Result<()> {
         if !self.prepare_pty_input_before_mutation() {
             return Ok(());
         }
-        self.session.new_screen(self.size_of_rect(self.content_area))
+        let workspace = self.tree.active_workspace().map(|workspace| workspace.id);
+        if self.session.remote
+            && let Some(workspace) = workspace
+        {
+            self.client_view_follow.screens.insert(workspace);
+        }
+        let result = self.session.new_screen(self.size_of_rect(self.content_area));
+        if result.is_err()
+            && let Some(workspace) = workspace
+        {
+            self.client_view_follow.screens.remove(&workspace);
+        }
+        result
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> anyhow::Result<RenderAction> {
@@ -4303,7 +4506,7 @@ impl App {
                         .min(self.tree.workspaces.len().saturating_sub(1));
                 }
                 KeyCode::Enter => {
-                    self.session.select_workspace(Some(self.sidebar_workspace_selection), None);
+                    self.select_workspace_for_client(Some(self.sidebar_workspace_selection), None);
                 }
                 _ => {}
             },
@@ -4590,15 +4793,15 @@ impl App {
         let pane = self.active_pane();
         match action {
             Action::NewTab => {
-                self.session.new_tab(pane, self.terminal_tab_size_hint(pane))?;
+                self.new_terminal_tab(pane)?;
             }
             Action::NewBrowserTab => self.create_browser_tab_for_edit(pane)?,
             Action::NewPaneSmart => self.new_pane_smart()?,
-            Action::NextTab => self.session.select_tab(pane, None, Some(1)),
-            Action::PrevTab => self.session.select_tab(pane, None, Some(-1)),
+            Action::NextTab => self.select_tab_for_client(pane, None, Some(1)),
+            Action::PrevTab => self.select_tab_for_client(pane, None, Some(-1)),
             Action::SelectTab(_) => {
                 if let Some(index) = action.tab_index() {
-                    self.session.select_tab(pane, Some(index), None);
+                    self.select_tab_for_client(pane, Some(index), None);
                 }
             }
             Action::SplitRight => {
@@ -4632,15 +4835,15 @@ impl App {
                     self.session.close_screen(screen);
                 }
             }
-            Action::PrevScreen => self.session.select_screen(None, Some(-1)),
-            Action::NextScreen => self.session.select_screen(None, Some(1)),
+            Action::PrevScreen => self.select_screen_for_client(None, Some(-1)),
+            Action::NextScreen => self.select_screen_for_client(None, Some(1)),
             Action::SelectScreen(_) => {
                 if let Some(index) = action.screen_index() {
-                    self.session.select_screen(Some(index), None);
+                    self.select_screen_for_client(Some(index), None);
                 }
             }
             Action::NewScreen => self.new_screen()?,
-            Action::NextWorkspace => self.session.select_workspace(None, Some(1)),
+            Action::NextWorkspace => self.select_workspace_for_client(None, Some(1)),
             Action::NewWorkspace => self.new_workspace()?,
             Action::ToggleSidebar => {
                 self.sidebar_visible = !self.sidebar_visible;
@@ -4738,12 +4941,23 @@ impl App {
         if !self.prepare_pty_input_before_mutation() {
             return Ok(());
         }
-        self.session.new_browser_tab(
+        let pane = pane.or_else(|| self.active_pane());
+        if self.session.remote
+            && let Some(pane) = pane
+        {
+            self.client_view_follow.tabs.insert(pane);
+        }
+        let result = self.session.new_browser_tab(
             "about:blank".to_string(),
             pane,
             self.browser_tab_size_hint(pane),
-        )?;
-        Ok(())
+        );
+        if result.is_err()
+            && let Some(pane) = pane
+        {
+            self.client_view_follow.tabs.remove(&pane);
+        }
+        result
     }
 
     fn focus_omnibar(&mut self, pane: PaneId) {
@@ -4925,7 +5139,7 @@ impl App {
                 }
             }
             MenuAction::NewTab(id) => {
-                self.session.new_tab(Some(id), self.terminal_tab_size_hint(Some(id)))?;
+                self.new_terminal_tab(Some(id))?;
             }
             MenuAction::NewBrowserTab(id) => self.create_browser_tab_for_edit(Some(id))?,
             MenuAction::SplitRight(id) => self.split_pane(id, SplitDir::Right)?,
@@ -5971,8 +6185,66 @@ impl App {
 
     fn focus_pane_after_input(&mut self, pane: PaneId) {
         if self.prepare_pty_input_before_mutation() {
+            if self.session.remote
+                && let Some(screen) = self.tree.active_workspace_mut_screen()
+                && screen.panes.iter().any(|candidate| candidate.id == pane)
+            {
+                screen.active_pane = pane;
+            }
             self.session.focus_pane(pane);
         }
+    }
+
+    fn select_tab_for_client(
+        &mut self,
+        pane: Option<PaneId>,
+        index: Option<usize>,
+        delta: Option<isize>,
+    ) {
+        let pane = pane.or_else(|| self.active_pane());
+        if self.session.remote
+            && let Some(pane_id) = pane
+            && let Some(pane) = self.tree.pane_mut(pane_id)
+            && !pane.tabs.is_empty()
+        {
+            if let Some(index) = index.filter(|index| *index < pane.tabs.len()) {
+                pane.active_tab = index;
+            } else if let Some(delta) = delta {
+                pane.active_tab = ((pane.active_tab as isize + delta)
+                    .rem_euclid(pane.tabs.len() as isize))
+                    as usize;
+            }
+        }
+        self.session.select_tab(pane, index, delta);
+    }
+
+    fn select_screen_for_client(&mut self, index: Option<usize>, delta: Option<isize>) {
+        if self.session.remote
+            && let Some(workspace) = self.tree.active_workspace_mut()
+            && !workspace.screens.is_empty()
+        {
+            if let Some(index) = index.filter(|index| *index < workspace.screens.len()) {
+                workspace.active_screen = index;
+            } else if let Some(delta) = delta {
+                workspace.active_screen = ((workspace.active_screen as isize + delta)
+                    .rem_euclid(workspace.screens.len() as isize))
+                    as usize;
+            }
+        }
+        self.session.select_screen(index, delta);
+    }
+
+    fn select_workspace_for_client(&mut self, index: Option<usize>, delta: Option<isize>) {
+        if self.session.remote && !self.tree.workspaces.is_empty() {
+            if let Some(index) = index.filter(|index| *index < self.tree.workspaces.len()) {
+                self.tree.active_workspace = index;
+            } else if let Some(delta) = delta {
+                self.tree.active_workspace = ((self.tree.active_workspace as isize + delta)
+                    .rem_euclid(self.tree.workspaces.len() as isize))
+                    as usize;
+            }
+        }
+        self.session.select_workspace(index, delta);
     }
 
     fn current_pty_content(&self, surface: SurfaceId) -> Option<Rect> {
@@ -6256,7 +6528,7 @@ impl App {
                 Hit::SidebarFile { index } => self.sidebar_files.select(index),
                 Hit::ScreenEntry { index, .. } => {
                     if self.prepare_pty_input_before_mutation() {
-                        self.session.select_screen(Some(index), None);
+                        self.select_screen_for_client(Some(index), None);
                     }
                 }
                 Hit::NewScreen => self.new_screen()?,
@@ -6430,7 +6702,7 @@ impl App {
             if let Some((pane, index)) = self.tab_location(surface) {
                 self.focus_pane_after_input(pane);
                 if self.prepare_pty_input_before_mutation() {
-                    self.session.select_tab(Some(pane), Some(index), None);
+                    self.select_tab_for_client(Some(pane), Some(index), None);
                 }
             }
             return Ok(RenderAction::Draw);
@@ -6449,7 +6721,7 @@ impl App {
             if let Some(index) = self.workspace_index(workspace)
                 && self.prepare_pty_input_before_mutation()
             {
-                self.session.select_workspace(Some(index), None);
+                self.select_workspace_for_client(Some(index), None);
             }
             return Ok(RenderAction::Draw);
         }
@@ -7031,14 +7303,14 @@ fn browser_key_mapping(
 #[cfg(test)]
 mod tests {
     use super::{
-        App, AppEvent, BACKGROUND_REFRESH_RETRIES, ContextMenu, DeferredInput, Drag,
-        ForwardMuxOutcome, MenuAction, MenuItem, MuxTitleIngress, OrderedSession, PaneArea,
+        App, AppEvent, BACKGROUND_REFRESH_RETRIES, ClientViewFollow, ContextMenu, DeferredInput,
+        Drag, ForwardMuxOutcome, MenuAction, MenuItem, MuxTitleIngress, OrderedSession, PaneArea,
         PendingSessionMutation, PendingSessionMutationState, PtyFailureIngress,
         PtyMousePressResult, RenderAction, Selection, SessionCompletion, SessionCompletionAction,
         SidebarPluginSyncClaim, SidebarPluginSyncState, SurfaceResizeDecision,
         SurfaceResizeOwnership, browser_content_size_for_rect, browser_hover_forward_allowed,
         client_menu_item, forward_mux_event, forward_mux_events, pane_context_menu_groups,
-        pane_parts_for_rect, record_surface_resize_dispatch_result,
+        pane_parts_for_rect, preserve_client_view, record_surface_resize_dispatch_result,
         sidebar_plugin_status_settles_passive_claim,
     };
     use std::collections::{HashMap, HashSet, VecDeque};
@@ -7067,7 +7339,9 @@ mod tests {
         PtyOperationDelivery, PtyOperationFailure,
     };
     use crate::session::tree::{PaneView, ScreenView, TabNotificationView, TabView, WorkspaceView};
-    use crate::session::{ClientInfo, Session, SidebarPluginSurface, SurfaceHandle, TreeView};
+    use crate::session::{
+        ClientInfo, ClientSizeInfo, Session, SidebarPluginSurface, SurfaceHandle, TreeView,
+    };
     use crate::sidebar_files::FileBrowser;
 
     fn settled(outcome: super::SessionMutationOutcome) -> AppEvent {
@@ -7182,6 +7456,31 @@ mod tests {
             panic!("expected client submenu");
         };
         assert_eq!(items, &vec![MenuItem::Action(MenuAction::DisconnectClient(7))]);
+    }
+
+    #[test]
+    fn current_client_size_action_is_immediately_above_restore_all() {
+        let current = ClientInfo {
+            client: 7,
+            transport: "unix".to_string(),
+            name: None,
+            kind: Some("tui".to_string()),
+            connected_seconds: 1,
+            attached: vec![31],
+            sizes: vec![ClientSizeInfo { surface: 31, cols: Some(80), rows: Some(24) }],
+            is_self: true,
+            size_participating: true,
+        };
+        let Some(MenuItem::Submenu { items, .. }) = client_menu_item(&[current], 31) else {
+            panic!("expected connected clients submenu");
+        };
+        assert_eq!(
+            &items[..2],
+            &[
+                MenuItem::Action(MenuAction::UseClientSize(7)),
+                MenuItem::Action(MenuAction::RestoreAllClientSizing),
+            ]
+        );
     }
 
     #[test]
@@ -8042,6 +8341,36 @@ mod tests {
             app.status_message.as_deref(),
             Some("Deferred input was discarded because its destination changed")
         );
+    }
+
+    #[test]
+    fn tab_switch_moves_size_lease_without_dropping_hidden_surface() {
+        let mux = Mux::new("visible-tab-sizing-test", SurfaceOptions::default());
+        let first = mux.new_workspace(None, Some((120, 40))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_tab(Some(pane), None, Some((120, 40))).unwrap();
+        mux.select_tab(Some(pane), Some(0), None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sync_layout((160, 50));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+
+        assert!(mux.client_surface_size(first.id, 0).is_some());
+        assert_eq!(mux.client_surface_size(second.id, 0), None);
+        assert!(app.session.has_surface(second.id));
+
+        mux.select_tab(Some(pane), Some(1), None);
+        app.sync_layout((160, 50));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+
+        assert_eq!(mux.client_surface_size(first.id, 0), None);
+        assert!(mux.client_surface_size(second.id, 0).is_some());
+        assert!(app.session.has_surface(first.id));
+        let workspace = mux.with_state(|state| state.workspaces[state.active_workspace].id);
+        mux.close_workspace(workspace);
     }
 
     #[test]
@@ -10078,6 +10407,8 @@ mod tests {
             graphics_supported: false,
             stdout_lock: Arc::new(Mutex::new(())),
             pane_areas: Vec::new(),
+            visible_size_surfaces: HashSet::new(),
+            client_view_follow: ClientViewFollow::default(),
             prefix_armed: false,
             session_label: "test".to_string(),
             sidebar_visible: true,
@@ -10167,6 +10498,36 @@ mod tests {
                 }],
             }],
         }
+    }
+
+    #[test]
+    fn remote_tree_refresh_preserves_this_clients_tab_and_follows_its_new_tab() {
+        let mut previous = notify_tree(11, false);
+        let pane = &mut previous.workspaces[0].screens[0].panes[0];
+        let mut second = pane.tabs[0].clone();
+        second.surface = 12;
+        pane.tabs.push(second);
+        pane.active_tab = 0;
+
+        let mut other_client_selection = previous.clone();
+        other_client_selection.workspaces[0].screens[0].panes[0].active_tab = 1;
+        let mut follow = ClientViewFollow::default();
+        preserve_client_view(&previous, &mut other_client_selection, &mut follow);
+        assert_eq!(
+            other_client_selection.workspaces[0].screens[0].panes[0].active_surface(),
+            Some(11)
+        );
+
+        let mut own_new_tab = previous.clone();
+        let pane = &mut own_new_tab.workspaces[0].screens[0].panes[0];
+        let mut third = pane.tabs[0].clone();
+        third.surface = 13;
+        pane.tabs.push(third);
+        pane.active_tab = 2;
+        follow.tabs.insert(2);
+        preserve_client_view(&previous, &mut own_new_tab, &mut follow);
+        assert_eq!(own_new_tab.workspaces[0].screens[0].panes[0].active_surface(), Some(13));
+        assert!(!follow.tabs.contains(&2));
     }
 
     fn row_contains(buffer: &ratatui::buffer::Buffer, y: u16, needle: &str) -> bool {

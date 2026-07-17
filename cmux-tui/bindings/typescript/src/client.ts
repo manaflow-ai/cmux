@@ -406,6 +406,9 @@ export class CmuxClient {
     const result = await this.request("resize-surface", { surface, cols, rows });
     return { ...result, accepted: result.accepted ?? true };
   }
+  releaseSurfaceSize(surface: Id): Promise<EmptyResult> {
+    return this.request("release-surface-size", { surface });
+  }
   focusPane(pane: Id): Promise<EmptyResult> { return this.request("focus-pane", { pane }); }
   selectTab(options: SelectTabOptions = {}): Promise<EmptyResult> { return this.request("select-tab", options); }
   selectScreen(options: SelectOptions = {}): Promise<EmptyResult> { return this.request("select-screen", options); }

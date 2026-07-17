@@ -383,6 +383,11 @@ enum Command {
         cols: u16,
         rows: u16,
     },
+    /// Stop this client from contributing a size for a surface while
+    /// retaining its attach stream for cached rendering.
+    ReleaseSurfaceSize {
+        surface: SurfaceId,
+    },
     FocusPane {
         pane: PaneId,
     },
@@ -1080,16 +1085,31 @@ impl ClientRegistry {
         false
     }
 
-    fn record_size(&self, client: u64, surface: SurfaceId, cols: u16, rows: u16) -> bool {
+    fn record_size(
+        &self,
+        client: u64,
+        surface: SurfaceId,
+        cols: u16,
+        rows: u16,
+    ) -> Option<(bool, Option<String>, Option<String>)> {
         let mut clients = self.clients.lock().unwrap();
-        if let Some(attached) =
-            clients.get_mut(&client).and_then(|record| record.attached.get_mut(&surface))
-        {
-            attached.size = Some((cols, rows));
-            true
-        } else {
-            false
-        }
+        let record = clients.get_mut(&client)?;
+        let attached = record.attached.get_mut(&surface)?;
+        let changed = attached.size != Some((cols, rows));
+        attached.size = Some((cols, rows));
+        Some((changed, record.name.clone(), record.kind.clone()))
+    }
+
+    fn clear_size(
+        &self,
+        client: u64,
+        surface: SurfaceId,
+    ) -> Option<(bool, Option<String>, Option<String>)> {
+        let mut clients = self.clients.lock().unwrap();
+        let record = clients.get_mut(&client)?;
+        let attached = record.attached.get_mut(&surface)?;
+        let changed = attached.size.take().is_some();
+        Some((changed, record.name.clone(), record.kind.clone()))
     }
 
     fn remove(&self, client: u64) -> Option<ClientRecord> {
@@ -2711,14 +2731,26 @@ fn handle_command(
         Command::ResizeSurface { surface, cols, rows } => {
             let attached =
                 mux.control_clients.record_size(client, surface, cols.max(1), rows.max(1));
-            let (accepted, reservation_id) = if attached {
+            let (accepted, reservation_id) = if attached.is_some() {
                 mux.resize_surface_for_client_with_reservation(surface, client, cols, rows)?
             } else {
                 let result = mux.resize_surface_with_reservation(surface, cols, rows)?;
                 mux.record_client_size(cols, rows);
                 result
             };
+            if let Some((true, name, kind)) = attached {
+                mux.emit(MuxEvent::ClientChanged { client, name, kind });
+            }
             Ok(json!({"accepted": accepted, "reservation_id": reservation_id}))
+        }
+        Command::ReleaseSurfaceSize { surface } => {
+            if let Some((changed, name, kind)) = mux.control_clients.clear_size(client, surface)
+                && changed
+            {
+                mux.remove_surface_size_client(surface, client);
+                mux.emit(MuxEvent::ClientChanged { client, name, kind });
+            }
+            Ok(json!({}))
         }
         Command::FocusPane { pane } => {
             if !mux.focus_pane(pane) {
@@ -3459,6 +3491,42 @@ mod tests {
             .unwrap();
         let listed = handle_command(&mux, client, Command::ListClients, &writer).unwrap();
         assert_eq!(listed[0]["size_participating"], false);
+    }
+
+    #[test]
+    fn releasing_surface_size_keeps_attach_but_removes_visibility_lease() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((120, 40))).unwrap();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let stream = writer.start_stream(&json!({"event": "test"})).unwrap();
+        mux.control_clients.attach_surface(client, surface.id, stream).unwrap();
+        let events = mux.subscribe();
+
+        handle_command(
+            &mux,
+            client,
+            Command::ResizeSurface { surface: surface.id, cols: 80, rows: 24 },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(mux.client_surface_size(surface.id, client), Some((80, 24)));
+        assert!((0..4).any(|_| matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::ClientChanged { client: id, .. }) if id == client
+        )));
+
+        handle_command(&mux, client, Command::ReleaseSurfaceSize { surface: surface.id }, &writer)
+            .unwrap();
+        assert_eq!(mux.client_surface_size(surface.id, client), None);
+        let listed = handle_command(&mux, client, Command::ListClients, &writer).unwrap();
+        assert_eq!(listed[0]["attached"], json!([surface.id]));
+        assert_eq!(listed[0]["sizes"][0]["cols"], Value::Null);
+        assert_eq!(listed[0]["sizes"][0]["rows"], Value::Null);
+        assert!((0..4).any(|_| matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::ClientChanged { client: id, .. }) if id == client
+        )));
     }
 
     #[test]

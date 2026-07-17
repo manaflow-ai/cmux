@@ -215,6 +215,10 @@ export interface ResizeSurfaceRequest extends CmuxRequestBase {
   rows: number;
 }
 export interface ResizeSurfaceResult { accepted: boolean; reservation_id?: number | null }
+export interface ReleaseSurfaceSizeRequest extends CmuxRequestBase {
+  cmd: "release-surface-size";
+  surface: Id;
+}
 
 export interface FocusPaneRequest extends CmuxRequestBase { cmd: "focus-pane"; pane: Id }
 
@@ -360,6 +364,7 @@ export type CmuxRequest =
   | RenameScreenRequest
   | RenameWorkspaceRequest
   | ResizeSurfaceRequest
+  | ReleaseSurfaceSizeRequest
   | FocusPaneRequest
   | SelectTabRequest
   | SelectScreenRequest
@@ -418,6 +423,7 @@ export interface CmuxResponseDataMap {
   "rename-screen": EmptyResult;
   "rename-workspace": EmptyResult;
   "resize-surface": ResizeSurfaceResult;
+  "release-surface-size": EmptyResult;
   "focus-pane": EmptyResult;
   "select-tab": EmptyResult;
   "select-screen": EmptyResult;

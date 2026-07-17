@@ -280,11 +280,15 @@ impl RemoteSurface {
         *self.reported_size.lock().unwrap() = Some(size);
     }
 
-    pub(super) fn clear_reported_size(&self, size: (u16, u16)) {
+    pub(super) fn clear_reported_size_if(&self, size: (u16, u16)) {
         let mut reported = self.reported_size.lock().unwrap();
         if *reported == Some(size) {
             *reported = None;
         }
+    }
+
+    pub(super) fn clear_reported_size(&self) {
+        *self.reported_size.lock().unwrap() = None;
     }
 
     pub fn browser_frame(&self) -> Option<BrowserFrame> {
@@ -508,7 +512,7 @@ impl RemoteSession {
                 let retry_after_ms = value.get("retry_after_ms").and_then(Value::as_u64);
                 let reservation_id = value.get("reservation_id").and_then(Value::as_u64);
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
-                    surface.clear_reported_size((cols.max(1), rows.max(1)));
+                    surface.clear_reported_size_if((cols.max(1), rows.max(1)));
                 }
                 self.emit(MuxEvent::SurfaceResizeFailed {
                     surface: id,
@@ -700,6 +704,36 @@ impl RemoteSession {
                     value.get("at_bottom").and_then(|v| v.as_bool()),
                 ) {
                     self.emit(MuxEvent::ScrollChanged { surface, offset, at_bottom });
+                }
+            }
+            Some("client-attached") => {
+                let Some(client) = value.get("client").and_then(Value::as_u64) else {
+                    return;
+                };
+                self.emit(MuxEvent::ClientAttached {
+                    client,
+                    transport: value
+                        .get("transport")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                    name: value.get("name").and_then(Value::as_str).map(str::to_string),
+                    kind: value.get("kind").and_then(Value::as_str).map(str::to_string),
+                });
+            }
+            Some("client-changed") => {
+                let Some(client) = value.get("client").and_then(Value::as_u64) else {
+                    return;
+                };
+                self.emit(MuxEvent::ClientChanged {
+                    client,
+                    name: value.get("name").and_then(Value::as_str).map(str::to_string),
+                    kind: value.get("kind").and_then(Value::as_str).map(str::to_string),
+                });
+            }
+            Some("client-detached") => {
+                if let Some(client) = value.get("client").and_then(Value::as_u64) {
+                    self.emit(MuxEvent::ClientDetached(client));
                 }
             }
             Some("pairing-requested") => {
@@ -1348,6 +1382,42 @@ mod tests {
             "title": "after-refresh",
         }));
         assert!(events.try_iter().any(|event| matches!(event, MuxEvent::TreeChanged)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn client_presence_events_reach_remote_tui_subscribers() {
+        let (client, _server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        let events = session.subscribe();
+
+        session.handle_line(json!({
+            "event": "client-attached",
+            "client": 7,
+            "transport": "unix",
+            "name": "small",
+            "kind": "tui",
+        }));
+        session.handle_line(json!({
+            "event": "client-changed",
+            "client": 7,
+            "name": "small",
+            "kind": "tui",
+        }));
+        session.handle_line(json!({"event": "client-detached", "client": 7}));
+
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::ClientAttached { client: 7, .. })
+        ));
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::ClientChanged { client: 7, .. })
+        ));
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::ClientDetached(7))
+        ));
     }
 
     #[test]

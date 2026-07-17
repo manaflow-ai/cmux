@@ -319,6 +319,12 @@ const VERBS: &[VerbSpec] = &[
         kind: socket(build_resize_surface, print_empty, false),
     },
     VerbSpec {
+        name: "release-surface-size",
+        help: "Stop this client from sizing a surface.",
+        allowed: &["surface"],
+        kind: socket(build_surface, print_empty, false),
+    },
+    VerbSpec {
         name: "focus-pane",
         help: "Focus a pane.",
         allowed: &["pane"],

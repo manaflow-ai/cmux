@@ -357,6 +357,15 @@ impl Session {
         }
     }
 
+    pub fn has_surface_size_report(&self, id: SurfaceId) -> bool {
+        match self {
+            Session::Local(mux) => mux.client_surface_size(id, 0).is_some(),
+            Session::Remote(remote) => {
+                remote.surface(id).and_then(|surface| surface.reported_size()).is_some()
+            }
+        }
+    }
+
     pub fn can_attach_after_overflow(&self, id: SurfaceId) -> bool {
         match self {
             Session::Local(_) => true,
@@ -403,6 +412,32 @@ impl Session {
                         surface.map(|surface| SurfaceHandle::Remote(surface, remote.clone()))
                     })
                 }
+            }
+        }
+    }
+
+    /// Release this frontend's sizing lease without dropping its cached
+    /// attach stream. A later resize reclaims visibility for the surface.
+    pub fn release_surface_size(&self, id: SurfaceId) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => {
+                let changed = mux.client_surface_size(id, 0).is_some();
+                mux.remove_surface_size_client(id, 0);
+                if changed {
+                    mux.emit(cmux_tui_core::MuxEvent::ClientChanged {
+                        client: 0,
+                        name: Some("This TUI".to_string()),
+                        kind: Some("tui".to_string()),
+                    });
+                }
+                Ok(())
+            }
+            Session::Remote(remote) => {
+                remote.request(json!({"cmd": "release-surface-size", "surface": id}))?;
+                if let Some(surface) = remote.surface(id) {
+                    surface.clear_reported_size();
+                }
+                Ok(())
             }
         }
     }
@@ -827,9 +862,17 @@ impl SurfaceHandle {
         let desired = (cols.max(1), rows.max(1));
         let reservation_id = match self {
             SurfaceHandle::Local(surface, mux) => {
+                let report_changed = mux.client_surface_size(surface.id, 0) != Some(desired);
                 let (accepted, reservation_id) = mux.resize_surface_for_client_with_reservation(
                     surface.id, 0, desired.0, desired.1,
                 )?;
+                if report_changed {
+                    mux.emit(cmux_tui_core::MuxEvent::ClientChanged {
+                        client: 0,
+                        name: Some("This TUI".to_string()),
+                        kind: Some("tui".to_string()),
+                    });
+                }
                 report(reservation_id);
                 return Ok(accepted);
             }

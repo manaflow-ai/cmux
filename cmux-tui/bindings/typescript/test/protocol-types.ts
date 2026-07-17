@@ -52,6 +52,7 @@ const requests = [
   { cmd: "rename-screen", screen: 1, name: "screen" },
   { cmd: "rename-workspace", workspace: 1, name: "workspace" },
   { cmd: "resize-surface", surface: 1, cols: 80, rows: 24 },
+  { cmd: "release-surface-size", surface: 1 },
   { cmd: "focus-pane", pane: 1 },
   { cmd: "select-tab", pane: 1, index: 0 },
   { cmd: "select-screen", delta: 1 },
