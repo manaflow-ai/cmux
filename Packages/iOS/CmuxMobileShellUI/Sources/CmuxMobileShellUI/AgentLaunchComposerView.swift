@@ -212,7 +212,10 @@ struct AgentLaunchComposerView: View {
                 }
                 Text(L10n.string("mobile.agentLaunch.launch", defaultValue: "Launch"))
                     .font(.body.weight(.semibold))
+                    .lineLimit(1)
             }
+            // The action label must never wrap; the chips truncate instead.
+            .fixedSize(horizontal: true, vertical: false)
         }
         .mobileGlassProminentButton()
         .disabled(!canLaunch)
@@ -277,6 +280,11 @@ struct AgentLaunchComposerView: View {
     }
 
     private static func pathBasename(_ path: String) -> String? {
+        // A macOS home directory reads better as "~" than as the username.
+        let components = path.split(separator: "/", omittingEmptySubsequences: true)
+        if components.count == 2, components[0] == "Users" {
+            return "~"
+        }
         let basename = (path as NSString).lastPathComponent
         return basename.isEmpty ? nil : basename
     }
