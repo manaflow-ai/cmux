@@ -189,6 +189,52 @@ final class cmuxUITests: XCTestCase {
         add(attachment)
     }
 
+    /// Accessibility text sizes must preserve a useful prompt canvas instead
+    /// of allowing the persistent action to consume most of the visible sheet.
+    @MainActor
+    func testTaskComposerAccessibilityXXXLKeepsPrimaryActionCompact() throws {
+        let app = launchApp(
+            mockData: false,
+            environment: [
+                "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            ],
+            launchArguments: [
+                "-UIPreferredContentSizeCategoryName",
+                "UICTContentSizeCategoryAccessibilityXXXL",
+            ]
+        )
+        defer { app.terminate() }
+
+        let prompt = app.textFields["MobileTaskComposerPrompt"]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+        let claude = app.buttons["Claude"]
+        XCTAssertTrue(claude.waitForExistence(timeout: 3))
+        XCTAssertLessThanOrEqual(
+            claude.frame.height,
+            120,
+            "Agent cards must remain scannable instead of scaling into full-width panels"
+        )
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 3))
+        let create = app.buttons["MobileTaskComposerCreateButton"]
+        XCTAssertTrue(create.waitForExistence(timeout: 3))
+        XCTAssertLessThanOrEqual(
+            create.frame.height,
+            80,
+            "The persistent action must not become a multi-line panel at Accessibility XXXL"
+        )
+        XCTAssertLessThanOrEqual(
+            create.frame.maxY,
+            keyboard.frame.minY,
+            "The primary action must remain fully visible above the keyboard"
+        )
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "task-composer-accessibility-xxxl"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     /// Agent templates need an instruction before launch, while the plain
     /// shell remains a useful zero-prompt workspace shortcut.
     @MainActor
@@ -2221,10 +2267,12 @@ final class cmuxUITests: XCTestCase {
     private func launchApp(
         mockData: Bool,
         clearAuth: Bool = false,
-        environment: [String: String] = [:]
+        environment: [String: String] = [:],
+        launchArguments: [String] = []
     ) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchArguments += launchArguments
         app.launchEnvironment["CMUX_UITEST_MOCK_DATA"] = mockData ? "1" : "0"
         for (key, value) in environment {
             app.launchEnvironment[key] = value
