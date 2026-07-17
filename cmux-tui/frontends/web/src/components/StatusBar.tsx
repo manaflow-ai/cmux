@@ -1,12 +1,11 @@
 import { useReducer } from "react";
-import type { ClientInfo, Id } from "cmux/browser";
+import type { Id } from "cmux/browser";
 import { t } from "../i18n";
 import { useContextTrigger } from "../hooks/useContextTrigger";
 import { contextMenuReducer } from "../lib/contextMenu";
 import { renameCanCommit, renameReducer } from "../lib/rename";
 import { screenSelection, type ScreenView, type WorkspaceView } from "../lib/tree";
 import { ContextMenu } from "./ContextMenu";
-import { ClientsIndicator } from "./ClientsIndicator";
 import { InlineRename } from "./InlineRename";
 
 interface ScreenChipProps {
@@ -37,7 +36,7 @@ function ScreenChip({ screen, number, onSelect, onClose, onRename }: ScreenChipP
         />
       ) : (
         <button className={`screen-chip${screen.active ? " active" : ""}`} onClick={onSelect} type="button">
-          {number}
+          {screen.statusLabel ?? number}
         </button>
       )}
       {menu.open && (
@@ -60,25 +59,19 @@ function ScreenChip({ screen, number, onSelect, onClose, onRename }: ScreenChipP
 interface StatusBarProps {
   workspace: WorkspaceView | null;
   session: string | null;
-  clients: ClientInfo[];
   onSelectScreen(workspaceId: Id, screenId: Id, surface: Id | null): void;
   onNewScreen(workspace: Id): void;
   onCloseScreen(screen: Id): void;
   onRenameScreen(screen: Id, name: string): void;
-  onRefreshClients(): void;
-  onDetachClient(client: Id): void;
 }
 
 export function StatusBar({
   workspace,
   session,
-  clients,
   onSelectScreen,
   onNewScreen,
   onCloseScreen,
   onRenameScreen,
-  onRefreshClients,
-  onDetachClient,
 }: StatusBarProps) {
   return (
     <footer className="status-bar">
@@ -97,7 +90,6 @@ export function StatusBar({
         <button className="new-screen" aria-label={t("newScreen")} onClick={() => onNewScreen(workspace.id)} type="button">+</button>
       )}
       <span className="session-badge">[{session ?? "—"}]</span>
-      <ClientsIndicator clients={clients} onRefresh={onRefreshClients} onDetach={onDetachClient} />
     </footer>
   );
 }

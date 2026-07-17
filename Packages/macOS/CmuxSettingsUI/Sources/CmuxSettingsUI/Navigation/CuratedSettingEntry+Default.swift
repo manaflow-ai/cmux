@@ -213,6 +213,17 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .betaFeatures, id: "remoteTmux", title: "Remote tmux", synonyms: "remote tmux ssh control mode -CC mirror session window pane sidebar workspace beta unstable"),
             .init(
                 section: .betaFeatures,
+                id: "workspace-todo-controls",
+                title: String(localized: "settings.betaFeatures.workspaceTodoControls", defaultValue: "Workspace Todo Controls"),
+                detailText: [
+                    String(localized: "settings.betaFeatures.workspaceTodoControls.subtitleOn", defaultValue: "Shows Add Checklist Item and workspace status controls."),
+                    String(localized: "settings.betaFeatures.workspaceTodoControls.subtitleOff", defaultValue: "Keeps workspace todo summaries read-only unless remote rollout enables the controls."),
+                ].joined(separator: " "),
+                paths: ["sidebar.beta.workspaceTodos.controls.enabled"],
+                synonyms: String(localized: "settings.search.alias.setting.betaFeatures.workspace-todo-controls", defaultValue: "sidebar.beta.workspaceTodos.controls.enabled workspace todo todos task status checklist add item controls beta")
+            ),
+            .init(
+                section: .betaFeatures,
                 id: "workspace-todos-checklist-style",
                 title: String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle", defaultValue: "Checklist Style"),
                 detailText: [
@@ -269,13 +280,6 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .browser, id: "http-allowlist", title: "HTTP Hosts Allowed in Embedded Browser", synonyms: "browser.insecureHttpHostsAllowedInEmbeddedBrowser insecure http allowlist localhost localtest non-https warning"),
             .init(section: .browser, id: "react-grab", title: "React Grab Version", synonyms: "browser.reactGrabVersion react grab npm version toolbar cmd-shift-g inspect component"),
             .init(section: .browser, id: "history", title: "Browsing History", synonyms: "browsing history clear visited pages omnibar suggestions delete"),
-            .init(
-                section: .browser,
-                id: "web-extensions",
-                title: String(localized: "settings.browser.webExtensions", defaultValue: "Extensions"),
-                detailText: String(localized: "settings.browser.webExtensions.subtitle", defaultValue: "Safari web extensions from installed apps, or unpacked extension folders."),
-                synonyms: String(localized: "settings.search.alias.setting.browser.web-extensions", defaultValue: "browser.webExtensions extensions addons plugins bitwarden 1password adguard password manager safari web extension unpacked load")
-            ),
 
             // Browser import
             .init(section: .browserImport, id: "import-data", title: "Import Browser Data", synonyms: "chrome safari firefox brave edge arc bookmarks history cookies profiles migration"),
