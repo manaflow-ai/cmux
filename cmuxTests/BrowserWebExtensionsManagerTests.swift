@@ -180,6 +180,30 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
+    @Test func unapprovedDirectoryEntryDoesNotLoad() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directory = try Self.writeExtension(
+            named: "unapproved",
+            in: root,
+            manifest: Self.minimalManifest
+        )
+        try "// no-op".write(
+            to: directory.appendingPathComponent("content.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let manager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent()
+        )
+
+        await manager.loadExtensions()
+
+        #expect(manager.loadedContexts.isEmpty)
+    }
+
+    @available(macOS 15.4, *)
     @Test func loadsUnpackedExtensionAndGrantsRequestedPermissions() async throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -481,7 +505,7 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
-    @Test func runtimePermissionPromptsGrantOnlyManifestDeclaredSet() async throws {
+    @Test func runtimePermissionPromptsDenyOptionalManifestPermissionsWithoutAlert() async throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         var manifest = Self.minimalManifest
@@ -503,7 +527,7 @@ struct BrowserWebExtensionsManagerTests {
                 continuation.resume(returning: allowed)
             }
         }
-        #expect(granted == [.cookies])
+        #expect(granted.isEmpty)
     }
 
     @available(macOS 15.4, *)
