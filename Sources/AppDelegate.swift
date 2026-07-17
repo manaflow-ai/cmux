@@ -6125,11 +6125,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             immediateLoadingPresentation.close()
 
             let freshSnapshot = await freshSnapshotTask?.value
-            guard tabManager?.selectedWorkspace?.id == workspaceId,
-                  workspace.panels[sourceSurfaceId] != nil,
-                  let targetPanel = workspace.panels[targetSurfaceId] as? BrowserPanel,
-                  targetPanel.isShowingDiffViewerLoadingState(expectedURL: loadingURL.absoluteString) else {
+            let closeTargetIfStillOwnedByOperation = {
+                guard let targetPanel = workspace.panels[targetSurfaceId] as? BrowserPanel,
+                      targetPanel.isShowingDiffViewerLoadingState(
+                        expectedURL: loadingURL.absoluteString
+                      ) else {
+                    return
+                }
                 _ = workspace.closePanel(targetSurfaceId, force: true)
+            }
+            guard tabManager?.selectedWorkspace?.id == workspaceId,
+                  workspace.panels[sourceSurfaceId] != nil else {
+                closeTargetIfStillOwnedByOperation()
+                return
+            }
+            guard let targetPanel = workspace.panels[targetSurfaceId] as? BrowserPanel else {
+                return
+            }
+            guard targetPanel.isShowingDiffViewerLoadingState(
+                expectedURL: loadingURL.absoluteString
+            ) else {
+                // The user navigated this browser while agent identity was loading.
+                // It no longer belongs to the diff-open operation.
                 return
             }
             let launchContext = Self.openDiffViewerLaunchContext(

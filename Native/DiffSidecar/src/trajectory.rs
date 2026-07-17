@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::fmt::Write as _;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -56,6 +57,7 @@ impl AgentTurnIdentity {
 pub struct TrajectoryRoots {
     home: PathBuf,
     hook_state_dir: Option<PathBuf>,
+    claude_hook_state_path: Option<PathBuf>,
 }
 
 impl TrajectoryRoots {
@@ -64,6 +66,7 @@ impl TrajectoryRoots {
         Self {
             home,
             hook_state_dir: None,
+            claude_hook_state_path: None,
         }
     }
 
@@ -73,16 +76,26 @@ impl TrajectoryRoots {
     ///
     /// Returns [`TrajectoryError::Unavailable`] when `HOME` is unset or empty.
     pub fn from_environment() -> Result<Self, TrajectoryError> {
-        let home = std::env::var_os("HOME")
+        Self::from_environment_values(|key| std::env::var_os(key))
+    }
+
+    fn from_environment_values(
+        mut value: impl FnMut(&str) -> Option<OsString>,
+    ) -> Result<Self, TrajectoryError> {
+        let home = value("HOME")
             .filter(|value| !value.is_empty())
             .map(PathBuf::from)
             .ok_or(TrajectoryError::Unavailable)?;
-        let hook_state_dir = std::env::var_os("CMUX_AGENT_HOOK_STATE_DIR")
+        let hook_state_dir = value("CMUX_AGENT_HOOK_STATE_DIR")
             .filter(|value| !value.is_empty())
-            .map(PathBuf::from);
+            .map(|path| expand_home(Path::new(&path), &home));
+        let claude_hook_state_path = value("CMUX_CLAUDE_HOOK_STATE_PATH")
+            .filter(|value| !value.is_empty())
+            .map(|path| expand_home(Path::new(&path), &home));
         Ok(Self {
             home,
             hook_state_dir,
+            claude_hook_state_path,
         })
     }
 
@@ -92,6 +105,11 @@ impl TrajectoryRoots {
             AgentProvider::Claude => "claude",
             AgentProvider::OpenCode => "opencode",
         };
+        if provider == AgentProvider::Claude
+            && let Some(path) = &self.claude_hook_state_path
+        {
+            return path.clone();
+        }
         self.hook_state_dir
             .clone()
             .unwrap_or_else(|| self.home.join(".cmuxterm"))
@@ -109,6 +127,14 @@ impl TrajectoryRoots {
     fn opencode_database(&self) -> PathBuf {
         self.home.join(".local/share/opencode/opencode.db")
     }
+}
+
+fn expand_home(path: &Path, home: &Path) -> PathBuf {
+    if path == Path::new("~") {
+        return home.to_path_buf();
+    }
+    path.strip_prefix(Path::new("~/"))
+        .map_or_else(|_| path.to_path_buf(), |suffix| home.join(suffix))
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

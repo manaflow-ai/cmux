@@ -315,7 +315,7 @@ final class SharedLiveAgentIndex {
         if freshSnapshotRefreshTask?.id == refresh.id {
             freshSnapshotRefreshTask = nil
         }
-        return index?.snapshot(workspaceId: workspaceId, panelId: panelId)
+        return index?.structuredHookSnapshot(workspaceId: workspaceId, panelId: panelId)
     }
 
     /// Read the cached snapshot for the Fork Conversation context menu. Never blocks.

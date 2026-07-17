@@ -86,7 +86,7 @@ extension CMUXCLI {
         extraAllowedPageURL: URL?
     ) throws -> DiffViewerWriteResult {
         let repoRoot: String? = if selectedSource == .lastTurn {
-            nil
+            try? gitRepoRootForDiff(context)
         } else {
             try gitRepoRootForDiff(context)
         }
@@ -160,9 +160,8 @@ extension CMUXCLI {
             )
         }
         let repoOptions: [DiffViewerSourceOption]
-        if selectedSource == .lastTurn {
-            repoOptions = []
-        } else if let repoRoot, repoCandidates.count > 1 {
+        if let repoRoot, repoCandidates.count > 1 {
+            let repoSelectionSource: DiffSource = selectedSource == .lastTurn ? .unstaged : selectedSource
             repoOptions = repoCandidates.map { option in
                 DiffViewerSourceOption(
                     value: option.repoRoot,
@@ -172,7 +171,7 @@ extension CMUXCLI {
                     disabled: false,
                     message: option.repoRoot,
                     sourceLabel: nil,
-                    sessionSource: sessionSource(selectedSource, repo: option.repoRoot)
+                    sessionSource: sessionSource(repoSelectionSource, repo: option.repoRoot)
                 )
             }
         } else {
