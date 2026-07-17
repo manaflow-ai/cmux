@@ -470,6 +470,13 @@ enum Command {
         surface: SurfaceId,
         #[serde(default)]
         mode: Option<String>,
+        /// Optional initial viewer size. Supplying this pair makes the attach
+        /// stream a sizing participant immediately, before its first frame is
+        /// rendered.
+        #[serde(default)]
+        cols: Option<u16>,
+        #[serde(default)]
+        rows: Option<u16>,
     },
     /// Scroll a surface's viewport by a row delta (negative is up).
     ScrollSurface {
@@ -2236,13 +2243,39 @@ fn mark_client_attached(
     client: u64,
     surface: SurfaceId,
     stream: OutboundStream,
+    initial_size: Option<(u16, u16)>,
 ) -> anyhow::Result<()> {
     if let Some((transport, name, kind)) =
-        mux.control_clients.attach_surface(client, surface, stream)?
+        mux.control_clients.attach_surface(client, surface, stream.clone())?
     {
         mux.emit(MuxEvent::ClientAttached { client, transport, name, kind });
     }
+    if let Some((cols, rows)) = initial_size {
+        let cols = cols.max(1);
+        let rows = rows.max(1);
+        let Some((changed, name, kind)) =
+            mux.control_clients.record_size(client, surface, cols, rows)
+        else {
+            anyhow::bail!("client {client} is not attached to surface {surface}");
+        };
+        if let Err(error) =
+            mux.resize_surface_for_client_with_reservation(surface, client, cols, rows)
+        {
+            mux.control_clients.detach_surface(client, surface, stream.id);
+            mux.remove_surface_size_client(surface, client);
+            return Err(error);
+        }
+        if changed {
+            mux.emit(MuxEvent::ClientChanged { client, name, kind });
+        }
+    }
     Ok(())
+}
+
+fn unmark_client_attached(mux: &Mux, client: u64, surface: SurfaceId, stream: &OutboundStream) {
+    if mux.control_clients.detach_surface(client, surface, stream.id) {
+        mux.remove_surface_size_client(surface, client);
+    }
 }
 
 fn handle_command(
@@ -2963,7 +2996,12 @@ fn handle_command(
             })?;
             Ok(json!({}))
         }
-        Command::AttachSurface { surface: surface_id, mode } => {
+        Command::AttachSurface { surface: surface_id, mode, cols, rows } => {
+            let initial_size = match (cols, rows) {
+                (Some(cols), Some(rows)) => Some((cols, rows)),
+                (None, None) => None,
+                _ => anyhow::bail!("attach-surface cols and rows must be supplied together"),
+            };
             let surface = get_surface(mux, surface_id)?;
             let lifecycle = AttachLifecycle::default();
             let outbound_stream = writer.start_stream(&attach_overflow_json(surface_id))?;
@@ -2974,14 +3012,27 @@ fn handle_command(
             };
             if render_mode {
                 require_pty(&surface)?;
-                let attach = surface.attach_render_stream()?;
+                mark_client_attached(
+                    mux,
+                    client,
+                    surface_id,
+                    outbound_stream.clone(),
+                    initial_size,
+                )?;
+                let attach = match surface.attach_render_stream() {
+                    Ok(attach) => attach,
+                    Err(error) => {
+                        unmark_client_attached(mux, client, surface_id, &outbound_stream);
+                        return Err(error.into());
+                    }
+                };
                 if let Err(error) = writer
                     .send_initial(&render_state_json(surface_id, &attach.initial), &outbound_stream)
                 {
                     handle_attach_send_error(&lifecycle, &error);
+                    unmark_client_attached(mux, client, surface_id, &outbound_stream);
                     return Err(error.into());
                 }
-                mark_client_attached(mux, client, surface_id, outbound_stream.clone())?;
                 let writer = writer.clone();
                 let mux = mux.clone();
                 std::thread::Builder::new().name("mux-render-attach-out".into()).spawn(
@@ -3030,10 +3081,18 @@ fn handle_command(
                 return Ok(json!({}));
             }
             if surface.kind() == SurfaceKind::Browser {
+                mark_client_attached(
+                    mux,
+                    client,
+                    surface_id,
+                    outbound_stream.clone(),
+                    initial_size,
+                )?;
                 let (state, frames) = match surface.attach_frames() {
                     Ok(attach) => attach,
                     Err(error) => {
                         lifecycle.cancel();
+                        unmark_client_attached(mux, client, surface_id, &outbound_stream);
                         return Err(error);
                     }
                 };
@@ -3041,9 +3100,9 @@ fn handle_command(
                     .send_initial(&browser_state_json(surface_id, &state, true), &outbound_stream)
                 {
                     handle_attach_send_error(&lifecycle, &error);
+                    unmark_client_attached(mux, client, surface_id, &outbound_stream);
                     return Err(error.into());
                 }
-                mark_client_attached(mux, client, surface_id, outbound_stream.clone())?;
                 spawn_attach_notification_stream(
                     mux.clone(),
                     surface_id,
@@ -3100,10 +3159,12 @@ fn handle_command(
                 })?;
                 return Ok(json!({}));
             }
+            mark_client_attached(mux, client, surface_id, outbound_stream.clone(), initial_size)?;
             let attach = match surface.attach_stream_with_lifecycle(lifecycle.clone()) {
                 Ok(attach) => attach,
                 Err(error) => {
                     lifecycle.cancel();
+                    unmark_client_attached(mux, client, surface_id, &outbound_stream);
                     return Err(error.into());
                 }
             };
@@ -3119,9 +3180,9 @@ fn handle_command(
                 &outbound_stream,
             ) {
                 handle_attach_send_error(&lifecycle, &error);
+                unmark_client_attached(mux, client, surface_id, &outbound_stream);
                 return Err(error.into());
             }
-            mark_client_attached(mux, client, surface_id, outbound_stream.clone())?;
             spawn_attach_notification_stream(
                 mux.clone(),
                 surface_id,
@@ -3728,6 +3789,35 @@ mod tests {
             events.recv_timeout(Duration::from_secs(1)),
             Ok(MuxEvent::ClientChanged { client: id, .. }) if id == client
         )));
+    }
+
+    #[test]
+    fn attach_initial_sizes_share_the_smallest_viewer_grid() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((120, 40))).unwrap();
+        let first_writer = test_writer();
+        let second_writer = test_writer();
+        let first = mux.control_clients.register(ClientTransport::Unix, first_writer.clone());
+        let second = mux.control_clients.register(ClientTransport::Unix, second_writer.clone());
+        let first_stream = first_writer.start_stream(&json!({"event": "test"})).unwrap();
+        let second_stream = second_writer.start_stream(&json!({"event": "test"})).unwrap();
+
+        mark_client_attached(&mux, first, surface.id, first_stream.clone(), Some((100, 30)))
+            .unwrap();
+        mark_client_attached(&mux, second, surface.id, second_stream.clone(), Some((80, 35)))
+            .unwrap();
+
+        assert_eq!(mux.client_surface_size(surface.id, first), Some((100, 30)));
+        assert_eq!(mux.client_surface_size(surface.id, second), Some((80, 35)));
+        assert_eq!(surface.size(), (80, 30));
+
+        unmark_client_attached(&mux, first, surface.id, &first_stream);
+        assert_eq!(mux.client_surface_size(surface.id, first), None);
+        assert_eq!(surface.size(), (80, 35));
+
+        unmark_client_attached(&mux, second, surface.id, &second_stream);
+        assert_eq!(mux.client_surface_size(surface.id, second), None);
+        assert!(mux.surface(surface.id).is_some());
     }
 
     #[test]
