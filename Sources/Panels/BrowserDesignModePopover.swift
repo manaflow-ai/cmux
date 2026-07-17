@@ -29,15 +29,19 @@ struct BrowserDesignModePopover: View {
             // The card grows downward with the prompt; the inner scroll
             // viewport only engages past this generous ceiling.
             .frame(height: min(max(tokenFieldHeight, 22), 340))
-            // ONE layout for every prompt size: the field keeps a constant
-            // width and only grows downward, with the controls riding the
-            // bottom edge. Switching between an inline and a stacked layout
-            // changed the field width, which re-wrapped the text, which
-            // changed the height, which switched the layout back — a SwiftUI
-            // livelock (100% CPU) at boundary-length prompts.
-            HStack(alignment: .bottom, spacing: 10) {
+            // ONE layout for every prompt size (a state-dependent layout
+            // switch caused a re-wrap livelock): the mode toggle pins to the
+            // TOP-LEFT, the copy action overlays the BOTTOM-RIGHT, and the
+            // field keeps a constant width between them — vertically centered
+            // when single-line, growing straight down as the prompt wraps.
+            HStack(alignment: .top, spacing: 10) {
                 modeToggle
                 field
+                    .padding(.top, 2)
+                    // Keep the last line clear of the overlaid copy control.
+                    .padding(.trailing, 30)
+            }
+            .overlay(alignment: .bottomTrailing) {
                 copyButton
             }
             errorMessage
