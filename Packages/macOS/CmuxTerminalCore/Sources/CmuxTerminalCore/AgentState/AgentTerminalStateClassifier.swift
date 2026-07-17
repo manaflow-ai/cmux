@@ -51,7 +51,7 @@ public struct AgentTerminalStateClassifier: Sendable {
                 processIdentity: snapshot.processIdentity
             )
         }
-        let liveEvidence = snapshot.liveBottomText.lowercased()
+        let liveEvidence = Self.normalizedEvidence(snapshot.liveBottomText)
         let state: AgentTerminalSemanticState
         if profile.historyViewNeedles.contains(where: liveEvidence.contains) {
             state = snapshot.previousReliableState ?? .unknown
@@ -86,6 +86,15 @@ public struct AgentTerminalStateClassifier: Sendable {
             $0.trimmingCharacters(in: .whitespaces)
         }
         return needles.contains { needle in lines.contains(needle) }
+    }
+
+    private static func normalizedEvidence(_ raw: String) -> String {
+        raw.lowercased()
+            .components(separatedBy: .newlines)
+            .map { line in
+                line.split(whereSeparator: \Character.isWhitespace).joined(separator: " ")
+            }
+            .joined(separator: "\n")
     }
 
 }

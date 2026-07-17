@@ -151,7 +151,15 @@ public struct AgentTerminalProfileCatalog: Sendable {
         profile("antigravity", "Antigravity CLI", executables: ["antigravity", "agy"], arguments: ["antigravity-cli"], aliases: ["agy"], idle: ["ask anything"], working: [["esc to interrupt"]]),
         profile("kiro", "Kiro CLI", executables: ["kiro", "kiro-cli"], arguments: ["kiro-cli"], idle: ["ask kiro"], working: [["esc to interrupt"]]),
         profile("maki", "Maki", executables: ["maki"], arguments: ["maki-cli"], idle: ["ask maki"], working: [["esc to interrupt"]]),
-        profile("gemini", "Gemini CLI", executables: ["gemini"], arguments: ["@google/gemini-cli", "gemini-cli"], idle: ["type your message", "gemini"], working: [["esc to cancel"]]),
+        profile(
+            "gemini",
+            "Gemini CLI",
+            executables: ["gemini"],
+            arguments: ["@google/gemini-cli", "gemini-cli"],
+            idle: ["type your message", "gemini"],
+            working: [["esc to cancel"]],
+            blocked: [["enter gemini api key", "paste your api key here"]]
+        ),
         profile("cline", "Cline", executables: ["cline", "cline-cli"], arguments: ["cline-cli"], idle: ["ask cline"], working: [["esc to interrupt"]]),
         // Existing cmux-only families remain recognized.
         profile("campfire", "Campfire", authoritative: true, executables: ["campfire"], arguments: ["session/bin/campfire", "session/dist/campfire"], idle: ["campfire"], working: [["esc to interrupt"]]),
