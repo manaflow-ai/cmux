@@ -77,74 +77,74 @@ struct FileExplorerPalette {
     )
     private static let yellow = dynamicColor(
         name: "status.yellow",
-        light: (0x66, 0x50, 0x00),
+        light: (0x59, 0x45, 0x00),
         dark: (0xF2, 0xD1, 0x5C)
     )
     private static let teal = dynamicColor(
         name: "status.teal",
-        light: (0x00, 0x60, 0x52),
+        light: (0x00, 0x51, 0x45),
         dark: (0x58, 0xD6, 0xC3)
     )
     private static let green = dynamicColor(
         name: "status.green",
-        light: (0x0B, 0x63, 0x1F),
+        light: (0x08, 0x53, 0x1A),
         dark: (0x65, 0xD8, 0x79)
     )
     private static let red = dynamicColor(
         name: "status.red",
-        light: (0x9A, 0x10, 0x25),
-        dark: (0xFF, 0x7A, 0x72)
+        light: (0x90, 0x0E, 0x22),
+        dark: (0xFF, 0x91, 0x89)
     )
     private static let purple = dynamicColor(
         name: "status.purple",
         light: (0x63, 0x30, 0x90),
-        dark: (0xCE, 0x86, 0xF5)
+        dark: (0xDD, 0x96, 0xFF)
     )
     private static let blue = dynamicColor(
         name: "status.blue",
-        light: (0x07, 0x55, 0x95),
+        light: (0x05, 0x48, 0x80),
         dark: (0x69, 0xB7, 0xFF)
     )
     private static let pink = dynamicColor(
         name: "status.pink",
         light: (0x88, 0x13, 0x47),
-        dark: (0xFF, 0x78, 0xB8)
+        dark: (0xFF, 0x8B, 0xC3)
     )
     private static let cyan = dynamicColor(
         name: "status.cyan",
-        light: (0x00, 0x5D, 0x75),
+        light: (0x00, 0x4D, 0x62),
         dark: (0x62, 0xD4, 0xEE)
     )
     private static let neutral = dynamicColor(
         name: "status.neutral",
-        light: (0x50, 0x50, 0x50),
-        dark: (0xA6, 0xA6, 0xA6)
+        light: (0x47, 0x47, 0x47),
+        dark: (0xB0, 0xB0, 0xB0)
     )
 
     private static let terminalModified = dynamicColor(
         name: "terminal.status.modified",
-        light: (0x5E, 0x49, 0x0F),
+        light: (0x59, 0x44, 0x0E),
         dark: (0xD2, 0xB8, 0x73)
     )
     private static let terminalAdded = dynamicColor(
         name: "terminal.status.added",
-        light: (0x15, 0x5C, 0x24),
+        light: (0x12, 0x52, 0x1F),
         dark: (0x83, 0xCF, 0x8A)
     )
     private static let terminalDeleted = dynamicColor(
         name: "terminal.status.deleted",
         light: (0x84, 0x1F, 0x28),
-        dark: (0xF0, 0x8A, 0x88)
+        dark: (0xF9, 0x93, 0x91)
     )
     private static let terminalRenamed = dynamicColor(
         name: "terminal.status.renamed",
-        light: (0x17, 0x4D, 0x82),
+        light: (0x16, 0x48, 0x78),
         dark: (0x8D, 0xB9, 0xE5)
     )
     private static let terminalUntracked = dynamicColor(
         name: "terminal.status.untracked",
-        light: (0x50, 0x50, 0x50),
-        dark: (0xA0, 0xA0, 0xA0)
+        light: (0x47, 0x47, 0x47),
+        dark: (0xB0, 0xB0, 0xB0)
     )
 
     private static let neutralIcon = dynamicColor(
