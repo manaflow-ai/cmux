@@ -127,7 +127,7 @@ extension View {
         }
     }
 
-    /// Observes every default-sidebar workspace above the hosted-row boundary.
+    /// Observes every default-sidebar workspace above the AppKit table boundary.
     /// The callback identifies the changed workspace so the owner can rebuild
     /// its immutable projection without mounting an observation task per row.
     func sidebarProcessTitleObservations(
@@ -213,7 +213,7 @@ extension Workspace {
     // process titles settle separately: agent TUIs can animate their terminal
     // title at 10 Hz, and per-workspace burst coalescing cannot reduce changes
     // spaced farther apart than its window. Waiting for the title to settle
-    // prevents those frames from continuously invalidating hosted table rows,
+    // prevents those frames from continuously invalidating native table rows,
     // and the settle model's deferral deadline still republishes during
     // sustained churn so a row's title cannot stay stale until the agent
     // goes quiet. See https://github.com/manaflow-ai/cmux/issues/5570.

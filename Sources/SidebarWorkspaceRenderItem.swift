@@ -4,11 +4,11 @@ import Foundation
 /// Stable value identity for one drawable item in the workspace sidebar.
 ///
 /// Keep live `Workspace` / `WorkspaceGroup` references out of this value. A
-/// The table controller copies and diffs this data while configuring rows;
-/// carrying live models through that path would copy the live sidebar graph and
-/// blur the ownership boundary between AppKit layout and observed state. Models
-/// are resolved by the parent before a realized cell receives its immutable
-/// configuration.
+/// `LazyVStack` copies and diffs its `ForEach` data while placing rows; carrying
+/// the models through that path made scrolling copy the live sidebar graph and
+/// blurred the ownership boundary between layout data and observed state.
+/// Models are resolved from the parent-owned render context only when SwiftUI
+/// asks to realize a row.
 @MainActor
 enum SidebarWorkspaceRenderItem {
     case groupHeader(groupId: UUID, anchorWorkspaceId: UUID)

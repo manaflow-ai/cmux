@@ -1,46 +1,87 @@
-import SwiftUI
+import CoreGraphics
+import Foundation
+
+/// Mutable, non-observed holder for the last-built table rows. The sidebar
+/// container freezes row building against it during interactive divider
+/// drags (rows cannot change while the resizer owns the mouse), so
+/// per-width-tick body evals skip the row-projection prelude.
+@MainActor
+final class SidebarAppKitFrozenRowsBox {
+    var rows: [SidebarWorkspaceTableRowConfiguration]?
+}
 
 /// Immutable description of one AppKit-owned sidebar row.
 @MainActor
 struct SidebarWorkspaceTableRowConfiguration {
-    typealias ContentFactory = (
-        _ isPointerHovering: Bool,
-        _ contextMenuActions: SidebarWorkspaceTableContextMenuActions,
-        _ editingDidChange: @escaping (Bool) -> Void
-    ) -> AnyView
-
     let id: SidebarWorkspaceRenderItemID
     let workspaceId: UUID
     let groupId: UUID?
     let isGroupHeader: Bool
     let isPinned: Bool
-    let makeContent: ContentFactory
+    /// Present when this row renders through the AppKit group header cell.
+    let appKitGroupHeaderModel: SidebarGroupHeaderRowModel?
+    let appKitGroupHeaderActions: SidebarGroupHeaderRowActions?
+    /// Present when this row renders through the pure-AppKit workspace cell.
+    let appKitWorkspaceRowModel: SidebarWorkspaceRowModel?
+    let appKitWorkspaceRowActions: SidebarAppKitRowActions?
+    /// Live workspace reference + fresh-model factory for the per-row churn
+    /// pump (metadata/branch/PR updates repaint one cell, no container render).
+    let appKitWorkspaceRowWorkspace: Workspace?
+    let appKitWorkspaceRowRebuild: (@MainActor () -> SidebarWorkspaceRowModel)?
 
     private let environment: SidebarWorkspaceTableEnvironmentSnapshot
     private let equivalenceValue: Any
     private let isEquivalentValue: (Any) -> Bool
 
-    init<Value: Equatable>(
-        id: SidebarWorkspaceRenderItemID,
-        workspaceId: UUID,
+    init(
+        groupHeaderModel: SidebarGroupHeaderRowModel,
+        actions: SidebarGroupHeaderRowActions,
+        environment: SidebarWorkspaceTableEnvironmentSnapshot
+    ) {
+        self.id = .group(groupHeaderModel.groupId)
+        self.workspaceId = groupHeaderModel.anchorWorkspaceId
+        self.groupId = groupHeaderModel.groupId
+        self.isGroupHeader = true
+        self.isPinned = groupHeaderModel.isPinned
+        self.environment = environment
+        self.appKitGroupHeaderModel = groupHeaderModel
+        self.appKitGroupHeaderActions = actions
+        self.appKitWorkspaceRowModel = nil
+        self.appKitWorkspaceRowActions = nil
+        self.appKitWorkspaceRowWorkspace = nil
+        self.appKitWorkspaceRowRebuild = nil
+        self.equivalenceValue = groupHeaderModel
+        self.isEquivalentValue = { value in
+            guard let value = value as? SidebarGroupHeaderRowModel else { return false }
+            return value == groupHeaderModel
+        }
+    }
+
+    init(
+        workspaceRowModel: SidebarWorkspaceRowModel,
+        actions: SidebarAppKitRowActions,
         groupId: UUID?,
-        isGroupHeader: Bool,
         isPinned: Bool,
         environment: SidebarWorkspaceTableEnvironmentSnapshot,
-        equivalenceValue: Value,
-        makeContent: @escaping ContentFactory
+        workspace: Workspace? = nil,
+        rebuild: (@MainActor () -> SidebarWorkspaceRowModel)? = nil
     ) {
-        self.id = id
-        self.workspaceId = workspaceId
+        self.id = .workspace(workspaceRowModel.workspaceId)
+        self.workspaceId = workspaceRowModel.workspaceId
         self.groupId = groupId
-        self.isGroupHeader = isGroupHeader
+        self.isGroupHeader = false
         self.isPinned = isPinned
         self.environment = environment
-        self.makeContent = makeContent
-        self.equivalenceValue = equivalenceValue
+        self.appKitGroupHeaderModel = nil
+        self.appKitGroupHeaderActions = nil
+        self.appKitWorkspaceRowModel = workspaceRowModel
+        self.appKitWorkspaceRowActions = actions
+        self.appKitWorkspaceRowWorkspace = workspace
+        self.appKitWorkspaceRowRebuild = rebuild
+        self.equivalenceValue = workspaceRowModel
         self.isEquivalentValue = { value in
-            guard let value = value as? Value else { return false }
-            return value == equivalenceValue
+            guard let value = value as? SidebarWorkspaceRowModel else { return false }
+            return value == workspaceRowModel
         }
     }
 

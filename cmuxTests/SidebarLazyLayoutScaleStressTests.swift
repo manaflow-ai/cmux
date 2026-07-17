@@ -151,7 +151,7 @@ extension SidebarLazyLayoutScaleTests {
         let rootView = try #require(harness.window.contentView)
         let table = try #require(Self.tableView(in: rootView))
         let logStore = try OSLogStore(scope: .currentProcessIdentifier)
-        let start = logStore.position(date: Date())
+        let start = logStore.position(timeIntervalSinceEnd: 0)
 
         for index in 0..<40 {
             let workspace = harness.tabManager.tabs[index % 8]

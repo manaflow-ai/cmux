@@ -21,6 +21,8 @@ final class SidebarWorkspaceObservationBatch {
     }
 
     /// Coalesces on an injected scheduler so callers can control the delivery clock.
+    ///
+    /// - Precondition: The scheduler executes scheduled actions on the main actor.
     static func mergedChanges<Context: Scheduler>(
         from publishers: [AnyPublisher<UUID, Never>],
         for interval: Context.SchedulerTimeType.Stride,
@@ -29,9 +31,17 @@ final class SidebarWorkspaceObservationBatch {
         let batch = SidebarWorkspaceObservationBatch()
         return Publishers.MergeMany(publishers)
             .receive(on: scheduler)
-            .handleEvents(receiveOutput: { batch.insert($0) })
+            .handleEvents(receiveOutput: { workspaceId in
+                MainActor.assumeIsolated {
+                    batch.insert(workspaceId)
+                }
+            })
             .coalesceLatest(for: interval, scheduler: scheduler)
-            .map { _ in batch.take() }
+            .map { _ in
+                MainActor.assumeIsolated {
+                    batch.take()
+                }
+            }
             .filter { !$0.isEmpty }
             .eraseToAnyPublisher()
     }

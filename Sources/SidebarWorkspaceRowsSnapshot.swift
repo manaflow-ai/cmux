@@ -1,10 +1,10 @@
 import Foundation
 
-/// Parent-owned immutable values consumed by the workspace sidebar's table rows.
+/// Parent-owned immutable values consumed by the workspace sidebar's lazy rows.
 ///
 /// The dictionaries and shared selection aggregate are value projections built
-/// before the AppKit table boundary. Row/action construction operates only on
-/// these copied values, never on observable stores.
+/// before `LazyVStack`. Row/action construction operates only on these copied
+/// values, never on observable stores.
 struct SidebarWorkspaceRowsSnapshot {
     let workspaceRowsById: [UUID: SidebarWorkspaceRowInput]
     let groupRowsById: [UUID: SidebarWorkspaceGroupRowSnapshot]

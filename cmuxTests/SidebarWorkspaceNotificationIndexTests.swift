@@ -228,6 +228,7 @@ struct SidebarWorkspaceContextMenuTargetAggregateTests {
             showsAgentActivity: false,
             rowSpacing: 0,
             showsModifierShortcutHints: false,
+            isPointerHovering: false,
             isBeingDragged: false,
             topDropIndicatorVisible: false,
             bottomDropIndicatorVisible: false,

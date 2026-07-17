@@ -44,37 +44,18 @@ struct SidebarWorkspaceRowActions {
     let openPullRequest: (URL) -> Void
     let openPort: (Int) -> Void
     let checklist: SidebarWorkspaceChecklistActions
+    let onDragStart: () -> NSItemProvider
+    let bonsplitSourceWorkspaceId: (UUID) -> UUID?
+    let moveBonsplitTabToWorkspace: (BonsplitTabDragPayload.Transfer, UUID) -> Bool
+    let syncAfterBonsplitDrop: () -> Void
+    let selectAfterBonsplitDrop: () -> Void
     let onToggleChecklistExpansion: () -> Void
     let onConsumeChecklistAddFieldActivation: () -> Void
     let onChecklistPopoverPresentedChange: (Bool) -> Void
-    var onEditingChange: (Bool) -> Void = { _ in }
-    var onContextMenuAppear: () -> Void
-    var onContextMenuDisappear: () -> Void
-
-    /// Returns a copy whose cell-lifecycle callbacks also notify the AppKit host.
-    func composingCellCallbacks(
-        didOpen: @escaping () -> Void,
-        didClose: @escaping () -> Void,
-        editingDidChange: @escaping (Bool) -> Void
-    ) -> Self {
-        var composed = self
-        let baseEditingChange = onEditingChange
-        let baseAppear = onContextMenuAppear
-        let baseDisappear = onContextMenuDisappear
-        composed.onEditingChange = {
-            baseEditingChange($0)
-            editingDidChange($0)
-        }
-        composed.onContextMenuAppear = {
-            baseAppear()
-            didOpen()
-        }
-        composed.onContextMenuDisappear = {
-            baseDisappear()
-            didClose()
-        }
-        return composed
-    }
+    let onContextMenuAppear: () -> Void
+    let onContextMenuDisappear: () -> Void
+    let onPointerFrameChange: (CGRect) -> Void
+    let onPointerFrameDisappear: () -> Void
 }
 
 /// Binds parent-owned action capabilities to one lazily realized row input.

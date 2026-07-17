@@ -4,23 +4,23 @@
 History: the workspace sidebar livelocked repeatedly while it was a SwiftUI
 `LazyVStack` (#2586, #5323, #5764, #5845, #5970, #6210, #6556, #6707, #7136,
 #8004). Every incident was some invalidation edge firing during the lazy
-container's placement pass. The terminal fix (#8224) removed the lazy
-container: the default workspace list is one container-level
+container's placement pass. The replacement path is one container-level
 `NSViewRepresentable` (`SidebarWorkspaceTableView`) wrapping an `NSTableView`;
-each row is an isolated `NSHostingView` in a recycled cell, and all list
+native AppKit workspace/header cells own each realized row, and all list
 mutations are owned by `SidebarWorkspaceTableController`. `apply()` and
 viewport notifications only stage immutable inputs; actual table mutations
-flush after the originating SwiftUI/AppKit callback returns.
+flush after the originating SwiftUI/AppKit callback returns. The legacy
+SwiftUI list remains behind the rollout kill switch while the AppKit path
+soaks, so this guard checks the router and the AppKit helper independently.
 
 This guard keeps that topology from regressing:
 
-  * `workspaceScrollArea` must mount `SidebarWorkspaceTableView` and must not
-    reintroduce any SwiftUI list/scroll container.
-  * The deleted LazyVStack-era functions must stay deleted.
-  * Row types stay measurement-free and platform-view-free (per-cell hosting
-    bounds the blast radius of a bad row, but geometry probes and stray
-    representables are still per-cell waste and were the historical livelock
-    ingredients).
+  * `workspaceScrollArea` must route the rollout flag to the AppKit and legacy
+    helpers; `appKitWorkspaceScrollArea` must mount
+    `SidebarWorkspaceTableView` without a SwiftUI list/scroll container.
+  * Row types stay measurement-free and platform-view-free; geometry probes
+    and stray representables are still per-cell waste and were the historical
+    livelock ingredients.
   * AppKit-list sources must never reload/reconfigure the table from an AppKit
     layout lifecycle callback (`layout`, `updateTrackingAreas`,
     `viewDidMoveToWindow`); mutations enter only through `apply()`, input
@@ -38,13 +38,6 @@ import re
 import sys
 
 
-OLD_DEFAULT_LIST_FUNCTIONS = (
-    "workspaceScrollContent",
-    "workspaceRows",
-    "rowsWithGatedDropTargetReader",
-    "bonsplitWorkspaceDropOverlay",
-    "workspaceReorderDropOverlay",
-)
 GUARDED_ROW_TYPES = (
     "TabItemView",
     "SidebarWorkspaceRowView",
@@ -72,13 +65,13 @@ ROW_FORBIDDEN_PATTERNS = (
     (re.compile(r"\bGeometryReader\b"),
      "GeometryReader (a row measuring itself was the #2586/#6556 "
      "GeometryReader -> @State row-height livelock ingredient; row heights "
-     "are owned by AppKit automatic row sizing)"),
+     "are owned by the table controller's explicit cache)"),
     (re.compile(r"\bonGeometryChange\b"),
      "onGeometryChange (geometry-driven state writes in a row re-trigger "
      "layout the same way the #6556 GeometryReader probes did)"),
     (re.compile(r"\.sizeThatFits\s*\("),
      "manual .sizeThatFits( call (row measurement belongs to AppKit's live "
-     "automatic row sizing, never a separate row-body measurement path)"),
+     "table-height cache, never a separate row-body measurement path)"),
     (re.compile(r"\bProposedViewSize\s*\([^)]*\bnil\b"),
      "ProposedViewSize(..., nil) (natural-size measurement -- the #6210 "
      "force-measure shape)"),
@@ -271,7 +264,15 @@ def declaration_signature(source, opening):
         defaults.append(bool(re.search(r"(?<![<>=!])=(?!=)", argument)))
         if "..." in argument:
             variadic_index = len(labels) - 1
-    return tuple(labels), tuple(defaults), variadic_index
+    final_parameter_is_closure = bool(
+        arguments
+        and re.search(
+            r":\s*(?:(?:@escaping|@Sendable|@MainActor)\s+)*"
+            r"\([^)]*\)\s*(?:async\s*)?(?:throws\s*)?->",
+            arguments[-1],
+        )
+    )
+    return tuple(labels), tuple(defaults), variadic_index, final_parameter_is_closure
 
 
 def call_external_labels(source, opening):
@@ -327,10 +328,10 @@ def extract_type_scoped_function_bodies(source):
 def called_local_functions(body, local_names):
     """Find bare/self helper calls, excluding calls on other receivers."""
     result = set()
-    pattern = re.compile(
+    parenthesized_pattern = re.compile(
         r"(?<![\w.])(?:self\s*\.\s*)?([A-Za-z_]\w*)\s*\("
     )
-    for match in pattern.finditer(body):
+    for match in parenthesized_pattern.finditer(body):
         name = match.group(1)
         labels = call_external_labels(body, match.end() - 1)
         prefix = body[max(0, match.start() - 12):match.start()]
@@ -339,7 +340,39 @@ def called_local_functions(body, local_names):
         for key in local_names:
             if key[0] == name and call_matches_declaration(labels, key[1], key[2], key[3]):
                 result.add(key)
+
+    # Swift permits a single closure argument without parentheses (`refresh
+    # { ... }`). Trace both bare and `self.` calls while retaining the same
+    # receiver and declaration filtering as the parenthesized path.
+    trailing_closure_pattern = re.compile(
+        r"(?<![\w.])(?:self\s*\.\s*)?([A-Za-z_]\w*)\s*(?=\{)"
+    )
+    for match in trailing_closure_pattern.finditer(body):
+        name = match.group(1)
+        prefix = body[max(0, match.start() - 12):match.start()]
+        if re.search(r"\bfunc\s*$", prefix):
+            continue
+        for key in local_names:
+            if key[0] == name and trailing_closure_matches_declaration(
+                key[1], key[2], key[3], key[4]
+            ):
+                result.add(key)
     return result
+
+
+def trailing_closure_matches_declaration(
+    declaration_labels,
+    defaults,
+    variadic_index,
+    final_parameter_is_closure,
+):
+    """Match `helper {}` with Swift's omitted final closure label."""
+    if not final_parameter_is_closure or not declaration_labels:
+        return False
+    return all(
+        defaults[index] or variadic_index == index
+        for index in range(len(declaration_labels) - 1)
+    )
 
 
 def call_matches_declaration(call_labels, declaration_labels, defaults, variadic_index):
@@ -423,14 +456,23 @@ def check_content_view(source):
     body = extract_function_body(clean, "workspaceScrollArea")
     if body is None:
         return ["could not locate func workspaceScrollArea(...); update this guard for the renamed boundary"]
-    if not re.search(r"\bSidebarWorkspaceTableView\s*\(", body):
-        violations.append("workspaceScrollArea does not mount SidebarWorkspaceTableView")
+    if "CmuxFeatureFlags.shared.isAppKitSidebarListEnabled" not in body:
+        violations.append("workspaceScrollArea does not preserve the AppKit-sidebar rollout flag")
+    for helper in ("appKitWorkspaceScrollArea", "legacyWorkspaceScrollArea"):
+        if not re.search(r"\b" + helper + r"\s*\(", body):
+            violations.append(f"workspaceScrollArea does not route through {helper}")
     for token in SWIFTUI_LIST_CONTAINERS:
         if re.search(r"\b" + token + r"\s*[({]", body):
             violations.append("workspaceScrollArea reintroduces SwiftUI container: " + token)
-    for name in OLD_DEFAULT_LIST_FUNCTIONS:
-        if extract_function_body(clean, name) is not None:
-            violations.append("obsolete LazyVStack-era default-list function still exists: " + name)
+    appkit_body = extract_function_body(clean, "appKitWorkspaceScrollArea")
+    if appkit_body is None:
+        violations.append("could not locate func appKitWorkspaceScrollArea(...); update this guard for the renamed AppKit boundary")
+        return violations
+    if not re.search(r"\bSidebarWorkspaceTableView\s*\(", appkit_body):
+        violations.append("appKitWorkspaceScrollArea does not mount SidebarWorkspaceTableView")
+    for token in SWIFTUI_LIST_CONTAINERS:
+        if re.search(r"\b" + token + r"\s*[({]", appkit_body):
+            violations.append("appKitWorkspaceScrollArea reintroduces SwiftUI container: " + token)
     return violations
 
 
@@ -465,11 +507,21 @@ def check_appkit_sources(sources_by_name, require_all_files=True):
     violations = []
     required = {
         "SidebarWorkspaceTableView.swift": ("NSViewRepresentable", "makeNSView", "updateNSView"),
-        "SidebarWorkspaceTableController.swift": ("@MainActor", "NSTableViewDataSource", "NSTableViewDelegate"),
-        "SidebarWorkspaceTableCellView.swift": ("NSTableCellView", "rootView"),
-        "SidebarWorkspaceTableHostingView.swift": ("NSHostingView", "invalidateIntrinsicContentSize"),
+        "SidebarWorkspaceTableController.swift": (
+            "@MainActor", "NSTableViewDataSource", "NSTableViewDelegate",
+            "SidebarWorkspaceTableMutationScheduler", "SidebarWorkspaceRowTableCellView",
+            "SidebarGroupHeaderTableCellView",
+        ),
+        "Cells/SidebarWorkspaceRowCellView.swift": (
+            "SidebarWorkspaceRowTableCellView", "NSTableCellView", "beginInlineRename",
+        ),
+        "Cells/SidebarGroupHeaderRowView.swift": (
+            "SidebarGroupHeaderTableCellView", "NSTableCellView",
+        ),
         "SidebarWorkspaceTableViewImpl.swift": ("NSTableView", "updateTrackingAreas", "otherMouseDown"),
-        "SidebarWorkspaceTableRowConfiguration.swift": ("hasEquivalentContent", "makeContent"),
+        "SidebarWorkspaceTableRowConfiguration.swift": (
+            "hasEquivalentContent", "appKitWorkspaceRowModel", "appKitGroupHeaderModel",
+        ),
     }
     for filename, markers in required.items():
         source = sources_by_name.get(filename)
@@ -550,11 +602,12 @@ def repo_owned_swift_sources(root):
 def default_violations(root):
     appkit_dir = os.path.join(root, "Sources", "Sidebar", "AppKitList")
     try:
-        appkit_sources = {
-            name: read(os.path.join(appkit_dir, name))
-            for name in os.listdir(appkit_dir)
-            if name.endswith(".swift")
-        }
+        appkit_sources = {}
+        for directory, _, filenames in os.walk(appkit_dir):
+            for name in filenames:
+                if name.endswith(".swift"):
+                    path = os.path.join(directory, name)
+                    appkit_sources[os.path.relpath(path, appkit_dir)] = read(path)
         content = read(os.path.join(root, "Sources", "ContentView.swift"))
         row_view = read(os.path.join(root, "Sources", "SidebarWorkspaceRowView.swift"))
         group_header = read(os.path.join(root, "Sources", "SidebarWorkspaceGroupHeaderView.swift"))

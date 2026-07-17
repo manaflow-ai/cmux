@@ -7,10 +7,10 @@ keep the guard from rotting into a no-op.
 
 Cases:
   (a) Real cmux repo passes.
-  (b) Renaming/removing the boundary function fails loudly (no silent skip).
+  (b) Renaming/removing the router or AppKit boundary fails loudly.
   (c) Reintroducing a SwiftUI list container (ScrollView/LazyVStack/
-      ScrollViewReader) in the boundary fails.
-  (d) A resurrected LazyVStack-era function (workspaceRows etc.) fails.
+      ScrollViewReader) in the AppKit boundary fails.
+  (d) Bypassing either rollout branch fails.
   (e) A non-allowlisted per-row NSViewRepresentable fails; the inline rename
       field and GPU spinner allowlist passes.
   (f) A row GeometryReader / onGeometryChange / anchorPreference /
@@ -48,12 +48,24 @@ def expect(condition, label):
     return 0 if condition else 1
 
 
-def content_fixture(body):
+def content_fixture(appkit_body):
     return f"""
 import SwiftUI
 struct Sidebar {{
     func workspaceScrollArea(renderContext: Context) -> some View {{
-        {body}
+        Group {{
+            if CmuxFeatureFlags.shared.isAppKitSidebarListEnabled {{
+                appKitWorkspaceScrollArea(renderContext: renderContext)
+            }} else {{
+                legacyWorkspaceScrollArea(renderContext: renderContext)
+            }}
+        }}
+    }}
+    func appKitWorkspaceScrollArea(renderContext: Context) -> some View {{
+        {appkit_body}
+    }}
+    func legacyWorkspaceScrollArea(renderContext: Context) -> some View {{
+        Text("legacy")
     }}
 }}
 struct TabItemView: View {{
@@ -89,10 +101,14 @@ def main():
         "ScrollViewReader regression fails",
     )
 
-    obsolete = clean + "\nextension Sidebar { func workspaceRows() {} }\n"
+    bypassed_legacy = clean.replace(
+        "legacyWorkspaceScrollArea(renderContext: renderContext)",
+        "appKitWorkspaceScrollArea(renderContext: renderContext)",
+        1,
+    )
     failures += expect(
-        any("obsolete" in item for item in guard.check_content_view(obsolete)),
-        "obsolete workspaceRows seam fails",
+        any("legacyWorkspaceScrollArea" in item for item in guard.check_content_view(bypassed_legacy)),
+        "rollout router bypassing the legacy branch fails",
     )
 
     representables = {"BadRowPortal", "SidebarInlineRenameField", "GPUSpinner"}
@@ -287,6 +303,40 @@ final class SidebarWorkspaceTableViewImpl: NSTableView {
     failures += expect(
         any("layout callback via refresh" in item for item in defaulted_helper_violations),
         "a helper reached through an omitted default argument still fails",
+    )
+
+    trailing_closure_lifecycle = """
+final class SidebarWorkspaceTableViewImpl: NSTableView {
+    override func layout() {
+        super.layout()
+        refresh {
+            finishRefresh()
+        }
+    }
+    private func refresh(completion: () -> Void) {
+        reloadData()
+        completion()
+    }
+    private func finishRefresh() {}
+}
+"""
+    trailing_closure_violations = guard.check_appkit_sources({
+        "SidebarWorkspaceTableViewImpl.swift": trailing_closure_lifecycle,
+    }, require_all_files=False)
+    failures += expect(
+        any("layout callback via refresh" in item for item in trailing_closure_violations),
+        "a bare trailing-closure helper call still fails",
+    )
+
+    self_trailing_closure_lifecycle = trailing_closure_lifecycle.replace(
+        "refresh {", "self.refresh {", 1
+    )
+    self_trailing_closure_violations = guard.check_appkit_sources({
+        "SidebarWorkspaceTableViewImpl.swift": self_trailing_closure_lifecycle,
+    }, require_all_files=False)
+    failures += expect(
+        any("layout callback via refresh" in item for item in self_trailing_closure_violations),
+        "a self-qualified trailing-closure helper call still fails",
     )
 
     variadic_helper_lifecycle = """

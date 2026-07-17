@@ -7,6 +7,7 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
     let workspaceIds: [UUID]
     let selectedWorkspaceId: UUID?
     let selectedScrollTargetWorkspaceId: UUID?
+    let isDividerDragActive: Bool
 
     func makeCoordinator() -> SidebarWorkspaceTableController {
         SidebarWorkspaceTableController()
@@ -22,7 +23,8 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
             actions: actions,
             workspaceIds: workspaceIds,
             selectedWorkspaceId: selectedWorkspaceId,
-            selectedScrollTargetWorkspaceId: selectedScrollTargetWorkspaceId
+            selectedScrollTargetWorkspaceId: selectedScrollTargetWorkspaceId,
+            isDividerDragActive: isDividerDragActive
         )
     }
 }

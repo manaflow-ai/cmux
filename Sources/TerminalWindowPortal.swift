@@ -642,6 +642,7 @@ final class WindowTerminalPortal: NSObject {
     weak var installedReferenceView: NSView?
     private var referenceGeometryObservers: [NSObjectProtocol] = []
     private var hasDeferredFullSyncScheduled = false
+    private var deferredFullSyncIncludesVisibleReconcile = false
     /// Surface redraws requested by a sync that ran inside someone else's
     /// layout/update pass (syncLayout == false). displayIfNeeded there reaches
     /// ghostty's Metal drawFrame while the window's transaction is still open,
@@ -1672,11 +1673,22 @@ final class WindowTerminalPortal: NSObject {
         // Failsafe: during aggressive divider drags/structural churn, one anchor can miss a
         // geometry callback while another fires. Reconcile all mapped hosted views so no stale
         // frame remains "stuck" onscreen until the next interaction.
-        synchronizeAllHostedViews(excluding: primaryHostedId, syncLayout: syncLayout)
-        reconcileVisibleHostedViewsAfterGeometrySync(
-            reason: "portal.anchorGeometrySync", syncLayout: syncLayout
-        )
-        scheduleDeferredFullSynchronizeAll()
+        //
+        // With the AppKit sidebar flag on, the failsafe is coalesced to
+        // one pass per main-queue turn. Inline it ran per anchor callback, so one divider width
+        // commit cost panes x (all-hosted sync + all-visible reconcile) — 57% of drag-loop time
+        // in a Time Profiler capture. The deferred pass still runs within the same drag tick
+        // (the tracking loop spins the runloop per event), so the missed-callback window is
+        // unchanged. Flag off keeps the existing per-callback fan-out.
+        if CmuxFeatureFlags.shared.isAppKitSidebarListEnabled {
+            scheduleDeferredFullSynchronizeAll(includeVisibleReconcile: true)
+        } else {
+            synchronizeAllHostedViews(excluding: primaryHostedId, syncLayout: syncLayout)
+            reconcileVisibleHostedViewsAfterGeometrySync(
+                reason: "portal.anchorGeometrySync", syncLayout: syncLayout
+            )
+            scheduleDeferredFullSynchronizeAll()
+        }
     }
 
     private func reconcileVisibleHostedViewsAfterGeometrySync(reason: String, syncLayout: Bool = true) {
@@ -1704,13 +1716,26 @@ final class WindowTerminalPortal: NSObject {
         }
     }
 
-    private func scheduleDeferredFullSynchronizeAll() {
+    private func scheduleDeferredFullSynchronizeAll(includeVisibleReconcile: Bool = false) {
+        if includeVisibleReconcile {
+            deferredFullSyncIncludesVisibleReconcile = true
+        }
         guard !hasDeferredFullSyncScheduled else { return }
         hasDeferredFullSyncScheduled = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.hasDeferredFullSyncScheduled = false
+            let reconcileVisible = self.deferredFullSyncIncludesVisibleReconcile
+            self.deferredFullSyncIncludesVisibleReconcile = false
             self.synchronizeAllHostedViews(excluding: nil)
+            if reconcileVisible {
+                // syncLayout false: this runs off a layout callback during
+                // divider/sidebar drags, where a synchronous display wedges
+                // in Metal (same rule as the per-anchor sync).
+                self.reconcileVisibleHostedViewsAfterGeometrySync(
+                    reason: "portal.deferredFullSync", syncLayout: false
+                )
+            }
         }
     }
 

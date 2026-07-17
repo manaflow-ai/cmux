@@ -8,4 +8,5 @@ struct SidebarWorkspaceTableApplyInput {
     let workspaceIds: [UUID]
     let selectedWorkspaceId: UUID?
     let selectedScrollTargetWorkspaceId: UUID?
+    let isDividerDragActive: Bool
 }

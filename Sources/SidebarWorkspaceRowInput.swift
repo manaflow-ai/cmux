@@ -3,10 +3,10 @@ import CmuxSidebar
 import CmuxWorkspaces
 import Foundation
 
-/// Immutable inputs used to assemble one realized workspace table row.
+/// Immutable inputs used to assemble one workspace row when a lazy stack realizes it.
 ///
 /// The sidebar owner resolves every live model read into this value before the
-/// AppKit table boundary. Context-menu notifications and row-specific actions
+/// `LazyVStack`. Context-menu notifications and row-specific action closures
 /// are intentionally assembled later so parent invalidations stay O(values),
 /// not O(full row subtrees).
 struct SidebarWorkspaceRowInput {
@@ -29,6 +29,7 @@ struct SidebarWorkspaceRowInput {
     let showsAgentActivity: Bool
     let rowSpacing: CGFloat
     let showsModifierShortcutHints: Bool
+    let isPointerHovering: Bool
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
     let bottomDropIndicatorVisible: Bool
@@ -44,17 +45,8 @@ struct SidebarWorkspaceRowInput {
     let activeTodoOverride: WorkspaceTaskStatus?
     let isTodoStatusHidden: Bool
 
-    /// Builds the row's immutable render snapshot.
-    ///
-    /// `isPointerHovering` is supplied by the AppKit table cell at configure
-    /// time, not by the parent projection: hover is table-owned state, so a
-    /// pointer move reconfigures at most two cells instead of re-projecting
-    /// every row input.
     @MainActor
-    func rowSnapshot(
-        list: SidebarWorkspaceRowsSnapshot,
-        isPointerHovering: Bool
-    ) -> SidebarWorkspaceRowSnapshot {
+    func rowSnapshot(list: SidebarWorkspaceRowsSnapshot) -> SidebarWorkspaceRowSnapshot {
         let targetAggregate = list.contextMenuTargetAggregate(for: self)
         return SidebarWorkspaceRowSnapshot(
             workspaceId: workspaceId,

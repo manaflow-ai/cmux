@@ -16,11 +16,10 @@ import SwiftUI
 ///
 /// The SwiftUI-era contract regressed repeatedly (#5323, #5764, #5845, #6210,
 /// #6556, #6707, #8004) and each mechanism shipped to stable before being
-/// detected. The list is now an AppKit `NSTableView` with per-cell hosted
-/// SwiftUI roots (#8224); these tests mount the production
-/// `VerticalTabsSidebar` at 300 workspaces and count actual row body
-/// evaluations and cell materialization through `SidebarLazyContractProbe`
-/// plus the live AppKit hierarchy, so ANY future mechanism that realizes
+/// detected. The list is now an AppKit `NSTableView` with native workspace
+/// and group-header cells (#8224); these tests mount the production
+/// `VerticalTabsSidebar` at 300 workspaces and count parent projections plus
+/// live AppKit cell materialization, so ANY future mechanism that realizes
 /// the whole list or loops row invalidation fails here instead of on a
 /// user's machine. `scripts/check-sidebar-lazy-layout.py` bans the known
 /// source shapes; this is the mechanism-independent backstop.
@@ -242,11 +241,15 @@ final class SidebarLazyLayoutScaleTests {
     }
 
     @MainActor
-    private static func materializedCells(in rootView: NSView) -> [SidebarWorkspaceTableCellView] {
-        var result: [SidebarWorkspaceTableCellView] = []
+    private static func materializedCells(in rootView: NSView) -> [NSTableCellView] {
+        var result: [NSTableCellView] = []
         var pendingViews = [rootView]
         while let view = pendingViews.popLast() {
-            result.append(contentsOf: view.subviews.compactMap { $0 as? SidebarWorkspaceTableCellView })
+            if let cell = view as? SidebarWorkspaceRowTableCellView {
+                result.append(cell)
+            } else if let cell = view as? SidebarGroupHeaderTableCellView {
+                result.append(cell)
+            }
             pendingViews.append(contentsOf: view.subviews)
         }
         return result
@@ -273,40 +276,45 @@ final class SidebarLazyLayoutScaleTests {
             "NSTableView materialized \(cells.count) cells for a single viewport of \(Self.workspaceCount) rows."
         )
 
-        let realized = harness.counter.workspaceRowBodies
-        #expect(realized > 0, "Sidebar mounted but no workspace row body ran; harness is broken.")
+        let realizedWorkspaceCells = cells.filter { $0 is SidebarWorkspaceRowTableCellView }.count
         #expect(
-            realized < Self.realizedRowCeiling,
+            realizedWorkspaceCells > 0,
+            "The production NSTableView mounted no native workspace cells."
+        )
+        #expect(
+            realizedWorkspaceCells < Self.realizedRowCeiling,
             """
-            \(realized) workspace row bodies evaluated for a single ~20-row viewport with \
+            \(realizedWorkspaceCells) native workspace cells materialized for a single ~20-row viewport with \
             \(Self.workspaceCount) workspaces. NSTableView virtualization is being defeated \
             (all rows realized per pass), recreating the #2586 sidebar livelock class; see \
             scripts/check-sidebar-lazy-layout.py.
             """
         )
 
-        let headerRealized = harness.counter.groupHeaderBodies
+        let headerRealized = cells.filter { $0 is SidebarGroupHeaderTableCellView }.count
         #expect(
             headerRealized > 0,
             """
-            Groups were created at the top of the list but no group-header body ran; the \
+            Groups were created at the top of the list but no native group-header cell mounted; the \
             grouped-workspace coverage is broken.
             """
         )
         #expect(
             headerRealized < Self.realizedRowCeiling,
             """
-            \(headerRealized) group-header bodies evaluated for 5 groups in one viewport. \
+            \(headerRealized) native group-header cells materialized for 5 groups in one viewport. \
             The group-header row factory (sidebarWorkspaceGroupTableRowConfiguration) is defeating \
             virtualization or re-evaluating without bound — the #4385 regression site.
             """
         )
+        #expect(harness.counter.workspaceRowBodies == 0)
+        #expect(harness.counter.groupHeaderBodies == 0)
     }
 
     /// TabItemView.body must never build a workspace snapshot. The parent owns
     /// the full per-workspace projection (bonsplit tree walk, git summaries,
     /// PR rows) and passes the resulting value across the AppKit table boundary.
-    /// Building it while a hosted row is rendering would read the live workspace
+    /// Building it while a row is rendering would read the live workspace
     /// graph from inside SwiftUI layout and recreate the #6707 reentry path.
     @Test
     @MainActor
@@ -326,7 +334,7 @@ final class SidebarLazyLayoutScaleTests {
             """
             A single TabItemView.body evaluation built the workspace snapshot \(worstBody) \
             times. Workspace snapshots must be built by VerticalTabsSidebar before the \
-            AppKit table configuration and passed to hosted rows as immutable values.
+            AppKit table configuration and passed to native rows as immutable values.
             """
         )
     }
@@ -430,26 +438,27 @@ final class SidebarLazyLayoutScaleTests {
         }
         await Self.drainMainRunLoop(for: harness.window)
 
-        let stormEvals = harness.counter.workspaceRowBodies
-        #expect(stormEvals > 0, "The unread storm did not update any hosted workspace row.")
+        let stormBuilds = harness.counter.workspaceSnapshotBuilds
+        #expect(stormBuilds > 0, "The unread storm did not refresh any workspace snapshot.")
         #expect(
-            stormEvals < storms * 10,
+            stormBuilds < storms * 10,
             """
-            \(stormEvals) workspace row bodies evaluated for \(storms) single-workspace unread \
-            updates. Updates must invalidate only the changed rows (TabItemView.== + \
-            .equatable()), not re-evaluate the list. \(Self.workspaceCount) workspaces × \
-            \(storms) updates re-realizing per pass is the #2586 livelock at scale.
+            \(stormBuilds) workspace snapshots were rebuilt for \(storms) single-workspace unread \
+            updates. Updates must refresh only changed rows, not rebuild all \
+            \(Self.workspaceCount) workspaces per update.
             """
         )
+        #expect(harness.counter.workspaceRowBodies == 0)
 
         harness.counter.reset()
         await Self.drainMainRunLoop(for: harness.window, iterations: 30)
-        let quietEvals = harness.counter.workspaceRowBodies + harness.counter.groupHeaderBodies
+        let quietEvals = harness.counter.workspaceSnapshotBuilds
+            + harness.counter.workspaceRowInputProjections
         #expect(
             quietEvals < 20,
             """
-            \(quietEvals) row bodies (workspace + group header) evaluated with no state \
-            changes at all. The sidebar is re-invalidating itself — a layout/state feedback \
+            \(quietEvals) snapshot/projection operations ran with no state changes at all. \
+            The sidebar is re-invalidating itself — a layout/state feedback \
             loop (the #6556 signature). This livelocks the main thread at scale.
             """
         )

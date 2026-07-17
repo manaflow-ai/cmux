@@ -3,6 +3,7 @@ import AppKit
 /// AppKit container stacking drag destinations above the virtualized table.
 @MainActor
 final class SidebarWorkspaceTableContainerView: NSView {
+    weak var workspaceController: SidebarWorkspaceTableController?
     let scrollView = NSScrollView()
     let clipView = SidebarWorkspaceTableClipView()
     let tableView = SidebarWorkspaceTableViewImpl()
@@ -12,7 +13,7 @@ final class SidebarWorkspaceTableContainerView: NSView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        // One layer-backed subtree keeps recycled hosted rows on AppKit's
+        // One layer-backed subtree keeps recycled native rows on AppKit's
         // accelerated scroll path without per-cell layer topology changes.
         wantsLayer = true
         scrollView.contentView = clipView
@@ -43,5 +44,10 @@ final class SidebarWorkspaceTableContainerView: NSView {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidEndLiveResize() {
+        super.viewDidEndLiveResize()
+        workspaceController?.remeasureRowsIfWidthChanged()
     }
 }

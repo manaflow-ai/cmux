@@ -1,7 +1,6 @@
 import AppKit
 import Bonsplit
 import Foundation
-import SwiftUI
 import Testing
 
 #if canImport(cmux_DEV)
@@ -23,12 +22,7 @@ struct SidebarWorkspaceTableDragTests {
         let anchorId = UUID()
         let workspaceId = UUID()
         var draggedWorkspaceIds: [UUID] = []
-        let group = makeRowConfiguration(
-            id: .group(groupId),
-            workspaceId: anchorId,
-            groupId: groupId,
-            isGroupHeader: true
-        )
+        let group = makeGroupConfiguration(groupId: groupId, anchorWorkspaceId: anchorId)
         let workspace = makeRowConfiguration(workspaceId: workspaceId)
         controller.apply(
             rows: [group, workspace],
@@ -45,70 +39,276 @@ struct SidebarWorkspaceTableDragTests {
         #expect(draggedWorkspaceIds == [anchorId])
         let workspaceCell = try #require(
             container.tableView.view(atColumn: 0, row: 1, makeIfNecessary: true)
-                as? SidebarWorkspaceTableCellView
+                as? SidebarWorkspaceRowTableCellView
         )
-        workspaceCell.model.state?.editingDidChange(true)
+        workspaceCell.beginInlineRename()
         #expect(controller.tableView(container.tableView, pasteboardWriterForRow: 1) == nil)
         #expect(draggedWorkspaceIds == [anchorId])
-        workspaceCell.model.state?.editingDidChange(false)
+        _ = window.makeFirstResponder(container.tableView)
         #expect(controller.tableView(container.tableView, pasteboardWriterForRow: 1) != nil)
         #expect(draggedWorkspaceIds == [anchorId, workspaceId])
     }
 
     @Test
     @MainActor
-    func reusedCellClearsSuppressionAndRejectsStaleEditingCallbacks() {
-        let cell = SidebarWorkspaceTableCellView()
+    func reusedNativeCellClearsInlineRenameDragSuppression() {
+        let cell = SidebarWorkspaceRowTableCellView()
         configure(cell, row: makeRowConfiguration())
-        let staleEditingDidChange = cell.model.state?.editingDidChange
-        staleEditingDidChange?(true)
+        cell.beginInlineRename()
         #expect(cell.suppressesWorkspaceDrag)
 
         configure(cell, row: makeRowConfiguration())
-        staleEditingDidChange?(true)
         #expect(!cell.suppressesWorkspaceDrag)
+    }
+
+    @Test
+    @MainActor
+    func duplicateRenderItemIdsKeepTheFirstRowIndex() {
+        let controller = SidebarWorkspaceTableController()
+        _ = controller.makeContainerView()
+        let workspaceId = UUID()
+        controller.apply(
+            rows: [
+                makeRowConfiguration(workspaceId: workspaceId),
+                makeRowConfiguration(workspaceId: workspaceId),
+            ],
+            actions: makeTableActions(),
+            workspaceIds: [workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        flushStagedTableMutations()
+
+        #expect(controller.rowIndex(forWorkspaceId: workspaceId) == 0)
+    }
+
+    @Test
+    @MainActor
+    func workspaceTargetPrefersVisibleWorkspaceRowThenFallsBackToGroupHeader() {
+        let controller = SidebarWorkspaceTableController()
+        _ = controller.makeContainerView()
+        let anchorId = UUID()
+        let header = makeGroupConfiguration(groupId: UUID(), anchorWorkspaceId: anchorId)
+        let workspace = makeRowConfiguration(workspaceId: anchorId)
+        let actions = makeTableActions()
+
+        controller.apply(
+            rows: [header, workspace], actions: actions,
+            workspaceIds: [anchorId], selectedWorkspaceId: anchorId,
+            selectedScrollTargetWorkspaceId: anchorId
+        )
+        flushStagedTableMutations()
+        #expect(controller.rowIndex(forWorkspaceId: anchorId) == 1)
+
+        controller.apply(
+            rows: [header], actions: actions,
+            workspaceIds: [anchorId], selectedWorkspaceId: anchorId,
+            selectedScrollTargetWorkspaceId: anchorId
+        )
+        flushStagedTableMutations()
+        #expect(controller.rowIndex(forWorkspaceId: anchorId) == 0)
+    }
+
+    @Test
+    @MainActor
+    func dividerDragDefersRowRemeasureUntilSettledApply() {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        container.frame = NSRect(x: 0, y: 0, width: 360, height: 240)
+        container.layoutSubtreeIfNeeded()
+        let workspaceId = UUID()
+        let row = makeRowConfiguration(
+            workspaceId: workspaceId,
+            title: String(repeating: "variable width title ", count: 20),
+            wrapsTitle: true
+        )
+        let actions = makeTableActions()
+        controller.apply(
+            rows: [row], actions: actions, workspaceIds: [workspaceId],
+            selectedWorkspaceId: nil, selectedScrollTargetWorkspaceId: nil
+        )
+        flushStagedTableMutations()
+        let wideHeight = controller.tableView(container.tableView, heightOfRow: 0)
+
+        container.frame.size.width = 120
+        container.layoutSubtreeIfNeeded()
+        controller.apply(
+            rows: [row], actions: actions, workspaceIds: [workspaceId],
+            selectedWorkspaceId: nil, selectedScrollTargetWorkspaceId: nil,
+            isDividerDragActive: true
+        )
+        flushStagedTableMutations()
+        #expect(controller.tableView(container.tableView, heightOfRow: 0) == wideHeight)
+
+        controller.apply(
+            rows: [row], actions: actions, workspaceIds: [workspaceId],
+            selectedWorkspaceId: nil, selectedScrollTargetWorkspaceId: nil,
+            isDividerDragActive: false
+        )
+        flushStagedTableMutations()
+        let settledHeight = controller.tableView(container.tableView, heightOfRow: 0)
+        #expect(settledHeight > wideHeight)
+
+        controller.remeasureRowsIfWidthChanged()
+        #expect(controller.tableView(container.tableView, heightOfRow: 0) == settledHeight)
     }
 
     @MainActor
     private func makeRowConfiguration(
-        id: SidebarWorkspaceRenderItemID? = nil,
         workspaceId: UUID = UUID(),
         groupId: UUID? = nil,
-        isGroupHeader: Bool = false
+        title: String = "workspace",
+        wrapsTitle: Bool = false
     ) -> SidebarWorkspaceTableRowConfiguration {
-#if DEBUG
-        let environment = SidebarWorkspaceTableEnvironmentSnapshot(
-            colorScheme: .light,
-            globalFontMagnificationPercent: 100,
-            lazyContractProbe: SidebarLazyContractProbe()
-        )
-#else
+        let defaultsSuiteName = "SidebarWorkspaceTableDragTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: defaultsSuiteName)!
+        defaults.set(wrapsTitle, forKey: SidebarWorkspaceTitleWrapSettings.key)
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        defaults.removePersistentDomain(forName: defaultsSuiteName)
         let environment = SidebarWorkspaceTableEnvironmentSnapshot(
             colorScheme: .light,
             globalFontMagnificationPercent: 100
         )
-#endif
-        return SidebarWorkspaceTableRowConfiguration(
-            id: id ?? .workspace(workspaceId),
+        let model = SidebarWorkspaceRowModel(
             workspaceId: workspaceId,
+            index: 0,
+            snapshot: SidebarWorkspaceSnapshotRefreshPolicyTests.snapshot(title: title),
+            settings: settings,
+            isActive: false,
+            isMultiSelected: false,
+            canCloseWorkspace: true,
+            accessibilityWorkspaceCount: 2,
+            unreadCount: 0,
+            latestNotificationText: nil,
+            showsAgentActivity: false,
+            rowSpacing: 2,
+            isBeingDragged: false,
+            topDropIndicatorVisible: false,
+            bottomDropIndicatorVisible: false,
+            isGrouped: groupId != nil,
+            isFirstRow: false,
+            shortcutHintText: nil,
+            showsShortcutHints: false,
+            colorSchemeIsDark: false,
+            globalFontMagnificationPercent: 100,
+            isChecklistExpanded: false,
+            checklistAddFieldActivationToken: 0
+        )
+        return SidebarWorkspaceTableRowConfiguration(
+            workspaceRowModel: model,
+            actions: makeRowActions(),
             groupId: groupId,
-            isGroupHeader: isGroupHeader,
             isPinned: false,
-            environment: environment,
-            equivalenceValue: workspaceId
-        ) { _, _, _ in AnyView(EmptyView()) }
+            environment: environment
+        )
     }
 
     @MainActor
     private func configure(
-        _ cell: SidebarWorkspaceTableCellView,
+        _ cell: SidebarWorkspaceRowTableCellView,
         row: SidebarWorkspaceTableRowConfiguration
     ) {
+        guard let model = row.appKitWorkspaceRowModel,
+              let actions = row.appKitWorkspaceRowActions else {
+            Issue.record("Expected a native workspace-row configuration")
+            return
+        }
         cell.configure(
-            row: row,
+            model: model,
+            actions: actions,
             isPointerHovering: false,
             contextMenuDidOpen: {},
             contextMenuDidClose: {}
+        )
+    }
+
+    @MainActor
+    private func makeRowActions() -> SidebarAppKitRowActions {
+        let workspace = Workspace(
+            title: "Test",
+            initialSurface: .browser,
+            initialBrowserURL: URL(string: "about:blank")
+        )
+        let commands = SidebarWorkspaceRowCommands(
+            tab: workspace,
+            tabManager: nil,
+            notificationStore: nil,
+            index: 0,
+            contextMenuWorkspaceIds: [],
+            remoteContextMenuWorkspaceIds: [],
+            allRemoteContextMenuTargetsConnecting: false,
+            allRemoteContextMenuTargetsDisconnected: false,
+            contextMenuPinState: nil,
+            workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot(items: []),
+            refreshSnapshot: {},
+            readSelectedTabIds: { [] },
+            writeSelectedTabIds: { _ in },
+            readLastSelectionIndex: { nil },
+            writeLastSelectionIndex: { _ in },
+            setSelectionToTabs: {},
+            snapshotProvider: { nil }
+        )
+        return SidebarAppKitRowActions(
+            commands: commands,
+            onOpenPullRequest: { _ in },
+            onOpenPort: { _ in },
+            onToggleChecklistExpansion: {},
+            onConsumeChecklistAddFieldActivation: {},
+            checklistSetItemState: { _, _ in },
+            checklistRemoveItem: { _ in },
+            checklistAddItem: { _ in },
+            checklistEditItem: { _, _ in },
+            commitRename: { _ in }
+        )
+    }
+
+    @MainActor
+    private func makeGroupConfiguration(
+        groupId: UUID,
+        anchorWorkspaceId: UUID
+    ) -> SidebarWorkspaceTableRowConfiguration {
+        let model = SidebarGroupHeaderRowModel(
+            groupId: groupId,
+            anchorWorkspaceId: anchorWorkspaceId,
+            name: "Group",
+            iconSymbol: "folder",
+            tintHex: nil,
+            isCollapsed: false,
+            isPinned: false,
+            isAnchorActive: false,
+            memberCount: 1,
+            anchorUnreadCount: 0,
+            canMarkRead: false,
+            canMarkUnread: false,
+            hasLatestNotifications: false,
+            canMarkAllRead: false,
+            canMarkAllUnread: false,
+            shortcutHintText: nil,
+            shortcutHintXOffset: 0,
+            shortcutHintYOffset: 0,
+            fontScale: 1,
+            globalFontMagnificationPercent: 100,
+            cwdContextMenuItems: [],
+            rowSpacing: 2,
+            isFirstRow: true,
+            isBeingDragged: false,
+            topDropIndicatorVisible: false,
+            bottomDropIndicatorVisible: false
+        )
+        let actions = SidebarGroupHeaderRowActions(
+            onToggleCollapsed: {}, onFocusAnchor: {}, onTapPlus: {},
+            onRunResolvedItem: { _ in }, onRename: {}, onTogglePinned: {},
+            onMarkRead: {}, onMarkUnread: {}, onClearLatestNotifications: {},
+            onMarkAllRead: {}, onMarkAllUnread: {}, onUngroup: {}, onDelete: {},
+            onEditConfig: {}, onOpenDocs: {}
+        )
+        return SidebarWorkspaceTableRowConfiguration(
+            groupHeaderModel: model,
+            actions: actions,
+            environment: SidebarWorkspaceTableEnvironmentSnapshot(
+                colorScheme: .light,
+                globalFontMagnificationPercent: 100
+            )
         )
     }
 
@@ -119,7 +319,7 @@ struct SidebarWorkspaceTableDragTests {
 
     @MainActor
     private func makeTableActions(
-        beginWorkspaceDrag: @escaping (UUID) -> Void
+        beginWorkspaceDrag: @escaping (UUID) -> Void = { _ in }
     ) -> SidebarWorkspaceTableActions {
         SidebarWorkspaceTableActions(
             attachScrollView: { _ in },

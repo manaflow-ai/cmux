@@ -1,6 +1,6 @@
 import CoreGraphics
 
-/// Supplies deterministic estimates while AppKit resolves exact hosted SwiftUI row heights.
+/// Supplies deterministic estimates while AppKit resolves exact native row heights.
 struct SidebarWorkspaceTableRowHeightCalculator {
     var defaultWorkspaceHeight: CGFloat {
         estimatedWorkspaceHeight(fontScale: 1, titleLineCount: 1, auxiliaryLineCount: 0)

@@ -2,7 +2,6 @@ import AppKit
 import Bonsplit
 import CmuxAppKitSupportUI
 import CmuxFoundation
-import SwiftUI
 
 /// Main-actor owner of the default sidebar table lifecycle and its AppKit interactions.
 @MainActor
@@ -23,9 +22,16 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         applyFlush: { [weak self] in self?.flushApply($0) },
         viewportChangeFlush: { [weak self] in self?.flushViewportChange() }
     )
-    private let rowHeightOwner = SidebarWorkspaceTableRowHeightOwner()
+    private let rowHeightCache = SidebarWorkspaceTableRowHeightCache()
     private let dropTargetGeometry = SidebarWorkspaceTableDropTargetGeometryGate()
     private let emptyAreaMenuOwner = SidebarWorkspaceTableEmptyAreaMenuOwner()
+
+#if DEBUG
+    var dropTargetComputationProbe: (() -> Void)? {
+        get { dropTargetGeometry.computationProbe }
+        set { dropTargetGeometry.computationProbe = newValue }
+    }
+#endif
 
     deinit {
         if let clipBoundsObserver {
@@ -35,6 +41,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     func makeContainerView() -> SidebarWorkspaceTableContainerView {
         let container = SidebarWorkspaceTableContainerView()
         containerView = container
+        container.workspaceController = self
 
         let table = container.tableView
         table.workspaceController = self
@@ -53,8 +60,12 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         table.allowsMultipleSelection = false
         table.allowsTypeSelect = false
         table.intercellSpacing = NSSize(width: 0, height: 2)
-        rowHeightOwner.attach(to: table)
+        table.usesAutomaticRowHeights = false
+        table.rowHeight = SidebarWorkspaceTableRowHeightCalculator().defaultWorkspaceHeight
         table.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
+        table.target = self
+        table.action = #selector(didClickTableRow)
+        table.doubleAction = #selector(didDoubleClickTableRow)
         table.setDraggingSourceOperationMask(.move, forLocal: true)
         table.setDraggingSourceOperationMask(.move, forLocal: false)
 
@@ -97,21 +108,25 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
         return container
     }
+
     func apply(
         rows nextRows: [SidebarWorkspaceTableRowConfiguration],
         actions: SidebarWorkspaceTableActions,
         workspaceIds nextWorkspaceIds: [UUID],
         selectedWorkspaceId: UUID?,
-        selectedScrollTargetWorkspaceId: UUID?
+        selectedScrollTargetWorkspaceId: UUID?,
+        isDividerDragActive: Bool = false
     ) {
-        let input = SidebarWorkspaceTableApplyInput(
-            rows: nextRows,
-            actions: actions,
-            workspaceIds: nextWorkspaceIds,
-            selectedWorkspaceId: selectedWorkspaceId,
-            selectedScrollTargetWorkspaceId: selectedScrollTargetWorkspaceId
+        mutationScheduler.stageApply(
+            SidebarWorkspaceTableApplyInput(
+                rows: nextRows,
+                actions: actions,
+                workspaceIds: nextWorkspaceIds,
+                selectedWorkspaceId: selectedWorkspaceId,
+                selectedScrollTargetWorkspaceId: selectedScrollTargetWorkspaceId,
+                isDividerDragActive: isDividerDragActive
+            )
         )
-        mutationScheduler.stageApply(input)
     }
 
     private func flushApply(_ input: SidebarWorkspaceTableApplyInput) {
@@ -121,25 +136,36 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let nextWorkspaceIds = input.workspaceIds
         let selectedWorkspaceId = input.selectedWorkspaceId
         let selectedScrollTargetWorkspaceId = input.selectedScrollTargetWorkspaceId
+        isDividerDragActive = input.isDividerDragActive
         self.actions = actions
         actions.attachScrollView(containerView.scrollView)
         configureDropViews(in: containerView, actions: actions)
 
         let previousRows = rows
         let hasStructuralChanges = !previousRows.elementsEqual(nextRows) { $0.id == $1.id }
+        let width = currentColumnWidth()
+        var heightChanges = IndexSet()
+        if width == lastMeasuredWidth || lastMeasuredWidth == 0 {
+            heightChanges = rowHeightCache.prepareNativeRows(nextRows, columnWidth: width)
+            if width > 0 { lastMeasuredWidth = width }
+        }
+        pumpHeightOverrides.removeAll(keepingCapacity: true)
         rows = nextRows
         rowIndexById = Dictionary(
-            uniqueKeysWithValues: nextRows.enumerated().lazy.map { ($1.id, $0) }
+            nextRows.enumerated().lazy.map { ($1.id, $0) },
+            uniquingKeysWith: { first, _ in first }
         )
-        rowHeightOwner.apply(rows: nextRows, hasStructuralChanges: hasStructuralChanges)
 
         if hasStructuralChanges {
             containerView.tableView.reloadData()
         } else {
-            let contentChanges = IndexSet(nextRows.indices.lazy.filter { index in
+            let contentChanges = IndexSet(nextRows.indices.filter { index in
                 !previousRows[index].hasEquivalentContent(to: nextRows[index])
             })
             reconfigureVisibleRows(contentChanges)
+            if !heightChanges.isEmpty {
+                containerView.tableView.noteHeightOfRows(withIndexesChanged: heightChanges)
+            }
         }
 
         let shouldScrollAfterWorkspaceChange = SidebarSelectedWorkspaceScrollPolicy
@@ -157,33 +183,87 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         synchronizeAppKitDropIndicator(actions: actions)
         recomputeHoveredRow()
         updateDropTargets()
+        if !isWindowLiveResizeActive {
+            remeasureRowsIfWidthChanged()
+        }
     }
+
+    /// Row clicks route through the table's action (NSTableView owns the
+    /// mouse tracking loop, so cell-level gesture recognizers never fire).
+    @objc private func didClickTableRow() {
+        guard let table = containerView?.tableView else { return }
+        let row = table.clickedRow
+#if DEBUG
+        cmuxDebugLog("sidebar.table.click row=\(row) rows=\(rows.count)")
+#endif
+        guard rows.indices.contains(row) else { return }
+        if let actions = rows[row].appKitWorkspaceRowActions {
+            actions.commands.updateSelection()
+        } else if let headerActions = rows[row].appKitGroupHeaderActions {
+            headerActions.onFocusAnchor()
+        }
+    }
+
+    @objc private func didDoubleClickTableRow() {
+        guard let table = containerView?.tableView else { return }
+        let row = table.clickedRow
+        guard rows.indices.contains(row),
+              rows[row].appKitWorkspaceRowModel != nil,
+              let cell = table.view(atColumn: 0, row: row, makeIfNecessary: false)
+                as? SidebarWorkspaceRowTableCellView else { return }
+        cell.beginInlineRename()
+    }
+
     func numberOfRows(in tableView: NSTableView) -> Int {
         rows.count
     }
+
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-        rowHeightOwner.height(ofRow: row, fallback: tableView.rowHeight)
+        guard rows.indices.contains(row) else { return tableView.rowHeight }
+        let configuration = rows[row]
+        if let override = pumpHeightOverrides[configuration.id] {
+            return override
+        }
+        let columnWidth = lastMeasuredWidth > 0 ? lastMeasuredWidth : currentColumnWidth()
+        return rowHeightCache.height(
+            for: configuration,
+            columnWidth: columnWidth
+        ) ?? configuration.estimatedHeight
     }
+
     func tableView(
         _ tableView: NSTableView,
         viewFor tableColumn: NSTableColumn?,
         row: Int
     ) -> NSView? {
         guard rows.indices.contains(row) else { return nil }
-        let cell = tableView.makeView(
-            withIdentifier: SidebarWorkspaceTableCellView.reuseIdentifier,
-            owner: self
-        ) as? SidebarWorkspaceTableCellView ?? SidebarWorkspaceTableCellView()
-        configure(cell: cell, at: row)
-        return cell
+        if rows[row].appKitGroupHeaderModel != nil {
+            let cell = tableView.makeView(
+                withIdentifier: SidebarGroupHeaderTableCellView.reuseIdentifier,
+                owner: self
+            ) as? SidebarGroupHeaderTableCellView ?? SidebarGroupHeaderTableCellView()
+            configure(headerCell: cell, at: row)
+            return cell
+        }
+        if rows[row].appKitWorkspaceRowModel != nil {
+            let cell = tableView.makeView(
+                withIdentifier: SidebarWorkspaceRowTableCellView.reuseIdentifier,
+                owner: self
+            ) as? SidebarWorkspaceRowTableCellView ?? SidebarWorkspaceRowTableCellView()
+            configure(workspaceCell: cell, at: row)
+            return cell
+        }
+        assertionFailure("Sidebar table row \(rows[row].id) has no native cell model")
+        return nil
     }
+
     func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
         false
     }
+
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
-        guard rows.indices.contains(row), let actions else { return nil }
-        if let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false)
-            as? SidebarWorkspaceTableCellView, cell.suppressesWorkspaceDrag { return nil }
+        guard rows.indices.contains(row), let actions,
+              !isInlineEditing(row: row, tableView: tableView) else { return nil }
         let workspaceId = rows[row].workspaceId
         actions.beginWorkspaceDrag(workspaceId)
         workspaceDragSessionDidBegin()
@@ -194,6 +274,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         )
         return item
     }
+
     func tableView(
         _ tableView: NSTableView,
         draggingSession session: NSDraggingSession,
@@ -203,23 +284,48 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         actions?.endWorkspaceDrag()
         workspaceDragSessionDidEnd()
         // A cancelled drag can end without `draggingExited` reaching the drop
-        // views, leaving the AppKit indicator stranded; clear it on every
-        // session end.
+        // views, so clear any AppKit-owned indicator on every session end.
         setAppKitDropIndicator(nil, scope: .raw, includeRowTargets: false)
     }
+
     func workspaceDragSessionDidBegin() {
         if dropTargetGeometry.setWorkspaceDragSessionActive(true, rows: rows) {
             positionAppKitDropIndicator()
         }
     }
+
     func workspaceDragSessionDidEnd() {
         dropTargetGeometry.setWorkspaceDragSessionActive(false, rows: rows)
         dropTargetGeometry.setReorderTargetCollectionActive(false, rows: rows)
     }
+
+    /// Optimistic press highlight: paints the clicked workspace cell as
+    /// selected immediately and, for a plain click, peels the highlight off
+    /// the outgoing rows so old and new selection never show together while
+    /// the authoritative render is queued behind the terminal-view swap.
+    /// The authoritative apply reconciles right after.
+    func previewSelection(row: Int, modifiers: NSEvent.ModifierFlags, hitView: NSView?) {
+        guard rows.indices.contains(row),
+              rows[row].appKitWorkspaceRowModel != nil,
+              let table = containerView?.tableView,
+              let cell = table.view(atColumn: 0, row: row, makeIfNecessary: false)
+                as? SidebarWorkspaceRowTableCellView else { return }
+        if let hitView, cell.selectionPreviewShouldIgnore(hitView) { return }
+        let extendsSelection = modifiers.contains(.command) || modifiers.contains(.shift)
+        if !extendsSelection {
+            let visibleRows = table.rows(in: table.visibleRect)
+            for visibleRow in visibleRows.lowerBound..<(visibleRows.lowerBound + visibleRows.length)
+            where visibleRow != row {
+                (table.view(atColumn: 0, row: visibleRow, makeIfNecessary: false)
+                    as? SidebarWorkspaceRowTableCellView)?.showOptimisticDeselection()
+            }
+        }
+        cell.showOptimisticSelectionHighlight()
+    }
+
     func middleClick(row: Int) {
-        // Group headers close via their explicit menu actions only; the
-        // header's workspaceId is the group anchor, and middle-click must not
-        // close the anchor workspace.
+        // Group headers carry their anchor's workspaceId; middle-closing the
+        // anchor from a header press would be destructive and non-parity.
         guard rows.indices.contains(row), !rows[row].isGroupHeader else { return }
         actions?.closeWorkspace(rows[row].workspaceId)
     }
@@ -227,9 +333,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     func doubleClickEmptyArea() {
         actions?.createWorkspaceAtEnd()
     }
+
     func createEmptyWorkspaceGroup() {
         emptyAreaMenuOwner.createEmptyWorkspaceGroup(actions: actions)
     }
+
     func emptyAreaMenu() -> NSMenu {
         emptyAreaMenuOwner.menu(actions: actions)
     }
@@ -238,6 +346,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         guard contextMenuRowId == nil else { return }
         setHoveredRowId(nil)
     }
+
     func recomputeHoveredRow() {
         guard contextMenuRowId == nil,
               let table = containerView?.tableView else {
@@ -257,9 +366,36 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     private func flushViewportChange() {
-        rowHeightOwner.viewportDidChange()
+        if !isWindowLiveResizeActive {
+            remeasureRowsIfWidthChanged()
+        }
         recomputeHoveredRow()
         updateDropTargets()
+    }
+
+    private var lastMeasuredWidth: CGFloat = 0
+    private var isDividerDragActive = false
+
+    /// Reconciles cached native heights at a settled resize boundary.
+    func remeasureRowsIfWidthChanged() {
+        guard !isDividerDragActive else { return }
+        let width = currentColumnWidth()
+        guard width > 0, width != lastMeasuredWidth else { return }
+        let changed = rowHeightCache.prepareNativeRows(rows, columnWidth: width)
+        lastMeasuredWidth = width
+        pumpHeightOverrides.removeAll(keepingCapacity: true)
+        if !changed.isEmpty {
+            containerView?.tableView.noteHeightOfRows(withIndexesChanged: changed)
+        }
+    }
+
+    private var isWindowLiveResizeActive: Bool {
+        containerView?.inLiveResize == true || containerView?.window?.inLiveResize == true
+    }
+
+    private func currentColumnWidth() -> CGFloat {
+        guard let containerView else { return 0 }
+        return containerView.clipView.bounds.width
     }
 
     private func setHoveredRowId(_ next: SidebarWorkspaceRenderItemID?) {
@@ -273,9 +409,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         guard contextMenuRowId != rowId else { return }
         let previous = contextMenuRowId
         contextMenuRowId = rowId
-        // The configured hover flag folds in the context-menu row, so both
-        // transitions must reconfigure or the cell keeps a stale flag until
-        // the next unrelated apply() touches it.
         reconfigureRows(withIds: [previous, rowId].compactMap { $0 })
     }
 
@@ -283,8 +416,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         guard contextMenuRowId == rowId else { return }
         contextMenuRowId = nil
         recomputeHoveredRow()
-        // recomputeHoveredRow() dedupes an unchanged hoveredRowId, so restore
-        // this row's hover flag explicitly for the pointer-didn't-move case.
         reconfigureRows(withIds: [rowId])
     }
 
@@ -296,19 +427,25 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private func reconfigureVisibleRows(_ indexes: IndexSet) {
         guard let table = containerView?.tableView else { return }
         for row in indexes where rows.indices.contains(row) {
-            guard let cell = table.view(atColumn: 0, row: row, makeIfNecessary: false)
-                    as? SidebarWorkspaceTableCellView else {
+            switch table.view(atColumn: 0, row: row, makeIfNecessary: false) {
+            case let cell as SidebarGroupHeaderTableCellView:
+                configure(headerCell: cell, at: row)
+            case let cell as SidebarWorkspaceRowTableCellView:
+                configure(workspaceCell: cell, at: row)
+            default:
                 continue
             }
-            configure(cell: cell, at: row)
         }
     }
 
-    private func configure(cell: SidebarWorkspaceTableCellView, at row: Int) {
+    private func configure(workspaceCell cell: SidebarWorkspaceRowTableCellView, at row: Int) {
         let configuration = rows[row]
+        guard let model = configuration.appKitWorkspaceRowModel,
+              let actions = configuration.appKitWorkspaceRowActions else { return }
         let rowId = configuration.id
         cell.configure(
-            row: configuration,
+            model: model,
+            actions: actions,
             isPointerHovering: hoveredRowId == rowId && contextMenuRowId != rowId,
             contextMenuDidOpen: { [weak self] in
                 self?.contextMenuDidOpen(rowId: rowId)
@@ -317,13 +454,58 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 self?.contextMenuDidClose(rowId: rowId)
             }
         )
-        rowHeightOwner.observe(cell)
+        if let workspace = configuration.appKitWorkspaceRowWorkspace,
+           let rebuild = configuration.appKitWorkspaceRowRebuild {
+            cell.installPump(workspace: workspace) { [weak self, weak cell] in
+                guard let self, let cell else { return }
+                let fresh = rebuild()
+                cell.applyRebuiltModel(fresh)
+                self.noteRowHeightOverride(rowId: rowId, cell: cell, model: fresh)
+            }
+        }
+    }
+
+    /// Pump-driven height corrections between applies: heightOfRow consults
+    /// these before the equivalence-keyed cache (which only refreshes on the
+    /// next container apply).
+    private var pumpHeightOverrides: [SidebarWorkspaceRenderItemID: CGFloat] = [:]
+
+    private func noteRowHeightOverride(
+        rowId: SidebarWorkspaceRenderItemID,
+        cell: SidebarWorkspaceRowTableCellView,
+        model: SidebarWorkspaceRowModel
+    ) {
+        guard let table = containerView?.tableView,
+              let index = rowIndexById[rowId] else { return }
+        let height = ceil(cell.layoutContent(model: model, width: currentColumnWidth(), apply: false))
+        let current = table.rect(ofRow: index).height
+        guard abs(height - current) >= 0.5 else { return }
+        pumpHeightOverrides[rowId] = height
+        table.noteHeightOfRows(withIndexesChanged: IndexSet(integer: index))
+    }
+
+    private func configure(headerCell cell: SidebarGroupHeaderTableCellView, at row: Int) {
+        let configuration = rows[row]
+        guard let model = configuration.appKitGroupHeaderModel,
+              let actions = configuration.appKitGroupHeaderActions else { return }
+        let rowId = configuration.id
+        cell.configure(
+            model: model,
+            actions: actions,
+            isPointerHovering: hoveredRowId == rowId && contextMenuRowId != rowId,
+            contextMenuDidOpen: { [weak self] in
+                self?.contextMenuDidOpen(rowId: rowId)
+            },
+            contextMenuDidClose: { [weak self] in
+                self?.contextMenuDidClose(rowId: rowId)
+            }
+        )
     }
 
     private func scrollSelectedRowToVisibleIfNeeded() {
         guard let table = containerView?.tableView,
               let selectedScrollTargetWorkspaceId,
-              let row = rows.firstIndex(where: { $0.workspaceId == selectedScrollTargetWorkspaceId }) else {
+              let row = rowIndex(forWorkspaceId: selectedScrollTargetWorkspaceId) else {
             return
         }
         let visibleRect = table.visibleRect
@@ -384,12 +566,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         }
         bonsplit.performNewWorkspaceMove = { [weak self] _, indicator, transfer in
             guard let self else { return false }
-            // The drop planner's insertion index is positional within the
-            // visible-row target subset the geometry gate supplies, while
-            // moveBonsplitToNewWorkspace expects an index into the full
-            // workspace ordering. Translate through the indicator's row
-            // identity so a scrolled sidebar inserts next to the hovered row
-            // instead of near the top of the list.
             let insertionIndex = self.workspaceInsertionIndex(for: indicator)
             guard let workspaceId = actions.moveBonsplitToNewWorkspace(insertionIndex, transfer) else {
                 return false
@@ -407,11 +583,24 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         return indicator.edge == .bottom ? index + 1 : index
     }
 
+    private func isInlineEditing(row: Int, tableView: NSTableView) -> Bool {
+        guard let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false) else {
+            return false
+        }
+        if let workspaceCell = cell as? SidebarWorkspaceRowTableCellView,
+           workspaceCell.suppressesWorkspaceDrag {
+            return true
+        }
+        guard let responder = tableView.window?.firstResponder as? NSView else { return false }
+        return responder === cell || responder.isDescendant(of: cell)
+    }
+
     private func updateDropTargets() {
         if dropTargetGeometry.refreshIfActive(rows: rows) {
             positionAppKitDropIndicator()
         }
     }
+
     private func synchronizeAppKitDropIndicator(actions: SidebarWorkspaceTableActions) {
         let current = actions.currentDropIndicator()
         let currentScope = actions.currentDropIndicatorScope()
@@ -449,9 +638,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
     private func positionAppKitDropIndicator() {
         guard let indicator = appKitDropIndicator, let container = containerView else { return }
-        let targetRow = indicator.tabId.flatMap { tabId in
-            rows.firstIndex { $0.workspaceId == tabId }
-        }
+        let targetRow = indicator.tabId.flatMap(rowIndex(forWorkspaceId:))
         if indicator.tabId != nil, targetRow == nil {
             container.emptyDropIndicatorView.isHidden = true
             return
@@ -489,5 +676,17 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             width: max(0, container.bounds.width - 16 - leadingIndent),
             height: 2
         )
+    }
+
+    /// Resolves workspace-targeted behavior to the concrete workspace row
+    /// when it is visible, falling back to the group's anchor-backed header
+    /// when the workspace row is collapsed or otherwise absent.
+    func rowIndex(forWorkspaceId workspaceId: UUID) -> Int? {
+        if let workspaceRow = rowIndexById[.workspace(workspaceId)] {
+            return workspaceRow
+        }
+        return rows.firstIndex {
+            $0.isGroupHeader && $0.workspaceId == workspaceId
+        }
     }
 }

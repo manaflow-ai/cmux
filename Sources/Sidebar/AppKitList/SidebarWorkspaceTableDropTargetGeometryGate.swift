@@ -11,6 +11,10 @@ final class SidebarWorkspaceTableDropTargetGeometryGate {
     private var isReorderTargetCollectionActive = false
     private var isBonsplitTargetCollectionActive = false
 
+#if DEBUG
+    var computationProbe: (() -> Void)?
+#endif
+
     func attach(containerView: SidebarWorkspaceTableContainerView) {
         self.containerView = containerView
     }
@@ -48,6 +52,9 @@ final class SidebarWorkspaceTableDropTargetGeometryGate {
     @discardableResult
     func refreshIfActive(rows: [SidebarWorkspaceTableRowConfiguration]) -> Bool {
         guard hasActiveDrag, let container = containerView else { return false }
+#if DEBUG
+        computationProbe?()
+#endif
         let table = container.tableView
         let visibleRange = table.rows(in: table.visibleRect)
         guard visibleRange.location != NSNotFound, visibleRange.length > 0 else {

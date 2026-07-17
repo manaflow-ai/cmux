@@ -158,11 +158,18 @@ struct SidebarWorkspaceContextMenuWindowTargetsTests {
                 removeAttachment: { _, _ in },
                 openAttachments: { _, _ in }
             ),
+            onDragStart: { NSItemProvider() },
+            bonsplitSourceWorkspaceId: { _ in nil },
+            moveBonsplitTabToWorkspace: { _, _ in false },
+            syncAfterBonsplitDrop: {},
+            selectAfterBonsplitDrop: {},
             onToggleChecklistExpansion: {},
             onConsumeChecklistAddFieldActivation: {},
             onChecklistPopoverPresentedChange: { _ in },
             onContextMenuAppear: {},
-            onContextMenuDisappear: {}
+            onContextMenuDisappear: {},
+            onPointerFrameChange: { _ in },
+            onPointerFrameDisappear: {}
         )
     }
 }
