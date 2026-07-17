@@ -826,7 +826,18 @@ struct ContentView: View {
     @AppStorage(PaneChromeSettings.activePaneBorderColorKey) private var activePaneBorderColorHex = PaneChromeSettings.defaultColorHex
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
-    @State private var sidebarWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
+    /// Canonical sidebar width, deliberately NOT observed by ContentView:
+    /// divider ticks re-evaluate only the SidebarWidthReader wrappers that
+    /// consume the width, never this body. All reads/writes outside view
+    /// bodies go through `sidebarLayout.width` directly; the computed
+    /// `sidebarWidth` alias keeps call sites readable.
+    @State private var sidebarLayout = SidebarLayoutModel(
+        width: CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
+    )
+    private var sidebarWidth: CGFloat {
+        get { sidebarLayout.width }
+        nonmutating set { sidebarLayout.width = newValue }
+    }
     @State private var hoveredResizerHandles: Set<SidebarResizerHandle> = []
     @State private var isResizerDragging = false
     @State private var sidebarDragStartWidth: CGFloat?
@@ -1641,12 +1652,14 @@ struct ContentView: View {
     }
 
     private var sidebarResizerOverlay: some View {
-        placedSidebarResizerOverlay(
-            handle: .divider,
-            edge: .leading,
-            accessibilityIdentifier: "SidebarResizer",
-            dividerX: { totalWidth in min(max(sidebarWidth, 0), totalWidth) }
-        )
+        SidebarWidthReader(layout: sidebarLayout) { width in
+            placedSidebarResizerOverlay(
+                handle: .divider,
+                edge: .leading,
+                accessibilityIdentifier: "SidebarResizer",
+                dividerX: { totalWidth in min(max(width, 0), totalWidth) }
+            )
+        }
     }
 
     private var rightSidebarResizerOverlay: some View {
@@ -1686,7 +1699,7 @@ struct ContentView: View {
                 sidebar
             }
         }
-        .frame(width: sidebarWidth)
+        .modifier(SidebarWidthFrameModifier(layout: sidebarLayout))
         .frame(maxHeight: .infinity, alignment: .topLeading)
     }
 
@@ -1876,8 +1889,10 @@ struct ContentView: View {
     }
 
     private func sidebarPanelWithBackdrop(appearance: WindowAppearanceSnapshot) -> some View {
-        sidebarPanelContainer(width: sidebarWidth, alignment: .leading, role: .leftSidebar, appearance: appearance) {
-            sidebarView
+        SidebarWidthReader(layout: sidebarLayout) { width in
+            sidebarPanelContainer(width: width, alignment: .leading, role: .leftSidebar, appearance: appearance) {
+                sidebarView
+            }
         }
     }
 
@@ -2059,13 +2074,6 @@ struct ContentView: View {
 
     private func customTitlebar(appearance: WindowAppearanceSnapshot) -> some View {
         let titlebarContentHeight = max(1, WindowChromeMetrics.appTitlebarHeight - 2)
-        let leadingPadding = Self.customTitlebarLeadingPadding(
-            isFullScreen: isFullScreen,
-            isSidebarVisible: sidebarState.isVisible,
-            sidebarWidth: sidebarWidth,
-            minimumSidebarWidth: minimumSidebarWidth,
-            titlebarLeadingInset: titlebarLeadingInset
-        )
         return ZStack {
             // Enable window dragging from the titlebar strip without making the entire content
             // view draggable (which breaks drag gestures like tab reordering).
@@ -2077,49 +2085,59 @@ struct ContentView: View {
             )
                 .allowsHitTesting(false)
 
-            HStack(spacing: 8) {
-                if isFullScreen && !sidebarState.isVisible {
-                    // Reserve the controls' width so the title flows to their right.
-                    // The visible controls are rendered once in the band overlay (see
-                    // `workspaceTitlebarBand`) so their position never depends on
-                    // sidebar visibility.
-                    Color.clear
-                        .frame(width: fullscreenControlsWidth, height: titlebarContentHeight)
+            SidebarWidthReader(layout: sidebarLayout) { width in
+                HStack(spacing: 8) {
+                    if isFullScreen && !sidebarState.isVisible {
+                        // Reserve the controls' width so the title flows to their right.
+                        // The visible controls are rendered once in the band overlay (see
+                        // `workspaceTitlebarBand`) so their position never depends on
+                        // sidebar visibility.
+                        Color.clear
+                            .frame(width: fullscreenControlsWidth, height: titlebarContentHeight)
+                            .allowsHitTesting(false)
+                    }
+
+                    // Draggable folder icon + focused command name
+                    if let directory = focusedDirectory {
+                        DetachedFolderDragIcon(directory: directory)
+                            .frame(width: 16, height: 16)
+                            .padding(.leading, -6)
+                    }
+
+                    Text(titlebarText)
+                        .cmuxFont(size: 13, weight: .bold)
+                        .foregroundColor(fakeTitlebarTextColor(appearance: appearance))
+                        .lineLimit(1)
                         .allowsHitTesting(false)
+
+                    Spacer()
+
                 }
-
-                // Draggable folder icon + focused command name
-                if let directory = focusedDirectory {
-                    DetachedFolderDragIcon(directory: directory)
-                        .frame(width: 16, height: 16)
-                        .padding(.leading, -6)
-                }
-
-                Text(titlebarText)
-                    .cmuxFont(size: 13, weight: .bold)
-                    .foregroundColor(fakeTitlebarTextColor(appearance: appearance))
-                    .lineLimit(1)
-                    .allowsHitTesting(false)
-
-                Spacer()
-
+                .frame(height: titlebarContentHeight)
+                .padding(.top, 2)
+                .padding(.leading, Self.customTitlebarLeadingPadding(
+                    isFullScreen: isFullScreen,
+                    isSidebarVisible: sidebarState.isVisible,
+                    sidebarWidth: width,
+                    minimumSidebarWidth: minimumSidebarWidth,
+                    titlebarLeadingInset: titlebarLeadingInset
+                ))
+                .padding(.trailing, 8)
             }
-            .frame(height: titlebarContentHeight)
-            .padding(.top, 2)
-            .padding(.leading, leadingPadding)
-            .padding(.trailing, 8)
         }
         .frame(height: WindowChromeMetrics.appTitlebarHeight)
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
         .background(TitlebarDoubleClickMonitorView())
         .overlay(alignment: .bottom) {
-            WindowChromeBorder(
-                orientation: .horizontal,
-                refreshNotificationName: .ghosttyDefaultBackgroundDidChange,
-                backgroundColorProvider: { GhosttyBackgroundTheme.currentColor() }
-            )
-                .padding(.leading, sidebarState.isVisible ? sidebarWidth : 0)
+            SidebarWidthReader(layout: sidebarLayout) { width in
+                WindowChromeBorder(
+                    orientation: .horizontal,
+                    refreshNotificationName: .ghosttyDefaultBackgroundDidChange,
+                    backgroundColorProvider: { GhosttyBackgroundTheme.currentColor() }
+                )
+                    .padding(.leading, sidebarState.isVisible ? width : 0)
+            }
         }
     }
 
@@ -2447,7 +2465,10 @@ struct ContentView: View {
                 ZStack(alignment: .leading) {
                     HStack(spacing: 0) {
                         terminalContentWithSidebarDropOverlay(appearance: appearance)
-                            .padding(.leading, sidebarState.isVisible ? sidebarWidth : 0)
+                            .modifier(SidebarWidthLeadingPaddingModifier(
+                                layout: sidebarLayout,
+                                enabled: sidebarState.isVisible
+                            ))
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .layoutPriority(1)
                         rightSidebarPanelWithBackdrop(appearance: appearance)
@@ -3065,7 +3086,11 @@ struct ContentView: View {
             updateSidebarResizerBandState()
         })
 
-        view = AnyView(view.onChange(of: sidebarWidth) { _ in
+        // onReceive, not onChange: ContentView deliberately does not track
+        // sidebar width in its body anymore (see sidebarLayout), so onChange
+        // would never fire. removeDuplicates preserves distinct-value
+        // semantics.
+        view = AnyView(view.onReceive(sidebarLayout.$width.removeDuplicates()) { _ in
             let sanitized = normalizedSidebarWidth(sidebarWidth)
             if abs(sidebarWidth - sanitized) > 0.5 {
                 sidebarWidth = sanitized

@@ -20,26 +20,38 @@ final class SidebarLayoutModel: ObservableObject {
     }
 }
 
-/// Applies `.frame(width:)` from the layout model to pre-built content.
-/// The content value is constructed by the parent once per PARENT
-/// re-evaluation; width ticks re-run only this wrapper's body.
-struct SidebarWidthFrameApplier<Content: View>: View {
+/// Re-evaluates only its own body when the width changes: the parent builds
+/// this once, and width ticks re-invoke `content` with the fresh value
+/// without touching the parent's body. Consumers that need the numeric
+/// width (panel builders, padding, resizer math) read it as the closure
+/// parameter.
+struct SidebarWidthReader<Content: View>: View {
     @ObservedObject var layout: SidebarLayoutModel
-    let content: Content
+    @ViewBuilder let content: (CGFloat) -> Content
 
     var body: some View {
+        content(layout.width)
+    }
+}
+
+/// `.frame(width:)` from the layout model as a modifier, for sites where the
+/// content is already built and only the width application must track ticks.
+struct SidebarWidthFrameModifier: ViewModifier {
+    @ObservedObject var layout: SidebarLayoutModel
+
+    func body(content: Content) -> some View {
         content.frame(width: layout.width)
     }
 }
 
-/// Applies `.padding(.leading:)` from the layout model (withinWindow blend
-/// mode offsets the terminal content under the overlapping sidebar).
-struct SidebarWidthLeadingPaddingApplier<Content: View>: View {
+/// `.padding(.leading:)` from the layout model as a modifier: the content
+/// value stays as built by the parent (the terminal subtree is expensive to
+/// re-construct per tick); only the padding application tracks width.
+struct SidebarWidthLeadingPaddingModifier: ViewModifier {
     @ObservedObject var layout: SidebarLayoutModel
     let enabled: Bool
-    let content: Content
 
-    var body: some View {
+    func body(content: Content) -> some View {
         content.padding(.leading, enabled ? layout.width : 0)
     }
 }
