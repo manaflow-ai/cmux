@@ -47,6 +47,7 @@ struct ControlCommandExecutionPolicyTests {
             "browser.storage.clear", "browser.console.list", "browser.console.clear",
             "browser.errors.list", "browser.state.save", "browser.state.load",
             "browser.addinitscript", "browser.addscript", "browser.addstyle",
+            "browser.design_mode.set", "browser.design_mode.status",
         ] {
             #expect(ControlCommandExecutionPolicy(forMethod: method).runsOnSocketWorker, "\(method)")
         }

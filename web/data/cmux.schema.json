@@ -581,7 +581,6 @@
             {
               "type": "number",
               "minimum": 320,
-              "maximum": 2400,
               "multipleOf": 20
             }
           ],
@@ -1696,6 +1695,7 @@
               "toggleBrowserDeveloperTools",
               "showBrowserJavaScriptConsole",
               "toggleBrowserFocusMode",
+              "toggleBrowserDesignMode",
               "toggleReactGrab",
               "openDiffViewer",
               "diffViewerScrollDown",
