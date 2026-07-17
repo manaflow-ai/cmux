@@ -599,7 +599,7 @@ final class BrowserPanelFileSystemAccessBridgeTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelInitialNavigationTests: XCTestCase {
-    func testDiffViewerImmediatePresentationUsesFutureRightSplitFrameAndHandsOff() throws {
+    func testDiffViewerImmediatePresentationUsesFutureRightSplitFrame() throws {
         let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 1_000, height: 700))
         let sourceView = NSView(frame: NSRect(x: 240, y: 0, width: 760, height: 644))
         contentView.addSubview(sourceView)
@@ -613,13 +613,29 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
         defer { window.close() }
 
         let panel = BrowserPanel(workspaceId: UUID())
-        defer { panel.close() }
+        defer {
+            panel.closeDiffViewerLoadingOverlay()
+            panel.closeDiffViewerImmediatePresentationHost()
+            panel.close()
+        }
         XCTAssertTrue(panel.presentDiffViewerLoadingImmediately(relativeTo: sourceView))
         let immediateHost = try XCTUnwrap(panel.diffViewerImmediatePresentationHost)
         XCTAssertEqual(immediateHost.frame, NSRect(x: 620.5, y: 0, width: 379.5, height: 644))
         XCTAssertTrue(panel.webView.window === window)
         let loadingOverlay = try XCTUnwrap(panel.diffViewerLoadingOverlay)
         XCTAssertTrue(loadingOverlay.superview === panel.webView.cmuxBrowserViewportPresentationView)
+    }
+
+    func testDiffViewerPortalClaimRetiresImmediateHostButKeepsLoadingOverlay() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        let immediateHost = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 600))
+        let presentationView = NSView(frame: immediateHost.bounds)
+        let loadingOverlay = NSView(frame: presentationView.bounds)
+        immediateHost.addSubview(presentationView)
+        presentationView.addSubview(loadingOverlay)
+        panel.diffViewerImmediatePresentationHost = immediateHost
+        panel.diffViewerLoadingOverlay = loadingOverlay
 
         let portalDestination = NSView(frame: immediateHost.bounds)
         XCTAssertTrue(panel.claimPortalHost(
@@ -631,12 +647,23 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
         ))
         XCTAssertNil(panel.diffViewerImmediatePresentationHost)
         XCTAssertNil(immediateHost.superview)
-        XCTAssertTrue(loadingOverlay.superview === panel.webView.cmuxBrowserViewportPresentationView)
+        XCTAssertTrue(loadingOverlay.superview === presentationView)
+    }
+
+    func testDiffViewerLoadingOverlayWaitsForRendererReady() throws {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 600))
+        let loadingOverlay = NSView(frame: container.bounds)
+        container.addSubview(loadingOverlay)
+        panel.diffViewerLoadingOverlay = loadingOverlay
         let cmuxWebView = try XCTUnwrap(panel.webView as? CmuxWebView)
         cmuxWebView.diffViewerFocusStateDidChange(viewer: true, editable: false, rendererReady: false)
-        XCTAssertNotNil(panel.diffViewerLoadingOverlay)
+        XCTAssertTrue(panel.diffViewerLoadingOverlay === loadingOverlay)
+        XCTAssertTrue(loadingOverlay.superview === container)
         cmuxWebView.diffViewerFocusStateDidChange(viewer: true, editable: false, rendererReady: true)
         XCTAssertNil(panel.diffViewerLoadingOverlay)
+        XCTAssertNil(loadingOverlay.superview)
     }
 
     func testInitialURLCanBePreservedWithoutRenderingWebView() throws {
