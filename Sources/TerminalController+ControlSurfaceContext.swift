@@ -244,76 +244,6 @@ extension TerminalController: ControlSurfaceContext {
 
     // MARK: - focus
 
-    /// Focuses a local browser/terminal panel through the same window,
-    /// workspace, and Dock selection path used by `surface.focus`.
-    @discardableResult
-    func focusLocalPanel(panelID: UUID, preferredWorkspaceID: UUID) -> Bool {
-        guard let appDelegate = AppDelegate.shared else { return false }
-        if let windowDock = appDelegate.windowDockContainingPanel(panelID) {
-            guard let owningTabManager = appDelegate.tabManagerFor(
-                windowId: windowDock.workspaceId
-            ) ?? tabManager else { return false }
-            return focusWindowDockPanel(
-                panelID: panelID,
-                in: windowDock,
-                fallback: owningTabManager
-            )
-        }
-        if let owner = appDelegate.workspaceContainingPanel(
-            panelId: panelID,
-            preferredWorkspaceId: preferredWorkspaceID
-        ) {
-            return focusLocalPanel(
-                panelID: panelID,
-                in: owner.workspace,
-                tabManager: owner.tabManager
-            )
-        }
-        guard let owningTabManager = appDelegate.tabManagerFor(tabId: preferredWorkspaceID),
-              let workspace = owningTabManager.tabs.first(where: { $0.id == preferredWorkspaceID }),
-              workspace.containsDockPanel(panelID) else { return false }
-        return focusLocalPanel(
-            panelID: panelID,
-            in: workspace,
-            tabManager: owningTabManager
-        )
-    }
-
-    @discardableResult
-    private func focusWindowDockPanel(
-        panelID: UUID,
-        in dock: DockSplitStore,
-        fallback tabManager: TabManager
-    ) -> Bool {
-        guard dock.containsPanel(panelID) else { return false }
-        focusAndRevealWindowDock(for: dock, fallback: tabManager)
-        dock.focusPanel(panelID)
-        return true
-    }
-
-    @discardableResult
-    private func focusLocalPanel(
-        panelID: UUID,
-        in workspace: Workspace,
-        tabManager: TabManager
-    ) -> Bool {
-        if let windowID = AppDelegate.shared?.windowId(for: tabManager) {
-            _ = AppDelegate.shared?.focusMainWindow(windowId: windowID)
-            setActiveTabManager(tabManager)
-        }
-        if tabManager.selectedTabId != workspace.id {
-            tabManager.selectWorkspace(workspace)
-        }
-        if workspace.panels[panelID] != nil {
-            workspace.focusPanel(panelID)
-            return true
-        }
-        guard workspace.containsDockPanel(panelID) else { return false }
-        revealDockForFocus(tabManager: tabManager)
-        workspace.dockSplit.focusPanel(panelID)
-        return true
-    }
-
     func controlSurfaceFocus(
         routing: ControlRoutingSelectors,
         surfaceID: UUID
@@ -327,13 +257,8 @@ extension TerminalController: ControlSurfaceContext {
             if windowDockMismatchesExplicitSelectors(routing, dock: windowDock, aliasTabManager: tabManager) {
                 return .surfaceNotFound(surfaceID)
             }
-            guard focusWindowDockPanel(
-                panelID: surfaceID,
-                in: windowDock,
-                fallback: tabManager
-            ) else {
-                return .surfaceNotFound(surfaceID)
-            }
+            focusAndRevealWindowDock(for: windowDock, fallback: tabManager)
+            windowDock.focusPanel(surfaceID)
             return .focused(
                 windowID: windowDock.workspaceId,
                 workspaceID: windowDock.workspaceId,
@@ -362,7 +287,19 @@ extension TerminalController: ControlSurfaceContext {
         case .notRemote:
             break
         }
-        guard focusLocalPanel(panelID: surfaceID, in: ws, tabManager: tabManager) else {
+        if let windowId = v2ResolveWindowId(tabManager: tabManager) {
+            _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+            setActiveTabManager(tabManager)
+        }
+        if tabManager.selectedTabId != ws.id {
+            tabManager.selectWorkspace(ws)
+        }
+        if ws.panels[surfaceID] != nil {
+            ws.focusPanel(surfaceID)
+        } else if ws.containsDockPanel(surfaceID) {
+            revealDockForFocus(tabManager: tabManager)
+            ws.dockSplit.focusPanel(surfaceID)
+        } else {
             return .surfaceNotFound(surfaceID)
         }
         return .focused(
