@@ -514,6 +514,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     let remoteTmuxController = RemoteTmuxController()
     /// Process-wide browser services injected by the app composition root.
     private var browserServices: BrowserServices?
+    func browserWindowFocusDidChange() {
+        browserServices?.browserWindowFocusDidChange()
+    }
     private let systemAppearanceObserver = SystemAppearanceObserver()
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
     private static let cachedIsRunningUnderXCTest = detectRunningUnderXCTest(ProcessInfo.processInfo.environment)

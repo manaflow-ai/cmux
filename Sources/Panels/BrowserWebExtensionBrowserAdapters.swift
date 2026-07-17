@@ -18,7 +18,7 @@ final class BrowserWebExtensionTabAdapter: NSObject, WKWebExtensionTab {
 
     func indexInWindow(for context: WKWebExtensionContext) -> Int {
         guard let panel else { return NSNotFound }
-        return windowAdapter?.tabAdapters.firstIndex { $0.panel === panel } ?? NSNotFound
+        return windowAdapter?.compactTabs().firstIndex { $0.panel === panel } ?? NSNotFound
     }
 
     func webView(for context: WKWebExtensionContext) -> WKWebView? {
@@ -108,16 +108,20 @@ final class BrowserWebExtensionWindowAdapter: NSObject, WKWebExtensionWindow {
     let ownerID: UUID
     let activePanelID: @MainActor () -> UUID?
     let focusPanel: @MainActor (UUID) -> Void
+    let orderedPanelIDs: @MainActor () -> [UUID]
     var tabAdapters: [BrowserWebExtensionTabAdapter] = []
+    var lastReportedVisiblePanelIDs: [UUID] = []
 
     init(
         ownerID: UUID,
         activePanelID: @escaping @MainActor () -> UUID?,
-        focusPanel: @escaping @MainActor (UUID) -> Void
+        focusPanel: @escaping @MainActor (UUID) -> Void,
+        orderedPanelIDs: @escaping @MainActor () -> [UUID]
     ) {
         self.ownerID = ownerID
         self.activePanelID = activePanelID
         self.focusPanel = focusPanel
+        self.orderedPanelIDs = orderedPanelIDs
     }
 
     func tabs(for context: WKWebExtensionContext) -> [any WKWebExtensionTab] {
@@ -155,7 +159,21 @@ final class BrowserWebExtensionWindowAdapter: NSObject, WKWebExtensionWindow {
 
     func compactTabs() -> [BrowserWebExtensionTabAdapter] {
         tabAdapters.removeAll { $0.panel == nil }
-        return tabAdapters.filter { $0.panel?.internalPage == nil }
+        let live = tabAdapters.filter { $0.panel?.internalPage == nil }
+        let order = Dictionary(
+            uniqueKeysWithValues: orderedPanelIDs().enumerated().map { ($0.element, $0.offset) }
+        )
+        let fallback = Dictionary(
+            uniqueKeysWithValues: live.enumerated().compactMap { index, adapter in
+                adapter.panel.map { ($0.id, index) }
+            }
+        )
+        return live.sorted { lhs, rhs in
+            guard let lhsID = lhs.panel?.id, let rhsID = rhs.panel?.id else { return false }
+            let lhsRank = order[lhsID] ?? (Int.max / 2 + (fallback[lhsID] ?? 0))
+            let rhsRank = order[rhsID] ?? (Int.max / 2 + (fallback[rhsID] ?? 0))
+            return lhsRank < rhsRank
+        }
     }
 }
 

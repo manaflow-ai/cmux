@@ -4,6 +4,7 @@ import SwiftUI
 struct BrowserExtensionsToolbarButton: View {
     @Binding var isPresented: Bool
     let panelID: UUID
+    let profileID: UUID
     let iconPointSize: CGFloat
     let hitSize: CGFloat
     let loadSnapshot: @MainActor () async -> BrowserWebExtensionsPresentationSnapshot
@@ -33,8 +34,17 @@ struct BrowserExtensionsToolbarButton: View {
             await refreshSnapshot()
         }
         .onReceive(NotificationCenter.default.publisher(for: .browserWebExtensionActionDidChange)) { notification in
+            if let changedProfileID = notification.userInfo?[BrowserWebExtensionNotificationKey.profileID] as? UUID,
+               changedProfileID != profileID {
+                return
+            }
             if let changedPanelID = notification.userInfo?[BrowserWebExtensionNotificationKey.panelID] as? UUID,
                changedPanelID != panelID {
+                return
+            }
+            if let item = notification.userInfo?[BrowserWebExtensionNotificationKey.item]
+                as? BrowserWebExtensionsPresentationSnapshot.Item {
+                applyActionUpdate(item)
                 return
             }
             scheduleActionRefresh()
@@ -104,6 +114,22 @@ struct BrowserExtensionsToolbarButton: View {
             guard !Task.isCancelled, generation == actionRefreshGeneration else { return }
             snapshot = nextSnapshot
         }
+    }
+
+    @MainActor
+    private func applyActionUpdate(_ item: BrowserWebExtensionsPresentationSnapshot.Item) {
+        guard let index = snapshot.extensions.firstIndex(where: { $0.id == item.id }) else {
+            scheduleActionRefresh()
+            return
+        }
+        var extensions = snapshot.extensions
+        extensions[index] = item
+        snapshot = BrowserWebExtensionsPresentationSnapshot(
+            state: snapshot.state,
+            extensions: extensions,
+            failures: snapshot.failures,
+            directoryPath: snapshot.directoryPath
+        )
     }
 }
 

@@ -9,9 +9,28 @@ final class BrowserServices {
     private let extensionDirectory: URL
     private var webExtensionsManagerStorage: [UUID: AnyObject] = [:]
     private var registeredPanelProfileIDs: [UUID: UUID] = [:]
+    private var profileDeletionObserver: NSObjectProtocol?
 
     init(extensionDirectory: URL? = nil) {
         self.extensionDirectory = extensionDirectory ?? Self.defaultExtensionDirectory
+        profileDeletionObserver = NotificationCenter.default.addObserver(
+            forName: BrowserProfileStore.profileDidDeleteNotification,
+            object: BrowserProfileStore.shared,
+            queue: .main
+        ) { [weak self] notification in
+            guard let profileID = notification.userInfo?[BrowserProfileStore.profileIDNotificationKey] as? UUID else {
+                return
+            }
+            Task { @MainActor [weak self] in
+                self?.profileDidDelete(profileID)
+            }
+        }
+    }
+
+    deinit {
+        if let profileDeletionObserver {
+            NotificationCenter.default.removeObserver(profileDeletionObserver)
+        }
     }
 
     @available(macOS 15.4, *)
@@ -31,11 +50,31 @@ final class BrowserServices {
                 defaultProfileID: defaultProfileID,
                 root: extensionDirectory
             ),
-            controllerIdentifier: profileID == defaultProfileID ? nil : profileID
+            controllerIdentifier: profileID == defaultProfileID ? nil : profileID,
+            websiteDataStore: BrowserProfileStore.shared.websiteDataStore(for: profileID),
+            profileID: profileID
         )
         webExtensionsManagerStorage[profileID] = manager
         manager.startLoading()
         return manager
+    }
+
+    private func profileDidDelete(_ profileID: UUID) {
+        guard profileID != BrowserProfileStore.shared.builtInDefaultProfileID else { return }
+        registeredPanelProfileIDs = registeredPanelProfileIDs.filter { $0.value != profileID }
+        let directory = Self.extensionDirectory(
+            for: profileID,
+            defaultProfileID: BrowserProfileStore.shared.builtInDefaultProfileID,
+            root: extensionDirectory
+        )
+        let managerObject = webExtensionsManagerStorage.removeValue(forKey: profileID)
+        if #available(macOS 15.4, *),
+           let manager = managerObject as? BrowserWebExtensionsManager {
+            manager.shutdown()
+        }
+        Task.detached(priority: .utility) {
+            try? FileManager.default.removeItem(at: directory)
+        }
     }
 
     /// Starts browser-wide services before restored browser panels are created.
@@ -151,7 +190,8 @@ final class BrowserServices {
             panel,
             ownerID: workspace.id,
             activePanelID: { [weak workspace] in workspace?.focusedPanelId },
-            focusPanel: { [weak workspace] panelID in workspace?.focusPanel(panelID) }
+            focusPanel: { [weak workspace] panelID in workspace?.focusPanel(panelID) },
+            orderedPanelIDs: { [weak workspace] in workspace?.orderedPanelIds ?? [] }
         )
     }
 
@@ -160,7 +200,11 @@ final class BrowserServices {
             panel,
             ownerID: dock.webExtensionWindowID,
             activePanelID: { [weak dock] in dock?.focusedPanelId },
-            focusPanel: { [weak dock] panelID in dock?.focusPanel(panelID) }
+            focusPanel: { [weak dock] panelID in dock?.focusPanel(panelID) },
+            orderedPanelIDs: { [weak dock] in
+                guard let dock else { return [] }
+                return dock.bonsplitController.allTabIds.compactMap { dock.panel(for: $0)?.id }
+            }
         )
     }
 
@@ -187,7 +231,8 @@ final class BrowserServices {
             panel: panel,
             ownerID: owner.id,
             activePanelID: owner.activePanelID,
-            focusPanel: owner.focusPanel
+            focusPanel: owner.focusPanel,
+            orderedPanelIDs: owner.orderedPanelIDs
         )
     }
 
@@ -224,6 +269,20 @@ final class BrowserServices {
         )
     }
 
+    func browserWindowFocusDidChange() {
+        guard #available(macOS 15.4, *) else { return }
+        for manager in webExtensionsManagerStorage.values {
+            (manager as? BrowserWebExtensionsManager)?.windowFocusDidChange()
+        }
+    }
+
+    func webExtensionTabOrderDidChange(ownerID: UUID) {
+        guard #available(macOS 15.4, *) else { return }
+        for manager in webExtensionsManagerStorage.values {
+            (manager as? BrowserWebExtensionsManager)?.synchronizeTabOrder(ownerID: ownerID)
+        }
+    }
+
     func performWebExtensionAction(
         uniqueIdentifier: String,
         in panel: BrowserPanel,
@@ -241,7 +300,8 @@ final class BrowserServices {
         _ panel: BrowserPanel,
         ownerID: UUID,
         activePanelID: @escaping @MainActor () -> UUID?,
-        focusPanel: @escaping @MainActor (UUID) -> Void
+        focusPanel: @escaping @MainActor (UUID) -> Void,
+        orderedPanelIDs: @escaping @MainActor () -> [UUID]
     ) {
         guard #available(macOS 15.4, *) else { return }
         if let previousProfileID = registeredPanelProfileIDs[panel.id],
@@ -256,7 +316,8 @@ final class BrowserServices {
             panel: panel,
             ownerID: ownerID,
             activePanelID: activePanelID,
-            focusPanel: focusPanel
+            focusPanel: focusPanel,
+            orderedPanelIDs: orderedPanelIDs
         )
     }
 

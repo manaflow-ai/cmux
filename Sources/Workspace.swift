@@ -8046,6 +8046,7 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
         managerPanel.showBrowserExtensionsManager()
+        browserServices?.unregisterBrowserPanel(id: managerPanel.id)
         _ = updatePanelTitle(panelId: managerPanel.id, title: managerPanel.displayTitle)
         if let tabId = surfaceIdFromPanelId(managerPanel.id) {
             bonsplitController.updateTab(
@@ -12178,6 +12179,7 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didReorderTabsInPane pane: PaneID, orderedTabIds: [TabID]) {
+        browserServices?.webExtensionTabOrderDidChange(ownerID: id)
         // A remote tmux mirror tab reorder propagates to tmux window order.
         guard isRemoteTmuxMirror else { return }
         let orderedPanelIds = orderedTabIds.compactMap { panelIdFromSurfaceId($0) }
@@ -12186,6 +12188,7 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didMoveTab tab: Bonsplit.Tab, fromPane source: PaneID, toPane destination: PaneID) {
+        browserServices?.webExtensionTabOrderDidChange(ownerID: id)
 #if DEBUG
         let now = ProcessInfo.processInfo.systemUptime
         let sincePrev: String

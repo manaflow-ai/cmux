@@ -348,6 +348,8 @@ private struct BrowserProfileFileRemover: BrowserProfileFileRemoving {
 @MainActor
 final class BrowserProfileStore: ObservableObject {
     static let shared = BrowserProfileStore()
+    nonisolated static let profileDidDeleteNotification = Notification.Name("cmux.browserProfile.didDelete")
+    nonisolated static let profileIDNotificationKey = "profileID"
 
     @Published private(set) var profiles: [BrowserProfileDefinition] = []
     @Published private(set) var lastUsedProfileID: UUID = BrowserProfileRepository.builtInDefaultProfileID
@@ -406,6 +408,13 @@ final class BrowserProfileStore: ObservableObject {
     func deleteProfile(id: UUID) -> BrowserProfileDefinition? {
         let result = repository.deleteProfile(id: id)
         mirrorPublishedState()
+        if result != nil {
+            NotificationCenter.default.post(
+                name: Self.profileDidDeleteNotification,
+                object: self,
+                userInfo: [Self.profileIDNotificationKey: id]
+            )
+        }
         return result
     }
 
@@ -728,7 +737,9 @@ func browserNewTabNavigationSeed(
 
 /// Mirrors the opener's WebKit browsing context for popup windows.
 struct BrowserPopupBrowserContext {
+    let profileID: UUID
     let websiteDataStore: WKWebsiteDataStore
+    let browserServices: BrowserServices?
 }
 
 enum BrowserFileSystemAccessBridge {
@@ -3408,7 +3419,9 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Popups inherit this panel's exact WebKit storage context.
     var popupBrowserContext: BrowserPopupBrowserContext {
         BrowserPopupBrowserContext(
-            websiteDataStore: websiteDataStore
+            profileID: profileID,
+            websiteDataStore: websiteDataStore,
+            browserServices: browserServices
         )
     }
 
@@ -4196,8 +4209,7 @@ final class BrowserPanel: Panel, ObservableObject {
     /// common-case navigation timing unchanged; `waitUntilLoaded`'s timeout
     /// bounds the deferral when a load is in flight.
     func runWhenWebExtensionsLoaded(_ navigation: @escaping @MainActor () -> Void) {
-        pendingWebExtensionNavigationTask?.cancel()
-        pendingWebExtensionNavigationTask = nil
+        cancelPendingWebExtensionNavigation()
         if #available(macOS 15.4, *),
            let manager = browserServices?.webExtensionsManager(for: profileID),
            !manager.isLoaded {
@@ -4210,6 +4222,11 @@ final class BrowserPanel: Panel, ObservableObject {
         } else {
             navigation()
         }
+    }
+
+    private func cancelPendingWebExtensionNavigation() {
+        pendingWebExtensionNavigationTask?.cancel()
+        pendingWebExtensionNavigationTask = nil
     }
 
     @discardableResult
@@ -5739,6 +5756,7 @@ final class BrowserPanel: Panel, ObservableObject {
         recordTypedNavigation: Bool,
         preserveRestoredSessionHistory: Bool = false
     ) {
+        cancelPendingWebExtensionNavigation()
         guard let url = request.url else { return }
         if internalPage != nil {
             internalPage = nil
@@ -5923,6 +5941,9 @@ final class BrowserPanel: Panel, ObservableObject {
         recordTypedNavigation: Bool,
         onResolution: @escaping (BrowserInsecureHTTPNavigationResolution) -> Void = { _ in }
     ) {
+        if case .currentTab = intent {
+            cancelPendingWebExtensionNavigation()
+        }
         guard let url = request.url else { return }
         guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return }
         let alert = insecureHTTPAlertFactory()
@@ -6286,6 +6307,7 @@ extension BrowserPanel {
     /// Go back in history
     func goBack() {
         guard canGoBack else { return }
+        cancelPendingWebExtensionNavigation()
         reactivateDiscardedWebViewWithoutNavigation(reason: "goBack")
         cancelInFlightNavigationBeforeHistoryTraversal()
         if usesRestoredSessionHistory {
@@ -6318,6 +6340,7 @@ extension BrowserPanel {
     /// Go forward in history
     func goForward() {
         guard canGoForward else { return }
+        cancelPendingWebExtensionNavigation()
         reactivateDiscardedWebViewWithoutNavigation(reason: "goForward")
         cancelInFlightNavigationBeforeHistoryTraversal()
         if usesRestoredSessionHistory {
@@ -6456,6 +6479,7 @@ extension BrowserPanel {
 
     /// Reload the current page
     func reload() {
+        cancelPendingWebExtensionNavigation()
         if prepareForReload(reason: "reload", mode: .soft) {
             return
         }
@@ -6464,6 +6488,7 @@ extension BrowserPanel {
 
     /// Reload the current page, bypassing WebKit's cache.
     func hardReload() {
+        cancelPendingWebExtensionNavigation()
         if prepareForReload(reason: "hardReload", mode: .hard) {
             return
         }
@@ -6472,6 +6497,7 @@ extension BrowserPanel {
 
     /// Stop loading
     func stopLoading() {
+        cancelPendingWebExtensionNavigation()
         // Fail closed: a reveal must never blank-shell-heal over an explicit Stop.
         userStoppedLoadSinceWebViewReplacement = true
         webView.stopLoading()

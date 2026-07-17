@@ -32,6 +32,11 @@ final class BrowserWebExtensionsManager: NSObject {
         let panelID: UUID
     }
 
+    private struct ActionUpdateKey: Hashable {
+        let extensionIdentifier: String
+        let panelID: UUID?
+    }
+
     private final class WeakPopupWebView {
         weak var webView: WKWebView?
 
@@ -51,6 +56,7 @@ final class BrowserWebExtensionsManager: NSObject {
 
     let controller: WKWebExtensionController
     let directory: URL
+    let profileID: UUID?
     var loadTask: Task<Void, Never>?
     private let directoryRepository = BrowserWebExtensionDirectoryRepository()
     private let catalogPackageRepository = BrowserWebExtensionCatalogPackageRepository()
@@ -64,15 +70,28 @@ final class BrowserWebExtensionsManager: NSObject {
     private var lastActionInvocations: [ActionInvocationKey: PendingActionInvocation] = [:]
     private var popupWebViews: [String: WeakPopupWebView] = [:]
     private var backgroundLoadErrors: [String: any Error] = [:]
+    private var actionUpdateFlushTask: Task<Void, Never>?
+    private var pendingActionUpdates: [ActionUpdateKey: PendingActionUpdate] = [:]
+
+    private struct PendingActionUpdate {
+        let action: WKWebExtension.Action?
+        let context: WKWebExtensionContext
+    }
 
     init(
         directory: URL,
         controllerIdentifier: UUID? = nil,
-        controllerConfiguration: WKWebExtensionController.Configuration? = nil
+        controllerConfiguration: WKWebExtensionController.Configuration? = nil,
+        websiteDataStore: WKWebsiteDataStore? = nil,
+        profileID: UUID? = nil
     ) {
         self.directory = directory
+        self.profileID = profileID
         let configuration = controllerConfiguration
             ?? WKWebExtensionController.Configuration(identifier: controllerIdentifier ?? Self.controllerIdentifier)
+        if let websiteDataStore {
+            configuration.defaultWebsiteDataStore = websiteDataStore
+        }
         configuration.webViewConfiguration.applicationNameForUserAgent = "Version/18.4 Safari/605.1.15 cmux"
 #if DEBUG
         configuration.webViewConfiguration.userContentController.addUserScript(
@@ -88,6 +107,26 @@ final class BrowserWebExtensionsManager: NSObject {
         self.controller = WKWebExtensionController(configuration: configuration)
         super.init()
         controller.delegate = self
+    }
+
+    func shutdown() {
+        loadTask?.cancel()
+        loadTask = nil
+        actionUpdateFlushTask?.cancel()
+        actionUpdateFlushTask = nil
+        pendingActionUpdates.removeAll()
+        pendingActionInvocations.removeAll()
+        lastActionInvocations.removeAll()
+        popupWebViews.removeAll()
+        for context in loadedContexts {
+            _ = try? controller.unload(context)
+        }
+        loadedContexts.removeAll()
+        backgroundLoadErrors.removeAll()
+        loadErrors.removeAll()
+        tabAdapters.removeAll()
+        windowAdapters.removeAll()
+        resumeLoadWaiters()
     }
 
     /// Directories and `.zip` archives directly inside `directory`. Hidden
@@ -241,7 +280,8 @@ final class BrowserWebExtensionsManager: NSObject {
         panel: BrowserPanel,
         ownerID: UUID,
         activePanelID: @escaping @MainActor () -> UUID?,
-        focusPanel: @escaping @MainActor (UUID) -> Void
+        focusPanel: @escaping @MainActor (UUID) -> Void,
+        orderedPanelIDs: @escaping @MainActor () -> [UUID] = { [] }
     ) {
         if tabAdapters[panel.id] != nil { return }
 
@@ -252,7 +292,8 @@ final class BrowserWebExtensionsManager: NSObject {
             windowAdapter = BrowserWebExtensionWindowAdapter(
                 ownerID: ownerID,
                 activePanelID: activePanelID,
-                focusPanel: focusPanel
+                focusPanel: focusPanel,
+                orderedPanelIDs: orderedPanelIDs
             )
             windowAdapters[ownerID] = windowAdapter
             controller.didOpenWindow(windowAdapter)
@@ -262,6 +303,7 @@ final class BrowserWebExtensionsManager: NSObject {
         tabAdapters[panel.id] = tabAdapter
         windowAdapter.tabAdapters.append(tabAdapter)
         controller.didOpenTab(tabAdapter)
+        windowAdapter.lastReportedVisiblePanelIDs = windowAdapter.compactTabs().compactMap { $0.panel?.id }
     }
 
     func unregister(panelID: UUID) {
@@ -271,6 +313,7 @@ final class BrowserWebExtensionsManager: NSObject {
         controller.didCloseTab(tabAdapter, windowIsClosing: false)
         guard let windowAdapter = tabAdapter.windowAdapter else { return }
         windowAdapter.tabAdapters.removeAll { $0 === tabAdapter || $0.panel == nil }
+        windowAdapter.lastReportedVisiblePanelIDs = windowAdapter.compactTabs().compactMap { $0.panel?.id }
         if windowAdapter.tabAdapters.isEmpty {
             windowAdapters.removeValue(forKey: windowAdapter.ownerID)
             controller.didCloseWindow(windowAdapter)
@@ -282,14 +325,52 @@ final class BrowserWebExtensionsManager: NSObject {
     ) -> (
         id: UUID,
         activePanelID: @MainActor () -> UUID?,
-        focusPanel: @MainActor (UUID) -> Void
+        focusPanel: @MainActor (UUID) -> Void,
+        orderedPanelIDs: @MainActor () -> [UUID]
     )? {
         guard let windowAdapter = tabAdapters[panelID]?.windowAdapter else { return nil }
         return (
             windowAdapter.ownerID,
             windowAdapter.activePanelID,
-            windowAdapter.focusPanel
+            windowAdapter.focusPanel,
+            windowAdapter.orderedPanelIDs
         )
+    }
+
+    func synchronizeTabOrder(ownerID: UUID) {
+        guard let windowAdapter = windowAdapters[ownerID] else { return }
+        let previous = windowAdapter.lastReportedVisiblePanelIDs
+        let currentAdapters = windowAdapter.compactTabs()
+        let current = currentAdapters.compactMap { $0.panel?.id }
+        defer { windowAdapter.lastReportedVisiblePanelIDs = current }
+        guard previous != current,
+              previous.count == current.count,
+              Set(previous) == Set(current) else {
+            return
+        }
+
+        for panelID in current {
+            guard let oldIndex = previous.firstIndex(of: panelID),
+                  let newIndex = current.firstIndex(of: panelID),
+                  oldIndex != newIndex else {
+                continue
+            }
+            var simulated = previous
+            simulated.remove(at: oldIndex)
+            simulated.insert(panelID, at: newIndex)
+            guard simulated == current,
+                  let adapter = tabAdapters[panelID] else {
+                continue
+            }
+            controller.didMoveTab(adapter, from: oldIndex, in: windowAdapter)
+            return
+        }
+
+        if let panelID = current.first(where: { previous.firstIndex(of: $0) != current.firstIndex(of: $0) }),
+           let oldIndex = previous.firstIndex(of: panelID),
+           let adapter = tabAdapters[panelID] {
+            controller.didMoveTab(adapter, from: oldIndex, in: windowAdapter)
+        }
     }
 
     func tabPropertiesDidChange(
@@ -314,6 +395,10 @@ final class BrowserWebExtensionsManager: NSObject {
     func deactivateTab(panelID: UUID) {
         guard let tabAdapter = tabAdapters[panelID] else { return }
         controller.didDeselectTabs([tabAdapter])
+    }
+
+    func windowFocusDidChange() {
+        controller.didFocusWindow(focusedWindowAdapter())
     }
 
     @discardableResult
@@ -359,11 +444,7 @@ final class BrowserWebExtensionsManager: NSObject {
         grantRequestedPermissions(in: context, for: webExtension)
         try controller.load(context)
         loadedContexts.append(context)
-        NotificationCenter.default.post(
-            name: .browserWebExtensionActionDidChange,
-            object: context.uniqueIdentifier,
-            userInfo: [BrowserWebExtensionNotificationKey.panelID: NSNull()]
-        )
+        enqueueActionUpdate(action: nil, context: context, panelID: nil)
         if webExtension.hasBackgroundContent {
             context.loadBackgroundContent { [weak self, weak context] error in
                 guard let self, let context else { return }
@@ -389,17 +470,7 @@ final class BrowserWebExtensionsManager: NSObject {
             state: isLoaded ? .ready : .loading,
             extensions: loadedContexts.map { context in
                 let action = tabAdapter.flatMap { context.action(for: $0) }
-                return BrowserWebExtensionsPresentationSnapshot.Item(
-                    id: context.uniqueIdentifier,
-                    name: context.webExtension.displayName ?? context.uniqueIdentifier,
-                    hasAction: Self.definesAction(context.webExtension),
-                    isActionEnabled: action?.isEnabled ?? Self.definesAction(context.webExtension),
-                    badgeText: action?.badgeText ?? "",
-                    iconData: Self.presentationIconData(
-                        for: action,
-                        webExtension: context.webExtension
-                    )
-                )
+                return Self.presentationItem(for: context, action: action)
             },
             failures: loadErrors.map { failure in
                 BrowserWebExtensionsPresentationSnapshot.Failure(
@@ -607,6 +678,52 @@ final class BrowserWebExtensionsManager: NSObject {
             || webExtension.manifest["page_action"] != nil
     }
 
+    private static func presentationItem(
+        for context: WKWebExtensionContext,
+        action: WKWebExtension.Action?
+    ) -> BrowserWebExtensionsPresentationSnapshot.Item {
+        BrowserWebExtensionsPresentationSnapshot.Item(
+            id: context.uniqueIdentifier,
+            name: context.webExtension.displayName ?? context.uniqueIdentifier,
+            hasAction: definesAction(context.webExtension),
+            isActionEnabled: action?.isEnabled ?? definesAction(context.webExtension),
+            badgeText: action?.badgeText ?? "",
+            iconData: presentationIconData(for: action, webExtension: context.webExtension)
+        )
+    }
+
+    private func enqueueActionUpdate(
+        action: WKWebExtension.Action?,
+        context: WKWebExtensionContext,
+        panelID: UUID?
+    ) {
+        let key = ActionUpdateKey(
+            extensionIdentifier: context.uniqueIdentifier,
+            panelID: panelID
+        )
+        pendingActionUpdates[key] = PendingActionUpdate(action: action, context: context)
+        guard actionUpdateFlushTask == nil else { return }
+        actionUpdateFlushTask = Task { @MainActor [weak self] in
+            await Task.yield()
+            guard !Task.isCancelled, let self else { return }
+            self.actionUpdateFlushTask = nil
+            let updates = self.pendingActionUpdates
+            self.pendingActionUpdates.removeAll()
+            for (key, update) in updates {
+                let item = Self.presentationItem(for: update.context, action: update.action)
+                NotificationCenter.default.post(
+                    name: .browserWebExtensionActionDidChange,
+                    object: key.extensionIdentifier,
+                    userInfo: [
+                        BrowserWebExtensionNotificationKey.panelID: key.panelID ?? NSNull(),
+                        BrowserWebExtensionNotificationKey.profileID: self.profileID ?? NSNull(),
+                        BrowserWebExtensionNotificationKey.item: item,
+                    ]
+                )
+            }
+        }
+    }
+
     private static func presentationIconData(
         for action: WKWebExtension.Action?,
         webExtension: WKWebExtension
@@ -636,7 +753,7 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
         _ controller: WKWebExtensionController,
         focusedWindowFor extensionContext: WKWebExtensionContext
     ) -> (any WKWebExtensionWindow)? {
-        orderedWindowAdapters().first
+        focusedWindowAdapter()
     }
 
     func webExtensionController(
@@ -664,11 +781,7 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
         forExtensionContext context: WKWebExtensionContext
     ) {
         let panelID = (action.associatedTab as? BrowserWebExtensionTabAdapter)?.panel?.id
-        NotificationCenter.default.post(
-            name: .browserWebExtensionActionDidChange,
-            object: context.uniqueIdentifier,
-            userInfo: [BrowserWebExtensionNotificationKey.panelID: panelID ?? NSNull()]
-        )
+        enqueueActionUpdate(action: action, context: context, panelID: panelID)
     }
 
     private func popupAnchor(
@@ -751,6 +864,13 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
             return lhs.ownerID.uuidString < rhs.ownerID.uuidString
         }
     }
+
+    private func focusedWindowAdapter() -> BrowserWebExtensionWindowAdapter? {
+        guard NSApp.isActive, let keyWindow = NSApp.keyWindow else { return nil }
+        return orderedWindowAdapters().first { adapter in
+            adapter.compactTabs().contains { $0.panel?.webView.window === keyWindow }
+        }
+    }
 }
 
 extension Notification.Name {
@@ -761,6 +881,8 @@ extension Notification.Name {
 
 enum BrowserWebExtensionNotificationKey {
     static let panelID = "panelID"
+    static let profileID = "profileID"
+    static let item = "item"
 }
 
 @available(macOS 15.4, *)

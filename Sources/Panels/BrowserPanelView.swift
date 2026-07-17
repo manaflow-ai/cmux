@@ -1384,6 +1384,7 @@ struct BrowserPanelView: View {
         BrowserExtensionsToolbarButton(
             isPresented: $panel.isBrowserExtensionsPopoverPresented,
             panelID: panel.id,
+            profileID: panel.profileID,
             iconPointSize: devToolsButtonIconSize,
             hitSize: addressBarButtonSize,
             loadSnapshot: { await panel.browserWebExtensionsPresentationSnapshot() },

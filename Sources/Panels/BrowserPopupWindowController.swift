@@ -54,9 +54,9 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
         BrowserPanel.configureWebViewConfiguration(
             configuration,
-            profileID: openerPanel?.profileID ?? BrowserProfileStore.shared.builtInDefaultProfileID,
+            profileID: browserContext.profileID,
             websiteDataStore: browserContext.websiteDataStore,
-            browserServices: openerPanel?.browserServices
+            browserServices: browserContext.browserServices
         )
 
         // Create popup web view with WebKit's supplied configuration after
