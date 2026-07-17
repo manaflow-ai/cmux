@@ -3428,8 +3428,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
             let currentUsable = leasePolicy.isUsable(current)
             let isSamePaneReplacement = current.paneId == paneId.id
-            let shouldForceDistinctReplacement =
-                isSamePaneReplacement &&
+            let consumesPendingDistinctReplacement =
                 pendingDistinctPortalHostReplacementPaneId == paneId.id
 
             let lockBlocksSamePaneReplacement =
@@ -3438,7 +3437,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 lockedPortalHost?.hostId == current.hostId &&
                 lockedPortalHost?.paneId == current.paneId
             let allowsSamePaneReplacement =
-                shouldForceDistinctReplacement ||
+                (isSamePaneReplacement && consumesPendingDistinctReplacement) ||
                 (
                     !lockBlocksSamePaneReplacement &&
                     next.area > (current.area * Self.portalHostReplacementAreaGainRatio)
@@ -3450,7 +3449,7 @@ final class BrowserPanel: Panel, ObservableObject {
             )
 
             if shouldReplace {
-                if shouldForceDistinctReplacement {
+                if consumesPendingDistinctReplacement {
                     pendingDistinctPortalHostReplacementPaneId = nil
                     lockedPortalHost = PortalHostLock(hostId: hostId, paneId: paneId.id)
                 } else if lockedPortalHost?.hostId == current.hostId &&
@@ -3464,7 +3463,7 @@ final class BrowserPanel: Panel, ObservableObject {
                     "inWin=\(inWindow ? 1 : 0) size=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) " +
                     "replacingHost=\(current.hostId) replacingPane=\(current.paneId.uuidString.prefix(5)) " +
                     "replacingInWin=\(current.inWindow ? 1 : 0) replacingArea=\(String(format: "%.1f", current.area)) " +
-                    "forced=\(shouldForceDistinctReplacement ? 1 : 0)"
+                    "forced=\(consumesPendingDistinctReplacement ? 1 : 0)"
                 )
 #endif
                 activePortalHostLease = next
@@ -3485,13 +3484,30 @@ final class BrowserPanel: Panel, ObservableObject {
             return false
         }
 
+        let consumesPendingDistinctReplacement =
+            pendingDistinctPortalHostReplacementPaneId == paneId.id
+        guard !consumesPendingDistinctReplacement || leasePolicy.isUsable(next) else {
+#if DEBUG
+            cmuxDebugLog(
+                "browser.portal.host.skip panel=\(id.uuidString.prefix(5)) " +
+                "reason=\(reason) host=\(hostId) pane=\(paneId.id.uuidString.prefix(5)) " +
+                "inWin=\(inWindow ? 1 : 0) size=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) " +
+                "ownerHost=nil cause=detachedOrTiny"
+            )
+#endif
+            return false
+        }
+        if consumesPendingDistinctReplacement {
+            pendingDistinctPortalHostReplacementPaneId = nil
+            lockedPortalHost = PortalHostLock(hostId: hostId, paneId: paneId.id)
+        }
         activePortalHostLease = next
 #if DEBUG
         cmuxDebugLog(
             "browser.portal.host.claim panel=\(id.uuidString.prefix(5)) " +
             "reason=\(reason) host=\(hostId) pane=\(paneId.id.uuidString.prefix(5)) " +
             "inWin=\(inWindow ? 1 : 0) size=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) " +
-            "replacingHost=nil"
+            "replacingHost=nil forced=\(consumesPendingDistinctReplacement ? 1 : 0)"
         )
 #endif
         return true

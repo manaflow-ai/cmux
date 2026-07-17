@@ -133,6 +133,13 @@ struct DockPortalReconcileTests {
             hostId: ObjectIdentifier(liveSourceHost),
             reason: "test.dock.browser.sourceDismantled"
         ))
+        #expect(!panel.claimPortalHost(
+            hostId: ObjectIdentifier(detachedDestinationHost),
+            paneId: destinationPane,
+            inWindow: false,
+            bounds: .zero,
+            reason: "test.dock.browser.detachedDestinationAfterSourceRelease"
+        ))
 
         #expect(panel.claimPortalHost(
             hostId: ObjectIdentifier(detachedDestinationHost),
