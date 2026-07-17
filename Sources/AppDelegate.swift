@@ -665,11 +665,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     weak var notificationStore: TerminalNotificationStore?
     weak var sidebarState: SidebarState?
 
-    /// App-wide web-extension host, retained strongly here: threading it through
-    /// the weak `tabManager` dropped it whenever the SwiftUI-owned manager was
-    /// not alive (windows then built hostless panels with no extension support).
-    var browserWebExtensionHost: (any BrowserWebExtensionHosting)?
-
     /// Notification jump/open navigation, extracted into `CmuxNotifications`. `AppDelegate` is the
     /// composition root: it conforms to every seam (see `AppDelegate+NotificationNavSeams.swift`)
     /// and injects itself. Built lazily because the seams read late-bound state (`notificationStore`,
@@ -2034,15 +2029,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         notificationStore: TerminalNotificationStore,
         sidebarState: SidebarState,
         settingsRuntime: SettingsRuntime,
-        auth: MacAuthComposition,
-        browserWebExtensionHost: (any BrowserWebExtensionHosting)? = nil
+        auth: MacAuthComposition
     ) {
         self.tabManager = tabManager
         self.settingsRuntime = settingsRuntime
         self.notificationStore = notificationStore
         self.sidebarState = sidebarState
         self.auth = auth
-        if let browserWebExtensionHost { self.browserWebExtensionHost = browserWebExtensionHost }
         VMClient.bootstrap(auth: auth.coordinator)
         RemotesClient.bootstrap(auth: auth.coordinator)
         AIAccountsClient.bootstrap(auth: auth.coordinator)
@@ -3302,7 +3295,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    func attemptStartupSessionRestoreIfNeeded(primaryWindow: NSWindow) -> Bool {
+    private func attemptStartupSessionRestoreIfNeeded(primaryWindow: NSWindow) -> Bool {
         guard !didAttemptStartupSessionRestore else { return false }
         didAttemptStartupSessionRestore = true
         // Flush deferred navigation links unless additional restored windows remain pending.
@@ -3740,7 +3733,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         timer.schedule(deadline: .now() + interval, repeating: interval, leeway: .seconds(1))
         timer.setEventHandler { [weak self] in
             guard let self,
-                  Self.shouldRunSessionAutosaveTick(isTerminatingApp: self.isTerminatingApp, didAttemptStartupSessionRestore: self.didAttemptStartupSessionRestore) else {
+                  Self.shouldRunSessionAutosaveTick(isTerminatingApp: self.isTerminatingApp) else {
                 return
             }
             self.runSessionAutosaveTick(source: "timer")
@@ -3910,12 +3903,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> Bool {
-        if !didAttemptStartupSessionRestore || Self.shouldSkipSessionSaveDuringRestore(
+        if Self.shouldSkipSessionSaveDuringRestore(
             isApplyingSessionRestore: isApplyingSessionRestore,
             includeScrollback: includeScrollback
         ) {
 #if DEBUG
-            cmuxDebugLog("session.save.skipped reason=\(didAttemptStartupSessionRestore ? "session_restore_in_progress" : "startup_restore_pending") includeScrollback=0")
+            cmuxDebugLog("session.save.skipped reason=session_restore_in_progress includeScrollback=0")
 #endif
             return false
         }
@@ -4033,13 +4026,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     nonisolated static func shouldSaveSessionSnapshotAfterMainWindowRegistration(
         isTerminatingApp: Bool,
         didApplyStartupSessionRestore: Bool,
-        isApplyingSessionRestore: Bool, didAttemptStartupSessionRestore: Bool = true
+        isApplyingSessionRestore: Bool
     ) -> Bool {
-        !isTerminatingApp && didAttemptStartupSessionRestore && !didApplyStartupSessionRestore && !isApplyingSessionRestore
+        !isTerminatingApp && !didApplyStartupSessionRestore && !isApplyingSessionRestore
     }
 
-    nonisolated static func shouldRunSessionAutosaveTick(isTerminatingApp: Bool, didAttemptStartupSessionRestore: Bool = true) -> Bool {
-        !isTerminatingApp && didAttemptStartupSessionRestore
+    nonisolated static func shouldRunSessionAutosaveTick(isTerminatingApp: Bool) -> Bool {
+        !isTerminatingApp
     }
 
     nonisolated static func shouldSaveSessionSnapshotOnApplicationResign(isTerminatingApp _: Bool) -> Bool {
@@ -4071,7 +4064,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func runSessionAutosaveTick(source: String) {
-        guard Self.shouldRunSessionAutosaveTick(isTerminatingApp: isTerminatingApp, didAttemptStartupSessionRestore: didAttemptStartupSessionRestore) else { return }
+        guard Self.shouldRunSessionAutosaveTick(isTerminatingApp: isTerminatingApp) else { return }
         guard !sessionAutosaveTickInFlight else { return }
         if let remainingQuietPeriod = remainingSessionAutosaveTypingQuietPeriod() {
 #if DEBUG
@@ -4197,7 +4190,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    func saveSessionSnapshotAfterLoadingProcessDetectedIndexes(
+    private func saveSessionSnapshotAfterLoadingProcessDetectedIndexes(
         includeScrollback: Bool,
         removeWhenEmpty: Bool = false,
         preserveManualRestoreBackupOnMissingPrimary: Bool = false
@@ -4514,7 +4507,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let priorManagerToken = debugManagerToken(self.tabManager)
         #endif
         if let existing = mainWindowContexts[key] {
-            tabManager.setOwningWindow(window)
+            tabManager.window = window
             tabManager.windowId = existing.windowId
             existing.window = window
             let resolvedFileExplorerState = fileExplorerState ?? existing.fileExplorerState
@@ -4540,7 +4533,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         "existing={\(debugWindowToken(existingWindow))} duplicate={\(debugWindowToken(window))}"
                 )
 #endif
-                existing.tabManager.setOwningWindow(existingWindow)
+                existing.tabManager.window = existingWindow
                 existing.tabManager.windowId = existing.windowId
                 existing.keyboardFocusCoordinator.update(
                     window: existingWindow,
@@ -4551,10 +4544,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 window.close()
                 return
             }
-            let previouslyActiveBrowserPanelID = tabManager.setOwningWindow(window, activateRestoredPanel: false)
+            tabManager.window = window
             tabManager.windowId = windowId
             existing.window = window
-            existing.reconcileWindowDockBrowserExtensions(in: window, restoringActivePanelID: previouslyActiveBrowserPanelID)
             let resolvedFileExplorerState = fileExplorerState ?? existing.fileExplorerState
             if let fileExplorerState {
                 existing.fileExplorerState = fileExplorerState
@@ -4570,7 +4562,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             reindexMainWindowContextIfNeeded(existing, for: window)
             existing.closeObserver = WindowCloseObserver(window: window) { [weak self] in self?.unregisterMainWindow($0) }
         } else {
-            tabManager.setOwningWindow(window)
+            tabManager.window = window
             tabManager.windowId = windowId
             let context = MainWindowContext(
                 windowId: windowId,
@@ -4585,6 +4577,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             context.closeObserver = WindowCloseObserver(window: window) { [weak self] in self?.unregisterMainWindow($0) }
         }
         commandPaletteWindowStore.registerWindow(windowId)
+
 #if DEBUG
         cmuxDebugLog(
             "mainWindow.register windowId=\(String(windowId.uuidString.prefix(8))) window={\(debugWindowToken(window))} manager=\(debugManagerToken(tabManager)) priorActiveMgr=\(priorManagerToken) \(debugShortcutRouteSnapshot())"
@@ -4597,7 +4590,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             setActiveMainWindow(window)
         }
 
-        completeMainWindowRegistrationWhenBrowserExtensionsReady(tabManager: tabManager, window: window)
+        let didApplyStartupSessionRestore = attemptStartupSessionRestoreIfNeeded(primaryWindow: window)
+        if Self.shouldSaveSessionSnapshotAfterMainWindowRegistration(
+            isTerminatingApp: isTerminatingApp,
+            didApplyStartupSessionRestore: didApplyStartupSessionRestore,
+            isApplyingSessionRestore: isApplyingSessionRestore
+        ) {
+            saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
+        }
     }
 
 #if DEBUG
@@ -5884,15 +5884,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // Internal (not private): see notifyMainWindowContextsDidChange.
     func discardOrphanedMainWindowContext(_ context: MainWindowContext, allowWindowlessFallback: Bool = false) {
         context.teardownWindowDock()
-        prepareBrowserWebExtensionOwnershipForOrphanedMainWindowContext(context)
         let contextKeys = mainWindowContexts.compactMap { key, value in
             value === context ? key : nil
         }
         for key in contextKeys {
             mainWindowContexts.removeValue(forKey: key)
         }
+        rememberRecoverableMainWindowRoute(windowId: context.windowId, tabManager: context.tabManager, window: context.window)
         removeMobileWorkspaceListObserverIfUnused(for: context.tabManager)
         notifyMainWindowContextsDidChange()
+
         commandPaletteWindowStore.removeWindow(context.windowId)
 
         if tabManager === context.tabManager {
@@ -6307,7 +6308,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             resolvedShortcutEventWindow(event),
         ]
         .compactMap { $0 }
-        .first { $0.cmuxShouldOwnCloseShortcut }
+        .first { cmuxWindowShouldOwnCloseShortcut($0) }
     }
 
     /// Re-sync app-level active window pointers from the currently focused main terminal window.
@@ -7124,7 +7125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         suppressWelcome: Bool = false
     ) -> UUID {
         for context in sortedMainWindowContextsForSessionSnapshot() {
-            guard didAttemptStartupSessionRestore || context.tabManager.allowsStartupSessionRestore, let window = resolvedWindow(for: context) else { continue }
+            guard let window = resolvedWindow(for: context) else { continue }
             if shouldActivate {
                 mainWindowVisibilityController.focus(
                     window,
@@ -8438,7 +8439,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if shortcutEventHasAddressableWindow(event) {
             if let eventWindow = resolvedShortcutEventWindow(event),
-               eventWindow.cmuxShouldOwnCloseShortcut {
+               cmuxWindowShouldOwnCloseShortcut(eventWindow) {
                 // Auxiliary cmux windows do not own a terminal tab manager. Let them fall back
                 // to the active main terminal window so app shortcuts like Close Tab still route.
             } else {
@@ -8557,7 +8558,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sourceWindow preferredSourceWindow: NSWindow? = nil,
         remapClosedPanelHistoryFromSessionSnapshot: Bool = true,
         excludingStableIdentitiesFromSessionSnapshot: Set<UUID> = [],
-        restoredSessionSnapshotHandler: (([[UUID: UUID]], TabManager) -> Void)? = nil, allowsStartupSessionRestore: Bool = true
+        restoredSessionSnapshotHandler: (([[UUID: UUID]], TabManager) -> Void)? = nil
     ) -> UUID {
         reserveInitialSocketPathIfNeeded()
         let requestedWindowId = preferredWindowId ?? sessionWindowSnapshot?.windowId
@@ -8567,9 +8568,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialWorkingDirectory: initialWorkingDirectory,
             initialTerminalInput: initialTerminalInput,
             autoWelcomeIfNeeded: initialTerminalInput == nil,
-            pullRequestProbeService: self.tabManager?.pullRequestProbeService,
-            browserWebExtensionHost: browserWebExtensionHost ?? self.tabManager?.browserWebExtensionHost,
-            allowsStartupSessionRestore: allowsStartupSessionRestore
+            pullRequestProbeService: self.tabManager?.pullRequestProbeService
         )
         tabManager.windowId = windowId
         if let sessionWindowSnapshot {
@@ -8588,6 +8587,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             restoredSessionSnapshotHandler?(restoredPanelIdsByWorkspaceIndex, tabManager)
         }
+
         let sidebarWidth = sessionWindowSnapshot?.sidebar.width
             .map { SessionPersistencePolicy.sanitizedSidebarWidth($0) }
             ?? SessionPersistencePolicy.defaultSidebarWidth
@@ -15037,6 +15037,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return false
     }
 
+    private func matchConfiguredShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
+        guard !shortcut.isUnbound else { return false }
+        if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
+            guard let secondStroke = shortcut.secondStroke,
+                  shortcut.firstStroke == prefix else {
+                return false
+            }
+            return matchShortcutStroke(event: event, stroke: secondStroke)
+        }
+        guard !shortcut.hasChord else { return false }
+        return matchShortcutStroke(event: event, stroke: shortcut.firstStroke)
+    }
+
     func matchConfiguredShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
         if !shortcutWhenClauseAllows(action: action, event: event) { return false }
         return matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: action))
@@ -15067,7 +15080,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    func numberedConfiguredShortcutDigit(
+    private func numberedConfiguredShortcutDigit(
         event: NSEvent,
         action: KeyboardShortcutSettings.Action
     ) -> Int? {
@@ -15994,13 +16007,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         browserPanelOwning(webView)?.isBrowserFocusModeActive == true
     }
 
-    func isWebViewFocused(_ panel: BrowserPanel) -> Bool {
+    private func isWebViewFocused(_ panel: BrowserPanel) -> Bool {
         guard let window = panel.webView.window else { return false }
         guard let fr = window.firstResponder as? NSView else { return false }
         return fr.isDescendant(of: panel.webView)
     }
 
-    func browserFocusModePanelForShortcutEvent(_ event: NSEvent) -> BrowserPanel? {
+    private func browserFocusModePanelForShortcutEvent(_ event: NSEvent) -> BrowserPanel? {
         // Resolve the panel from the web view that owns the responder chain (the
         // same resolver every other browser shortcut uses), not the selected pane:
         // context-menu / web-view-focus entrypoints can focus a WKWebView without
@@ -16151,9 +16164,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             persistWindowGeometry(from: window)
         }
         mainWindowVisibilityController.discardClosedWindow(window)
-        closingContext?.tabManager.setOwningWindow(nil)
+
         guard let removed = unregisterMainWindowContext(for: window) else { return }
-        if recoverableMainWindowRoute(windowId: removed.windowId) == nil { removed.tabManager.discardBrowserWebExtensionWindowOwnership() }
         windowConfigFrames.removeValue(forKey: removed.windowId)
         publishCmuxWindowLifecycle(name: "window.closed", windowId: removed.windowId, origin: "appkit_close")
         commandPaletteWindowStore.removeWindow(removed.windowId)
@@ -16165,6 +16177,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 store.clearNotifications(forTabId: tab.id)
             }
         }
+
         if tabManager === removed.tabManager {
             // Repoint "active" pointers to any remaining main terminal window.
             let nextContext: MainWindowContext? = {
@@ -16461,12 +16474,6 @@ private extension NSApplication {
             let responder = event.window?.firstResponder
                 ?? AppDelegate.shared?.shortcutRoutingKeyWindow?.firstResponder
                 ?? mainWindow?.firstResponder
-            if AppDelegate.shared?.routeWebExtensionCommandForStaleMenuShortcut(
-                event,
-                responder: responder
-            ) == true {
-                return
-            }
             if let ghosttyView = cmuxOwningGhosttyView(for: responder) {
                 ghosttyView.keyDown(with: event)
 #if DEBUG

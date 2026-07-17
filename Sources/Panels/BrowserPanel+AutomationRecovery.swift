@@ -29,8 +29,7 @@ extension BrowserPanel {
     ) -> CmuxWebView {
         let replacement = Self.makeWebView(
             profileID: profileID,
-            websiteDataStore: websiteDataStore,
-            browserWebExtensionHost: browserWebExtensionHost
+            websiteDataStore: websiteDataStore
         )
         for userScript in browserAutomationUserScripts {
             replacement.configuration.userContentController.addUserScript(userScript)
