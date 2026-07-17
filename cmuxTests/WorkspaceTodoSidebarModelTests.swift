@@ -1,4 +1,5 @@
 import CmuxWorkspaces
+import CoreGraphics
 import Foundation
 import Testing
 
@@ -295,6 +296,36 @@ struct WorkspaceTodoSidebarModelTests {
         #expect(SidebarWorkspaceChecklistPopoverViewportModel.visibleRowCount(forItemCount: 5) == 5)
         #expect(SidebarWorkspaceChecklistPopoverViewportModel.visibleRowCount(forItemCount: 6) == 6)
         #expect(SidebarWorkspaceChecklistPopoverViewportModel.visibleRowCount(forItemCount: 12) == 6)
+        #expect(!SidebarWorkspaceChecklistPopoverViewportModel.requiresScrolling(forItemCount: 1))
+        #expect(!SidebarWorkspaceChecklistPopoverViewportModel.requiresScrolling(forItemCount: 6))
+        #expect(SidebarWorkspaceChecklistPopoverViewportModel.requiresScrolling(forItemCount: 7))
+    }
+
+    @Test
+    func checklistPopoverViewportUsesMeasuredRowsForScrollingCap() {
+        let measuredHeight = SidebarWorkspaceChecklistPopoverViewportModel.viewportHeight(
+            orderedIds: [1, 2, 3, 4, 5, 6, 7],
+            rowFrames: [
+                1: CGRect(x: 0, y: 10, width: 100, height: 24),
+                2: CGRect(x: 0, y: 37, width: 100, height: 24),
+                3: CGRect(x: 0, y: 64, width: 100, height: 31),
+                4: CGRect(x: 0, y: 98, width: 100, height: 24),
+                5: CGRect(x: 0, y: 125, width: 100, height: 24),
+                6: CGRect(x: 0, y: 152, width: 100, height: 24),
+                7: CGRect(x: 0, y: 179, width: 100, height: 24),
+            ],
+            fallbackRowHeight: 19,
+            fallbackSpacing: 2
+        )
+        #expect(measuredHeight == 166)
+
+        let fallbackHeight = SidebarWorkspaceChecklistPopoverViewportModel.viewportHeight(
+            orderedIds: [1, 2],
+            rowFrames: [:],
+            fallbackRowHeight: 19,
+            fallbackSpacing: 2
+        )
+        #expect(fallbackHeight == 40)
     }
 
     @Test

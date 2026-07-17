@@ -23,6 +23,29 @@ enum SidebarWorkspaceChecklistPopoverViewportModel {
         guard count > 0 else { return 0 }
         return min(count, maximumVisibleRowCount)
     }
+
+    static func requiresScrolling(forItemCount count: Int) -> Bool {
+        count > maximumVisibleRowCount
+    }
+
+    static func viewportHeight<ID: Hashable>(
+        orderedIds: [ID],
+        rowFrames: [ID: CGRect],
+        fallbackRowHeight: CGFloat,
+        fallbackSpacing: CGFloat
+    ) -> CGFloat {
+        let visibleCount = visibleRowCount(forItemCount: orderedIds.count)
+        guard visibleCount > 0 else { return 0 }
+        let visibleIds = orderedIds.prefix(visibleCount)
+        let visibleFrames = visibleIds.compactMap { rowFrames[$0] }
+        if visibleFrames.count == visibleCount,
+           let first = visibleFrames.first,
+           let last = visibleFrames.last {
+            return max(0, last.maxY - first.minY)
+        }
+        return fallbackRowHeight * CGFloat(visibleCount)
+            + fallbackSpacing * CGFloat(visibleCount - 1)
+    }
 }
 
 /// The checklist popover anchored to a workspace row's summary line
@@ -100,13 +123,15 @@ struct SidebarWorkspaceChecklistPopover: View {
         return (font.ascender + font.descender) / 2
     }
 
-    /// Content height for `count` rows. Short lists size to their item count;
-    /// longer lists cap at six rows and scroll.
-    private func scrollViewportHeight(forItemCount count: Int) -> CGFloat {
-        guard count > 0 else { return 0 }
-        let visibleCount = SidebarWorkspaceChecklistPopoverViewportModel.visibleRowCount(forItemCount: count)
-        return Self.itemRowHeightEstimate * CGFloat(visibleCount)
-            + Self.rowSpacing * CGFloat(visibleCount - 1)
+    /// Content height for the capped scrolling case. Short lists don't use a
+    /// scroll view at all, so they size naturally to their rendered rows.
+    private func scrollViewportHeight(forItems items: [WorkspaceChecklistItem]) -> CGFloat {
+        SidebarWorkspaceChecklistPopoverViewportModel.viewportHeight(
+            orderedIds: items.map(\.id),
+            rowFrames: itemRowFrames,
+            fallbackRowHeight: Self.itemRowHeightEstimate,
+            fallbackSpacing: Self.rowSpacing
+        )
     }
 
     var body: some View {
@@ -117,26 +142,7 @@ struct SidebarWorkspaceChecklistPopover: View {
                 .padding(.top, 10)
                 .padding(.bottom, 6)
             if !ordered.isEmpty {
-                ScrollViewReader { proxy in
-                    ScrollView(.vertical) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            ForEach(ordered) { item in
-                                itemRow(item)
-                                    .id(item.id)
-                            }
-                        }
-                        .padding(.horizontal, 8)
-                    }
-                    .frame(height: scrollViewportHeight(forItemCount: ordered.count))
-                    // `anchor: nil` scrolls the minimal distance needed to
-                    // bring the highlighted row fully into view — a no-op if
-                    // it's already visible, matching arrow-key nav that
-                    // should only move the viewport when it must.
-                    .onChange(of: highlightedItemId) { _, newValue in
-                        guard let newValue else { return }
-                        proxy.scrollTo(newValue, anchor: nil)
-                    }
-                }
+                itemList(ordered)
             }
             if model.canAddItems {
                 addItemRow(visible: ordered)
@@ -200,6 +206,38 @@ struct SidebarWorkspaceChecklistPopover: View {
     }
 
     // MARK: Item rows
+
+    @ViewBuilder
+    private func itemList(_ ordered: [WorkspaceChecklistItem]) -> some View {
+        if SidebarWorkspaceChecklistPopoverViewportModel.requiresScrolling(forItemCount: ordered.count) {
+            ScrollViewReader { proxy in
+                ScrollView(.vertical) {
+                    itemRows(ordered)
+                        .padding(.horizontal, 8)
+                }
+                .frame(height: scrollViewportHeight(forItems: ordered))
+                // `anchor: nil` scrolls the minimal distance needed to bring
+                // the highlighted row fully into view — a no-op if it's
+                // already visible.
+                .onChange(of: highlightedItemId) { _, newValue in
+                    guard let newValue else { return }
+                    proxy.scrollTo(newValue, anchor: nil)
+                }
+            }
+        } else {
+            itemRows(ordered)
+                .padding(.horizontal, 8)
+        }
+    }
+
+    private func itemRows(_ ordered: [WorkspaceChecklistItem]) -> some View {
+        VStack(alignment: .leading, spacing: Self.rowSpacing) {
+            ForEach(ordered) { item in
+                itemRow(item)
+                    .id(item.id)
+            }
+        }
+    }
 
     private func itemRow(_ item: WorkspaceChecklistItem) -> some View {
         let isCompleted = item.state == .completed
