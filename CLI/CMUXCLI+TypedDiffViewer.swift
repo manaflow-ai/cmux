@@ -85,7 +85,7 @@ extension CMUXCLI {
         target: DiffViewerGitHTMLSetTarget,
         extraAllowedPageURL: URL?
     ) throws -> DiffViewerWriteResult {
-        let repoRoot = if selectedSource == .lastTurn {
+        let repoRoot: String? = if selectedSource == .lastTurn {
             nil
         } else {
             try gitRepoRootForDiff(context)
@@ -101,7 +101,7 @@ extension CMUXCLI {
             shortcuts: diffViewerShortcutPayload(),
             generatedAt: ISO8601DateFormatter().string(from: Date())
         )
-        let repoCandidates = repoRoot.map {
+        let repoCandidates: [DiffViewerRepoOption] = repoRoot.map {
             gitDiffViewerRepoOptions(selectedRepoRoot: $0, context: context)
         } ?? []
         let session = DiffViewerBranchSession(
