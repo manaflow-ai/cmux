@@ -176,6 +176,9 @@ public actor GhosttyRenderWorkerClient {
             broadcast(.failure("host attempted to enqueue worker initialization"))
 
         case let .replaceConfiguration(snapshot):
+            if let configuration, snapshot.revision <= configuration.revision {
+                return
+            }
             let hadConfiguration = configuration != nil
             configuration = snapshot
             do {
