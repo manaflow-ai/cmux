@@ -11,6 +11,7 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
     private let delaysActivation: Bool
     private let delaysWebInspectorSend: Bool
     private let failsApplicationInstall: Bool
+    private let failsWebInspectorHighlight: Bool
     private let cancelsControlActionBeforeReturning: Bool
     private let eventStream: SimulatorWorkerEventStream
     private let eventContinuation: SimulatorWorkerEventStream.Continuation
@@ -34,6 +35,7 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
         delaysActivation: Bool = false,
         delaysWebInspectorSend: Bool = false,
         failsApplicationInstall: Bool = false,
+        failsWebInspectorHighlight: Bool = false,
         cancelsControlActionBeforeReturning: Bool = false
     ) {
         self.devicesValue = devices
@@ -43,6 +45,7 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
         self.delaysActivation = delaysActivation
         self.delaysWebInspectorSend = delaysWebInspectorSend
         self.failsApplicationInstall = failsApplicationInstall
+        self.failsWebInspectorHighlight = failsWebInspectorHighlight
         self.cancelsControlActionBeforeReturning = cancelsControlActionBeforeReturning
         let source = SimulatorWorkerEventStreamSource(
             maximumBufferedBytes: 1_024 * 1_024,
@@ -118,6 +121,16 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
                 message: "The fixture app is invalid.",
                 isRecoverable: true
             )
+        }
+        if case .setWebInspectorHighlight = action, failsWebInspectorHighlight {
+            throw SimulatorFailure(
+                code: "fixture_highlight_failed",
+                message: "The target rejected highlight cleanup.",
+                isRecoverable: true
+            )
+        }
+        if case .releaseWebInspector = action {
+            return .webInspectorSession(.detached)
         }
         if case .listApplications = action {
             if delaysApplicationList {

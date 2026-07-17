@@ -6,6 +6,30 @@ import Testing
 @Suite("Web Inspector coordinator cleanup")
 @MainActor
 struct SimulatorWebInspectorCoordinatorTests {
+    @Test("Highlight cleanup failure still releases the Inspector session")
+    func highlightFailureStillReleases() async {
+        let client = SimulatorPaneClientSpy(
+            devices: [],
+            failsWebInspectorHighlight: true
+        )
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        coordinator.webInspectorIsHighlighted = true
+
+        do {
+            _ = try await coordinator.releaseWebInspectorResult()
+            Issue.record("Expected the highlight cleanup error after release")
+        } catch let failure as SimulatorFailure {
+            #expect(failure.code == "fixture_highlight_failed")
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+
+        #expect(await client.actions() == [
+            .setWebInspectorHighlight(enabled: false),
+            .releaseWebInspector,
+        ])
+    }
+
     @Test("Target closure releases the session and clears bounded responses")
     func targetClose() async {
         let client = SimulatorPaneClientSpy(devices: [])

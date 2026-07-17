@@ -171,6 +171,7 @@ struct SimulatorWebInspectorServiceFailureTests {
         )
         let transport = SuccessfulWebInspectorTransport(
             service: service,
+            respondsToCensus: false,
             respondsToListings: false
         )
         service.socket = transport
@@ -181,6 +182,8 @@ struct SimulatorWebInspectorServiceFailureTests {
             try await service.attach(targetIdentifier: "APP|7")
         }
         await eventually { await sleeper.pendingCount == 1 }
+        transport.emitListing()
+        for _ in 0..<100 { await Task.yield() }
         await sleeper.resumeAll()
 
         do {
@@ -236,19 +239,23 @@ struct SimulatorWebInspectorServiceFailureTests {
 private final class SuccessfulWebInspectorTransport: SimulatorWebInspectorTransport {
     nonisolated let messages: AsyncStream<Data> = AsyncStream { _ in }
     weak var service: SimulatorWebInspectorService?
+    let respondsToCensus: Bool
     let respondsToListings: Bool
 
     init(
         service: SimulatorWebInspectorService,
+        respondsToCensus: Bool = true,
         respondsToListings: Bool = true
     ) {
         self.service = service
+        self.respondsToCensus = respondsToCensus
         self.respondsToListings = respondsToListings
     }
 
     func send(propertyList: [String: Any]) throws {
         let selector = propertyList["__selector"] as? String
         if selector == "_rpc_getConnectedApplications:" {
+            guard respondsToCensus else { return }
             deliver([
                 "__selector": "_rpc_reportConnectedApplicationList:",
                 "__argument": [
@@ -311,6 +318,23 @@ private final class SuccessfulWebInspectorTransport: SimulatorWebInspectorTransp
     }
 
     func close() {}
+
+    func emitListing() {
+        deliver([
+            "__selector": "_rpc_applicationSentListing:",
+            "__argument": [
+                "WIRApplicationIdentifierKey": "APP",
+                "WIRListingKey": [
+                    "7": [
+                        "WIRPageIdentifierKey": 7,
+                        "WIRTitleKey": "Fixture",
+                        "WIRURLKey": "https://example.test",
+                        "WIRTypeKey": "WIRTypeWebPage",
+                    ],
+                ],
+            ],
+        ])
+    }
 }
 
 private actor ManualWebInspectorSleeper: SimulatorWebInspectorSleeping {
