@@ -3,10 +3,13 @@ import Foundation
 extension TabManager {
     /// Captures workspace history immediately, then fills missing terminal
     /// agent snapshots after the shared index's off-main cold load finishes.
-    func pushClosedWorkspaceHistoryEntryWithAgentEnrichment(_ entry: ClosedWorkspaceHistoryEntry) {
+    func pushClosedWorkspaceHistoryEntryWithAgentEnrichment(
+        _ entry: ClosedWorkspaceHistoryEntry,
+        excludedPanelIds: Set<UUID> = []
+    ) {
         let recordId = ClosedItemHistoryStore.shared.push(.workspace(entry))
         let missingPanelIds = entry.snapshot.panels.compactMap { panel in
-            panel.terminal?.agent == nil ? panel.id : nil
+            panel.terminal?.agent == nil && !excludedPanelIds.contains(panel.id) ? panel.id : nil
         }
         guard !missingPanelIds.isEmpty else { return }
         let workspaceId = entry.workspaceId

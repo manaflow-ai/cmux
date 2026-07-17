@@ -57,6 +57,11 @@ extension CMUXCLI {
         let normalizedActivity = agentsTreeNormalized(activityFilter)?.lowercased()
         let normalizedWorkKind = agentsTreeNormalized(workKindFilter)?.lowercased()
         let queryScope = AgentSessionQueryScope(includeHistory: includeAll, environment: processEnv)
+        let includesEndedRecords = includeAll
+            || normalizedSession != nil
+            || normalizedWorkspace != nil
+            || normalizedSurface != nil
+            || normalizedState == AgentEffectiveState.ended.rawValue
         if let normalizedRelationship,
            normalizedRelationship != "all",
            AgentSessionRelationship(rawValue: normalizedRelationship) == nil {
@@ -135,7 +140,7 @@ extension CMUXCLI {
                         legacyVisible: legacyVisible
                     ) else { continue }
                     let projection = AgentSessionStateProjection(record: record, run: run)
-                    guard queryScope.includes(projection: projection) else { continue }
+                    guard includesEndedRecords || queryScope.includes(projection: projection) else { continue }
                     if let normalizedState, projection.effective.rawValue != normalizedState { continue }
                     if let normalizedActivity, projection.activity.state.rawValue != normalizedActivity { continue }
                     if let normalizedWorkKind,

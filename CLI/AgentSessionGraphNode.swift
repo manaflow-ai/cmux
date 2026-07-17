@@ -31,7 +31,108 @@ struct AgentSessionGraphNode: Codable, Sendable, Equatable {
         "\(provider)\u{1F}\(sessionId)\u{1F}\(runId)"
     }
 
+    init(
+        provider: String,
+        sessionId: String,
+        runId: String,
+        pid: Int?,
+        processStartedAt: TimeInterval?,
+        cmuxRuntime: AgentCmuxRuntimeIdentity?,
+        workspaceId: String,
+        surfaceId: String,
+        processState: AgentProcessState,
+        sessionState: AgentSessionLifecycleState,
+        foregroundState: AgentForegroundState,
+        attentionState: AgentAttentionState,
+        activity: AgentActivitySnapshot,
+        effectiveState: AgentEffectiveState,
+        workloads: [AgentWorkloadSnapshot],
+        subtreeActivity: AgentSubtreeActivitySnapshot = AgentSubtreeActivitySnapshot(),
+        restoreAuthority: Bool,
+        startedAt: TimeInterval,
+        updatedAt: TimeInterval,
+        endedAt: TimeInterval?
+    ) {
+        self.provider = provider
+        self.sessionId = sessionId
+        self.runId = runId
+        self.pid = pid
+        self.processStartedAt = processStartedAt
+        self.cmuxRuntime = cmuxRuntime
+        self.workspaceId = workspaceId
+        self.surfaceId = surfaceId
+        self.processState = processState
+        self.sessionState = sessionState
+        self.foregroundState = foregroundState
+        self.attentionState = attentionState
+        self.activity = activity
+        self.effectiveState = effectiveState
+        self.workloads = workloads
+        self.subtreeActivity = subtreeActivity
+        self.restoreAuthority = restoreAuthority
+        self.startedAt = startedAt
+        self.updatedAt = updatedAt
+        self.endedAt = endedAt
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(nodeId, forKey: .nodeId)
+        try container.encode(provider, forKey: .provider)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(runId, forKey: .runId)
+        try container.encodeIfPresent(pid, forKey: .pid)
+        try container.encodeIfPresent(processStartedAt, forKey: .processStartedAt)
+        try container.encodeIfPresent(cmuxRuntime, forKey: .cmuxRuntime)
+        try container.encode(workspaceId, forKey: .workspaceId)
+        try container.encode(surfaceId, forKey: .surfaceId)
+        try container.encode(processState, forKey: .processState)
+        try container.encode(sessionState, forKey: .sessionState)
+        try container.encode(foregroundState, forKey: .foregroundState)
+        try container.encode(attentionState, forKey: .attentionState)
+        try container.encode(activity, forKey: .activity)
+        try container.encode(effectiveState, forKey: .effectiveState)
+        try container.encode(workloads, forKey: .workloads)
+        try container.encode(subtreeActivity, forKey: .subtreeActivity)
+        try container.encode(restoreAuthority, forKey: .restoreAuthority)
+        try container.encode(startedAt, forKey: .startedAt)
+        try container.encode(updatedAt, forKey: .updatedAt)
+        try container.encodeIfPresent(endedAt, forKey: .endedAt)
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        // node_id is derived from the identity fields below. Decode the source
+        // fields so older persisted payloads without node_id remain compatible.
+        self.init(
+            provider: try container.decode(String.self, forKey: .provider),
+            sessionId: try container.decode(String.self, forKey: .sessionId),
+            runId: try container.decode(String.self, forKey: .runId),
+            pid: try container.decodeIfPresent(Int.self, forKey: .pid),
+            processStartedAt: try container.decodeIfPresent(TimeInterval.self, forKey: .processStartedAt),
+            cmuxRuntime: try container.decodeIfPresent(AgentCmuxRuntimeIdentity.self, forKey: .cmuxRuntime),
+            workspaceId: try container.decode(String.self, forKey: .workspaceId),
+            surfaceId: try container.decode(String.self, forKey: .surfaceId),
+            processState: try container.decode(AgentProcessState.self, forKey: .processState),
+            sessionState: try container.decode(AgentSessionLifecycleState.self, forKey: .sessionState),
+            foregroundState: try container.decode(AgentForegroundState.self, forKey: .foregroundState),
+            attentionState: try container.decode(AgentAttentionState.self, forKey: .attentionState),
+            activity: try container.decode(AgentActivitySnapshot.self, forKey: .activity),
+            effectiveState: try container.decode(AgentEffectiveState.self, forKey: .effectiveState),
+            workloads: try container.decode([AgentWorkloadSnapshot].self, forKey: .workloads),
+            subtreeActivity: try container.decodeIfPresent(
+                AgentSubtreeActivitySnapshot.self,
+                forKey: .subtreeActivity
+            ) ?? AgentSubtreeActivitySnapshot(),
+            restoreAuthority: try container.decode(Bool.self, forKey: .restoreAuthority),
+            startedAt: try container.decode(TimeInterval.self, forKey: .startedAt),
+            updatedAt: try container.decode(TimeInterval.self, forKey: .updatedAt),
+            endedAt: try container.decodeIfPresent(TimeInterval.self, forKey: .endedAt)
+        )
+    }
+
     enum CodingKeys: String, CodingKey {
+        case nodeId = "node_id"
         case provider
         case sessionId = "session_id"
         case runId = "run_id"

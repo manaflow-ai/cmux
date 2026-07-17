@@ -136,8 +136,9 @@ extension CMUXCLI {
                 workKindFilter
             ))
         }
-        let hasRecordFilter = sessionFilter != nil || workspaceFilter != nil || surfaceFilter != nil
-            || cwdFilter != nil || stateFilter != nil || activityFilter != nil || workKindFilter != nil
+        let hasIdentityFilter = sessionFilter != nil || workspaceFilter != nil
+            || surfaceFilter != nil || cwdFilter != nil
+        let includesEndedRecords = includeAll || hasIdentityFilter || stateFilter == AgentEffectiveState.ended.rawValue
         let queryScope = AgentSessionQueryScope(includeHistory: includeAll, environment: processEnv)
         var codexIndexes: [String: CodexSessionListIndex] = [:]
         let claudeTranscriptLookup = SessionsListClaudeTranscriptLookupCache(homeDirectory: homeDirectory)
@@ -251,11 +252,11 @@ extension CMUXCLI {
                     legacyVisible: true
                 ) else { continue }
                 let projection = AgentSessionStateProjection(record: record, run: projectedRun)
-                guard queryScope.includes(projection: projection) else { continue }
+                guard includesEndedRecords || queryScope.includes(projection: projection) else { continue }
                 if let stateFilter, projection.effective.rawValue != stateFilter { continue }
                 if let activityFilter, projection.activity.state.rawValue != activityFilter { continue }
                 if let workKindFilter,
-                   !(record.workloads ?? []).contains(where: {
+                   !projection.workloads.contains(where: {
                        $0.kind.rawValue == workKindFilter && $0.phase.isActive
                    }) { continue }
                 payload["process_state"] = projection.process.rawValue
@@ -265,7 +266,7 @@ extension CMUXCLI {
                 payload["effective_state"] = projection.effective.rawValue
                 payload["activity"] = sessionsListEncodableJSONObject(projection.activity)
                 payload["workloads"] = sessionsListEncodableJSONObject(
-                    (record.workloads ?? []).map(AgentWorkloadSnapshot.init)
+                    projection.workloads.map(AgentWorkloadSnapshot.init)
                 )
                 payload["restore_authority"] = projectedRun.restoreAuthority
                 payload["cmux_runtime"] = (projectedRun.cmuxRuntime ?? record.cmuxRuntime)
@@ -349,7 +350,9 @@ extension CMUXCLI {
                     legacyVisible: legacyDefaultVisible
                 )
                 payload["default_visible"] = defaultVisible
-                guard includeAll || hasRecordFilter || defaultVisible else {
+                guard includeAll || hasIdentityFilter
+                        || stateFilter == AgentEffectiveState.ended.rawValue
+                        || defaultVisible else {
                     continue
                 }
 

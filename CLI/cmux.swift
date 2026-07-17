@@ -92,7 +92,11 @@ final class ClaudeHookSessionStore {
 
     /// Records hook-observed runtime permission state without creating a
     /// session record that has not passed the normal session-start path.
-    func updateLastPermissionMode(sessionId: String, permissionMode: String) throws {
+    func updateLastPermissionMode(
+        sessionId: String,
+        permissionMode: String,
+        now: TimeInterval = Date().timeIntervalSince1970
+    ) throws {
         let normalized = normalizeSessionId(sessionId)
         let mode = permissionMode.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty, !mode.isEmpty else { return }
@@ -100,6 +104,7 @@ final class ClaudeHookSessionStore {
             guard var record = state.sessions[normalized],
                   record.lastPermissionMode != mode else { return }
             record.lastPermissionMode = mode
+            record.updatedAt = max(record.updatedAt, now)
             state.sessions[normalized] = record
         }
     }
@@ -1234,7 +1239,7 @@ final class ClaudeHookSessionStore {
         return try withLockedState { state in
             if let normalizedSessionId,
                let existing = state.sessions[normalizedSessionId] {
-                guard existing.completedAt == nil, existing.sessionState != .ended else { return nil }
+                guard AgentSessionTeardownConsumptionPolicy().canConsume(record: existing) else { return nil }
                 guard !hasActiveTurnMismatch(state, record: existing, turnId: turnId) else {
                     return nil
                 }
@@ -1248,7 +1253,7 @@ final class ClaudeHookSessionStore {
                 sessions: Array(state.sessions.values),
                 workspaceId: normalizedWorkspace,
                 surfaceId: normalizedSurface
-            ) else {
+            ), AgentSessionTeardownConsumptionPolicy().canConsume(record: fallback) else {
                 return nil
             }
             guard !hasActiveTurnMismatch(state, record: fallback, turnId: turnId) else {
@@ -3111,23 +3116,30 @@ struct CMUXCLI {
         if command == "welcome" { printWelcome(); return }
         if command == "agents" || command == "sessions" || command == "session-debug" {
             var queryEnvironment = processEnv
-            if let explicitSocketPath {
-                let client = SocketClient(path: explicitSocketPath)
-                defer { client.close() }
-                try client.connect()
-                try authenticateClientIfNeeded(
-                    client,
-                    explicitPassword: socketPasswordArg,
-                    socketPath: explicitSocketPath
-                )
-                let capabilities = try client.sendV2(
-                    method: "system.capabilities",
-                    responseTimeout: 1
-                )
-                queryEnvironment = agentSessionQueryEnvironment(
-                    environment: queryEnvironment,
-                    socketCapabilities: capabilities
-                )
+            let ambientSocketPath = (processEnv["CMUX_SOCKET_PATH"] ?? processEnv["CMUX_SOCKET"])?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if let querySocketPath = explicitSocketPath
+                ?? ambientSocketPath.flatMap({ $0.isEmpty ? nil : $0 }) {
+                do {
+                    let client = SocketClient(path: querySocketPath)
+                    defer { client.close() }
+                    try client.connect()
+                    try authenticateClientIfNeeded(
+                        client,
+                        explicitPassword: socketPasswordArg,
+                        socketPath: querySocketPath
+                    )
+                    let capabilities = try client.sendV2(
+                        method: "system.capabilities",
+                        responseTimeout: 1
+                    )
+                    queryEnvironment = agentSessionQueryEnvironment(
+                        environment: queryEnvironment,
+                        socketCapabilities: capabilities
+                    )
+                } catch {
+                    if explicitSocketPath != nil { throw error }
+                }
             }
             try runAgentsCommand(
                 commandArgs: command == "session-debug" ? ["debug"] + commandArgs : commandArgs,

@@ -2013,12 +2013,17 @@ class TabManager: ObservableObject {
                 restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
                     ?? .empty
             )
+            let completedAgentPanelIds = Set(
+                workspace.restoredAgentResumeStatesByPanelId.compactMap { panelId, state in
+                    state == .completedAgentExit ? panelId : nil
+                }
+            )
             pushClosedWorkspaceHistoryEntryWithAgentEnrichment(ClosedWorkspaceHistoryEntry(
                 workspaceId: workspace.id,
                 windowId: AppDelegate.shared?.windowId(for: self),
                 workspaceIndex: index,
                 snapshot: snapshot
-            ))
+            ), excludedPanelIds: completedAgentPanelIds)
         }
         sidebarGitMetadataService.clearWorkspaceGitProbes(workspaceId: workspace.id)
         pullRequestProbing.clearWorkspacePullRequestTracking(workspaceId: workspace.id)

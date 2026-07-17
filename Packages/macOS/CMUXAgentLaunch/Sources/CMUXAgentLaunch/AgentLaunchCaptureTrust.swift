@@ -19,6 +19,7 @@ public enum AgentLaunchCaptureTrust {
     ]
 
     private static let nativeProcessAliasesByKind: [String: Set<String>] = [
+        "amp": ["amp"],
         "antigravity": ["agy"],
         "campfire": ["campfire"],
         "claude": ["claude"],
@@ -36,7 +37,7 @@ public enum AgentLaunchCaptureTrust {
         "opencode": ["opencode", "omo", "omx", "omc"],
         "pi": ["pi", "omp"],
         "qoder": ["qodercli", "qoder"],
-        "rovodev": ["rovodev", "rovo", "rovo-dev"],
+        "rovodev": ["acli", "rovodev", "rovo", "rovo-dev"],
     ]
 
     private static let interpreterHostBases: Set<String> = [

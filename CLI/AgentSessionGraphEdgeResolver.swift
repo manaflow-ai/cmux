@@ -5,10 +5,12 @@ import Foundation
 struct AgentSessionGraphEdgeResolver: Sendable {
     private let nodesByRunId: [String: [AgentSessionGraphNode]]
     private let parentCandidatesBySessionId: [String: [AgentSessionGraphNode]]
+    private let nodesByNodeId: [String: AgentSessionGraphNode]
 
     init(nodes: [AgentSessionGraphNode]) {
         let canonical = AgentSessionGraphNodeIndex.canonicalNodes(nodes)
         nodesByRunId = AgentSessionGraphNodeIndex.candidatesByRunId(canonical)
+        nodesByNodeId = AgentSessionGraphNodeIndex.nodes(canonical)
         parentCandidatesBySessionId = Dictionary(grouping: canonical, by: \.sessionId)
             .mapValues { candidates in
                 candidates.sorted { lhs, rhs in
@@ -31,8 +33,12 @@ struct AgentSessionGraphEdgeResolver: Sendable {
             return parent.nodeId
         }
         guard let fromSessionId = edge.fromSessionId else { return nil }
-        return parentCandidatesBySessionId[fromSessionId]?
-            .first(where: { $0.nodeId != edge.toNodeId })?
-            .nodeId
+        let candidates = parentCandidatesBySessionId[fromSessionId] ?? []
+        if let childProvider = nodesByNodeId[edge.toNodeId]?.provider {
+            return candidates.first(where: {
+                $0.nodeId != edge.toNodeId && $0.provider == childProvider
+            })?.nodeId
+        }
+        return candidates.first(where: { $0.nodeId != edge.toNodeId })?.nodeId
     }
 }

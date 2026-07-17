@@ -181,10 +181,9 @@ extension CMUXCLI {
         switch ownership {
         case .persistent:
             ownershipGate = "[ \"$\(def.disableEnvVar)\" != \"1\" ]"
-            // Codex launches the persistent hook shell directly, so PPID is
-            // the native Codex process used by the ancestry walker. The wrapper
-            // PID remains a fallback for runtimes that insert a hook runner.
-            agentPIDSetup = "agent_pid=\"${PPID:-${CMUX_CODEX_PID:-}}\""
+            // The wrapper exports the native Codex PID. Prefer it because some
+            // runtimes insert a short-lived hook relay as this shell's PPID.
+            agentPIDSetup = "agent_pid=\"${CMUX_CODEX_PID:-${PPID:-}}\""
         case .wrapperInjected:
             ownershipGate = "[ \"${\(Self.codexWrapperHookOwnerEnvironmentKey):-}\" = \"1\" ]"
             agentPIDSetup = "agent_pid=\"${CMUX_CODEX_PID:-${PPID:-}}\""

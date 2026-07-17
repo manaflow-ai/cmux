@@ -182,8 +182,23 @@ struct AgentHookSessionActivationPolicy: Sendable {
             return incomingStartedAt > completedAt + 0.001
         }
         return matchingRuns.allSatisfy { run in
-            guard let previousStartedAt = run.processStartedAt else { return false }
-            return abs(previousStartedAt - incomingStartedAt) > 0.001
+            if let previousStartedAt = run.processStartedAt {
+                return abs(previousStartedAt - incomingStartedAt) > 0.001
+            }
+            guard let completedAt = record.completedAt else { return false }
+            return incomingStartedAt > completedAt + 0.001
+        }
+    }
+}
+
+struct AgentSessionTeardownConsumptionPolicy: Sendable {
+    func canConsume(record: ClaudeHookSessionRecord) -> Bool {
+        guard record.completedAt == nil else { return false }
+        switch record.sessionState {
+        case .ended, .hibernated, .restoring:
+            return false
+        case .active, nil:
+            return true
         }
     }
 }
