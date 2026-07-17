@@ -7997,6 +7997,24 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
+    func diffViewerImmediatePresentationTarget(
+        from sourceSurfaceID: UUID
+    ) -> (referenceView: NSView, placement: DiffViewerImmediatePresentationPlacement)? {
+        guard panels[sourceSurfaceID] != nil else { return nil }
+        if let targetPane = preferredRightSideTargetPane(fromPanelId: sourceSurfaceID),
+           let referenceView = selectedPresentationView(inPane: targetPane) {
+            return (referenceView, .existingTargetPane)
+        }
+        guard let sourcePanel = panels[sourceSurfaceID] else { return nil }
+        if let terminal = sourcePanel as? TerminalPanel {
+            return (terminal.hostedView, .futureRightSplit)
+        }
+        if let browser = sourcePanel as? BrowserPanel {
+            return (browser.webView.cmuxBrowserViewportPresentationView, .futureRightSplit)
+        }
+        return nil
+    }
+
     private func selectedPresentationView(inPane paneID: PaneID) -> NSView? {
         guard let surfaceID = bonsplitController.selectedTab(inPane: paneID)?.id,
               let panelID = panelIdFromSurfaceId(surfaceID),

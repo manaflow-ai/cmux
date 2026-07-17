@@ -181,7 +181,10 @@ extension CMUXCLI {
 
         let selectedSessionSource = sessionSource(selectedSource, repo: repoRoot)
         if selectedSource == .lastTurn, selectedSessionSource == nil {
-            throw CLIError(message: "cmux diff --last-turn requires --agent and --session.")
+            throw CLIError(message: CMUXDiffViewerLocalization.string(
+                "cli.diff.error.agentSessionRequired",
+                defaultValue: "cmux diff --last-turn requires --agent and --session."
+            ))
         }
         let responseInput = DiffInput(
             patch: "",

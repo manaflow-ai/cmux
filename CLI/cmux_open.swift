@@ -16,6 +16,10 @@ enum CMUXDiffViewerLocalization {
         return bundle.localizedString(forKey: key, value: defaultValue, table: nil)
     }
 
+    static func format(_ key: String, defaultValue: String, _ arguments: CVarArg...) -> String {
+        String(format: string(key, defaultValue: defaultValue), locale: Locale.current, arguments: arguments)
+    }
+
     static func localizationBundle(
         mainBundle: Bundle = .main,
         executableURL: URL? = CLIExecutableLocator.currentExecutableURL()
@@ -914,7 +918,11 @@ extension CMUXCLI {
                     workspaceHandle: workspaceHandle,
                     windowHandle: windowHandle
                 ) else {
-                    throw CLIError(message: "Target browser surface not found: \(targetSurface)")
+                    throw CLIError(message: CMUXDiffViewerLocalization.format(
+                        "cli.diff.error.targetSurfaceNotFound",
+                        defaultValue: "Target browser surface not found: %@",
+                        targetSurface
+                    ))
                 }
                 targetSurfaceHandle = normalized
             }
@@ -1326,7 +1334,11 @@ extension CMUXCLI {
                         .trimmingCharacters(in: .whitespacesAndNewlines)
                         .lowercased()
                     guard ["codex", "claude", "opencode"].contains(providerInput) else {
-                        throw CLIError(message: "Unknown diff agent '\(providerInput)'. Expected codex, claude, or opencode.")
+                        throw CLIError(message: CMUXDiffViewerLocalization.format(
+                            "cli.diff.error.unknownAgent",
+                            defaultValue: "Unknown diff agent '%@'. Expected codex, claude, or opencode.",
+                            providerInput
+                        ))
                     }
                     parsed.agentProvider = providerInput == "opencode" ? "openCode" : providerInput
                     index += 2
@@ -1334,7 +1346,11 @@ extension CMUXCLI {
                 case "--source":
                     let rawSource = try openOptionValue(commandArgs, index: index, name: arg)
                     guard let source = DiffSource(rawValue: rawSource) else {
-                        throw CLIError(message: "Unknown diff source '\(rawSource)'. Expected unstaged, staged, branch, or last-turn.")
+                        throw CLIError(message: CMUXDiffViewerLocalization.format(
+                            "cli.diff.error.unknownSource",
+                            defaultValue: "Unknown diff source '%@'. Expected unstaged, staged, branch, or last-turn.",
+                            rawSource
+                        ))
                     }
                     try setDiffSource(source, parsed: &parsed)
                     index += 2
@@ -1357,7 +1373,11 @@ extension CMUXCLI {
                     continue
                 default:
                     if arg.hasPrefix("-"), arg != "-" {
-                        throw CLIError(message: "diff: unknown flag '\(arg)'. Usage: cmux diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--agent <codex|claude|opencode>] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--target-surface <id|ref|index>] [--window <id|ref|index>] [--session <id>] [--cwd <path>] [--base <ref>] [--focus true|false] [--no-focus] [--title <text>] [--layout split|unified] [--font-size <points>]")
+                        throw CLIError(message: CMUXDiffViewerLocalization.format(
+                            "cli.diff.error.unknownFlag",
+                            defaultValue: "diff: unknown flag '%@'. Run 'cmux diff --help' for usage.",
+                            arg
+                        ))
                     }
                 }
             }
@@ -1367,7 +1387,10 @@ extension CMUXCLI {
         }
 
         if parsed.targetExpectedURL != nil, parsed.targetSurface == nil {
-            throw CLIError(message: "--target-expected-url requires --target-surface")
+            throw CLIError(message: CMUXDiffViewerLocalization.string(
+                "cli.diff.error.targetExpectedURLRequiresSurface",
+                defaultValue: "--target-expected-url requires --target-surface"
+            ))
         }
 
         return parsed
@@ -1481,7 +1504,10 @@ extension CMUXCLI {
 
         guard let rawInput, rawInput != "-" else {
             guard isatty(STDIN_FILENO) == 0 else {
-                throw CLIError(message: "diff requires a patch file, piped stdin, or a git source. Usage: cmux diff <patch-file>|-|--unstaged|--staged|--branch|--last-turn")
+                throw CLIError(message: CMUXDiffViewerLocalization.string(
+                    "cli.diff.error.inputRequired",
+                    defaultValue: "diff requires a patch file, piped stdin, or a source. Run 'cmux diff --help' for usage."
+                ))
             }
             let data = FileHandle.standardInput.readDataToEndOfFile()
             return DiffInput(
@@ -1569,7 +1595,10 @@ extension CMUXCLI {
             patch = try gitStdout(gitDiffPatchArguments([mergeBase, "--"]), in: repoRoot)
             sourceLabel = "git branch \(baseRef)"
         case .lastTurn:
-            throw EmptyDiffSourceError(message: "Last-turn diffs require the Rust diff sidecar.")
+            throw EmptyDiffSourceError(message: CMUXDiffViewerLocalization.string(
+                "cli.diff.error.sidecarRequired",
+                defaultValue: "Last-turn diffs require the Rust diff sidecar."
+            ))
         }
         return DiffInput(
             patch: patch,
@@ -3081,7 +3110,10 @@ extension CMUXCLI {
         let target = try makeDiffViewerGitHTMLSetTarget(runtime: runtime)
         if selectedSource == .lastTurn,
            !diffViewerUsesTypedSidecar(runtime: target.runtime) {
-            throw CLIError(message: "Last-turn diffs require the Rust diff sidecar.")
+            throw CLIError(message: CMUXDiffViewerLocalization.string(
+                "cli.diff.error.sidecarRequired",
+                defaultValue: "Last-turn diffs require the Rust diff sidecar."
+            ))
         }
         return try writeOpeningGitDiffViewerHTMLSet(
             selectedSource: selectedSource,
@@ -7034,7 +7066,7 @@ extension CMUXCLI {
     }
 
     func diffSubcommandUsage() -> String {
-        """
+        CMUXDiffViewerLocalization.string("cli.diff.usage", defaultValue: """
         Usage: cmux diff [patch-file|-] [options]
 
         Render a unified diff or patch in a cmux browser split.
@@ -7070,7 +7102,7 @@ extension CMUXCLI {
           cmux diff --branch --base upstream/main --repo ../repo
           cmux diff --last-turn --agent codex --session <id>
           cmux diff pr.patch --layout unified --font-size 15 --focus true
-        """
+        """)
     }
 
     private func openCommandSummary(

@@ -66,6 +66,41 @@ enum DiffViewerImmediatePresentationPlacement {
     }
 }
 
+@MainActor
+final class DiffViewerImmediateLoadingPresentation {
+    private var host: NSView?
+
+    init?(
+        relativeTo referenceView: NSView,
+        placement: DiffViewerImmediatePresentationPlacement
+    ) {
+        guard let window = referenceView.window,
+              let contentView = window.contentView else {
+            return nil
+        }
+        let referenceFrame = referenceView.convert(referenceView.bounds, to: contentView)
+        guard referenceFrame.width >= 2, referenceFrame.height >= 1 else { return nil }
+
+        let host = NSView(frame: placement.targetFrame(in: referenceFrame))
+        host.wantsLayer = true
+        host.layer?.backgroundColor = GhosttyBackgroundTheme.currentColor().cgColor
+        host.identifier = NSUserInterfaceItemIdentifier("cmux.diffViewerImmediateLoading")
+        host.autoresizingMask = []
+        host.addSubview(DiffViewerLoadingOverlayView(frame: host.bounds))
+        contentView.addSubview(host, positioned: .above, relativeTo: nil)
+        contentView.layoutSubtreeIfNeeded()
+        host.displayIfNeeded()
+        window.displayIfNeeded()
+        self.host = host
+    }
+
+    func close() {
+        host?.removeFromSuperview()
+        host = nil
+    }
+
+}
+
 extension BrowserPanel {
     /// The profile a panel would use for the given requested ID. Shared with
     /// prewarm callers so a prewarmed webview and the panel that later adopts

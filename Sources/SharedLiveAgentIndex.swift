@@ -287,7 +287,7 @@ final class SharedLiveAgentIndex {
     /// Read the cached snapshot for stale-tolerant callers. Never blocks.
     func snapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
         scheduleRefreshIfStale()
-        return index?.snapshot(workspaceId: workspaceId, panelId: panelId)
+        return index?.structuredHookSnapshot(workspaceId: workspaceId, panelId: panelId)
     }
 
     /// Reloads the live process-backed index before returning an identity used

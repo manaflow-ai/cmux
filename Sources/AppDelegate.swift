@@ -6058,61 +6058,89 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let fallbackCwd = workspace.resolvedWorkingDirectory()
             ?? FileManager.default.homeDirectoryForCurrentUser.path
         let loadingURL = DiffViewerLoadingPage.url
-        let sourcePresentationView: NSView? = {
-            if let terminal = workspace.panels[sourceSurfaceId] as? TerminalPanel {
-                return terminal.hostedView
-            }
-            if let browser = workspace.panels[sourceSurfaceId] as? BrowserPanel {
-                return browser.webView.cmuxBrowserViewportPresentationView
-            }
-            return nil
-        }()
         let attachStartedAt = CFAbsoluteTimeGetCurrent()
-        guard let placement = workspace.openBrowserOnRight(
-            from: sourceSurfaceId,
-            url: loadingURL,
-            focus: true,
-            creationPolicy: .automationPreload,
-            omnibarVisible: false,
-            transparentBackground: true,
-            bypassRemoteProxy: true
+        guard let immediateTarget = workspace.diffViewerImmediatePresentationTarget(
+            from: sourceSurfaceId
+        ),
+        let immediateLoadingPresentation = DiffViewerImmediateLoadingPresentation(
+            relativeTo: immediateTarget.referenceView,
+            placement: immediateTarget.placement
         ) else {
             return false
         }
-        let immediatePresentationReference = if placement.createdSplit {
-            sourcePresentationView
-        } else {
-            placement.immediatePresentationReferenceView
-                ?? placement.panel.webView.cmuxBrowserViewportPresentationView
-        }
-        let immediatePresentationPlacement: DiffViewerImmediatePresentationPlacement =
-            placement.createdSplit ? .futureRightSplit : .existingTargetPane
-        let presentedImmediately = immediatePresentationReference.map {
-            placement.panel.presentDiffViewerLoadingImmediately(
-                relativeTo: $0,
-                placement: immediatePresentationPlacement
-            )
-        } ?? false
 #if DEBUG
         let attachMilliseconds = (CFAbsoluteTimeGetCurrent() - attachStartedAt) * 1_000
         cmuxDebugLog(
             "diffViewer.placeholder.attached elapsedMs=\(String(format: "%.1f", attachMilliseconds)) " +
-            "surface=\(placement.panel.id.uuidString.prefix(5)) immediate=\(presentedImmediately ? 1 : 0)"
+            "source=\(sourceSurfaceId.uuidString.prefix(5)) immediate=1"
         )
 #endif
-        let targetSurfaceId = placement.panel.id
         let workspaceId = workspace.id
-        let launch: (SessionRestorableAgentSnapshot?) -> Bool = { [weak self] agentSnapshot in
-            guard let self else { return false }
+        let freshSnapshotTask: Task<SessionRestorableAgentSnapshot?, Never>? = preferAgentContext
+            ? Task { @MainActor in
+                await SharedLiveAgentIndex.shared.freshSnapshot(
+                    workspaceId: workspaceId,
+                    panelId: sourceSurfaceId
+                )
+            }
+            : nil
+
+        Task { @MainActor [weak self, weak tabManager, weak workspace] in
+            await Task.yield()
+            guard let self,
+                  let workspace,
+                  tabManager?.selectedWorkspace?.id == workspaceId,
+                  workspace.focusedPanelId == sourceSurfaceId,
+                  workspace.panels[sourceSurfaceId] != nil else {
+                freshSnapshotTask?.cancel()
+                immediateLoadingPresentation.close()
+                return
+            }
+            guard let placement = workspace.openBrowserOnRight(
+                from: sourceSurfaceId,
+                url: loadingURL,
+                focus: true,
+                creationPolicy: .automationPreload,
+                omnibarVisible: false,
+                transparentBackground: true,
+                bypassRemoteProxy: true
+            ) else {
+                freshSnapshotTask?.cancel()
+                immediateLoadingPresentation.close()
+                NSSound.beep()
+                return
+            }
+            let targetSurfaceId = placement.panel.id
+            let presentationReference = placement.createdSplit
+                ? immediateTarget.referenceView
+                : placement.immediatePresentationReferenceView
+                    ?? placement.panel.webView.cmuxBrowserViewportPresentationView
+            let presentationPlacement: DiffViewerImmediatePresentationPlacement = placement.createdSplit
+                ? .futureRightSplit
+                : .existingTargetPane
+            _ = placement.panel.presentDiffViewerLoadingImmediately(
+                relativeTo: presentationReference,
+                placement: presentationPlacement
+            )
+            immediateLoadingPresentation.close()
+
+            let freshSnapshot = await freshSnapshotTask?.value
+            guard tabManager?.selectedWorkspace?.id == workspaceId,
+                  workspace.panels[sourceSurfaceId] != nil,
+                  let targetPanel = workspace.panels[targetSurfaceId] as? BrowserPanel,
+                  targetPanel.isShowingDiffViewerLoadingState(expectedURL: loadingURL.absoluteString) else {
+                _ = workspace.closePanel(targetSurfaceId, force: true)
+                return
+            }
             let launchContext = Self.openDiffViewerLaunchContext(
                 preferAgentContext: preferAgentContext,
                 fallbackCwd: fallbackCwd,
-                sessionId: agentSnapshot?.sessionId,
-                agentProvider: agentSnapshot?.kind.diffTrajectoryProvider,
-                agentWorkingDirectory: agentSnapshot?.workingDirectory
-                    ?? agentSnapshot?.launchCommand?.workingDirectory
+                sessionId: freshSnapshot?.sessionId,
+                agentProvider: freshSnapshot?.kind.diffTrajectoryProvider,
+                agentWorkingDirectory: freshSnapshot?.workingDirectory
+                    ?? freshSnapshot?.launchCommand?.workingDirectory
             )
-            return self.launchDiffViewerProcess(
+            let launched = self.launchDiffViewerProcess(
                 cliURL: cliURL,
                 socketPath: socketPath,
                 cwd: launchContext.cwd,
@@ -6124,32 +6152,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 targetSurfaceId: targetSurfaceId,
                 targetExpectedURL: loadingURL.absoluteString
             )
-        }
-        guard preferAgentContext else {
-            let launched = launch(nil)
-            if !launched {
-                _ = workspace.closePanel(targetSurfaceId, force: true)
-            }
-            return launched
-        }
-
-        Task { @MainActor [weak tabManager, weak workspace] in
-            let freshSnapshot = await SharedLiveAgentIndex.shared.freshSnapshot(
-                workspaceId: workspaceId,
-                panelId: sourceSurfaceId
-            )
-            guard let workspace,
-                  tabManager?.selectedWorkspace?.id == workspace.id,
-                  workspace.panels[sourceSurfaceId] != nil,
-                  workspace.focusedPanelId == targetSurfaceId,
-                  let targetPanel = workspace.panels[targetSurfaceId] as? BrowserPanel,
-                  targetPanel.isShowingDiffViewerLoadingState(expectedURL: loadingURL.absoluteString) else {
-                if let workspace {
-                    _ = workspace.closePanel(targetSurfaceId, force: true)
-                }
-                return
-            }
-            let launched = launch(freshSnapshot)
             if !launched {
                 _ = workspace.closePanel(targetSurfaceId, force: true)
             }
