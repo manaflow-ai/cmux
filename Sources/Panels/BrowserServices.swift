@@ -22,7 +22,7 @@ final class BrowserServices {
                 return
             }
             Task { @MainActor [weak self] in
-                self?.profileDidDelete(profileID)
+                await self?.profileDidDelete(profileID)
             }
         }
     }
@@ -59,7 +59,7 @@ final class BrowserServices {
         return manager
     }
 
-    private func profileDidDelete(_ profileID: UUID) {
+    private func profileDidDelete(_ profileID: UUID) async {
         guard profileID != BrowserProfileStore.shared.builtInDefaultProfileID else { return }
         registeredPanelProfileIDs = registeredPanelProfileIDs.filter { $0.value != profileID }
         let directory = Self.extensionDirectory(
@@ -70,9 +70,8 @@ final class BrowserServices {
         let managerObject = webExtensionsManagerStorage.removeValue(forKey: profileID)
         if #available(macOS 15.4, *),
            let manager = managerObject as? BrowserWebExtensionsManager {
-            manager.shutdown()
-        }
-        Task.detached(priority: .utility) {
+            await manager.shutdownAndRemoveDirectory()
+        } else {
             try? FileManager.default.removeItem(at: directory)
         }
     }

@@ -5,12 +5,23 @@ import Foundation
 @available(macOS 15.4, *)
 actor BrowserWebExtensionDirectoryRepository {
     private static let approvalFileName = ".cmux-approved-extensions.json"
+    private var isShutDown = false
+
+    func shutdownAndRemoveDirectory(_ directory: URL) {
+        isShutDown = true
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    private func requireActive() throws {
+        guard !isShutDown else { throw CancellationError() }
+    }
 
     func candidateURLs(in directory: URL) -> [URL] {
         BrowserWebExtensionsManager.candidateURLs(in: directory)
     }
 
     func approvedCandidateURLs(in directory: URL) throws -> [URL] {
+        try requireActive()
         let approvals = try readApprovals(in: directory)
         return try candidateURLs(in: directory).filter { candidate in
             guard let approvedDigest = approvals[candidate.lastPathComponent] else { return false }
@@ -19,6 +30,7 @@ actor BrowserWebExtensionDirectoryRepository {
     }
 
     func approveCandidate(at candidate: URL, in directory: URL) throws {
+        try requireActive()
         let managedDirectory = directory.standardizedFileURL
         guard candidate.standardizedFileURL.deletingLastPathComponent() == managedDirectory else {
             throw BrowserWebExtensionInstallError.outsideManagedDirectory
@@ -29,6 +41,7 @@ actor BrowserWebExtensionDirectoryRepository {
     }
 
     func installCandidate(from source: URL, into directory: URL) throws -> URL {
+        try requireActive()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let destination = directory.appendingPathComponent(
             source.lastPathComponent,
@@ -51,6 +64,7 @@ actor BrowserWebExtensionDirectoryRepository {
 
     func removeInstalledCandidate(at url: URL, from directory: URL) {
         try? FileManager.default.removeItem(at: url)
+        guard !isShutDown else { return }
         guard var approvals = try? readApprovals(in: directory) else { return }
         approvals.removeValue(forKey: url.lastPathComponent)
         try? writeApprovals(approvals, in: directory)

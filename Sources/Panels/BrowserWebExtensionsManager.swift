@@ -72,6 +72,8 @@ final class BrowserWebExtensionsManager: NSObject {
     private var backgroundLoadErrors: [String: any Error] = [:]
     private var actionUpdateFlushTask: Task<Void, Never>?
     private var pendingActionUpdates: [ActionUpdateKey: PendingActionUpdate] = [:]
+    private var installTasks: [UUID: Task<BrowserWebExtensionInstallReceipt, any Error>] = [:]
+    private(set) var isShutDown = false
 
     private struct PendingActionUpdate {
         let action: WKWebExtension.Action?
@@ -110,8 +112,12 @@ final class BrowserWebExtensionsManager: NSObject {
     }
 
     func shutdown() {
+        guard !isShutDown else { return }
+        isShutDown = true
         loadTask?.cancel()
         loadTask = nil
+        for task in installTasks.values { task.cancel() }
+        installTasks.removeAll()
         actionUpdateFlushTask?.cancel()
         actionUpdateFlushTask = nil
         pendingActionUpdates.removeAll()
@@ -127,6 +133,11 @@ final class BrowserWebExtensionsManager: NSObject {
         tabAdapters.removeAll()
         windowAdapters.removeAll()
         resumeLoadWaiters()
+    }
+
+    func shutdownAndRemoveDirectory() async {
+        shutdown()
+        await directoryRepository.shutdownAndRemoveDirectory(directory)
     }
 
     /// Directories and `.zip` archives directly inside `directory`. Hidden
@@ -148,7 +159,7 @@ final class BrowserWebExtensionsManager: NSObject {
     }
 
     func startLoading() {
-        guard loadTask == nil else { return }
+        guard !isShutDown, loadTask == nil else { return }
         loadTask = Task { await loadExtensions() }
     }
 
@@ -211,19 +222,21 @@ final class BrowserWebExtensionsManager: NSObject {
 
     func loadExtensions() async {
         defer {
-            isLoaded = true
+            if !isShutDown { isLoaded = true }
             resumeLoadWaiters()
         }
+        guard !isShutDown else { return }
         let candidates: [URL]
         do {
             candidates = try await directoryRepository.approvedCandidateURLs(in: directory)
         } catch {
+            guard !isShutDown else { return }
             loadErrors.append((url: directory, error: error))
             return
         }
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, !isShutDown else { return }
         for url in candidates {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, !isShutDown else { return }
             do {
                 let context = try await loadExtension(at: url)
 #if DEBUG
@@ -234,6 +247,7 @@ final class BrowserWebExtensionsManager: NSObject {
                 )
 #endif
             } catch {
+                guard !isShutDown, !Task.isCancelled else { return }
                 loadErrors.append((url: url, error: error))
 #if DEBUG
                 cmuxDebugLog("browser.extensions.load-failed entry=\(url.lastPathComponent) error=\(error)")
@@ -243,17 +257,28 @@ final class BrowserWebExtensionsManager: NSObject {
     }
 
     func installExtension(from source: URL) async throws -> BrowserWebExtensionInstallReceipt {
+        try await runTrackedInstall { manager in
+            try await manager.performInstallExtension(from: source)
+        }
+    }
+
+    private func performInstallExtension(from source: URL) async throws -> BrowserWebExtensionInstallReceipt {
+        try requireActive()
         // Serialize installs after startup discovery so the same package cannot
         // be loaded once by each path when a user installs during app launch.
         await waitUntilLoaded()
+        try requireActive()
         // Validate before copying. WKWebExtension accepts either a directory or
         // ZIP archive and parses the manifest plus referenced resources.
         _ = try await WKWebExtension(resourceBaseURL: source)
+        try requireActive()
         let destination = try await directoryRepository.installCandidate(from: source, into: directory)
         do {
+            try requireActive()
             // Approval computes the package digest and rejects symbolic links.
             // Finish it before WebKit can execute any extension resource.
             try await directoryRepository.approveCandidate(at: destination, in: directory)
+            try requireActive()
             let context = try await loadExtension(at: destination)
             return BrowserWebExtensionInstallReceipt(
                 name: context.webExtension.displayName ?? destination.deletingPathExtension().lastPathComponent
@@ -265,15 +290,43 @@ final class BrowserWebExtensionsManager: NSObject {
     }
 
     func approveInstalledCandidate(_ candidate: URL) async throws {
+        try requireActive()
         try await directoryRepository.approveCandidate(at: candidate, in: directory)
+        try requireActive()
     }
 
     func installCatalogExtension(_ entry: BrowserWebExtensionCatalogEntry) async throws -> BrowserWebExtensionInstallReceipt {
-        let packageURL = try await catalogPackageRepository.download(entry)
-        defer {
-            Task { await catalogPackageRepository.removeDownloadedPackage(at: packageURL) }
+        try await runTrackedInstall { manager in
+            try manager.requireActive()
+            let packageURL = try await manager.catalogPackageRepository.download(entry)
+            defer {
+                Task { await manager.catalogPackageRepository.removeDownloadedPackage(at: packageURL) }
+            }
+            try manager.requireActive()
+            return try await manager.performInstallExtension(from: packageURL)
         }
-        return try await installExtension(from: packageURL)
+    }
+
+    private func runTrackedInstall(
+        _ operation: @escaping @MainActor (BrowserWebExtensionsManager) async throws -> BrowserWebExtensionInstallReceipt
+    ) async throws -> BrowserWebExtensionInstallReceipt {
+        try requireActive()
+        let operationID = UUID()
+        let task = Task { @MainActor [weak self] in
+            guard let self else { throw CancellationError() }
+            return try await operation(self)
+        }
+        installTasks[operationID] = task
+        defer { installTasks.removeValue(forKey: operationID) }
+        return try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            task.cancel()
+        }
+    }
+
+    private func requireActive() throws {
+        guard !isShutDown, !Task.isCancelled else { throw CancellationError() }
     }
 
     func register(
@@ -432,7 +485,9 @@ final class BrowserWebExtensionsManager: NSObject {
     }
 
     private func loadExtension(at url: URL) async throws -> WKWebExtensionContext {
+        try requireActive()
         let webExtension = try await WKWebExtension(resourceBaseURL: url)
+        try requireActive()
         let context = WKWebExtensionContext(for: webExtension)
         // Stable identifier derived from the install-directory name so
         // per-extension storage survives relaunches.
@@ -447,7 +502,7 @@ final class BrowserWebExtensionsManager: NSObject {
         enqueueActionUpdate(action: nil, context: context, panelID: nil)
         if webExtension.hasBackgroundContent {
             context.loadBackgroundContent { [weak self, weak context] error in
-                guard let self, let context else { return }
+                guard let self, !self.isShutDown, let context else { return }
                 if let error {
                     self.backgroundLoadErrors[context.uniqueIdentifier] = error
 #if DEBUG
