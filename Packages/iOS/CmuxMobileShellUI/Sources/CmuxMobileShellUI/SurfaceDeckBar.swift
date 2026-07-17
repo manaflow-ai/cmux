@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
@@ -6,12 +7,13 @@ import SwiftUI
 struct SurfaceDeckBar: View, Equatable {
     let value: SurfaceDeckValue
     let actions: SurfaceDeckActions
+    let terminalTheme: TerminalTheme
     var clock: any Clock<Duration> = ContinuousClock()
 
     @State private var unavailableHintID: UUID?
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.value == rhs.value
+        lhs.value == rhs.value && lhs.terminalTheme == rhs.terminalTheme
     }
 
     var body: some View {
@@ -24,7 +26,7 @@ struct SurfaceDeckBar: View, Equatable {
                     )
                 )
                 .font(.caption)
-                .foregroundStyle(TerminalPalette.foreground)
+                .foregroundStyle(terminalTheme.terminalChromeForegroundColor)
                 .padding(.horizontal, 12)
                 .frame(height: 28)
                 .mobileGlassPill()
@@ -50,7 +52,7 @@ struct SurfaceDeckBar: View, Equatable {
         // region), so the light theme foreground stays readable instead of
         // landing on the system background.
         .background(
-            TerminalPalette.background
+            terminalTheme.terminalBackgroundColor
                 .ignoresSafeArea(edges: .bottom)
         )
         .accessibilityElement(children: .contain)
@@ -130,14 +132,14 @@ struct SurfaceDeckBar: View, Equatable {
             }
             .foregroundStyle(
                 isSelected
-                    ? TerminalPalette.foreground
-                    : TerminalPalette.foreground.opacity(0.72)
+                    ? terminalTheme.terminalChromeForegroundColor
+                    : terminalTheme.terminalChromeForegroundColor.opacity(0.72)
             )
             .padding(.horizontal, 9)
             .frame(height: 32)
             .background {
                 if isSelected {
-                    Capsule().fill(TerminalPalette.foreground.opacity(0.16))
+                    Capsule().fill(terminalTheme.terminalChromeForegroundColor.opacity(0.16))
                 }
             }
             .contentShape(Capsule())
@@ -156,7 +158,7 @@ struct SurfaceDeckBar: View, Equatable {
                 Button(action: actions.presentPaneMap) {
                     Image(systemName: "rectangle.split.2x2")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(TerminalPalette.foreground)
+                        .foregroundStyle(terminalTheme.terminalChromeForegroundColor)
                         .frame(width: 32, height: 32)
                         .mobileGlassCircle()
                 }
@@ -187,7 +189,7 @@ struct SurfaceDeckBar: View, Equatable {
             } label: {
                 Image(systemName: "plus")
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(TerminalPalette.foreground)
+                    .foregroundStyle(terminalTheme.terminalChromeForegroundColor)
                     .frame(width: 32, height: 32)
                     .mobileGlassCircle()
             }

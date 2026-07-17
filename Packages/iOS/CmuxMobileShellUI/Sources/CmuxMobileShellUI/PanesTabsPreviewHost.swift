@@ -13,6 +13,7 @@ struct PanesTabsPreviewHost: View {
 
     @State private var selectedSurfaceID = Self.claudeSurfaceID
     @State private var isPaneMapPresented = false
+    private let terminalTheme = TerminalTheme.monokai
 
     private let workspace = MobileWorkspacePreview(
         id: "preview-api-server",
@@ -111,10 +112,10 @@ struct PanesTabsPreviewHost: View {
     ]
 
     var body: some View {
-        TerminalPalette.background
+        terminalTheme.terminalBackgroundColor
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                SurfaceDeckBar(value: deckValue, actions: deckActions)
+                SurfaceDeckBar(value: deckValue, actions: deckActions, terminalTheme: terminalTheme)
                     .equatable()
             }
             .ignoresSafeArea(.keyboard, edges: .bottom)
@@ -127,6 +128,7 @@ struct PanesTabsPreviewHost: View {
                             phoneSelectedSurfaceID: selectedSurfaceID,
                             agentStateKindsBySurfaceID: agentStateKindsBySurfaceID
                         ),
+                        terminalTheme: terminalTheme,
                         fetchPreviews: Self.fetchFixturePreviews,
                         selectTerminal: { selectedSurfaceID = $0.rawValue },
                         dismiss: { isPaneMapPresented = false }

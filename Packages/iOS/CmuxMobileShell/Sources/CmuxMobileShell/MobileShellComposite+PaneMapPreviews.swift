@@ -1,4 +1,5 @@
 public import CMUXMobileCore
+internal import CmuxMobileDiagnostics
 internal import CmuxMobileRPC
 
 extension MobileShellComposite {
@@ -28,8 +29,14 @@ extension MobileShellComposite {
             )
             let data = try await client.sendRequest(request)
             guard remoteClient === client else { return nil }
-            return try MobileTerminalReplayResponse.decode(data).renderGrid
+            let payload = try MobileTerminalReplayResponse.decode(data)
+            let grid = payload.renderGrid
+            MobileDebugLog.anchormux(
+                "CMUX_PANEMAP preview surface=\(surfaceID) grid=\(grid != nil) gridSurface=\(grid?.surfaceID ?? "nil") spans=\(grid?.rowSpans.count ?? -1) bytes=\(payload.dataBase64?.count ?? 0)"
+            )
+            return grid
         } catch {
+            MobileDebugLog.anchormux("CMUX_PANEMAP preview surface=\(surfaceID) error=\(error)")
             return nil
         }
     }

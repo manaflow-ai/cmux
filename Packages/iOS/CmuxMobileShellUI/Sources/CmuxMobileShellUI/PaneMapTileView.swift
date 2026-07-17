@@ -6,6 +6,7 @@ import SwiftUI
 /// One proportional pane tile rendered from immutable layout and preview snapshots.
 struct PaneMapTileView: View {
     let pane: MobilePaneNode
+    let terminalTheme: TerminalTheme
     let selectedSurfaceID: String?
     let phoneSelectedSurfaceID: String?
     let previewGrid: MobileTerminalRenderGridFrame?
@@ -33,7 +34,7 @@ struct PaneMapTileView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(TerminalPalette.background, in: shape)
+        .background(terminalTheme.terminalBackgroundColor, in: shape)
         .overlay {
             shape.stroke(.white.opacity(0.12), lineWidth: 1)
         }
@@ -76,7 +77,7 @@ struct PaneMapTileView: View {
                     .frame(width: 6, height: 6)
             }
         }
-        .foregroundStyle(TerminalPalette.foreground)
+        .foregroundStyle(terminalTheme.terminalChromeForegroundColor)
         .padding(6)
     }
 
@@ -94,8 +95,8 @@ struct PaneMapTileView: View {
                             .truncationMode(.tail)
                             .foregroundStyle(
                                 isSelectedTab
-                                    ? TerminalPalette.background
-                                    : TerminalPalette.foreground.opacity(0.85)
+                                    ? terminalTheme.terminalBackgroundColor
+                                    : terminalTheme.terminalChromeForegroundColor.opacity(0.85)
                             )
                             .padding(.horizontal, 7)
                             .frame(height: 14)
@@ -103,8 +104,8 @@ struct PaneMapTileView: View {
                             .background(
                                 Capsule().fill(
                                     isSelectedTab
-                                        ? TerminalPalette.foreground.opacity(0.85)
-                                        : TerminalPalette.foreground.opacity(0.10)
+                                        ? terminalTheme.terminalChromeForegroundColor.opacity(0.85)
+                                        : terminalTheme.terminalChromeForegroundColor.opacity(0.10)
                                 )
                             )
                             .contentShape(Capsule())
@@ -151,7 +152,7 @@ struct PaneMapTileView: View {
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
             }
-            .foregroundStyle(TerminalPalette.foreground)
+            .foregroundStyle(terminalTheme.terminalChromeForegroundColor)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(8)
         }
@@ -176,7 +177,9 @@ struct PaneMapTileView: View {
                             .fixedSize(horizontal: true, vertical: false)
                     }
                 }
-                .foregroundStyle(TerminalPalette.foreground)
+                // Preview rows are terminal content, so they use the theme's
+                // true foreground rather than the chrome-readable color.
+                .foregroundStyle(terminalTheme.terminalForegroundColor)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                 .clipped()
             }
@@ -185,7 +188,7 @@ struct PaneMapTileView: View {
         } else if isLoadingPreview {
             ProgressView()
                 .controlSize(.mini)
-                .tint(TerminalPalette.foreground.opacity(0.5))
+                .tint(terminalTheme.terminalChromeForegroundColor.opacity(0.5))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             Color.clear

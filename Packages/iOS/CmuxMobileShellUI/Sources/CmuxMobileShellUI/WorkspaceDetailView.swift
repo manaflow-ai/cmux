@@ -104,7 +104,8 @@ struct WorkspaceDetailView: View {
                 if showDeck {
                     SurfaceDeckBar(
                         value: deckValue,
-                        actions: surfaceDeckActions
+                        actions: surfaceDeckActions,
+                        terminalTheme: store.activeTerminalTheme
                     )
                     .equatable()
                 }
@@ -151,6 +152,7 @@ struct WorkspaceDetailView: View {
                             phoneSelectedSurfaceID: selectedTerminal?.id.rawValue,
                             agentStateKindsBySurfaceID: surfaceDeckAgentStateKinds
                         ),
+                        terminalTheme: store.activeTerminalTheme,
                         fetchPreviews: { selectedSurfaceIDs, remainingSurfaceIDs in
                             await store.fetchPaneMapPreviewGrids(
                                 remoteWorkspaceID: workspace.rpcWorkspaceID.rawValue,

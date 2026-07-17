@@ -6,6 +6,7 @@ import SwiftUI
 /// Full-screen proportional map of a workspace's Mac pane layout.
 struct PaneMapOverlay: View {
     let value: PaneMapValue
+    let terminalTheme: TerminalTheme
     let fetchPreviews: ([String], [String]) async -> [String: MobileTerminalRenderGridFrame]
     let selectTerminal: (MobileTerminalPreview.ID) -> Void
     let dismiss: () -> Void
@@ -16,11 +17,13 @@ struct PaneMapOverlay: View {
 
     init(
         value: PaneMapValue,
+        terminalTheme: TerminalTheme,
         fetchPreviews: @escaping ([String], [String]) async -> [String: MobileTerminalRenderGridFrame],
         selectTerminal: @escaping (MobileTerminalPreview.ID) -> Void,
         dismiss: @escaping () -> Void
     ) {
         self.value = value
+        self.terminalTheme = terminalTheme
         self.fetchPreviews = fetchPreviews
         self.selectTerminal = selectTerminal
         self.dismiss = dismiss
@@ -33,7 +36,7 @@ struct PaneMapOverlay: View {
             paneCanvas
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(TerminalPalette.background.ignoresSafeArea())
+        .background(terminalTheme.terminalBackgroundColor.ignoresSafeArea())
         .task {
             await refreshAllPreviews()
         }
@@ -45,12 +48,12 @@ struct PaneMapOverlay: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(value.workspaceName)
                     .font(.headline)
-                    .foregroundStyle(TerminalPalette.foreground)
+                    .foregroundStyle(terminalTheme.terminalChromeForegroundColor)
                     .lineLimit(1)
 
                 Text(countSubtitle)
                     .font(.subheadline)
-                    .foregroundStyle(TerminalPalette.foreground.opacity(0.7))
+                    .foregroundStyle(terminalTheme.terminalChromeForegroundColor.opacity(0.7))
                     .lineLimit(1)
             }
 
@@ -63,14 +66,14 @@ struct PaneMapOverlay: View {
                     if isRefreshing {
                         ProgressView()
                             .controlSize(.mini)
-                            .tint(TerminalPalette.foreground)
+                            .tint(terminalTheme.terminalChromeForegroundColor)
                     } else {
                         Image(systemName: "arrow.clockwise")
                     }
                     Text(L10n.string("mobile.paneMap.refresh", defaultValue: "Refresh"))
                 }
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(TerminalPalette.foreground)
+                .foregroundStyle(terminalTheme.terminalChromeForegroundColor)
                 .padding(.horizontal, 12)
                 .frame(height: 34)
                 .mobileGlassPill()
@@ -83,7 +86,7 @@ struct PaneMapOverlay: View {
             Button(action: dismiss) {
                 Text(L10n.string("mobile.paneMap.done", defaultValue: "Done"))
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(TerminalPalette.foreground)
+                    .foregroundStyle(terminalTheme.terminalChromeForegroundColor)
                     .padding(.horizontal, 14)
                     .frame(height: 34)
                     .mobileGlassPill()
@@ -108,6 +111,7 @@ struct PaneMapOverlay: View {
 
                         PaneMapTileView(
                             pane: pane,
+                            terminalTheme: terminalTheme,
                             selectedSurfaceID: surfaceID,
                             phoneSelectedSurfaceID: value.phoneSelectedSurfaceID,
                             previewGrid: surfaceID.flatMap { previewGridsBySurfaceID[$0] },
