@@ -468,7 +468,10 @@ struct BrowserWebExtensionsManagerTests {
         for actionKey in ["action", "browser_action", "page_action"] {
             var manifest = Self.minimalManifest
             manifest["name"] = actionKey
-            manifest[actionKey] = ["default_title": actionKey]
+            manifest[actionKey] = [
+                "default_title": actionKey,
+                "default_popup": "popup.html",
+            ]
             let directory = try Self.writeExtension(
                 named: actionKey,
                 in: root,
@@ -476,6 +479,11 @@ struct BrowserWebExtensionsManagerTests {
             )
             try "// no-op".write(
                 to: directory.appendingPathComponent("content.js"),
+                atomically: true,
+                encoding: .utf8
+            )
+            try "<main>Popup for \(actionKey)</main>".write(
+                to: directory.appendingPathComponent("popup.html"),
                 atomically: true,
                 encoding: .utf8
             )
@@ -487,6 +495,9 @@ struct BrowserWebExtensionsManagerTests {
         let items = manager.presentationSnapshot().extensions
         #expect(items.map(\.name) == ["action", "browser_action", "page_action"])
         #expect(items.allSatisfy(\.hasAction))
+        #expect(manager.loadedContexts.allSatisfy { context in
+            context.action(for: nil)?.presentsPopup == true
+        })
     }
 
     @available(macOS 15.4, *)
