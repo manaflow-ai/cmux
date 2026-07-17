@@ -7510,6 +7510,54 @@ mod tests {
     }
 
     #[test]
+    fn input_never_reasserts_a_viewer_size() {
+        let mux = Mux::new(
+            "input-size-independence-test",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "sleep 30".to_string(),
+                ]),
+                ..Default::default()
+            },
+        );
+        let surface = mux.new_workspace(None, Some((120, 40))).unwrap();
+        mux.resize_surface_for_client(surface.id, 0, 120, 40).unwrap();
+        mux.resize_surface_for_client(surface.id, 99, 80, 30).unwrap();
+
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        let pane = app.tree.active_screen().unwrap().active_pane;
+        let content = Rect { x: 1, y: 1, width: 120, height: 40 };
+        app.pane_areas.push(PaneArea {
+            pane,
+            surface: surface.id,
+            rect: content,
+            bar: None,
+            omnibar: None,
+            content,
+            track: None,
+        });
+
+        let inputs = [
+            Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
+            Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Moved,
+                column: 2,
+                row: 2,
+                modifiers: KeyModifiers::NONE,
+            }),
+            Event::Paste("pasted".to_string()),
+        ];
+        for input in inputs {
+            mux.record_client_size(99, 33);
+            app.handle(AppEvent::Input(input)).unwrap();
+            assert_eq!(mux.new_workspace(None, None).unwrap().size(), (99, 33));
+        }
+    }
+
+    #[test]
     fn canceled_mutation_does_not_block_on_a_full_app_channel() {
         let (events, receiver) = std::sync::mpsc::sync_channel(1);
         events.send(AppEvent::MuxTitlesReady).unwrap();
