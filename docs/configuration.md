@@ -40,7 +40,6 @@ The Appearance settings page edits the same values and accepts arbitrary SF Symb
 {
   "sidebarAppearance": {
     "matchTerminalBackground": false,
-    "preset": "liquidGlassSidebars",
     "material": "liquidGlass",
     "blendMode": "withinWindow",
     "state": "followWindow",

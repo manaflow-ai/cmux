@@ -1225,8 +1225,76 @@
           "type": "number",
           "minimum": 0,
           "maximum": 1,
-          "default": 0.03,
+          "default": 0.18,
           "description": "Sidebar tint opacity from 0 to 1. Note: this only controls the sidebar tint, not terminal/window transparency. For terminal background transparency or blur, set `background-opacity` and `background-blur` in `~/.config/ghostty/config` and run `cmux reload-config`."
+        },
+        "blurOpacity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 1,
+          "description": "Opacity of the sidebar blur or Liquid Glass layer."
+        },
+        "cornerRadius": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 40,
+          "default": 0,
+          "description": "Corner radius in points for sidebar material surfaces."
+        },
+        "preset": {
+          "type": "string",
+          "enum": ["nativeSidebar", "glassBehind", "softBlur", "popoverGlass", "hudGlass", "underWindow"],
+          "default": "nativeSidebar",
+          "description": "Named sidebar appearance preset. Explicit material, blendMode, state, tint, opacity, and radius values can override the preset values."
+        },
+        "material": {
+          "type": "string",
+          "enum": ["none", "liquidGlass", "sidebar", "titlebar", "selection", "hudWindow", "menu", "popover", "underWindowBackground", "underPageBackground", "windowBackground", "contentBackground", "fullScreenUI", "sheet", "headerView", "toolTip"],
+          "default": "sidebar",
+          "description": "Native material used only behind the left and right sidebars. liquidGlass uses NSGlassEffectView on supported macOS versions."
+        },
+        "blendMode": {
+          "type": "string",
+          "enum": ["behindWindow", "withinWindow"],
+          "default": "withinWindow",
+          "description": "Whether the sidebar material blends with content behind the window or within the window."
+        },
+        "state": {
+          "type": "string",
+          "enum": ["active", "inactive", "followWindow"],
+          "default": "followWindow",
+          "description": "Activation state used by the sidebar material."
+        }
+      }
+    },
+    "appearance": {
+      "title": "appearance",
+      "description": "Semantic colors and global SF Symbol replacements for cmux-owned interface chrome, including Bonsplit tabs and drag targets.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "colors": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Optional semantic color overrides. Omit a role to retain its native system fallback.",
+          "properties": {
+            "accent": { "$ref": "#/$defs/colorHex", "description": "Selection emphasis, active Bonsplit tab lines, and focus rings." },
+            "hover": { "$ref": "#/$defs/colorHex", "description": "Hover highlights for cmux-owned controls and rows." },
+            "dropTarget": { "$ref": "#/$defs/colorHex", "description": "Bonsplit tab insertion indicators and pane drag target fill and borders." },
+            "notification": { "$ref": "#/$defs/colorHex", "description": "Notification dots, badges, and unread emphasis." },
+            "success": { "$ref": "#/$defs/colorHex", "description": "Success status emphasis." },
+            "warning": { "$ref": "#/$defs/colorHex", "description": "Warning status emphasis." },
+            "error": { "$ref": "#/$defs/colorHex", "description": "Error and destructive status emphasis." },
+            "toolbarIcon": { "$ref": "#/$defs/colorHex", "description": "Tint for cmux-owned toolbar SF Symbols." },
+            "tabIcon": { "$ref": "#/$defs/colorHex", "description": "Tint for Bonsplit and cmux-owned tab SF Symbols. Raster favicons retain their source colors." }
+          }
+        },
+        "icons": {
+          "type": "object",
+          "description": "Global SF Symbol replacements keyed by the original symbol name. Each value is another SF Symbol name.",
+          "propertyNames": { "minLength": 1 },
+          "additionalProperties": { "type": "string", "minLength": 1 }
         }
       }
     },

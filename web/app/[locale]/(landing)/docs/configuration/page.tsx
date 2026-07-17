@@ -43,6 +43,7 @@ const sectionOrder = [
   "workspaceGroups",
   "workspaceColors",
   "sidebarAppearance",
+  "appearance",
   "automation",
   "actions",
   "ui",
@@ -416,6 +417,23 @@ working-directory = ~/code`}</CodeBlock>
   }
 }`}</CodeBlock>
               </>
+            )}
+            {sectionName === "appearance" && (
+              <CodeBlock lang="json">{`{
+  "appearance": {
+    "colors": {
+      "accent": "#7C3AED",
+      "dropTarget": "#F59E0B",
+      "notification": "#22D3EE",
+      "toolbarIcon": "#E9D5FF",
+      "tabIcon": "#C4B5FD"
+    },
+    "icons": {
+      "plus": "sparkles",
+      "terminal": "apple.terminal"
+    }
+  }
+}`}</CodeBlock>
             )}
           </section>
         );

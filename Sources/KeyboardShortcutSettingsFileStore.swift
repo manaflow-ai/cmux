@@ -933,7 +933,8 @@ final class CmuxSettingsFileStore {
         if let rawColors = section["colors"] as? [String: Any] {
             var colors: [String: String] = [:]
             for (role, value) in rawColors {
-                guard let rawHex = jsonString(value),
+                guard CmuxInterfaceColorRole(rawValue: role) != nil,
+                      let rawHex = jsonString(value),
                       let normalized = WorkspaceTabColorSettings.normalizedHex(rawHex) else {
                     logInvalid("appearance.colors.\(role)", sourcePath: sourcePath)
                     continue

@@ -7,7 +7,7 @@ description: "View and edit cmux settings in ~/.config/cmux/cmux.json. Use when 
 
 cmux reads user settings from `~/.config/cmux/cmux.json` (JSONC). The app installs a file watcher; saving the file applies changes immediately, no restart needed. Legacy `~/.config/cmux/settings.json` is read only as a fallback for keys not present in `cmux.json`.
 
-Schema: `https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json`. The authoritative path list lives in `Sources/CmuxSettingsJSONPathSupport.swift` in the cmux checkout, and the installed skill includes a generated copy in `references/all-keys.md`. Top-level sections are `app`, `terminal`, `notifications`, `sidebar`, `sidebarAppearance`, `workspaceColors`, `automation`, `browser`, and `shortcuts`. Non-settings sections (`actions`, `ui`, `commands`, `vault`, `rightSidebar`) coexist in the same file.
+Schema: `https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json`. The authoritative path list lives in `Sources/CmuxSettingsJSONPathSupport.swift` in the cmux checkout, and the installed skill includes a generated copy in `references/all-keys.md`. Top-level sections are `app`, `terminal`, `notifications`, `sidebar`, `sidebarAppearance`, `workspaceColors`, `appearance`, `automation`, `browser`, and `shortcuts`. Non-settings sections (`actions`, `ui`, `commands`, `vault`, `rightSidebar`) coexist in the same file.
 
 ## Helper script
 
@@ -62,8 +62,8 @@ Subcommands:
 
 ## Quick reference
 
-- Appearance: `app.appearance` = `"system" | "light" | "dark"`, `app.appIcon`, `app.menuBarOnly`, `app.minimalMode`.
-- Sidebar tint: `sidebarAppearance.matchTerminalBackground`, `sidebarAppearance.tintColor`, `sidebarAppearance.tintOpacity` (0..1).
+- Appearance: `app.appearance` selects light/dark mode; `appearance.colors.<role>` sets semantic chrome colors and `appearance.icons.<originalSymbol>` replaces any cmux-owned SF Symbol.
+- Sidebar tint and glass: `sidebarAppearance.matchTerminalBackground`, `sidebarAppearance.tintColor`, `sidebarAppearance.tintOpacity`, `sidebarAppearance.material`, `sidebarAppearance.blurOpacity`.
 - Sidebar details: `sidebar.hideAllDetails`, `sidebar.showBranchDirectory`, `sidebar.showPullRequests`, `sidebar.showPorts`, `sidebar.showLog`.
 - Notifications: `notifications.dockBadge`, `notifications.sound` (enum incl. `"none"`, `"custom_file"`), `notifications.customSoundFilePath`, `notifications.hooks` (array).
 - Browser: `browser.defaultSearchEngine`, `browser.theme`, `browser.openTerminalLinksInCmuxBrowser`, `browser.hostsToOpenInEmbeddedBrowser`.

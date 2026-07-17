@@ -480,8 +480,16 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
                   },
                   "appearance": {
                     "colors": {
+                      "accent": "#7C3AED",
+                      "hover": "#A78BFA",
                       "dropTarget": "#FF44AA",
-                      "toolbarIcon": "#DDEEFF"
+                      "notification": "#22D3EE",
+                      "success": "#34D399",
+                      "warning": "#FBBF24",
+                      "error": "#FB7185",
+                      "toolbarIcon": "#DDEEFF",
+                      "tabIcon": "#C4B5FD",
+                      "unknownRole": "#FFFFFF"
                     },
                     "icons": {
                       "plus": "star.fill",
@@ -510,8 +518,20 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
 
             let colors = CmuxInterfaceAppearance.current(defaults: defaults).colors
             let icons = CmuxInterfaceAppearance.current(defaults: defaults).icons
-            XCTAssertEqual(colors["dropTarget"], "#FF44AA")
-            XCTAssertEqual(colors["toolbarIcon"], "#DDEEFF")
+            XCTAssertEqual(
+                colors,
+                [
+                    "accent": "#7C3AED",
+                    "hover": "#A78BFA",
+                    "dropTarget": "#FF44AA",
+                    "notification": "#22D3EE",
+                    "success": "#34D399",
+                    "warning": "#FBBF24",
+                    "error": "#FB7185",
+                    "toolbarIcon": "#DDEEFF",
+                    "tabIcon": "#C4B5FD",
+                ]
+            )
             XCTAssertEqual(icons["plus"], "star.fill")
             XCTAssertEqual(icons["terminal"], "apple.terminal")
         }

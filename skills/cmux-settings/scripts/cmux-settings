@@ -221,12 +221,14 @@ def supported_paths_from_source(source: Path) -> list[str]:
         "sidebar.",
         "workspaceColors.",
         "sidebarAppearance.",
+        "appearance.",
         "automation.",
-        "browser.",
         "shortcuts.",
     )
     candidates = re.findall(r'"([a-zA-Z]+\.[a-zA-Z0-9_.]+)"', text)
-    return sorted({p for p in candidates if p.startswith(known_sections)})
+    paths = {p for p in candidates if p.startswith(known_sections)}
+    paths.update({"paneBorderColor", "activePaneBorderColor"})
+    return sorted(paths)
 
 
 def supported_paths_from_reference(skill_root: Path | None) -> list[str]:
@@ -359,6 +361,8 @@ def cmd_validate(args: argparse.Namespace) -> int:
     }
     for top, value in data.items():
         if top in structural:
+            continue
+        if top in supported:
             continue
         if not isinstance(value, dict):
             unknown.append(top)

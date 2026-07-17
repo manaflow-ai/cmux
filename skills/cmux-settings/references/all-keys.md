@@ -2,6 +2,15 @@
 
 Auto-generated from `web/data/cmux.schema.json`. For the rendered docs, see `https://cmux.com/docs/configuration`.
 
+## root
+
+Top-level pane chrome colors.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `paneBorderColor` | colorHexOrNull | `null` | Divider color between cmux panes. |
+| `activePaneBorderColor` | colorHexOrNull | `null` | Border color around the focused cmux pane. |
+
 ## app
 
 General app preferences from Settings > App.
@@ -97,7 +106,30 @@ Sidebar tint settings from Settings > Sidebar Appearance.
 | `sidebarAppearance.tintColor` | colorHex | `"#000000"` | Base sidebar tint color used when light/dark overrides are not set. |
 | `sidebarAppearance.lightModeTintColor` | colorHexOrNull | `null` | Sidebar tint override for light appearance. |
 | `sidebarAppearance.darkModeTintColor` | colorHexOrNull | `null` | Sidebar tint override for dark appearance. |
-| `sidebarAppearance.tintOpacity` | number | `0.03` | Sidebar tint opacity from 0 to 1. Note: this only controls the sidebar tint, not terminal/window transparency. For terminal background transparency or blur, set `background-opacity` and `background-blur` in `~/.config/ghostty/config` and run `cmux reload-config`. |
+| `sidebarAppearance.tintOpacity` | number | `0.18` | Sidebar tint opacity from 0 to 1. Note: this only controls the sidebar tint, not terminal/window transparency. For terminal background transparency or blur, set `background-opacity` and `background-blur` in `~/.config/ghostty/config` and run `cmux reload-config`. |
+| `sidebarAppearance.blurOpacity` | number | `1` | Opacity of the sidebar blur or Liquid Glass layer. |
+| `sidebarAppearance.cornerRadius` | number | `0` | Corner radius in points for sidebar material surfaces. |
+| `sidebarAppearance.preset` | `"nativeSidebar"` or `"glassBehind"` or `"softBlur"` or `"popoverGlass"` or `"hudGlass"` or `"underWindow"` | `"nativeSidebar"` | Named sidebar appearance preset. |
+| `sidebarAppearance.material` | `"none"` or `"liquidGlass"` or `"sidebar"` or another native material | `"sidebar"` | Native material used only behind the left and right sidebars. |
+| `sidebarAppearance.blendMode` | `"behindWindow"` or `"withinWindow"` | `"withinWindow"` | Sidebar material blend mode. |
+| `sidebarAppearance.state` | `"active"` or `"inactive"` or `"followWindow"` | `"followWindow"` | Sidebar material activation state. |
+
+## appearance
+
+Semantic colors and global SF Symbol replacements for cmux-owned interface chrome, including Bonsplit tabs and drag targets.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `appearance.colors.accent` | colorHex |  | Selection emphasis, active Bonsplit tab lines, and focus rings. |
+| `appearance.colors.hover` | colorHex |  | Hover highlights for cmux-owned controls and rows. |
+| `appearance.colors.dropTarget` | colorHex |  | Bonsplit tab insertion indicators and pane drag target fill and borders. |
+| `appearance.colors.notification` | colorHex |  | Notification dots, badges, and unread emphasis. |
+| `appearance.colors.success` | colorHex |  | Success status emphasis. |
+| `appearance.colors.warning` | colorHex |  | Warning status emphasis. |
+| `appearance.colors.error` | colorHex |  | Error and destructive status emphasis. |
+| `appearance.colors.toolbarIcon` | colorHex |  | Tint for cmux-owned toolbar SF Symbols. |
+| `appearance.colors.tabIcon` | colorHex |  | Tint for Bonsplit and cmux-owned tab SF Symbols. |
+| `appearance.icons` | object | `{}` | SF Symbol replacements keyed by the original symbol name. |
 
 ## automation
 
