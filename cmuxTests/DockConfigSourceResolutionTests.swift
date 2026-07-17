@@ -46,6 +46,7 @@ private struct FakeDockConfigFileSystem: DockConfigFileSystem {
     }
 }
 
+@MainActor
 @Suite("Dock config source resolution")
 struct DockConfigSourceResolutionTests {
     private func context(
@@ -170,7 +171,10 @@ struct DockConfigSourceResolutionTests {
         ))
 
         #expect(DockSplitStore.configIdentity(for: first) != DockSplitStore.configIdentity(for: second))
-        #expect(DockSplitStore.trustDescriptor(for: first) != DockSplitStore.trustDescriptor(for: second))
+        #expect(
+            DockSplitStore.trustDescriptor(for: first).fingerprint
+                != DockSplitStore.trustDescriptor(for: second).fingerprint
+        )
     }
 
     @Test("remote trust identity follows the complete daemon transport identity")
