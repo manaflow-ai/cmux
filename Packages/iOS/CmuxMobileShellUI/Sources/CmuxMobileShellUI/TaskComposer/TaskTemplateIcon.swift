@@ -42,21 +42,22 @@ struct TaskTemplateIcon: View {
 /// the SwiftPM resource bundle shares the app's identifier and CoreUI's
 /// per-identifier catalog registration resolves against the wrong catalog.
 extension TaskTemplateIcon {
-    @MainActor private static var brandImageCache: [String: UIImage] = [:]
+    @MainActor private static let bundledBrandImages: [String: UIImage] = Dictionary(
+        uniqueKeysWithValues: ["Claude", "Codex", "Codex-dark", "OpenCode"].compactMap { fileName in
+            loadBundledBrandImage(fileName: fileName).map { (fileName, $0) }
+        }
+    )
 
     /// Returns the brand image for `baseName` (e.g. "Codex"), preferring a
     /// `-dark` variant file in dark mode when one is bundled.
     @MainActor static func brandImage(baseName: String, darkMode: Bool) -> UIImage? {
-        if darkMode, let dark = loadBrandImage(fileName: "\(baseName)-dark") {
+        if darkMode, let dark = bundledBrandImages["\(baseName)-dark"] {
             return dark
         }
-        return loadBrandImage(fileName: baseName)
+        return bundledBrandImages[baseName]
     }
 
-    @MainActor private static func loadBrandImage(fileName: String) -> UIImage? {
-        if let cached = brandImageCache[fileName] {
-            return cached
-        }
+    @MainActor private static func loadBundledBrandImage(fileName: String) -> UIImage? {
         guard let url = Bundle.module.url(
             forResource: "\(fileName)@3x",
             withExtension: "png"
@@ -64,7 +65,6 @@ extension TaskTemplateIcon {
               let image = UIImage(data: data, scale: 3) else {
             return nil
         }
-        brandImageCache[fileName] = image
         return image
     }
 }

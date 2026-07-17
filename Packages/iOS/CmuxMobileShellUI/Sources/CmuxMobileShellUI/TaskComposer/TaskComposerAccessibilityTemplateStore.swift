@@ -31,9 +31,9 @@ final class TaskComposerAccessibilityTemplateStore: MobileTaskTemplateStoring {
         templates[index] = template
     }
 
-    func deleteTemplate(id: MobileTaskTemplate.ID) {
-        templates.removeAll { $0.id == id }
-        if selectedTemplateID == id {
+    func deleteTemplates(ids: Set<MobileTaskTemplate.ID>) {
+        templates.removeAll { ids.contains($0.id) }
+        if let selectedID = selectedTemplateID, ids.contains(selectedID) {
             selectedTemplateID = nil
         }
     }

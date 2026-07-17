@@ -413,7 +413,7 @@ struct TaskComposerSheet: View {
 
     func startSubmission() {
         guard submitTask == nil, completedOperationRecovery == nil else { return }
-        submitTask = Task {
+        submitTask = Task { @MainActor in
             await submit()
             submitTask = nil
         }
@@ -482,9 +482,8 @@ struct TaskComposerSheet: View {
 
     private func deleteTemplates(_ offsets: IndexSet) {
         guard !submissionPhase.disablesRequestEditing else { return }
-        for index in offsets {
-            store.taskTemplateStore?.deleteTemplate(id: templates[index].id)
-        }
+        let ids = Set(offsets.map { templates[$0].id })
+        store.taskTemplateStore?.deleteTemplates(ids: ids)
     }
 
     private func refreshTemplates() {

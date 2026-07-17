@@ -13,7 +13,7 @@ extension TaskComposerSheet {
 
     func startCompletedOperationReconciliation() {
         guard submitTask == nil, let recovery = completedOperationRecovery else { return }
-        submitTask = Task {
+        submitTask = Task { @MainActor in
             await reconcileCompletedOperation(recovery.submittedSnapshot)
             submitTask = nil
         }

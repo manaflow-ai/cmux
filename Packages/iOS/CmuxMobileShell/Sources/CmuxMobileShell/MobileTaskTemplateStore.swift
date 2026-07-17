@@ -57,12 +57,13 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
         saveTemplates(templates)
     }
 
-    /// Deletes the template with `id`.
-    public func deleteTemplate(id: MobileTaskTemplate.ID) {
+    /// Deletes templates in one load, scan, and persistence update.
+    public func deleteTemplates(ids: Set<MobileTaskTemplate.ID>) {
+        guard !ids.isEmpty else { return }
         var templates = listTemplates()
-        templates.removeAll { $0.id == id }
+        templates.removeAll { ids.contains($0.id) }
         saveTemplates(templates)
-        if lastTemplateID() == id {
+        if let lastTemplateID = lastTemplateID(), ids.contains(lastTemplateID) {
             setLastTemplateID(nil)
         }
     }

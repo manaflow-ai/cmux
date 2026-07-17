@@ -10,8 +10,8 @@ public protocol MobileTaskTemplateStoring: AnyObject {
     func addTemplate(_ template: MobileTaskTemplate)
     /// Replaces an existing template with the same id.
     func updateTemplate(_ template: MobileTaskTemplate)
-    /// Deletes the template with `id`.
-    func deleteTemplate(id: MobileTaskTemplate.ID)
+    /// Deletes the templates with the provided ids in one persistence update.
+    func deleteTemplates(ids: Set<MobileTaskTemplate.ID>)
     /// Returns the last selected template id, if any.
     func lastTemplateID() -> MobileTaskTemplate.ID?
     /// Stores the last selected template id.
@@ -34,4 +34,11 @@ public protocol MobileTaskTemplateStoring: AnyObject {
     func setComposerDraft(_ draft: MobileTaskComposerDraft?)
     /// Removes all templates and composer state owned by the signed-out user.
     func clearAllUserData()
+}
+
+public extension MobileTaskTemplateStoring {
+    /// Deletes one template.
+    func deleteTemplate(id: MobileTaskTemplate.ID) {
+        deleteTemplates(ids: [id])
+    }
 }
