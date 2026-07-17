@@ -151,7 +151,7 @@ public struct FileDiffPageView: View {
         Text(String(
             format: String(
                 localized: "changes.diff.truncated",
-                defaultValue: "Diff truncated — showing first %lld lines",
+                defaultValue: "Large diff. Showing the first %lld lines to keep things fast. See the rest on your Mac.",
                 bundle: .module
             ),
             Int64(lineCount)
