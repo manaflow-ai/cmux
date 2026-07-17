@@ -213,6 +213,31 @@ export interface ColorsChangedEvent extends TerminalColors {
   surface?: Id;
 }
 
+export interface BrowserFrame {
+  seq: number;
+  width: number;
+  height: number;
+  data: Base64;
+}
+
+export interface BrowserStateEvent {
+  event: "browser-state";
+  surface: Id;
+  cols: number;
+  rows: number;
+  url: string;
+  title: string;
+  status: string;
+  error: string | null;
+  frames_stalled: boolean;
+  frame?: BrowserFrame | null;
+}
+
+export interface BrowserFrameEvent extends BrowserFrame {
+  event: "frame";
+  surface: Id;
+}
+
 /** Proposed event retained for forward-compatible protocol v6 clients. */
 export interface AgentStateChangedEvent {
   event: "agent-state-changed";
@@ -265,6 +290,8 @@ export type KnownAttachEvent =
   | OutputEvent
   | ResizedEvent
   | ColorsChangedEvent
+  | BrowserStateEvent
+  | BrowserFrameEvent
   | RenderStateEvent
   | RenderDeltaEvent
   | ScrollChangedEvent
@@ -302,6 +329,8 @@ export type DecodedAttachEvent =
   | DecodedOutputEvent
   | DecodedResizedEvent
   | DecodedColorsChangedEvent
+  | BrowserStateEvent
+  | BrowserFrameEvent
   | ScrollChangedEvent
   | DetachedEvent
   | OverflowEvent
