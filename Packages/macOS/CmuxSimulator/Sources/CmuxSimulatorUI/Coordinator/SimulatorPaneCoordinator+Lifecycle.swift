@@ -270,7 +270,8 @@ extension SimulatorPaneCoordinator {
             _ = await self.beginLocationRouteTeardown()?.value
         }
         let sessions = detachLongRunningSessions()
-        let shouldDisableCamera = !cameraConfiguration.isDisabled
+        let previousCameraConfiguration = cameraConfiguration
+        let shouldDisableCamera = !previousCameraConfiguration.isDisabled
         let outgoingRecoveryTask = outgoingRecoveryTask
         outgoingRecoveryGeneration &+= 1
         self.outgoingRecoveryTask = nil
@@ -287,11 +288,23 @@ extension SimulatorPaneCoordinator {
             _ = await deviceScopedTasks.accessibility?.value
             _ = await deviceScopedTasks.liveStatus?.value
             await locationRouteTeardownTask.value
+            guard self.locationRouteDeviceID == nil else {
+                if let failure = self.failure { self.status = .failed(failure) }
+                return
+            }
             _ = await outgoingRecoveryTask?.value
             _ = await previousActivation?.value
             await self.stopLongRunningSessions(sessions)
             if shouldDisableCamera {
-                _ = try? await client.perform(.configureCamera(.disabled))
+                do {
+                    _ = try await client.perform(.configureCamera(.disabled))
+                } catch {
+                    self.cameraConfiguration = previousCameraConfiguration
+                    let failure = simulatorPaneFailure(from: error, code: "camera_cleanup_failed")
+                    self.failure = failure
+                    self.status = .failed(failure)
+                    return
+                }
             }
             guard !Task.isCancelled, self.selectionGeneration == generation else { return }
             do {
@@ -580,7 +593,8 @@ extension SimulatorPaneCoordinator {
         previousActivation?.cancel()
         let locationRouteTeardownTask = beginLocationRouteTeardown()
         let sessions = detachLongRunningSessions()
-        let shouldDisableCamera = !cameraConfiguration.isDisabled
+        let previousCameraConfiguration = cameraConfiguration
+        let shouldDisableCamera = !previousCameraConfiguration.isDisabled
         selectionGeneration &+= 1
         let generation = selectionGeneration
         let deviceScopedTasks = clearDeviceScopedState()
@@ -590,10 +604,22 @@ extension SimulatorPaneCoordinator {
             _ = await deviceScopedTasks.accessibility?.value
             _ = await deviceScopedTasks.liveStatus?.value
             _ = await locationRouteTeardownTask?.value
+            guard self.locationRouteDeviceID == nil else {
+                if let failure = self.failure { self.status = .failed(failure) }
+                return
+            }
             _ = await previousActivation?.value
             await self.stopLongRunningSessions(sessions)
             if shouldDisableCamera {
-                _ = try? await client.perform(.configureCamera(.disabled))
+                do {
+                    _ = try await client.perform(.configureCamera(.disabled))
+                } catch {
+                    self.cameraConfiguration = previousCameraConfiguration
+                    let failure = simulatorPaneFailure(from: error, code: "camera_cleanup_failed")
+                    self.failure = failure
+                    self.status = .failed(failure)
+                    return
+                }
             }
             guard !Task.isCancelled, self.selectionGeneration == generation else { return }
             do {

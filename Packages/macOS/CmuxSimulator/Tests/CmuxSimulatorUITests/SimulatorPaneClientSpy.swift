@@ -11,6 +11,7 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
     private let delaysActivation: Bool
     private let delaysWebInspectorSend: Bool
     private let failsApplicationInstall: Bool
+    private let failsCameraDisable: Bool
     private let failsWebInspectorHighlight: Bool
     private let cancelsControlActionBeforeReturning: Bool
     private let eventStream: SimulatorWorkerEventStream
@@ -35,6 +36,7 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
         delaysActivation: Bool = false,
         delaysWebInspectorSend: Bool = false,
         failsApplicationInstall: Bool = false,
+        failsCameraDisable: Bool = false,
         failsWebInspectorHighlight: Bool = false,
         cancelsControlActionBeforeReturning: Bool = false
     ) {
@@ -45,6 +47,7 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
         self.delaysActivation = delaysActivation
         self.delaysWebInspectorSend = delaysWebInspectorSend
         self.failsApplicationInstall = failsApplicationInstall
+        self.failsCameraDisable = failsCameraDisable
         self.failsWebInspectorHighlight = failsWebInspectorHighlight
         self.cancelsControlActionBeforeReturning = cancelsControlActionBeforeReturning
         let source = SimulatorWorkerEventStreamSource(
@@ -119,6 +122,13 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
             throw SimulatorFailure(
                 code: "fixture_install_failed",
                 message: "The fixture app is invalid.",
+                isRecoverable: true
+            )
+        }
+        if case .configureCamera(.disabled) = action, failsCameraDisable {
+            throw SimulatorFailure(
+                code: "fixture_camera_cleanup_failed",
+                message: "The fixture camera could not be disabled.",
                 isRecoverable: true
             )
         }

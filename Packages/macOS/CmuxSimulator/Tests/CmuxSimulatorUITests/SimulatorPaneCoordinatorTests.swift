@@ -623,6 +623,28 @@ struct SimulatorPaneCoordinatorTests {
         #expect(await client.stopCount() == 1)
     }
 
+    @Test("Device switching stops when camera cleanup fails")
+    func deviceSwitchStopsOnCameraCleanupFailure() async {
+        let client = SimulatorPaneClientSpy(
+            devices: [
+                Self.device(id: "one", family: .iPhone, state: .booted),
+                Self.device(id: "two", family: .iPhone, state: .booted),
+            ],
+            failsCameraDisable: true
+        )
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        await coordinator.start()
+        await coordinator.useCameraPlaceholder()
+
+        coordinator.selectDevice(id: "two")
+        await eventually { coordinator.failure?.code == "fixture_camera_cleanup_failed" }
+
+        #expect(coordinator.cameraConfiguration == .placeholder)
+        #expect(await client.activations().map(\.id) == ["one"])
+
+        await coordinator.close()
+    }
+
     func eventually(
         _ condition: @escaping @MainActor @Sendable () async -> Bool
     ) async {

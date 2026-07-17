@@ -116,16 +116,16 @@ struct SimulatorPaneCoordinatorLocationLifecycleTests {
         let coordinator = SimulatorPaneCoordinator(client: client)
         await coordinator.start()
         await coordinator.startLocationRoute(Self.route())
-        await client.failNextStops(1)
+        await client.failNextStops(3)
 
         await client.emit(.message(.status(.deviceUnavailable)))
         await eventually { coordinator.failure?.code == "injected_stop_failure" }
 
         #expect(coordinator.locationRouteDeviceID == "A")
-        #expect(await client.operations().filter { $0 == "stop:A" }.count == 1)
+        #expect(await client.operations().filter { $0 == "stop:A" }.count == 3)
 
         await coordinator.close()
-        #expect(await client.operations().filter { $0 == "stop:A" }.count == 2)
+        #expect(await client.operations().filter { $0 == "stop:A" }.count == 4)
         #expect(coordinator.locationRouteDeviceID == nil)
     }
 
