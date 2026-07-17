@@ -58,6 +58,12 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private var isEditing = false
     private var pumpCancellables: [AnyCancellable] = []
 
+#if DEBUG
+    /// Test seam: observes every full model application (configure, pump,
+    /// optimistic press/deselect, hover enforcement).
+    var applyModelProbeForTesting: ((SidebarWorkspaceRowModel) -> Void)?
+#endif
+
     /// Per-row churn pump: mirrors TabItemView's onReceive subscriptions so
     /// metadata/branch/PR updates repaint just this cell without any
     /// container re-render. Installed per configure; replaced on reuse.
@@ -225,6 +231,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     }
 
     private func applyModel(_ model: SidebarWorkspaceRowModel) {
+#if DEBUG
+        applyModelProbeForTesting?(model)
+#endif
         // Legacy parity: the SwiftUI sidebar never animates content or color
         // changes; layer-backed subviews here otherwise pick up implicit
         // 0.25s actions on backgroundColor/frame (rails and text visibly
