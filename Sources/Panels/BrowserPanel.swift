@@ -4218,15 +4218,7 @@ final class BrowserPanel: Panel, ObservableObject {
             self.webViewDidRequestClose?()
         }
         browserUIDelegate.requestNotificationPermission = { [weak self] webView, origin, decisionHandler in
-            guard let self else {
-                decisionHandler(false)
-                return
-            }
-            var components = URLComponents()
-            components.scheme = origin.protocol
-            components.host = origin.host
-            if origin.port != 0 { components.port = origin.port }
-            guard let originURL = components.url else {
+            guard let self, let originURL = origin.canonicalURL else {
                 decisionHandler(false)
                 return
             }

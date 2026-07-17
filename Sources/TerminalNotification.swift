@@ -2,7 +2,7 @@ import Foundation
 
 enum TerminalNotificationSource: Hashable, Sendable {
     case terminal
-    case website(profileID: UUID, origin: URL, isBackground: Bool)
+    case website(origin: URL)
 }
 
 enum TerminalNotificationTarget: Hashable, Sendable {

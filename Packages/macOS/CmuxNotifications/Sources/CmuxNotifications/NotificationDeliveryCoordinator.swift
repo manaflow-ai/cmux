@@ -310,14 +310,7 @@ public final class NotificationDeliveryCoordinator {
             terminalIdentifiers.websiteDisplayOriginUserInfoKey
         ] as? String,
               let origin = URL(string: rawOrigin),
-              let scheme = origin.scheme?.lowercased(),
-              scheme == "http" || scheme == "https",
-              origin.host?.isEmpty == false,
-              origin.user == nil,
-              origin.password == nil,
-              origin.query == nil,
-              origin.fragment == nil,
-              origin.path.isEmpty || origin.path == "/" else {
+              NotificationNavWebsiteClickTarget.isValidDisplayOrigin(origin) else {
             return nil
         }
         return origin

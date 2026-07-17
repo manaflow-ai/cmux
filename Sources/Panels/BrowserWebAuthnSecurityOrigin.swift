@@ -112,3 +112,11 @@ struct BrowserWebAuthnSecurityOrigin {
         "google.com",
     ]
 }
+
+extension WKSecurityOrigin {
+    /// The origin as a canonical URL — lowercased, default ports omitted,
+    /// IPv6 hosts bracketed — or nil when the origin has no URL form.
+    var canonicalURL: URL? {
+        URL(string: BrowserWebAuthnSecurityOrigin(origin: self).serializedString)
+    }
+}
