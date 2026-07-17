@@ -19,6 +19,10 @@ ALLOWED_IGNORED_PREFIXES = (
 XCODE_PACKAGE_RESOLVED = (
     "cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
 )
+SWIFT_FRONTEND_XCODE_LOCKFILE_PREFIX = "cmux-tui/frontends/swift/"
+XCODE_LOCKFILE_SUFFIX = (
+    ".xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+)
 XCODE_PROJECT_FILE = "cmux.xcodeproj/project.pbxproj"
 IOS_WORKSPACE_PACKAGE_RESOLVED = (
     "ios/cmux.xcworkspace/xcshareddata/swiftpm/Package.resolved"
@@ -287,6 +291,15 @@ def xcode_package_reference_changed(
 
 def is_expected_lockfile_path(lockfile: str, roots: set[str]) -> bool:
     if lockfile in EXPECTED_XCODE_LOCKFILES:
+        return True
+    # Swift frontends may track both their package-local lockfile and the
+    # lockfile used by their checked-in Xcode project, just as the root Xcode
+    # project does. Keep this allowance narrow so derived/build lockfiles in
+    # other locations remain policy violations.
+    if (
+        lockfile.startswith(SWIFT_FRONTEND_XCODE_LOCKFILE_PREFIX)
+        and lockfile.endswith(XCODE_LOCKFILE_SUFFIX)
+    ):
         return True
     if has_skipped_part(lockfile):
         return False
