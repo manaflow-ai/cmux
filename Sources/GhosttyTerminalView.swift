@@ -12197,21 +12197,6 @@ struct GhosttyTerminalView: NSViewRepresentable {
         return !hostedViewHasSuperview
     }
 
-    /// What an update may do to the hosted view's immediate visible/active
-    /// state.
-    enum ImmediateHostedStateAction: Equatable {
-        /// The owner with a live binding applies both flags.
-        case applyVisibleAndActive
-        /// A bound host that lost the lease may still un-show its own
-        /// surface — and nothing more. Active/focus state stays
-        /// ownership-gated. (An OWNER's hide is allowed whether or not it is
-        /// currently bound — the lease is authoritative for the surface's
-        /// state, and that has been the apply rule since before this enum.)
-        case hideOnly
-        /// A non-owner that is not bound must not touch the hosted view.
-        case deferred
-    }
-
     /// The complete immediate visible/active apply decision.
     ///
     /// Hiding never needs lease ownership or a live binding generation.
@@ -12227,7 +12212,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         desiredVisibleInUI: Bool,
         hostedViewHasSuperview: Bool,
         isBoundToCurrentHost: Bool
-    ) -> ImmediateHostedStateAction {
+    ) -> GhosttyTerminalImmediateHostedStateAction {
         if portalBindingLive, hostOwnsPortal, shouldApplyImmediateHostedStateUpdate(
             desiredVisibleInUI: desiredVisibleInUI,
             hostedViewHasSuperview: hostedViewHasSuperview,
