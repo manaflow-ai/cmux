@@ -9352,7 +9352,7 @@ mod tests {
                 updates += 1;
             }
             app.handle(event).unwrap();
-            if !app.session.has_pending_mutations() {
+            if !app.session.has_pending_mutations() && updates == 1 {
                 break;
             }
         }
