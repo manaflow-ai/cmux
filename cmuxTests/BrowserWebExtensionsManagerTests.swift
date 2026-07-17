@@ -365,6 +365,41 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
+    @Test func rejectedSymlinkPackageNeverActivatesAContext() async throws {
+        let sourceRoot = try Self.makeExtensionsRoot()
+        let managedRoot = try Self.makeExtensionsRoot()
+        defer {
+            try? FileManager.default.removeItem(at: sourceRoot)
+            try? FileManager.default.removeItem(at: managedRoot)
+        }
+        let source = try Self.writeExtension(
+            named: "symlink-package",
+            in: sourceRoot,
+            manifest: Self.minimalManifest
+        )
+        try "// no-op".write(
+            to: source.appendingPathComponent("content.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.createSymbolicLink(
+            at: source.appendingPathComponent("linked-resource.js"),
+            withDestinationURL: source.appendingPathComponent("content.js")
+        )
+        let manager = BrowserWebExtensionsManager(
+            directory: managedRoot,
+            controllerConfiguration: .nonPersistent()
+        )
+
+        await #expect(throws: BrowserWebExtensionInstallError.self) {
+            _ = try await manager.installExtension(from: source)
+        }
+
+        #expect(manager.loadedContexts.isEmpty)
+        #expect(manager.controller.extensionContexts.isEmpty)
+    }
+
+    @available(macOS 15.4, *)
     @Test func contentScriptOnlyMatchPatternsAreGranted() async throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
