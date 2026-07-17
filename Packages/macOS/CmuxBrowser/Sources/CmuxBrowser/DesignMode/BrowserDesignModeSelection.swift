@@ -48,16 +48,18 @@ public nonisolated struct BrowserDesignModeSelection: Codable, Equatable, Sendab
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         selector = try container.decode(String.self, forKey: .selector)
-        selectors = try container.decode([String].self, forKey: .selectors)
+        // Every collection/string field tolerates omission: the prompt payload
+        // leaves empty fields out entirely to stay small.
+        selectors = try container.decodeIfPresent([String].self, forKey: .selectors) ?? []
         xpath = try container.decodeIfPresent(String.self, forKey: .xpath) ?? ""
         color = try container.decodeIfPresent(String.self, forKey: .color) ?? ""
         tagName = try container.decode(String.self, forKey: .tagName)
-        domSnippet = try container.decode(String.self, forKey: .domSnippet)
-        textContent = try container.decode(String.self, forKey: .textContent)
-        textEditable = try container.decode(Bool.self, forKey: .textEditable)
+        domSnippet = try container.decodeIfPresent(String.self, forKey: .domSnippet) ?? ""
+        textContent = try container.decodeIfPresent(String.self, forKey: .textContent) ?? ""
+        textEditable = try container.decodeIfPresent(Bool.self, forKey: .textEditable) ?? false
         bounds = try container.decode(BrowserDesignModeRect.self, forKey: .bounds)
         viewport = try container.decode(BrowserDesignModeViewport.self, forKey: .viewport)
-        computedStyles = try container.decode([String: String].self, forKey: .computedStyles)
+        computedStyles = try container.decodeIfPresent([String: String].self, forKey: .computedStyles) ?? [:]
         reactComponents = try container.decodeIfPresent([String].self, forKey: .reactComponents) ?? []
         reactPropKeys = try container.decodeIfPresent([String].self, forKey: .reactPropKeys) ?? []
     }
