@@ -174,15 +174,17 @@ final class SimulatorFramebuffer {
         unregisterCallbacks()
         callbackIdentifiers.removeAll()
         descriptors = candidates
-        guard refreshIntegratedDisplay() else {
-            descriptors.removeAll()
-            throw SimulatorWorkerFailure.framebufferUnavailable(
-                "SimulatorKit did not publish one identifiable integrated display."
-            )
-        }
         do {
             for descriptor in candidates {
                 try registerCallbacks(on: descriptor)
+            }
+            // SimulatorKit publishes screen identity and surfaces lazily when
+            // callbacks attach. Inspecting descriptors before registration can
+            // reject a valid display immediately after app or worker restart.
+            guard refreshIntegratedDisplay() else {
+                throw SimulatorWorkerFailure.framebufferUnavailable(
+                    "SimulatorKit did not publish one identifiable integrated display."
+                )
             }
         } catch {
             unregisterCallbacks()
