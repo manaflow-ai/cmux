@@ -52,20 +52,16 @@ extension MobileShellComposite {
                     await self.loadPairedMacs()
                 }
                 guard await self.isScopeCurrent(scope) else { return }
-                let knownMacs = self.pairedMacsForIdentityMatching
                 if self.connectionState != .connected,
-                   let activeMacID = self.pairedMacs.first(where: { $0.isActive })?.macDeviceID {
-                    let activeIDs = Self.macDeviceIDsForLogicalPairedMac(
-                        activeMacID,
-                        in: knownMacs,
-                        supportedKinds: self.runtime?.supportedRouteKinds ?? [],
-                        routeSelection: self.routeSelection
+                   let activeMac = self.pairedMacs.first(where: { $0.isActive }) {
+                    let activeIDs = self.pairedMacAliasIDs(
+                        for: activeMac.macDeviceID,
+                        instanceTag: activeMac.instanceTag
                     )
                     let hasOnlineAuthority = activeIDs.contains { deviceID in
-                        let instanceTag = knownMacs.first { $0.macDeviceID == deviceID }?.instanceTag
                         return self.presenceMap.reconnectRouteAuthority(
                             deviceId: deviceID,
-                            pairedMacInstanceTag: instanceTag
+                            pairedMacInstanceTag: activeMac.instanceTag
                         ) != nil
                     }
                     if hasOnlineAuthority {
@@ -85,7 +81,11 @@ extension MobileShellComposite {
     ) async -> Bool {
         guard let routes = instance.routes, await isScopeCurrent(scope) else { return false }
         let deviceId = instance.deviceId
-        guard await !isForgottenMacDeviceID(deviceId, scope: scope) else { return false }
+        guard await !isForgottenMacDeviceID(
+            deviceId,
+            instanceTag: instance.tag,
+            scope: scope
+        ) else { return false }
         if let deviceIndex = registryDevices.firstIndex(where: { $0.deviceId == deviceId }),
            let instanceIndex = registryDevices[deviceIndex].instances
                .firstIndex(where: { $0.tag == instance.tag }) {
@@ -117,7 +117,11 @@ extension MobileShellComposite {
             )
             guard wrote else { return false }
             guard await isScopeCurrent(scope) else { return true }
-            _ = await removeStoredPairedMacIfForgotten(mac.macDeviceID, scope: scope)
+            _ = await removeStoredPairedMacIfForgotten(
+                mac.macDeviceID,
+                instanceTag: mac.instanceTag,
+                scope: scope
+            )
             return true
         } catch {
             presenceRouteSyncLog.debug(

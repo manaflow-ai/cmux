@@ -107,7 +107,7 @@ import Testing
         #expect(rows.first?.teamID == nil)
     }
 
-    @Test func newerTeamlessDuplicateKeepsLogicalActiveSelection() async throws {
+    @Test func newerTeamlessSiblingTagDoesNotReplaceActiveSelectedTag() async throws {
         let (inner, directory) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: directory) }
         let feature = IOSBuildScopedPairedMacStore(
@@ -138,15 +138,18 @@ import Testing
         let rows = try await feature.loadAll(
             stackUserID: "user-1", teamID: "team-a"
         )
-        let row = try #require(rows.first)
-        #expect(rows.count == 1)
-        #expect(row.teamID == nil)
-        #expect(row.instanceTag == "feature-b")
-        #expect(row.routes == [try route("10.0.0.2")])
-        #expect(row.isActive)
+        #expect(rows.count == 2)
+        let selected = try #require(rows.first { $0.instanceTag == "feature-a" })
+        let fallback = try #require(rows.first { $0.instanceTag == "feature-b" })
+        #expect(selected.teamID == "team-a")
+        #expect(selected.routes == [try route("10.0.0.1")])
+        #expect(selected.isActive)
+        #expect(fallback.teamID == nil)
+        #expect(fallback.routes == [try route("10.0.0.2")])
+        #expect(!fallback.isActive)
         #expect(try await feature.activeMac(
             stackUserID: "user-1", teamID: "team-a"
-        )?.instanceTag == "feature-b")
+        )?.instanceTag == "feature-a")
     }
 
     @Test func selectedTeamUpsertClaimsTeamlessScopedRow() async throws {

@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobileShellModel
+import CmuxMobileSupport
 import Darwin
 import Foundation
 
@@ -10,16 +11,17 @@ struct MobileShellRouteSelection: Sendable {
         self.routeAuthPolicy = routeAuthPolicy
     }
 
-    /// Whether route selection should avoid loopback routes. A loopback route
+    /// Whether route selection must reject loopback routes. A loopback route
     /// (`.debugLoopback`, `127.0.0.1`) names the host it runs on, so on a
     /// physical device it can only ever reach the phone itself, never a remote
-    /// Mac. On the simulator `127.0.0.1` IS the host Mac, so loopback is valid
-    /// (and is how the dev/UI-test mock host attaches).
+    /// Mac. Simulators and explicit mock-data UI tests host their test server at
+    /// loopback, so those harnesses opt into it instead of weakening real-device
+    /// reconnect for every debug build.
     var prefersNonLoopbackRoutes: Bool {
-        #if targetEnvironment(simulator)
-        false
+        #if os(iOS) && !targetEnvironment(simulator)
+        !UITestConfig.mockDataEnabled
         #else
-        true
+        false
         #endif
     }
 
@@ -49,12 +51,12 @@ struct MobileShellRouteSelection: Sendable {
     /// Ordered host/port reconnect candidates for a Mac, preserving the single-route
     /// preference policy but keeping fallbacks available for the same Mac.
     ///
-    /// With `preferNonLoopback` (physical devices) the list NEVER contains a
-    /// `.debugLoopback` route while any real candidate exists - not even as a
-    /// trailing fallback. Callers iterate every candidate, so a loopback tail
-    /// entry would get dialed once the real routes fail; on a phone that reaches
-    /// whatever local process is listening on 127.0.0.1. Loopback stays reachable
-    /// only as the sole supported route (the on-device XCUITest mock host).
+    /// With `preferNonLoopback` (physical devices) the list never contains a
+    /// `.debugLoopback` route — not even as the sole route. On a phone that
+    /// address names the phone itself, so a stale backup carrying only the
+    /// Mac's debug loopback route must fail closed instead of dialing a local
+    /// port that can never reach the Mac. Explicit mock/simulator harnesses
+    /// pass `false` and retain loopback for their in-process host.
     func reconnectHostPortRoutes(
         _ routes: [CmxAttachRoute],
         supportedKinds: [CmxAttachTransportKind],
@@ -94,7 +96,7 @@ struct MobileShellRouteSelection: Sendable {
             }, to: &candidates)
             appendCandidates(where: routeHasVerifiedTailscaleProvenance, to: &candidates)
             appendCandidates(where: { $0.kind != .debugLoopback }, to: &candidates)
-            guard candidates.isEmpty else { return candidates }
+            return candidates
         }
         appendCandidates(where: { _ in true }, to: &candidates)
         return candidates

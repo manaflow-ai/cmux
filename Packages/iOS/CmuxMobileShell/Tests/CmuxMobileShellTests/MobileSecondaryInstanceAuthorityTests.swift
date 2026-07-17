@@ -170,6 +170,12 @@ import Testing
             await shell.switchToMac(macDeviceID: "mac-b")
         }
         #expect(await router.waitForCount(of: "workspace.list", atLeast: 1))
+        try await pairedStore.remove(
+            macDeviceID: "mac-b",
+            instanceTag: "feature-a",
+            stackUserID: "user-1",
+            teamID: "team-a"
+        )
         try await pairedStore.upsert(
             macDeviceID: "mac-b",
             displayName: "Studio",
@@ -268,6 +274,12 @@ import Testing
             await shell.refreshSecondaryMacWorkspaces()
         }
         #expect(await router.waitForCount(of: "workspace.list", atLeast: 1))
+        try await pairedStore.remove(
+            macDeviceID: "mac-b",
+            instanceTag: "feature-a",
+            stackUserID: "user-1",
+            teamID: "team-a"
+        )
         try await pairedStore.upsert(
             macDeviceID: "mac-b",
             displayName: "Studio",

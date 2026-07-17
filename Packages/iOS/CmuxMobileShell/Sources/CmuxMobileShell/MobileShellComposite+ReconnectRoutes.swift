@@ -76,7 +76,7 @@ extension MobileShellComposite {
         )
             .filter { supportedKinds.isEmpty || supportedKinds.contains($0.kind) }
             .sorted(by: Self.routeSortsBefore)
-        if preferNonLoopback, ordered.contains(where: { $0.kind != .debugLoopback }) {
+        if preferNonLoopback {
             ordered.removeAll { $0.kind == .debugLoopback }
         }
         let irohRoutes = ordered.filter { $0.kind == .iroh }
@@ -108,7 +108,11 @@ extension MobileShellComposite {
             ), let self else { return }
             await self.performSerializedPairedMacWrite(ifStillCurrent: nil) {
                 guard await self.isScopeCurrent(scope),
-                      await !self.isForgottenMacDeviceID(macDeviceID, scope: scope) else { return }
+                      await !self.isForgottenMacDeviceID(
+                        macDeviceID,
+                        instanceTag: capturedInstanceTag,
+                        scope: scope
+                      ) else { return }
                 let activeMac: MobilePairedMac?
                 do {
                     activeMac = try await pairedMacStore.activeMac(
@@ -120,7 +124,11 @@ extension MobileShellComposite {
                     return
                 }
                 guard await self.isScopeCurrent(scope),
-                      await !self.isForgottenMacDeviceID(macDeviceID, scope: scope),
+                      await !self.isForgottenMacDeviceID(
+                        macDeviceID,
+                        instanceTag: capturedInstanceTag,
+                        scope: scope
+                      ),
                       DeviceRegistryService.shouldApplyRegistryRefresh(
                         isSignedIn: self.isSignedIn,
                         capturedUserID: scope.userID,
@@ -146,9 +154,14 @@ extension MobileShellComposite {
                     reconnectRouteLog.debug("registry refresh upsert failed: \(String(describing: error), privacy: .public)")
                     return
                 }
-                if await self.isForgottenMacDeviceID(macDeviceID, scope: scope) {
+                if await self.isForgottenMacDeviceID(
+                    macDeviceID,
+                    instanceTag: capturedInstanceTag,
+                    scope: scope
+                ) {
                     try? await pairedMacStore.remove(
                         macDeviceID: macDeviceID,
+                        instanceTag: capturedInstanceTag,
                         stackUserID: scope.userID,
                         teamID: scope.teamID
                     )
@@ -162,13 +175,11 @@ extension MobileShellComposite {
 
     /// The first reachable host/port route to a Mac, in priority order.
     ///
-    /// When `preferNonLoopback` is set (physical devices), a real route
-    /// (`.tailscale` etc.) is always chosen over a `.debugLoopback` route even
-    /// if the loopback route has a lower (more-preferred) priority, because a
-    /// loopback route can never reach a remote Mac from a physical phone. A
-    /// loopback route is used only when it is the sole supported route — the
-    /// on-device XCUITest mock host, which serves a real listener on `127.0.0.1`
-    /// inside the test runner.
+    /// When `preferNonLoopback` is set (physical devices), `.debugLoopback`
+    /// routes are excluded entirely — even as the sole route — because on a
+    /// phone `127.0.0.1` names the phone itself and can never reach the Mac.
+    /// Mock/simulator harnesses pass `false` to retain their in-process
+    /// loopback host.
     static func firstReconnectHostPortRoute(
         _ routes: [CmxAttachRoute],
         supportedKinds: [CmxAttachTransportKind],
@@ -260,7 +271,11 @@ extension MobileShellComposite {
                   pairedMacs: pairedMacs,
                   registryDevices: nil
               ).currentMac(for: captured),
-              await !isForgottenMacDeviceID(captured.macDeviceID, scope: scope) else {
+              await !isForgottenMacDeviceID(
+                  captured.macDeviceID,
+                  instanceTag: captured.instanceTag,
+                  scope: scope
+              ) else {
             return false
         }
         return currentMac.routes.contains { $0.kind == .tailscale }
@@ -275,10 +290,18 @@ extension MobileShellComposite {
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         guard let snapshot,
               await isScopeCurrent(scope),
-              await !isForgottenMacDeviceID(mac.macDeviceID, scope: scope),
+              await !isForgottenMacDeviceID(
+                  mac.macDeviceID,
+                  instanceTag: mac.instanceTag,
+                  scope: scope
+              ),
               let currentMac = snapshot.currentMac(for: mac),
               await isScopeCurrent(scope),
-              await !isForgottenMacDeviceID(mac.macDeviceID, scope: scope) else {
+              await !isForgottenMacDeviceID(
+                  mac.macDeviceID,
+                  instanceTag: mac.instanceTag,
+                  scope: scope
+              ) else {
             return .inconclusive
         }
         let localRoutes = Self.storedReconnectRoutes(
@@ -379,14 +402,11 @@ extension MobileShellComposite {
     /// Ordered host/port reconnect candidates for a Mac, preserving the single-route
     /// preference policy but keeping fallbacks available for the same Mac.
     ///
-    /// With `preferNonLoopback` (physical devices) the list NEVER contains a
-    /// `.debugLoopback` route while any real candidate exists — not even as a
-    /// trailing fallback. Callers iterate every candidate, so a loopback tail
-    /// entry would get dialed once the real routes fail; on a phone that
-    /// reaches whatever local process is listening on 127.0.0.1, and the
-    /// manual attach-ticket path treats loopback as trusted. Loopback stays
-    /// reachable only as the sole supported route (the on-device XCUITest
-    /// mock host).
+    /// With `preferNonLoopback` (real physical devices) the list never contains
+    /// a `.debugLoopback` route. Callers iterate every candidate, so keeping
+    /// loopback as either a tail fallback or the sole route would dial the
+    /// phone's own `127.0.0.1`, never the saved Mac. Explicit mock/simulator
+    /// harnesses pass `false` and retain loopback for their in-process host.
     static func reconnectHostPortRoutes(
         _ routes: [CmxAttachRoute],
         supportedKinds: [CmxAttachTransportKind],
