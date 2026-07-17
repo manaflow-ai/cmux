@@ -160,9 +160,9 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
-          gh workflow run cmux-tui-release.yml --repo "$GITHUB_REPOSITORY" --ref "refs/tags/$TAG" -f version="$VERSION"
-          gh workflow run tui-publish-pypi.yml --repo "$GITHUB_REPOSITORY" --ref "refs/tags/$TAG" -f version="$VERSION"
-          gh workflow run tui-publish-npm.yml --repo "$GITHUB_REPOSITORY" --ref "refs/tags/$TAG" -f version="$VERSION" -f confirm_tui_cmux=true
+          gh workflow run cmux-tui-release.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG" -f version="$VERSION"
+          gh workflow run tui-publish-pypi.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG" -f version="$VERSION"
+          gh workflow run tui-publish-npm.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG" -f version="$VERSION" -f confirm_tui_cmux=true
           {
             echo "- Dispatched cmux-tui-release.yml on $TAG"
             echo "- Dispatched npm and PyPI publishers on $TAG"

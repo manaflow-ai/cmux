@@ -13,7 +13,7 @@ use tungstenite::{Error as WsError, Message, WebSocket, client};
 
 pub const CDP_EVENT_QUEUE_CAPACITY: usize = 64;
 const CDP_INGRESS_EVENT_CAPACITY: usize = 1024;
-const CDP_EVENT_QUEUE_MAX_BYTES: usize = 32 * 1024 * 1024;
+pub const CDP_EVENT_QUEUE_MAX_BYTES: usize = 32 * 1024 * 1024;
 
 #[cfg(test)]
 static RETAINED_SIZE_CALLS: AtomicU64 = AtomicU64::new(0);
@@ -123,7 +123,7 @@ impl EventQueue {
         if state.closed {
             return Err(());
         }
-        let event_bytes = cdp_event_retained_bytes(&event);
+        let event_bytes = event_retained_bytes(&event);
         if let Some(index) =
             state.events.iter().position(|queued| same_replaceable(&queued.event, &event))
         {
@@ -179,7 +179,7 @@ impl EventQueue {
         }
         state.events.clear();
         let event = CdpEvent::Closed(reason.to_string());
-        let retained_bytes = cdp_event_retained_bytes(&event);
+        let retained_bytes = event_retained_bytes(&event);
         state.retained_bytes = retained_bytes;
         state.events.push_back(QueuedEvent { event, retained_bytes });
         state.closed = true;
@@ -198,7 +198,7 @@ fn same_replaceable(queued: &CdpEvent, incoming: &CdpEvent) -> bool {
     }
 }
 
-fn cdp_event_retained_bytes(event: &CdpEvent) -> usize {
+pub fn event_retained_bytes(event: &CdpEvent) -> usize {
     #[cfg(test)]
     RETAINED_SIZE_CALLS.fetch_add(1, Ordering::Relaxed);
     match event {
