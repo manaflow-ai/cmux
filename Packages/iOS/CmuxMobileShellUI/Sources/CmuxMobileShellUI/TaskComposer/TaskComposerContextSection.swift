@@ -71,7 +71,6 @@ struct TaskComposerContextSection: View {
                     .stroke(Color.primary.opacity(0.075), lineWidth: 1)
             }
         }
-        .accessibilityIdentifier("MobileTaskComposerWorkspaceContext")
     }
 
     @ViewBuilder

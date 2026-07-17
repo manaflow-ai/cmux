@@ -117,7 +117,6 @@ struct TaskComposerPrimaryAction: View {
         .padding(.bottom, 8)
         .frame(maxWidth: .infinity)
         .background(.bar)
-        .accessibilityIdentifier("MobileTaskComposerPrimaryAction")
         .sensoryFeedback(.impact(weight: .light), trigger: isSubmitting) { oldValue, newValue in
             !oldValue && newValue
         }

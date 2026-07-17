@@ -26,6 +26,8 @@ struct TaskComposerTemplatePicker: View {
                     .frame(minHeight: 44)
                 }
                 .buttonStyle(.plain)
+                .frame(minWidth: 44, minHeight: 46)
+                .contentShape(Rectangle())
                 .foregroundStyle(.secondary)
                 .disabled(isDisabled)
                 .accessibilityIdentifier("MobileTaskComposerEditTemplatesButton")
@@ -59,7 +61,6 @@ struct TaskComposerTemplatePicker: View {
                 .contentMargins(.horizontal, 1, for: .scrollContent)
             }
         }
-        .accessibilityIdentifier("MobileTaskComposerAgentPicker")
     }
 }
 #endif
