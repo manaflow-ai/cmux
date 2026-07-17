@@ -480,19 +480,25 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             guard let textView,
                   let layoutManager = textView.layoutManager,
                   let container = textView.textContainer else { return }
+            let height: CGFloat
             // An emptied prompt snaps back to the original single-line size.
-            guard textView.textStorage?.length ?? 0 > 0 else {
-                onHeightChange(BrowserDesignModeTokenStyle.singleLineFieldHeight)
-                return
+            if textView.textStorage?.length ?? 0 > 0 {
+                layoutManager.ensureLayout(for: container)
+                var used = layoutManager.usedRect(for: container).height
+                // Include the trailing empty line fragment or the caret clips
+                // on the final line (same measurement rule as TextBoxInput).
+                if layoutManager.extraLineFragmentTextContainer === container {
+                    used += layoutManager.extraLineFragmentRect.height
+                }
+                height = used + textView.textContainerInset.height * 2
+            } else {
+                height = BrowserDesignModeTokenStyle.singleLineFieldHeight
             }
-            layoutManager.ensureLayout(for: container)
-            var height = layoutManager.usedRect(for: container).height
-            // Include the trailing empty line fragment or the caret clips on
-            // the final line (same measurement rule as TextBoxInput).
-            if layoutManager.extraLineFragmentTextContainer === container {
-                height += layoutManager.extraLineFragmentRect.height
-            }
-            onHeightChange(height + textView.textContainerInset.height * 2)
+            // The Escape reset runs inside updateNSView; publishing @State
+            // during a SwiftUI update pass is silently dropped, which left the
+            // card stuck at its multi-line height. Always defer a turn.
+            let onHeightChange = onHeightChange
+            DispatchQueue.main.async { onHeightChange(height) }
         }
 
         private func attachmentIdentities(in storage: NSTextStorage?) -> [String] {
