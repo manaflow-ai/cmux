@@ -1878,6 +1878,40 @@ final class DiffViewerSchemeTaskLifecycle {
     }
 }
 
+actor DiffViewerAssetStreamLimiter {
+    private var availablePermits: Int
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    init(limit: Int) {
+        precondition(limit > 0)
+        availablePermits = limit
+    }
+
+    func withPermit(_ operation: @Sendable () async -> Void) async {
+        await acquire()
+        await operation()
+        release()
+    }
+
+    private func acquire() async {
+        if availablePermits > 0 {
+            availablePermits -= 1
+            return
+        }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    private func release() {
+        guard let waiter = waiters.popLast() else {
+            availablePermits += 1
+            return
+        }
+        waiter.resume()
+    }
+}
+
 final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     static let scheme = "cmux-diff-viewer"
     static let shared = CmuxDiffViewerURLSchemeHandler()
@@ -1917,6 +1951,8 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     private let lock = NSLock()
     private var sessions: [String: Session] = [:]
     private let taskLifecycle = DiffViewerSchemeTaskLifecycle()
+    private let assetStreamLimiter = DiffViewerAssetStreamLimiter(limit: 2)
+    private static let assetStreamChunkBytes = 1024 * 1024
     // Branch picker routes shell out to the bundled CLI (git). Run them on a
     // dedicated concurrent queue so a slow Git invocation cannot stall asset
     // reads or another picker request.
@@ -2494,6 +2530,8 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         let taskID = ObjectIdentifier(urlSchemeTask as AnyObject)
         let registration = taskLifecycle.register(taskID)
         let lifecycle = taskLifecycle
+        let streamLimiter = assetStreamLimiter
+        let chunkBytes = Self.assetStreamChunkBytes
         let response = HTTPURLResponse(
             url: requestURL,
             statusCode: 200,
@@ -2507,35 +2545,37 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         )
 
         Task.detached(priority: .userInitiated) {
-            do {
-                guard await lifecycle.deliver(registration, {
-                    urlSchemeTask.didReceive(response)
-                }) else { return }
-
-                let reader = try DiffViewerAssetReader(fileURL: file.fileURL)
-                defer {
-                    try? reader.close()
-                }
-
-                while true {
-                    let data = try reader.read(upToCount: 64 * 1024)
-                    if data.isEmpty {
-                        break
-                    }
+            await streamLimiter.withPermit {
+                do {
                     guard await lifecycle.deliver(registration, {
-                        urlSchemeTask.didReceive(data)
+                        urlSchemeTask.didReceive(response)
                     }) else { return }
-                }
 
-                guard await lifecycle.deliver(registration, {
-                    urlSchemeTask.didFinish()
-                }) else { return }
-                await lifecycle.finish(registration)
-            } catch {
-                guard await lifecycle.deliver(registration, {
-                    urlSchemeTask.didFailWithError(error)
-                }) else { return }
-                await lifecycle.finish(registration)
+                    let reader = try DiffViewerAssetReader(fileURL: file.fileURL)
+                    defer {
+                        try? reader.close()
+                    }
+
+                    while true {
+                        let data = try reader.read(upToCount: chunkBytes)
+                        if data.isEmpty {
+                            break
+                        }
+                        guard await lifecycle.deliver(registration, {
+                            urlSchemeTask.didReceive(data)
+                        }) else { return }
+                    }
+
+                    guard await lifecycle.deliver(registration, {
+                        urlSchemeTask.didFinish()
+                    }) else { return }
+                    await lifecycle.finish(registration)
+                } catch {
+                    guard await lifecycle.deliver(registration, {
+                        urlSchemeTask.didFailWithError(error)
+                    }) else { return }
+                    await lifecycle.finish(registration)
+                }
             }
         }
     }

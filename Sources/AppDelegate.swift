@@ -6226,7 +6226,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                    let appDelegate = AppDelegate.shared,
                    let workspace = appDelegate.workspaceFor(tabId: workspaceId),
                    let panel = workspace.panels[targetSurfaceId] as? BrowserPanel,
-                   panel.hasCurrentURL(targetExpectedURL) {
+                   panel.isShowingDiffViewerLoadingState(expectedURL: targetExpectedURL) {
                     _ = workspace.closePanel(targetSurfaceId, force: true)
                 }
                 NSSound.beep()

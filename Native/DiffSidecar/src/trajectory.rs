@@ -588,17 +588,7 @@ fn for_json_lines(
     }
     let mut reader = BufReader::new(file);
     let mut line = Vec::new();
-    loop {
-        line.clear();
-        let read = reader
-            .read_until(b'\n', &mut line)
-            .map_err(|_| TrajectoryError::Invalid)?;
-        if read == 0 {
-            break;
-        }
-        if line.len() > MAX_JSONL_LINE_BYTES {
-            return Err(TrajectoryError::Invalid);
-        }
+    while read_capped_json_line(&mut reader, &mut line)? {
         if line.iter().all(u8::is_ascii_whitespace) {
             continue;
         }
@@ -609,6 +599,34 @@ fn for_json_lines(
         }
     }
     Ok(())
+}
+
+fn read_capped_json_line(
+    reader: &mut impl BufRead,
+    line: &mut Vec<u8>,
+) -> Result<bool, TrajectoryError> {
+    line.clear();
+    loop {
+        let (consumed, terminated) = {
+            let available = reader.fill_buf().map_err(|_| TrajectoryError::Invalid)?;
+            if available.is_empty() {
+                return Ok(!line.is_empty());
+            }
+            let consumed = available
+                .iter()
+                .position(|byte| *byte == b'\n')
+                .map_or(available.len(), |index| index + 1);
+            if line.len().saturating_add(consumed) > MAX_JSONL_LINE_BYTES {
+                return Err(TrajectoryError::Invalid);
+            }
+            line.extend_from_slice(&available[..consumed]);
+            (consumed, available[consumed - 1] == b'\n')
+        };
+        reader.consume(consumed);
+        if terminated {
+            return Ok(true);
+        }
+    }
 }
 
 fn canonical_directory(path: &Path) -> Result<PathBuf, TrajectoryError> {

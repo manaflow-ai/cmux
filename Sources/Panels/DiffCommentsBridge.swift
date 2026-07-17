@@ -275,6 +275,10 @@ extension BrowserPanel {
         (webView.url ?? currentURL)?.absoluteString == expectedURL
     }
 
+    func isShowingDiffViewerLoadingState(expectedURL: String) -> Bool {
+        DiffViewerLoadingPage.owns(url: webView.url ?? currentURL, expectedURL: expectedURL)
+    }
+
     @discardableResult
     func navigateFromCLI(_ url: String, expectedURL: String? = nil) -> Bool {
         guard expectedURL.map(hasCurrentURL) != false else { return false }

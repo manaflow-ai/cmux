@@ -123,6 +123,16 @@ enum DiffViewerLoadingPage {
             profileID: BrowserPanel.resolvedProfileID(requested: nil)
         )
     }
+
+    static func owns(url currentURL: URL?, expectedURL: String) -> Bool {
+        guard let currentURL else { return false }
+        if currentURL.absoluteString == expectedURL {
+            return true
+        }
+        return CmuxDiffViewerURLSchemeHandler.diffViewerComponents(from: currentURL)?
+            .requestPath
+            .hasSuffix("-opening.html") == true
+    }
 }
 
 extension BrowserPanel {
