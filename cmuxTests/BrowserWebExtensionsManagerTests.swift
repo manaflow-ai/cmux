@@ -457,6 +457,79 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
+    @Test func presentationSnapshotRecognizesEveryManifestActionKind() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let manager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent()
+        )
+
+        for actionKey in ["action", "browser_action", "page_action"] {
+            var manifest = Self.minimalManifest
+            manifest["name"] = actionKey
+            manifest[actionKey] = ["default_title": actionKey]
+            let directory = try Self.writeExtension(
+                named: actionKey,
+                in: root,
+                manifest: manifest
+            )
+            try "// no-op".write(
+                to: directory.appendingPathComponent("content.js"),
+                atomically: true,
+                encoding: .utf8
+            )
+            try await manager.approveInstalledCandidate(directory)
+        }
+
+        await manager.loadExtensions()
+
+        let items = manager.presentationSnapshot().extensions
+        #expect(items.map(\.name) == ["action", "browser_action", "page_action"])
+        #expect(items.allSatisfy(\.hasAction))
+    }
+
+    @available(macOS 15.4, *)
+    @Test func toolbarActionPinningPersistsAcrossManagerRelaunch() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        var manifest = Self.minimalManifest
+        manifest["action"] = ["default_title": "Pinned action"]
+        let directory = try Self.writeExtension(
+            named: "pinned-action",
+            in: root,
+            manifest: manifest
+        )
+        try "// no-op".write(
+            to: directory.appendingPathComponent("content.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let identifier = "cmux-browser-extension-pinned-action"
+        let firstManager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent()
+        )
+        try await firstManager.approveInstalledCandidate(directory)
+        await firstManager.loadExtensions()
+
+        #expect(firstManager.presentationSnapshot().extensions.first?.isToolbarPinned == false)
+        try await firstManager.setToolbarActionPinned(true, uniqueIdentifier: identifier)
+        #expect(firstManager.presentationSnapshot().extensions.first?.isToolbarPinned == true)
+        firstManager.shutdown()
+
+        let relaunchedManager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent()
+        )
+        await relaunchedManager.loadExtensions()
+
+        #expect(relaunchedManager.presentationSnapshot().extensions.first?.isToolbarPinned == true)
+        try await relaunchedManager.setToolbarActionPinned(false, uniqueIdentifier: identifier)
+        #expect(relaunchedManager.presentationSnapshot().extensions.first?.isToolbarPinned == false)
+    }
+
+    @available(macOS 15.4, *)
     @Test func presentationSnapshotUsesEachPackageManifestIconWithoutNameMapping() async throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
