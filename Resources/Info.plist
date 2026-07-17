@@ -127,6 +127,11 @@
 		<string>arm64</string>
 		<string>x86_64</string>
 	</array>
+	<key>LSEnvironment</key>
+	<dict>
+		<key>SWIFT_IS_CURRENT_EXECUTOR_LEGACY_MODE_OVERRIDE</key>
+		<string>legacy</string>
+	</dict>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoadsInWebContent</key>
