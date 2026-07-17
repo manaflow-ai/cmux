@@ -77,6 +77,7 @@ public final class MobileIrohRuntimeComposition:
     private let brokerFactory: BrokerFactory
     private let deviceID: @Sendable () -> String
     private let tag: String
+    private let exactDiscoveryTagOnly: Bool
     private let now: @Sendable () -> Date
     private let startNetworkPathObservation: @Sendable () async -> Void
     private let networkPathSnapshot: @Sendable () async throws -> CmxIrohNetworkPathSnapshot
@@ -120,6 +121,7 @@ public final class MobileIrohRuntimeComposition:
     public convenience init(
         apiBaseURL: String,
         reachability: any ReachabilityProviding,
+        exactDiscoveryTagOnly: Bool = false,
         defaults: UserDefaults = .standard,
         infoDictionary: [String: Any]? = Bundle.main.infoDictionary,
         bundleIdentifier: String? = Bundle.main.bundleIdentifier
@@ -223,6 +225,7 @@ public final class MobileIrohRuntimeComposition:
                 infoDictionary: infoDictionary,
                 bundleIdentifier: bundleIdentifier
             ),
+            exactDiscoveryTagOnly: exactDiscoveryTagOnly,
             now: { Date() },
             lanPeerDiscovery: lanPeerDiscovery,
             startNetworkPathObservation: {
@@ -253,6 +256,7 @@ public final class MobileIrohRuntimeComposition:
         brokerFactory: @escaping BrokerFactory,
         deviceID: @escaping @Sendable () -> String,
         tag: String,
+        exactDiscoveryTagOnly: Bool = false,
         now: @escaping @Sendable () -> Date,
         routeCatalog: MobileIrohRouteCatalog = MobileIrohRouteCatalog(),
         lanPeerDiscovery: CmxIrohLANPeerDiscovery? = nil,
@@ -276,6 +280,7 @@ public final class MobileIrohRuntimeComposition:
         self.brokerFactory = brokerFactory
         self.deviceID = deviceID
         self.tag = tag
+        self.exactDiscoveryTagOnly = exactDiscoveryTagOnly
         self.now = now
         self.routeCatalog = routeCatalog
         self.lanPeerDiscovery = lanPeerDiscovery
@@ -335,7 +340,10 @@ public final class MobileIrohRuntimeComposition:
             || generation > consumedDiscoveryGeneration {
             consumedDiscoveryRuntimeID = runtimeID
             consumedDiscoveryGeneration = generation
-            return await routeCatalog.liveMacCandidates(preferredTag: tag)
+            return await routeCatalog.liveMacCandidates(
+                preferredTag: tag,
+                exactTagOnly: exactDiscoveryTagOnly
+            )
         }
         guard await runtime.refreshLiveDiscovery() else {
             guard self.runtime === runtime else { return [] }
@@ -346,7 +354,10 @@ public final class MobileIrohRuntimeComposition:
         guard self.runtime === runtime else { return [] }
         consumedDiscoveryRuntimeID = runtimeID
         consumedDiscoveryGeneration = generation
-        return await routeCatalog.liveMacCandidates(preferredTag: tag)
+        return await routeCatalog.liveMacCandidates(
+            preferredTag: tag,
+            exactTagOnly: exactDiscoveryTagOnly
+        )
     }
 
     /// Resolves a disconnected transport from the active account runtime.

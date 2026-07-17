@@ -17,7 +17,9 @@ struct cmuxApp: App {
         auth.start()
         let iroh = MobileIrohRuntimeComposition(
             apiBaseURL: auth.config.apiBaseURL,
-            reachability: reachability
+            reachability: reachability,
+            exactDiscoveryTagOnly: auth.authEnvironment == .development
+                && MobileIOSBuildScope.current() != nil
         )
         iroh.configure(auth: auth.coordinator)
 

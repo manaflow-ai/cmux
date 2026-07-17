@@ -157,18 +157,21 @@ public actor MobileIrohRouteCatalog {
     /// create a first pairing. The current build wins, followed by stable/default
     /// builds and then broker recency.
     public func liveMacCandidates(
-        preferredTag: String
+        preferredTag: String,
+        exactTagOnly: Bool = false
     ) -> [MobileDiscoveredIrohMac] {
-        liveMacs.sorted { left, right in
-            let leftRank = Self.tagRank(left.instanceTag, preferred: preferredTag)
-            let rightRank = Self.tagRank(right.instanceTag, preferred: preferredTag)
-            if leftRank != rightRank { return leftRank < rightRank }
-            if left.lastSeenAt != right.lastSeenAt {
-                return left.lastSeenAt > right.lastSeenAt
+        liveMacs
+            .filter { !exactTagOnly || $0.instanceTag == preferredTag }
+            .sorted { left, right in
+                let leftRank = Self.tagRank(left.instanceTag, preferred: preferredTag)
+                let rightRank = Self.tagRank(right.instanceTag, preferred: preferredTag)
+                if leftRank != rightRank { return leftRank < rightRank }
+                if left.lastSeenAt != right.lastSeenAt {
+                    return left.lastSeenAt > right.lastSeenAt
+                }
+                if left.deviceID != right.deviceID { return left.deviceID < right.deviceID }
+                return left.instanceTag < right.instanceTag
             }
-            if left.deviceID != right.deviceID { return left.deviceID < right.deviceID }
-            return left.instanceTag < right.instanceTag
-        }
     }
 
     /// Drops live first-pair candidates without disturbing verified routes for
