@@ -33,6 +33,85 @@ import Testing
                 operationID: operationID.uuidString
             )
         ])
+        let createdWorkspace = try #require(
+            store.workspaces.first(where: { $0.name == "Created Workspace" })
+        )
+        #expect(store.selectedWorkspaceID == createdWorkspace.id)
+        #expect(createdWorkspace.terminals.first?.isReady == true)
+    }
+
+    @Test func taskComposerRejectsResponseWithoutCreatedWorkspaceID() async throws {
+        let router = RoutingHostRouter()
+        await router.setWorkspaceCreateResponse(createdWorkspaceID: nil)
+        let store = try await makeRoutingConnectedStore(router: router)
+        let originalWorkspaceIDs = store.workspaces.map(\.id)
+        let originalSelection = store.selectedWorkspaceID
+
+        let result = await store.submitTaskComposer(
+            macDeviceID: "test-mac",
+            spec: MobileWorkspaceCreateSpec(title: "Task", operationID: UUID())
+        )
+
+        guard case let .failure(.rejected(hostDisplayName)) = result else {
+            return #expect(Bool(false), "spec create must reject a response without created_workspace_id")
+        }
+        #expect(hostDisplayName == store.connectedHostName)
+        #expect(store.workspaces.map(\.id) == originalWorkspaceIDs)
+        #expect(store.selectedWorkspaceID == originalSelection)
+    }
+
+    @Test func specCreateRejectsBlankCreatedWorkspaceID() async throws {
+        let router = RoutingHostRouter()
+        await router.setWorkspaceCreateResponse(createdWorkspaceID: " \n\t ")
+        let store = try await makeRoutingConnectedStore(router: router)
+        let originalWorkspaceIDs = store.workspaces.map(\.id)
+        let originalSelection = store.selectedWorkspaceID
+
+        let result = await store.createWorkspaceRequest(
+            spec: MobileWorkspaceCreateSpec(title: "Task", operationID: UUID())
+        )
+
+        guard case let .failure(.rejected(hostDisplayName)) = result else {
+            return #expect(Bool(false), "spec create must reject a blank created_workspace_id")
+        }
+        #expect(hostDisplayName == store.connectedHostName)
+        #expect(store.workspaces.map(\.id) == originalWorkspaceIDs)
+        #expect(store.selectedWorkspaceID == originalSelection)
+    }
+
+    @Test func specCreateRejectsCreatedWorkspaceIDMissingFromReturnedList() async throws {
+        let router = RoutingHostRouter()
+        await router.setWorkspaceCreateResponse(
+            createdWorkspaceID: "workspace-created",
+            includesCreatedWorkspace: false
+        )
+        let store = try await makeRoutingConnectedStore(router: router)
+        let originalWorkspaceIDs = store.workspaces.map(\.id)
+        let originalSelection = store.selectedWorkspaceID
+
+        let result = await store.createWorkspaceRequest(
+            spec: MobileWorkspaceCreateSpec(title: "Task", operationID: UUID())
+        )
+
+        guard case let .failure(.rejected(hostDisplayName)) = result else {
+            return #expect(Bool(false), "spec create must reject an ID absent from the returned workspace list")
+        }
+        #expect(hostDisplayName == store.connectedHostName)
+        #expect(store.workspaces.map(\.id) == originalWorkspaceIDs)
+        #expect(store.selectedWorkspaceID == originalSelection)
+    }
+
+    @Test func specLessCreateStillAcceptsResponseWithoutCreatedWorkspaceID() async throws {
+        let router = RoutingHostRouter()
+        await router.setWorkspaceCreateResponse(createdWorkspaceID: nil)
+        let store = try await makeRoutingConnectedStore(router: router)
+
+        let result = await store.createWorkspaceRequest()
+
+        guard case .success = result else {
+            return #expect(Bool(false), "ordinary workspace create must preserve legacy response compatibility")
+        }
+        #expect(await router.recordedWorkspaceCreateCount() == 1)
     }
 
     @Test func submitTaskComposerPreservesInitialCommandVerbatim() async throws {

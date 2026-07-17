@@ -63,6 +63,8 @@ actor RoutingHostRouter {
     private var hostCapabilities = ["workspace.task_create.v1"]
     private var rejectWorkspaceCreate = false
     private var workspaceCreateError: (code: String?, message: String)?
+    private var workspaceCreateResponseCreatedWorkspaceID: String? = "workspace-created"
+    private var workspaceCreateResponseIncludesCreatedWorkspace = true
     private var directorySearchError: (code: String?, message: String)?
     private var holdFirstWorkspaceCreate = false
     private var firstWorkspaceCreateHeld = false
@@ -112,6 +114,14 @@ actor RoutingHostRouter {
 
     func setWorkspaceCreateError(code: String?, message: String) {
         workspaceCreateError = (code, message)
+    }
+
+    func setWorkspaceCreateResponse(
+        createdWorkspaceID: String?,
+        includesCreatedWorkspace: Bool = true
+    ) {
+        workspaceCreateResponseCreatedWorkspaceID = createdWorkspaceID
+        workspaceCreateResponseIncludesCreatedWorkspace = includesCreatedWorkspace
     }
 
     func setDirectorySearchError(code: String?, message: String) {
@@ -234,34 +244,38 @@ actor RoutingHostRouter {
                     message: workspaceCreateError.message
                 )
             }
-            return try? Self.resultFrame(id: id, result: [
-                "workspaces": [
-                    [
-                        "id": Self.workspaceID,
-                        "title": "Routing Workspace",
-                        "current_directory": "/tmp/route",
-                        "is_selected": false,
-                        "terminals": [],
-                    ],
-                    [
-                        "id": "workspace-created",
-                        "title": "Created Workspace",
-                        "current_directory": "/tmp/created",
-                        "is_selected": true,
-                        "terminals": [
-                            [
-                                "id": "terminal-created",
-                                "title": "Created",
-                                "current_directory": "/tmp/created",
-                                "is_focused": true,
-                                "is_ready": true,
-                            ],
+            var workspaces: [[String: Any]] = [[
+                "id": Self.workspaceID,
+                "title": "Routing Workspace",
+                "current_directory": "/tmp/route",
+                "is_selected": false,
+                "terminals": [],
+            ]]
+            if workspaceCreateResponseIncludesCreatedWorkspace {
+                workspaces.append([
+                    "id": "workspace-created",
+                    "title": "Created Workspace",
+                    "current_directory": "/tmp/created",
+                    "is_selected": true,
+                    "terminals": [
+                        [
+                            "id": "terminal-created",
+                            "title": "Created",
+                            "current_directory": "/tmp/created",
+                            "is_focused": true,
+                            "is_ready": true,
                         ],
                     ],
-                ],
-                "created_workspace_id": "workspace-created",
+                ])
+            }
+            var result: [String: Any] = [
+                "workspaces": workspaces,
                 "created_terminal_id": "terminal-created",
-            ])
+            ]
+            if let workspaceCreateResponseCreatedWorkspaceID {
+                result["created_workspace_id"] = workspaceCreateResponseCreatedWorkspaceID
+            }
+            return try? Self.resultFrame(id: id, result: result)
         case "mobile.directory.search":
             directorySearchQueries.append(info.query ?? "")
             if let directorySearchError {
