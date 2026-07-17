@@ -14,10 +14,11 @@ use crate::event_bus::{MuxEventBroadcaster, MuxEventReceiver};
 use crate::layout::{Rect, layout_screen};
 use crate::model::{Node, Pane, Screen, State, Workspace};
 use crate::pairing::PairingBroker;
+use crate::presentation::PresentationRegistry;
 use crate::surface::{DefaultColors, Surface, SurfaceOptions};
 use crate::{
-    PairingChallenge, PairingDecision, PairingError, PaneId, ScreenId, SplitDir, SurfaceId,
-    WorkspaceId,
+    DaemonInstanceId, PairingChallenge, PairingDecision, PairingError, PaneId, ScreenId, SessionId,
+    SplitDir, SurfaceId, WorkspaceId,
 };
 
 pub type SurfaceResizeReporter = Arc<dyn Fn(SurfaceId, (u16, u16), Option<u64>) + Send + Sync>;
@@ -343,20 +344,35 @@ pub struct Mux {
     agent_records: Mutex<HashMap<SurfaceId, AgentRecord>>,
     surface_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
     pub(crate) control_clients: crate::server::ClientRegistry,
+    pub(crate) presentations: PresentationRegistry,
     pairing: PairingBroker,
     #[cfg(test)]
     test_surface_runtime: bool,
     pub session: String,
+    pub daemon_instance_id: DaemonInstanceId,
+    pub session_id: SessionId,
 }
 
 impl Mux {
     pub fn new(session: impl Into<String>, surface_options: SurfaceOptions) -> Arc<Self> {
-        Self::new_with_test_surface_runtime(session, surface_options, false)
+        Self::new_with_session_id(session, surface_options, SessionId::new())
+    }
+
+    /// Construct a mux for a known persistent session identity. Persistence
+    /// loaders can reuse `session_id`; every constructed mux still receives a
+    /// fresh daemon instance identity.
+    pub fn new_with_session_id(
+        session: impl Into<String>,
+        surface_options: SurfaceOptions,
+        session_id: SessionId,
+    ) -> Arc<Self> {
+        Self::new_with_test_surface_runtime(session, surface_options, session_id, false)
     }
 
     fn new_with_test_surface_runtime(
         session: impl Into<String>,
         surface_options: SurfaceOptions,
+        session_id: SessionId,
         #[cfg_attr(not(test), allow(unused_variables))] test_surface_runtime: bool,
     ) -> Arc<Self> {
         let session = session.into();
@@ -383,10 +399,13 @@ impl Mux {
             agent_records: Mutex::new(HashMap::new()),
             surface_notifications: Mutex::new(HashMap::new()),
             control_clients: crate::server::ClientRegistry::new(),
+            presentations: PresentationRegistry::new(),
             pairing: PairingBroker::new(),
             #[cfg(test)]
             test_surface_runtime,
             session,
+            daemon_instance_id: DaemonInstanceId::new(),
+            session_id,
         })
     }
 
@@ -395,7 +414,7 @@ impl Mux {
         session: impl Into<String>,
         surface_options: SurfaceOptions,
     ) -> Arc<Self> {
-        Self::new_with_test_surface_runtime(session, surface_options, true)
+        Self::new_with_test_surface_runtime(session, surface_options, SessionId::new(), true)
     }
 
     fn next_id(&self) -> u64 {

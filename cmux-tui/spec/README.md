@@ -11,12 +11,14 @@ The spec version tracks the mux protocol version.
 | Change type | Version rule |
 | --- | --- |
 | Clarification that does not change wire behavior | Patch level of the spec text only |
-| Additive command, event, field, CLI flag, binding helper, or transport option | Minor protocol version |
+| Additive command, event, field, CLI flag, binding helper, or transport option | Minor protocol version, unless a named capability gates a baseline-compatible extension |
 | Removal, rename, incompatible type change, changed error semantics, or changed ordering guarantee | Major protocol version |
 
-Protocol v7 is the implemented baseline. Proposed additions in this directory target the next minor protocol unless a later spec says otherwise.
+Protocol v7 is the implemented baseline. Proposed additions in this directory target the next minor protocol unless a later spec assigns a named capability to a baseline-compatible extension.
 
-Protocol v7 is additive for v6 clients: `attach-surface.mode` defaults to `"bytes"`, and `subscribe.tree_events` defaults to `"coarse"`, so absent v7 selectors retain exact v6 attach and tree-event behavior. A v7 server reports `identify.protocol == 7`; clients must require that value before selecting render mode or using other v7-only fields and commands.
+Protocol v7 is additive for v6 clients: `attach-surface.mode` defaults to `"bytes"`, and `subscribe.tree_events` defaults to `"coarse"`, so absent v7 selectors retain exact v6 attach and tree-event behavior. A v7 server reports `identify.protocol == 7`; clients must require that value before selecting render mode or using other v7-only fields and commands. `identify` and `ping` also report the inclusive `protocol_min` and `protocol_max` range plus named `capabilities`. Existing clients may continue reading only `protocol`. New clients must require a named capability before using a capability-gated protocol-v7 extension.
+
+`presentation-registry-v1` gates `open-presentation`, `close-presentation`, and `list-presentations`. These commands add connection-owned window state without changing the legacy global selection commands.
 
 Generated clients must inspect `identify.protocol` before using features newer than the connected server. Bindings may expose proposed APIs behind version checks, but they must not send proposed commands to an older server unless the caller explicitly opts into probing.
 

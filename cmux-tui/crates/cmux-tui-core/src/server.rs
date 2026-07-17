@@ -44,13 +44,16 @@ use crate::platform::{self, transport};
 use crate::surface::AttachLifecycle;
 use crate::{
     AgentRecord, AgentSource, AgentState, AttachFrame, DefaultColors, Direction, LayoutLeafSpec,
-    LayoutSpec, Mux, MuxEvent, Node, NotificationLevel, PairingDecision, PaneId, RenderAttachFrame,
-    Rgb, ScreenId, SidebarPluginStatus, SplitDir, SurfaceId, SurfaceKind, SurfaceNotification,
-    SurfaceRenderFrame, TerminalColors, TreeDelta, TreeDeltaKind, WorkspaceId, ZoomMode,
-    assign_short_ids,
+    LayoutSpec, Mux, MuxEvent, Node, NotificationLevel, PairingDecision, PaneId, PresentationId,
+    PresentationScroll, PresentationView, PresentationZoom, RenderAttachFrame, Rgb, ScreenId,
+    SidebarPluginStatus, SplitDir, SurfaceId, SurfaceKind, SurfaceNotification, SurfaceRenderFrame,
+    TerminalColors, TreeDelta, TreeDeltaKind, WorkspaceId, ZoomMode, assign_short_ids,
 };
 
 pub const PROTOCOL_VERSION: u32 = 7;
+pub const PROTOCOL_MIN_VERSION: u32 = 6;
+pub const PROTOCOL_CAPABILITIES: &[&str] =
+    &["presentation-registry-v1", "render-attach-v1", "tree-delta-v1"];
 
 /// Default socket path for a session.
 pub fn default_socket_path(session: &str) -> PathBuf {
@@ -69,6 +72,18 @@ struct Request {
 enum Command {
     Identify,
     Ping,
+    OpenPresentation {
+        #[serde(default)]
+        view: PresentationView,
+        #[serde(default)]
+        zoom: PresentationZoom,
+        #[serde(default)]
+        scroll: PresentationScroll,
+    },
+    ClosePresentation {
+        presentation_id: PresentationId,
+    },
+    ListPresentations,
     SetClientInfo {
         #[serde(default)]
         name: Option<String>,
@@ -1443,6 +1458,7 @@ fn authenticate_websocket(
 
 fn disconnect_client(mux: &Mux, client: u64, send_detached: bool) -> bool {
     let Some(record) = mux.control_clients.remove(client) else { return false };
+    mux.presentations.remove_client(client);
     if send_detached {
         let _ = record.writer.set_write_timeout(Some(CLIENT_DETACH_WRITE_TIMEOUT));
         for (surface, attached) in &record.attached {
@@ -2168,14 +2184,49 @@ fn handle_command(
             "app": "cmux-tui",
             "version": env!("CARGO_PKG_VERSION"),
             "protocol": PROTOCOL_VERSION,
+            "protocol_min": PROTOCOL_MIN_VERSION,
+            "protocol_max": PROTOCOL_VERSION,
+            "capabilities": PROTOCOL_CAPABILITIES,
             "session": mux.session,
+            "session_id": mux.session_id,
+            "daemon_instance_id": mux.daemon_instance_id,
             "pid": std::process::id(),
         })),
         Command::Ping => Ok(json!({
             "ok": true,
             "version": env!("CARGO_PKG_VERSION"),
             "protocol": PROTOCOL_VERSION,
+            "protocol_min": PROTOCOL_MIN_VERSION,
+            "protocol_max": PROTOCOL_VERSION,
+            "capabilities": PROTOCOL_CAPABILITIES,
+            "daemon_instance_id": mux.daemon_instance_id,
         })),
+        Command::OpenPresentation { view, zoom, scroll } => {
+            if !mux.control_clients.contains(client) {
+                anyhow::bail!("unknown client {client}");
+            }
+            let presentation = mux.presentations.open(client, view, zoom, scroll);
+            // Another trusted connection can detach this client. Recheck after
+            // insertion so an open racing disconnect cannot leave an orphan.
+            if !mux.control_clients.contains(client) {
+                mux.presentations.remove_client(client);
+                anyhow::bail!("unknown client {client}");
+            }
+            Ok(serde_json::to_value(presentation)?)
+        }
+        Command::ClosePresentation { presentation_id } => {
+            if !mux.control_clients.contains(client) {
+                anyhow::bail!("unknown client {client}");
+            }
+            mux.presentations.close(client, presentation_id)?;
+            Ok(json!({}))
+        }
+        Command::ListPresentations => {
+            if !mux.control_clients.contains(client) {
+                anyhow::bail!("unknown client {client}");
+            }
+            Ok(serde_json::to_value(mux.presentations.list_for_client(client))?)
+        }
         Command::SetClientInfo { name, kind } => {
             let (name, kind) = mux.control_clients.set_info(client, name, kind)?;
             mux.emit(MuxEvent::ClientChanged { client, name, kind });
@@ -3390,6 +3441,185 @@ mod tests {
         assert_eq!(data["ok"].as_bool(), Some(true));
         assert_eq!(data["version"].as_str(), Some(env!("CARGO_PKG_VERSION")));
         assert_eq!(data["protocol"].as_u64(), Some(PROTOCOL_VERSION as u64));
+        assert_eq!(data["protocol_min"].as_u64(), Some(PROTOCOL_MIN_VERSION as u64));
+        assert_eq!(data["protocol_max"].as_u64(), Some(PROTOCOL_VERSION as u64));
+        assert_eq!(data["capabilities"], serde_json::to_value(PROTOCOL_CAPABILITIES).unwrap());
+        uuid::Uuid::parse_str(data["daemon_instance_id"].as_str().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn identify_preserves_v7_fields_and_adds_standard_uuid_identity_and_capabilities() {
+        let session_id = crate::SessionId::new();
+        let mux = Mux::new_with_session_id("named-session", SurfaceOptions::default(), session_id);
+        let data = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
+
+        assert_eq!(data["app"], "cmux-tui");
+        assert_eq!(data["version"], env!("CARGO_PKG_VERSION"));
+        assert_eq!(data["protocol"], PROTOCOL_VERSION);
+        assert_eq!(data["session"], "named-session");
+        assert_eq!(data["pid"], std::process::id());
+        assert_eq!(data["protocol_min"], PROTOCOL_MIN_VERSION);
+        assert_eq!(data["protocol_max"], PROTOCOL_VERSION);
+        assert_eq!(data["capabilities"], serde_json::to_value(PROTOCOL_CAPABILITIES).unwrap());
+        let encoded_session = data["session_id"].as_str().unwrap();
+        let encoded_daemon = data["daemon_instance_id"].as_str().unwrap();
+        assert_eq!(encoded_session.parse::<crate::SessionId>().unwrap(), session_id);
+        uuid::Uuid::parse_str(encoded_session).unwrap();
+        uuid::Uuid::parse_str(encoded_daemon).unwrap();
+        assert_ne!(encoded_session, encoded_daemon);
+
+        let replacement =
+            Mux::new_with_session_id("named-session", SurfaceOptions::default(), session_id);
+        assert_eq!(replacement.session_id, mux.session_id);
+        assert_ne!(replacement.daemon_instance_id, mux.daemon_instance_id);
+    }
+
+    #[test]
+    fn one_client_can_open_windows_with_independent_presentation_selection() {
+        let mux = test_mux();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+
+        let first = handle_command(
+            &mux,
+            client,
+            Command::OpenPresentation {
+                view: PresentationView {
+                    workspace: Some(11),
+                    screen: Some(12),
+                    pane: Some(13),
+                    tab: Some(14),
+                },
+                zoom: PresentationZoom { pane: Some(13) },
+                scroll: PresentationScroll { surface: Some(14), offset: 21 },
+            },
+            &writer,
+        )
+        .unwrap();
+        let second = handle_command(
+            &mux,
+            client,
+            Command::OpenPresentation {
+                view: PresentationView {
+                    workspace: Some(31),
+                    screen: Some(32),
+                    pane: Some(33),
+                    tab: Some(34),
+                },
+                zoom: PresentationZoom::default(),
+                scroll: PresentationScroll::default(),
+            },
+            &writer,
+        )
+        .unwrap();
+
+        assert_ne!(first["presentation_id"], second["presentation_id"]);
+        uuid::Uuid::parse_str(first["presentation_id"].as_str().unwrap()).unwrap();
+        uuid::Uuid::parse_str(second["presentation_id"].as_str().unwrap()).unwrap();
+        let listed = handle_command(&mux, client, Command::ListPresentations, &writer).unwrap();
+        assert_eq!(listed.as_array().unwrap().len(), 2);
+        assert!(listed.as_array().unwrap().iter().any(|presentation| {
+            presentation["view"]["workspace"] == 11
+                && presentation["view"]["tab"] == 14
+                && presentation["zoom"]["pane"] == 13
+                && presentation["scroll"]["offset"] == 21
+        }));
+        assert!(listed.as_array().unwrap().iter().any(|presentation| {
+            presentation["view"]["workspace"] == 31
+                && presentation["view"]["tab"] == 34
+                && presentation["zoom"]["pane"].is_null()
+                && presentation["scroll"]["offset"] == 0
+        }));
+        assert!(mux.with_state(|state| state.workspaces.is_empty()));
+
+        let first_id = first["presentation_id"].as_str().unwrap().parse().unwrap();
+        assert_eq!(
+            handle_command(
+                &mux,
+                client,
+                Command::ClosePresentation { presentation_id: first_id },
+                &writer,
+            )
+            .unwrap(),
+            json!({})
+        );
+        let remaining = handle_command(&mux, client, Command::ListPresentations, &writer).unwrap();
+        assert_eq!(remaining.as_array().unwrap().len(), 1);
+        assert_eq!(remaining[0]["presentation_id"], second["presentation_id"]);
+    }
+
+    #[test]
+    fn client_cannot_close_another_clients_presentation() {
+        let mux = test_mux();
+        let writer = test_writer();
+        let owner = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let other = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let opened = handle_command(
+            &mux,
+            owner,
+            Command::OpenPresentation {
+                view: PresentationView::default(),
+                zoom: PresentationZoom::default(),
+                scroll: PresentationScroll::default(),
+            },
+            &writer,
+        )
+        .unwrap();
+        let presentation_id = opened["presentation_id"].as_str().unwrap().parse().unwrap();
+
+        let error =
+            handle_command(&mux, other, Command::ClosePresentation { presentation_id }, &writer)
+                .unwrap_err();
+        assert!(error.to_string().contains("owned by another client"));
+        assert_eq!(
+            handle_command(&mux, owner, Command::ListPresentations, &writer)
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            handle_command(&mux, other, Command::ListPresentations, &writer)
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .len(),
+            0
+        );
+    }
+
+    #[test]
+    fn disconnect_removes_only_the_disconnected_clients_presentations() {
+        let mux = test_mux();
+        let writer = test_writer();
+        let departing = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let remaining = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        for client in [departing, departing, remaining] {
+            handle_command(
+                &mux,
+                client,
+                Command::OpenPresentation {
+                    view: PresentationView::default(),
+                    zoom: PresentationZoom::default(),
+                    scroll: PresentationScroll::default(),
+                },
+                &writer,
+            )
+            .unwrap();
+        }
+
+        assert!(disconnect_client(&mux, departing, false));
+        assert!(mux.presentations.list_for_client(departing).is_empty());
+        assert_eq!(mux.presentations.list_for_client(remaining).len(), 1);
+        assert_eq!(
+            handle_command(&mux, remaining, Command::ListPresentations, &writer)
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     #[test]

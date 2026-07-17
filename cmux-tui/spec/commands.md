@@ -22,6 +22,7 @@ Schema notation is compact and machine-oriented:
 | `ColorHex` | `#rrggbb`, exactly 7 bytes, ASCII hex |
 | `Id` | Implemented numeric id, `uint64` |
 | `IdRef` | Proposed id reference, `Id` or short id string |
+| `Uuid` | Lowercase hyphenated RFC 9562 UUID string |
 
 The canonical request and response envelope is defined in `transports.md`. Command blocks in this file define the command-specific request fields and response `data` shape.
 
@@ -38,6 +39,24 @@ Common CLI exit codes for every mapping are `0` success, `1` command error, `2` 
 ```text
 object{workspaces:array<Workspace>}
 ```
+
+`Presentation`:
+
+```text
+object{
+  presentation_id:Uuid,
+  client:uint64,
+  view:object{workspace:Id|null,screen:Id|null,pane:Id|null,tab:Id|null},
+  zoom:object{pane:Id|null},
+  scroll:object{surface:Id|null,offset:uint64}
+}
+```
+
+`Presentation.view`, `Presentation.zoom`, and `Presentation.scroll` are owned by
+one client window. They do not change canonical workspace selection, screen
+selection, pane focus, tab selection, pane zoom, or terminal scroll state.
+`zoom` and `scroll` reserve the wire shape for later presentation-local
+viewport operations.
 
 `Workspace`:
 
@@ -133,8 +152,24 @@ Params: none.
 Result:
 
 ```text
-object{app:"cmux-tui",version:string,protocol:uint32,session:string,pid:uint32}
+object{
+  app:"cmux-tui",
+  version:string,
+  protocol:uint32,
+  protocol_min:uint32,
+  protocol_max:uint32,
+  capabilities:array<string>,
+  session:string,
+  session_id:Uuid,
+  daemon_instance_id:Uuid,
+  pid:uint32
+}
 ```
+
+`protocol` remains the protocol-v7 compatibility field. The inclusive range is
+currently `protocol_min:6` through `protocol_max:7`. `session_id` identifies the
+logical session and can be supplied by a future persistent session loader.
+`daemon_instance_id` is fresh for each server process lifetime.
 
 Errors:
 
@@ -156,10 +191,8 @@ Example:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":7,"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":7,"protocol_min":6,"protocol_max":7,"capabilities":["presentation-registry-v1","render-attach-v1","tree-delta-v1"],"session":"main","session_id":"4c28ed8c-d4e8-487e-a063-d7df07d378f9","daemon_instance_id":"1dbcaf41-c45b-4b5f-962f-7a9b20a40353","pid":12345}}
 ```
-
-This implemented example reports the current protocol 6; a v7 server reports `7` in the same `protocol` field, including in `ping`.
 
 ### ping
 
@@ -176,8 +209,20 @@ Params: none.
 Result:
 
 ```text
-object{ok:true,version:string,protocol:uint32}
+object{
+  ok:true,
+  version:string,
+  protocol:uint32,
+  protocol_min:uint32,
+  protocol_max:uint32,
+  capabilities:array<string>,
+  daemon_instance_id:Uuid
+}
 ```
+
+`daemon_instance_id` lets a liveness monitor distinguish a responsive existing
+daemon from a replacement at the same socket path without returning session
+metadata.
 
 Errors: `bad request: ...`.
 
@@ -187,8 +232,98 @@ Example:
 
 ```json
 {"id":2,"cmd":"ping"}
-{"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","protocol":7}}
+{"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","protocol":7,"protocol_min":6,"protocol_max":7,"capabilities":["presentation-registry-v1","render-attach-v1","tree-delta-v1"],"daemon_instance_id":"1dbcaf41-c45b-4b5f-962f-7a9b20a40353"}}
 ```
+
+### open-presentation
+
+| Field | Value |
+| --- | --- |
+| name | `open-presentation` |
+| status | implemented |
+| since | protocol 7 capability `presentation-registry-v1` |
+
+Creates connection-owned state for one window. A connection may own several
+presentations. Omitted nested objects and fields use null identities and zero
+scroll offset. Opening a presentation does not select or focus anything in the
+canonical mux tree.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `view` | `object{workspace?:Id,screen?:Id,pane?:Id,tab?:Id}` | default all null | Presentation-local selection placeholders |
+| `zoom` | `object{pane?:Id}` | default null pane | Presentation-local zoom placeholder |
+| `scroll` | `object{surface?:Id,offset?:uint64}` | default null surface and `0` | Presentation-local scroll placeholder |
+
+Result: `Presentation`.
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `unknown client <id>` | The connection was already removed |
+| `bad request: ...` | A field has the wrong JSON type |
+
+CLI mapping: none. Frontends issue this connection-scoped command directly.
+
+Example:
+
+```json
+{"id":3,"cmd":"open-presentation","view":{"workspace":11,"screen":12,"pane":13,"tab":14}}
+{"id":3,"ok":true,"data":{"presentation_id":"06344852-c8e7-4bf1-9feb-8f5c5818f342","client":1,"view":{"workspace":11,"screen":12,"pane":13,"tab":14},"zoom":{"pane":null},"scroll":{"surface":null,"offset":0}}}
+```
+
+### close-presentation
+
+| Field | Value |
+| --- | --- |
+| name | `close-presentation` |
+| status | implemented |
+| since | protocol 7 capability `presentation-registry-v1` |
+
+Closes one presentation owned by the requesting connection. A client cannot
+close another client's presentation. Disconnecting a client closes all of its
+presentations automatically.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `presentation_id` | `Uuid` | required | Must identify a presentation owned by the requesting client |
+
+Result: `object{}`.
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `unknown presentation <uuid>` | No live presentation has that identity |
+| `presentation <uuid> is owned by another client` | The presentation belongs to another connection |
+| `unknown client <id>` | The requesting connection was already removed |
+| `bad request: ...` | `presentation_id` is missing, has the wrong type, or is not a UUID |
+
+CLI mapping: none.
+
+### list-presentations
+
+| Field | Value |
+| --- | --- |
+| name | `list-presentations` |
+| status | implemented |
+| since | protocol 7 capability `presentation-registry-v1` |
+
+Returns the requesting connection's presentations in ascending UUID order.
+Presentation-local state owned by other clients is not disclosed.
+
+Params: none.
+
+Result: `array<Presentation>`.
+
+Errors: `unknown client <id>` when the requesting connection was already
+removed; `bad request: ...` for a malformed envelope.
+
+CLI mapping: none.
 
 ### set-client-info
 

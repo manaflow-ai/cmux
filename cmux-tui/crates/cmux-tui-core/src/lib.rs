@@ -10,9 +10,11 @@
 
 mod browser;
 mod event_bus;
+mod identity;
 mod model;
 mod mux;
 mod pairing;
+mod presentation;
 mod short_id;
 mod surface;
 
@@ -22,6 +24,7 @@ pub mod server;
 
 pub use browser::{TRANSPORT_SAFE_CAPTURE_MEGAPIXELS, normalize_url};
 pub use event_bus::{MuxEventBroadcaster, MuxEventReceiver};
+pub use identity::{DaemonInstanceId, PresentationId, SessionId};
 pub use layout::{
     LayoutResult, Rect, SplitEdge, SplitResize, directional_neighbor, layout_screen,
     split_for_pane_edge, split_sides,
@@ -34,6 +37,7 @@ pub use mux::{
     SurfaceNotification, SurfaceResizeReporter, TreeDelta, TreeDeltaKind, ZoomMode, ZoomState,
 };
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
+pub use presentation::{Presentation, PresentationScroll, PresentationView, PresentationZoom};
 pub use short_id::assign_short_ids;
 pub use surface::{
     AttachFrame, AttachFrameReceiver, AttachStream, BrowserAttachState, BrowserFrame,
