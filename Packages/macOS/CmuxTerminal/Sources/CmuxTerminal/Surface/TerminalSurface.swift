@@ -319,9 +319,16 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// no view state and no strong reference back to itself, so a dead
     /// coordinator turns its entry into a no-op and no retain cycle exists.
     /// Entries drop when their own host vacates the lease, when the host
-    /// dismantles, and when the portal lifecycle leaves `.live`; parking is
-    /// refused from `.closing` onward.
+    /// dismantles, when the runtime is hibernated, and when the portal
+    /// lifecycle leaves `.live`; parking is refused outside bindable runtime
+    /// states.
     var portalHostVacancyRetries: [ObjectIdentifier: (instanceSerial: UInt64, retry: () -> Void)] = [:]
+    var portalHostVacancyWakeScheduled = false
+
+    func clearPortalHostVacancyRetries() {
+        portalHostVacancyRetries.removeAll()
+        portalHostVacancyWakeScheduled = false
+    }
 
     /// Parks (or refreshes) a host's vacancy retry. See
     /// `portalHostVacancyRetries` for lifetime rules.
@@ -330,7 +337,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         instanceSerial: UInt64,
         _ retry: @escaping () -> Void
     ) {
-        guard portalLifecycleState == .live else { return }
+        guard canAcceptPortalBinding(expectedSurfaceId: nil, expectedGeneration: nil) else { return }
         portalHostVacancyRetries[hostId] = (instanceSerial, retry)
     }
 

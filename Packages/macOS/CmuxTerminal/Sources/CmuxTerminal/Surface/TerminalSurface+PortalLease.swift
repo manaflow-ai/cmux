@@ -20,7 +20,7 @@ extension TerminalSurface {
 
     /// Whether a portal may bind this surface for the expected id/generation.
     public func canAcceptPortalBinding(expectedSurfaceId: UUID?, expectedGeneration: UInt64?) -> Bool {
-        guard portalLifecycleState == .live else { return false }
+        guard portalLifecycleState == .live, !runtimeSurfaceSuspendedForAgentHibernation else { return false }
         if let expectedSurfaceId, expectedSurfaceId != id {
             return false
         }
@@ -142,21 +142,35 @@ extension TerminalSurface {
 #endif
     }
 
-    /// Wakes every parked candidate now that the owner is gone. One deferred
-    /// block per vacancy, newest host first so a single claim wins and the
-    /// rest are rejected against it; common run-loop modes because owners
-    /// vacate mid divider-drag, where a default-mode block waits for mouse-up.
-    /// Deferred a turn so no retry mutates the lease inside the dying host's
-    /// dismantle.
+    /// Wakes parked candidates after an owner vacancy. The surface owns the
+    /// wake phase: one scheduled drain observes the latest retry registry for
+    /// one lifecycle generation, newest host first so a single claim wins and
+    /// the rest are rejected against it. Common run-loop modes are used because
+    /// owners vacate mid divider-drag, where a default-mode block waits for
+    /// mouse-up. Deferred a turn so no retry mutates the lease inside the dying
+    /// host's dismantle.
     private func notifyPortalHostVacated(vacatedHostId: ObjectIdentifier, instanceSerial: UInt64) {
         if portalHostVacancyRetries[vacatedHostId]?.instanceSerial == instanceSerial {
             portalHostVacancyRetries.removeValue(forKey: vacatedHostId)
         }
+        guard canAcceptPortalBinding(expectedSurfaceId: nil, expectedGeneration: nil) else {
+            clearPortalHostVacancyRetries()
+            return
+        }
         guard !portalHostVacancyRetries.isEmpty else { return }
-        let retries = portalHostVacancyRetries.values
-            .sorted { $0.instanceSerial > $1.instanceSerial }
-            .map(\.retry)
-        RunLoop.main.perform(inModes: [.common]) {
+        guard !portalHostVacancyWakeScheduled else { return }
+        portalHostVacancyWakeScheduled = true
+        let scheduledGeneration = portalLifecycleGeneration
+        RunLoop.main.perform(inModes: [.common]) { [weak self] in
+            guard let self else { return }
+            self.portalHostVacancyWakeScheduled = false
+            guard self.canAcceptPortalBinding(expectedSurfaceId: self.id, expectedGeneration: scheduledGeneration) else {
+                self.clearPortalHostVacancyRetries()
+                return
+            }
+            let retries = self.portalHostVacancyRetries.values
+                .sorted { $0.instanceSerial > $1.instanceSerial }
+                .map(\.retry)
             for retry in retries { retry() }
         }
     }
