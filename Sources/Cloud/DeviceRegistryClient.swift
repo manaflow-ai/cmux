@@ -35,7 +35,16 @@ final class DeviceRegistryClient {
         var teamID: String?
         var tag: String
         var routes: [CmxAttachRoute]
+        /// The active Mac-to-Mac pairing code advertised with this
+        /// registration, so minting or expiring a code re-POSTs even when the
+        /// routes are unchanged.
+        var pairingCode: String?
     }
+
+    /// The code currently advertised in this instance's registry labels, if
+    /// any. Expiry is enforced at read time; an expired value is simply no
+    /// longer included in the next registration.
+    private var activePairingCode: CmxPairingCode?
 
     private init() {}
 
@@ -67,8 +76,36 @@ final class DeviceRegistryClient {
         // Treat "never registered" as an empty-routes baseline in the same scope
         // so an initial empty set (pairing off at launch) is a no-op, but a later
         // clear, or any team/tag change, still fires.
-        let baseline = previous ?? Registration(teamID: current.teamID, tag: current.tag, routes: [])
+        let baseline = previous
+            ?? Registration(teamID: current.teamID, tag: current.tag, routes: [], pairingCode: nil)
         return baseline != current
+    }
+
+    /// Advertises a fresh pairing code in this instance's registry labels and
+    /// returns it for display, or `nil` when the registry rejected the POST
+    /// (the caller shows a generic failure).
+    ///
+    /// The code rides the same registration document as the routes, so a Mac
+    /// that can see this Mac's row can claim the code; expiry is enforced on
+    /// the claiming side and the label is dropped from the next registration
+    /// after `ttl` elapses.
+    ///
+    /// - Parameters:
+    ///   - routes: The host's current advertised routes (the caller has just
+    ///     ensured the listener is up); registered together with the code.
+    ///   - ttl: Code lifetime; default 10 minutes.
+    /// - Returns: The minted code (with expiry) on success.
+    func publishPairingCode(
+        routes: [CmxAttachRoute],
+        ttl: TimeInterval = 600
+    ) async -> CmxPairingCode? {
+        var generator = SystemRandomNumberGenerator()
+        let minted = CmxPairingCode.minted(ttl: ttl, now: Date(), using: &generator)
+        activePairingCode = minted
+        // Force the POST: the code changed even if the routes did not.
+        lastRegistration = nil
+        await registerIfRoutesChanged(routes: routes)
+        return lastRegistration != nil ? minted : nil
     }
 
     private func startObserving() {
@@ -106,7 +143,19 @@ final class DeviceRegistryClient {
         // routes is detected and the POST targets the intended team.
         let teamID = auth.resolvedTeamID
         let tag = MobileHostIdentity.instanceTag()
-        let registration = Registration(teamID: teamID, tag: tag, routes: routes)
+        // Read expiry once so the dedup key and the POSTed labels agree; an
+        // expired code drops out of both, clearing the server-side label on
+        // the next registration.
+        let currentCode: CmxPairingCode? = {
+            guard let activePairingCode, activePairingCode.expiresAt > Date() else { return nil }
+            return activePairingCode
+        }()
+        let registration = Registration(
+            teamID: teamID,
+            tag: tag,
+            routes: routes,
+            pairingCode: currentCode?.code
+        )
         guard Self.shouldReRegister(previous: lastRegistration, current: registration) else { return }
 
         guard var comps = URLComponents(url: AuthEnvironment.vmAPIBaseURL, resolvingAgainstBaseURL: false) else {
@@ -127,6 +176,9 @@ final class DeviceRegistryClient {
         ]
         if let displayName = MobileHostIdentity.baseDisplayName(), !displayName.isEmpty {
             bodyDict["displayName"] = displayName
+        }
+        if let currentCode {
+            bodyDict["instanceLabels"] = currentCode.instanceLabels
         }
 
         var req = URLRequest(url: url)

@@ -2308,6 +2308,12 @@ class TabManager: ObservableObject {
         debugPrimeWorkspaceSwitchTrigger("select", to: workspace.id)
 #endif
         selectWorkspaceId(workspace.id, notificationDismissalContext: .explicitWorkspaceResume)
+        // Hive mirror workspaces repaint from their cached frames on
+        // selection (a surface that realized after its replay landed would
+        // otherwise stay blank until the next remote output).
+        if workspace.isRemoteTmuxMirror {
+            HiveComputerMirrorController.shared.workspaceSelected(workspace.id)
+        }
     }
 
     // Keep selectTab as convenience alias

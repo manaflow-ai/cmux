@@ -4,6 +4,8 @@ import CmuxCommandPalette
 import CmuxCore
 import CmuxFeedback
 import CmuxFoundation
+import CmuxHive
+import CmuxHiveUI
 import CmuxPanes
 import CmuxSettings
 import CmuxWorkspaces
@@ -1607,6 +1609,7 @@ struct ContentView: View {
                 )
             },
             observedWindow: observedWindow,
+            hiveScope: HiveSidebarScopeModel.scopeModel(for: tabManager),
             selection: $sidebarSelectionState.selection,
             selectedTabIds: $selectedTabIds, lastSidebarSelectionIndex: $lastSidebarSelectionIndex, sidebarRenderWorkerClient: $sidebarRenderWorkerClient
         )
@@ -1736,6 +1739,14 @@ struct ContentView: View {
                 .opacity(sidebarSelectionState.selection == .notifications ? 1 : 0)
                 .allowsHitTesting(sidebarSelectionState.selection == .notifications)
                 .accessibilityHidden(sidebarSelectionState.selection != .notifications)
+
+            if case let .computer(deviceID) = sidebarSelectionState.selection {
+                HiveEmbeddedComputerPage(
+                    deviceID: deviceID,
+                    sessionProvider: { await HiveComputersService.shared.embeddedSession(deviceID: $0) }
+                )
+                .zIndex(3)
+            }
         }
         .modifier(WorkspacePresentationModeContentTopPaddingModifier(
             isFullScreen: isFullScreen,
@@ -9888,6 +9899,10 @@ struct VerticalTabsSidebar: View {
     @EnvironmentObject var sidebarUnread: SidebarUnreadModel
     var notificationStore: TerminalNotificationStore { .shared }
     @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
+    // Computer scope for the workspace list (This Mac / All Computers / one
+    // device). Per-window (keyed by TabManager); scope changes are rare and
+    // user-driven, so observing here does not add churn to typing-hot paths.
+    @ObservedObject var hiveScope: HiveSidebarScopeModel
     @Binding var selection: SidebarSelection
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
@@ -10277,7 +10292,15 @@ struct VerticalTabsSidebar: View {
         let _ = { minimalModeInvalidationProbe.verticalTabsSidebarBody?() }()
 #endif
         let signpost = SidebarProfilingSignposts.begin("vertical-sidebar-body", "workspaces=\(tabManager.tabs.count) selected=\(sidebarShortTabId(tabManager.selectedTabId))")
-        let tabs = tabManager.tabs
+        let scope = hiveScope.scope
+        let tabs = scope == .allComputers
+            ? tabManager.tabs
+            : tabManager.tabs.filter { workspace in
+                HiveSidebarScopeModel.isVisible(
+                    deviceID: HiveComputerMirrorController.shared.deviceID(forWorkspace: workspace.id),
+                    scope: scope
+                )
+            }
         let workspaceCount = tabs.count
         let canCloseWorkspace = workspaceCount > 1
         let workspaceNumberShortcut = self.workspaceNumberShortcut
@@ -10357,12 +10380,16 @@ struct VerticalTabsSidebar: View {
             } else {
                 extensionSidebarScrollArea(renderContext: renderContext)
             }
-            SidebarFooter(
-                updateViewModel: updateViewModel,
-                fileExplorerState: fileExplorerState,
-                modifierKeyMonitor: modifierKeyMonitor,
-                onSendFeedback: onSendFeedback
-            )
+            VStack(alignment: .leading, spacing: 4) {
+                HiveSidebarScopePicker(selection: $selection, scopeModel: hiveScope)
+                    .padding(.leading, 8)
+                SidebarFooter(
+                    updateViewModel: updateViewModel,
+                    fileExplorerState: fileExplorerState,
+                    modifierKeyMonitor: modifierKeyMonitor,
+                    onSendFeedback: onSendFeedback
+                )
+            }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .accessibilityIdentifier("Sidebar")
@@ -15762,7 +15789,11 @@ private struct ExtensionSidebarBrowserStackDropDelegate: DropDelegate {
     }
 }
 
-enum SidebarSelection {
+enum SidebarSelection: Equatable {
     case tabs
     case notifications
+    /// A paired remote computer presented in the main window's content area
+    /// (the `computers.presentation = sidebar` mode). Not persisted across
+    /// relaunch: sessions are live connections, so restore lands on `.tabs`.
+    case computer(deviceID: String)
 }

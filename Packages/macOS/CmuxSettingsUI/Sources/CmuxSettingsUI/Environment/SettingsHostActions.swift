@@ -150,6 +150,42 @@ public protocol SettingsHostActions: AnyObject {
     /// is edited.
     func mobilePairingDefaultDisplayName() -> String
 
+    /// The current merged computer list (device registry + local pairings +
+    /// live presence) for the Computers section, or `nil` when the host has
+    /// no computers directory (previews/tests). See ``computersUpdates()``
+    /// for live refresh.
+    func computersSnapshot() -> ComputersSettingsSnapshot?
+
+    /// A stream that yields a fresh ``ComputersSettingsSnapshot`` whenever the
+    /// merged computer list changes (registry refresh, pairing change, or a
+    /// presence transition). The Computers section subscribes so rows stay
+    /// live without polling.
+    func computersUpdates() -> AsyncStream<ComputersSettingsSnapshot>
+
+    /// Kicks off an asynchronous registry refresh; results arrive through
+    /// ``computersUpdates()``.
+    func refreshComputers()
+
+    /// Pairs a computer from its registry row (persists its best advertised
+    /// routes locally).
+    func pairComputer(deviceID: String) async -> ComputersPairResult
+
+    /// Pairs a computer from the 6-digit code another Mac's "Pair This Mac"
+    /// row is showing (the registry-rendezvous claim).
+    func pairComputer(code: String) async -> ComputersPairResult
+
+    /// Removes the local pairing for a computer. The registry row remains.
+    func unpairComputer(deviceID: String) async
+
+    /// Mints a short-lived 6-digit pairing code, advertises it through the
+    /// device registry, and returns it for display, so another Mac can pair
+    /// by typing it — nothing to copy between machines.
+    func mintComputerPairingCode() async -> ComputersPairingCodeMintResult
+
+    /// Opens the remote-workspace viewer window for a paired computer. The
+    /// host owns the window, so the package can't open it directly.
+    func openComputerViewer(deviceID: String)
+
     /// Applies an explicitly-requested iOS pairing port, checking availability
     /// first so a port already in use leaves the running listener untouched. The
     /// Mobile section calls this from its **Apply** button and renders the
@@ -226,6 +262,33 @@ public extension SettingsHostActions {
 
     /// Default: empty, for hosts that cannot resolve the Mac's system name.
     func mobilePairingDefaultDisplayName() -> String { "" }
+
+    /// Default: no computers directory, for previews/tests.
+    func computersSnapshot() -> ComputersSettingsSnapshot? { nil }
+
+    /// Default: an immediately-finished stream, for hosts without a
+    /// computers directory.
+    func computersUpdates() -> AsyncStream<ComputersSettingsSnapshot> {
+        AsyncStream { $0.finish() }
+    }
+
+    /// Default no-op refresh for previews/tests.
+    func refreshComputers() {}
+
+    /// Default failure for hosts without a computers directory.
+    func pairComputer(deviceID: String) async -> ComputersPairResult { .failed }
+
+    /// Default failure for hosts without a computers directory.
+    func pairComputer(code: String) async -> ComputersPairResult { .failed }
+
+    /// Default no-op unpair for previews/tests.
+    func unpairComputer(deviceID: String) async {}
+
+    /// Default failure for hosts without a pairing listener (previews/tests).
+    func mintComputerPairingCode() async -> ComputersPairingCodeMintResult { .failed }
+
+    /// Default no-op viewer open for previews/tests.
+    func openComputerViewer(deviceID: String) {}
 
     /// Default: save-for-later, for hosts without a live mobile service (previews/tests).
     func applyMobilePairingPort(_ port: Int) async -> MobilePairingPortApplyResult {

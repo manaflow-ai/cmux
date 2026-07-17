@@ -22,8 +22,13 @@ import CMUXMobileCore
         )
     }
 
-    private func reg(team: String?, tag: String = "default", routes: [CmxAttachRoute]) -> DeviceRegistryClient.Registration {
-        DeviceRegistryClient.Registration(teamID: team, tag: tag, routes: routes)
+    private func reg(
+        team: String?,
+        tag: String = "default",
+        routes: [CmxAttachRoute],
+        pairingCode: String? = nil
+    ) -> DeviceRegistryClient.Registration {
+        DeviceRegistryClient.Registration(teamID: team, tag: tag, routes: routes, pairingCode: pairingCode)
     }
 
     @Test func initialEmptyRoutesDoNotRegister() {
@@ -74,5 +79,25 @@ import CMUXMobileCore
         let previous = reg(team: "team-a", routes: [])
         let current = reg(team: "team-a", routes: [])
         #expect(DeviceRegistryClient.shouldReRegister(previous: previous, current: current) == false)
+    }
+
+    @Test func mintedPairingCodeReRegistersWithUnchangedRoutes() throws {
+        // Showing a pairing code must re-POST so the registry advertises it,
+        // even though the route set did not move.
+        let routes = [try route(host: "100.0.0.1", port: 51000)]
+        let previous = reg(team: "team-a", routes: routes)
+        let current = reg(team: "team-a", routes: routes, pairingCode: "042117")
+        #expect(DeviceRegistryClient.shouldReRegister(previous: previous, current: current) == true)
+    }
+
+    @Test func expiredPairingCodeReRegistersOnceToClearTheLabel() throws {
+        // After expiry the code drops out of the registration, so the next
+        // status tick clears the server-side label exactly once.
+        let routes = [try route(host: "100.0.0.1", port: 51000)]
+        let previous = reg(team: "team-a", routes: routes, pairingCode: "042117")
+        let current = reg(team: "team-a", routes: routes)
+        #expect(DeviceRegistryClient.shouldReRegister(previous: previous, current: current) == true)
+        // …and unchanged code-less ticks after that stay deduped.
+        #expect(DeviceRegistryClient.shouldReRegister(previous: current, current: current) == false)
     }
 }
