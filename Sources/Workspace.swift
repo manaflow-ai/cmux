@@ -4589,6 +4589,10 @@ final class Workspace: Identifiable, ObservableObject {
             updateBindingOnlyRestoredAgentResumeState(panelId: panelId, shellState: state)
         }
         recordAgentRootExit(panelId: panelId, binding: rootExitCandidate, isPromptIdle: state == .promptIdle)
+        if state == .promptIdle {
+            _ = clearStaleAgentPIDs(panelId: panelId, refreshPorts: true)
+            clearDetectedAgentLifecycle(panelId: panelId)
+        }
 #if DEBUG
         cmuxDebugLog(
             "surface.shellState workspace=\(id.uuidString.prefix(5)) " +

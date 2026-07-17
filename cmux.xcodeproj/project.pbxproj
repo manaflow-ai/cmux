@@ -172,6 +172,11 @@
 		A78670210000000000000001 /* AgentStopStateAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670210000000000000002 /* AgentStopStateAdapter.swift */; };
 		A786706A0000000000000001 /* AgentStopStateAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670210000000000000002 /* AgentStopStateAdapter.swift */; };
 		A78670200000000000000001 /* AgentSubtreeActivitySnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670200000000000000002 /* AgentSubtreeActivitySnapshot.swift */; };
+		FEA700020000000000000001 /* AgentTerminalClassificationWorker.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEA700020000000000000002 /* AgentTerminalClassificationWorker.swift */; };
+		FEA700040000000000000001 /* AgentTerminalStateRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEA700040000000000000002 /* AgentTerminalStateRuntime.swift */; };
+		A57A7E010000000000000001 /* AgentTerminalStateRuntimeLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A57A7E010000000000000002 /* AgentTerminalStateRuntimeLifecycleTests.swift */; };
+		FEA700030000000000000001 /* AgentTerminalStateSurfaceObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEA700030000000000000002 /* AgentTerminalStateSurfaceObserver.swift */; };
+		C386C7FA4103F812B0A00001 /* AgentTerminalSurfaceTaskSequencer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C386C7FA4103F812B0A00002 /* AgentTerminalSurfaceTaskSequencer.swift */; };
 		A78670100000000000000001 /* AgentWorkloadKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670100000000000000002 /* AgentWorkloadKind.swift */; };
 		A78670100000000000000003 /* AgentWorkloadKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670100000000000000002 /* AgentWorkloadKind.swift */; };
 		A78670710000000000000001 /* AgentWorkloadKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670100000000000000002 /* AgentWorkloadKind.swift */; };
@@ -2001,6 +2006,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D7632B13A1B2C3D4E5F60718 /* WKWebView+CmuxPrintOperation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7632B14A1B2C3D4E5F60718 /* WKWebView+CmuxPrintOperation.swift */; };
 		C0DE43000000000000000007 /* Workspace+AgentChat.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE43000000000000000008 /* Workspace+AgentChat.swift */; };
 		A6AC73020000000000000001 /* Workspace+AgentLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC73020000000000000002 /* Workspace+AgentLifecycle.swift */; };
+		FEA700050000000000000001 /* Workspace+AgentTerminalStateDetection.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEA700050000000000000002 /* Workspace+AgentTerminalStateDetection.swift */; };
 		CA52B0150000000000000000 /* Workspace+CanvasLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0150000000000000000 /* Workspace+CanvasLayout.swift */; };
 		A797000A0000000000000001 /* Workspace+ClosedPanelAgentHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A797000A0000000000000002 /* Workspace+ClosedPanelAgentHistory.swift */; };
 		C54860020000000000000001 /* Workspace+CmuxNavigationDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54860020000000000000002 /* Workspace+CmuxNavigationDescriptor.swift */; };
@@ -2334,6 +2340,11 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A79701050000000000000002 /* AgentSessionWriterGenerationRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionWriterGenerationRegressionTests.swift; sourceTree = "<group>"; };
 		A78670210000000000000002 /* AgentStopStateAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStopStateAdapter.swift; sourceTree = "<group>"; };
 		A78670200000000000000002 /* AgentSubtreeActivitySnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSubtreeActivitySnapshot.swift; sourceTree = "<group>"; };
+		FEA700020000000000000002 /* AgentTerminalClassificationWorker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTerminalClassificationWorker.swift; sourceTree = "<group>"; };
+		FEA700040000000000000002 /* AgentTerminalStateRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTerminalStateRuntime.swift; sourceTree = "<group>"; };
+		A57A7E010000000000000002 /* AgentTerminalStateRuntimeLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTerminalStateRuntimeLifecycleTests.swift; sourceTree = "<group>"; };
+		FEA700030000000000000002 /* AgentTerminalStateSurfaceObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTerminalStateSurfaceObserver.swift; sourceTree = "<group>"; };
+		C386C7FA4103F812B0A00002 /* AgentTerminalSurfaceTaskSequencer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTerminalSurfaceTaskSequencer.swift; sourceTree = "<group>"; };
 		A78670100000000000000002 /* AgentWorkloadKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentWorkloadKind.swift; sourceTree = "<group>"; };
 		A78670110000000000000002 /* AgentWorkloadPhase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentWorkloadPhase.swift; sourceTree = "<group>"; };
 		A78670120000000000000002 /* AgentWorkloadRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentWorkloadRecord.swift; sourceTree = "<group>"; };
@@ -4074,6 +4085,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D7632B14A1B2C3D4E5F60718 /* WKWebView+CmuxPrintOperation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/WKWebView+CmuxPrintOperation.swift"; sourceTree = "<group>"; };
 		C0DE43000000000000000008 /* Workspace+AgentChat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+AgentChat.swift"; sourceTree = "<group>"; };
 		A6AC73020000000000000002 /* Workspace+AgentLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+AgentLifecycle.swift"; sourceTree = "<group>"; };
+		FEA700050000000000000002 /* Workspace+AgentTerminalStateDetection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+AgentTerminalStateDetection.swift"; sourceTree = "<group>"; };
 		CA52C0150000000000000000 /* Workspace+CanvasLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CanvasLayout.swift"; sourceTree = "<group>"; };
 		A797000A0000000000000002 /* Workspace+ClosedPanelAgentHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+ClosedPanelAgentHistory.swift"; sourceTree = "<group>"; };
 		C54860020000000000000002 /* Workspace+CmuxNavigationDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CmuxNavigationDescriptor.swift"; sourceTree = "<group>"; };
@@ -4873,6 +4885,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				791102020000000000000001 /* RemoteDisconnectPreparationService.swift */,
 				C0DE43000000000000000008 /* Workspace+AgentChat.swift */,
 				C3744E040000000000000001 /* AgentPIDProcessIdentity.swift */,
+				FEA700020000000000000002 /* AgentTerminalClassificationWorker.swift */,
+				FEA700030000000000000002 /* AgentTerminalStateSurfaceObserver.swift */,
+				FEA700040000000000000002 /* AgentTerminalStateRuntime.swift */,
+				C386C7FA4103F812B0A00002 /* AgentTerminalSurfaceTaskSequencer.swift */,
 				6799A0026799A0026799A002 /* WorkspaceSidebarAgentRuntimeObservationModel.swift */,
 				4AF464BD9CEDF14931D55126 /* Workspace+Todos.swift */,
 				97A8F8FE70450C596AE80D94 /* Workspace+TodoNotifications.swift */,
@@ -4903,6 +4919,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C3744E100000000000000002 /* Workspace+SidebarStatusVisibility.swift */,
 				A6AC73020000000000000002 /* Workspace+AgentLifecycle.swift */,
 				A797000A0000000000000002 /* Workspace+ClosedPanelAgentHistory.swift */,
+				FEA700050000000000000002 /* Workspace+AgentTerminalStateDetection.swift */,
 				9864510B84F2428BB83568CF /* RestoredAgentCompletedGeneration.swift */,
 				9864510A84F2428BB83568CF /* RestoredAgentLifecycleCoordinator.swift */,
 				42C2726A34F27E7A43B77368 /* Workspace+CustomSidebarPullRequests.swift */,
@@ -6320,6 +6337,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5D41221A1B2C3D4E5F60718 /* ClaudeHookSurfaceResolutionSwiftTests.swift */,
 				79390002AA11BB22CC33DD02 /* ClaudeHookLiveDeliveryTargetTests.swift */,
 				7939000CAA11BB22CC33DD0C /* ClaudeHookLifecycleCleanupTests.swift */,
+				A57A7E010000000000000002 /* AgentTerminalStateRuntimeLifecycleTests.swift */,
 				7939000AAA11BB22CC33DD0A /* ClaudeHookLiveDeliveryTargetTestSupport.swift */,
 				79390004AA11BB22CC33DD04 /* AgentNotificationLiveRetargetTests.swift */,
 				79390010AA11BB22CC33DD10 /* AgentNotificationMoveRaceTests.swift */,
@@ -6966,6 +6984,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A9E02000000000000000000C /* AgentSessionWebRendererSession.swift in Sources */,
 				A9E02000000000000000000D /* AgentSessionWebTheme.swift in Sources */,
 				A9F200000000000000000014 /* AgentSessionWebView.swift in Sources */,
+				FEA700020000000000000001 /* AgentTerminalClassificationWorker.swift in Sources */,
+				FEA700040000000000000001 /* AgentTerminalStateRuntime.swift in Sources */,
+				FEA700030000000000000001 /* AgentTerminalStateSurfaceObserver.swift in Sources */,
+				C386C7FA4103F812B0A00001 /* AgentTerminalSurfaceTaskSequencer.swift in Sources */,
 				A78670100000000000000003 /* AgentWorkloadKind.swift in Sources */,
 				A78670110000000000000003 /* AgentWorkloadPhase.swift in Sources */,
 				A78670120000000000000003 /* AgentWorkloadRecord.swift in Sources */,
@@ -8082,6 +8104,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D7632B13A1B2C3D4E5F60718 /* WKWebView+CmuxPrintOperation.swift in Sources */,
 				C0DE43000000000000000007 /* Workspace+AgentChat.swift in Sources */,
 				A6AC73020000000000000001 /* Workspace+AgentLifecycle.swift in Sources */,
+				FEA700050000000000000001 /* Workspace+AgentTerminalStateDetection.swift in Sources */,
 				CA52B0150000000000000000 /* Workspace+CanvasLayout.swift in Sources */,
 				A797000A0000000000000001 /* Workspace+ClosedPanelAgentHistory.swift in Sources */,
 				C54860020000000000000001 /* Workspace+CmuxNavigationDescriptor.swift in Sources */,
@@ -8350,8 +8373,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A78670600000000000000001 /* AgentActivitySnapshot.swift in Sources */,
 				A11CE0010000000000000001 /* AboutLicensesResourceTests.swift in Sources */,
+				A78670600000000000000001 /* AgentActivitySnapshot.swift in Sources */,
 				CDFE000000000000000000C1 /* AgentChatProseStreamerTests.swift in Sources */,
 				C7A51F000000000000000002 /* AgentChatSessionRegistryClaudeObservationTests.swift in Sources */,
 				C7A51C000000000000000002 /* AgentChatSessionRegistryHookStoreTests.swift in Sources */,
@@ -8402,6 +8425,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A78670690000000000000001 /* AgentSessionWorkloadReconciler.swift in Sources */,
 				A79701050000000000000001 /* AgentSessionWriterGenerationRegressionTests.swift in Sources */,
 				A786706A0000000000000001 /* AgentStopStateAdapter.swift in Sources */,
+				A57A7E010000000000000001 /* AgentTerminalStateRuntimeLifecycleTests.swift in Sources */,
 				A78670710000000000000001 /* AgentWorkloadKind.swift in Sources */,
 				A78670720000000000000001 /* AgentWorkloadPhase.swift in Sources */,
 				A78670730000000000000001 /* AgentWorkloadRecord.swift in Sources */,

@@ -57,20 +57,42 @@ enum AgentHibernationLifecycleStatusKeys {
         key == manualKey || key.hasPrefix("\(manualKey):")
     }
 
+    private static let detectionPrefix = "screen:"
+
+    static func detectionKey(familyID: String) -> String {
+        detectionPrefix + familyID
+    }
+
+    static func isDetectionKey(_ key: String) -> Bool {
+        key.hasPrefix(detectionPrefix)
+    }
+
+    static func detectionFamilyID(key: String) -> String? {
+        guard isDetectionKey(key) else { return nil }
+        return String(key.dropFirst(detectionPrefix.count))
+    }
+
     static let allowedStatusKeys: Set<String> = [
         "amp",
         "antigravity",
+        "campfire",
         "claude_code",
+        "cline",
         "codebuddy",
         "codex",
         "copilot",
         "cursor",
+        "devin",
         "factory",
         "gemini",
         "grok",
         "hermes-agent",
+        "kilo",
         "kiro",
         "kimi",
+        "maki",
+        "mastracode",
+        "ollama",
         "omp",
         "opencode",
         "pi",
@@ -80,5 +102,16 @@ enum AgentHibernationLifecycleStatusKeys {
 
     static func isAllowed(_ key: String) -> Bool {
         allowedStatusKeys.contains(key)
+    }
+}
+
+extension AgentHibernationLifecycleState {
+    static func effective<S: Sequence>(_ states: S) -> AgentHibernationLifecycleState where S.Element == Self {
+        let values = Array(states)
+        if values.contains(.running) { return .running }
+        if values.contains(.needsInput) { return .needsInput }
+        if values.contains(.unknown) { return .unknown }
+        if values.contains(.idle) { return .idle }
+        return .unknown
     }
 }

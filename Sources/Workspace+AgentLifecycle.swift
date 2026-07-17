@@ -287,17 +287,13 @@ extension Workspace {
         panelId: UUID,
         fallback: AgentHibernationLifecycleState?
     ) -> AgentHibernationLifecycleState {
-        let states = (agentLifecycleStatesByPanelId[panelId] ?? [:])
-            .filter { !AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }
-            .map(\.value)
+        let states = AgentHibernationLifecycleStatusKeys.resolvedStates(
+            agentLifecycleStatesByPanelId[panelId] ?? [:]
+        )
         guard !states.isEmpty else {
             return fallback ?? .unknown
         }
-        if states.contains(.running) { return .running }
-        if states.contains(.needsInput) { return .needsInput }
-        if states.contains(.unknown) { return .unknown }
-        if states.contains(.idle) { return .idle }
-        return fallback ?? .unknown
+        return AgentHibernationLifecycleState.effective(states)
     }
 
     private func recordAgentLifecycleChange(panelId: UUID) {

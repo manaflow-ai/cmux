@@ -43,6 +43,7 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
 
     let workspaceID: UUID
     let surfaceID: UUID
+    let agentStateSignal: AgentTerminalDirtySignal
     private let clock = ContinuousClock()
     private let notificationHandler: PromptTurnNotificationHandler
     private var detectors: [DetectorBinding]
@@ -51,10 +52,12 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     init(
         workspaceID: UUID,
         surfaceID: UUID,
-        agentDefinitions: [CmuxTaskManagerCodingAgentDefinition]
+        agentDefinitions: [CmuxTaskManagerCodingAgentDefinition],
+        agentStateSignal: AgentTerminalDirtySignal
     ) {
         self.workspaceID = workspaceID
         self.surfaceID = surfaceID
+        self.agentStateSignal = agentStateSignal
         self.notificationHandler = PromptTurnNotificationHandler(
             workspaceID: workspaceID,
             surfaceID: surfaceID
@@ -70,6 +73,10 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     }
 
     func consume(_ bytes: UnsafeBufferPointer<UInt8>) {
+        // The synchronous PTY lane only flips an atomic revision and yields
+        // into a buffering-newest stream. Snapshotting and classification run
+        // later in the bounded scheduler.
+        agentStateSignal.markDirty()
         let now = clock.now
         for index in detectors.indices {
             if let confirmation = detectors[index].detector.pendingConfirmation,

@@ -4957,6 +4957,7 @@ class TerminalController {
                 let requestedWorkingDirectory = workspace?.allowsLocalDirectoryFallback(panelId: panelId) == false ? nil : nonEmpty(terminalSurface.requestedWorkingDirectory)
                 let teardownRequest = terminalSurface.debugTeardownRequest()
                 let lastKnownWorkspaceId = terminalSurface.debugLastKnownWorkspaceId()
+                let detectedAgentState = workspace?.observedAgentTerminalState(panelId: panelId)
 
                 var item: [String: Any] = [
                     "index": index,
@@ -5037,6 +5038,10 @@ class TerminalController {
                     "teardown_requested_age_seconds": v2OrNull(ageSeconds(since: teardownRequest.requestedAt)),
                     "teardown_requested_reason": v2OrNull(nonEmpty(teardownRequest.reason))
                 ]
+
+                item["agent_terminal_family"] = v2OrNull(detectedAgentState?.family)
+                item["agent_terminal_state"] = detectedAgentState?.state ?? "unknown"
+                item["agent_terminal_state_source"] = detectedAgentState?.source ?? "none"
 
                 if title == nil, let fallbackTitle = mapped?.terminalPanel.displayTitle, !fallbackTitle.isEmpty {
                     item["surface_title"] = fallbackTitle
