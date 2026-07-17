@@ -167,7 +167,7 @@ import WebKit
 
         if basicAuthPromptCoordinator.handle(
             challenge: challenge,
-            startPrompt: { [presentAlert] finishPrompt, registerCancelPrompt in
+            startPrompt: { [presentAlert, owner] finishPrompt, registerCancelPrompt in
                 browserHandleHTTPBasicAuthenticationChallenge(
                     in: webView,
                     challenge: challenge,
