@@ -158,9 +158,9 @@ final class SidebarLazyLayoutScaleTests {
         )
         .frame(width: 280)
         .environmentObject(tabManager)
-        .environmentObject(unread)
-        .environmentObject(CmuxConfigStore())
-        .environmentObject(TerminalNotificationStore.shared)
+        .environment(unread)
+        .environment(CmuxConfigStore())
+        .environment(TerminalNotificationStore.shared)
         .environment(SidebarState())
         .environment(SidebarSelectionState())
         .environment(

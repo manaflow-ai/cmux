@@ -49,12 +49,12 @@ final class WorkspaceContentViewVisibilityTests {
         let counts = MinimalModeBodyProbeCounts()
         let root = ContentView(updateViewModel: UpdateStateModel(), windowId: UUID())
             .environmentObject(tabManager)
-            .environmentObject(notificationStore)
-            .environmentObject(notificationStore.sidebarUnread)
+            .environment(notificationStore)
+            .environment(notificationStore.sidebarUnread)
             .environment(SidebarState())
             .environment(SidebarSelectionState())
             .environment(FileExplorerState())
-            .environmentObject(CmuxConfigStore())
+            .environment(CmuxConfigStore())
             .environment(
                 \.minimalModeInvalidationProbe,
                 MinimalModeInvalidationProbe(

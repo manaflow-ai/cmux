@@ -107,9 +107,9 @@ extension RightSidebarMode {
 /// Right sidebar root view. Hosts a segmented mode picker plus the active panel.
 struct RightSidebarPanelView: View {
     @ObservedObject var tabManager: TabManager
-    @ObservedObject var fileExplorerStore: FileExplorerStore
+    let fileExplorerStore: FileExplorerStore
     let fileExplorerState: FileExplorerState
-    @ObservedObject var sessionIndexStore: SessionIndexStore
+    let sessionIndexStore: SessionIndexStore
     let titlebarHeight: CGFloat
     let windowAppearance: WindowAppearanceSnapshot
     let workspaceId: UUID?

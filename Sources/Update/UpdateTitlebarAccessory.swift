@@ -879,7 +879,7 @@ private final class TitlebarControlRightClickNSView: NSView {
 }
 
 struct TitlebarControlsView: View {
-    @ObservedObject var notificationStore: TerminalNotificationStore
+    let notificationStore: TerminalNotificationStore
     let viewModel: TitlebarControlsViewModel
     let onToggleSidebar: () -> Void
     let onToggleNotifications: () -> Void
@@ -1394,7 +1394,7 @@ private struct MinimalModeTitlebarButtonHitRegionView: NSViewRepresentable {
 }
 
 struct HiddenTitlebarSidebarControlsView: View {
-    @ObservedObject var notificationStore: TerminalNotificationStore
+    let notificationStore: TerminalNotificationStore
     let onToggleSidebar: () -> Void
     let onToggleNotifications: (NSView?) -> Void
     let onNewTab: () -> Void
@@ -2140,7 +2140,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
 }
 
 private struct NotificationsPopoverView: View {
-    @ObservedObject var notificationStore: TerminalNotificationStore
+    let notificationStore: TerminalNotificationStore
     private let keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     let onDismiss: () -> Void
 
@@ -2340,7 +2340,7 @@ private struct NotificationsPopoverView: View {
             )
         } else {
             // Snapshot the notifications array as an immutable value before the LazyVStack
-            // so the row closures don't reach back into the ObservableObject. Reading the
+            // so the row closures don't reach back into the observable store. Reading the
             // store from inside the ForEach builder reintroduces a store dependency below
             // the list boundary, which is the same anti-pattern CLAUDE.md flags for the
             // sidebar/sessions panel (https://github.com/manaflow-ai/cmux/issues/2586).

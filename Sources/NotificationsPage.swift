@@ -3,7 +3,7 @@ import Bonsplit
 import SwiftUI
 
 struct NotificationsPage: View {
-    @EnvironmentObject var notificationStore: TerminalNotificationStore
+    @Environment(TerminalNotificationStore.self) var notificationStore
     @EnvironmentObject var tabManager: TabManager
     @Binding var selection: SidebarSelection
     @FocusState private var focusedNotificationId: UUID?

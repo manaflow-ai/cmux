@@ -807,11 +807,11 @@ struct ContentView: View {
     // activity), which reconstructs every workspace row and starves the main
     // thread (issue #2586 class; surfaced as scroll lag). `notificationStore`
     // stays available as an unobserved singleton for actions and pass-down.
-    @EnvironmentObject var sidebarUnread: SidebarUnreadModel
+    @Environment(SidebarUnreadModel.self) var sidebarUnread
     var notificationStore: TerminalNotificationStore { .shared }
     @Environment(SidebarState.self) var sidebarState
     @Environment(SidebarSelectionState.self) var sidebarSelectionState
-    @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
+    @Environment(CmuxConfigStore.self) var cmuxConfigStore
     @Environment(FileExplorerState.self) var fileExplorerState
     @Environment(\.colorScheme) private var colorScheme
 #if DEBUG
@@ -841,8 +841,8 @@ struct ContentView: View {
     @State private var observedWindow: NSWindow?
     @State private var sidebarRenderWorkerClient: RenderWorkerClient?
     @State private var fullscreenControlsViewModel = TitlebarControlsViewModel()
-    @StateObject private var fileExplorerStore = FileExplorerStore()
-    @StateObject private var sessionIndexStore = SessionIndexStore()
+    @State private var fileExplorerStore = FileExplorerStore()
+    @State private var sessionIndexStore = SessionIndexStore()
     @State private var selectedWorkspaceDirectoryObserver = SelectedWorkspaceDirectoryObserver()
     @State private var commandPaletteOverlayRenderModel = CommandPaletteOverlayRenderModel()
     @State private var backgroundWorkspacePrimeCoordinator = BackgroundWorkspacePrimeCoordinator()
@@ -10450,9 +10450,9 @@ struct VerticalTabsSidebar: View {
     // so notification churn (terminal/agent activity) no longer reconstructs
     // every workspace row. The store stays available as an unobserved singleton
     // for context-menu actions and pass-down. See SidebarUnreadModel / #2586.
-    @EnvironmentObject var sidebarUnread: SidebarUnreadModel
+    @Environment(SidebarUnreadModel.self) var sidebarUnread
     var notificationStore: TerminalNotificationStore { .shared }
-    @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
+    @Environment(CmuxConfigStore.self) var cmuxConfigStore
     @Binding var selection: SidebarSelection
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?

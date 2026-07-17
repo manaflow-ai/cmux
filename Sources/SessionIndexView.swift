@@ -49,7 +49,7 @@ enum SessionEntryResumeCoordinator {
 }
 
 struct SessionIndexView: View {
-    @ObservedObject var store: SessionIndexStore
+    @Bindable var store: SessionIndexStore
     /// Lives alongside the store but is owned by this view so drag-state
     /// transitions don't invalidate data-subscribed views elsewhere in the
     /// sidebar.
@@ -324,7 +324,7 @@ typealias DirectorySnapshotFn = @MainActor (_ cwd: String?) async -> DirectorySn
 /// Callback bundle handed to `IndexSectionView` in place of a store reference.
 /// Every capability the row needs is expressed as a closure so no child view
 /// below the snapshot boundary can subscribe to broad store updates;
-/// a future `@ObservedObject var store` on a row becomes a type error rather
+/// a future store reference on a row becomes a type error rather
 /// than a silent 100% CPU regression.
 struct IndexSectionActions {
     let onBeginDrag: @MainActor () -> Void

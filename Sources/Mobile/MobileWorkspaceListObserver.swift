@@ -149,12 +149,12 @@ final class MobileWorkspaceListObserver {
         // Last-activity preview lines come from the notification store, which is
         // not part of the TabManager graph. A new notification (or a cleared one)
         // changes a row's preview + relative time without touching the tab set,
-        // groups, panels, or title, so observe `$notifications` to push it.
-        // Marking a notification read also flows through `$notifications` (the
+        // groups, panels, or title, so observe `notificationsPublisher` to push it.
+        // Marking a notification read also flows through `notificationsPublisher` (the
         // mutated element re-publishes the array), which the unread flag in the
         // per-workspace signature turns into a hash change.
         //
-        // Ordering invariant: `@Published` emits from `willSet`, but every sink
+        // Ordering invariant: the legacy bridge emits from `willSet`, but every sink
         // here reads the store's post-`didSet` state (latestNotification /
         // unread indexes) rather than the emitted value. That is safe because
         // `throttle(for:scheduler: RunLoop.main)` always hops through the run
@@ -162,7 +162,7 @@ final class MobileWorkspaceListObserver {
         // index rebuild) completes; it never fires synchronously from
         // `willSet`. The pre-existing `$tabs` / `$selectedTabId` sinks rely on
         // the same property.
-        notificationsCancellable = notificationStore?.$notifications
+        notificationsCancellable = notificationStore?.notificationsPublisher
             .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] _ in
                 self?.emitIfNeeded(force: false)
@@ -173,9 +173,9 @@ final class MobileWorkspaceListObserver {
         // touching anything else this observer watches, so merge all three here.
         if let notificationStore {
             unreadIndicatorsCancellable = Publishers.MergeMany(
-                notificationStore.$manualUnreadWorkspaceIds.map { _ in () }.eraseToAnyPublisher(),
-                notificationStore.$panelDerivedUnreadWorkspaceIds.map { _ in () }.eraseToAnyPublisher(),
-                notificationStore.$restoredUnreadWorkspaceIds.map { _ in () }.eraseToAnyPublisher()
+                notificationStore.manualUnreadWorkspaceIdsPublisher.map { _ in () }.eraseToAnyPublisher(),
+                notificationStore.panelDerivedUnreadWorkspaceIdsPublisher.map { _ in () }.eraseToAnyPublisher(),
+                notificationStore.restoredUnreadWorkspaceIdsPublisher.map { _ in () }.eraseToAnyPublisher()
             )
             .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] _ in

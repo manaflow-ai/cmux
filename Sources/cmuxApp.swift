@@ -59,7 +59,7 @@ struct cmuxApp: App {
     /// injected into AppDelegate and the auth-consuming services.
     private let authComposition: MacAuthComposition
     @StateObject private var tabManager: TabManager
-    @StateObject private var notificationStore = TerminalNotificationStore.shared
+    @State private var notificationStore = TerminalNotificationStore.shared
     @State var closedItemHistoryStore = ClosedItemHistoryStore.shared
     @State private var sidebarState = SidebarState()
     @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
