@@ -527,7 +527,11 @@ final class BrowserDesignModeTokenTextView: NSTextView {
         // Anchor after the last VISIBLE glyph (skipping trailing whitespace
         // and newlines left by edits) so the hint hugs the trailing token
         // instead of floating after stale separators.
-        var origin = NSPoint(x: textContainerInset.width, y: textContainerInset.height)
+        let font = BrowserDesignModeTokenStyle.font
+        var origin = NSPoint(
+            x: textContainerInset.width,
+            y: textContainerInset.height + 20 + font.descender - font.ascender
+        )
         let content = storage.string as NSString
         var lastCharacter = content.length - 1
         while lastCharacter >= 0,
@@ -543,12 +547,12 @@ final class BrowserDesignModeTokenTextView: NSTextView {
                 forGlyphRange: NSRange(location: lastGlyph, length: 1),
                 in: textContainer
             ).width
-            // location.y is the baseline within the fragment; draw the hint
-            // exactly where typed text would sit on that line.
-            let font = BrowserDesignModeTokenStyle.font
+            // Fixed-height fragments pin the text baseline at
+            // fragmentBottom - descent. Do not use location(forGlyphAt:) here:
+            // attachment glyphs report the fragment bottom, not the baseline.
             origin = NSPoint(
                 x: textContainerInset.width + location.x + advance + 2,
-                y: textContainerInset.height + fragment.minY + location.y - font.ascender
+                y: textContainerInset.height + fragment.maxY + font.descender - font.ascender
             )
         }
         (placeholder as NSString).draw(
@@ -677,19 +681,25 @@ final class BrowserDesignModeTokenCell: NSTextAttachmentCell {
     }
 
     override func cellBaselineOffset() -> NSPoint {
-        // Ascent = cell height + offset.y. Matching the font's ascender keeps
-        // the line's baseline identical with and without pills, so text never
-        // shifts vertically when a pill joins or leaves a row.
-        NSPoint(x: 0, y: BrowserDesignModeTokenStyle.font.ascender - 18)
+        // With the field's fixed 20pt lines, AppKit pins each baseline at
+        // fragmentBottom - maxDescent, so a cell descending deeper than the
+        // font shifts text on rows that gain or lose a pill. Matching the
+        // font's descent keeps every row's baseline identical.
+        NSPoint(x: 0, y: BrowserDesignModeTokenStyle.font.descender)
     }
 
     override func draw(withFrame cellFrame: NSRect, in controlView: NSView?) {
-        // Cursor-style: plain blue icon + tag name, no pill background.
+        // Cursor-style: plain tinted icon + tag name, no pill background.
+        // Share the surrounding text's baseline so pills read as inline words.
+        let baseline = cellFrame.minY + cellFrame.height
+            + BrowserDesignModeTokenStyle.font.descender
+        let titleFont = titleAttributes[.font] as? NSFont
+            ?? BrowserDesignModeTokenStyle.font
         var textX = cellFrame.minX + 8
         if let icon {
             let iconRect = NSRect(
                 x: textX,
-                y: cellFrame.midY - icon.size.height / 2,
+                y: baseline - titleFont.capHeight / 2 - icon.size.height / 2,
                 width: icon.size.width,
                 height: icon.size.height
             )
@@ -697,7 +707,7 @@ final class BrowserDesignModeTokenCell: NSTextAttachmentCell {
             textX = iconRect.maxX + 3
         }
         (tagTitle as NSString).draw(
-            at: NSPoint(x: textX, y: cellFrame.midY - titleSize.height / 2),
+            at: NSPoint(x: textX, y: baseline - titleFont.ascender),
             withAttributes: titleAttributes
         )
     }
