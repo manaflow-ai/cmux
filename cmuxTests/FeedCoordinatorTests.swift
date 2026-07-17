@@ -46,7 +46,7 @@ struct FeedCoordinatorTests {
     }
 
     @MainActor
-    @Test func notificationPolicyUsesGlobalHooksWithoutWorkspaceMapping() async throws {
+    @Test func notificationPolicyFailsClosedWithoutWorkspaceMapping() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let root = FileManager.default.temporaryDirectory.appendingPathComponent(
                 "cmux-feed-global-hook-\(UUID().uuidString)",
@@ -87,9 +87,76 @@ struct FeedCoordinatorTests {
                 hookCache: CmuxNotificationHookCache()
             )
 
-            #expect(context.globalConfigPath == configURL.path)
-            #expect(context.hooks.map(\.id) == ["feed-global"])
+            #expect(context.globalConfigPath == nil)
+            #expect(context.hooks.isEmpty)
         }
+    }
+
+    @Test func jumpResolverRejectsAgentPathTraversal() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-feed-jump-traversal-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let sessionsDirectory = root.appendingPathComponent("sessions", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionsDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let escapedStore = root.appendingPathComponent("escaped-hook-sessions.json")
+        try #"{"sessions":{"session-1":{"workspaceId":"workspace","surfaceId":"surface"}}}"#
+            .write(to: escapedStore, atomically: true, encoding: .utf8)
+
+        let resolver = FeedJumpResolver(sessionsDirectory: sessionsDirectory)
+        #expect(resolver.lookup(agent: "../escaped", sessionId: "session-1") == nil)
+    }
+
+    @MainActor
+    @Test func presentationUsesPromptActiveAtEachHistoricalItem() throws {
+        let store = WorkstreamStore(ringCapacity: 10)
+        FeedCoordinator.shared.install(store: store)
+        store.ingest(WorkstreamEvent(
+            sessionId: "claude-history",
+            hookEventName: .userPromptSubmit,
+            source: "claude",
+            cwd: "/tmp",
+            toolInputJSON: #"{"prompt":"first prompt"}"#
+        ))
+        store.ingest(WorkstreamEvent(
+            sessionId: "claude-history",
+            hookEventName: .permissionRequest,
+            source: "claude",
+            cwd: "/tmp",
+            toolName: "Bash",
+            toolInputJSON: #"{"command":"one"}"#,
+            requestId: "request-1"
+        ))
+        store.ingest(WorkstreamEvent(
+            sessionId: "claude-history",
+            hookEventName: .userPromptSubmit,
+            source: "claude",
+            cwd: "/tmp",
+            toolInputJSON: #"{"prompt":"second prompt"}"#
+        ))
+        store.ingest(WorkstreamEvent(
+            sessionId: "claude-history",
+            hookEventName: .permissionRequest,
+            source: "claude",
+            cwd: "/tmp",
+            toolName: "Bash",
+            toolInputJSON: #"{"command":"two"}"#,
+            requestId: "request-2"
+        ))
+
+        let snapshots = FeedCoordinator.shared.presentationStore.presentation.actionable
+        let older = try #require(snapshots.first { snapshot in
+            guard case .permissionRequest(let requestID, _, _, _) = snapshot.payload else { return false }
+            return requestID == "request-1"
+        })
+        let newer = try #require(snapshots.first { snapshot in
+            guard case .permissionRequest(let requestID, _, _, _) = snapshot.payload else { return false }
+            return requestID == "request-2"
+        })
+        #expect(older.userPromptEcho == "first prompt")
+        #expect(newer.userPromptEcho == "second prompt")
     }
 
     @Test func blockingBridgeReturnsFallbackAtItsDeadline() {
