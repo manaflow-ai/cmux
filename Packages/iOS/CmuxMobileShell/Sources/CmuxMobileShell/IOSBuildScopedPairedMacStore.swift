@@ -239,7 +239,7 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
                 }
             }
         }
-        return byID.values.sorted { lhs, rhs in
+        return removingAuthenticatedLegacyAliases(from: Array(byID.values)).sorted { lhs, rhs in
             if lhs.lastSeenAt != rhs.lastSeenAt { return lhs.lastSeenAt > rhs.lastSeenAt }
             return lhs.id < rhs.id
         }
@@ -501,6 +501,36 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
         instanceTag: String?
     ) -> Bool {
         mac.macDeviceID == macDeviceID && mac.instanceTag == instanceTag
+    }
+
+    /// A legacy nil-tag row and a tagged row are the same app instance only
+    /// when both the physical Mac id and authenticated Iroh peer id match.
+    /// Distinct tagged builds and legacy rows for other peers remain visible.
+    private func removingAuthenticatedLegacyAliases(
+        from rows: [MobilePairedMac]
+    ) -> [MobilePairedMac] {
+        var taggedPeersByMacDeviceID: [String: Set<String>] = [:]
+        for mac in rows where mac.instanceTag?.isEmpty == false {
+            taggedPeersByMacDeviceID[mac.macDeviceID, default: []]
+                .formUnion(irohPeerEndpointIDs(in: mac.routes))
+        }
+        return rows.filter { mac in
+            guard mac.instanceTag == nil,
+                  let taggedPeers = taggedPeersByMacDeviceID[mac.macDeviceID] else {
+                return true
+            }
+            return taggedPeers.isDisjoint(with: irohPeerEndpointIDs(in: mac.routes))
+        }
+    }
+
+    private func irohPeerEndpointIDs(in routes: [CmxAttachRoute]) -> Set<String> {
+        Set(routes.compactMap { route in
+            guard route.kind == .iroh,
+                  case let .peer(identity, _) = route.endpoint else {
+                return nil
+            }
+            return identity.endpointID
+        })
     }
 }
 

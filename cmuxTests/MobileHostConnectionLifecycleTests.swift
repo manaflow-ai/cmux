@@ -72,9 +72,15 @@ extension MobileHostAuthorizationTests {
             )
         }
         await waitForMobileHostConnectionCount(2)
-        try await second.enqueue(Self.mobileHostStatusFrame(id: "second"))
+        try await first.enqueue(Self.mobileHostStatusFrame(id: "first-delayed"))
+        _ = await first.waitForSentBufferCount(2)
+        #expect(registry.count == 2)
+        #expect(await second.observedCloseCount() == 0)
+
+        try await second.enqueue(Self.mobileHostSubscribeFrame(id: "second"))
         _ = await second.waitForSentBufferCount(1)
         await waitForMobileHostConnectionCount(1)
+        await first.waitForCloseCount(1)
 
         #expect(registry.count == 1)
         #expect(await first.observedCloseCount() == 1)
@@ -93,6 +99,12 @@ extension MobileHostAuthorizationTests {
     private static func mobileHostStatusFrame(id: String) throws -> Data {
         try MobileSyncFrameCodec.encodeFrame(
             Data("{\"id\":\"\(id)\",\"method\":\"mobile.host.status\",\"params\":{}}".utf8)
+        )
+    }
+
+    private static func mobileHostSubscribeFrame(id: String) throws -> Data {
+        try MobileSyncFrameCodec.encodeFrame(
+            Data("{\"id\":\"\(id)\",\"method\":\"mobile.events.subscribe\",\"params\":{\"stream_id\":\"events\",\"topics\":[]}}".utf8)
         )
     }
 
@@ -439,4 +451,11 @@ private actor ScriptedMobileHostByteTransport: CmxByteTransport {
     }
 
     func observedCloseCount() -> Int { closeCount }
+
+    func waitForCloseCount(_ count: Int) async {
+        for _ in 0..<1_000 {
+            if closeCount >= count { return }
+            await Task.yield()
+        }
+    }
 }
