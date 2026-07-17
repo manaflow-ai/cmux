@@ -2,15 +2,30 @@ name: Notify IndexNow
 
 on:
   deployment_status:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  notify:
+  dispatch:
     if: >-
+      github.event_name == 'deployment_status' &&
       github.event.deployment_status.state == 'success' &&
       github.event.deployment.environment == 'Production – cmux'
+    permissions:
+      actions: write
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Dispatch authenticated submission
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run indexnow.yml --repo "$GITHUB_REPOSITORY" --ref main
+
+  notify:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
