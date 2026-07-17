@@ -292,6 +292,13 @@ jobs:
           dist/binaries/cmux-tui-x86_64-unknown-linux-gnu --version >/tmp/cmux-tui-version.txt 2>&1 || \
             dist/binaries/cmux-tui-x86_64-unknown-linux-gnu --help >/tmp/cmux-tui-version.txt 2>&1
 
+      - name: Archive npm package directories with executable modes
+        if: inputs.package_npm
+        run: |
+          python3 cmux-tui/dist/scripts/package_npm_artifact.py create \
+            --packages-dir dist/npm-packages \
+            --archive dist/npm-packages.tar.gz
+
       - name: Smoke verify PyPI wheels
         if: inputs.package_pypi
         run: |
@@ -312,7 +319,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: npm-packages
-          path: dist/npm-packages
+          path: dist/npm-packages.tar.gz
           if-no-files-found: error
 
       - name: Upload PyPI wheels
