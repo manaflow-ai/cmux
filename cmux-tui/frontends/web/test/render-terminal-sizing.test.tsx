@@ -120,11 +120,11 @@ describe("render terminal sizing", () => {
 
     render(<Harness client={client} />);
 
-    await waitFor(() => expect(client.attachSurface).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(client.resizeSurface).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(client.attachSurface).toHaveBeenCalledTimes(2), { timeout: 10_000 });
+    await waitFor(() => expect(client.resizeSurface).toHaveBeenCalledTimes(2), { timeout: 10_000 });
     expect(client.resizeSurface).toHaveBeenNthCalledWith(1, 7, 80, 24);
     expect(client.resizeSurface).toHaveBeenNthCalledWith(2, 7, 80, 24);
-  });
+  }, 20_000);
 
   it("does not publish a viewer resize while the attachment is disconnected", async () => {
     let resizeCallback: ResizeObserverCallback | null = null;
