@@ -88,6 +88,17 @@ final class PostHogAnalytics: @unchecked Sendable {
         }
     }
 
+    /// Configures PostHog's anonymous flag client even when event telemetry is
+    /// disabled. `optOut` suppresses captures while the SDK's flag endpoint
+    /// remains available for release kill switches.
+    func configureFeatureFlagControlPlane() {
+        if DispatchQueue.getSpecific(key: workQueueSpecificKey) != nil {
+            startIfNeededOnWorkQueue(allowFlagsOnly: true)
+        } else {
+            workQueue.sync { startIfNeededOnWorkQueue(allowFlagsOnly: true) }
+        }
+    }
+
     func trackActive(reason: String) {
         dispatchAsyncOnWorkQueue { [weak self] in
             guard let self else { return }
@@ -113,18 +124,29 @@ final class PostHogAnalytics: @unchecked Sendable {
         }
     }
 
-    private func startIfNeededOnWorkQueue() {
+    private func startIfNeededOnWorkQueue(allowFlagsOnly: Bool = false) {
         guard !didStart else { return }
-        guard isEnabled else { return }
+        let analyticsEnabled = isEnabled
+        guard analyticsEnabled || allowFlagsOnly else { return }
 
-        let config = PostHogConfig(apiKey: apiKey, host: host)
-        config.captureApplicationLifecycleEvents = false
-        config.captureScreenViews = false
+        let config = Self.makeConfig(
+            apiKey: apiKey,
+            host: host,
+            analyticsEnabled: analyticsEnabled
+        )
 #if DEBUG
         config.debug = ProcessInfo.processInfo.environment["CMUX_POSTHOG_DEBUG"] == "1"
 #endif
 
         PostHogSDK.shared.setup(config)
+        if analyticsEnabled {
+            PostHogSDK.shared.optIn()
+        } else {
+            PostHogSDK.shared.optOut()
+        }
+        didStart = true
+
+        guard analyticsEnabled else { return }
 
         // Tag every event so PostHog can distinguish desktop from web and
         // break events down by released app version/build.
@@ -132,9 +154,19 @@ final class PostHogAnalytics: @unchecked Sendable {
 
         // The SDK automatically generates and persists an anonymous distinct ID.
 
-        didStart = true
-
         scheduleActiveCheckTimer()
+    }
+
+    static func makeConfig(
+        apiKey: String = "phc_opOVu7oFzR9wD3I6ZahFGOV2h3mqGpl5EHyQvmHciDP",
+        host: String = "https://us.i.posthog.com",
+        analyticsEnabled: Bool
+    ) -> PostHogConfig {
+        let config = PostHogConfig(apiKey: apiKey, host: host)
+        config.captureApplicationLifecycleEvents = false
+        config.captureScreenViews = false
+        config.optOut = !analyticsEnabled
+        return config
     }
 
     private func scheduleActiveCheckTimer() {
@@ -154,7 +186,7 @@ final class PostHogAnalytics: @unchecked Sendable {
     @discardableResult
     private func trackDailyActiveOnWorkQueue(reason: String, flush: Bool) -> Bool {
         startIfNeededOnWorkQueue()
-        guard didStart else { return false }
+        guard didStart, isEnabled else { return false }
 
         let today = utcDayString(now())
         if userDefaults.string(forKey: lastActiveDayUTCKey) == today {
@@ -185,7 +217,7 @@ final class PostHogAnalytics: @unchecked Sendable {
     @discardableResult
     private func trackHourlyActiveOnWorkQueue(reason: String, flush: Bool) -> Bool {
         startIfNeededOnWorkQueue()
-        guard didStart else { return false }
+        guard didStart, isEnabled else { return false }
 
         let hour = utcHourString(now())
         if userDefaults.string(forKey: lastActiveHourUTCKey) == hour {

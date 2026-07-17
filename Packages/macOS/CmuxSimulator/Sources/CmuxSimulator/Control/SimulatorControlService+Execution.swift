@@ -11,12 +11,14 @@ extension SimulatorControlService {
     func run(
         executable: String = "/usr/bin/xcrun",
         arguments: [String],
+        environment: [String: String] = [:],
         timeout: TimeInterval? = nil
     ) async -> CommandResult {
         let result = await boundedCommands.runBounded(
             directory: currentDirectoryURL.path,
             executable: executable,
             arguments: arguments,
+            environment: environment,
             timeout: timeout ?? commandTimeout,
             standardOutputLimit: outputLimit(arguments: arguments),
             standardErrorLimit: Self.maximumBoundedDiagnosticBytes
@@ -33,10 +35,16 @@ extension SimulatorControlService {
     func output(
         executable: String = "/usr/bin/xcrun",
         arguments: [String],
+        environment: [String: String] = [:],
         diagnosticArguments: [String]? = nil,
         timeout: TimeInterval? = nil
     ) async throws -> Data {
-        let result = await run(executable: executable, arguments: arguments, timeout: timeout)
+        let result = await run(
+            executable: executable,
+            arguments: arguments,
+            environment: environment,
+            timeout: timeout
+        )
         guard succeeded(result) else {
             throw failure(result: result, arguments: diagnosticArguments ?? arguments)
         }
@@ -46,6 +54,7 @@ extension SimulatorControlService {
     func boundedOutput(
         executable: String = "/usr/bin/xcrun",
         arguments: [String],
+        environment: [String: String] = [:],
         diagnosticArguments: [String]? = nil,
         standardOutputLimit: Int,
         timeout: TimeInterval? = nil
@@ -54,6 +63,7 @@ extension SimulatorControlService {
             directory: currentDirectoryURL.path,
             executable: executable,
             arguments: arguments,
+            environment: environment,
             timeout: timeout ?? commandTimeout,
             standardOutputLimit: standardOutputLimit,
             standardErrorLimit: Self.maximumBoundedDiagnosticBytes

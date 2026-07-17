@@ -25,18 +25,16 @@ extension TerminalController {
         case let .panel(panel):
             let coordinator = panel.coordinator
             let receipt = ControlSimulatorOperationReceipt()
-            let task = Task { @MainActor [weak coordinator] in
-                guard let coordinator else {
-                    receipt.complete(.failed(
-                        code: "simulator_closed",
-                        message: String(
-                            localized: "cli.simulator.error.paneClosed",
-                            defaultValue: "The Simulator pane closed before the operation started"
-                        )
-                    ))
-                    return
-                }
+            guard let task = coordinator.startControlAction("control-socket-\(UUID().uuidString)") { coordinator in
                 await self.performSimulatorOperation(operation, coordinator: coordinator, receipt: receipt)
+            } else {
+                return .failed(.init(
+                    code: "simulator_closed",
+                    message: String(
+                        localized: "cli.simulator.error.paneClosed",
+                        defaultValue: "The Simulator pane closed before the operation started"
+                    )
+                ))
             }
             receipt.installCancellation { task.cancel() }
             return .started(

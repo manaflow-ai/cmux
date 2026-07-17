@@ -26,6 +26,7 @@ struct SimulatorBoundedCommandRunner: SimulatorBoundedCommandRunning, Sendable {
         directory: String,
         executable: String,
         arguments: [String],
+        environment: [String: String] = [:],
         timeout: TimeInterval?,
         standardOutputLimit: Int,
         standardErrorLimit: Int
@@ -60,6 +61,7 @@ struct SimulatorBoundedCommandRunner: SimulatorBoundedCommandRunning, Sendable {
                         state: state,
                         executableURL: executableURL,
                         processArguments: processArguments,
+                        environment: environment,
                         directory: directory,
                         timeout: timeout,
                         standardOutputLimit: standardOutputLimit,
@@ -80,6 +82,7 @@ struct SimulatorBoundedCommandRunner: SimulatorBoundedCommandRunning, Sendable {
         state: SimulatorBoundedCommandRunState,
         executableURL: URL,
         processArguments: [String],
+        environment: [String: String],
         directory: String,
         timeout: TimeInterval?,
         standardOutputLimit: Int,
@@ -123,6 +126,7 @@ struct SimulatorBoundedCommandRunner: SimulatorBoundedCommandRunning, Sendable {
             process = try SimulatorProcessGroupProcess(
                 executableURL: executableURL,
                 arguments: processArguments,
+                environment: environment,
                 currentDirectoryURL: URL(fileURLWithPath: directory),
                 standardOutputFD: standardOutput.fileHandleForWriting.fileDescriptor,
                 standardErrorFD: standardError.fileHandleForWriting.fileDescriptor,

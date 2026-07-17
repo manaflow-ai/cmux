@@ -36,6 +36,7 @@ extension SimulatorPaneCoordinator {
     public func startLocationRoute(_ route: SimulatorLocationRoute) async {
         await waitForLocationRouteTeardown()
         guard let deviceID = selectedDeviceID else { return }
+        let selectionGeneration = selectionGeneration
         let completionTask = cancelLocationRouteCompletion()
         _ = await completionTask?.value
         guard (try? await perform(.startLocationRoute(
@@ -43,6 +44,12 @@ extension SimulatorPaneCoordinator {
             route: route
         ))) != nil else {
             resumeLocationRouteCompletion()
+            return
+        }
+        guard !Task.isCancelled, !closed,
+              self.selectionGeneration == selectionGeneration,
+              selectedDeviceID == deviceID else {
+            _ = try? await client.perform(.stopLocationRoute(deviceID: deviceID))
             return
         }
         beginLocationRouteSession(deviceID: deviceID, route: route)

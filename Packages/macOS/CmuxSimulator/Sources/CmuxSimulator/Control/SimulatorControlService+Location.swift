@@ -308,6 +308,7 @@ extension SimulatorControlService {
                 directory: directory,
                 executable: "/usr/bin/xcrun",
                 arguments: arguments,
+                environment: [:],
                 timeout: timeout,
                 standardOutputLimit: Self.maximumMutationOutputBytes,
                 standardErrorLimit: Self.maximumBoundedDiagnosticBytes

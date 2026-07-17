@@ -20,6 +20,7 @@ actor RecordingCommandRunner: CommandRunning, SimulatorBoundedCommandRunning {
         invocations.append(RecordingCommandInvocation(
             executable: executable,
             arguments: arguments,
+            environment: [:],
             timeout: timeout
         ))
         return results.isEmpty ? successfulCommandResult("") : results.removeFirst()
@@ -31,17 +32,19 @@ actor RecordingCommandRunner: CommandRunning, SimulatorBoundedCommandRunning {
         directory: String,
         executable: String,
         arguments: [String],
+        environment: [String: String],
         timeout: TimeInterval?,
         standardOutputLimit: Int,
         standardErrorLimit: Int
     ) async -> SimulatorBoundedCommandResult {
         boundedLimits.append((standardOutputLimit, standardErrorLimit))
-        let result = await run(
-            directory: directory,
+        invocations.append(RecordingCommandInvocation(
             executable: executable,
             arguments: arguments,
+            environment: environment,
             timeout: timeout
-        )
+        ))
+        let result = results.isEmpty ? successfulCommandResult("") : results.removeFirst()
         let output = captureCommandOutput(result.stdout, limit: standardOutputLimit)
         let error = captureCommandOutput(result.stderr, limit: standardErrorLimit)
         return SimulatorBoundedCommandResult(

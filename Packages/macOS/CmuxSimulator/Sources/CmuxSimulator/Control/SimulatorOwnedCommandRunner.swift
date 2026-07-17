@@ -24,6 +24,7 @@ public enum SimulatorOwnedCommandRunner {
                 directory: currentDirectory,
                 executable: executable,
                 arguments: arguments,
+                environment: [:],
                 timeout: timeout,
                 standardOutputLimit: outputLimit,
                 standardErrorLimit: outputLimit

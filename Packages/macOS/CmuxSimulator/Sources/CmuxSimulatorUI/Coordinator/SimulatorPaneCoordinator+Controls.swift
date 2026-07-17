@@ -14,17 +14,37 @@ extension SimulatorPaneCoordinator {
         _ key: String,
         operation: @escaping @MainActor @Sendable (SimulatorPaneCoordinator) async -> Void
     ) {
+        startControlAction(key, operation: operation)
+    }
+
+    /// Admits pane-owned work and returns its cancellation handle to callers
+    /// that also own a timeout or transport receipt.
+    @discardableResult
+    public func startControlAction(
+        _ key: String,
+        operation: @escaping @MainActor @Sendable (SimulatorPaneCoordinator) async -> Void
+    ) -> Task<Void, Never>? {
         guard !closed, controlActionTasks[key] == nil,
-              controlActionTasks.count < 8 else { return }
+              controlActionTasks.count < 8 else { return nil }
         let token = UUID()
         controlActionTaskTokens[key] = token
-        controlActionTasks[key] = Task { @MainActor [weak self] in
+        let task = Task { @MainActor [weak self] in
             guard let self else { return }
             if !Task.isCancelled { await operation(self) }
             guard self.controlActionTaskTokens[key] == token else { return }
             self.controlActionTaskTokens.removeValue(forKey: key)
             self.controlActionTasks.removeValue(forKey: key)
         }
+        controlActionTasks[key] = task
+        return task
+    }
+
+    func cancelControlActions() -> [Task<Void, Never>] {
+        let tasks = Array(controlActionTasks.values)
+        controlActionTasks.removeAll()
+        controlActionTaskTokens.removeAll()
+        tasks.forEach { $0.cancel() }
+        return tasks
     }
 
     /// Whether the current worker negotiated a capability.

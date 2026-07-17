@@ -217,6 +217,7 @@ final class CmuxFeatureFlags {
     /// the SDK never sets up, because cached remote values remain authoritative.
     func start() {
         guard flagsObserver == nil else { return }
+        PostHogAnalytics.shared.configureFeatureFlagControlPlane()
         flagsObserver = NotificationCenter.default.addObserver(
             forName: PostHogSDK.didReceiveFeatureFlags,
             object: nil,

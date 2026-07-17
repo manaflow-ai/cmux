@@ -76,21 +76,14 @@ extension SimulatorControlService {
                 )
             )
         }
-        let environment = configuration.environment
-            .sorted { $0.key < $1.key }
-            .map { "SIMCTL_CHILD_\($0.key)=\($0.value)" }
+        let environment = Dictionary(uniqueKeysWithValues: configuration.environment.map {
+            ("SIMCTL_CHILD_\($0.key)", $0.value)
+        })
         return try await mutationGate.withLocks([
             .application(deviceIdentifier: deviceID, bundleIdentifier: bundleIdentifier),
         ]) {
             let data: Data
-            if environment.isEmpty {
-                data = try await output(arguments: arguments)
-            } else {
-                data = try await output(
-                    executable: "/usr/bin/env",
-                    arguments: environment + ["/usr/bin/xcrun"] + arguments
-                )
-            }
+            data = try await output(arguments: arguments, environment: environment)
             let commandOutput = String(decoding: data, as: UTF8.self)
             return commandOutput.split(whereSeparator: { !$0.isNumber })
                 .last.flatMap { Int32($0) }

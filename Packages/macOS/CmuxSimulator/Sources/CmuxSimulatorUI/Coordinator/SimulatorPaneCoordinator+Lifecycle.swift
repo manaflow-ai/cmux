@@ -104,10 +104,7 @@ extension SimulatorPaneCoordinator {
     public func close() async {
         guard !closed else { return }
         closed = true
-        let controlActionTasks = Array(controlActionTasks.values)
-        self.controlActionTasks.removeAll()
-        controlActionTaskTokens.removeAll()
-        controlActionTasks.forEach { $0.cancel() }
+        let controlActionTasks = cancelControlActions()
         for task in controlActionTasks { await task.value }
         let locationRouteTeardownTask = beginLocationRouteTeardown()
         let accessibilityRefreshTask = stopAccessibilityOverlayRefresh()
@@ -266,7 +263,12 @@ extension SimulatorPaneCoordinator {
         requiresExplicitDeviceSelection = false
         let previousActivation = activationTask
         previousActivation?.cancel()
-        let locationRouteTeardownTask = beginLocationRouteTeardown()
+        let controlActionTasks = cancelControlActions()
+        let locationRouteTeardownTask = Task { @MainActor [weak self] in
+            for task in controlActionTasks { await task.value }
+            guard let self else { return }
+            _ = await self.beginLocationRouteTeardown()?.value
+        }
         let sessions = detachLongRunningSessions()
         let shouldDisableCamera = !cameraConfiguration.isDisabled
         let outgoingRecoveryTask = outgoingRecoveryTask
@@ -284,7 +286,7 @@ extension SimulatorPaneCoordinator {
             guard let self else { return }
             _ = await deviceScopedTasks.accessibility?.value
             _ = await deviceScopedTasks.liveStatus?.value
-            _ = await locationRouteTeardownTask?.value
+            await locationRouteTeardownTask.value
             _ = await outgoingRecoveryTask?.value
             _ = await previousActivation?.value
             await self.stopLongRunningSessions(sessions)

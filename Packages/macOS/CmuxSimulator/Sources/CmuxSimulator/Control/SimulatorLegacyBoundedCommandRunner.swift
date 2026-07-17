@@ -8,6 +8,7 @@ struct SimulatorLegacyBoundedCommandRunner: SimulatorBoundedCommandRunning, Send
         directory: String,
         executable: String,
         arguments: [String],
+        environment: [String: String],
         timeout: TimeInterval?,
         standardOutputLimit: Int,
         standardErrorLimit: Int
@@ -26,12 +27,23 @@ struct SimulatorLegacyBoundedCommandRunner: SimulatorBoundedCommandRunning, Send
                 )
             )
         }
-        let result = await commands.run(
-            directory: directory,
-            executable: executable,
-            arguments: arguments,
-            timeout: timeout
-        )
+        let result: CommandResult
+        if environment.isEmpty {
+            result = await commands.run(
+                directory: directory,
+                executable: executable,
+                arguments: arguments,
+                timeout: timeout
+            )
+        } else {
+            result = CommandResult(
+                stdout: nil,
+                stderr: nil,
+                exitStatus: nil,
+                timedOut: false,
+                executionError: "The legacy command runner cannot pass a private environment."
+            )
+        }
         let output = capture(result.stdout, limit: standardOutputLimit)
         let error = capture(result.stderr, limit: standardErrorLimit)
         return SimulatorBoundedCommandResult(
