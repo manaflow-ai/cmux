@@ -18,7 +18,7 @@
 //! {"id":1,"ok":true,"data":{"app":"cmux-tui","session":"main",...}}
 //! ```
 
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
@@ -937,6 +937,8 @@ impl MessageSink for QueuedSink {
 
 /// First-attach announcement payload: (transport, name, kind).
 type ClientAnnouncement = (String, Option<String>, Option<String>);
+/// Size-report update payload: (changed, name, kind).
+type ClientSizeUpdate = (bool, Option<String>, Option<String>);
 
 #[derive(Clone, Copy)]
 enum ClientTransport {
@@ -1091,13 +1093,14 @@ impl ClientRegistry {
         surface: SurfaceId,
         cols: u16,
         rows: u16,
-    ) -> Option<(bool, Option<String>, Option<String>)> {
+    ) -> anyhow::Result<Option<ClientSizeUpdate>> {
         let mut clients = self.clients.lock().unwrap();
-        let record = clients.get_mut(&client)?;
-        let attached = record.attached.get_mut(&surface)?;
+        let record =
+            clients.get_mut(&client).ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
+        let Some(attached) = record.attached.get_mut(&surface) else { return Ok(None) };
         let changed = attached.size != Some((cols, rows));
         attached.size = Some((cols, rows));
-        Some((changed, record.name.clone(), record.kind.clone()))
+        Ok(Some((changed, record.name.clone(), record.kind.clone())))
     }
 
     fn clear_size(
@@ -1118,6 +1121,15 @@ impl ClientRegistry {
 
     fn contains(&self, client: u64) -> bool {
         self.clients.lock().unwrap().contains_key(&client)
+    }
+
+    pub(crate) fn attached_client_ids(&self) -> HashSet<u64> {
+        self.clients
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|(client, record)| record.announced_attached.then_some(*client))
+            .collect()
     }
 }
 
@@ -2730,7 +2742,7 @@ fn handle_command(
         }
         Command::ResizeSurface { surface, cols, rows } => {
             let attached =
-                mux.control_clients.record_size(client, surface, cols.max(1), rows.max(1));
+                mux.control_clients.record_size(client, surface, cols.max(1), rows.max(1))?;
             let (accepted, reservation_id) = if attached.is_some() {
                 mux.resize_surface_for_client_with_reservation(surface, client, cols, rows)?
             } else {
