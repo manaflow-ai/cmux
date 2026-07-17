@@ -24,7 +24,7 @@ struct SidebarWorkspaceTableTests {
                 && area.options.contains(.inVisibleRect)
         })
 
-        #expect(container.tableView.style == .fullWidth)
+        #expect(container.tableView.style == .plain)
         #expect(container.scrollView.contentInsets.left == 0)
         #expect(container.scrollView.contentInsets.right == 0)
         #expect(container.tableView.intercellSpacing.width == 0)

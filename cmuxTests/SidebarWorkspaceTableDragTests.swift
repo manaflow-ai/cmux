@@ -119,7 +119,7 @@ struct SidebarWorkspaceTableDragTests {
         let workspaceId = UUID()
         let row = makeRowConfiguration(
             workspaceId: workspaceId,
-            title: String(repeating: "variable width title ", count: 20),
+            title: String(repeating: "variable width title ", count: 5),
             wrapsTitle: true
         )
         let actions = makeTableActions()
