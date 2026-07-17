@@ -30,13 +30,108 @@ final class ComputerUsePermissionService {
     private static var cachedAccessibility = false
     private static var cachedScreenRecording = false
 
-    /// URL of the bundled `cmux Computer Use.app` helper inside cmux.app, when
-    /// present. It lives under `Contents/Library/` so onboarding can reveal it in
-    /// Finder for drag-and-drop into the System Settings permission lists.
-    var helperAppURL: URL? {
+    /// The bundled helper nested inside cmux.app at `Contents/Library/`. This is
+    /// the SOURCE we copy from — it is NOT what the running daemon uses, and it
+    /// must not be revealed for drag-and-drop: Finder can't navigate into a
+    /// `.app` bundle, so a nested path is undraggable.
+    private var nestedHelperAppURL: URL? {
         let url = Bundle.main.bundleURL
             .appendingPathComponent("Contents/Library/\(Self.helperAppName).app")
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    /// The directory the agent wrappers install the STANDALONE helper into — the
+    /// exact copy the wrappers launch via LaunchServices as the serve daemon.
+    /// Kept in sync with `cmux_computer_use_standalone_helper` in the wrappers.
+    private static var standaloneHelperDirectory: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/cmux/computer-use/helper", isDirectory: true)
+    }
+
+    /// The standalone helper `.app` the daemon actually runs as, at a clean,
+    /// user-revealable path outside any `.app` bundle. This is the ONE identity
+    /// onboarding must reveal, drag, and status-check against, so the grant the
+    /// user makes lands on the process the daemon runs.
+    private static var standaloneHelperAppURL: URL {
+        standaloneHelperDirectory.appendingPathComponent("\(helperAppName).app")
+    }
+
+    /// URL of the `cmux Computer Use.app` helper to surface in onboarding
+    /// (reveal / drag / icon). Prefers the installed STANDALONE copy — the same
+    /// bundle the daemon runs and the only one at a Finder-draggable path — and
+    /// falls back to the nested bundle only when the standalone isn't installed
+    /// yet (e.g. before the first computer-use call). Call
+    /// ``ensureStandaloneHelperInstalled()`` first so this returns the standalone.
+    var helperAppURL: URL? {
+        let standaloneBinary = Self.standaloneHelperAppURL
+            .appendingPathComponent("Contents/MacOS/cmux-cua-driver")
+        if FileManager.default.isExecutableFile(atPath: standaloneBinary.path) {
+            return Self.standaloneHelperAppURL
+        }
+        return nestedHelperAppURL
+    }
+
+    /// Install (or refresh) the standalone helper from the nested bundle so
+    /// onboarding, the status check, and the daemon all reference ONE bundle at
+    /// ONE path. Mirrors the wrappers' `cmux_computer_use_standalone_helper`:
+    /// `ditto` (preserving the ad-hoc signature) into
+    /// `~/Library/Application Support/cmux/computer-use/helper`, re-syncing only
+    /// when the nested driver is newer. Returns the standalone URL, or the nested
+    /// URL if the copy can't be made. No-op fast path when already current.
+    @discardableResult
+    func ensureStandaloneHelperInstalled() -> URL? {
+        guard let nested = nestedHelperAppURL else { return nil }
+        let fm = FileManager.default
+        let dest = Self.standaloneHelperAppURL
+        let nestedBin = nested.appendingPathComponent("Contents/MacOS/cmux-cua-driver")
+        let destBin = dest.appendingPathComponent("Contents/MacOS/cmux-cua-driver")
+
+        // Fast path: an up-to-date standalone copy already exists.
+        if fm.isExecutableFile(atPath: destBin.path) {
+            let nestedDate = (try? nestedBin.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            let destDate = (try? destBin.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            if let n = nestedDate, let d = destDate, n <= d {
+                return dest
+            }
+            if nestedDate == nil || destDate == nil {
+                return dest
+            }
+        }
+
+        do {
+            try fm.createDirectory(at: Self.standaloneHelperDirectory, withIntermediateDirectories: true)
+        } catch {
+            return nested
+        }
+
+        // ditto preserves the ad-hoc signature, xattrs, and symlinks a bundle
+        // needs to stay TCC-valid (plain copyItem can drop them). Copy to a temp
+        // path then atomically swap so a concurrent install never sees a partial.
+        let tmp = Self.standaloneHelperDirectory
+            .appendingPathComponent(".\(Self.helperAppName).tmp.\(ProcessInfo.processInfo.processIdentifier).app")
+        try? fm.removeItem(at: tmp)
+        let ditto = Process()
+        ditto.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+        ditto.arguments = [nested.path, tmp.path]
+        do {
+            try ditto.run()
+            ditto.waitUntilExit()
+        } catch {
+            try? fm.removeItem(at: tmp)
+            return nested
+        }
+        guard ditto.terminationStatus == 0 else {
+            try? fm.removeItem(at: tmp)
+            return fm.isExecutableFile(atPath: destBin.path) ? dest : nested
+        }
+        try? fm.removeItem(at: dest)
+        do {
+            try fm.moveItem(at: tmp, to: dest)
+        } catch {
+            try? fm.removeItem(at: tmp)
+            return fm.isExecutableFile(atPath: destBin.path) ? dest : nested
+        }
+        return dest
     }
 
     /// The helper's actual user-facing name, read from its bundle so onboarding
@@ -56,6 +151,9 @@ final class ComputerUsePermissionService {
     }
 
     /// The helper's driver executable, when the bundle is present and runnable.
+    /// Resolves through ``helperAppURL`` so it targets the STANDALONE copy the
+    /// daemon runs — the status check then reads the SAME TCC identity the user
+    /// grants, so a grant actually shows up as "granted" in onboarding.
     private var helperBinaryURL: URL? {
         guard let helperAppURL else { return nil }
         let bin = helperAppURL.appendingPathComponent("Contents/MacOS/cmux-cua-driver")
@@ -79,6 +177,10 @@ final class ComputerUsePermissionService {
     /// embedded-driver path), where cmux's TCC is the relevant grant.
     @discardableResult
     func refreshHelperStatus() async -> (accessibility: Bool, screenRecording: Bool) {
+        // Install the standalone helper first so the status probe below runs the
+        // SAME bundle the daemon runs — otherwise a grant on the daemon's
+        // identity would never register here and onboarding would never advance.
+        ensureStandaloneHelperInstalled()
         if let binary = helperBinaryURL,
            let status = await Self.queryHelper(binary: binary, prompt: false) {
             Self.cachedAccessibility = status.accessibility

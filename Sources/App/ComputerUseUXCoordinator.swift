@@ -20,6 +20,7 @@ final class ComputerUseUXCoordinator {
     private var cursorOverlayController: ComputerUseCursorOverlayController?
     private var watchTargetController: ComputerUseWatchTargetController?
     private var onboardingWindowController: ComputerUseOnboardingWindowController?
+    private var helperDragWindowController: ComputerUseHelperDragWindowController?
     private var enabledSettingTask: Task<Void, Never>?
     private var agentSessionRequiresRestart = false
 
@@ -152,21 +153,36 @@ final class ComputerUseUXCoordinator {
     }
 
     private func recordCapableSessionStarted() {
-        // Do NOT auto-present the in-app onboarding when a computer-use session
-        // starts. On macOS 26.4.1, bringing up the settings-backed onboarding
-        // window while a computer-use session is spinning up destabilizes the app
-        // (main-actor/first-responder reentrancy on top of the SwiftUI settings
-        // concurrency issue). The permission flow is the macOS system prompt the
-        // helper raises on its first TCC-gated action; in-app onboarding remains
-        // available on demand from Settings > Computer Use (presentOnboarding()).
+        // When the user reaches for computer use, surface the crash-safe AppKit
+        // drag popup if a permission is missing, so they can drag the helper
+        // straight into the Accessibility / Screen Recording list and turn it on.
         //
-        // We still refresh the helper's TCC status so the Settings UI and the
-        // "restart the helper" hint reflect reality, but never present here.
+        // Deliberately NOT the SwiftUI onboarding window: presenting that while a
+        // computer-use session spins up hit a SwiftUI/settings main-actor
+        // concurrency crash on macOS 26.x. ComputerUseHelperDragWindowController
+        // is pure AppKit with no settings bindings, so it is safe here. The
+        // SwiftUI onboarding stays available on demand from Settings > Computer
+        // Use (presentOnboarding()).
         Task { [weak self] in
             guard let self else { return }
             let status = await permissionService.refreshHelperStatus()
             agentSessionRequiresRestart = !status.accessibility || !status.screenRecording
+            guard featureEnabled() else { return }
+            if !status.accessibility || !status.screenRecording {
+                presentHelperDragPopupIfNeeded()
+            }
         }
+    }
+
+    /// Present the AppKit helper drag popup when a grant is missing. If the popup
+    /// is already on screen, leave it be so repeated capable-session starts don't
+    /// steal focus or stack panels.
+    private func presentHelperDragPopupIfNeeded() {
+        let controller = helperDragWindowController
+            ?? ComputerUseHelperDragWindowController(permissionService: permissionService)
+        helperDragWindowController = controller
+        guard !controller.isVisible else { return }
+        controller.present()
     }
 
     private func presentOnboardingAutomaticallyIfNeeded() {
