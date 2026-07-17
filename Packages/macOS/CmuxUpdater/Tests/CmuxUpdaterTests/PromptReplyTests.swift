@@ -66,9 +66,9 @@ import Testing
         }
     }
 
-    /// An untracked Sparkle dismissal is the active UI teardown signal and must still clear a
-    /// visible prompt instead of stranding it.
-    @Test func unexpectedDismissalClearsUnansweredPrompt() {
+    /// Regression for #8368: an untracked Sparkle dismissal has no causal link to the currently
+    /// visible prompt. It must not silently clear an unanswered install opportunity.
+    @Test func unexpectedDismissalKeepsUnansweredPromptVisible() {
         let model = UpdateStateModel()
         let driver = UpdateDriver(
             model: model,
@@ -80,7 +80,10 @@ import Testing
         model.setState(.updateAvailable(.init(appcastItem: makeItem("0.64.16"), reply: { _ in })))
         driver.dismissUpdateInstallation()
 
-        #expect(model.state.isIdle)
+        guard case .updateAvailable = model.state else {
+            Issue.record("unanswered prompt was silently dismissed to \(model.state)")
+            return
+        }
     }
 
     /// A stale dismissal arriving after the fresh prompt was confirmed must not reset active
@@ -250,8 +253,9 @@ import Testing
         #expect(model.state.isIdle)
     }
 
-    /// Once the prompt is answered, its own dismissal passes through and clears the state.
-    @Test func answeredPromptDismissalClearsState() {
+    /// Regression for #8368: after the user accepts an install, a Sparkle dismissal arriving
+    /// before `showDownloadInitiated` must not hide the only visible evidence of that attempt.
+    @Test func acceptedInstallDismissalKeepsAttemptVisible() {
         let model = UpdateStateModel()
         let driver = UpdateDriver(
             model: model,
@@ -265,6 +269,7 @@ import Testing
         available.reply(.install)
         driver.dismissUpdateInstallation()
 
-        #expect(model.state.isIdle)
+        #expect(model.showsPill)
+        #expect(!model.state.isIdle)
     }
 }

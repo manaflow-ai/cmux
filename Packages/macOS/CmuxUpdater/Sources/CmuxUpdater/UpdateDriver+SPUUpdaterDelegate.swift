@@ -87,6 +87,11 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
     }
 
     func updaterDidNotFindUpdate(_ updater: SPUUpdater, error: any Error) {
+        handleDidNotFindUpdate(error)
+    }
+
+    /// Handles Sparkle's no-update delegate result without requiring a live `SPUUpdater` in tests.
+    func handleDidNotFindUpdate(_ error: any Error) {
         model.dismissDetectedAvailableUpdate()
         let nsError = error as NSError
         let reasonValue = (nsError.userInfo[SPUNoUpdateFoundReasonKey] as? NSNumber)?.intValue

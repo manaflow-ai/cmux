@@ -75,6 +75,26 @@ import Testing
         #expect(!harness.controller.attemptCoordinator.isMonitoring)
     }
 
+    /// Regression for #8368: dismissing the old prompt does not synchronously end Sparkle's
+    /// update cycle. Starting the replacement check before Sparkle reports that the old cycle
+    /// finished is documented to refocus/no-op, which silently strands the accepted install.
+    @Test func installWaitsForDismissedSparkleCycleBeforeStartingFreshCheck() async {
+        let harness = Harness()
+        let stalePrompt = ChoiceBox()
+
+        harness.model.setState(updateAvailable("0.64.15", replyingInto: stalePrompt))
+        harness.controller.attemptUpdate()
+
+        #expect(stalePrompt.choice == .dismiss)
+        for _ in 0..<100 {
+            await Task.yield()
+        }
+
+        // No Sparkle cycle-finished signal has arrived, so starting a new check is not safe yet.
+        #expect(harness.updater.checkForUpdatesCallCount == 0)
+        #expect(harness.model.showsPill)
+    }
+
     /// Transitions queued before the Install click belong to the prompt-producing check, not the
     /// fresh re-check started by Install. They must be discarded at the attempt boundary so stale
     /// `.checking` / `.updateAvailable` snapshots cannot satisfy and then end the new coordinator
@@ -243,11 +263,10 @@ import Testing
         #expect(!harness.controller.attemptCoordinator.isMonitoring)
     }
 
-    /// If the resolved prompt vanishes before the confirm hand-off runs (the user dismissed it
-    /// mid-drain, so the live state has moved past the drained snapshot), the controller must
-    /// not reply to the already-answered snapshot, and must disarm the watchdog so the leftover
-    /// deadline can't fire a spurious error afterwards.
-    @Test func vanishedPromptSkipsHandOffAndDisarms() async {
+    /// Regression for #8368: an unattributed idle transition can be a stale/background Sparkle
+    /// callback, not a user cancellation. If it removes the freshly resolved prompt before the
+    /// confirm hand-off, the accepted install must remain visible or become a retryable error.
+    @Test func unattributedPromptLossCannotSilentlyEndAcceptedInstall() async {
         let harness = Harness()
         let stalePrompt = ChoiceBox()
 
@@ -255,7 +274,7 @@ import Testing
         harness.controller.attemptUpdate()
         await waitUntil("fresh check to start") { harness.updater.checkForUpdatesCallCount == 1 }
 
-        // Dismiss callback, fresh check restarts, resolution and the user's dismissal land
+        // Dismiss callback, fresh check restart, resolution, and an unattributed stale idle land
         // back-to-back: by the time the confirm hand-off runs, the prompt is gone.
         harness.model.setState(.idle)
         harness.model.setState(.checking(.init(cancel: {})))
@@ -263,10 +282,18 @@ import Testing
         harness.model.setState(updateAvailable("0.64.16", replyingInto: freshPrompt))
         harness.model.setState(.idle)
 
-        await waitUntil("watchdog to disarm") { !harness.controller.installWatchdog.isArmed }
+        for _ in 0..<100 {
+            await Task.yield()
+        }
         #expect(freshPrompt.choice == nil)
-        await harness.clock.fireDeadlines()
-        #expect(harness.model.state.isIdle)
+        #expect(harness.model.showsPill || harness.controller.installWatchdog.isArmed)
+
+        if harness.controller.installWatchdog.isArmed {
+            await harness.clock.fireDeadlines()
+            await waitUntil("prompt-loss error") {
+                errorCode(for: harness.model.state) == UpdateStateModel.installDidNotStartCode
+            }
+        }
     }
 
     /// If the live prompt is still visible but already answered before the queued confirm
