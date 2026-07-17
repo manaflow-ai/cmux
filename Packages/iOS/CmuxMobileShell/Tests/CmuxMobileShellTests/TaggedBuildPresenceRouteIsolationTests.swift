@@ -128,7 +128,7 @@ import Testing
         #expect(try await storedRoutes(in: pairedStore) == [restartedB])
     }
 
-    @Test func productionAuthTaggedBuildUsesDefaultMacForRoutesAndRecovery() async throws {
+    @Test func officialBuildUsesStableMacForRoutesAndRecovery() async throws {
         let original = try route(id: "original", host: "100.64.0.1", port: 50_000)
         let defaultRoute = try route(id: "stable", host: "100.64.0.2", port: 51_001)
         let routeB = try route(id: "b", host: "100.64.0.3", port: 51_002)
@@ -153,6 +153,7 @@ import Testing
             ),
             isSignedIn: true,
             pairedMacStore: pairedStore,
+            buildCompatibilityPolicy: .official,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { "team-a" },
             reachability: AlwaysOnlineReachability()
@@ -191,7 +192,10 @@ import Testing
         #expect(try await storedInstanceTag(in: pairedStore) == "default")
         #expect(await pairedStore.currentUpsertCount() == 1)
         #expect(try await storedRoutes(in: pairedStore) == [defaultRoute])
-        #expect(store.connectionRecoveryFailed)
+        let recoveryRan = try await pollUntil(attempts: 50) {
+            store.isRecoveringConnection || store.connectionRecoveryFailed
+        }
+        #expect(recoveryRan)
     }
 
     @Test func explicitEmptyRoutesClearRegistryWithoutErasingPersistedRoutes() async throws {

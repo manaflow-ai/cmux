@@ -9,7 +9,7 @@ import CmuxCanvasUI
 /// inside a hosting view.
 enum CanvasPaneContent {
     /// A terminal surface hosted directly as an AppKit subview.
-    case terminal(TerminalPanel)
+    case terminal(TerminalPanel, SessionContentWidthPresentation)
     /// Any other panel kind, hosted through an `NSHostingView`. Carries the
     /// panel so the mount can drive panel-level lifecycle (browser webview
     /// visibility / hidden-discard restore).
@@ -48,7 +48,7 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
 
         let view: NSView
         switch content {
-        case .terminal(let panel):
+        case .terminal(let panel, let sessionContentWidthPresentation):
             let hostedView = panel.hostedView
             // The window portal resizes hosted terminals to their visible
             // intersection; on a scrolling canvas that would reflow the
@@ -56,6 +56,7 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
             // the clip view crops instead.
             TerminalWindowPortalRegistry.detach(hostedView: hostedView)
             hostedView.setVisibleInUI(true)
+            hostedView.setSessionContentWidthPresentation(sessionContentWidthPresentation)
             hostedView.setFocusHandler { [weak self] in
                 guard let self else { return }
                 self.onFocusPanel?(self.panelId)
@@ -96,7 +97,7 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
 
     /// The terminal panel when this mount hosts a terminal directly.
     var terminalPanel: TerminalPanel? {
-        if case .terminal(let panel) = content { return panel }
+        if case .terminal(let panel, _) = content { return panel }
         return nil
     }
 
@@ -106,11 +107,13 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
         isFocused: Bool,
         showsInactiveOverlay: Bool,
         inactiveOverlayColor: NSColor,
-        inactiveOverlayOpacity: Double
+        inactiveOverlayOpacity: Double,
+        sessionContentWidthPresentation: SessionContentWidthPresentation
     ) {
         switch content {
-        case .terminal(let panel):
+        case .terminal(let panel, _):
             let hostedView = panel.hostedView
+            hostedView.setSessionContentWidthPresentation(sessionContentWidthPresentation)
             hostedView.setActive(isFocused)
             hostedView.setInactiveOverlay(
                 color: inactiveOverlayColor,
@@ -127,7 +130,7 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
     /// size, so re-entering the viewport never reflows.
     func setRendering(_ rendering: Bool) {
         switch content {
-        case .terminal(let panel):
+        case .terminal(let panel, _):
             panel.surface.setOcclusion(rendering)
         case .hosted(let panel, _):
             // Offscreen browsers may hidden-discard their webview; coming
@@ -143,7 +146,7 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
     /// system (the split layout's representable rebinds on its next update).
     func unmount() {
         switch content {
-        case .terminal(let panel):
+        case .terminal(let panel, _):
             let hostedView = panel.hostedView
             hostedView.setActive(false)
             hostedView.setFocusHandler(nil)

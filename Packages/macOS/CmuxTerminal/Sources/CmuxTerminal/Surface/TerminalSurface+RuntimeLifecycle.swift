@@ -135,6 +135,7 @@ extension TerminalSurface {
             registry.unregisterRuntimeSurface(surface, ownerId: id)
             self.surface = nil
             activePortalHostLease = nil
+            portalHostAuthority = nil
             recordTeardownRequest(reason: reason)
             markPortalLifecycleClosed(reason: reason)
 #if DEBUG
@@ -313,6 +314,7 @@ extension TerminalSurface {
         }
         surface = nil
         activePortalHostLease = nil
+        portalHostAuthority = nil
         pendingSocketInputQueue.removeAll(keepingCapacity: false)
         pendingSocketInputBytes = 0
         desiredFocusState = false

@@ -34,6 +34,7 @@ final class BrowserHiddenWebViewDiscardManager {
         let isDeveloperToolsVisible: Bool
         let isElementFullscreenActive: Bool
         let isReactGrabActive: Bool
+        var isDesignModeActive = false
         let isVisualAutomationCaptureActive: Bool
         let isMobileBrowserStreamActive: Bool
         let hasPopups: Bool
@@ -95,6 +96,7 @@ final class BrowserHiddenWebViewDiscardManager {
         }
         if snapshot.isElementFullscreenActive { blockers.append("fullscreen") }
         if snapshot.isReactGrabActive { blockers.append("react_grab") }
+        if snapshot.isDesignModeActive { blockers.append("design_mode") }
         if snapshot.isVisualAutomationCaptureActive { blockers.append("visual_automation") }
         if snapshot.isMobileBrowserStreamActive { blockers.append("mobile_browser_stream") }
         if snapshot.hasPopups { blockers.append("popup") }
