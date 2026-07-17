@@ -107,6 +107,7 @@ final class BrowserWebExtensionTabAdapter: NSObject, WKWebExtensionTab {
 final class BrowserWebExtensionWindowAdapter: NSObject, WKWebExtensionWindow {
     let ownerID: UUID
     let activePanelID: @MainActor () -> UUID?
+    let focusPriority: @MainActor () -> Int
     let focusPanel: @MainActor (UUID) -> Void
     let orderedPanelIDs: @MainActor () -> [UUID]
     var tabAdapters: [BrowserWebExtensionTabAdapter] = []
@@ -115,11 +116,13 @@ final class BrowserWebExtensionWindowAdapter: NSObject, WKWebExtensionWindow {
     init(
         ownerID: UUID,
         activePanelID: @escaping @MainActor () -> UUID?,
+        focusPriority: @escaping @MainActor () -> Int,
         focusPanel: @escaping @MainActor (UUID) -> Void,
         orderedPanelIDs: @escaping @MainActor () -> [UUID]
     ) {
         self.ownerID = ownerID
         self.activePanelID = activePanelID
+        self.focusPriority = focusPriority
         self.focusPanel = focusPanel
         self.orderedPanelIDs = orderedPanelIDs
     }

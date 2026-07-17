@@ -11,6 +11,8 @@ final class BrowserServices {
     private var registeredPanelProfileIDs: [UUID: UUID] = [:]
     private var profileDeletionObserver: NSObjectProtocol?
 
+    var registeredBrowserPanelCount: Int { registeredPanelProfileIDs.count }
+
     init(extensionDirectory: URL? = nil) {
         self.extensionDirectory = extensionDirectory ?? Self.defaultExtensionDirectory
         profileDeletionObserver = NotificationCenter.default.addObserver(
@@ -96,6 +98,15 @@ final class BrowserServices {
         webExtensionsManager.startLoading()
         await webExtensionsManager.waitUntilPresentationReady()
         return webExtensionsManager.presentationSnapshot(for: panelID)
+    }
+
+    /// Waits for the profile's extension contexts to be ready before the
+    /// profile's first page navigation can race content-script injection.
+    func waitUntilWebExtensionsLoaded(for profileID: UUID) async {
+        guard #available(macOS 15.4, *) else { return }
+        let webExtensionsManager = webExtensionsManager(for: profileID)
+        webExtensionsManager.startLoading()
+        await webExtensionsManager.waitUntilLoaded()
     }
 
     func installWebExtension(
@@ -189,6 +200,20 @@ final class BrowserServices {
             panel,
             ownerID: workspace.id,
             activePanelID: { [weak workspace] in workspace?.focusedPanelId },
+            focusPriority: { [weak workspace] in
+                guard let workspace,
+                      let manager = workspace.owningTabManager,
+                      manager.selectedTabId == workspace.id,
+                      let window = manager.window,
+                      window.isKeyWindow else { return 0 }
+                guard let responder = window.firstResponder,
+                      let panelID = workspace.focusedPanelId,
+                      let panel = workspace.panels[panelID],
+                      panel.ownedFocusIntent(for: responder, in: window) != nil else {
+                    return 1
+                }
+                return 2
+            },
             focusPanel: { [weak workspace] panelID in workspace?.focusPanel(panelID) },
             orderedPanelIDs: { [weak workspace] in workspace?.orderedPanelIds ?? [] }
         )
@@ -199,6 +224,20 @@ final class BrowserServices {
             panel,
             ownerID: dock.webExtensionWindowID,
             activePanelID: { [weak dock] in dock?.focusedPanelId },
+            focusPriority: { [weak dock] in
+                guard let dock,
+                      dock.isVisibleInUI,
+                      let panelID = dock.focusedPanelId,
+                      let panel = dock.panels[panelID],
+                      let window = dock.panels.values
+                        .compactMap({ ($0 as? BrowserPanel)?.webView.window })
+                        .first(where: { $0.isKeyWindow }),
+                      let responder = window.firstResponder,
+                      panel.ownedFocusIntent(for: responder, in: window) != nil else {
+                    return 0
+                }
+                return 2
+            },
             focusPanel: { [weak dock] panelID in dock?.focusPanel(panelID) },
             orderedPanelIDs: { [weak dock] in
                 guard let dock else { return [] }
@@ -230,6 +269,7 @@ final class BrowserServices {
             panel: panel,
             ownerID: owner.id,
             activePanelID: owner.activePanelID,
+            focusPriority: owner.focusPriority,
             focusPanel: owner.focusPanel,
             orderedPanelIDs: owner.orderedPanelIDs
         )
@@ -245,6 +285,15 @@ final class BrowserServices {
             return
         }
         manager.tabPropertiesDidChange(panelID: panelID, properties: properties)
+    }
+
+    func browserPanelInternalPageDidChange(_ panel: BrowserPanel) {
+        guard #available(macOS 15.4, *),
+              let profileID = registeredPanelProfileIDs[panel.id],
+              let manager = webExtensionsManagerStorage[profileID] as? BrowserWebExtensionsManager else {
+            return
+        }
+        manager.tabVisibilityDidChange(panelID: panel.id)
     }
 
     func activateWebExtensionTab(panelID: UUID, previousPanelID: UUID?) {
@@ -299,6 +348,7 @@ final class BrowserServices {
         _ panel: BrowserPanel,
         ownerID: UUID,
         activePanelID: @escaping @MainActor () -> UUID?,
+        focusPriority: @escaping @MainActor () -> Int,
         focusPanel: @escaping @MainActor (UUID) -> Void,
         orderedPanelIDs: @escaping @MainActor () -> [UUID]
     ) {
@@ -315,6 +365,7 @@ final class BrowserServices {
             panel: panel,
             ownerID: ownerID,
             activePanelID: activePanelID,
+            focusPriority: focusPriority,
             focusPanel: focusPanel,
             orderedPanelIDs: orderedPanelIDs
         )

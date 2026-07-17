@@ -350,6 +350,7 @@ final class BrowserWebExtensionsManager: NSObject {
         panel: BrowserPanel,
         ownerID: UUID,
         activePanelID: @escaping @MainActor () -> UUID?,
+        focusPriority: @escaping @MainActor () -> Int = { 0 },
         focusPanel: @escaping @MainActor (UUID) -> Void,
         orderedPanelIDs: @escaping @MainActor () -> [UUID] = { [] }
     ) {
@@ -362,6 +363,7 @@ final class BrowserWebExtensionsManager: NSObject {
             windowAdapter = BrowserWebExtensionWindowAdapter(
                 ownerID: ownerID,
                 activePanelID: activePanelID,
+                focusPriority: focusPriority,
                 focusPanel: focusPanel,
                 orderedPanelIDs: orderedPanelIDs
             )
@@ -372,7 +374,9 @@ final class BrowserWebExtensionsManager: NSObject {
         let tabAdapter = BrowserWebExtensionTabAdapter(panel: panel, windowAdapter: windowAdapter)
         tabAdapters[panel.id] = tabAdapter
         windowAdapter.tabAdapters.append(tabAdapter)
-        controller.didOpenTab(tabAdapter)
+        if panel.internalPage == nil {
+            controller.didOpenTab(tabAdapter)
+        }
         windowAdapter.lastReportedVisiblePanelIDs = windowAdapter.compactTabs().compactMap { $0.panel?.id }
     }
 
@@ -382,8 +386,10 @@ final class BrowserWebExtensionsManager: NSObject {
         pendingActionUpdates = pendingActionUpdates.filter { $0.key.panelID != panelID }
         presentationIconCache = presentationIconCache.filter { $0.key.panelID != panelID }
         guard let tabAdapter = tabAdapters.removeValue(forKey: panelID) else { return }
-        controller.didCloseTab(tabAdapter, windowIsClosing: false)
         guard let windowAdapter = tabAdapter.windowAdapter else { return }
+        if windowAdapter.lastReportedVisiblePanelIDs.contains(panelID) {
+            controller.didCloseTab(tabAdapter, windowIsClosing: false)
+        }
         windowAdapter.tabAdapters.removeAll { $0 === tabAdapter || $0.panel == nil }
         windowAdapter.lastReportedVisiblePanelIDs = windowAdapter.compactTabs().compactMap { $0.panel?.id }
         if windowAdapter.tabAdapters.isEmpty {
@@ -397,6 +403,7 @@ final class BrowserWebExtensionsManager: NSObject {
     ) -> (
         id: UUID,
         activePanelID: @MainActor () -> UUID?,
+        focusPriority: @MainActor () -> Int,
         focusPanel: @MainActor (UUID) -> Void,
         orderedPanelIDs: @MainActor () -> [UUID]
     )? {
@@ -404,9 +411,26 @@ final class BrowserWebExtensionsManager: NSObject {
         return (
             windowAdapter.ownerID,
             windowAdapter.activePanelID,
+            windowAdapter.focusPriority,
             windowAdapter.focusPanel,
             windowAdapter.orderedPanelIDs
         )
+    }
+
+    func tabVisibilityDidChange(panelID: UUID) {
+        guard let tabAdapter = tabAdapters[panelID],
+              let windowAdapter = tabAdapter.windowAdapter else { return }
+        let wasVisible = windowAdapter.lastReportedVisiblePanelIDs.contains(panelID)
+        let isVisible = tabAdapter.panel?.internalPage == nil
+        guard wasVisible != isVisible else { return }
+
+        if isVisible {
+            controller.didOpenTab(tabAdapter)
+        } else {
+            controller.didDeselectTabs([tabAdapter])
+            controller.didCloseTab(tabAdapter, windowIsClosing: false)
+        }
+        windowAdapter.lastReportedVisiblePanelIDs = windowAdapter.compactTabs().compactMap { $0.panel?.id }
     }
 
     func synchronizeTabOrder(ownerID: UUID) {
@@ -449,13 +473,17 @@ final class BrowserWebExtensionsManager: NSObject {
         panelID: UUID,
         properties: WKWebExtension.TabChangedProperties
     ) {
-        guard let tabAdapter = tabAdapters[panelID] else { return }
+        guard let tabAdapter = tabAdapters[panelID],
+              tabAdapter.panel?.internalPage == nil else { return }
         controller.didChangeTabProperties(properties, for: tabAdapter)
     }
 
     func activateTab(panelID: UUID, previousPanelID: UUID?) {
-        guard let tabAdapter = tabAdapters[panelID] else { return }
-        let previousAdapter = previousPanelID.flatMap { tabAdapters[$0] }
+        guard let tabAdapter = tabAdapters[panelID],
+              tabAdapter.panel?.internalPage == nil else { return }
+        let previousAdapter = previousPanelID
+            .flatMap { tabAdapters[$0] }
+            .flatMap { $0.panel?.internalPage == nil ? $0 : nil }
         if let previousAdapter, previousAdapter !== tabAdapter {
             controller.didDeselectTabs([previousAdapter])
         }
@@ -465,7 +493,8 @@ final class BrowserWebExtensionsManager: NSObject {
     }
 
     func deactivateTab(panelID: UUID) {
-        guard let tabAdapter = tabAdapters[panelID] else { return }
+        guard let tabAdapter = tabAdapters[panelID],
+              tabAdapter.panel?.internalPage == nil else { return }
         controller.didDeselectTabs([tabAdapter])
     }
 
@@ -979,19 +1008,23 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
     private func orderedWindowAdapters() -> [BrowserWebExtensionWindowAdapter] {
         let live = windowAdapters.values.filter { !$0.compactTabs().isEmpty }
         return live.sorted { lhs, rhs in
-            let lhsKey = lhs.compactTabs().contains { $0.panel?.webView.window === NSApp.keyWindow }
-            let rhsKey = rhs.compactTabs().contains { $0.panel?.webView.window === NSApp.keyWindow }
-            if lhsKey != rhsKey { return lhsKey }
+            let lhsPriority = lhs.focusPriority()
+            let rhsPriority = rhs.focusPriority()
+            if lhsPriority != rhsPriority { return lhsPriority > rhsPriority }
             return lhs.ownerID.uuidString < rhs.ownerID.uuidString
         }
     }
 
     private func focusedWindowAdapter() -> BrowserWebExtensionWindowAdapter? {
-        guard NSApp.isActive, let keyWindow = NSApp.keyWindow else { return nil }
-        return orderedWindowAdapters().first { adapter in
-            adapter.compactTabs().contains { $0.panel?.webView.window === keyWindow }
-        }
+        guard NSApp.isActive else { return nil }
+        return orderedWindowAdapters().first { $0.focusPriority() > 0 }
     }
+
+#if DEBUG
+    var debugPreferredFocusedWindowOwnerID: UUID? {
+        orderedWindowAdapters().first { $0.focusPriority() > 0 }?.ownerID
+    }
+#endif
 }
 
 extension Notification.Name {

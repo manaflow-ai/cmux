@@ -4829,6 +4829,9 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func shouldPersistSessionSnapshot() -> Bool {
+        // Internal pages are transient app UI with no persisted kind or
+        // restorable navigation target.
+        guard internalPage == nil else { return false }
         // Diff viewer surfaces are otherwise treated as temporary. Persist them
         // only when they can actually be restored via the custom scheme (a
         // local-only, non-pending manifest); otherwise persisting would leave a
@@ -5768,6 +5771,7 @@ final class BrowserPanel: Panel, ObservableObject {
         guard let url = request.url else { return }
         if internalPage != nil {
             internalPage = nil
+            browserServices?.browserPanelInternalPageDidChange(self)
             isOmnibarVisible = true
         }
         cancelHiddenWebViewDiscard()
@@ -7658,6 +7662,7 @@ extension BrowserPanel {
         isBrowserExtensionsPopoverPresented = false
         setOmnibarVisible(false)
         internalPage = .extensions
+        browserServices?.browserPanelInternalPageDidChange(self)
         return true
     }
 

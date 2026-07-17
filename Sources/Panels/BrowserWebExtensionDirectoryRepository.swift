@@ -1,4 +1,5 @@
 import CryptoKit
+import Darwin
 import Foundation
 
 struct BrowserWebExtensionApprovalDiscoveryResult: Sendable {
@@ -14,8 +15,42 @@ struct BrowserWebExtensionApprovalDiscoveryResult: Sendable {
 /// Moves extension-directory enumeration and metadata reads off the main actor.
 @available(macOS 15.4, *)
 actor BrowserWebExtensionDirectoryRepository {
+    struct PackageLimits: Sendable {
+        static let standard = PackageLimits(
+            maximumByteCount: BrowserWebExtensionPackageSession.defaultMaximumResponseByteCount,
+            maximumFileCount: 10_000
+        )
+
+        let maximumByteCount: Int
+        let maximumFileCount: Int
+
+        init(maximumByteCount: Int, maximumFileCount: Int) {
+            precondition(maximumByteCount > 0)
+            precondition(maximumFileCount > 0)
+            self.maximumByteCount = maximumByteCount
+            self.maximumFileCount = maximumFileCount
+        }
+    }
+
+    private enum PackageEntryKind {
+        case directory
+        case regularFile
+    }
+
+    private struct PackageEntry {
+        let sourceURL: URL
+        let relativePath: String
+        let kind: PackageEntryKind
+    }
+
     private static let approvalFileName = ".cmux-approved-extensions.json"
+    private static let copyChunkByteCount = 1024 * 1024
+    private let packageLimits: PackageLimits
     private var isShutDown = false
+
+    init(packageLimits: PackageLimits = .standard) {
+        self.packageLimits = packageLimits
+    }
 
     func shutdownAndRemoveDirectory(_ directory: URL) {
         isShutDown = true
@@ -24,6 +59,7 @@ actor BrowserWebExtensionDirectoryRepository {
 
     private func requireActive() throws {
         guard !isShutDown else { throw CancellationError() }
+        try Task.checkCancellation()
     }
 
     func candidateURLs(in directory: URL) -> [URL] {
@@ -64,12 +100,7 @@ actor BrowserWebExtensionDirectoryRepository {
 
     func validatePackageSize(at candidate: URL) throws {
         try requireActive()
-        let values = try candidate.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey])
-        guard values.isDirectory != false
-                || (values.fileSize ?? Int.max)
-                    <= BrowserWebExtensionPackageSession.defaultMaximumResponseByteCount else {
-            throw BrowserWebExtensionInstallError.packageTooLarge
-        }
+        _ = try validatedPackageEntries(at: candidate)
     }
 
     func installCandidate(from source: URL, into directory: URL) throws -> URL {
@@ -89,7 +120,9 @@ actor BrowserWebExtensionDirectoryRepository {
             isDirectory: source.hasDirectoryPath
         )
         defer { try? FileManager.default.removeItem(at: staging) }
-        try FileManager.default.copyItem(at: source, to: staging)
+        let entries = try validatedPackageEntries(at: source)
+        try copyPackage(from: source, entries: entries, to: staging)
+        try requireActive()
         try FileManager.default.moveItem(at: staging, to: destination)
         return destination
     }
@@ -118,57 +151,292 @@ actor BrowserWebExtensionDirectoryRepository {
     }
 
     private func packageDigest(for candidate: URL) throws -> String {
-        let values = try candidate.resourceValues(
-            forKeys: [.isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey]
+        let entries = try validatedPackageEntries(at: candidate)
+        let files = entries.compactMap { entry -> PackageEntry? in
+            if case .regularFile = entry.kind { return entry }
+            return nil
+        }.sorted { $0.relativePath < $1.relativePath }
+        let isSingleFile = entries.count == 1 && entries[0].relativePath.isEmpty
+        let directoryDescriptor = isSingleFile ? nil : try openDirectoryDescriptor(at: candidate)
+        defer {
+            if let directoryDescriptor { Darwin.close(directoryDescriptor) }
+        }
+        var hasher = SHA256()
+        var actualByteCount = 0
+        for entry in files {
+            try requireActive()
+            if entries.count > 1 || entries.first?.relativePath.isEmpty == false {
+                hasher.update(data: Data(entry.relativePath.utf8))
+                hasher.update(data: Data([0]))
+            }
+            do {
+                let handle: FileHandle
+                if let directoryDescriptor {
+                    handle = try openRegularFile(
+                        relativePath: entry.relativePath,
+                        directoryDescriptor: directoryDescriptor,
+                        packageName: candidate.lastPathComponent
+                    )
+                } else {
+                    handle = try openRegularFile(at: entry.sourceURL)
+                }
+                defer { try? handle.close() }
+                while let chunk = try handle.read(upToCount: Self.copyChunkByteCount), !chunk.isEmpty {
+                    try requireActive()
+                    actualByteCount = try checkedByteCount(adding: chunk.count, to: actualByteCount)
+                    hasher.update(data: chunk)
+                }
+            }
+            if !entry.relativePath.isEmpty { hasher.update(data: Data([0])) }
+        }
+        return Self.hexDigest(hasher.finalize())
+    }
+
+    private func validatedPackageEntries(at candidate: URL) throws -> [PackageEntry] {
+        try requireActive()
+        let rootValues = try candidate.resourceValues(
+            forKeys: [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]
         )
-        guard values.isSymbolicLink != true else {
+        guard rootValues.isSymbolicLink != true else {
             throw BrowserWebExtensionInstallError.symbolicLinksNotAllowed
         }
-        if values.isDirectory != true {
-            guard let fileSize = values.fileSize,
-                  fileSize <= BrowserWebExtensionPackageSession.defaultMaximumResponseByteCount else {
-                throw BrowserWebExtensionInstallError.packageTooLarge
+        if rootValues.isDirectory != true {
+            guard rootValues.isRegularFile == true,
+                  let fileSize = rootValues.fileSize,
+                  fileSize >= 0 else {
+                throw BrowserWebExtensionInstallError.invalidPackage(candidate.lastPathComponent)
             }
-            let handle = try FileHandle(forReadingFrom: candidate)
-            defer { try? handle.close() }
-            var hasher = SHA256()
-            while let chunk = try handle.read(upToCount: 1024 * 1024), !chunk.isEmpty {
-                hasher.update(data: chunk)
-            }
-            return Self.hexDigest(hasher.finalize())
+            _ = try checkedByteCount(adding: fileSize, to: 0)
+            return [PackageEntry(
+                sourceURL: candidate,
+                relativePath: "",
+                kind: .regularFile
+            )]
         }
 
-        let keys: [URLResourceKey] = [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey]
+        let keys: Set<URLResourceKey> = [
+            .isDirectoryKey,
+            .isRegularFileKey,
+            .isSymbolicLinkKey,
+            .fileSizeKey,
+        ]
         guard let enumerator = FileManager.default.enumerator(
             at: candidate,
-            includingPropertiesForKeys: keys,
+            includingPropertiesForKeys: Array(keys),
             options: []
         ) else {
             throw BrowserWebExtensionInstallError.invalidPackage(candidate.lastPathComponent)
         }
-        var files: [URL] = []
-        for case let fileURL as URL in enumerator {
-            let fileValues = try fileURL.resourceValues(forKeys: Set(keys))
-            if fileValues.isSymbolicLink == true {
+
+        var entries: [PackageEntry] = []
+        var entryCount = 0
+        var declaredByteCount = 0
+        for case let entryURL as URL in enumerator {
+            try requireActive()
+            entryCount += 1
+            guard entryCount <= packageLimits.maximumFileCount else {
+                throw BrowserWebExtensionInstallError.packageContainsTooManyFiles
+            }
+            let values = try entryURL.resourceValues(forKeys: keys)
+            if values.isSymbolicLink == true {
                 throw BrowserWebExtensionInstallError.symbolicLinksNotAllowed
             }
-            if fileValues.isRegularFile == true { files.append(fileURL) }
-        }
-        files.sort { $0.path < $1.path }
-
-        var hasher = SHA256()
-        for fileURL in files {
-            let relativePath = String(fileURL.path.dropFirst(candidate.path.count + 1))
-            hasher.update(data: Data(relativePath.utf8))
-            hasher.update(data: Data([0]))
-            let handle = try FileHandle(forReadingFrom: fileURL)
-            while let chunk = try handle.read(upToCount: 1024 * 1024), !chunk.isEmpty {
-                hasher.update(data: chunk)
+            let relativePath = String(entryURL.path.dropFirst(candidate.path.count + 1))
+            if values.isDirectory == true {
+                entries.append(PackageEntry(
+                    sourceURL: entryURL,
+                    relativePath: relativePath,
+                    kind: .directory
+                ))
+                continue
             }
-            try handle.close()
-            hasher.update(data: Data([0]))
+            guard values.isRegularFile == true,
+                  let fileSize = values.fileSize,
+                  fileSize >= 0 else {
+                throw BrowserWebExtensionInstallError.invalidPackage(candidate.lastPathComponent)
+            }
+            declaredByteCount = try checkedByteCount(adding: fileSize, to: declaredByteCount)
+            entries.append(PackageEntry(
+                sourceURL: entryURL,
+                relativePath: relativePath,
+                kind: .regularFile
+            ))
         }
-        return Self.hexDigest(hasher.finalize())
+        return entries
+    }
+
+    private func checkedByteCount(adding byteCount: Int, to total: Int) throws -> Int {
+        guard byteCount >= 0,
+              total <= packageLimits.maximumByteCount - byteCount else {
+            throw BrowserWebExtensionInstallError.packageTooLarge
+        }
+        return total + byteCount
+    }
+
+    private func copyPackage(
+        from source: URL,
+        entries: [PackageEntry],
+        to destination: URL
+    ) throws {
+        try requireActive()
+        if entries.count == 1,
+           entries[0].relativePath.isEmpty,
+           case .regularFile = entries[0].kind {
+            var copiedByteCount = 0
+            let input = try openRegularFile(at: source)
+            defer { try? input.close() }
+            try copyRegularFile(
+                from: input,
+                sourceName: source.lastPathComponent,
+                to: destination,
+                cumulativeByteCount: &copiedByteCount
+            )
+            return
+        }
+
+        let sourceDirectoryDescriptor = try openDirectoryDescriptor(at: source)
+        defer { Darwin.close(sourceDirectoryDescriptor) }
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: false)
+        var copiedEntryCount = 0
+        var copiedByteCount = 0
+        for entry in entries.sorted(by: { $0.relativePath < $1.relativePath }) {
+            try requireActive()
+            copiedEntryCount += 1
+            guard copiedEntryCount <= packageLimits.maximumFileCount else {
+                throw BrowserWebExtensionInstallError.packageContainsTooManyFiles
+            }
+            let destinationURL = destination.appendingPathComponent(entry.relativePath)
+            switch entry.kind {
+            case .directory:
+                try FileManager.default.createDirectory(
+                    at: destinationURL,
+                    withIntermediateDirectories: true
+                )
+            case .regularFile:
+                try FileManager.default.createDirectory(
+                    at: destinationURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                do {
+                    let input = try openRegularFile(
+                        relativePath: entry.relativePath,
+                        directoryDescriptor: sourceDirectoryDescriptor,
+                        packageName: source.lastPathComponent
+                    )
+                    defer { try? input.close() }
+                    try copyRegularFile(
+                        from: input,
+                        sourceName: entry.sourceURL.lastPathComponent,
+                        to: destinationURL,
+                        cumulativeByteCount: &copiedByteCount
+                    )
+                }
+            }
+        }
+    }
+
+    private func copyRegularFile(
+        from input: FileHandle,
+        sourceName: String,
+        to destination: URL,
+        cumulativeByteCount: inout Int
+    ) throws {
+        try requireActive()
+        guard FileManager.default.createFile(atPath: destination.path, contents: nil) else {
+            throw BrowserWebExtensionInstallError.invalidPackage(sourceName)
+        }
+        let output = try FileHandle(forWritingTo: destination)
+        defer { try? output.close() }
+        while let chunk = try input.read(upToCount: Self.copyChunkByteCount), !chunk.isEmpty {
+            try requireActive()
+            cumulativeByteCount = try checkedByteCount(
+                adding: chunk.count,
+                to: cumulativeByteCount
+            )
+            try output.write(contentsOf: chunk)
+        }
+    }
+
+    private func openDirectoryDescriptor(at url: URL) throws -> Int32 {
+        let descriptor = url.path.withCString {
+            Darwin.open($0, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        }
+        guard descriptor >= 0 else {
+            throw packageOpenError(packageName: url.lastPathComponent)
+        }
+        return descriptor
+    }
+
+    private func openRegularFile(at url: URL) throws -> FileHandle {
+        let descriptor = url.path.withCString {
+            Darwin.open($0, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        }
+        guard descriptor >= 0 else {
+            throw packageOpenError(packageName: url.lastPathComponent)
+        }
+        return try regularFileHandle(
+            descriptor: descriptor,
+            packageName: url.lastPathComponent
+        )
+    }
+
+    private func openRegularFile(
+        relativePath: String,
+        directoryDescriptor: Int32,
+        packageName: String
+    ) throws -> FileHandle {
+        let components = relativePath.split(separator: "/", omittingEmptySubsequences: true)
+        guard !components.isEmpty,
+              components.allSatisfy({ $0 != "." && $0 != ".." }) else {
+            throw BrowserWebExtensionInstallError.invalidPackage(packageName)
+        }
+        var currentDirectoryDescriptor = Darwin.dup(directoryDescriptor)
+        guard currentDirectoryDescriptor >= 0 else {
+            throw BrowserWebExtensionInstallError.invalidPackage(packageName)
+        }
+        defer { Darwin.close(currentDirectoryDescriptor) }
+
+        for component in components.dropLast() {
+            let nextDescriptor = String(component).withCString {
+                Darwin.openat(
+                    currentDirectoryDescriptor,
+                    $0,
+                    O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+                )
+            }
+            guard nextDescriptor >= 0 else {
+                throw packageOpenError(packageName: packageName)
+            }
+            Darwin.close(currentDirectoryDescriptor)
+            currentDirectoryDescriptor = nextDescriptor
+        }
+
+        let descriptor = String(components[components.index(before: components.endIndex)]).withCString {
+            Darwin.openat(
+                currentDirectoryDescriptor,
+                $0,
+                O_RDONLY | O_NOFOLLOW | O_CLOEXEC
+            )
+        }
+        guard descriptor >= 0 else {
+            throw packageOpenError(packageName: packageName)
+        }
+        return try regularFileHandle(descriptor: descriptor, packageName: packageName)
+    }
+
+    private func regularFileHandle(descriptor: Int32, packageName: String) throws -> FileHandle {
+        var status = stat()
+        guard Darwin.fstat(descriptor, &status) == 0,
+              (status.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG) else {
+            Darwin.close(descriptor)
+            throw BrowserWebExtensionInstallError.invalidPackage(packageName)
+        }
+        return FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+    }
+
+    private func packageOpenError(packageName: String) -> BrowserWebExtensionInstallError {
+        if errno == ELOOP { return .symbolicLinksNotAllowed }
+        return .invalidPackage(packageName)
     }
 
     private static func hexDigest<D: Sequence>(_ digest: D) -> String where D.Element == UInt8 {
@@ -182,6 +450,7 @@ enum BrowserWebExtensionInstallError: LocalizedError {
     case symbolicLinksNotAllowed
     case invalidPackage(String)
     case packageTooLarge
+    case packageContainsTooManyFiles
 
     var errorDescription: String? {
         switch self {
@@ -209,6 +478,11 @@ enum BrowserWebExtensionInstallError: LocalizedError {
             return String(
                 localized: "browser.extensions.store.error.tooLarge",
                 defaultValue: "The extension package is larger than 25 MB."
+            )
+        case .packageContainsTooManyFiles:
+            return String(
+                localized: "browser.extensions.install.tooManyFiles",
+                defaultValue: "The extension package contains too many files."
             )
         }
     }
