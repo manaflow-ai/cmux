@@ -36,6 +36,10 @@ struct WorkspaceListView: View {
     var createWorkspaceInGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil
     var createWorkspaceGroup: (() -> Void)? = nil
     var canCreateWorkspace = true
+    /// Optional: open the Dispatch composer (compose a brief, launch an agent
+    /// workspace on the Mac). `nil` hides the compose affordances — previews,
+    /// or a Mac whose cmux predates `workspace.dispatch.v1`.
+    var composeDispatch: (() -> Void)? = nil
     /// Which Mac's workspaces the list is focused on. Owned by the shell so
     /// every create-workspace entrypoint shares the same selected-Mac gate.
     @Binding var macSelection: WorkspaceMacSelection

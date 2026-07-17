@@ -97,6 +97,21 @@ public struct UITestConfig {
         #endif
     }
 
+    /// Whether the standalone Dispatch composer preview is enabled.
+    ///
+    /// When `CMUX_UITEST_DISPATCH_PREVIEW=1`, the root view renders the
+    /// Dispatch composer against a stubbed catalog and filesystem so layout
+    /// screenshots need no sign-in or Mac pairing. A brief containing "fail"
+    /// exercises the REJECTED stamp. DEBUG-only.
+    public static var dispatchComposerPreviewEnabled: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_DISPATCH_PREVIEW"] == "1"
+            || ProcessInfo.processInfo.arguments.contains("CMUX_UITEST_DISPATCH_PREVIEW=1")
+        #else
+        return false
+        #endif
+    }
+
     /// Whether the workspace detail delayed-terminal lifecycle preview is enabled.
     ///
     /// When `CMUX_UITEST_WORKSPACE_DETAIL_DELAYED_TERMINAL=1`, the root view renders

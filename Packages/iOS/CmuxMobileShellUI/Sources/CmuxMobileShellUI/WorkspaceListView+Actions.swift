@@ -21,6 +21,12 @@ extension WorkspaceListView {
                 }
                 .accessibilityIdentifier("MobileNewWorkspaceGroupMenuItem")
             }
+            if let composeDispatch {
+                Button(action: composeDispatch) {
+                    Label(L10n.string("mobile.dispatch.new", defaultValue: "New Dispatch"), systemImage: "square.and.pencil")
+                }
+                .accessibilityIdentifier("MobileNewDispatchMenuItem")
+            }
         } label: {
             Image(systemName: "plus")
         } primaryAction: {
@@ -30,6 +36,17 @@ extension WorkspaceListView {
         .disabled(!canCreateWorkspaceForMacSelection)
         .accessibilityLabel(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"))
         .accessibilityIdentifier("MobileNewWorkspaceButton")
+    }
+
+    /// Mail-style bottom-bar compose entry for the Dispatch composer.
+    var dispatchComposeButton: some View {
+        Button {
+            composeDispatch?()
+        } label: {
+            Image(systemName: "square.and.pencil")
+        }
+        .accessibilityLabel(L10n.string("mobile.dispatch.new", defaultValue: "New Dispatch"))
+        .accessibilityIdentifier("MobileDispatchComposeButton")
     }
 
     @discardableResult

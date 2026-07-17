@@ -22,6 +22,8 @@ extension MobileMacUpdateFeature {
             L10n.string("mobile.macUpdateHint.feature.workspaceCreateInGroup", defaultValue: "Create workspaces inside groups")
         case .workspaceGroupCreate:
             L10n.string("mobile.macUpdateHint.feature.workspaceGroupCreate", defaultValue: "Create workspace groups")
+        case .agentDispatch:
+            L10n.string("mobile.macUpdateHint.feature.agentDispatch", defaultValue: "Dispatch agents from your phone")
         }
     }
 
