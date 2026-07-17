@@ -67,19 +67,27 @@ struct TaskComposerDirectoryPickerView: View {
                     .listRowBackground(Color.clear)
                 } else {
                     ForEach(suggestions) { suggestion in
+                        let displayPath = TaskComposerDirectoryDisplayPath(path: suggestion.path)
                         Button {
                             select(suggestion.path)
                             dismiss()
                         } label: {
                             TaskComposerDirectorySuggestionRow(
-                                suggestion: suggestion,
-                                detail: detail(for: suggestion),
+                                displayPath: displayPath,
+                                sourceLabel: sourceLabel(for: suggestion.bestSource),
+                                context: suggestion.context,
                                 isSelected: suggestion.id == selectedPathID
                             )
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel(suggestion.path)
-                        .accessibilityValue(detail(for: suggestion))
+                        .accessibilityLabel(displayPath.name)
+                        .accessibilityValue(accessibilityValue(for: suggestion))
+                        .accessibilityHint(
+                            L10n.string(
+                                "mobile.taskComposer.directoryPicker.result.hint",
+                                defaultValue: "Uses this folder for the new workspace."
+                            )
+                        )
                         .accessibilityAddTraits(suggestion.id == selectedPathID ? .isSelected : [])
                     }
                 }
@@ -207,6 +215,10 @@ struct TaskComposerDirectoryPickerView: View {
             .joined(separator: " · ")
     }
 
+    private func accessibilityValue(for suggestion: MobileTaskDirectoryCandidate) -> String {
+        [suggestion.path, detail(for: suggestion)].formatted()
+    }
+
     private func sourceLabel(for source: MobileTaskDirectorySource) -> String {
         switch source {
         case .filesystemSearch:
@@ -232,38 +244,5 @@ struct TaskComposerDirectoryPickerView: View {
 private struct DirectorySearchRequest: Hashable {
     let query: String
     let retryGeneration: Int
-}
-
-private struct TaskComposerDirectorySuggestionRow: View {
-    let suggestion: MobileTaskDirectoryCandidate
-    let detail: String
-    let isSelected: Bool
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "folder")
-                .foregroundStyle(.tint)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(suggestion.path)
-                    .font(.system(.body, design: .monospaced))
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
-                Text(detail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            Spacer(minLength: 8)
-            if isSelected {
-                Image(systemName: "checkmark")
-                    .fontWeight(.semibold)
-                    .foregroundStyle(.tint)
-                    .accessibilityHidden(true)
-            }
-        }
-        .frame(minHeight: 44)
-        .contentShape(Rectangle())
-    }
 }
 #endif

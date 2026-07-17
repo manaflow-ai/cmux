@@ -7676,6 +7676,23 @@
         }
       }
     },
+    "mobile.taskComposer.directoryPicker.result.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uses this folder for the new workspace."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいワークスペースでこのフォルダを使用します。"
+          }
+        }
+      }
+    },
     "mobile.taskComposer.directoryPicker.search": {
       "extractionState": "manual",
       "localizations": {
