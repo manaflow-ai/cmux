@@ -52,27 +52,26 @@ extension MobileShellComposite {
                     await self.loadPairedMacs()
                 }
                 guard await self.isScopeCurrent(scope) else { return }
-                if self.connectionState != .connected,
-                   let activeMac = self.pairedMacs.first(where: { $0.isActive }) {
-                    let activeIDs = self.pairedMacAliasIDs(
-                        for: activeMac.macDeviceID,
-                        instanceTag: activeMac.instanceTag
-                    )
-                    let hasOnlineAuthority = activeIDs.contains { deviceID in
-                        return self.presenceMap.reconnectRouteAuthority(
-                            deviceId: deviceID,
-                            pairedMacInstanceTag: activeMac.instanceTag
-                        ) != nil
+                if self.connectionState != .connected {
+                    var shouldRecover = self.personalIrohDiscovery != nil
+                    if let activeMac = self.pairedMacs.first(where: { $0.isActive }) {
+                        let activeIDs = self.pairedMacAliasIDs(
+                            for: activeMac.macDeviceID,
+                            instanceTag: activeMac.instanceTag
+                        )
+                        shouldRecover = shouldRecover || activeIDs.contains { deviceID in
+                            self.presenceMap.reconnectRouteAuthority(
+                                deviceId: deviceID,
+                                pairedMacInstanceTag: activeMac.instanceTag
+                            ) != nil
+                        }
                     }
-                    if hasOnlineAuthority {
+                    if shouldRecover {
+                        // Presence is only a wake-up signal. The recovery pass
+                        // still obtains first-pair candidates from the
+                        // authenticated personal broker.
                         self.recoverMobileConnection(trigger: .presencePush)
                     }
-                } else if self.connectionState != .connected,
-                          self.personalIrohDiscovery != nil {
-                    // Presence is only a wake-up signal. The recovery pass still
-                    // obtains candidates from the authenticated personal broker,
-                    // so a team member's presence event cannot authorize pairing.
-                    self.recoverMobileConnection(trigger: .presencePush)
                 }
             }
         }

@@ -86,6 +86,7 @@ public actor CmxIrohClientRuntime {
     var relayCoordinator: CmxIrohRelayCredentialCoordinator?
     var supervisorEventTask: Task<Void, Never>?
     var registrationRefreshTask: Task<Void, any Error>?
+    var registrationRefreshTaskID: UUID?
     var registrationRefreshPending = false
     var registrationRefreshEnabled = false
     var liveDiscoveryGeneration: UInt64 = 0
@@ -200,18 +201,28 @@ public actor CmxIrohClientRuntime {
     func refreshLiveDiscoveryThrowing() async throws -> Bool {
         guard lifecyclePhase == .active else { return false }
         let priorGeneration = liveDiscoveryGeneration
-        if let refresh = registrationRefreshTask {
+        var mayScheduleFreshRequest = registrationRefreshTask != nil
+        if registrationRefreshTask == nil {
+            scheduleRegistrationRefresh(revision: lifecycleRevision)
+        }
+        var lastAwaitedTaskID: UUID?
+        while lifecyclePhase == .active,
+              let refresh = registrationRefreshTask,
+              let refreshID = registrationRefreshTaskID,
+              refreshID != lastAwaitedTaskID {
+            lastAwaitedTaskID = refreshID
             try await refresh.value
             guard lifecyclePhase == .active else { return false }
-            if liveDiscoveryGeneration > priorGeneration {
-                return true
+            if liveDiscoveryGeneration > priorGeneration { return true }
+            if registrationRefreshTaskID != nil {
+                mayScheduleFreshRequest = false
+                continue
             }
+            guard mayScheduleFreshRequest else { return false }
+            mayScheduleFreshRequest = false
+            scheduleRegistrationRefresh(revision: lifecycleRevision)
         }
-        scheduleRegistrationRefresh(revision: lifecycleRevision)
-        guard let refresh = registrationRefreshTask else { return false }
-        try await refresh.value
-        return lifecyclePhase == .active
-            && liveDiscoveryGeneration > priorGeneration
+        return false
     }
 
     /// Returns the selected live path after removing raw transport coordinates.
@@ -286,6 +297,7 @@ public actor CmxIrohClientRuntime {
             if let registration = policy.registration,
                let discovery = policy.discovery {
                 await handleBinding(registration, discovery)
+                try requireCurrent(revision)
                 liveDiscoveryGeneration &+= 1
             } else if let lanRendezvous = policy.cachedLANRendezvous {
                 await handleCachedBindings(policy.cachedTargetBindings, lanRendezvous)

@@ -63,7 +63,12 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         if route.kind == .iroh,
            let provider = runtime.independentEventByteStreamProvider {
             independentEventFactory = {
-                try await provider(transportRequest)
+                let admission = try lifecycleGate.beginIndependentEventAdmission()
+                let stream = try await provider(transportRequest)
+                return try await lifecycleGate.finishIndependentEventAdmission(
+                    admission,
+                    stream: stream
+                )
             }
         } else {
             independentEventFactory = nil
@@ -74,10 +79,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             abandonedConnectCleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
             lateAbandonedConnectCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds,
             makeTransport: { [runtime, transportRequest, lifecycleGate] in
-                guard lifecycleGate.acceptsNewConnections else {
-                    throw MobileShellConnectionError.connectionClosed
+                try lifecycleGate.makeTransport {
+                    try runtime.transportFactory.makeTransport(for: transportRequest)
                 }
-                return try runtime.transportFactory.makeTransport(for: transportRequest)
             },
             makeIndependentEventByteStream: independentEventFactory
         )
@@ -453,19 +457,6 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         let hasConflict: Bool
     }
 
-}
-
-private final class MobileRPCClientLifecycleGate: @unchecked Sendable {
-    private let lock = NSLock()
-    private var retired = false
-
-    var acceptsNewConnections: Bool {
-        lock.withLock { !retired }
-    }
-
-    func retire() {
-        lock.withLock { retired = true }
-    }
 }
 
 private extension MobileCoreRPCClient {

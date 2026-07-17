@@ -89,9 +89,12 @@ extension CmxIrohClientRuntimeTests {
             now: { fixture.now }
         )
         try await runtime.start()
+        await broker.setRegistrationError(
+            CmxIrohTrustBrokerClientError.connectivity,
+            forRegistrationCount: 2
+        )
         let refresh = Task { await runtime.refreshLiveDiscovery() }
         await broker.waitForRegistrationCount(2)
-        await broker.setRegistrationError(CmxIrohTrustBrokerClientError.connectivity)
         await endpoint.emit(.networkChanged)
         for _ in 0..<1_000 where !(await runtime.registrationRefreshPending) {
             await Task.yield()
@@ -100,7 +103,6 @@ extension CmxIrohClientRuntimeTests {
 
         await secondRegistration.open()
         await broker.waitForRegistrationCount(3)
-        await broker.setRegistrationError(nil)
         await thirdRegistration.open()
 
         #expect(await refresh.value)

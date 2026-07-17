@@ -29,14 +29,14 @@ extension MobileShellComposite {
                 macDeviceID: mac.deviceID.lowercased(),
                 instanceTag: mac.instanceTag
             )
-            guard seen.insert(pairingID).inserted,
-                  !mac.routes.isEmpty,
+            guard !mac.routes.isEmpty,
                   mac.routes.allSatisfy({ $0.kind == .iroh }),
                   await !isForgottenMacDeviceID(
                       mac.deviceID,
                       instanceTag: mac.instanceTag,
                       scope: scope
                   ) else { continue }
+            guard seen.insert(pairingID).inserted else { continue }
             candidates.append(MobilePairedMac(
                 macDeviceID: mac.deviceID,
                 displayName: mac.displayName,

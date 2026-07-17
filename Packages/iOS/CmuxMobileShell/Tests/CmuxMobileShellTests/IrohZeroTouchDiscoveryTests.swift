@@ -161,7 +161,7 @@ struct IrohZeroTouchDiscoveryTests {
             fixture.shell.connectionState == .connected
                 && fixture.shell.foregroundMacDeviceID == "mac-live"
         })
-        #expect(fixture.factory.attemptedRouteIDs() == ["iroh-mac-stale", "iroh-mac-live"])
+        #expect(Array(fixture.factory.attemptedRouteIDs().prefix(2)) == ["iroh-mac-stale", "iroh-mac-live"])
     }
 
     @Test
