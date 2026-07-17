@@ -66,6 +66,22 @@ import CmuxMobileShellModel
         #expect(UserDefaultsMobileTaskTemplateStore(defaults: defaults).listTemplates().isEmpty)
     }
 
+    @Test func batchDeletionPersistsAndClearsTheLastSelection() throws {
+        let defaults = Self.defaults()
+        let store = UserDefaultsMobileTaskTemplateStore(defaults: defaults)
+        let templates = store.listTemplates()
+        let deletedIDs = Set(templates.prefix(2).map(\.id))
+        let selectedID = try #require(deletedIDs.first)
+        store.setLastTemplateID(selectedID)
+
+        store.deleteTemplates(ids: deletedIDs)
+
+        #expect(Set(store.listTemplates().map(\.id)).isDisjoint(with: deletedIDs))
+        #expect(store.listTemplates().count == templates.count - deletedIDs.count)
+        #expect(store.lastTemplateID() == nil)
+        #expect(UserDefaultsMobileTaskTemplateStore(defaults: defaults).listTemplates() == store.listTemplates())
+    }
+
     @Test func lastUsedValuesRoundTrip() {
         let defaults = Self.defaults()
         let store = UserDefaultsMobileTaskTemplateStore(defaults: defaults)
