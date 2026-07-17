@@ -7,18 +7,28 @@ import {
   recentlyModifiedUrls,
   submitIndexNowUrls,
 } from "../app/lib/indexnow";
+import { buildLocalizedBlogRssFeed } from "../app/lib/localized-blog-feed";
 
 describe("search discovery", () => {
   test("publishes a valid RSS channel with canonical blog URLs", () => {
-    const feed = buildBlogRssFeed([
+    const feed = buildBlogRssFeed(
+      [
+        {
+          slug: "test-post",
+          key: "testPost",
+          title: "Agents & terminals",
+          date: "2026-07-17",
+          summary: "A <clear> update",
+        },
+      ],
       {
-        slug: "test-post",
-        key: "testPost",
-        title: "Agents & terminals",
-        date: "2026-07-17",
-        summary: "A <clear> update",
+        blogUrl: "https://cmux.com/blog",
+        description: "News & updates",
+        feedUrl: "https://cmux.com/feed.xml",
+        language: "en",
+        title: "cmux blog",
       },
-    ]);
+    );
 
     expect(feed).toStartWith('<?xml version="1.0" encoding="UTF-8"?>');
     expect(feed).toContain('<rss version="2.0"');
@@ -26,6 +36,16 @@ describe("search discovery", () => {
     expect(feed).toContain("<description>A &lt;clear&gt; update</description>");
     expect(feed).toContain("https://cmux.com/blog/test-post");
     expect(feed).toContain('href="https://cmux.com/feed.xml" rel="self"');
+  });
+
+  test("publishes locale-specific feeds with translated discovery URLs", async () => {
+    const feed = await buildLocalizedBlogRssFeed("ja");
+
+    expect(feed).toContain("<language>ja</language>");
+    expect(feed).toContain("<link>https://cmux.com/ja/blog</link>");
+    expect(feed).toContain('href="https://cmux.com/ja/feed.xml"');
+    expect(feed).toContain("<title>cmux Forkの紹介</title>");
+    expect(feed).not.toContain("/ja/blog/cmux-omo");
   });
 
   test("selects only recently modified sitemap URLs", () => {

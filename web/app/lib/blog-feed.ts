@@ -1,15 +1,20 @@
 import { blogPosts, type BlogPost } from "../[locale]/components/blog-posts";
-import englishMessages from "../../messages/en.json";
 
-const siteUrl = "https://cmux.com";
-const feedUrl = `${siteUrl}/feed.xml`;
+export type BlogFeedMetadata = {
+  blogUrl: string;
+  description: string;
+  feedUrl: string;
+  language: string;
+  title: string;
+};
 
 export function buildBlogRssFeed(
   posts: readonly BlogPost[] = blogPosts,
+  metadata: BlogFeedMetadata,
 ): string {
   const items = posts
     .map((post) => {
-      const url = `${siteUrl}/blog/${post.slug}`;
+      const url = `${metadata.blogUrl}/${post.slug}`;
       return [
         "    <item>",
         `      <title>${escapeXml(post.title)}</title>`,
@@ -27,12 +32,12 @@ export function buildBlogRssFeed(
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">',
     "  <channel>",
-    `    <title>${escapeXml(englishMessages.blog.layoutTitle)}</title>`,
-    `    <link>${siteUrl}/blog</link>`,
-    `    <description>${escapeXml(englishMessages.blog.metaDescription)}</description>`,
-    "    <language>en-us</language>",
+    `    <title>${escapeXml(metadata.title)}</title>`,
+    `    <link>${metadata.blogUrl}</link>`,
+    `    <description>${escapeXml(metadata.description)}</description>`,
+    `    <language>${escapeXml(metadata.language)}</language>`,
     `    <lastBuildDate>${lastBuildDate}</lastBuildDate>`,
-    `    <atom:link href="${feedUrl}" rel="self" type="application/rss+xml" />`,
+    `    <atom:link href="${metadata.feedUrl}" rel="self" type="application/rss+xml" />`,
     "    <generator>cmux</generator>",
     "    <docs>https://www.rssboard.org/rss-specification</docs>",
     items,

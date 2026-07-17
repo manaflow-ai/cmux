@@ -1,12 +1,13 @@
-import { buildBlogRssFeed } from "../lib/blog-feed";
+import { buildLocalizedBlogRssFeed } from "../lib/localized-blog-feed";
 
 export const dynamic = "force-static";
 
-export function GET(): Response {
-  return new Response(buildBlogRssFeed(), {
+export async function GET(): Promise<Response> {
+  return new Response(await buildLocalizedBlogRssFeed("en"), {
     headers: {
-      "Content-Type": "application/rss+xml; charset=utf-8",
       "Cache-Control": "public, max-age=0, s-maxage=3600",
+      "Content-Language": "en",
+      "Content-Type": "application/rss+xml; charset=utf-8",
     },
   });
 }
