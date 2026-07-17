@@ -210,6 +210,15 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         plusButton.setRevealed(isPointerHovering && !contextMenuVisible && !showsHint)
     }
 
+    /// Authoritative hover enforcement: the controller sweeps visible cells
+    /// so hover-revealed chrome cannot strand on rows the pointer left
+    /// (row-index/id races during churn made per-transition repaints miss).
+    func enforcePointerHovering(_ hovering: Bool) {
+        guard isPointerHovering != hovering else { return }
+        isPointerHovering = hovering
+        updatePlusVisibility()
+    }
+
     // MARK: Layout
 
     /// Deterministic row height; must stay in lockstep with `layout()`.
