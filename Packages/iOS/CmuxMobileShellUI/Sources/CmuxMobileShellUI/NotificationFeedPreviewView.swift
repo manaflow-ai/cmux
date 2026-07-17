@@ -9,31 +9,49 @@ public struct NotificationFeedPreviewView: View {
     @State private var selectedTab: MobilePrimaryTab = .notifications
     @State private var items: [MobileNotificationFeedItem]
     @State private var notificationNavigationPath: [MobileWorkspacePreview.ID] = []
+    @State private var macSelection: WorkspaceMacSelection = .all
 
     public init() {
         _items = State(initialValue: Self.makeFixtureItems(referenceDate: .now))
     }
 
     public var body: some View {
-        MobilePrimaryTabScaffold(
-            selection: $selectedTab,
-            notificationUnreadCount: items.lazy.filter { !$0.isRead }.count
-        ) {
-            NotificationFeedPreviewWorkspacesView()
-        } notifications: {
-            NavigationStack(path: $notificationNavigationPath) {
-                NotificationFeedView(
-                    items: items,
-                    status: .ready,
-                    actions: actions
-                )
-                .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
-                    NotificationFeedPreviewWorkspaceDestination(
-                        workspaceName: workspaceName(for: workspaceID)
+        GeometryReader { geometry in
+            MobilePrimaryTabScaffold(
+                selection: $selectedTab,
+                notificationUnreadCount: items.lazy.filter { !$0.isRead }.count
+            ) {
+                NotificationFeedPreviewWorkspacesView()
+            } notifications: {
+                NavigationStack(path: $notificationNavigationPath) {
+                    NotificationFeedView(
+                        items: items,
+                        status: .ready,
+                        actions: actions
                     )
-                    .toolbarVisibility(.hidden, for: .tabBar)
+                    .toolbar {
+                        WorkspaceRootToolbarContent(
+                            openSettings: {},
+                            openDevices: {},
+                            title: L10n.string(
+                                "mobile.workspaces.macPicker.allMacs",
+                                defaultValue: "All Computers"
+                            ),
+                            isLoading: false,
+                            selection: $macSelection,
+                            machines: [],
+                            showAddDevice: nil
+                        )
+                    }
+                    .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
+                        NotificationFeedPreviewWorkspaceDestination(
+                            workspaceName: workspaceName(for: workspaceID)
+                        )
+                        .toolbarVisibility(.hidden, for: .tabBar)
+                    }
                 }
             }
+            .environment(\.workspaceRootToolbarContentWidth, geometry.size.width)
         }
     }
 

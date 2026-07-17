@@ -11,6 +11,74 @@ import SwiftUI
 import AppKit
 #endif
 
+#if os(iOS)
+private struct WorkspaceRootToolbarContentWidthKey: EnvironmentKey {
+    static let defaultValue: CGFloat = WorkspaceRootToolbarSizing.maximumPickerWidth
+}
+
+extension EnvironmentValues {
+    var workspaceRootToolbarContentWidth: CGFloat {
+        get { self[WorkspaceRootToolbarContentWidthKey.self] }
+        set { self[WorkspaceRootToolbarContentWidthKey.self] = newValue }
+    }
+}
+
+private enum WorkspaceRootToolbarSizing {
+    static let minimumPickerWidth: CGFloat = 98
+    static let maximumPickerWidth: CGFloat = 124
+    private static let nonPickerWidth: CGFloat = 277
+
+    static func pickerWidth(for contentWidth: CGFloat) -> CGFloat {
+        min(
+            maximumPickerWidth,
+            max(minimumPickerWidth, contentWidth - nonPickerWidth)
+        )
+    }
+}
+
+/// The shared root toolbar used by both primary tabs. Keeping the leading
+/// controls and principal picker in one component prevents the notification
+/// feed from drifting away from the workspace-list toolbar contract.
+struct WorkspaceRootToolbarContent: ToolbarContent {
+    @Environment(\.workspaceRootToolbarContentWidth) private var contentWidth
+
+    let openSettings: () -> Void
+    let openDevices: () -> Void
+    let title: String
+    let isLoading: Bool
+    @Binding var selection: WorkspaceMacSelection
+    let machines: [WorkspaceFilterMachine]
+    let showAddDevice: (() -> Void)?
+
+    var body: some ToolbarContent {
+        ToolbarItem(id: "workspace-list-settings", placement: .topBarLeading) {
+            Button(action: openSettings) {
+                MobileWorkspaceSettingsIcon()
+            }
+            .accessibilityLabel(L10n.string("mobile.workspaces.settings", defaultValue: "Settings"))
+            .accessibilityIdentifier("MobileWorkspaceSettingsMenu")
+        }
+        ToolbarItem(id: "workspace-list-title", placement: .principal) {
+            WorkspaceMacTitlePicker(
+                title: title,
+                isLoading: isLoading,
+                selection: $selection,
+                machines: machines,
+                showAddDevice: showAddDevice,
+                labelWidth: WorkspaceRootToolbarSizing.pickerWidth(for: contentWidth)
+            )
+        }
+        ToolbarItem(id: "workspace-list-devices", placement: .topBarLeading) {
+            Button(action: openDevices) {
+                Image(systemName: "desktopcomputer")
+            }
+            .accessibilityLabel(L10n.string("mobile.computers.title", defaultValue: "Computers"))
+            .accessibilityIdentifier("MobileWorkspaceDevicesButton")
+        }
+    }
+}
+#endif
+
 struct WorkspaceShellView: View {
     @Bindable var store: CMUXMobileShellStore
     let signOut: () -> Void
@@ -70,60 +138,63 @@ struct WorkspaceShellView: View {
 
     var body: some View {
         #if os(iOS)
-        MobilePrimaryTabScaffold(
-            selection: $selectedPrimaryTab,
-            notificationUnreadCount: visibleNotificationFeedUnreadCount
-        ) {
-            workspaceTabContent
-        } notifications: {
-            NavigationStack(path: $notificationNavigationPath) {
-                NotificationFeedStoreView(
-                    store: store,
-                    items: visibleNotificationFeedItems,
-                    status: visibleNotificationFeedStatus
-                )
-                    .toolbar {
-                        if notificationNavigationPath.isEmpty {
-                            rootToolbarContent
+        GeometryReader { geometry in
+            MobilePrimaryTabScaffold(
+                selection: $selectedPrimaryTab,
+                notificationUnreadCount: visibleNotificationFeedUnreadCount
+            ) {
+                workspaceTabContent
+            } notifications: {
+                NavigationStack(path: $notificationNavigationPath) {
+                    NotificationFeedStoreView(
+                        store: store,
+                        items: visibleNotificationFeedItems,
+                        status: visibleNotificationFeedStatus
+                    )
+                        .toolbar {
+                            if notificationNavigationPath.isEmpty {
+                                rootToolbarContent
+                            }
                         }
-                    }
-                    .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
-                        workspaceDestination(
-                            for: workspaceID,
-                            createWorkspace: createWorkspaceInCompactStack
-                        )
-                        .toolbarVisibility(.hidden, for: .tabBar)
-                    }
+                        .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
+                            workspaceDestination(
+                                for: workspaceID,
+                                createWorkspace: createWorkspaceInCompactStack
+                            )
+                            .toolbarVisibility(.hidden, for: .tabBar)
+                        }
+                }
             }
-        }
-        .onChange(of: store.deeplinkWorkspaceNavigationRequest) { _, request in
-            guard request != nil else { return }
-            consumeDeeplinkNavigationRequestIfNeeded()
-        }
-        .onAppear {
-            updateRootToolbarMachineSnapshots(liveRootToolbarMachineSnapshots)
-            consumeDeeplinkNavigationRequestIfNeeded()
-        }
-        .onChange(of: liveRootToolbarMachineSnapshots) { _, snapshots in
-            updateRootToolbarMachineSnapshots(snapshots)
-        }
-        .sheet(isPresented: $showingRootSettings) {
-            MobileSettingsView(
-                connectedHostName: store.connectedHostName,
-                rescanQR: { store.disconnectAndForgetActiveMac() },
-                signOut: signOut,
-                store: store
-            )
-        }
-        .sheet(isPresented: $showingRootDeviceTree) {
-            DeviceTreeView(
-                store: store,
-                selectWorkspace: { id in
-                    selectedPrimaryTab = .workspaces
-                    selectWorkspace(id)
-                },
-                showAddDevice: showAddDevice
-            )
+            .environment(\.workspaceRootToolbarContentWidth, geometry.size.width)
+            .onChange(of: store.deeplinkWorkspaceNavigationRequest) { _, request in
+                guard request != nil else { return }
+                consumeDeeplinkNavigationRequestIfNeeded()
+            }
+            .onAppear {
+                updateRootToolbarMachineSnapshots(liveRootToolbarMachineSnapshots)
+                consumeDeeplinkNavigationRequestIfNeeded()
+            }
+            .onChange(of: liveRootToolbarMachineSnapshots) { _, snapshots in
+                updateRootToolbarMachineSnapshots(snapshots)
+            }
+            .sheet(isPresented: $showingRootSettings) {
+                MobileSettingsView(
+                    connectedHostName: store.connectedHostName,
+                    rescanQR: { store.disconnectAndForgetActiveMac() },
+                    signOut: signOut,
+                    store: store
+                )
+            }
+            .sheet(isPresented: $showingRootDeviceTree) {
+                DeviceTreeView(
+                    store: store,
+                    selectWorkspace: { id in
+                        selectedPrimaryTab = .workspaces
+                        selectWorkspace(id)
+                    },
+                    showAddDevice: showAddDevice
+                )
+            }
         }
         #else
         workspaceTabContent
@@ -328,33 +399,15 @@ struct WorkspaceShellView: View {
     #if os(iOS)
     @ToolbarContentBuilder
     private var rootToolbarContent: some ToolbarContent {
-        ToolbarItem(id: "workspace-list-settings", placement: .topBarLeading) {
-            Button {
-                showingRootSettings = true
-            } label: {
-                MobileWorkspaceSettingsIcon()
-            }
-            .accessibilityLabel(L10n.string("mobile.workspaces.settings", defaultValue: "Settings"))
-            .accessibilityIdentifier("MobileWorkspaceSettingsMenu")
-        }
-        ToolbarItem(id: "workspace-list-title", placement: .principal) {
-            WorkspaceMacTitlePicker(
-                title: rootToolbarTitle,
-                isLoading: rootToolbarPendingSelection != nil,
-                selection: rootToolbarSelection,
-                machines: displayedRootToolbarMachineSnapshots.macPickerMachines,
-                showAddDevice: showAddDevice
-            )
-        }
-        ToolbarItem(id: "workspace-list-devices", placement: .topBarLeading) {
-            Button {
-                showingRootDeviceTree = true
-            } label: {
-                Image(systemName: "desktopcomputer")
-            }
-            .accessibilityLabel(L10n.string("mobile.computers.title", defaultValue: "Computers"))
-            .accessibilityIdentifier("MobileWorkspaceDevicesButton")
-        }
+        WorkspaceRootToolbarContent(
+            openSettings: { showingRootSettings = true },
+            openDevices: { showingRootDeviceTree = true },
+            title: rootToolbarTitle,
+            isLoading: rootToolbarPendingSelection != nil,
+            selection: rootToolbarSelection,
+            machines: displayedRootToolbarMachineSnapshots.macPickerMachines,
+            showAddDevice: showAddDevice
+        )
     }
 
     private var displayedRootToolbarMachineSnapshots: WorkspaceMachineSnapshots {

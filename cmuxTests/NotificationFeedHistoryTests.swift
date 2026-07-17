@@ -26,14 +26,16 @@ struct NotificationFeedHistoryTests {
             surfaceId: surfaceID,
             title: "First",
             subtitle: "Agent",
-            body: "Needs approval"
+            body: "Needs approval",
+            retargetsToLiveSurfaceOwner: false
         )
         store.addNotification(
             tabId: workspaceID,
             surfaceId: surfaceID,
             title: "Second",
             subtitle: "Agent",
-            body: "Finished"
+            body: "Finished",
+            retargetsToLiveSurfaceOwner: false
         )
 
         #expect(store.notifications.count == 1)
@@ -215,8 +217,8 @@ struct NotificationFeedHistoryTests {
         let markAllPayload = try responsePayload(markAllResponse)
         #expect(markAllPayload["marked"] as? Int == 1)
         #expect(markAllPayload["revision"] as? Int == 3)
-        #expect(store.notificationFeedHistory.notifications.allSatisfy(\.isRead))
-        #expect(store.notifications.allSatisfy(\.isRead))
+        #expect(store.notificationFeedHistory.notifications.allSatisfy { $0.isRead })
+        #expect(store.notifications.allSatisfy { $0.isRead })
 
         store.remove(id: older.id)
         #expect(store.notifications.contains(where: { $0.id == older.id }) == false)

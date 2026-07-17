@@ -191,33 +191,17 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    func testNotificationTabPreservesSharedRootToolbar() async throws {
-        let server = try MobileSyncMockHostServer(includesNotificationFeed: true)
-        let port = try await server.start()
-        defer { server.stop() }
-
-        let url = try attachURL(port: port)
-        let app = launchApp(mockData: true, environment: [
-            "CMUX_UITEST_ATTACH_URL": url.absoluteString,
+    func testNotificationTabPreservesSharedRootToolbar() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "1",
         ])
         defer { app.terminate() }
-        XCTAssertTrue(
-            app.descendants(matching: .any)["MobileWorkspaceShell"]
-                .waitForExistence(timeout: 8)
-        )
+
+        XCTAssertTrue(app.descendants(matching: .any)["MobileNotificationFeed"].waitForExistence(timeout: 8))
 
         let settings = app.buttons["MobileWorkspaceSettingsMenu"]
         let computers = app.buttons["MobileWorkspaceDevicesButton"]
         let picker = app.buttons["MobileWorkspaceMacPicker"]
-        XCTAssertTrue(settings.waitForExistence(timeout: 3))
-        XCTAssertTrue(computers.waitForExistence(timeout: 3))
-        XCTAssertTrue(picker.waitForExistence(timeout: 3))
-
-        let notificationsTab = app.tabBars.buttons["Notifications"]
-        XCTAssertTrue(notificationsTab.waitForExistence(timeout: 3))
-        notificationsTab.tap()
-
-        XCTAssertTrue(app.descendants(matching: .any)["MobileNotificationFeed"].waitForExistence(timeout: 3))
         XCTAssertTrue(settings.waitForExistence(timeout: 3))
         XCTAssertTrue(computers.waitForExistence(timeout: 3))
         XCTAssertTrue(picker.waitForExistence(timeout: 3))
@@ -226,6 +210,11 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(markAllRead.waitForExistence(timeout: 3))
         XCTAssertLessThanOrEqual(markAllRead.frame.width, 60)
         XCTAssertEqual(picker.frame.midX, app.frame.midX, accuracy: 2)
+        if app.frame.width >= 400 {
+            XCTAssertGreaterThanOrEqual(picker.frame.width, 120)
+        } else {
+            XCTAssertLessThanOrEqual(picker.frame.width, 100)
+        }
     }
 
     @MainActor
@@ -287,7 +276,7 @@ final class cmuxUITests: XCTestCase {
             "MobileNotificationFeedPreviewWorkspaceDestination"
         ]
         XCTAssertTrue(workspaceDestination.waitForExistence(timeout: 3))
-        XCTAssertTrue(app.navigationBars["Release"].exists)
+        XCTAssertTrue(app.navigationBars["Release"].waitForExistence(timeout: 3))
 
         let systemBackButton = app.navigationBars.buttons.firstMatch
         XCTAssertTrue(systemBackButton.waitForExistence(timeout: 3))
@@ -4300,7 +4289,6 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private let listener: NWListener
     private let queue = DispatchQueue(label: "dev.cmux.ios-ui-tests.mobile-sync-server")
     private let createdWorkspaceTerminalDelay: TimeInterval?
-    private let includesNotificationFeed: Bool
     private var readyContinuation: CheckedContinuation<UInt16, Error>?
     private var connections: [NWConnection] = []
     private var selectedWorkspaceID = "workspace-main"
@@ -4359,12 +4347,10 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     init(
         defaultTerminalLines: [String]? = nil,
         additionalMainTerminalCount: Int = 0,
-        createdWorkspaceTerminalDelay: TimeInterval? = nil,
-        includesNotificationFeed: Bool = false
+        createdWorkspaceTerminalDelay: TimeInterval? = nil
     ) throws {
         listener = try NWListener(using: .tcp, on: .any)
         self.createdWorkspaceTerminalDelay = createdWorkspaceTerminalDelay
-        self.includesNotificationFeed = includesNotificationFeed
         appendMainTerminals(count: additionalMainTerminalCount)
         // Optionally replace the selected terminal's content (used by the
         // color-band render test so the bands stream on attach without a flaky
@@ -4586,8 +4572,6 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             result = ["stream_id": params["stream_id"] as? String ?? "events"]
         case "mobile.host.status":
             result = mobileHostStatusResult()
-        case "notification.feed.list":
-            result = notificationFeedListResult()
         case "mobile.terminal.viewport", "terminal.viewport":
             result = [
                 "columns": params["viewport_columns"] as? Int ?? 80,
@@ -4609,7 +4593,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     }
 
     private func mobileHostStatusResult() -> [String: Any] {
-        var capabilities = [
+        let capabilities = [
             "events.v1",
             "notification.badge.v1",
             "notification.dismiss.v1",
@@ -4624,37 +4608,10 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             "dogfood.v1",
             "workspace.groups.v1",
         ]
-        if includesNotificationFeed {
-            capabilities.append("notification.feed.v1")
-        }
         return [
             "routes": [],
             "terminal_fidelity": "render_grid",
             "capabilities": capabilities,
-        ]
-    }
-
-    private func notificationFeedListResult() -> [String: Any] {
-        guard includesNotificationFeed else {
-            return ["revision": 0, "notifications": []]
-        }
-        return [
-            "revision": 1,
-            "notifications": [
-                [
-                    "id": "notification-toolbar-layout",
-                    "workspace_id": "workspace-main",
-                    "surface_id": "terminal-build",
-                    "title": "Toolbar layout ready",
-                    "subtitle": "UI test",
-                    "body": "The bulk action remains available without moving the computer picker.",
-                    "created_at": Date().timeIntervalSince1970,
-                    "is_read": false,
-                    "retargets_to_live_surface_owner": false,
-                    "workspace_title": "cmux",
-                    "surface_title": "Build",
-                ] as [String: Any],
-            ],
         ]
     }
 

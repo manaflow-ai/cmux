@@ -162,6 +162,23 @@ struct WorkspaceMacTitlePicker: View {
     @Binding var selection: WorkspaceMacSelection
     let machines: [WorkspaceFilterMachine]
     let showAddDevice: (() -> Void)?
+    let labelWidth: CGFloat
+
+    init(
+        title: String,
+        isLoading: Bool,
+        selection: Binding<WorkspaceMacSelection>,
+        machines: [WorkspaceFilterMachine],
+        showAddDevice: (() -> Void)?,
+        labelWidth: CGFloat = 155
+    ) {
+        self.title = title
+        self.isLoading = isLoading
+        _selection = selection
+        self.machines = machines
+        self.showAddDevice = showAddDevice
+        self.labelWidth = labelWidth
+    }
 
     var body: some View {
         Menu {
@@ -188,19 +205,22 @@ struct WorkspaceMacTitlePicker: View {
                 .accessibilityIdentifier("MobileWorkspaceMacPickerAdd")
             }
         } label: {
-            WorkspaceMacTitlePickerLabel(title: title, isLoading: isLoading)
+            WorkspaceMacTitlePickerLabel(
+                title: title,
+                isLoading: isLoading,
+                width: labelWidth
+            )
         }
         .buttonStyle(.plain)
-        .tint(.white)
+        .tint(.primary)
         .accessibilityIdentifier("MobileWorkspaceMacPicker")
     }
 }
 
 private struct WorkspaceMacTitlePickerLabel: View {
-    private static let titleWidth: CGFloat = 155
-
     let title: String
     let isLoading: Bool
+    let width: CGFloat
 
     var body: some View {
         HStack(spacing: 6) {
@@ -210,7 +230,7 @@ private struct WorkspaceMacTitlePickerLabel: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .allowsTightening(true)
-                .minimumScaleFactor(0.9)
+                .minimumScaleFactor(0.75)
                 .layoutPriority(1)
             ZStack {
                 Image(systemName: "chevron.down")
@@ -218,15 +238,15 @@ private struct WorkspaceMacTitlePickerLabel: View {
                     .opacity(isLoading ? 0 : 1)
                 ProgressView()
                     .controlSize(.mini)
-                    .tint(.white)
+                    .tint(.primary)
                     .opacity(isLoading ? 1 : 0)
             }
             .frame(width: 12, height: 12)
             .accessibilityHidden(true)
             Spacer(minLength: 0)
         }
-        .foregroundStyle(.white)
-        .frame(width: Self.titleWidth, alignment: .center)
+        .foregroundStyle(.primary)
+        .frame(width: width, alignment: .center)
         .clipped()
         .contentShape(Rectangle())
     }
