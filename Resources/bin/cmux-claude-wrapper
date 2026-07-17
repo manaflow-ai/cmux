@@ -933,6 +933,52 @@ cmux_claude_sideload_flags_disabled() {
     return 1
 }
 
+# Install the bundled "cmux Computer Use.app" helper as a STANDALONE app OUTSIDE
+# the host .app bundle and print the standalone path. macOS TCC attributes an
+# app's Accessibility / Screen Recording grants by walking up the filesystem to
+# the nearest LaunchServices-registered enclosing .app; a helper nested at
+# <host>.app/Contents/Library/... therefore resolves to the HOST's identity even
+# when launched via `open -a` and launchd-parented. Copying it to its own
+# top-level location makes LaunchServices register it independently, so the
+# permission prompts name "cmux Computer Use" and grants stick to the helper.
+# Falls back to the nested path if the copy can't be made (grants still work,
+# just under the host identity).
+cmux_computer_use_standalone_helper() {
+    local nested_app="$1"
+    local name dest_dir dest nested_bin dest_bin lock waited
+    name="$(basename "$nested_app")"
+    dest_dir="${HOME}/Library/Application Support/cmux/computer-use/helper"
+    dest="${dest_dir}/${name}"
+    nested_bin="${nested_app}/Contents/MacOS/cmux-cua-driver"
+    dest_bin="${dest}/Contents/MacOS/cmux-cua-driver"
+    # Fast path: an up-to-date standalone copy already exists (skip the ~15MB
+    # copy on every agent spawn; only re-sync when the bundled driver is newer).
+    if [[ -x "$dest_bin" && ! "$nested_bin" -nt "$dest_bin" ]]; then
+        printf '%s' "$dest"
+        return 0
+    fi
+    mkdir -p "$dest_dir" 2>/dev/null || { printf '%s' "$nested_app"; return 0; }
+    lock="${dest_dir}/.$(printf '%s' "$name" | tr -c 'A-Za-z0-9._-' '_').sync.lock"
+    if mkdir "$lock" 2>/dev/null; then
+        local tmp="${dest}.tmp.$$"
+        rm -rf "$tmp" 2>/dev/null
+        # `ditto` preserves the ad-hoc code signature, xattrs and symlinks that a
+        # bundle needs to stay TCC-valid; plain `cp -R` can drop them.
+        if ditto "$nested_app" "$tmp" 2>/dev/null; then
+            rm -rf "$dest" 2>/dev/null
+            mv "$tmp" "$dest" 2>/dev/null || rm -rf "$tmp" 2>/dev/null
+        else
+            rm -rf "$tmp" 2>/dev/null
+        fi
+        rmdir "$lock" 2>/dev/null
+    else
+        # Another spawn is mid-sync; wait briefly for it to publish the copy.
+        waited=0
+        while [[ -d "$lock" && $waited -lt 100 ]]; do sleep 0.1; waited=$((waited + 1)); done
+    fi
+    if [[ -x "$dest_bin" ]]; then printf '%s' "$dest"; else printf '%s' "$nested_app"; fi
+}
+
 cmux_computer_use_config() {
     [[ "${CMUX_COMPUTER_USE_MCP_DISABLED:-0}" == "1" ]] && return 1
     cmux_claude_sideload_flags_disabled && return 1
@@ -963,7 +1009,7 @@ cmux_computer_use_config() {
         # responsible process, so the Accessibility / Screen Recording prompts
         # name "cmux Computer Use" and granting or quitting affects only the helper.
         local helper_app cua_socket
-        helper_app="${driver%/Contents/MacOS/*}"
+        helper_app="$(cmux_computer_use_standalone_helper "${driver%/Contents/MacOS/*}")"
         cua_socket="${HOME}/Library/Application Support/cmux/computer-use/cua-daemon.sock"
         printf '{"mcpServers":{"cmux-computer-use":{"command":"%s","args":["mcp","--socket","%s"],"env":{"CUA_DRIVER_DAEMON_APP":"%s","CUA_DRIVER_DEFAULT_SESSION":"%s","CUA_DRIVER_RS_TELEMETRY_ENABLED":"false","CUA_DRIVER_RS_UPDATE_CHECK":"false","CUA_DRIVER_CURSOR_GRADIENT":"#12c7f5,#2d8cff,#6c5cff","CUA_DRIVER_CURSOR_BLOOM":"#2d8cff","CUA_DRIVER_CURSOR_LABEL":"cmux","CUA_DRIVER_STATE_DIR":"%s","NODE_OPTIONS":"","BUN_OPTIONS":""}}}}' \
             "$(cmux_computer_use_json_escape "$driver")" \

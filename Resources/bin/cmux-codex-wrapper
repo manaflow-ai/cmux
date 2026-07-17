@@ -245,6 +245,52 @@ cmux_computer_use_resolve_driver() {
     printf '%s' "$driver_real"
 }
 
+# Install the bundled "cmux Computer Use.app" helper as a STANDALONE app OUTSIDE
+# the host .app bundle and print the standalone path. macOS TCC attributes an
+# app's Accessibility / Screen Recording grants by walking up the filesystem to
+# the nearest LaunchServices-registered enclosing .app; a helper nested at
+# <host>.app/Contents/Library/... therefore resolves to the HOST's identity even
+# when launched via `open -a` and launchd-parented. Copying it to its own
+# top-level location makes LaunchServices register it independently, so the
+# permission prompts name "cmux Computer Use" and grants stick to the helper.
+# Falls back to the nested path if the copy can't be made (grants still work,
+# just under the host identity).
+cmux_computer_use_standalone_helper() {
+    local nested_app="$1"
+    local name dest_dir dest nested_bin dest_bin lock waited
+    name="$(basename "$nested_app")"
+    dest_dir="${HOME}/Library/Application Support/cmux/computer-use/helper"
+    dest="${dest_dir}/${name}"
+    nested_bin="${nested_app}/Contents/MacOS/cmux-cua-driver"
+    dest_bin="${dest}/Contents/MacOS/cmux-cua-driver"
+    # Fast path: an up-to-date standalone copy already exists (skip the ~15MB
+    # copy on every agent spawn; only re-sync when the bundled driver is newer).
+    if [[ -x "$dest_bin" && ! "$nested_bin" -nt "$dest_bin" ]]; then
+        printf '%s' "$dest"
+        return 0
+    fi
+    mkdir -p "$dest_dir" 2>/dev/null || { printf '%s' "$nested_app"; return 0; }
+    lock="${dest_dir}/.$(printf '%s' "$name" | tr -c 'A-Za-z0-9._-' '_').sync.lock"
+    if mkdir "$lock" 2>/dev/null; then
+        local tmp="${dest}.tmp.$$"
+        rm -rf "$tmp" 2>/dev/null
+        # `ditto` preserves the ad-hoc code signature, xattrs and symlinks that a
+        # bundle needs to stay TCC-valid; plain `cp -R` can drop them.
+        if ditto "$nested_app" "$tmp" 2>/dev/null; then
+            rm -rf "$dest" 2>/dev/null
+            mv "$tmp" "$dest" 2>/dev/null || rm -rf "$tmp" 2>/dev/null
+        else
+            rm -rf "$tmp" 2>/dev/null
+        fi
+        rmdir "$lock" 2>/dev/null
+    else
+        # Another spawn is mid-sync; wait briefly for it to publish the copy.
+        waited=0
+        while [[ -d "$lock" && $waited -lt 100 ]]; do sleep 0.1; waited=$((waited + 1)); done
+    fi
+    if [[ -x "$dest_bin" ]]; then printf '%s' "$dest"; else printf '%s' "$nested_app"; fi
+}
+
 cmux_codex_emit_computer_use_args() {
     [[ "${CMUX_COMPUTER_USE_MCP_DISABLED:-0}" == "1" ]] && return 1
     local arg
@@ -272,7 +318,7 @@ cmux_codex_emit_computer_use_args() {
         # Accessibility / Screen Recording prompts name "cmux Computer Use" and
         # granting or quitting the helper affects only the helper — never cmux.
         local helper_app cua_socket
-        helper_app="${driver%/Contents/MacOS/*}"
+        helper_app="$(cmux_computer_use_standalone_helper "${driver%/Contents/MacOS/*}")"
         cua_socket="${HOME}/Library/Application Support/cmux/computer-use/cua-daemon.sock"
         cua_args_c=(
             "-c" "mcp_servers.cmux-computer-use.args=[\"mcp\",\"--socket\",\"$(cmux_computer_use_json_escape "$cua_socket")\"]"
