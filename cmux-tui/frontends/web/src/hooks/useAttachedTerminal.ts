@@ -117,6 +117,9 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
           // Cleanup may have raced the attach round-trip; close the stream we
           // just opened or its buffered events leak for the surface's lifetime.
           if (cancelled) return;
+          // Closing the previous attachment removes this client's report on
+          // the server. Re-publish even when the viewport did not change.
+          reportedFit = null;
           let overflowed = false;
           for (;;) {
             let event;
