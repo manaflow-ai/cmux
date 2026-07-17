@@ -2,12 +2,12 @@ use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, SyncSender, TrySendError, sync_channel};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use cmux_tui_cdp::{
-    CdpClient, CdpEvent, CdpKeyEvent, Chrome, ChromeLaunchOptions, TargetCreated,
-    discover_browser_ws_url, resolve_browser_ws_url,
+    CDP_EVENT_QUEUE_CAPACITY, CdpClient, CdpEvent, CdpKeyEvent, Chrome, ChromeLaunchOptions,
+    TargetCreated, discover_browser_ws_url, resolve_browser_ws_url,
 };
 
 use crate::platform;
@@ -224,8 +224,112 @@ pub struct BrowserRuntime {
 
 #[derive(Default)]
 struct Routes {
-    by_session: HashMap<String, Sender<CdpEvent>>,
-    by_target: HashMap<String, Sender<CdpEvent>>,
+    by_session: HashMap<String, Arc<SurfaceRoute>>,
+    by_target: HashMap<String, Arc<SurfaceRoute>>,
+}
+
+struct SurfaceRoute {
+    state: Mutex<SurfaceRouteState>,
+    ready: Condvar,
+}
+
+#[derive(Default)]
+struct SurfaceRouteState {
+    events: VecDeque<QueuedSurfaceEvent>,
+    retained_bytes: usize,
+    closed: bool,
+}
+
+struct QueuedSurfaceEvent {
+    event: CdpEvent,
+    retained_bytes: usize,
+}
+
+impl SurfaceRoute {
+    fn new() -> Self {
+        Self { state: Mutex::new(SurfaceRouteState::default()), ready: Condvar::new() }
+    }
+
+    /// Returns true when the route must be removed from the runtime maps.
+    fn deliver(&self, event: CdpEvent) -> bool {
+        let mut state = self.state.lock().unwrap();
+        if state.closed {
+            return true;
+        }
+
+        let replacement = match &event {
+            CdpEvent::ScreencastFrame(_) => state
+                .events
+                .iter()
+                .position(|queued| matches!(&queued.event, CdpEvent::ScreencastFrame(_))),
+            CdpEvent::TargetInfoChanged(info) => state.events.iter().position(|queued| {
+                matches!(&queued.event, CdpEvent::TargetInfoChanged(existing) if existing.target_id == info.target_id)
+            }),
+            _ => None,
+        };
+        if let Some(index) = replacement
+            && let Some(removed) = state.events.remove(index)
+        {
+            state.retained_bytes = state.retained_bytes.saturating_sub(removed.retained_bytes);
+        }
+        let event_bytes = cmux_tui_cdp::event_retained_bytes(&event);
+        if state.events.len() >= CDP_EVENT_QUEUE_CAPACITY
+            || event_bytes > cmux_tui_cdp::CDP_EVENT_QUEUE_MAX_BYTES - state.retained_bytes
+        {
+            fail_surface_route(&mut state, "CDP surface event queue overflow");
+            self.ready.notify_one();
+            return true;
+        }
+        state.events.push_back(QueuedSurfaceEvent { event, retained_bytes: event_bytes });
+        state.retained_bytes += event_bytes;
+        self.ready.notify_one();
+        false
+    }
+
+    fn recv(&self) -> Option<CdpEvent> {
+        let mut state = self.state.lock().unwrap();
+        loop {
+            if let Some(queued) = state.events.pop_front() {
+                state.retained_bytes = state.retained_bytes.saturating_sub(queued.retained_bytes);
+                return Some(queued.event);
+            }
+            if state.closed {
+                return None;
+            }
+            state = self.ready.wait(state).unwrap();
+        }
+    }
+
+    fn close(&self, reason: String) {
+        let mut state = self.state.lock().unwrap();
+        if state.closed {
+            return;
+        }
+        fail_surface_route(&mut state, &reason);
+        self.ready.notify_one();
+    }
+
+    #[cfg(test)]
+    fn is_closed(&self) -> bool {
+        self.state.lock().unwrap().closed
+    }
+
+    #[cfg(test)]
+    fn try_recv(&self) -> Option<CdpEvent> {
+        let mut state = self.state.lock().unwrap();
+        let queued = state.events.pop_front()?;
+        state.retained_bytes = state.retained_bytes.saturating_sub(queued.retained_bytes);
+        Some(queued.event)
+    }
+}
+
+fn fail_surface_route(state: &mut SurfaceRouteState, reason: &str) {
+    state.events.clear();
+    let event = CdpEvent::Closed(reason.to_string());
+    let retained_bytes = cmux_tui_cdp::event_retained_bytes(&event);
+    state.retained_bytes = retained_bytes;
+    state.events.push_back(QueuedSurfaceEvent { event, retained_bytes });
+    state.closed = true;
 }
 
 pub struct BrowserSurface {
@@ -269,9 +373,8 @@ impl BrowserRuntime {
         chrome: Option<Chrome>,
         source: BrowserSource,
     ) -> anyhow::Result<Arc<Self>> {
-        let (event_tx, event_rx) = std::sync::mpsc::channel();
+        let (event_tx, event_rx) = sync_channel(CDP_EVENT_QUEUE_CAPACITY);
         let client = CdpClient::connect(web_socket_url, event_tx)?;
-        client.set_discover_targets(true)?;
         let stealth_user_agent = if source == BrowserSource::Launched {
             client.browser_version().ok().and_then(|ua| clean_headless_user_agent(&ua))
         } else {
@@ -285,7 +388,8 @@ impl BrowserRuntime {
             routes: Mutex::new(Routes::default()),
             closed: AtomicBool::new(false),
         });
-        start_router(runtime.clone(), event_rx)?;
+        start_router(Arc::downgrade(&runtime), event_rx)?;
+        runtime.client.set_discover_targets(true)?;
         Ok(runtime)
     }
 
@@ -315,8 +419,7 @@ impl BrowserRuntime {
             BrowserBootstrap::ExistingTarget { target_id, url } => (target_id, normalize_url(&url)),
         };
         let session_id = self.client.attach_to_target(&target_id)?;
-        let (event_tx, event_rx) = std::sync::mpsc::channel();
-        self.register(&target_id, &session_id, event_tx);
+        let events = self.register(&target_id, &session_id);
 
         let setup_result =
             self.setup_attached_surface(&surface, &target_id, &session_id, &normalized_url);
@@ -326,7 +429,7 @@ impl BrowserRuntime {
             return Err(err);
         }
 
-        start_surface_thread(surface, event_rx, mux, Arc::downgrade(self))?;
+        start_surface_thread(surface, events, mux, Arc::downgrade(self))?;
         Ok(())
     }
 
@@ -362,16 +465,35 @@ impl BrowserRuntime {
         Ok(())
     }
 
-    fn register(&self, target_id: &str, session_id: &str, tx: Sender<CdpEvent>) {
+    fn register(&self, target_id: &str, session_id: &str) -> Arc<SurfaceRoute> {
+        let route = Arc::new(SurfaceRoute::new());
         let mut routes = self.routes.lock().unwrap();
-        routes.by_session.insert(session_id.to_string(), tx.clone());
-        routes.by_target.insert(target_id.to_string(), tx);
+        if self.closed.load(Ordering::Acquire) {
+            drop(routes);
+            route.close("browser runtime closed".to_string());
+            return route;
+        }
+        routes.by_session.insert(session_id.to_string(), route.clone());
+        routes.by_target.insert(target_id.to_string(), route.clone());
+        route
     }
 
     fn unregister(&self, target_id: &str, session_id: &str) {
+        let route = {
+            let mut routes = self.routes.lock().unwrap();
+            let by_session = routes.by_session.remove(session_id);
+            let by_target = routes.by_target.remove(target_id);
+            by_session.or(by_target)
+        };
+        if let Some(route) = route {
+            route.close("browser surface closed".to_string());
+        }
+    }
+
+    fn remove_route(&self, route: &Arc<SurfaceRoute>) {
         let mut routes = self.routes.lock().unwrap();
-        routes.by_session.remove(session_id);
-        routes.by_target.remove(target_id);
+        routes.by_session.retain(|_, candidate| !Arc::ptr_eq(candidate, route));
+        routes.by_target.retain(|_, candidate| !Arc::ptr_eq(candidate, route));
     }
 
     fn close_surface_detached(&self, target_id: &str, session_id: &str) {
@@ -382,7 +504,8 @@ impl BrowserRuntime {
     }
 
     pub fn shutdown(&self) {
-        self.closed.store(true, Ordering::Release);
+        close_browser_runtime(self, "browser runtime shut down".to_string());
+        let _ = self.client.flush_outbound(Duration::from_secs(1));
         if let Some(chrome) = &self.chrome {
             chrome.kill();
         }
@@ -598,74 +721,90 @@ fn sanitize_session_name(name: &str) -> String {
     if trimmed.is_empty() { "default".to_string() } else { trimmed.to_string() }
 }
 
-fn start_router(runtime: Arc<BrowserRuntime>, events: Receiver<CdpEvent>) -> anyhow::Result<()> {
+fn start_router(runtime: Weak<BrowserRuntime>, events: Receiver<CdpEvent>) -> anyhow::Result<()> {
     std::thread::Builder::new().name("browser-runtime-events".into()).spawn(move || {
         while let Ok(event) = events.recv() {
+            let Some(runtime) = runtime.upgrade() else { break };
             match event {
                 CdpEvent::ScreencastFrame(frame) => {
                     let tx = {
                         runtime.routes.lock().unwrap().by_session.get(&frame.session_id).cloned()
                     };
-                    if let Some(tx) = tx {
-                        let _ = tx.send(CdpEvent::ScreencastFrame(frame));
+                    if let Some(tx) = tx
+                        && tx.deliver(CdpEvent::ScreencastFrame(frame))
+                    {
+                        runtime.remove_route(&tx);
                     }
                 }
                 CdpEvent::TargetCreated(created) => {
                     let tx = created.opener_id.as_ref().and_then(|opener_id| {
                         runtime.routes.lock().unwrap().by_target.get(opener_id).cloned()
                     });
-                    if let Some(tx) = tx {
-                        let _ = tx.send(CdpEvent::TargetCreated(created));
+                    if let Some(tx) = tx
+                        && tx.deliver(CdpEvent::TargetCreated(created))
+                    {
+                        runtime.remove_route(&tx);
                     }
                 }
                 CdpEvent::TargetInfoChanged(info) => {
                     let tx =
                         { runtime.routes.lock().unwrap().by_target.get(&info.target_id).cloned() };
-                    if let Some(tx) = tx {
-                        let _ = tx.send(CdpEvent::TargetInfoChanged(info));
+                    if let Some(tx) = tx
+                        && tx.deliver(CdpEvent::TargetInfoChanged(info))
+                    {
+                        runtime.remove_route(&tx);
                     }
                 }
                 CdpEvent::Other { method, params, session_id: Some(session_id) } => {
                     let tx =
                         { runtime.routes.lock().unwrap().by_session.get(&session_id).cloned() };
-                    if let Some(tx) = tx {
-                        let _ = tx.send(CdpEvent::Other {
+                    if let Some(tx) = tx
+                        && tx.deliver(CdpEvent::Other {
                             method,
                             params,
                             session_id: Some(session_id),
-                        });
+                        })
+                    {
+                        runtime.remove_route(&tx);
                     }
                 }
                 CdpEvent::Closed(reason) => {
-                    runtime.closed.store(true, Ordering::Release);
-                    let senders = {
-                        let mut routes = runtime.routes.lock().unwrap();
-                        let senders = routes.by_session.values().cloned().collect::<Vec<_>>();
-                        routes.by_session.clear();
-                        routes.by_target.clear();
-                        senders
-                    };
-                    for tx in senders {
-                        let _ = tx.send(CdpEvent::Closed(reason.clone()));
-                    }
+                    close_browser_runtime(&runtime, reason);
                     break;
                 }
                 CdpEvent::Other { .. } => {}
             }
         }
+        if let Some(runtime) = runtime.upgrade() {
+            close_browser_runtime(&runtime, "CDP event channel closed".to_string());
+        }
     })?;
     Ok(())
 }
 
+fn close_browser_runtime(runtime: &BrowserRuntime, reason: String) {
+    let senders = {
+        let mut routes = runtime.routes.lock().unwrap();
+        runtime.closed.store(true, Ordering::Release);
+        let senders = routes.by_session.values().cloned().collect::<Vec<_>>();
+        routes.by_session.clear();
+        routes.by_target.clear();
+        senders
+    };
+    for tx in senders {
+        tx.close(reason.clone());
+    }
+}
+
 fn start_surface_thread(
     surface: Arc<Surface>,
-    events: Receiver<CdpEvent>,
+    events: Arc<SurfaceRoute>,
     mux: Weak<Mux>,
     runtime: Weak<BrowserRuntime>,
 ) -> anyhow::Result<()> {
     let id = surface.id;
     std::thread::Builder::new().name(format!("browser-surface-{id}-events")).spawn(move || {
-        while let Ok(event) = events.recv() {
+        while let Some(event) = events.recv() {
             let Surface::Browser(browser) = surface.as_ref() else { break };
             match event {
                 CdpEvent::ScreencastFrame(frame) => {
@@ -720,7 +859,7 @@ fn start_surface_thread(
                     }
                 }
                 CdpEvent::Closed(_) => {
-                    browser.mark_dead();
+                    browser.kill();
                     if let Some(mux) = mux.upgrade() {
                         mux.surface_exited(id);
                     }
@@ -1229,13 +1368,6 @@ impl BrowserSurface {
 
     fn close_taps(&self) {
         self.state.lock().unwrap().taps.clear();
-    }
-
-    fn mark_dead(&self) {
-        self.dead.store(true, Ordering::Release);
-        self.close_taps();
-        let _ = self.session.lock().unwrap().take();
-        self.close_command_sender();
     }
 
     fn mark_live(&self, session: BrowserSession) -> anyhow::Result<()> {
@@ -1830,8 +1962,9 @@ fn percent_encode_query(input: &str) -> String {
 mod tests {
     use super::{
         BROWSER_COMMAND_QUEUE_CAPACITY, BrowserCaptureOptions, BrowserCommand, BrowserFrame,
-        BrowserSource, BrowserStatus, capture_scale_for, new_surface, normalize_url,
-        runtime_endpoint, scaled_pixels, take_latest_worker_commands,
+        BrowserSession, BrowserSource, BrowserStatus, capture_scale_for, new_surface,
+        normalize_url, runtime_endpoint, scaled_pixels, start_surface_thread,
+        take_latest_worker_commands,
     };
     use crate::{Mux, MuxEvent, Surface, SurfaceOptions};
     use serde_json::{Value, json};
@@ -2146,6 +2279,401 @@ mod tests {
         assert!(methods.iter().any(|method| method == "Browser.getVersion"));
         assert!(!methods.iter().any(|method| method == "Emulation.setUserAgentOverride"));
         runtime.shutdown();
+    }
+
+    #[test]
+    fn discovery_events_are_drained_before_the_discovery_response() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::Builder::new()
+            .name("browser-discovery-backpressure-fake-cdp".into())
+            .spawn(move || {
+                let (stream, _) = listener.accept().unwrap();
+                let mut ws = accept(stream).unwrap();
+                let request = read_ws_json(&mut ws);
+                assert_eq!(request["method"], "Target.setDiscoverTargets");
+                for index in 0..=cmux_tui_cdp::CDP_EVENT_QUEUE_CAPACITY {
+                    write_ws_json(
+                        &mut ws,
+                        json!({
+                            "method": "Target.targetCreated",
+                            "params": {
+                                "targetInfo": {
+                                    "targetId": format!("target-{index}"),
+                                    "type": "page",
+                                    "title": "",
+                                    "url": "about:blank"
+                                }
+                            }
+                        }),
+                    );
+                }
+                write_ws_json(&mut ws, json!({"id": request["id"], "result": {}}));
+            })
+            .unwrap();
+        let (done_tx, done_rx) = mpsc::sync_channel(1);
+        let connect = thread::spawn(move || {
+            done_tx
+                .send(super::BrowserRuntime::connect_to_endpoint(
+                    &format!("ws://{addr}/devtools/browser/fake"),
+                    None,
+                    BrowserSource::External,
+                ))
+                .unwrap();
+        });
+
+        let runtime = done_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("discovery events blocked the response")
+            .unwrap();
+        runtime.shutdown();
+        connect.join().unwrap();
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn stalled_surface_route_does_not_block_shared_cdp_reader() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (flood_tx, flood_rx) = mpsc::channel();
+        let (sent_tx, sent_rx) = mpsc::channel();
+        let (reply_tx, reply_rx) = mpsc::channel();
+        let (stop_tx, stop_rx) = mpsc::channel();
+        let server = thread::Builder::new()
+            .name("browser-surface-backpressure-fake-cdp".into())
+            .spawn(move || {
+                let (stream, _) = listener.accept().unwrap();
+                let mut ws = accept(stream).unwrap();
+                let request = read_ws_json(&mut ws);
+                assert_eq!(request["method"], "Target.setDiscoverTargets");
+                write_ws_json(&mut ws, json!({"id": request["id"], "result": {}}));
+                flood_rx.recv().unwrap();
+                for index in 0..=(cmux_tui_cdp::CDP_EVENT_QUEUE_CAPACITY + 1) {
+                    write_ws_json(
+                        &mut ws,
+                        json!({
+                            "method": "Target.targetInfoChanged",
+                            "params": {
+                                "targetInfo": {
+                                    "targetId": "target-stalled",
+                                    "type": "page",
+                                    "title": format!("title-{index}"),
+                                    "url": "https://example.test"
+                                }
+                            }
+                        }),
+                    );
+                }
+                sent_tx.send(()).unwrap();
+                reply_rx.recv().unwrap();
+                write_ws_json(
+                    &mut ws,
+                    json!({
+                        "id": 2,
+                        "result": {"userAgent": "Mozilla/5.0 Chrome/136.0 Safari/537.36"}
+                    }),
+                );
+                let _ = stop_rx.recv();
+            })
+            .unwrap();
+
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::External,
+        )
+        .unwrap();
+        let _stalled_route = runtime.register("target-stalled", "session-stalled");
+        flood_tx.send(()).unwrap();
+        sent_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        thread::sleep(Duration::from_millis(50));
+
+        let client = runtime.client.clone();
+        let (version_tx, version_rx) = mpsc::channel();
+        let version_call = thread::spawn(move || {
+            version_tx.send(client.browser_version()).unwrap();
+        });
+        thread::sleep(Duration::from_millis(20));
+        reply_tx.send(()).unwrap();
+        let version = version_rx.recv_timeout(Duration::from_millis(200));
+        stop_tx.send(()).unwrap();
+        runtime.shutdown();
+        server.join().unwrap();
+        version_call.join().unwrap();
+        assert!(version.is_ok(), "stalled surface blocked the shared CDP reader: {version:?}");
+    }
+
+    #[test]
+    fn title_event_burst_keeps_surface_route_live_and_delivers_latest() {
+        let route = Arc::new(super::SurfaceRoute::new());
+        let event = |index| {
+            cmux_tui_cdp::CdpEvent::TargetInfoChanged(cmux_tui_cdp::TargetInfo {
+                session_id: Some("session-1".to_string()),
+                target_id: "target-1".to_string(),
+                title: format!("title-{index}"),
+                url: "https://example.test".to_string(),
+            })
+        };
+
+        assert!(!route.deliver(event(0)));
+        for index in 1..=cmux_tui_cdp::CDP_EVENT_QUEUE_CAPACITY {
+            assert!(!route.deliver(event(index)));
+        }
+        assert!(!route.is_closed());
+
+        let mut latest = String::new();
+        while let Some(received) = route.try_recv() {
+            if let cmux_tui_cdp::CdpEvent::TargetInfoChanged(info) = received {
+                latest = info.title;
+                if latest == format!("title-{}", cmux_tui_cdp::CDP_EVENT_QUEUE_CAPACITY) {
+                    break;
+                }
+            }
+        }
+        assert_eq!(latest, format!("title-{}", cmux_tui_cdp::CDP_EVENT_QUEUE_CAPACITY));
+    }
+
+    #[test]
+    fn coalesced_surface_state_keeps_chronological_order() {
+        let route = Arc::new(super::SurfaceRoute::new());
+        let target = |title: &str| {
+            cmux_tui_cdp::CdpEvent::TargetInfoChanged(cmux_tui_cdp::TargetInfo {
+                session_id: Some("session-1".to_string()),
+                target_id: "target-1".to_string(),
+                title: title.to_string(),
+                url: "https://example.test".to_string(),
+            })
+        };
+        assert!(!route.deliver(target("old")));
+        assert!(!route.deliver(cmux_tui_cdp::CdpEvent::Other {
+            method: "Page.frameNavigated".to_string(),
+            params: Value::Null,
+            session_id: Some("session-1".to_string()),
+        }));
+        assert!(!route.deliver(target("new")));
+
+        assert!(matches!(route.try_recv().unwrap(), cmux_tui_cdp::CdpEvent::Other { .. }));
+        assert!(matches!(
+            route.try_recv().unwrap(),
+            cmux_tui_cdp::CdpEvent::TargetInfoChanged(cmux_tui_cdp::TargetInfo { title, .. })
+                if title == "new"
+        ));
+    }
+
+    #[test]
+    fn surface_route_retains_only_the_latest_screencast_frame() {
+        let route = Arc::new(super::SurfaceRoute::new());
+        let frame = |index| {
+            cmux_tui_cdp::CdpEvent::ScreencastFrame(cmux_tui_cdp::ScreencastFrame {
+                session_id: "session-1".to_string(),
+                data_b64: format!("frame-{index}"),
+                css_width: 80,
+                css_height: 24,
+                ack_id: index,
+            })
+        };
+
+        for index in 1..=3 {
+            assert!(!route.deliver(frame(index)));
+        }
+        let received = route.try_recv().unwrap();
+        let cmux_tui_cdp::CdpEvent::ScreencastFrame(frame) = received else {
+            panic!("expected a screencast frame");
+        };
+        assert_eq!(frame.ack_id, 3);
+        assert!(route.try_recv().is_none(), "stale frames remained queued");
+    }
+
+    #[test]
+    fn critical_overflow_does_not_silently_evict_latest_frame() {
+        let route = Arc::new(super::SurfaceRoute::new());
+        let frame = cmux_tui_cdp::CdpEvent::ScreencastFrame(cmux_tui_cdp::ScreencastFrame {
+            session_id: "session-1".to_string(),
+            data_b64: "frame-latest".to_string(),
+            css_width: 80,
+            css_height: 24,
+            ack_id: 1,
+        });
+        assert!(!route.deliver(frame));
+        for index in 1..cmux_tui_cdp::CDP_EVENT_QUEUE_CAPACITY {
+            assert!(!route.deliver(cmux_tui_cdp::CdpEvent::Other {
+                method: format!("Test.event{index}"),
+                params: Value::Null,
+                session_id: Some("session-1".to_string()),
+            }));
+        }
+
+        let overflowed = route.deliver(cmux_tui_cdp::CdpEvent::Other {
+            method: "Test.overflow".to_string(),
+            params: Value::Null,
+            session_id: Some("session-1".to_string()),
+        });
+        assert!(overflowed, "critical overflow silently evicted authoritative state");
+        assert!(route.is_closed());
+    }
+
+    #[test]
+    fn final_frame_overflow_fails_route_instead_of_going_stale() {
+        let route = Arc::new(super::SurfaceRoute::new());
+        for index in 0..cmux_tui_cdp::CDP_EVENT_QUEUE_CAPACITY {
+            assert!(!route.deliver(cmux_tui_cdp::CdpEvent::Other {
+                method: format!("Test.event{index}"),
+                params: Value::Null,
+                session_id: Some("session-1".to_string()),
+            }));
+        }
+        let overflowed =
+            route.deliver(cmux_tui_cdp::CdpEvent::ScreencastFrame(cmux_tui_cdp::ScreencastFrame {
+                session_id: "session-1".to_string(),
+                data_b64: "frame-final".to_string(),
+                css_width: 80,
+                css_height: 24,
+                ack_id: 1,
+            }));
+
+        assert!(overflowed);
+        assert!(route.is_closed());
+    }
+
+    #[test]
+    fn oversized_surface_event_fails_the_route() {
+        let route = Arc::new(super::SurfaceRoute::new());
+        let overflowed = route.deliver(cmux_tui_cdp::CdpEvent::Other {
+            method: "Test.large".to_string(),
+            params: json!({
+                "payload": "x".repeat(cmux_tui_cdp::CDP_EVENT_QUEUE_MAX_BYTES),
+            }),
+            session_id: Some("session-1".to_string()),
+        });
+
+        assert!(overflowed);
+        assert!(route.is_closed());
+    }
+
+    #[test]
+    fn unregister_closes_and_wakes_surface_route() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (stop_tx, stop_rx) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            let request = read_ws_json(&mut ws);
+            assert_eq!(request["method"], "Target.setDiscoverTargets");
+            write_ws_json(&mut ws, json!({"id": request["id"], "result": {}}));
+            let _ = stop_rx.recv();
+        });
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::External,
+        )
+        .unwrap();
+        let route = runtime.register("target-1", "session-1");
+        let cleanup_route = route.clone();
+        let (done_tx, done_rx) = mpsc::channel();
+        let waiter = thread::spawn(move || {
+            let first = route.recv();
+            let second = route.recv();
+            done_tx.send((first, second)).unwrap();
+        });
+
+        runtime.unregister("target-1", "session-1");
+        let events = done_rx.recv_timeout(Duration::from_millis(200));
+        stop_tx.send(()).unwrap();
+        runtime.shutdown();
+        server.join().unwrap();
+        if events.is_err() {
+            cleanup_route.close("test cleanup".to_string());
+        }
+        waiter.join().unwrap();
+        let (first, second) = events.expect("unregister left surface route blocked");
+        assert!(matches!(first, Some(cmux_tui_cdp::CdpEvent::Closed(_))));
+        assert!(second.is_none());
+    }
+
+    #[test]
+    fn shutdown_closes_and_wakes_surface_route_before_cdp_disconnect() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (stop_tx, stop_rx) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            let request = read_ws_json(&mut ws);
+            assert_eq!(request["method"], "Target.setDiscoverTargets");
+            write_ws_json(&mut ws, json!({"id": request["id"], "result": {}}));
+            let _ = stop_rx.recv();
+        });
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::External,
+        )
+        .unwrap();
+        let route = runtime.register("target-1", "session-1");
+        let (done_tx, done_rx) = mpsc::channel();
+        let waiter = thread::spawn(move || {
+            let first = route.recv();
+            let second = route.recv();
+            done_tx.send((first, second)).unwrap();
+        });
+
+        runtime.shutdown();
+        let (first, second) = done_rx
+            .recv_timeout(Duration::from_millis(200))
+            .expect("shutdown left surface route blocked");
+        assert!(matches!(first, Some(cmux_tui_cdp::CdpEvent::Closed(_))));
+        assert!(second.is_none());
+
+        stop_tx.send(()).unwrap();
+        server.join().unwrap();
+        waiter.join().unwrap();
+    }
+
+    #[test]
+    fn closed_surface_route_closes_its_cdp_target() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (closed_tx, closed_rx) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            let discover = read_ws_json(&mut ws);
+            assert_eq!(discover["method"], "Target.setDiscoverTargets");
+            write_ws_json(&mut ws, json!({"id": discover["id"], "result": {}}));
+            let close = read_ws_json(&mut ws);
+            assert_eq!(close["method"], "Target.closeTarget");
+            assert_eq!(close["params"]["targetId"], "target-1");
+            write_ws_json(&mut ws, json!({"id": close["id"], "result": {"success": true}}));
+            closed_tx.send(()).unwrap();
+        });
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::External,
+        )
+        .unwrap();
+        let surface = test_surface();
+        let browser = surface.as_browser().unwrap();
+        let route = runtime.register("target-1", "session-1");
+        *browser.session.lock().unwrap() = Some(BrowserSession {
+            runtime: runtime.clone(),
+            target_id: "target-1".to_string(),
+            session_id: "session-1".to_string(),
+        });
+        start_surface_thread(surface.clone(), route.clone(), Weak::new(), Arc::downgrade(&runtime))
+            .unwrap();
+
+        route.close("CDP surface event queue overflow".to_string());
+        closed_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("closed surface route did not close its CDP target");
+        assert!(browser.is_dead());
+        assert!(browser.session.lock().unwrap().is_none());
+
+        runtime.shutdown();
+        server.join().unwrap();
     }
 
     #[test]
