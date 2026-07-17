@@ -1345,7 +1345,9 @@
     restoreAll();
     selectedReferences.length = 0;
     regionReferences.length = 0;
-    colorSequence = 0;
+    // colorSequence deliberately keeps counting: elements and regions share
+    // one rotation, and a cleared prompt continues from the last used color
+    // instead of restarting at blue.
     setActiveReference(null);
     hoveredElement = null;
     selectionIdentityNeedsRefresh = false;
