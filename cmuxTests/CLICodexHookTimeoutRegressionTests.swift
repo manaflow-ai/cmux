@@ -3,6 +3,18 @@ import Testing
 
 @Suite(.serialized)
 struct CLICodexHookTimeoutRegressionTests {
+    @Test func persistentCodexHooksPreferTheWrapperProcessIdentity() throws {
+        let definition = try #require(CMUXCLI.agentDef(named: "codex"))
+        let command = CMUXCLI.codexFireAndForgetAgentHookShellCommand(
+            "cmux hooks codex stop",
+            for: definition,
+            ownership: .persistent,
+            target: .wrapperEnvironment
+        )
+
+        #expect(command.contains(#"agent_pid="${CMUX_CODEX_PID:-${PPID:-}}""#))
+    }
+
     @Test func codexHookInstallReplacesSynchronousBundledHook() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory

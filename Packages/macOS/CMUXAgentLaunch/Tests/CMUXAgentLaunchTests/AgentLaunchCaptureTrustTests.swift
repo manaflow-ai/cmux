@@ -209,6 +209,18 @@ struct AgentLaunchCaptureTrustTests {
                 arguments: ["/Users/alice/.local/bin/kimi"]
             )
         )
+        #expect(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKnownAgent(
+                processName: "amp",
+                arguments: ["/Users/alice/.local/bin/amp"]
+            )
+        )
+        #expect(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKnownAgent(
+                processName: "acli",
+                arguments: ["/Users/alice/.local/bin/acli", "rovodev"]
+            )
+        )
     }
 
     @Test func thinSameAgentLaunchersAreNotSessionAncestors() {

@@ -9,6 +9,64 @@ import Testing
 #endif
 
 extension CMUXCLIErrorOutputRegressionTests {
+    @Test func hibernationAndRestoreOwnLateTeardownHooks() throws {
+        for lifecycle in ["hibernated", "restoring"] {
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-agent-late-teardown-\(lifecycle)-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+            let sessionID = "\(lifecycle)-session"
+            try JSONSerialization.data(withJSONObject: [
+                "version": 2,
+                "sessions": [sessionID: [
+                    "sessionId": sessionID,
+                    "workspaceId": "workspace",
+                    "surfaceId": "surface",
+                    "sessionState": lifecycle,
+                    "restoreAuthority": true,
+                    "startedAt": 100.0,
+                    "updatedAt": 200.0,
+                ]],
+            ], options: [.sortedKeys]).write(to: stateURL, options: .atomic)
+            let store = ClaudeHookSessionStore(
+                processEnv: [
+                    "CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path,
+                    "CMUX_AGENT_SESSION_REGISTRY_PATH": root.appendingPathComponent("sessions.sqlite3").path,
+                ],
+                agentName: "codex"
+            )
+
+            #expect(try store.consume(
+                sessionId: sessionID,
+                workspaceId: "workspace",
+                surfaceId: "surface"
+            ) == nil)
+            #expect(try store.lookup(sessionId: sessionID)?.sessionState?.rawValue == lifecycle)
+        }
+    }
+
+    @Test func completedRunWithoutPriorStartAcceptsVerifiedNewProcess() {
+        let prior = AgentSessionRunRecord(
+            runId: "stable-run", pid: nil, processStartedAt: nil,
+            parentRunId: nil, parentSessionId: nil, relationship: nil,
+            restoreAuthority: false, startedAt: 100, updatedAt: 200, endedAt: 200
+        )
+        let record = ClaudeHookSessionRecord(
+            sessionId: "resumed-session", workspaceId: "workspace", surfaceId: "surface",
+            startedAt: 100, updatedAt: 200, sessionState: .ended,
+            runs: [prior], completedAt: 200
+        )
+        let replacement = AgentHookSessionLineage(
+            runId: prior.runId, pid: 202, processStartedAt: 300,
+            parentRunId: nil, parentSessionId: nil, relationship: nil, restoreAuthority: true
+        )
+
+        #expect(AgentHookSessionActivationPolicy().canActivate(
+            record: record, lineage: replacement, hasIncomingPID: true
+        ))
+    }
+
     @Test func completedLegacyRecordRejectsHooksFromItsOriginalProcessGeneration() {
         let record = ClaudeHookSessionRecord(
             sessionId: "legacy-completed",

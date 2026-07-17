@@ -218,6 +218,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         let edges = try #require(output["edges"] as? [[String: Any]])
         #expect(nodes.count == 3)
         let rootNode = try #require(nodes.first { $0["run_id"] as? String == "root-run" })
+        #expect(rootNode["node_id"] as? String == "codex\u{1F}root-session\u{1F}root-run")
         #expect(rootNode["restore_authority"] as? Bool == true)
         #expect(rootNode["effective_state"] as? String == "monitoring")
         let activity = try #require(rootNode["activity"] as? [String: Any])
@@ -330,6 +331,90 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(!result.timedOut)
         #expect(result.status == 0, Comment(rawValue: result.stdout))
         #expect(result.stdout.contains("duplicate-session"))
+    }
+
+    @Test func sessionOnlyGraphParentsStayWithinTheChildProvider() {
+        func node(provider: String, sessionID: String, runID: String, updatedAt: TimeInterval) -> AgentSessionGraphNode {
+            AgentSessionGraphNode(
+                provider: provider, sessionId: sessionID, runId: runID,
+                pid: nil, processStartedAt: nil, cmuxRuntime: nil,
+                workspaceId: "workspace", surfaceId: "surface-\(provider)-\(runID)",
+                processState: .unknown, sessionState: .active,
+                foregroundState: .idle, attentionState: .none,
+                activity: AgentActivitySnapshot(state: .idle, busy: false, modes: [], counts: .init()),
+                effectiveState: .idle, workloads: [], restoreAuthority: true,
+                startedAt: 100, updatedAt: updatedAt, endedAt: nil
+            )
+        }
+        let codexParent = node(provider: "codex", sessionID: "shared-session", runID: "codex-parent", updatedAt: 200)
+        let claudeParent = node(provider: "claude", sessionID: "shared-session", runID: "claude-parent", updatedAt: 300)
+        let child = node(provider: "codex", sessionID: "child", runID: "child-run", updatedAt: 400)
+        let edge = AgentSessionGraphEdge(
+            fromRunId: nil, fromSessionId: "shared-session",
+            toNodeId: child.nodeId, toRunId: child.runId, relationship: .spawned
+        )
+
+        #expect(
+            AgentSessionGraphEdgeResolver(nodes: [codexParent, claudeParent, child]).parentNodeId(for: edge)
+                == codexParent.nodeId
+        )
+    }
+
+    @Test func explicitEndedFiltersBypassDefaultHistorySuppression() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-ended-filter-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": ["ended-session": [
+                "sessionId": "ended-session",
+                "workspaceId": "workspace",
+                "surfaceId": "surface",
+                "sessionState": "ended",
+                "foregroundState": "completed",
+                "workloads": [[
+                    "id": "stale-monitor",
+                    "kind": "monitor",
+                    "phase": "watching",
+                    "keepsSessionBusy": true,
+                    "startedAt": 100.0,
+                    "updatedAt": 150.0,
+                ]],
+                "completedAt": 200.0,
+                "startedAt": 100.0,
+                "updatedAt": 200.0,
+            ]],
+        ], options: [.sortedKeys]).write(
+            to: root.appendingPathComponent("codex-hook-sessions.json"), options: .atomic
+        )
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+
+        for arguments in [
+            ["agents", "list", "--state", "ended", "--json"],
+            ["agents", "tree", "--session", "ended-session", "--json"],
+        ] {
+            let result = runProcess(
+                executablePath: cliPath, arguments: arguments,
+                environment: environment, timeout: 5
+            )
+            #expect(result.status == 0, Comment(rawValue: result.stdout))
+            let payload = try #require(
+                JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
+            )
+            let matches = (payload["sessions"] as? [Any]) ?? (payload["nodes"] as? [Any]) ?? []
+            #expect(matches.count == 1)
+            if arguments[1] == "list",
+               let session = (payload["sessions"] as? [[String: Any]])?.first {
+                #expect((session["workloads"] as? [Any])?.isEmpty == true)
+            }
+        }
     }
 
     @Test func rootExitCancelsEveryOwnedWorkloadAndRetainsHistory() throws {

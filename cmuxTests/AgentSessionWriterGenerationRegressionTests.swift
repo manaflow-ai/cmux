@@ -9,6 +9,42 @@ import Testing
 #endif
 
 extension CMUXCLIErrorOutputRegressionTests {
+    @Test func permissionModeOnlyMutationAdvancesRegistryProjection() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-permission-mode-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let stateURL = root.appendingPathComponent("claude-hook-sessions.json")
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let sessionID = "permission-session"
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": [sessionID: [
+                "sessionId": sessionID,
+                "workspaceId": "workspace",
+                "surfaceId": "surface",
+                "startedAt": 100.0,
+                "updatedAt": 200.0,
+            ]],
+        ], options: [.sortedKeys]).write(to: stateURL, options: .atomic)
+        let store = ClaudeHookSessionStore(
+            processEnv: [
+                "CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path,
+                "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            ]
+        )
+
+        try store.updateLastPermissionMode(sessionId: sessionID, permissionMode: "plan")
+
+        let saved = try #require(store.lookup(sessionId: sessionID))
+        #expect(saved.lastPermissionMode == "plan")
+        #expect(saved.updatedAt > 200)
+        let registry = CmuxAgentSessionRegistry(url: registryURL)
+        let projected = try #require(registry.snapshot(provider: "claude").records.first)
+        let projectedRecord = try JSONDecoder().decode(ClaudeHookSessionRecord.self, from: projected.json)
+        #expect(projectedRecord.lastPermissionMode == "plan")
+    }
+
     @Test func futureGenerationRegistryRowRejectsOlderBridgeMutation() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-future-writer-\(UUID().uuidString)", isDirectory: true)
