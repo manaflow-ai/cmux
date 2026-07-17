@@ -129,6 +129,30 @@ final class BrowserServices {
         return try await webExtensionsManager(for: profileID).installCatalogExtension(entry)
     }
 
+    func setWebExtensionToolbarActionPinned(
+        _ isPinned: Bool,
+        uniqueIdentifier: String,
+        profileID: UUID
+    ) async -> Bool {
+        guard #available(macOS 15.4, *) else { return false }
+        do {
+            try await webExtensionsManager(for: profileID).setToolbarActionPinned(
+                isPinned,
+                uniqueIdentifier: uniqueIdentifier
+            )
+            return true
+        } catch {
+#if DEBUG
+            let nsError = error as NSError
+            cmuxDebugLog(
+                "browser.extensions.toolbar-pin-failed id=\(uniqueIdentifier) " +
+                "pinned=\(isPinned ? 1 : 0) domain=\(nsError.domain) code=\(nsError.code)"
+            )
+#endif
+            return false
+        }
+    }
+
     func webExtensionDiagnostics(
         profileID: UUID,
         matching identifier: String? = nil

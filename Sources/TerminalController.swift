@@ -1213,7 +1213,14 @@ class TerminalController {
              "browser.extensions.webviews", "browser.extensions.eval", "browser.extensions.console":
             return v2AsyncResultCall(id: request.id, timeoutSeconds: 120) { [weak self] in
                 guard let self else {
-                    return .err(code: "unavailable", message: "Browser extension service is unavailable", data: nil)
+                    return .err(
+                        code: "unavailable",
+                        message: String(
+                            localized: "browser.extensions.service.unavailable",
+                            defaultValue: "Browser extension service is unavailable"
+                        ),
+                        data: nil
+                    )
                 }
                 return await self.v2BrowserExtensionsCommand(
                     method: request.method,

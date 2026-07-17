@@ -11,6 +11,7 @@ struct BrowserWebExtensionsPresentationSnapshot: Equatable, Sendable {
         let id: String
         let name: String
         let hasAction: Bool
+        let isToolbarPinned: Bool
         let isActionEnabled: Bool
         let badgeText: String
         let iconData: Data?

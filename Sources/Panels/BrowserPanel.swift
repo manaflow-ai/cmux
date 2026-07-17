@@ -7696,6 +7696,18 @@ extension BrowserPanel {
         return try await browserServices.installWebExtension(entry, profileID: profileID)
     }
 
+    func setBrowserWebExtensionToolbarActionPinned(
+        _ isPinned: Bool,
+        uniqueIdentifier: String
+    ) async -> Bool {
+        guard let browserServices else { return false }
+        return await browserServices.setWebExtensionToolbarActionPinned(
+            isPinned,
+            uniqueIdentifier: uniqueIdentifier,
+            profileID: profileID
+        )
+    }
+
     @discardableResult
     func performBrowserWebExtensionAction(uniqueIdentifier: String, anchorView: NSView? = nil) -> Bool {
         browserServices?.performWebExtensionAction(

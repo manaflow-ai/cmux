@@ -9,6 +9,7 @@ struct BrowserExtensionsToolbarButton: View {
     let hitSize: CGFloat
     let loadSnapshot: @MainActor () async -> BrowserWebExtensionsPresentationSnapshot
     let openManager: @MainActor () -> Bool
+    let setToolbarPinned: @MainActor (String, Bool) async -> Bool
     let performAction: @MainActor (String, NSView?) -> Bool
 
     @State private var snapshot = BrowserWebExtensionsPresentationSnapshot.loading
@@ -19,7 +20,7 @@ struct BrowserExtensionsToolbarButton: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            ForEach(snapshot.extensions.filter { $0.hasAction }) { item in
+            ForEach(snapshot.extensions.filter { $0.hasAction && $0.isToolbarPinned }) { item in
                 BrowserExtensionToolbarActionButton(
                     item: item,
                     iconPointSize: iconPointSize,
@@ -88,6 +89,7 @@ struct BrowserExtensionsToolbarButton: View {
             BrowserExtensionsPopoverContent(
                 snapshot: snapshot,
                 openManager: openManager,
+                setToolbarPinned: setToolbarPinned,
                 performAction: { identifier in
                     isPresented = false
                     return performAction(identifier, managerAnchorHolder.view)
@@ -200,6 +202,7 @@ private struct BrowserExtensionToolbarActionButton: View {
 private struct BrowserExtensionsPopoverContent: View {
     let snapshot: BrowserWebExtensionsPresentationSnapshot
     let openManager: @MainActor () -> Bool
+    let setToolbarPinned: @MainActor (String, Bool) async -> Bool
     let performAction: @MainActor (String) -> Bool
 
     var body: some View {
@@ -214,7 +217,11 @@ private struct BrowserExtensionsPopoverContent: View {
 
             Divider()
 
-            BrowserExtensionsPopoverStatus(snapshot: snapshot, performAction: performAction)
+            BrowserExtensionsPopoverStatus(
+                snapshot: snapshot,
+                setToolbarPinned: setToolbarPinned,
+                performAction: performAction
+            )
 
             if snapshot.state == .ready {
                 Divider()
@@ -297,7 +304,8 @@ struct BrowserExtensionsManagerPage: View {
                 )
                 BrowserExtensionsInstalledSection(
                     snapshot: snapshot,
-                    installStatus: installStatus
+                    installStatus: installStatus,
+                    setToolbarPinned: setToolbarPinned
                 )
             }
             .frame(maxWidth: 880, alignment: .leading)
@@ -351,6 +359,17 @@ struct BrowserExtensionsManagerPage: View {
             } catch {
                 installStatus = .failed(error.localizedDescription)
             }
+        }
+    }
+
+    @MainActor
+    private func setToolbarPinned(_ item: BrowserWebExtensionsPresentationSnapshot.Item, _ isPinned: Bool) {
+        Task { @MainActor in
+            guard await panel.setBrowserWebExtensionToolbarActionPinned(
+                isPinned,
+                uniqueIdentifier: item.id
+            ) else { return }
+            snapshot = await panel.browserWebExtensionsPresentationSnapshot()
         }
     }
 }
@@ -487,6 +506,10 @@ private struct BrowserExtensionCatalogRow: View {
 private struct BrowserExtensionsInstalledSection: View {
     let snapshot: BrowserWebExtensionsPresentationSnapshot
     let installStatus: BrowserExtensionInstallStatus?
+    let setToolbarPinned: @MainActor (
+        BrowserWebExtensionsPresentationSnapshot.Item,
+        Bool
+    ) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -514,21 +537,24 @@ private struct BrowserExtensionsInstalledSection: View {
                     VStack(spacing: 0) {
                         ForEach(snapshot.extensions) { item in
                             BrowserInstalledExtensionRow(
-                                name: item.name,
+                                item: item,
                                 detail: String(localized: "browser.extensions.enabled", defaultValue: "Enabled"),
                                 iconData: item.iconData,
                                 fallbackIcon: "puzzlepiece.extension",
-                                fallbackColor: .secondary
+                                fallbackColor: .secondary,
+                                setToolbarPinned: setToolbarPinned
                             )
                             Divider()
                         }
                         ForEach(snapshot.failures) { failure in
                             BrowserInstalledExtensionRow(
-                                name: failure.entryName,
+                                item: nil,
+                                fallbackName: failure.entryName,
                                 detail: failure.message,
                                 iconData: nil,
                                 fallbackIcon: "exclamationmark.triangle.fill",
-                                fallbackColor: .orange
+                                fallbackColor: .orange,
+                                setToolbarPinned: { _, _ in }
                             )
                             Divider()
                         }
@@ -574,11 +600,16 @@ private struct BrowserExtensionStatusRow: View {
 }
 
 private struct BrowserInstalledExtensionRow: View {
-    let name: String
+    let item: BrowserWebExtensionsPresentationSnapshot.Item?
+    var fallbackName = ""
     let detail: String
     let iconData: Data?
     let fallbackIcon: String
     let fallbackColor: Color
+    let setToolbarPinned: @MainActor (
+        BrowserWebExtensionsPresentationSnapshot.Item,
+        Bool
+    ) -> Void
 
     var body: some View {
         HStack(spacing: 10) {
@@ -588,10 +619,16 @@ private struct BrowserInstalledExtensionRow: View {
                 fallbackColor: fallbackColor
             )
             VStack(alignment: .leading, spacing: 2) {
-                Text(name).font(.callout.weight(.medium))
+                Text(item?.name ?? fallbackName).font(.callout.weight(.medium))
                 Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(2)
             }
             Spacer()
+            if let item, item.hasAction {
+                BrowserExtensionToolbarPinButton(
+                    item: item,
+                    setToolbarPinned: setToolbarPinned
+                )
+            }
         }
         .padding(12)
     }
@@ -599,6 +636,7 @@ private struct BrowserInstalledExtensionRow: View {
 
 private struct BrowserExtensionsPopoverStatus: View {
     let snapshot: BrowserWebExtensionsPresentationSnapshot
+    let setToolbarPinned: @MainActor (String, Bool) async -> Bool
     let performAction: @MainActor (String) -> Bool
 
     var body: some View {
@@ -621,13 +659,18 @@ private struct BrowserExtensionsPopoverStatus: View {
             }
             .padding(12)
         case .ready:
-            BrowserExtensionsReadyList(snapshot: snapshot, performAction: performAction)
+            BrowserExtensionsReadyList(
+                snapshot: snapshot,
+                setToolbarPinned: setToolbarPinned,
+                performAction: performAction
+            )
         }
     }
 }
 
 private struct BrowserExtensionsReadyList: View {
     let snapshot: BrowserWebExtensionsPresentationSnapshot
+    let setToolbarPinned: @MainActor (String, Bool) async -> Bool
     let performAction: @MainActor (String) -> Bool
 
     var body: some View {
@@ -650,28 +693,36 @@ private struct BrowserExtensionsReadyList: View {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(snapshot.extensions) { item in
                         if item.hasAction {
-                            Button {
-                                _ = performAction(item.id)
-                            } label: {
-                                HStack(spacing: 10) {
-                                    BrowserExtensionIcon(
-                                        data: item.iconData,
-                                        fallbackSystemName: "puzzlepiece.extension",
-                                        fallbackColor: .secondary
-                                    )
-                                    Text(item.name)
-                                        .lineLimit(1)
-                                    Spacer()
-                                    Image(systemName: "chevron.right")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
+                            HStack(spacing: 4) {
+                                Button {
+                                    _ = performAction(item.id)
+                                } label: {
+                                    HStack(spacing: 10) {
+                                        BrowserExtensionIcon(
+                                            data: item.iconData,
+                                            fallbackSystemName: "puzzlepiece.extension",
+                                            fallbackColor: .secondary
+                                        )
+                                        Text(item.name)
+                                            .lineLimit(1)
+                                        Spacer()
+                                        Image(systemName: "chevron.right")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .contentShape(Rectangle())
                                 }
-                                .contentShape(Rectangle())
+                                .buttonStyle(.plain)
+                                .accessibilityIdentifier("BrowserExtensionAction-\(item.id)")
+
+                                BrowserExtensionToolbarPinButton(item: item) { changedItem, isPinned in
+                                    Task { @MainActor in
+                                        _ = await setToolbarPinned(changedItem.id, isPinned)
+                                    }
+                                }
                             }
-                            .buttonStyle(.plain)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
-                            .accessibilityIdentifier("BrowserExtensionAction-\(item.id)")
                         } else {
                             HStack(spacing: 10) {
                                 BrowserExtensionIcon(
@@ -708,6 +759,41 @@ private struct BrowserExtensionsReadyList: View {
             }
             .frame(maxHeight: 280)
         }
+    }
+}
+
+private struct BrowserExtensionToolbarPinButton: View {
+    let item: BrowserWebExtensionsPresentationSnapshot.Item
+    let setToolbarPinned: @MainActor (
+        BrowserWebExtensionsPresentationSnapshot.Item,
+        Bool
+    ) -> Void
+
+    var body: some View {
+        Button {
+            setToolbarPinned(item, !item.isToolbarPinned)
+        } label: {
+            Image(systemName: item.isToolbarPinned ? "pin.fill" : "pin")
+                .frame(width: 24, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .safeHelp(helpText)
+        .accessibilityLabel(helpText)
+        .accessibilityIdentifier("BrowserExtensionToolbarPin-\(item.id)")
+    }
+
+    private var helpText: String {
+        if item.isToolbarPinned {
+            return String(
+                localized: "browser.extensions.toolbar.unpin",
+                defaultValue: "Unpin from Toolbar"
+            )
+        }
+        return String(
+            localized: "browser.extensions.toolbar.pin",
+            defaultValue: "Pin to Toolbar"
+        )
     }
 }
 

@@ -64,6 +64,7 @@ final class BrowserWebExtensionsManager: NSObject {
     private var loadWaiters: [UUID: LoadWaiter] = [:]
     private(set) var loadedContexts: [WKWebExtensionContext] = []
     private(set) var loadErrors: [(url: URL, error: any Error)] = []
+    private var toolbarPinnedExtensionIdentifiers = Set<String>()
     private var tabAdapters: [UUID: BrowserWebExtensionTabAdapter] = [:]
     private var windowAdapters: [UUID: BrowserWebExtensionWindowAdapter] = [:]
     private var pendingActionInvocations: [ActionInvocationKey: [PendingActionInvocation]] = [:]
@@ -137,6 +138,7 @@ final class BrowserWebExtensionsManager: NSObject {
             _ = try? controller.unload(context)
         }
         loadedContexts.removeAll()
+        toolbarPinnedExtensionIdentifiers.removeAll()
         backgroundLoadErrors.removeAll()
         loadErrors.removeAll()
         tabAdapters.removeAll()
@@ -235,6 +237,9 @@ final class BrowserWebExtensionsManager: NSObject {
             resumeLoadWaiters()
         }
         guard !isShutDown else { return }
+        toolbarPinnedExtensionIdentifiers = (try? await directoryRepository
+            .toolbarPinnedExtensionIdentifiers(in: directory)) ?? []
+        guard !Task.isCancelled, !isShutDown else { return }
         let discovery: BrowserWebExtensionApprovalDiscoveryResult
         do {
             discovery = try await directoryRepository.approvedCandidateURLs(in: directory)
@@ -322,6 +327,30 @@ final class BrowserWebExtensionsManager: NSObject {
             try manager.requireActive()
             return try await manager.performInstallExtension(from: packageURL)
         }
+    }
+
+    func setToolbarActionPinned(
+        _ isPinned: Bool,
+        uniqueIdentifier: String
+    ) async throws {
+        try requireActive()
+        guard let context = loadedContexts.first(where: {
+            $0.uniqueIdentifier == uniqueIdentifier
+        }), Self.definesAction(context.webExtension) else {
+            throw BrowserWebExtensionToolbarPinError.actionUnavailable
+        }
+        let identifiers = try await directoryRepository.setToolbarActionPinned(
+            isPinned,
+            uniqueIdentifier: uniqueIdentifier,
+            in: directory
+        )
+        try requireActive()
+        toolbarPinnedExtensionIdentifiers = identifiers
+        NotificationCenter.default.post(
+            name: .browserWebExtensionActionDidChange,
+            object: context.uniqueIdentifier,
+            userInfo: [BrowserWebExtensionNotificationKey.profileID: profileID ?? NSNull()]
+        )
     }
 
     private func runTrackedInstall(
@@ -445,25 +474,16 @@ final class BrowserWebExtensionsManager: NSObject {
             return
         }
 
-        for panelID in current {
-            guard let oldIndex = previous.firstIndex(of: panelID),
-                  let newIndex = current.firstIndex(of: panelID),
-                  oldIndex != newIndex else {
-                continue
-            }
-            var simulated = previous
-            simulated.remove(at: oldIndex)
-            simulated.insert(panelID, at: newIndex)
-            guard simulated == current,
-                  let adapter = tabAdapters[panelID] else {
-                continue
-            }
-            controller.didMoveTab(adapter, from: oldIndex, in: windowAdapter)
-            return
-        }
-
-        if let panelID = current.first(where: { previous.firstIndex(of: $0) != current.firstIndex(of: $0) }),
-           let oldIndex = previous.firstIndex(of: panelID),
+        let previousIndices = Dictionary(
+            uniqueKeysWithValues: previous.enumerated().map { ($0.element, $0.offset) }
+        )
+        let currentIndices = Dictionary(
+            uniqueKeysWithValues: current.enumerated().map { ($0.element, $0.offset) }
+        )
+        if let panelID = current.first(where: {
+            previousIndices[$0] != currentIndices[$0]
+        }),
+           let oldIndex = previousIndices[panelID],
            let adapter = tabAdapters[panelID] {
             controller.didMoveTab(adapter, from: oldIndex, in: windowAdapter)
         }
@@ -602,7 +622,10 @@ final class BrowserWebExtensionsManager: NSObject {
                 BrowserWebExtensionsPresentationSnapshot.Failure(
                     id: failure.url.path,
                     entryName: failure.url.lastPathComponent,
-                    message: failure.error.localizedDescription
+                    message: String(
+                        localized: "browser.extensions.load.failed",
+                        defaultValue: "The extension could not be loaded."
+                    )
                 )
             },
             directoryPath: directory.path
@@ -615,7 +638,7 @@ final class BrowserWebExtensionsManager: NSObject {
             "extensions": matchingContexts(identifier).map { context in
                 let identifier = context.uniqueIdentifier
                 let backgroundError: Any = backgroundLoadErrors[identifier]
-                    .map { String(describing: $0) as Any } ?? NSNull()
+                    .map(Self.errorPayload) ?? NSNull()
                 return [
                     "id": identifier,
                     "name": context.webExtension.displayName ?? identifier,
@@ -629,7 +652,7 @@ final class BrowserWebExtensionsManager: NSObject {
             "load_errors": loadErrors.map { failure in
                 [
                     "entry": failure.url.lastPathComponent,
-                    "message": failure.error.localizedDescription,
+                    "error": Self.errorPayload(failure.error),
                 ]
             },
         ]
@@ -728,9 +751,6 @@ final class BrowserWebExtensionsManager: NSObject {
         return [
             "domain": nsError.domain,
             "code": nsError.code,
-            "message": nsError.localizedDescription,
-            "failure_reason": nsError.localizedFailureReason ?? "",
-            "user_info": nsError.userInfo.mapValues { String(describing: $0) },
         ]
     }
 
@@ -817,6 +837,7 @@ final class BrowserWebExtensionsManager: NSObject {
             id: context.uniqueIdentifier,
             name: context.webExtension.displayName ?? context.uniqueIdentifier,
             hasAction: Self.definesAction(context.webExtension),
+            isToolbarPinned: toolbarPinnedExtensionIdentifiers.contains(context.uniqueIdentifier),
             isActionEnabled: action?.isEnabled ?? Self.definesAction(context.webExtension),
             badgeText: action?.badgeText ?? "",
             iconData: presentationIconData(
@@ -1058,6 +1079,18 @@ private enum BrowserWebExtensionActionError: LocalizedError {
 }
 
 @available(macOS 15.4, *)
+private enum BrowserWebExtensionToolbarPinError: LocalizedError {
+    case actionUnavailable
+
+    var errorDescription: String? {
+        String(
+            localized: "browser.extensions.action.unavailable",
+            defaultValue: "The extension action could not be shown."
+        )
+    }
+}
+
+@available(macOS 15.4, *)
 private enum BrowserWebExtensionDiagnosticsError: LocalizedError {
     case extensionNotFound(String)
     case webViewNotFound(String)
@@ -1067,13 +1100,34 @@ private enum BrowserWebExtensionDiagnosticsError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .extensionNotFound(let identifier):
-            return "Extension not found: \(identifier)"
+            return String.localizedStringWithFormat(
+                String(
+                    localized: "browser.extensions.diagnostics.extensionNotFound",
+                    defaultValue: "Extension not found: %@"
+                ),
+                identifier
+            )
         case .webViewNotFound(let identifier):
-            return "Extension webview not found: \(identifier)"
+            return String.localizedStringWithFormat(
+                String(
+                    localized: "browser.extensions.diagnostics.webViewNotFound",
+                    defaultValue: "Extension webview not found: %@"
+                ),
+                identifier
+            )
         case .popupNotOpen(let name):
-            return "Open the \(name) extension popup before accessing its webview."
+            return String.localizedStringWithFormat(
+                String(
+                    localized: "browser.extensions.diagnostics.popupNotOpen",
+                    defaultValue: "Open the %@ extension popup before accessing its webview."
+                ),
+                name
+            )
         case .debugBuildRequired:
-            return "Extension JavaScript inspection is available only in cmux development builds."
+            return String(
+                localized: "browser.extensions.diagnostics.debugBuildRequired",
+                defaultValue: "Extension JavaScript inspection is available only in cmux development builds."
+            )
         }
     }
 }

@@ -44,6 +44,7 @@ actor BrowserWebExtensionDirectoryRepository {
     }
 
     private static let approvalFileName = ".cmux-approved-extensions.json"
+    private static let toolbarPinsFileName = ".cmux-toolbar-pins.json"
     private static let copyChunkByteCount = 1024 * 1024
     private let packageLimits: PackageLimits
     private var isShutDown = false
@@ -133,6 +134,34 @@ actor BrowserWebExtensionDirectoryRepository {
         guard var approvals = try? readApprovals(in: directory) else { return }
         approvals.removeValue(forKey: url.lastPathComponent)
         try? writeApprovals(approvals, in: directory)
+    }
+
+    func toolbarPinnedExtensionIdentifiers(in directory: URL) throws -> Set<String> {
+        try requireActive()
+        let url = directory.appendingPathComponent(Self.toolbarPinsFileName)
+        guard FileManager.default.fileExists(atPath: url.path) else { return [] }
+        return Set(try JSONDecoder().decode([String].self, from: Data(contentsOf: url)))
+    }
+
+    func setToolbarActionPinned(
+        _ isPinned: Bool,
+        uniqueIdentifier: String,
+        in directory: URL
+    ) throws -> Set<String> {
+        try requireActive()
+        var identifiers = try toolbarPinnedExtensionIdentifiers(in: directory)
+        if isPinned {
+            identifiers.insert(uniqueIdentifier)
+        } else {
+            identifiers.remove(uniqueIdentifier)
+        }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let data = try JSONEncoder().encode(identifiers.sorted())
+        try data.write(
+            to: directory.appendingPathComponent(Self.toolbarPinsFileName),
+            options: .atomic
+        )
+        return identifiers
     }
 
     private func readApprovals(in directory: URL) throws -> [String: String] {
