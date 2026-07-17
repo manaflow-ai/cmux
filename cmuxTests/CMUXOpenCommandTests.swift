@@ -3,6 +3,10 @@ import Foundation
 import XCTest
 
 final class CMUXOpenCommandTests: XCTestCase {
+    func testOpenCodeDiffTrajectoryProviderUsesProtocolSpelling() {
+        XCTAssertEqual(RestorableAgentKind.opencode.diffTrajectoryProvider, "openCode")
+    }
+
     struct ProcessRunResult {
         let status: Int32
         let stdout: String
@@ -970,6 +974,31 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(sessionSource["provider"] as? String, "codex")
         XCTAssertEqual(sessionSource["sessionId"] as? String, "codex-session-123")
         XCTAssertEqual((payload["repoOptions"] as? [[String: Any]])?.count, 0)
+    }
+
+    func testDiffCommandMapsOpenCodeCLINameToProtocolSpelling() throws {
+        let cliPath = try bundledCLIPath()
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let repoURL = rootURL.appendingPathComponent("repo", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        try runGit(["init"], in: repoURL)
+        let result = try runDiffCLIAndReadHTML(
+            cliPath: cliPath,
+            arguments: [
+                "diff", "--last-turn",
+                "--agent", "opencode",
+                "--session", "opencode-session-123",
+            ],
+            currentDirectoryURL: repoURL,
+            readPatchSidecar: false
+        )
+
+        let payload = try diffViewerPayload(from: result.html)
+        let sessionSource = try XCTUnwrap(payload["sessionSource"] as? [String: Any])
+        XCTAssertEqual(sessionSource["provider"] as? String, "openCode")
     }
 
     func testDiffCommandSupportsGitSources() throws {

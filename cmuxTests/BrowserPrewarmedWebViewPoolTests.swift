@@ -254,4 +254,16 @@ struct BrowserPrewarmedWebViewPoolTests {
         #expect(harness.pool.hasEntry(url: inlineLoadingURL, profileID: profileID))
         harness.pool.discard(reason: "test-teardown")
     }
+
+    @Test func expiringPrewarmsAreEvictedBeforeDurableInlinePage() {
+        let harness = PrewarmPoolHarness(capacity: 2)
+        harness.pool.prewarmTrustedInlinePage(url: inlineLoadingURL, profileID: profileID)
+        harness.pool.prewarm(url: pricingURL, profileID: profileID)
+        harness.pool.prewarm(url: otherURL, profileID: profileID)
+
+        #expect(harness.pool.hasEntry(url: inlineLoadingURL, profileID: profileID))
+        #expect(!harness.pool.hasEntry(url: pricingURL, profileID: profileID))
+        #expect(harness.pool.hasEntry(url: otherURL, profileID: profileID))
+        harness.pool.discard(reason: "test-teardown")
+    }
 }

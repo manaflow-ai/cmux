@@ -115,6 +115,181 @@ fn codex_resolver_uses_patch_events_from_the_latest_turn_id() {
 }
 
 #[test]
+fn codex_resolver_fails_closed_when_latest_turn_has_no_id() {
+    let fixture = FixtureRoot::new("codex-missing-turn-id");
+    prepare_common_directories(&fixture);
+    let transcript = fixture.home().join("codex-missing-turn-id.jsonl");
+    let repo = fixture.repo();
+    write_lines(
+        &transcript,
+        &[
+            serde_json::json!({"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-old"}}),
+            codex_patch_event("turn-old", &repo.join("old.txt"), "+stale"),
+            serde_json::json!({"type":"event_msg","payload":{"type":"task_started"}}),
+        ],
+    );
+    write_hook_store(
+        &fixture.home(),
+        "codex",
+        "session",
+        &repo,
+        Some(&transcript),
+    );
+
+    let error = resolve_last_turn_patch(
+        &AgentTurnIdentity::new(AgentProvider::Codex, "session"),
+        &TrajectoryRoots::for_home(fixture.home()),
+    )
+    .expect_err("missing latest turn identity must not return the prior patch");
+
+    assert_eq!(error.to_string(), "agent trajectory is invalid");
+}
+
+#[test]
+fn codex_resolver_uses_hook_or_database_record_atomically() {
+    let fixture = FixtureRoot::new("codex-atomic-record");
+    prepare_common_directories(&fixture);
+    let home = fixture.home();
+    let database_repo = fixture.repo();
+    let hook_repo = fixture.path.join("hook-repo");
+    fs::create_dir_all(&hook_repo).expect("create hook repo");
+    let database_transcript = home.join("database.jsonl");
+    let hook_transcript = home.join("hook.jsonl");
+    write_lines(
+        &database_transcript,
+        &[
+            serde_json::json!({"type":"event_msg","payload":{"type":"task_started","turn_id":"turn"}}),
+            codex_patch_event("turn", &database_repo.join("database.txt"), "+database"),
+        ],
+    );
+    write_lines(
+        &hook_transcript,
+        &[
+            serde_json::json!({"type":"event_msg","payload":{"type":"task_started","turn_id":"turn"}}),
+            codex_patch_event("turn", &hook_repo.join("hook.txt"), "+hook"),
+        ],
+    );
+    write_partial_hook_store(&home, "codex", "session", None, Some(&hook_transcript));
+    let database_path = home.join(".codex/state_5.sqlite");
+    fs::create_dir_all(database_path.parent().expect("database parent"))
+        .expect("create Codex database directory");
+    let database = Connection::open(database_path).expect("open Codex database");
+    database
+        .execute_batch(
+            "CREATE TABLE threads (id TEXT PRIMARY KEY, rollout_path TEXT NOT NULL, cwd TEXT);",
+        )
+        .expect("create Codex schema");
+    database
+        .execute(
+            "INSERT INTO threads (id, rollout_path, cwd) VALUES (?1, ?2, ?3)",
+            (
+                "session",
+                database_transcript.to_string_lossy().as_ref(),
+                database_repo.to_string_lossy().as_ref(),
+            ),
+        )
+        .expect("insert Codex record");
+
+    let resolved = resolve_last_turn_patch(
+        &AgentTurnIdentity::new(AgentProvider::Codex, "session"),
+        &TrajectoryRoots::for_home(home),
+    )
+    .expect("fall back to the complete database record");
+
+    assert_eq!(
+        resolved.repo_root,
+        database_repo.canonicalize().expect("canonical repo")
+    );
+    assert!(resolved.patch.contains("+database"));
+    assert!(!resolved.patch.contains("+hook"));
+}
+
+#[test]
+fn codex_resolver_normalizes_a_nested_cwd_to_the_repository_root() {
+    let fixture = FixtureRoot::new("codex-nested-cwd");
+    prepare_common_directories(&fixture);
+    init_git_repository(&fixture.repo());
+    let nested = fixture.repo().join("Sources/Feature");
+    fs::create_dir_all(&nested).expect("create nested working directory");
+    let transcript = fixture.home().join("codex-nested.jsonl");
+    write_lines(
+        &transcript,
+        &[
+            serde_json::json!({"type":"event_msg","payload":{"type":"task_started","turn_id":"turn"}}),
+            codex_patch_event("turn", &fixture.repo().join("README.md"), "+changed"),
+        ],
+    );
+    write_hook_store(
+        &fixture.home(),
+        "codex",
+        "session",
+        &nested,
+        Some(&transcript),
+    );
+
+    let resolved = resolve_last_turn_patch(
+        &AgentTurnIdentity::new(AgentProvider::Codex, "session"),
+        &TrajectoryRoots::for_home(fixture.home()),
+    )
+    .expect("resolve from a nested launch directory");
+
+    assert_eq!(
+        resolved.repo_root,
+        fixture.repo().canonicalize().expect("canonical repo")
+    );
+    assert!(
+        resolved
+            .patch
+            .contains("diff --git a/README.md b/README.md")
+    );
+}
+
+#[test]
+fn codex_deletion_uses_recorded_content_when_unified_diff_is_absent() {
+    let fixture = FixtureRoot::new("codex-delete-content");
+    prepare_common_directories(&fixture);
+    let transcript = fixture.home().join("codex-delete.jsonl");
+    let deleted_path = fixture.repo().join("deleted.txt");
+    write_lines(
+        &transcript,
+        &[
+            serde_json::json!({"type":"event_msg","payload":{"type":"task_started","turn_id":"turn"}}),
+            serde_json::json!({
+                "type":"event_msg",
+                "payload":{
+                    "type":"patch_apply_end",
+                    "turn_id":"turn",
+                    "success":true,
+                    "changes":{
+                        deleted_path.to_string_lossy(): {
+                            "type":"delete",
+                            "content":"first\nsecond"
+                        }
+                    }
+                }
+            }),
+        ],
+    );
+    write_hook_store(
+        &fixture.home(),
+        "codex",
+        "session",
+        &fixture.repo(),
+        Some(&transcript),
+    );
+
+    let resolved = resolve_last_turn_patch(
+        &AgentTurnIdentity::new(AgentProvider::Codex, "session"),
+        &TrajectoryRoots::for_home(fixture.home()),
+    )
+    .expect("resolve deletion from recorded content");
+
+    assert!(resolved.patch.contains("@@ -1,2 +0,0 @@"));
+    assert!(resolved.patch.contains("-first\n-second\n"));
+    assert!(resolved.patch.contains("\\ No newline at end of file"));
+}
+
+#[test]
 fn claude_resolver_uses_structured_patches_from_the_latest_prompt_id() {
     let fixture = FixtureRoot::new("claude");
     prepare_common_directories(&fixture);
@@ -161,6 +336,231 @@ fn claude_resolver_uses_structured_patches_from_the_latest_prompt_id() {
     assert!(resolved.patch.contains("+after"));
     assert!(!resolved.patch.contains("old.txt"));
     assert!(!resolved.patch.contains("+older"));
+}
+
+#[test]
+fn claude_resolver_does_not_reuse_patch_after_prompt_without_id() {
+    let fixture = FixtureRoot::new("claude-missing-prompt-id");
+    prepare_common_directories(&fixture);
+    let transcript = fixture.home().join("claude-missing-prompt-id.jsonl");
+    let repo = fixture.repo();
+    write_lines(
+        &transcript,
+        &[
+            claude_prompt("prompt-old", "old request"),
+            claude_patch_result("prompt-old", &repo.join("old.txt"), "-old", "+stale"),
+            serde_json::json!({"type":"user","message":{"role":"user","content":"latest request"}}),
+        ],
+    );
+    write_hook_store(
+        &fixture.home(),
+        "claude",
+        "session",
+        &repo,
+        Some(&transcript),
+    );
+
+    let error = resolve_last_turn_patch(
+        &AgentTurnIdentity::new(AgentProvider::Claude, "session"),
+        &TrajectoryRoots::for_home(fixture.home()),
+    )
+    .expect_err("missing latest prompt identity must not return the prior patch");
+
+    assert_eq!(error.to_string(), "agent turn has no recorded patches");
+}
+
+#[test]
+fn claude_resolver_rejects_malformed_jsonl() {
+    let fixture = FixtureRoot::new("claude-malformed-jsonl");
+    prepare_common_directories(&fixture);
+    let transcript = fixture.home().join("claude-malformed.jsonl");
+    let repo = fixture.repo();
+    fs::write(
+        &transcript,
+        format!(
+            "{}\nnot-json\n",
+            claude_patch_result("prompt", &repo.join("old.txt"), "-old", "+stale")
+        ),
+    )
+    .expect("write malformed transcript");
+    write_hook_store(
+        &fixture.home(),
+        "claude",
+        "session",
+        &repo,
+        Some(&transcript),
+    );
+
+    let error = resolve_last_turn_patch(
+        &AgentTurnIdentity::new(AgentProvider::Claude, "session"),
+        &TrajectoryRoots::for_home(fixture.home()),
+    )
+    .expect_err("malformed records must fail closed");
+
+    assert_eq!(error.to_string(), "agent trajectory is invalid");
+}
+
+#[test]
+fn claude_resolver_skips_out_of_repo_patch_results() {
+    let fixture = FixtureRoot::new("claude-outside-repo");
+    prepare_common_directories(&fixture);
+    let transcript = fixture.home().join("claude-outside-repo.jsonl");
+    let repo = fixture.repo();
+    write_lines(
+        &transcript,
+        &[
+            claude_prompt("prompt", "request"),
+            claude_patch_result(
+                "prompt",
+                &fixture.path.join("outside.txt"),
+                "-old",
+                "+outside",
+            ),
+            claude_patch_result("prompt", &repo.join("inside.txt"), "-old", "+inside"),
+        ],
+    );
+    write_hook_store(
+        &fixture.home(),
+        "claude",
+        "session",
+        &repo,
+        Some(&transcript),
+    );
+
+    let resolved = resolve_last_turn_patch(
+        &AgentTurnIdentity::new(AgentProvider::Claude, "session"),
+        &TrajectoryRoots::for_home(fixture.home()),
+    )
+    .expect("keep authorized patch results");
+
+    assert!(resolved.patch.contains("inside.txt"));
+    assert!(resolved.patch.contains("+inside"));
+    assert!(!resolved.patch.contains("outside.txt"));
+}
+
+#[test]
+fn claude_insertion_only_update_is_not_rendered_as_new_file() {
+    let fixture = FixtureRoot::new("claude-insertion-update");
+    prepare_common_directories(&fixture);
+    let transcript = fixture.home().join("claude-insertion-update.jsonl");
+    let repo = fixture.repo();
+    let mut result = claude_patch_result(
+        "prompt",
+        &repo.join("existing.txt"),
+        " context",
+        "+inserted",
+    );
+    result["toolUseResult"]["type"] = serde_json::json!("update");
+    result["toolUseResult"]["structuredPatch"][0]["oldLines"] = serde_json::json!(0);
+    result["toolUseResult"]["structuredPatch"][0]["newLines"] = serde_json::json!(1);
+    write_lines(&transcript, &[claude_prompt("prompt", "request"), result]);
+    write_hook_store(
+        &fixture.home(),
+        "claude",
+        "session",
+        &repo,
+        Some(&transcript),
+    );
+
+    let resolved = resolve_last_turn_patch(
+        &AgentTurnIdentity::new(AgentProvider::Claude, "session"),
+        &TrajectoryRoots::for_home(fixture.home()),
+    )
+    .expect("resolve insertion-only update");
+
+    assert!(resolved.patch.contains("--- a/existing.txt"));
+    assert!(!resolved.patch.contains("new file mode"));
+    assert!(!resolved.patch.contains("--- /dev/null"));
+}
+
+#[test]
+fn claude_create_with_empty_structured_patch_uses_recorded_content() {
+    let fixture = FixtureRoot::new("claude-create-content");
+    prepare_common_directories(&fixture);
+    let transcript = fixture.home().join("claude-create.jsonl");
+    let repo = fixture.repo();
+    write_lines(
+        &transcript,
+        &[
+            claude_prompt("prompt", "create a file"),
+            serde_json::json!({
+                "type":"user",
+                "promptId":"prompt",
+                "toolUseResult":{
+                    "type":"create",
+                    "filePath":repo.join("created.txt"),
+                    "content":"created\n",
+                    "structuredPatch":[]
+                }
+            }),
+        ],
+    );
+    write_hook_store(
+        &fixture.home(),
+        "claude",
+        "session",
+        &repo,
+        Some(&transcript),
+    );
+
+    let resolved = resolve_last_turn_patch(
+        &AgentTurnIdentity::new(AgentProvider::Claude, "session"),
+        &TrajectoryRoots::for_home(fixture.home()),
+    )
+    .expect("resolve create from recorded content");
+
+    assert!(resolved.patch.contains("new file mode 100644"));
+    assert!(resolved.patch.contains("+++ b/created.txt"));
+    assert!(resolved.patch.contains("+created"));
+}
+
+#[test]
+fn generated_patch_headers_quote_ambiguous_paths() {
+    let fixture = FixtureRoot::new("quoted-paths");
+    prepare_common_directories(&fixture);
+    let transcript = fixture.home().join("quoted-paths.jsonl");
+    let repo = fixture.repo();
+    write_lines(
+        &transcript,
+        &[
+            serde_json::json!({"type":"event_msg","payload":{"type":"task_started","turn_id":"turn"}}),
+            codex_patch_event("turn", &repo.join("quoted \"name\".txt"), "+quoted"),
+        ],
+    );
+    write_hook_store(
+        &fixture.home(),
+        "codex",
+        "session",
+        &repo,
+        Some(&transcript),
+    );
+
+    let resolved = resolve_last_turn_patch(
+        &AgentTurnIdentity::new(AgentProvider::Codex, "session"),
+        &TrajectoryRoots::for_home(fixture.home()),
+    )
+    .expect("resolve quoted path");
+
+    assert!(
+        resolved
+            .patch
+            .contains("diff --git \"a/quoted \\\"name\\\".txt\" \"b/quoted \\\"name\\\".txt\"")
+    );
+    assert!(resolved.patch.contains("--- \"a/quoted \\\"name\\\".txt\""));
+}
+
+#[test]
+fn session_ids_must_be_single_path_components() {
+    let fixture = FixtureRoot::new("invalid-session-path");
+    prepare_common_directories(&fixture);
+
+    let error = resolve_last_turn_patch(
+        &AgentTurnIdentity::new(AgentProvider::Claude, "../../outside"),
+        &TrajectoryRoots::for_home(fixture.home()),
+    )
+    .expect_err("path-bearing identity must be rejected before transcript lookup");
+
+    assert_eq!(error.to_string(), "agent trajectory is invalid");
 }
 
 #[test]
@@ -243,6 +643,15 @@ fn prepare_common_directories(fixture: &FixtureRoot) {
     fs::create_dir_all(fixture.repo()).expect("create repository directory");
 }
 
+fn init_git_repository(path: &Path) {
+    let status = std::process::Command::new("git")
+        .args(["init", "--quiet"])
+        .current_dir(path)
+        .status()
+        .expect("run git init");
+    assert!(status.success(), "git init failed");
+}
+
 fn write_lines(path: &Path, lines: &[serde_json::Value]) {
     let contents = lines
         .iter()
@@ -279,6 +688,49 @@ fn write_hook_store(
         serde_json::to_vec(&store).expect("encode hook store"),
     )
     .expect("write hook store");
+}
+
+fn write_partial_hook_store(
+    home: &Path,
+    provider: &str,
+    session_id: &str,
+    repo: Option<&Path>,
+    transcript: Option<&Path>,
+) {
+    let mut record = serde_json::json!({});
+    if let Some(repo) = repo {
+        record["cwd"] = serde_json::json!(repo);
+    }
+    if let Some(transcript) = transcript {
+        record["transcriptPath"] = serde_json::json!(transcript);
+    }
+    let store = serde_json::json!({
+        "version": 1,
+        "sessions": {session_id: record}
+    });
+    fs::write(
+        home.join(format!(".cmuxterm/{provider}-hook-sessions.json")),
+        serde_json::to_vec(&store).expect("encode partial hook store"),
+    )
+    .expect("write partial hook store");
+}
+
+fn codex_patch_event(turn_id: &str, file_path: &Path, added: &str) -> serde_json::Value {
+    serde_json::json!({
+        "type": "event_msg",
+        "payload": {
+            "type": "patch_apply_end",
+            "turn_id": turn_id,
+            "success": true,
+            "changes": {
+                file_path.to_string_lossy(): {
+                    "type": "update",
+                    "move_path": null,
+                    "unified_diff": format!("@@ -1 +1 @@\n-old\n{added}\n")
+                }
+            }
+        }
+    })
 }
 
 fn claude_prompt(prompt_id: &str, text: &str) -> serde_json::Value {
