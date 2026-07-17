@@ -163,9 +163,7 @@ private struct ChatArtifactFolderThumbnail: View {
                 artifactImage(data: thumbnailData)
                     .scaledToFill()
             } else {
-                Image(systemName: entry.isDirectory ? "folder" : iconName)
-                    .font(.body)
-                    .foregroundStyle(.secondary)
+                placeholder
             }
         }
         .frame(width: 34, height: 34)
@@ -183,29 +181,28 @@ private struct ChatArtifactFolderThumbnail: View {
         if let image = UIImage(data: data) {
             Image(uiImage: image).resizable()
         } else {
-            Image(systemName: iconName)
+            placeholder
         }
         #elseif canImport(AppKit)
         if let image = NSImage(data: data) {
             Image(nsImage: image).resizable()
         } else {
-            Image(systemName: iconName)
+            placeholder
         }
         #else
-        Image(systemName: iconName)
+        placeholder
         #endif
     }
 
-    private var iconName: String {
-        switch entry.kind {
-        case .image:
-            return "photo"
-        case .text:
-            return "doc.text"
-        case .binary:
-            return "doc"
-        case .directory:
-            return "folder"
-        }
+    private var placeholder: some View {
+        let kind: ChatArtifactKind = entry.isDirectory ? .directory : entry.kind
+        let glyph = ChatArtifactGalleryClassifier().glyphPresentation(
+            for: kind,
+            path: path
+        )
+        return Image(systemName: glyph.systemImageName)
+            .font(.body)
+            .symbolRenderingMode(.hierarchical)
+            .foregroundStyle(glyph.tint.swiftUIColor)
     }
 }

@@ -236,10 +236,14 @@ struct TerminalArtifactGalleryItemView: View {
     }
 
     private var placeholderSymbol: some View {
-        Image(systemName: symbolName)
+        let glyph = ChatArtifactGalleryClassifier().glyphPresentation(
+            for: artifact.kind,
+            path: artifact.path
+        )
+        return Image(systemName: glyph.systemImageName)
             .font(.system(size: layout == .grid ? gridSymbolSize : listSymbolSize, weight: .regular))
             .symbolRenderingMode(.hierarchical)
-            .foregroundStyle(symbolTint)
+            .foregroundStyle(glyph.tint.swiftUIColor)
     }
 
     private var metadataText: String? {
@@ -300,22 +304,6 @@ struct TerminalArtifactGalleryItemView: View {
         case .directory:
             String(localized: "terminal.artifact.gallery.kind.directory", defaultValue: "Folder", bundle: .module)
         }
-    }
-
-    private var symbolTint: Color {
-        switch artifact.kind {
-        case .image, .binary:
-            .secondary
-        case .text, .directory:
-            .blue
-        }
-    }
-
-    private var symbolName: String {
-        ChatArtifactGalleryClassifier().systemImageName(
-            for: artifact.kind,
-            path: artifact.path
-        )
     }
 
     private static let thumbnailDimension = 256

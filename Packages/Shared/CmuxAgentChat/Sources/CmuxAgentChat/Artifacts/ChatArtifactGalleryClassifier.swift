@@ -57,7 +57,7 @@ public struct ChatArtifactGalleryClassifier: Sendable {
         filter(for: item.kind, path: item.path)
     }
 
-    /// Returns the shared SF Symbol for an artifact gallery row.
+    /// Returns the shared glyph and tint for an artifact gallery row.
     ///
     /// PDF, Office, Markdown, plain-text, and otherwise generic files share
     /// one document glyph. Only images, source code, logs, and folders use
@@ -66,30 +66,56 @@ public struct ChatArtifactGalleryClassifier: Sendable {
     /// - Parameters:
     ///   - kind: Preview kind assigned by the artifact host.
     ///   - path: Artifact path whose extension supplements the preview kind.
-    /// - Returns: SF Symbol name for list and grid placeholders.
-    public func systemImageName(
+    /// - Returns: Glyph presentation for list, grid, and folder-browser placeholders.
+    public func glyphPresentation(
         for kind: ChatArtifactKind,
         path: String
-    ) -> String {
+    ) -> ChatArtifactGalleryGlyphPresentation {
         switch kind {
         case .image:
-            return "photo"
+            return ChatArtifactGalleryGlyphPresentation(
+                systemImageName: "photo",
+                tint: .secondary
+            )
         case .directory:
-            return "folder"
+            return ChatArtifactGalleryGlyphPresentation(
+                systemImageName: "folder",
+                tint: .accent
+            )
         case .text, .binary:
             break
         }
         switch filter(for: kind, path: path) {
         case .code:
-            return "chevron.left.forwardslash.chevron.right"
+            return ChatArtifactGalleryGlyphPresentation(
+                systemImageName: "chevron.left.forwardslash.chevron.right",
+                tint: .accent
+            )
         case .logs:
-            return "text.alignleft"
+            return ChatArtifactGalleryGlyphPresentation(
+                systemImageName: "text.alignleft",
+                tint: .accent
+            )
         case .images:
-            return "photo"
+            return ChatArtifactGalleryGlyphPresentation(
+                systemImageName: "photo",
+                tint: .secondary
+            )
         case .folders:
-            return "folder"
-        case .docs, .all, nil:
-            return "doc.text"
+            return ChatArtifactGalleryGlyphPresentation(
+                systemImageName: "folder",
+                tint: .accent
+            )
+        case .docs, .all:
+            return ChatArtifactGalleryGlyphPresentation(
+                systemImageName: "doc.text",
+                tint: .accent
+            )
+        case nil:
+            return ChatArtifactGalleryGlyphPresentation(
+                systemImageName: "doc.text",
+                tint: kind == .text ? .accent : .secondary
+            )
         }
     }
 }
