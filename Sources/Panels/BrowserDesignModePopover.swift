@@ -663,7 +663,9 @@ final class BrowserDesignModeTokenCell: NSTextAttachmentCell {
         let tint = Self.tintColor(fromHex: selection.color)
         self.tint = tint
         titleAttributes = [
-            .font: NSFont.systemFont(ofSize: 12.5, weight: .medium),
+            // Same point size as the typed text so pills read as inline words;
+            // medium weight alone marks them as tags.
+            .font: NSFont.systemFont(ofSize: 13.5, weight: .medium),
             .foregroundColor: tint,
         ]
         let configuration = NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
