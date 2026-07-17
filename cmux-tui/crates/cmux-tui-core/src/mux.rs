@@ -2719,6 +2719,37 @@ mod tests {
     }
 
     #[test]
+    fn failed_viewer_resize_preserves_previous_report_and_creation_default() {
+        let mux = test_mux();
+        let missing_surface = 99_999;
+        mux.record_client_size(90, 30);
+        mux.client_surface_sizes
+            .lock()
+            .unwrap()
+            .entry(missing_surface)
+            .or_default()
+            .insert(7, (80, 25));
+
+        assert!(mux.resize_surface_for_client(missing_surface, 7, 120, 40).is_err());
+        assert_eq!(mux.client_surface_size(missing_surface, 7), Some((80, 25)));
+        assert_eq!(*mux.latest_client_size.lock().unwrap(), Some((90, 30)));
+    }
+
+    #[test]
+    fn removing_smallest_viewer_updates_unsized_creation_default() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+
+        mux.resize_surface_for_client(surface.id, 1, 120, 40).unwrap();
+        mux.resize_surface_for_client(surface.id, 2, 80, 50).unwrap();
+        assert_eq!(surface.size(), (80, 40));
+
+        mux.remove_surface_size_client(surface.id, 2);
+        assert_eq!(surface.size(), (120, 40));
+        assert_eq!(mux.new_workspace(None, None).unwrap().size(), (120, 40));
+    }
+
+    #[test]
     fn agent_reports_apply_hook_authority() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
