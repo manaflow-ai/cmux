@@ -101,4 +101,15 @@ import Testing
         )
         #expect(blurCount == 1)
     }
+
+    @Test func editorMetricRefreshDefersLayout() {
+        let editor = FeedInlineTextEditorView(
+            frame: NSRect(x: 0, y: 0, width: 160, height: 24)
+        )
+        editor.layoutSubtreeIfNeeded()
+
+        editor.refreshMetrics()
+
+        #expect(editor.needsLayout)
+    }
 }

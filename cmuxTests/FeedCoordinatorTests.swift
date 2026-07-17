@@ -619,6 +619,12 @@ struct FeedCoordinatorTests {
             Issue.record("timed-out hook item should be expired")
             return
         }
+        #expect(
+            !(await FeedCoordinator.shared.deliverReply(
+                requestId: "timeout-request",
+                decision: .permission(.once)
+            ))
+        )
     }
 
     @Test func blockingIngestResolvesAfterMainActorIngest() async {
