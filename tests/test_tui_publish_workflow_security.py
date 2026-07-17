@@ -8,14 +8,15 @@ def workflow(name: str) -> str:
     return (ROOT / ".github" / "workflows" / name).read_text()
 
 
-def test_stable_registry_publishers_are_main_only_and_tag_bound() -> None:
+def test_stable_registry_publishers_are_exact_tag_bound() -> None:
     for name, environment in (
         ("tui-publish-npm.yml", "npm-tui"),
         ("tui-publish-pypi.yml", "pypi-tui"),
     ):
         text = workflow(name)
-        assert 'if [[ "$GITHUB_REF" != "refs/heads/main" ]]' in text
         assert 'tag="cmux-tui-v$DISPATCH_VERSION"' in text
+        assert 'expected_ref="refs/tags/$tag"' in text
+        assert 'if [[ "$GITHUB_REF" != "$expected_ref" ]]' in text
         assert 'git rev-parse "refs/tags/$tag^{commit}"' in text
         assert 'if [[ "$release_sha" != "$GITHUB_SHA" ]]' in text
         assert "checkout_ref: ${{ needs.validate-version.outputs.release_sha }}" in text
@@ -34,12 +35,10 @@ def test_npm_publishers_pin_the_oidc_capable_npm_version() -> None:
         assert "npm@^11.5.1" not in text
 
 
-def test_release_cut_calls_publishers_at_the_tagged_main_commit() -> None:
+def test_release_cut_dispatches_top_level_publishers_at_the_tagged_main_commit() -> None:
     release_cut = workflow("cmux-tui-release-cut.yml")
-    assert "uses: ./.github/workflows/tui-publish-npm.yml" in release_cut
-    assert "uses: ./.github/workflows/tui-publish-pypi.yml" in release_cut
-    assert "needs: tag" in release_cut
-    assert "gh workflow run tui-publish-npm.yml" not in release_cut
-    assert "gh workflow run tui-publish-pypi.yml" not in release_cut
+    assert "ref: ${{ github.sha }}" in release_cut
+    assert 'gh workflow run tui-publish-npm.yml --repo "$GITHUB_REPOSITORY" --ref "refs/tags/$TAG"' in release_cut
+    assert 'gh workflow run tui-publish-pypi.yml --repo "$GITHUB_REPOSITORY" --ref "refs/tags/$TAG"' in release_cut
     for name in ("tui-publish-npm.yml", "tui-publish-pypi.yml"):
-        assert "workflow_call:" in workflow(name)
+        assert "workflow_call:" not in workflow(name)

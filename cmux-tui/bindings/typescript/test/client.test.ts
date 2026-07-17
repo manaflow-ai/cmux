@@ -103,6 +103,12 @@ test("attach buffering enforces aggregate bytes and browser-frame limits", async
       surface: 7,
       frame: { seq: 1, width: 80, height: 24, data: "AAAAA" },
     }],
+    [{
+      event: "browser-state",
+      surface: 7,
+      title: "A".repeat(5),
+      frame: null,
+    }],
   ]) {
     const transport = new ScriptedTransport((request, connection) => {
       if (request.cmd === "identify") {
