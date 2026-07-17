@@ -6057,24 +6057,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         let fallbackCwd = workspace.resolvedWorkingDirectory()
             ?? FileManager.default.homeDirectoryForCurrentUser.path
-        let launchContext: (cwd: String, useLastTurnSource: Bool, sessionId: String?, agentProvider: String?)
-        if preferAgentContext,
-           let snapshot = SharedLiveAgentIndex.shared.snapshot(workspaceId: workspace.id, panelId: sourceSurfaceId),
-           let sessionId = Self.normalizedOpenDiffViewerSessionId(snapshot.sessionId),
-           let agentProvider = snapshot.kind.diffTrajectoryProvider,
-           let cwd = Self.normalizedOpenDiffViewerPath(
-                snapshot.workingDirectory ?? snapshot.launchCommand?.workingDirectory
-           ) {
-            launchContext = (cwd, true, sessionId, agentProvider)
-        } else {
-            let agentDiffContext = preferAgentContext ? focusedAgentWorkingDirectoryContext(for: workspace) : nil
-            launchContext = (
-                agentDiffContext?.cwd ?? fallbackCwd,
-                false,
-                agentDiffContext?.sessionId,
-                nil
-            )
-        }
+        let agentSnapshot = preferAgentContext
+            ? SharedLiveAgentIndex.shared.snapshot(workspaceId: workspace.id, panelId: sourceSurfaceId)
+            : nil
+        let launchContext = Self.openDiffViewerLaunchContext(
+            preferAgentContext: preferAgentContext,
+            fallbackCwd: fallbackCwd,
+            sessionId: agentSnapshot?.sessionId,
+            agentProvider: agentSnapshot?.kind.diffTrajectoryProvider,
+            agentWorkingDirectory: agentSnapshot?.workingDirectory
+                ?? agentSnapshot?.launchCommand?.workingDirectory
+        )
 
         let loadingURL = DiffViewerLoadingPage.url
         let sourcePresentationView: NSView? = {
@@ -6137,18 +6130,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return launched
     }
 
-    private func focusedAgentWorkingDirectoryContext(for workspace: Workspace) -> (cwd: String, sessionId: String?)? {
-        guard let surfaceId = workspace.focusedPanelId else { return nil }
-        guard let snapshot = SharedLiveAgentIndex.shared.snapshot(workspaceId: workspace.id, panelId: surfaceId) else {
-            return nil
+    nonisolated static func openDiffViewerLaunchContext(
+        preferAgentContext: Bool,
+        fallbackCwd: String,
+        sessionId: String?,
+        agentProvider: String?,
+        agentWorkingDirectory: String?
+    ) -> (cwd: String, useLastTurnSource: Bool, sessionId: String?, agentProvider: String?) {
+        let sessionId = normalizedOpenDiffViewerSessionId(sessionId)
+        let agentProvider = agentProvider?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+        if preferAgentContext, let sessionId, let agentProvider {
+            return (
+                normalizedOpenDiffViewerPath(agentWorkingDirectory) ?? fallbackCwd,
+                true,
+                sessionId,
+                agentProvider
+            )
         }
-        let sessionId = Self.normalizedOpenDiffViewerSessionId(snapshot.sessionId)
-        if let workingDirectory = Self.normalizedOpenDiffViewerPath(
-            snapshot.workingDirectory ?? snapshot.launchCommand?.workingDirectory
-           ) {
-            return (cwd: workingDirectory, sessionId: sessionId)
-        }
-        return nil
+        return (fallbackCwd, false, nil, nil)
     }
 
     nonisolated static func normalizedOpenDiffViewerSessionId(_ value: String?) -> String? {
