@@ -492,7 +492,7 @@ struct WorkspaceForkConversationContextMenuTests {
 
     @Test
     func forkTimeoutResumeGateResumesOnlyFirstClaim() async {
-        let value = await withCheckedContinuation { continuation in
+        let value: String = await withCheckedContinuation { continuation in
             let gate = AgentForkTimeoutResumeGate(continuation)
 
             #expect(gate.resume(returning: "timeout"))
@@ -1172,10 +1172,10 @@ struct WorkspaceForkConversationContextMenuTests {
         ))
         let probedLaunchers = OSAllocatedUnfairLock(initialState: [String]())
 
-        func index(for snapshot: SessionRestorableAgentSnapshot) -> RestorableAgentSessionIndex {
+        @Sendable func index(for snapshot: SessionRestorableAgentSnapshot) -> RestorableAgentSessionIndex {
             RestorableAgentSessionIndex.load(
                 homeDirectory: root.path,
-                fileManager: fm,
+                fileManager: .default,
                 registry: CmuxVaultAgentRegistry(registrations: [
                     CmuxVaultAgentRegistration.builtInPi,
                     CmuxVaultAgentRegistration.builtInOmp,
@@ -1230,13 +1230,12 @@ struct WorkspaceForkConversationContextMenuTests {
         )
         #expect(probedLaunchers.withLock { $0 } == ["pi"])
 
-        snapshot.withLock {
-            $0 = makePiFamilySnapshot(
-                launcher: "omp",
-                workspaceRoot: root.path,
-                executablePath: executable.path
-            )
-        }
+        let ompSnapshot = makePiFamilySnapshot(
+            launcher: "omp",
+            workspaceRoot: root.path,
+            executablePath: executable.path
+        )
+        snapshot.withLock { $0 = ompSnapshot }
         now.withLock { $0 = Date(timeIntervalSince1970: 1) }
         await sharedIndex.refreshForkAvailabilityNow()
 
@@ -2638,7 +2637,7 @@ struct WorkspaceForkConversationContextMenuTests {
             executablePath: executable.path
         )
 
-        func indexResult() -> SharedLiveAgentIndexLoader.LoadResult {
+        @Sendable func indexResult() -> SharedLiveAgentIndexLoader.LoadResult {
             let panelKey = RestorableAgentSessionIndex.PanelKey(
                 workspaceId: workspaceId,
                 panelId: panelId
@@ -2646,7 +2645,7 @@ struct WorkspaceForkConversationContextMenuTests {
             let includePanel = includePanel.withLock { $0 }
             let index = RestorableAgentSessionIndex.load(
                 homeDirectory: root.path,
-                fileManager: fm,
+                fileManager: .default,
                 registry: CmuxVaultAgentRegistry(registrations: []),
                 detectedSnapshots: includePanel ? [
                     panelKey: (
@@ -3143,14 +3142,14 @@ struct WorkspaceForkConversationContextMenuTests {
                 notifiedPanelKeys.withLock {
                     for (workspaceId, panelIds) in panelIdsByWorkspaceId {
                         for panelId in panelIds {
-                            $0.insert("\(workspaceId.uuidString)|\(panelId.uuidString)")
+                            _ = $0.insert("\(workspaceId.uuidString)|\(panelId.uuidString)")
                         }
                     }
                 }
             } else if let workspaceId = notification.userInfo?["workspaceId"] as? UUID,
                let panelId = notification.userInfo?["panelId"] as? UUID {
                 notifiedPanelKeys.withLock {
-                    $0.insert("\(workspaceId.uuidString)|\(panelId.uuidString)")
+                    _ = $0.insert("\(workspaceId.uuidString)|\(panelId.uuidString)")
                 }
             } else {
                 unscopedNotificationCount.withLock { $0 += 1 }
@@ -3371,7 +3370,7 @@ struct WorkspaceForkConversationContextMenuTests {
                 notifiedPanelKeys.withLock {
                     for (workspaceId, panelIds) in panelIdsByWorkspaceId {
                         for panelId in panelIds {
-                            $0.insert("\(workspaceId.uuidString)|\(panelId.uuidString)")
+                            _ = $0.insert("\(workspaceId.uuidString)|\(panelId.uuidString)")
                         }
                     }
                 }
@@ -3380,7 +3379,7 @@ struct WorkspaceForkConversationContextMenuTests {
             if let workspaceId = notification.userInfo?["workspaceId"] as? UUID,
                let panelId = notification.userInfo?["panelId"] as? UUID {
                 notifiedPanelKeys.withLock {
-                    $0.insert("\(workspaceId.uuidString)|\(panelId.uuidString)")
+                    _ = $0.insert("\(workspaceId.uuidString)|\(panelId.uuidString)")
                 }
             }
         }
