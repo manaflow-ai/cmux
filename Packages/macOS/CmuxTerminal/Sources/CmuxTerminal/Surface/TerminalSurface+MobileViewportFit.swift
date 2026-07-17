@@ -111,6 +111,7 @@ extension TerminalSurface {
             return (fit.columns, fit.rows)
         }
         ghostty_surface_set_size(surface, appliedWidth, appliedHeight)
+        updateRenderMirrorSize(width: appliedWidth, height: appliedHeight)
         lastPixelWidth = appliedWidth
         lastPixelHeight = appliedHeight
         ghostty_surface_refresh(surface)
@@ -160,6 +161,7 @@ extension TerminalSurface {
 
         guard sizeChanged else { return (appliedColumns, appliedRows) }
         ghostty_surface_set_size(surface, appliedWidth, appliedHeight)
+        updateRenderMirrorSize(width: appliedWidth, height: appliedHeight)
         lastPixelWidth = appliedWidth
         lastPixelHeight = appliedHeight
         ghostty_surface_refresh(surface)
@@ -205,6 +207,7 @@ extension TerminalSurface {
             return fontRestored
         }
         ghostty_surface_set_size(surface, uncappedWidth, uncappedHeight)
+        updateRenderMirrorSize(width: uncappedWidth, height: uncappedHeight)
         lastPixelWidth = uncappedWidth
         lastPixelHeight = uncappedHeight
         ghostty_surface_refresh(surface)

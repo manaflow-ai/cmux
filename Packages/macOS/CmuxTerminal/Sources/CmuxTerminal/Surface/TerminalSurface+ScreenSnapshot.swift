@@ -1,3 +1,5 @@
+public import CmuxTerminalRenderTransport
+
 extension TerminalSurface {
     /// Reads a byte-bounded VT reconstruction of the newest physical terminal rows.
     ///
@@ -23,6 +25,35 @@ extension TerminalSurface {
                 maxRows: maxRows,
                 maxBytes: maxBytes
             )
+        )
+    }
+
+    /// Captures the authority parser and its exact processed-output position
+    /// for a restarted renderer worker.
+    @MainActor
+    public func renderWorkerResynchronizationCommand(
+        surfaceGeneration: UInt64,
+        maxRows: Int = 4_000,
+        maxBytes: Int = 8 * 1_048_576
+    ) async -> TerminalRenderWorkerCommand? {
+        guard let descriptor = renderMirrorDescriptor,
+              descriptor.generation == surfaceGeneration,
+              let surface = liveSurfaceForGhosttyAccess(reason: "renderWorkerResynchronization") else {
+            return nil
+        }
+        guard let snapshot = await runtimeTeardown.readRenderResynchronizationSnapshot(
+            TerminalSurfaceRuntimeScreenTailRequest(
+                surface: surface,
+                maxRows: maxRows,
+                maxBytes: maxBytes
+            )
+        ) else {
+            return nil
+        }
+        return .resynchronizeSurface(
+            descriptor: descriptor,
+            nextOutputSequence: snapshot.nextOutputSequence,
+            screenTailVT: snapshot.screenTailVT
         )
     }
 }

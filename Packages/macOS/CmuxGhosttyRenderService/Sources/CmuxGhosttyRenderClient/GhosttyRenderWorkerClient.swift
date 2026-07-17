@@ -8,8 +8,8 @@ public import Foundation
 /// ``commandSink`` from one ordered lane, writes happen off the main actor, and
 /// worker generations fence late events and IOSurfaces after a crash.
 public actor GhosttyRenderWorkerClient {
-    /// Reexec argument routed before the app initializes AppKit or SwiftUI.
-    public nonisolated static let workerModeArgument = "--cmux-ghostty-render-worker"
+    /// App-relative location of the dedicated AppKit-free worker executable.
+    public nonisolated static let bundledWorkerRelativePath = "bin/cmux-ghostty-render-worker"
 
     /// Ordered, nonblocking ingress used by AppKit and Ghostty I/O callbacks.
     public nonisolated let commandSink = GhosttyRenderCommandSink()
@@ -74,14 +74,16 @@ public actor GhosttyRenderWorkerClient {
         self.controlContinuation = controlPair.continuation
     }
 
-    /// Creates a client that reexecutes the current signed app binary.
-    public static func reexecingCurrentBinary() throws -> GhosttyRenderWorkerClient {
-        let binary = Bundle.main.executableURL
-            ?? URL(fileURLWithPath: CommandLine.arguments[0])
-        return try GhosttyRenderWorkerClient(
-            executableURL: binary,
-            arguments: [workerModeArgument]
-        )
+    /// Creates a client for the dedicated worker bundled with the app.
+    public static func bundledWorker(in bundle: Bundle = .main) throws -> GhosttyRenderWorkerClient {
+        guard let resources = bundle.resourceURL else {
+            throw GhosttyRenderWorkerLaunchError.missingResourceDirectory
+        }
+        let executable = resources.appendingPathComponent(bundledWorkerRelativePath)
+        guard FileManager.default.isExecutableFile(atPath: executable.path) else {
+            throw GhosttyRenderWorkerLaunchError.missingBundledWorker(executable)
+        }
+        return try GhosttyRenderWorkerClient(executableURL: executable)
     }
 
     /// Starts the ordered consumers. Safe to call repeatedly.
@@ -512,6 +514,12 @@ public actor GhosttyRenderWorkerClient {
             continuation.yield(event)
         }
     }
+}
+
+/// Failures resolving the dedicated renderer executable from the app bundle.
+public enum GhosttyRenderWorkerLaunchError: Error, Equatable, Sendable {
+    case missingResourceDirectory
+    case missingBundledWorker(URL)
 }
 
 private struct GhosttyRenderChild {

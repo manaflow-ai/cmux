@@ -130,6 +130,9 @@
          location = "group:CmuxFoundation">
       </FileRef>
       <FileRef
+         location = "group:CmuxGhosttyRenderService">
+      </FileRef>
+      <FileRef
          location = "group:CmuxGit">
       </FileRef>
       <FileRef
@@ -182,6 +185,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxTerminalCore">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxTerminalRenderTransport">
       </FileRef>
       <FileRef
          location = "group:CmuxTestSupport">

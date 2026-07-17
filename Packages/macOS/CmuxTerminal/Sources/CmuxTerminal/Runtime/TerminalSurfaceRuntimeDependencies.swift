@@ -24,6 +24,9 @@ public struct TerminalSurfaceRuntimeDependencies {
     /// The shared PTY output-tee installer.
     public let byteTee: any TerminalByteTeeBinding
 
+    /// The process-wide renderer-worker command router.
+    public let renderWorker: any TerminalRenderWorkerRouting
+
     /// The renderer-reclamation pass scheduler.
     public let rendererRealization: any TerminalRendererRealizationScheduling
 
@@ -61,6 +64,7 @@ public struct TerminalSurfaceRuntimeDependencies {
         viewProvider: any TerminalSurfaceViewProviding,
         spawnPolicy: any TerminalSurfaceSpawnPolicyProviding,
         byteTee: any TerminalByteTeeBinding,
+        renderWorker: any TerminalRenderWorkerRouting = DisabledTerminalRenderWorkerRouter.shared,
         rendererRealization: any TerminalRendererRealizationScheduling,
         hibernationRecorder: any AgentHibernationRecording,
         runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator,
@@ -76,6 +80,7 @@ public struct TerminalSurfaceRuntimeDependencies {
         self.viewProvider = viewProvider
         self.spawnPolicy = spawnPolicy
         self.byteTee = byteTee
+        self.renderWorker = renderWorker
         self.rendererRealization = rendererRealization
         self.hibernationRecorder = hibernationRecorder
         self.runtimeTeardown = runtimeTeardown

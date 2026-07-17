@@ -16,7 +16,8 @@ extension TerminalSurface {
         app: ghostty_app_t,
         for view: any TerminalSurfaceNativeViewing,
         scaleFactors: (x: CGFloat, y: CGFloat, layer: CGFloat),
-        claudeShim: ClaudeCommandShim?
+        claudeShim: ClaudeCommandShim?,
+        teeInstallation: TerminalByteTeeInstallation
     ) -> (createdSurface: ghostty_surface_t?, runtimeInitialInput: String?) {
         var baseConfig = configTemplate ?? CmuxSurfaceConfigTemplate()
         var surfaceConfig = ghostty_surface_config_new()
@@ -26,16 +27,23 @@ extension TerminalSurface {
             percent: magnificationPercent
         )
         surfaceConfig.wait_after_command = baseConfig.waitAfterCommand
-        surfaceConfig.platform_tag = GHOSTTY_PLATFORM_MACOS
-        surfaceConfig.platform = ghostty_platform_u(macos: ghostty_platform_macos_s(
-            nsview: Unmanaged.passUnretained(view as NSView).toOpaque()
-        ))
+        // The authority surface owns PTY/parser/input state but never presents
+        // pixels in the app process. The worker owns the realized renderer.
+        surfaceConfig.platform_tag = GHOSTTY_PLATFORM_METAL_EXTERNAL
+        surfaceConfig.platform = ghostty_platform_u(
+            metal_external: ghostty_platform_metal_external_s(
+                userdata: nil,
+                present: cmuxTerminalAuthorityNoopPresentCallback
+            )
+        )
         let callbackContext = Unmanaged.passRetained(GhosttySurfaceCallbackContext(surfaceHost: view, surfaceController: self))
         surfaceConfig.userdata = callbackContext.toOpaque()
         surfaceCallbackContext?.release()
         surfaceCallbackContext = callbackContext
         surfaceConfig.scale_factor = scaleFactors.layer
         surfaceConfig.context = surfaceContext
+        surfaceConfig.pty_tee_cb = teeInstallation.callback
+        surfaceConfig.pty_tee_userdata = teeInstallation.userdata
         if manualIO {
             // MANUAL I/O: ghostty spawns no process; typed input is delivered
             // to our callback and output is injected through
@@ -296,4 +304,8 @@ extension TerminalSurface {
             return ghostty_surface_new(app, &surfaceConfig)
         }
     }
+}
+
+private let cmuxTerminalAuthorityNoopPresentCallback: ghostty_metal_external_present_cb = {
+    _, _, _, _ in
 }

@@ -4,12 +4,16 @@ import GhosttyKit
 
 final class FakeTerminalByteTee: TerminalByteTeeBinding {
     @MainActor
-    func installTee(
-        on surface: ghostty_surface_t,
+    func prepareTee(
         workspaceID: UUID,
-        surfaceID: UUID
-    ) -> any TerminalByteTeeLease {
-        FakeTerminalByteTeeLease()
+        surfaceID: UUID,
+        surfaceGeneration: UInt64
+    ) -> TerminalByteTeeInstallation {
+        TerminalByteTeeInstallation(
+            callback: { _, _, _ in },
+            userdata: Unmanaged.passUnretained(self).toOpaque(),
+            lease: FakeTerminalByteTeeLease()
+        )
     }
 
     @MainActor

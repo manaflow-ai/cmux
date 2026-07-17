@@ -12,12 +12,11 @@ work. It does not move the complete terminal engine out of the app process.
 | App process | AppKit and SwiftUI, shell child and PTY, authoritative Ghostty parser and terminal model, input and IME, accessibility and terminal queries, worker supervision, and final IOSurface assignment to a `CALayer` |
 | Render worker | One Ghostty app, one manual-IO visual mirror per live terminal surface, active Ghostty renderer threads, Metal resources, and IOSurface production |
 
-The app reexecutes its signed executable with
-`--cmux-ghostty-render-worker`. `CmuxMain` handles that argument before
-initializing `NSApplication` or SwiftUI and enters `runGhosttyRenderWorker()`.
-The worker implementation imports no AppKit and creates no AppKit objects. The
-current worker is still the main app executable, so its image remains linked
-against the app's frameworks.
+The app bundles a dedicated `cmux-ghostty-render-worker` command-line
+executable under `Contents/Resources/bin`. The helper links only the render
+worker package, Ghostty, and its graphics and transport dependencies. It does
+not import or link AppKit, SwiftUI, or the app target. The app launches this
+helper directly and supervises its lifetime.
 
 The app creates the authoritative surface with Ghostty's external Metal
 platform and a no-op present callback. It immediately marks that surface
@@ -116,9 +115,6 @@ the authority instead of stalling a caller.
 - Recovery reconstructs at most 4,000 physical rows and 8 MiB of VT data for a
   mirror. Older history remains authoritative in the app but is not included in
   the restarted mirror's visual reconstruction.
-- The worker is a reexecution mode of the signed app binary, not a separate
-  minimal helper executable. It avoids AppKit initialization and use, but the
-  binary is still linked with AppKit.
 - The host main actor still handles input integration, pane geometry, and the
   final constant-time IOSurface-to-layer swap. This design removes active
   Ghostty Metal rendering from that process boundary, not all terminal-related
@@ -130,6 +126,8 @@ the authority instead of stalling a caller.
   protocol, framed pipe channel, and authenticated Mach IOSurface transfer.
 - `Packages/macOS/CmuxGhosttyRenderService` contains the supervisor client and
   AppKit-free worker runtime.
+- `RenderWorker/GhosttyRenderWorkerMain.swift` is the dedicated worker
+  executable entry point.
 - `Packages/macOS/CmuxTerminal` owns the authority-to-mirror routing, atomic
   recovery snapshots, generation fencing, and remote presentation layer.
 - `Sources/TerminalSurfaceRuntimeWiring.swift` installs the process-wide worker,

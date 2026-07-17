@@ -1,4 +1,6 @@
 import CmuxTerminalCore
+import CmuxTerminal
+import CmuxTerminalRenderTransport
 import Foundation
 import os
 
@@ -43,6 +45,9 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
 
     let workspaceID: UUID
     let surfaceID: UUID
+    let surfaceGeneration: UInt64
+    private let renderWorker: any TerminalRenderWorkerRouting
+    private var nextOutputSequence: UInt64 = 0
     private let clock = ContinuousClock()
     private let notificationHandler: PromptTurnNotificationHandler
     private var detectors: [DetectorBinding]
@@ -51,10 +56,14 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     init(
         workspaceID: UUID,
         surfaceID: UUID,
+        surfaceGeneration: UInt64,
+        renderWorker: any TerminalRenderWorkerRouting,
         agentDefinitions: [CmuxTaskManagerCodingAgentDefinition]
     ) {
         self.workspaceID = workspaceID
         self.surfaceID = surfaceID
+        self.surfaceGeneration = surfaceGeneration
+        self.renderWorker = renderWorker
         self.notificationHandler = PromptTurnNotificationHandler(
             workspaceID: workspaceID,
             surfaceID: surfaceID
@@ -67,6 +76,20 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
                 )
             }
         }
+    }
+
+    /// Copies borrowed PTY bytes and appends them to the worker's one ordered
+    /// command lane. Ghostty invokes this callback serially per surface.
+    func mirrorOutput(_ bytes: UnsafeBufferPointer<UInt8>) {
+        let data = Data(bytes)
+        guard !data.isEmpty else { return }
+        let sequence = nextOutputSequence
+        nextOutputSequence &+= UInt64(data.count)
+        renderWorker.enqueueRenderCommand(.mutateSurface(
+            id: surfaceID,
+            generation: surfaceGeneration,
+            mutation: .processOutput(sequence: sequence, bytes: data)
+        ))
     }
 
     func consume(_ bytes: UnsafeBufferPointer<UInt8>) {

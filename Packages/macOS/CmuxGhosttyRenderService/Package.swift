@@ -52,10 +52,9 @@ let package = Package(
                 .enableUpcomingFeature("InternalImportsByDefault"),
             ]
         ),
-        .target(
-            name: "GhosttyKit",
-            path: "Sources/GhosttyKit",
-            publicHeadersPath: "include"
+        .systemLibrary(
+            name: "CmuxGhosttyRenderWorkerGhosttyKit",
+            path: "Sources/GhosttyKit"
         ),
         .target(
             name: "CmuxGhosttyRenderWorker",
@@ -64,7 +63,7 @@ let package = Package(
                     name: "CmuxTerminalRenderTransport",
                     package: "CmuxTerminalRenderTransport"
                 ),
-                "GhosttyKit",
+                "CmuxGhosttyRenderWorkerGhosttyKit",
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
