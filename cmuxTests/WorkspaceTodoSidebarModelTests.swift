@@ -100,84 +100,115 @@ struct WorkspaceTodoSidebarModelTests {
 
     @Test
     func compactStatusOnlyShowsWhenDetailsAreHiddenAndStatusIsEngaged() {
-        #expect(!SidebarWorkspaceTodoMinimalVisibility.showsCompactStatus(
+        #expect(!SidebarWorkspaceTodoMinimalVisibility(
+            itemCount: 0,
+            addFieldActivationToken: 0,
+            isPopoverPresented: false,
+            canAddItems: true,
             hidesAllDetails: false,
             taskStatus: .working,
             featureEnabled: true
-        ))
-        #expect(!SidebarWorkspaceTodoMinimalVisibility.showsCompactStatus(
+        ).showsCompactStatus)
+        #expect(!SidebarWorkspaceTodoMinimalVisibility(
+            itemCount: 0,
+            addFieldActivationToken: 0,
+            isPopoverPresented: false,
+            canAddItems: true,
             hidesAllDetails: true,
             taskStatus: nil,
             featureEnabled: true
-        ))
-        #expect(!SidebarWorkspaceTodoMinimalVisibility.showsCompactStatus(
+        ).showsCompactStatus)
+        #expect(!SidebarWorkspaceTodoMinimalVisibility(
+            itemCount: 0,
+            addFieldActivationToken: 0,
+            isPopoverPresented: false,
+            canAddItems: true,
             hidesAllDetails: true,
             taskStatus: .working,
             featureEnabled: false
-        ))
-        #expect(SidebarWorkspaceTodoMinimalVisibility.showsCompactStatus(
+        ).showsCompactStatus)
+        #expect(SidebarWorkspaceTodoMinimalVisibility(
+            itemCount: 0,
+            addFieldActivationToken: 0,
+            isPopoverPresented: false,
+            canAddItems: true,
             hidesAllDetails: true,
             taskStatus: .working,
             featureEnabled: true
-        ))
+        ).showsCompactStatus)
     }
 
     @Test
     func rowStatusIndicatorOnlyShowsForManualStatusWhenFlagEnabled() {
-        #expect(!SidebarWorkspaceManualTaskStatusIndicatorModel.showsIndicator(
+        #expect(!SidebarWorkspaceManualTaskStatusIndicatorModel(
             featureEnabled: true,
             taskStatus: nil,
             hasManualOverride: true
-        ))
-        #expect(!SidebarWorkspaceManualTaskStatusIndicatorModel.showsIndicator(
+        ).showsIndicator)
+        #expect(!SidebarWorkspaceManualTaskStatusIndicatorModel(
             featureEnabled: false,
             taskStatus: .review,
             hasManualOverride: true
-        ))
-        #expect(!SidebarWorkspaceManualTaskStatusIndicatorModel.showsIndicator(
+        ).showsIndicator)
+        #expect(!SidebarWorkspaceManualTaskStatusIndicatorModel(
             featureEnabled: true,
             taskStatus: .review,
             hasManualOverride: false
-        ))
-        #expect(SidebarWorkspaceManualTaskStatusIndicatorModel.showsIndicator(
+        ).showsIndicator)
+        #expect(SidebarWorkspaceManualTaskStatusIndicatorModel(
             featureEnabled: true,
             taskStatus: .review,
             hasManualOverride: true
-        ))
+        ).showsIndicator)
     }
 
     @Test
     func checklistSectionStaysMountedForUseAndCompactsWhenIdle() {
-        #expect(!SidebarWorkspaceTodoMinimalVisibility.showsChecklistSection(
+        #expect(!SidebarWorkspaceTodoMinimalVisibility(
             itemCount: 0,
             addFieldActivationToken: 0,
             isPopoverPresented: false,
-            canAddItems: true
-        ))
-        #expect(!SidebarWorkspaceTodoMinimalVisibility.showsChecklistSection(
+            canAddItems: true,
+            hidesAllDetails: false,
+            taskStatus: nil,
+            featureEnabled: true
+        ).showsChecklistSection)
+        #expect(!SidebarWorkspaceTodoMinimalVisibility(
             itemCount: 0,
             addFieldActivationToken: 1,
             isPopoverPresented: false,
-            canAddItems: false
-        ))
-        #expect(SidebarWorkspaceTodoMinimalVisibility.showsChecklistSection(
+            canAddItems: false,
+            hidesAllDetails: false,
+            taskStatus: nil,
+            featureEnabled: false
+        ).showsChecklistSection)
+        #expect(SidebarWorkspaceTodoMinimalVisibility(
             itemCount: 1,
             addFieldActivationToken: 0,
             isPopoverPresented: false,
-            canAddItems: false
-        ))
-        #expect(SidebarWorkspaceTodoMinimalVisibility.showsChecklistSection(
+            canAddItems: false,
+            hidesAllDetails: false,
+            taskStatus: nil,
+            featureEnabled: false
+        ).showsChecklistSection)
+        #expect(SidebarWorkspaceTodoMinimalVisibility(
             itemCount: 0,
             addFieldActivationToken: 1,
             isPopoverPresented: false,
-            canAddItems: true
-        ))
-        #expect(SidebarWorkspaceTodoMinimalVisibility.showsChecklistSection(
+            canAddItems: true,
+            hidesAllDetails: false,
+            taskStatus: nil,
+            featureEnabled: true
+        ).showsChecklistSection)
+        #expect(SidebarWorkspaceTodoMinimalVisibility(
             itemCount: 0,
             addFieldActivationToken: 0,
             isPopoverPresented: true,
-            canAddItems: true
-        ))
+            canAddItems: true,
+            hidesAllDetails: false,
+            taskStatus: nil,
+            featureEnabled: true
+        ).showsChecklistSection)
     }
 
     @Test

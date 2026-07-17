@@ -21,7 +21,7 @@ struct WorkspaceTodoStatusLane: Equatable, Identifiable {
     var id: String { isNone ? "none" : (status?.rawValue ?? "auto") }
 }
 
-struct SidebarWorkspaceCompactStatusMenuModel: Equatable {
+nonisolated struct SidebarWorkspaceCompactStatusMenuModel: Equatable {
     let inferred: WorkspaceTaskStatus
     let activeOverride: WorkspaceTaskStatus?
 }

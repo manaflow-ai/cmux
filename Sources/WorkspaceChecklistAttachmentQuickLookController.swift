@@ -1,12 +1,11 @@
 import AppKit
 import CmuxWorkspaces
 import Foundation
+import ObjectiveC
 import Quartz
 
 @MainActor
 final class WorkspaceChecklistAttachmentQuickLookController: NSObject, QLPreviewPanelDataSource, QLPreviewPanelDelegate {
-    static let shared = WorkspaceChecklistAttachmentQuickLookController()
-
     private var items: [WorkspaceChecklistAttachmentQuickLookItem] = []
 
     func present(
@@ -32,6 +31,12 @@ final class WorkspaceChecklistAttachmentQuickLookController: NSObject, QLPreview
         } ?? 0
 
         guard let panel = QLPreviewPanel.shared() else { return }
+        objc_setAssociatedObject(
+            panel,
+            &workspaceChecklistAttachmentQuickLookControllerAssociationKey,
+            self,
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
         panel.dataSource = self
         panel.delegate = self
         panel.reloadData()
@@ -51,7 +56,18 @@ final class WorkspaceChecklistAttachmentQuickLookController: NSObject, QLPreview
             return items[index]
         }
     }
+
+    nonisolated func previewPanelWillClose(_ panel: QLPreviewPanel!) {
+        objc_setAssociatedObject(
+            panel,
+            &workspaceChecklistAttachmentQuickLookControllerAssociationKey,
+            nil,
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
+    }
 }
+
+private var workspaceChecklistAttachmentQuickLookControllerAssociationKey: UInt8 = 0
 
 private final class WorkspaceChecklistAttachmentQuickLookItem: NSObject, QLPreviewItem {
     private let url: URL

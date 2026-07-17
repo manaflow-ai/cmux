@@ -13741,14 +13741,7 @@ struct TabItemView: View, Equatable {
         status: WorkspaceTaskStatus,
         model: SidebarWorkspaceCompactStatusMenuModel
     ) -> some View {
-        let title = String(
-            format: String(
-                localized: "sidebar.status.compactLabel",
-                defaultValue: "Status: %@"
-            ),
-            locale: .current,
-            status.displayName
-        )
+        let title = String(localized: "sidebar.status.compactLabel", defaultValue: "Status: \(status.displayName)")
         return Menu {
             let lanes = WorkspaceTodoStatusLane.lanes(
                 inferred: model.inferred,
@@ -13935,13 +13928,14 @@ struct TabItemView: View, Equatable {
                     audioColor: activeSecondaryColor(0.8)
                 )
 
+                let manualTaskStatusIndicator = SidebarWorkspaceManualTaskStatusIndicatorModel(
+                    featureEnabled: todoControlsEnabled,
+                    taskStatus: workspaceSnapshot.taskStatus,
+                    hasManualOverride: workspaceSnapshot.hasManualTaskStatus
+                )
                 if let taskStatus = workspaceSnapshot.taskStatus,
                    let statusMenuModel = workspaceSnapshot.todoStatusMenuModel,
-                   SidebarWorkspaceManualTaskStatusIndicatorModel.showsIndicator(
-                    featureEnabled: todoControlsEnabled,
-                    taskStatus: taskStatus,
-                    hasManualOverride: workspaceSnapshot.hasManualTaskStatus
-                   ) {
+                   manualTaskStatusIndicator.showsIndicator {
                     SidebarWorkspaceManualStatusIndicatorMenu(
                         status: taskStatus,
                         model: statusMenuModel,
@@ -14020,13 +14014,18 @@ struct TabItemView: View, Equatable {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            if SidebarWorkspaceTodoMinimalVisibility.showsCompactStatus(
+            let minimalTodoVisibility = SidebarWorkspaceTodoMinimalVisibility(
+                itemCount: workspaceSnapshot.checklistItems.count,
+                addFieldActivationToken: checklistAddFieldActivationToken,
+                isPopoverPresented: isChecklistPopoverPresented,
+                canAddItems: todoControlsEnabled,
                 hidesAllDetails: settings.hidesAllDetails,
                 taskStatus: workspaceSnapshot.taskStatus,
                 featureEnabled: todoControlsEnabled
-            ),
-                let taskStatus = workspaceSnapshot.taskStatus,
-                let compactStatusModel = workspaceSnapshot.todoStatusMenuModel {
+            )
+            if minimalTodoVisibility.showsCompactStatus,
+               let taskStatus = workspaceSnapshot.taskStatus,
+               let compactStatusModel = workspaceSnapshot.todoStatusMenuModel {
                 compactWorkspaceStatusMenu(
                     status: taskStatus,
                     model: compactStatusModel
@@ -14248,12 +14247,7 @@ struct TabItemView: View, Equatable {
 
             // Rendered whenever there is content, a pending add request, or an OPEN
             // popover — unmounting dismantles the popover's anchor mid-presentation.
-            if SidebarWorkspaceTodoMinimalVisibility.showsChecklistSection(
-                itemCount: workspaceSnapshot.checklistItems.count,
-                addFieldActivationToken: checklistAddFieldActivationToken,
-                isPopoverPresented: isChecklistPopoverPresented,
-                canAddItems: todoControlsEnabled
-            ) {
+            if minimalTodoVisibility.showsChecklistSection {
                 SidebarWorkspaceChecklistSection(
                     items: workspaceSnapshot.checklistItems,
                     completedCount: workspaceSnapshot.checklistCompletedCount,

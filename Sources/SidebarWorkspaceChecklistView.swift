@@ -8,21 +8,20 @@ import SwiftUI
 /// Checklist content must stay mounted while it is visible or anchoring an
 /// open/add-requested popover; status stays visible only when the row is in
 /// compact detail mode and the workspace has opted into status display.
-enum SidebarWorkspaceTodoMinimalVisibility {
-    static func showsChecklistSection(
-        itemCount: Int,
-        addFieldActivationToken: Int,
-        isPopoverPresented: Bool,
-        canAddItems: Bool
-    ) -> Bool {
+struct SidebarWorkspaceTodoMinimalVisibility: Equatable {
+    let itemCount: Int
+    let addFieldActivationToken: Int
+    let isPopoverPresented: Bool
+    let canAddItems: Bool
+    let hidesAllDetails: Bool
+    let taskStatus: WorkspaceTaskStatus?
+    let featureEnabled: Bool
+
+    var showsChecklistSection: Bool {
         itemCount > 0 || (canAddItems && (addFieldActivationToken > 0 || isPopoverPresented))
     }
 
-    static func showsCompactStatus(
-        hidesAllDetails: Bool,
-        taskStatus: WorkspaceTaskStatus?,
-        featureEnabled: Bool
-    ) -> Bool {
+    var showsCompactStatus: Bool {
         featureEnabled && hidesAllDetails && taskStatus != nil
     }
 }
@@ -99,17 +98,9 @@ struct WorkspaceChecklistAttachmentMenu: View {
             if !item.attachments.isEmpty {
                 Divider()
                 ForEach(item.attachments) { attachment in
-                    let exists = FileManager.default.fileExists(atPath: attachment.filePath)
                     Menu(attachment.displayName) {
                         Button(String(localized: "sidebar.checklist.openAttachment", defaultValue: "Open")) {
                             openAttachments(item.id, attachment.id)
-                        }
-                        .disabled(!exists)
-                        if !exists {
-                            Text(String(
-                                localized: "sidebar.checklist.attachmentUnavailable",
-                                defaultValue: "File unavailable"
-                            ))
                         }
                         Button(String(
                             localized: "sidebar.checklist.removeAttachment",

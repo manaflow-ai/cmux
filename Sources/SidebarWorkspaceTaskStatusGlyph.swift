@@ -99,12 +99,12 @@ struct SidebarWorkspaceTaskStatusGlyphModel: Equatable {
 /// Policy for the sidebar row's restored status indicator. Rows only show a
 /// glyph for a human-set status while the remote todo-controls flag is on;
 /// inferred/automatic status stays out of the row chrome.
-enum SidebarWorkspaceManualTaskStatusIndicatorModel {
-    static func showsIndicator(
-        featureEnabled: Bool,
-        taskStatus: WorkspaceTaskStatus?,
-        hasManualOverride: Bool
-    ) -> Bool {
+struct SidebarWorkspaceManualTaskStatusIndicatorModel: Equatable {
+    let featureEnabled: Bool
+    let taskStatus: WorkspaceTaskStatus?
+    let hasManualOverride: Bool
+
+    var showsIndicator: Bool {
         featureEnabled && hasManualOverride && taskStatus != nil
     }
 }
@@ -128,11 +128,7 @@ struct SidebarWorkspaceManualStatusIndicatorMenu: View {
     @State private var isStatusPopoverPresented = false
 
     private var labelText: String {
-        String(
-            format: String(localized: "sidebar.status.compactLabel", defaultValue: "Status: %@"),
-            locale: .current,
-            status.displayName
-        )
+        String(localized: "sidebar.status.compactLabel", defaultValue: "Status: \(status.displayName)")
     }
 
     var body: some View {

@@ -71,6 +71,7 @@ extension Array where Element == WorkspaceChecklistItem {
         var result: [WorkspaceChecklistItem] = []
         result.reserveCapacity(items.count)
         var seenIds = Set<UUID>()
+        let existingById = Dictionary(uniqueKeysWithValues: self.map { ($0.id, $0) })
         for (index, item) in items.enumerated() {
             if let id = item.id, !seenIds.insert(id).inserted {
                 return .failure(.duplicateId(index: index))
@@ -78,7 +79,7 @@ extension Array where Element == WorkspaceChecklistItem {
             guard let normalized = WorkspaceChecklistItem.normalizedText(item.text) else {
                 return .failure(.emptyText(index: index))
             }
-            if let id = item.id, let existing = first(where: { $0.id == id }) {
+            if let id = item.id, let existing = existingById[id] {
                 result.append(WorkspaceChecklistItem(
                     id: existing.id,
                     text: normalized,

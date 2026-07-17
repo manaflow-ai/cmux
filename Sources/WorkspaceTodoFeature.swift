@@ -124,7 +124,7 @@ enum WorkspaceTodoActions {
     /// Adds one or more user-selected image files to a checklist item.
     @discardableResult
     static func addImageAttachments(to itemId: UUID, in workspace: Workspace) -> Bool {
-        let attachments = WorkspaceChecklistImageAttachmentPicker.pickAttachments()
+        let attachments = pickChecklistImageAttachments()
         guard !attachments.isEmpty,
               workspace.addChecklistAttachments(itemId: itemId, attachments: attachments) else {
             return false
@@ -144,7 +144,7 @@ enum WorkspaceTodoActions {
         _ attachments: [WorkspaceChecklistAttachment],
         selectedAttachmentId: UUID?
     ) {
-        WorkspaceChecklistAttachmentQuickLookController.shared.present(
+        WorkspaceChecklistAttachmentQuickLookController().present(
             attachments: attachments,
             selectedAttachmentId: selectedAttachmentId
         )
@@ -191,31 +191,29 @@ enum WorkspaceTodoActions {
     static let workspaceIdUserInfoKey = "workspaceId"
 }
 
-private enum WorkspaceChecklistImageAttachmentPicker {
-    @MainActor
-    static func pickAttachments() -> [WorkspaceChecklistAttachment] {
-        let panel = NSOpenPanel()
-        panel.title = String(localized: "sidebar.checklist.attachImages", defaultValue: "Attach Images…")
-        panel.prompt = String(localized: "sidebar.checklist.attachImages.confirm", defaultValue: "Attach")
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = true
-        panel.allowedContentTypes = [.image]
+@MainActor
+private func pickChecklistImageAttachments() -> [WorkspaceChecklistAttachment] {
+    let panel = NSOpenPanel()
+    panel.title = String(localized: "sidebar.checklist.attachImages", defaultValue: "Attach Images…")
+    panel.prompt = String(localized: "sidebar.checklist.attachImages.confirm", defaultValue: "Attach")
+    panel.canChooseFiles = true
+    panel.canChooseDirectories = false
+    panel.allowsMultipleSelection = true
+    panel.allowedContentTypes = [.image]
 
-        guard panel.runModal() == .OK else { return [] }
-        return panel.urls.map(Self.attachment(for:))
-    }
+    guard panel.runModal() == .OK else { return [] }
+    return panel.urls.map(checklistImageAttachment(for:))
+}
 
-    private static func attachment(for url: URL) -> WorkspaceChecklistAttachment {
-        let resourceValues = try? url.resourceValues(forKeys: [.fileSizeKey, .contentTypeKey, .localizedNameKey])
-        let displayName = resourceValues?.localizedName ?? FileManager.default.displayName(atPath: url.path)
-        return WorkspaceChecklistAttachment(
-            displayName: displayName,
-            fileURL: url,
-            byteCount: resourceValues?.fileSize.map(Int64.init),
-            contentTypeIdentifier: resourceValues?.contentType?.identifier
-        )
-    }
+private func checklistImageAttachment(for url: URL) -> WorkspaceChecklistAttachment {
+    let resourceValues = try? url.resourceValues(forKeys: [.fileSizeKey, .contentTypeKey, .localizedNameKey])
+    let displayName = resourceValues?.localizedName ?? FileManager.default.displayName(atPath: url.path)
+    return WorkspaceChecklistAttachment(
+        displayName: displayName,
+        fileURL: url,
+        byteCount: resourceValues?.fileSize.map(Int64.init),
+        contentTypeIdentifier: resourceValues?.contentType?.identifier
+    )
 }
 
 extension Notification.Name {
