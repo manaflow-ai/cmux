@@ -8,6 +8,38 @@ import Testing
 
 @MainActor
 extension ReconnectRouteSelectionTests {
+    @Test func manualReconnectRedialsWhenLiveStreamIsUnavailableButRPCStateIsConnected() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let factory = KindRecordingTransportFactory(router: router, box: box)
+        let store = try await makeReconnectStore(
+            routes: [try iroh()],
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { clock.now },
+                supportedRouteKinds: [.iroh]
+            )
+        )
+
+        #expect(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(store.connectionState == .connected)
+        #expect(factory.attemptedKinds() == [.iroh])
+
+        // The terminal stream can fail before the underlying RPC client notices
+        // its transport has closed. This is the exact state rendered by the
+        // workspace list's Disconnected banner and Reconnect button.
+        store.markMacConnectionUnavailableIfNeeded(after: MobileShellConnectionError.connectionClosed)
+        #expect(store.connectionState == .connected)
+        #expect(store.workspaceListConnectionStatus == .unavailable)
+
+        await store.reconnectOrRefresh()
+
+        #expect(factory.attemptedKinds() == [.iroh, .iroh])
+        #expect(store.connectionState == .connected)
+        #expect(store.workspaceListConnectionStatus == .connected)
+    }
+
     @Test func reconnectActiveMacUsesPersistedIrohBeforeNetworkFallback() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
