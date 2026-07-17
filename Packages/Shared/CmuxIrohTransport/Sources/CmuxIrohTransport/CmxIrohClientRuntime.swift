@@ -91,6 +91,7 @@ public actor CmxIrohClientRuntime {
     var registrationRefreshEnabled = false
     var liveDiscoveryGeneration: UInt64 = 0
     var localBinding: CmxIrohBrokerBinding?
+    var registryContextProvider: CmxIrohRegistryContextProvider?
     var currentSnapshot = CmxIrohClientRuntimeSnapshot(
         state: .inactive,
         endpointID: nil,

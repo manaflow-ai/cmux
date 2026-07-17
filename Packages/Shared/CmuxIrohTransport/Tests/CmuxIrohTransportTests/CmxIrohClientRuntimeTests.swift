@@ -72,9 +72,12 @@ struct CmxIrohClientRuntimeTests {
         )
         try await runtime.start()
 
+        let initialProvider = try #require(await runtime.registryContextProvider)
         #expect(await runtime.refreshLiveDiscovery())
+        let refreshedProvider = try #require(await runtime.registryContextProvider)
         #expect(await broker.observedRegistrations().count == 2)
         #expect(await recorder.observedBindingCount() == 2)
+        #expect(initialProvider === refreshedProvider)
         await runtime.stop()
     }
 
