@@ -1022,8 +1022,9 @@ struct BrowserWebExtensionsManagerTests {
         let secondTab = try #require(registeredTabs.first {
             $0.webView?(for: extensionContext) === secondPanel.webView
         })
+        let activate = try #require(secondTab.activate)
         await confirmation("Dock-owned extension tab activated") { activated in
-            secondTab.activate(for: extensionContext) { error in
+            activate(extensionContext) { error in
                 #expect(error == nil)
                 activated()
             }
