@@ -1085,6 +1085,62 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
+    @Test func runtimePermissionCallbacksNeverGrantOrPresentDeclaredAccess() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dir = try Self.writeExtension(named: "sample", in: root, manifest: Self.minimalManifest)
+        try "// no-op".write(
+            to: dir.appendingPathComponent("content.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let manager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent()
+        )
+        try await manager.approveInstalledCandidate(dir)
+        await manager.loadExtensions()
+        let context = try #require(manager.loadedContexts.first)
+        let pageURL = try #require(URL(string: "https://example.com/page"))
+        let matchPattern = try #require(context.webExtension.allRequestedMatchPatterns.first)
+
+        let permissions = await withCheckedContinuation { continuation in
+            manager.webExtensionController(
+                manager.controller,
+                promptForPermissions: [.storage],
+                in: nil,
+                for: context
+            ) { allowed, _ in
+                continuation.resume(returning: allowed)
+            }
+        }
+        let urls = await withCheckedContinuation { continuation in
+            manager.webExtensionController(
+                manager.controller,
+                promptForPermissionToAccess: [pageURL],
+                in: nil,
+                for: context
+            ) { allowed, _ in
+                continuation.resume(returning: allowed)
+            }
+        }
+        let patterns = await withCheckedContinuation { continuation in
+            manager.webExtensionController(
+                manager.controller,
+                promptForPermissionMatchPatterns: [matchPattern],
+                in: nil,
+                for: context
+            ) { allowed, _ in
+                continuation.resume(returning: allowed)
+            }
+        }
+
+        #expect(permissions.isEmpty)
+        #expect(urls.isEmpty)
+        #expect(patterns.isEmpty)
+    }
+
+    @available(macOS 15.4, *)
     @Test func recordsErrorForInvalidManifestAndKeepsLoadingOthers() async throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
