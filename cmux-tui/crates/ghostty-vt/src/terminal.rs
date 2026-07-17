@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use ghostty_vt_sys as sys;
 
-use crate::render::CursorShape;
+use crate::render::{Cell, CursorShape, read_grid_ref_cell, terminal_palette};
 use crate::{Result, check};
 
 static NEXT_TERMINAL_ID: AtomicU64 = AtomicU64::new(1);
@@ -22,6 +22,32 @@ impl From<sys::GhosttyColorRgb> for Rgb {
     fn from(c: sys::GhosttyColorRgb) -> Self {
         Rgb { r: c.r, g: c.g, b: c.b }
     }
+}
+
+/// Parse a color with Ghostty's config semantics.
+///
+/// This accepts Ghostty's hex, X11 name, `rgb:`, and `rgbi:` forms.
+pub fn parse_color(value: &str) -> Option<Rgb> {
+    let mut color = sys::GhosttyColorRgb::default();
+    check(unsafe { sys::ghostty_color_parse(value.as_ptr().cast(), value.len(), &mut color) })
+        .ok()?;
+    Some(color.into())
+}
+
+/// Parse one Ghostty `palette = N=COLOR` value.
+pub fn parse_palette_entry(value: &str) -> Option<(u8, Rgb)> {
+    let mut index = 0;
+    let mut color = sys::GhosttyColorRgb::default();
+    check(unsafe {
+        sys::ghostty_color_parse_palette_entry(
+            value.as_ptr().cast(),
+            value.len(),
+            &mut index,
+            &mut color,
+        )
+    })
+    .ok()?;
+    Some((index, color.into()))
 }
 
 /// Which screen buffer is active.
@@ -434,10 +460,10 @@ impl Terminal {
         self.cursor_override.active
     }
 
-    /// Set host-provided default foreground/background colors.
+    /// Set host-provided default foreground, background, and cursor colors.
     ///
     /// `None` leaves that channel unchanged.
-    pub fn set_default_colors(&mut self, fg: Option<Rgb>, bg: Option<Rgb>) {
+    pub fn set_default_colors(&mut self, fg: Option<Rgb>, bg: Option<Rgb>, cursor: Option<Rgb>) {
         unsafe {
             if let Some(fg) = fg {
                 let color = sys::GhosttyColorRgb { r: fg.r, g: fg.g, b: fg.b };
@@ -455,6 +481,35 @@ impl Terminal {
                     &color as *const sys::GhosttyColorRgb as *const c_void,
                 );
             }
+            if let Some(cursor) = cursor {
+                let color = sys::GhosttyColorRgb { r: cursor.r, g: cursor.g, b: cursor.b };
+                sys::ghostty_terminal_set(
+                    self.raw,
+                    sys::GHOSTTY_TERMINAL_OPT_COLOR_CURSOR,
+                    &color as *const sys::GhosttyColorRgb as *const c_void,
+                );
+            }
+        }
+    }
+
+    /// Set selected entries in the host-provided default palette.
+    ///
+    /// Unspecified entries use Ghostty's built-in palette. Active OSC 4
+    /// overrides remain effective; this only replaces their defaults.
+    pub fn set_default_palette(&mut self, overrides: &[Option<Rgb>; 256]) {
+        let mut palette = [sys::GhosttyColorRgb::default(); 256];
+        unsafe { sys::ghostty_color_palette_default(palette.as_mut_ptr()) };
+        for (slot, color) in palette.iter_mut().zip(overrides) {
+            if let Some(color) = color {
+                *slot = sys::GhosttyColorRgb { r: color.r, g: color.g, b: color.b };
+            }
+        }
+        unsafe {
+            sys::ghostty_terminal_set(
+                self.raw,
+                sys::GHOSTTY_TERMINAL_OPT_COLOR_PALETTE,
+                palette.as_ptr().cast(),
+            );
         }
     }
 
@@ -497,6 +552,13 @@ impl Terminal {
             color(sys::GHOSTTY_TERMINAL_DATA_COLOR_BACKGROUND),
             color(sys::GHOSTTY_TERMINAL_DATA_COLOR_CURSOR),
         )
+    }
+
+    /// Cursor position (col, row), 0-indexed within the active area.
+    pub fn cursor_position(&self) -> Option<(u16, u16)> {
+        let x = self.get::<u16>(sys::GHOSTTY_TERMINAL_DATA_CURSOR_X).ok()?;
+        let y = self.get::<u16>(sys::GHOSTTY_TERMINAL_DATA_CURSOR_Y).ok()?;
+        Some((x, y))
     }
 
     pub fn resize(
@@ -548,6 +610,51 @@ impl Terminal {
     /// Number of scrollback rows above the viewport.
     pub fn scrollback_rows(&self) -> usize {
         self.get::<usize>(sys::GHOSTTY_TERMINAL_DATA_SCROLLBACK_ROWS).unwrap_or(0)
+    }
+
+    /// Number of retained history rows, saturated to the protocol's `u32`.
+    pub fn history_rows(&self) -> u32 {
+        u32::try_from(self.scrollback_rows()).unwrap_or(u32::MAX)
+    }
+
+    /// Read styled retained rows without moving the viewport or consuming
+    /// terminal/render damage.
+    ///
+    /// `start` is zero-based from the oldest retained row. Reads clamp at the
+    /// current history length, so an evicted or past-the-end start returns an
+    /// empty page. This uses Ghostty's read-only history-coordinate grid refs;
+    /// it never scrolls the shared viewport or updates a render state.
+    pub fn styled_history_rows(&self, start: u32, count: u16) -> Result<Vec<Vec<Cell>>> {
+        let total = self.history_rows();
+        if count == 0 || start >= total {
+            return Ok(Vec::new());
+        }
+
+        let palette = terminal_palette(self.raw, sys::GHOSTTY_TERMINAL_DATA_COLOR_PALETTE)?;
+        let end = start.saturating_add(u32::from(count)).min(total);
+        let cols = self.cols();
+        let mut rows = Vec::with_capacity((end - start) as usize);
+        let mut grapheme_buf = Vec::new();
+
+        for y in start..end {
+            let mut row = Vec::with_capacity(cols as usize);
+            for x in 0..cols {
+                let point = sys::GhosttyPoint {
+                    tag: sys::GHOSTTY_POINT_TAG_HISTORY,
+                    value: sys::GhosttyPointValue {
+                        coordinate: sys::GhosttyPointCoordinate { x, y },
+                    },
+                };
+                let mut grid_ref = sys::GhosttyGridRef {
+                    size: size_of::<sys::GhosttyGridRef>(),
+                    ..Default::default()
+                };
+                check(unsafe { sys::ghostty_terminal_grid_ref(self.raw, point, &mut grid_ref) })?;
+                row.push(read_grid_ref_cell(&grid_ref, &palette, &mut grapheme_buf)?);
+            }
+            rows.push(row);
+        }
+        Ok(rows)
     }
 
     /// Terminal title as set by OSC 0/2, if any.
@@ -807,7 +914,9 @@ impl Terminal {
         &mut self,
         selection: Option<&sys::GhosttySelection>,
     ) -> Result<Vec<u8>> {
-        self.format(Self::vt_replay_options(selection))
+        let mut bytes = self.format(Self::vt_replay_options(selection))?;
+        self.append_cursor_position(&mut bytes);
+        Ok(bytes)
     }
 
     fn vt_replay_with_selection_bounded(
@@ -815,7 +924,11 @@ impl Terminal {
         selection: Option<&sys::GhosttySelection>,
         max_bytes: usize,
     ) -> Result<Option<Vec<u8>>> {
-        self.format_bounded(Self::vt_replay_options(selection), max_bytes)
+        let mut bytes = self.format_bounded(Self::vt_replay_options(selection), max_bytes)?;
+        if let Some(bytes) = bytes.as_mut() {
+            self.append_cursor_position(bytes);
+        }
+        Ok(bytes)
     }
 
     fn vt_replay_options(
@@ -858,6 +971,21 @@ impl Terminal {
             sys::GhosttyGridRef { size: size_of::<sys::GhosttyGridRef>(), ..Default::default() };
         let result = unsafe { sys::ghostty_terminal_grid_ref(self.raw, point, &mut out) };
         (result == sys::GHOSTTY_SUCCESS).then_some(out)
+    }
+
+    fn append_cursor_position(&self, bytes: &mut Vec<u8>) {
+        // Ghostty's formatter emits tabstop programming (CHA+HTS pairs) and
+        // the OSC 7 pwd report AFTER its cursor restore, so a fresh mirror
+        // ends with its cursor parked on the last tabstop column. Re-assert
+        // the true position as the final sequence. (A pending soft-wrap flag
+        // is not restorable this way; the next print in that rare state
+        // wraps one column early on the mirror only.) Remove once the
+        // formatter orders the cursor restore last.
+        if let Some((x, y)) = self.cursor_position() {
+            bytes.extend_from_slice(
+                format!("\x1b[{};{}H", u32::from(y) + 1, u32::from(x) + 1).as_bytes(),
+            );
+        }
     }
 
     fn format(&mut self, opts: sys::GhosttyFormatterTerminalOptions) -> Result<Vec<u8>> {
