@@ -37,6 +37,7 @@ extension GhosttySurfaceView {
         )
         let result = gridView.present(frame)
         guard result == .presented else { return result }
+        gridView.terminalTheme = terminalTheme
         gridView.terminalFontSize = CGFloat(liveFontSize)
         gridView.isHidden = false
         isRenderDispatchSuppressed = true
@@ -93,6 +94,7 @@ extension GhosttySurfaceView {
         surfaceID: String
     ) -> AuthoritativeTerminalGridView {
         let gridView = AuthoritativeTerminalGridView(surfaceID: surfaceID)
+        gridView.terminalTheme = terminalTheme
         gridView.isHidden = true
         addSubview(gridView)
         authoritativeGridView = gridView

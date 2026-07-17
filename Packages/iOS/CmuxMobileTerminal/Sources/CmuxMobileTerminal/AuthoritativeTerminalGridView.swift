@@ -19,6 +19,13 @@ final class AuthoritativeTerminalGridView: UIView {
     private var cursorBlinkPhaseVisible = true
     private var hasBlinkingText = false
     private var hasBlinkingCursor = false
+    var terminalTheme: TerminalTheme = .monokai {
+        didSet {
+            guard terminalTheme != oldValue else { return }
+            setNeedsDisplay()
+            setNeedsLayout()
+        }
+    }
     var terminalFontSize: CGFloat = 10 {
         didSet {
             guard terminalFontSize != oldValue else { return }
@@ -113,7 +120,7 @@ final class AuthoritativeTerminalGridView: UIView {
             return
         }
 
-        let theme = TerminalThemeStore.current
+        let theme = renderTheme(for: frame)
         let frameDefaultStyle = frame.styles.first(where: { $0.id == 0 })
         let defaultBackground = color(
             frameDefaultStyle?.background ?? frame.terminalBackground,
@@ -327,7 +334,7 @@ private extension AuthoritativeTerminalGridView {
         let frameDefaultForeground = frame.styles.first(where: { $0.id == 0 })?.foreground
         let cursorColor = color(
             frame.terminalCursorColor ?? frameDefaultForeground,
-            fallback: color(TerminalThemeStore.current.cursor, fallback: .white)
+            fallback: color(renderTheme(for: frame).cursor, fallback: .white)
         )
         guard cursor.style != .block else {
             cursorLayer.isHidden = true
@@ -398,12 +405,13 @@ private extension AuthoritativeTerminalGridView {
             height: cellHeight
         )
         let defaultStyle = frame.styles.first(where: { $0.id == 0 })
+        let theme = renderTheme(for: frame)
         let cursorColor = color(
             frame.terminalCursorColor ?? defaultStyle?.foreground,
-            fallback: color(TerminalThemeStore.current.cursor, fallback: defaultForeground)
+            fallback: color(theme.cursor, fallback: defaultForeground)
         ).withAlphaComponent(cursor.opacity)
         let cursorTextColor = color(
-            frame.terminalCursorTextColor ?? TerminalThemeStore.current.cursorText,
+            frame.terminalCursorTextColor ?? theme.cursorText,
             fallback: defaultBackground
         )
         context.setFillColor(cursorColor.cgColor)
@@ -442,8 +450,12 @@ private extension AuthoritativeTerminalGridView {
         let frameDefaultBackground = frame?.styles.first(where: { $0.id == 0 })?.background
         return color(
             frameDefaultBackground ?? frame?.terminalBackground,
-            fallback: color(TerminalThemeStore.current.background, fallback: .black)
+            fallback: color(renderTheme(for: frame).background, fallback: .black)
         )
+    }
+
+    private func renderTheme(for frame: MobileTerminalRenderGridFrame?) -> TerminalTheme {
+        (frame?.terminalTheme ?? terminalTheme).validatedOrDefault()
     }
 
     private func color(_ value: String?, fallback: UIColor) -> UIColor {

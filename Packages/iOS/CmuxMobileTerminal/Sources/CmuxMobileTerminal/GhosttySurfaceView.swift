@@ -2922,12 +2922,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         snapshotFallbackView.backgroundColor = themeBackground
         snapshotFallbackView.textColor = terminalTheme.terminalForegroundUIColor
         configBackgroundColor = themeBackground
-        if let config = runtime?.config {
-            applyBackgroundColorFromConfig(config)
-        }
         configCursorColor = terminalTheme.terminalCursorUIColor
         inputProxy.terminalTheme = terminalTheme
         inputProxy.refreshThemeColors()
+        authoritativeGridView?.terminalTheme = terminalTheme
         authoritativeGridView?.setNeedsDisplay()
         updateCursorOverlay()
         needsDraw = true
