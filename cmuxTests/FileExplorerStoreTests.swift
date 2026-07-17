@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Testing
 
 #if canImport(cmux_DEV)
@@ -525,6 +526,95 @@ struct FileExplorerStoreTests {
         }
     }
 
+    // MARK: - Per-workspace Find state
+
+    @Test
+    func testFindStateAndExpansionPersistAcrossSameWorkspaceCalls() {
+        let store = FileExplorerStore()
+        let workspaceId = UUID()
+        store.beginWorkspace(workspaceId)
+
+        let node = FileExplorerNode(name: "src", path: "/project/src", isDirectory: true)
+        node.children = []
+        store.expand(node: node)
+        store.setFindQuery("login")
+        let results = [Self.searchResult(relativePath: "src/auth.swift")]
+        store.setFindSnapshot(FileSearchSnapshot(
+            query: "login",
+            results: results,
+            status: .matches,
+            isSearching: false,
+            totalMatchCount: results.count
+        ))
+
+        store.beginWorkspace(workspaceId)
+
+        #expect(store.findQuery == "login")
+        #expect(store.findSnapshot.results.count == 1)
+        #expect(store.expandedPaths.contains("/project/src"))
+    }
+
+    @Test
+    func testBeginWorkspaceWithDifferentIdClearsFindAndExpansion() {
+        let store = FileExplorerStore()
+        store.beginWorkspace(UUID())
+
+        let node = FileExplorerNode(name: "src", path: "/project/src", isDirectory: true)
+        node.children = []
+        store.expand(node: node)
+        store.setFindQuery("login")
+        let results = [Self.searchResult(relativePath: "src/auth.swift")]
+        store.setFindSnapshot(FileSearchSnapshot(
+            query: "login",
+            results: results,
+            status: .matches,
+            isSearching: false,
+            totalMatchCount: results.count
+        ))
+
+        store.beginWorkspace(UUID())
+
+        #expect(store.findQuery.isEmpty)
+        #expect(store.findSnapshot == .empty)
+        #expect(store.expandedPaths.isEmpty)
+        #expect(store.selectedPath == nil)
+        #expect(store.selectedPaths.isEmpty)
+    }
+
+    @Test
+    func testBeginWorkspaceNilAlsoClearsState() {
+        let store = FileExplorerStore()
+        store.beginWorkspace(UUID())
+        store.setFindQuery("login")
+
+        store.beginWorkspace(nil)
+
+        #expect(store.findQuery.isEmpty)
+        #expect(store.findSnapshot == .empty)
+    }
+
+    @Test
+    func findStateSettersDoNotPublish() {
+        let store = FileExplorerStore()
+        var emissionCount = 0
+        let cancellable = store.objectWillChange.sink { emissionCount += 1 }
+
+        store.setFindQuery("needle")
+        let results = [Self.searchResult(relativePath: "result.txt")]
+        store.setFindSnapshot(FileSearchSnapshot(
+            query: "needle",
+            results: results,
+            status: .matches,
+            isSearching: false,
+            totalMatchCount: results.count
+        ))
+        #expect(emissionCount == 0)
+
+        store.rootPath = "/tmp/positive-control"
+        #expect(emissionCount == 1)
+        withExtendedLifetime(cancellable) {}
+    }
+
     // MARK: - Error clearing
 
     @Test
@@ -614,6 +704,16 @@ struct FileExplorerStoreTests {
         let node = FileExplorerNode(name: "file.txt", path: "/project/file.txt", isDirectory: false)
         store.expand(node: node)
         #expect(!(store.isExpanded(node)))
+    }
+
+    private static func searchResult(relativePath: String) -> FileSearchResult {
+        FileSearchResult(
+            path: "/tmp/cmux-find-content-revision-test/\(relativePath)",
+            relativePath: relativePath,
+            lineNumber: 1,
+            columnNumber: 1,
+            preview: "needle"
+        )
     }
 }
 

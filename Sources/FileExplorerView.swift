@@ -70,6 +70,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         context.coordinator.onContainerChange = onContainerChange
         context.coordinator.onContainerChange?(container)
         container.updateShortcutPlacement(placement)
+        container.syncFindStateFromStoreIfNeeded()
         container.syncSearchOptionButtons()
         container.updateHeader(store: store)
         container.updatePresentation(presentation)
@@ -662,6 +663,7 @@ final class FileExplorerContainerView: NSView {
     private var searchDebounceGeneration = 0
     private var pendingSearchRefreshAfterSettled = false
     private var isBackendSearching = false
+    private var isReseedingFindFromCache = false
     private var isSearchVisible = false {
         didSet {
             if !isSearchVisible {
@@ -913,7 +915,25 @@ final class FileExplorerContainerView: NSView {
             loadingIndicator.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
 
+        currentWorkspaceRootIdentity = coordinator.store.workspaceRootIdentity
+        let initialQuery = coordinator.store.findQuery
+        if !initialQuery.isEmpty {
+            searchField.stringValue = initialQuery
+        }
+        let cachedSnapshot = coordinator.store.findSnapshot
+        if cachedSnapshot != .empty {
+            applySearchSnapshot(cachedSnapshot)
+            isBackendSearching = false
+            var settledSnapshot = cachedSnapshot
+            settledSnapshot.isSearching = false
+            searchStatusLabel.stringValue = statusText(for: settledSnapshot)
+        }
+        isReseedingFindFromCache = !initialQuery.isEmpty || cachedSnapshot != .empty
         syncSearchOptionButtons()
+        if presentation == .find {
+            isSearchVisible = true
+            updateSearchLayout()
+        }
     }
 
     private func applyChromeFonts() {
@@ -981,12 +1001,17 @@ final class FileExplorerContainerView: NSView {
         currentWorkspaceRootIdentity = nextWorkspaceRootIdentity; currentContentRevision = nextContentRevision
         headerView.update(displayPath: store.displayRootPath)
         if workspaceRootChanged {
-            cancelPendingSearchRefresh()
-            pendingSearchRefreshAfterSettled = false
-            searchController.cancel(clear: true)
-            isBackendSearching = false
-            searchField.stringValue = ""
-            handleSearchSnapshot(.empty)
+            if isReseedingFindFromCache {
+                isReseedingFindFromCache = false
+            } else {
+                cancelPendingSearchRefresh()
+                pendingSearchRefreshAfterSettled = false
+                searchController.cancel(clear: true)
+                isBackendSearching = false
+                searchField.stringValue = ""
+                coordinator.store.setFindQuery("")
+                handleSearchSnapshot(.empty)
+            }
         }
         if searchScopeChanged {
             pendingSearchRefreshAfterSettled = false
@@ -998,6 +1023,29 @@ final class FileExplorerContainerView: NSView {
 
     func representedRightSidebarMode() -> RightSidebarMode {
         presentation.rightSidebarMode
+    }
+
+    func syncFindStateFromStoreIfNeeded() {
+        let storeQuery = coordinator.store.findQuery
+        let storeSnapshot = coordinator.store.findSnapshot
+        let fieldMismatch = searchField.stringValue != storeQuery
+        let snapshotMismatch = searchSnapshot != storeSnapshot
+        guard fieldMismatch || snapshotMismatch else { return }
+
+        if fieldMismatch {
+            searchField.stringValue = storeQuery
+        }
+        cancelPendingSearchRefresh()
+        searchController.cancel(clear: false)
+        isBackendSearching = false
+        pendingSearchRefreshAfterSettled = false
+        isReseedingFindFromCache = false
+        if snapshotMismatch {
+            applySearchSnapshot(storeSnapshot)
+            var settledSnapshot = storeSnapshot
+            settledSnapshot.isSearching = false
+            searchStatusLabel.stringValue = statusText(for: settledSnapshot)
+        }
     }
 
     func updateShortcutPlacement(_ placement: FileExplorerPanelPlacement) {
@@ -1105,6 +1153,7 @@ final class FileExplorerContainerView: NSView {
             searchController.cancel(clear: true)
             isBackendSearching = false
             searchField.stringValue = ""
+            coordinator.store.setFindQuery("")
             handleSearchSnapshot(.empty)
             updateSearchLayout()
         }
@@ -1348,12 +1397,14 @@ final class FileExplorerContainerView: NSView {
     }
 
     private func applySearchSnapshot(_ snapshot: FileSearchSnapshot) {
+        isReseedingFindFromCache = false
 #if DEBUG
         let debugApplyStart = ProcessInfo.processInfo.systemUptime
         let previousStatusName = debugSearchStatusName(searchSnapshot.status)
         let previousStatusTextLength = searchStatusLabel.stringValue.count
 #endif
         searchSnapshot = snapshot
+        coordinator.store.setFindSnapshot(snapshot)
         searchResultsView.apply(snapshot)
 #if DEBUG
         logSearchSnapshot(
@@ -1499,6 +1550,7 @@ final class FileExplorerContainerView: NSView {
             searchController.cancel(clear: true)
             isBackendSearching = false
             searchField.stringValue = ""
+            coordinator.store.setFindQuery("")
             handleSearchSnapshot(.empty)
             updateSearchLayout()
             if hadQuery {
@@ -1516,6 +1568,7 @@ final class FileExplorerContainerView: NSView {
         searchController.cancel(clear: true)
         isBackendSearching = false
         searchField.stringValue = ""
+        coordinator.store.setFindQuery("")
         pendingSearchRefreshAfterSettled = false
         handleSearchSnapshot(.empty)
         updateSearchLayout()
@@ -1574,6 +1627,7 @@ final class FileExplorerContainerView: NSView {
 extension FileExplorerContainerView: NSSearchFieldDelegate, NSMenuDelegate {
     func controlTextDidChange(_ notification: Notification) {
         guard notification.object as? NSTextField === searchField else { return }
+        coordinator.store.setFindQuery(searchField.stringValue)
         scrollSearchFieldEditorToInsertionPoint()
         Task { @MainActor [weak self] in
             self?.scrollSearchFieldEditorToInsertionPoint()
