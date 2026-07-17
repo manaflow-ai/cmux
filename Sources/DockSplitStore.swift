@@ -334,7 +334,7 @@ final class DockSplitStore: BonsplitDelegate {
         panels[panel.id] = panel
         let newTab = Bonsplit.Tab(
             title: panel.displayTitle,
-            icon: panel.displayIcon,
+            icon: panel.interfaceDisplayIcon,
             kind: tabKindRaw(kind),
             isDirty: panel.isDirty,
             isPinned: false
@@ -534,7 +534,7 @@ final class DockSplitStore: BonsplitDelegate {
         panels[panel.id] = panel
         guard let tabId = bonsplitController.createTab(
             title: title,
-            icon: panel.displayIcon,
+            icon: panel.interfaceDisplayIcon,
             kind: tabKindRaw(kind),
             isDirty: panel.isDirty,
             isPinned: false,
@@ -791,7 +791,7 @@ final class DockSplitStore: BonsplitDelegate {
                 panels[panel.id] = panel
                 let newTab = Bonsplit.Tab(
                     title: definition.title,
-                    icon: panel.displayIcon,
+                    icon: panel.interfaceDisplayIcon,
                     kind: tabKindRaw(definition.kind),
                     isDirty: panel.isDirty,
                     isPinned: false

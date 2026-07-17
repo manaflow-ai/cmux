@@ -11,6 +11,12 @@ public enum WindowChromeSidebarMaterialOption: String, CaseIterable, Identifiabl
     /// AppKit sidebar material.
     case sidebar
 
+    /// Native titlebar material.
+    case titlebar
+
+    /// Native selection material.
+    case selection
+
     /// AppKit HUD window material.
     case hudWindow
 
@@ -22,6 +28,9 @@ public enum WindowChromeSidebarMaterialOption: String, CaseIterable, Identifiabl
 
     /// AppKit under-window background material.
     case underWindowBackground
+
+    /// Native under-page background material.
+    case underPageBackground
 
     /// AppKit window background material.
     case windowBackground
@@ -50,10 +59,13 @@ public enum WindowChromeSidebarMaterialOption: String, CaseIterable, Identifiabl
         case .none: return String(localized: "settings.material.none", defaultValue: "None")
         case .liquidGlass: return String(localized: "settings.material.liquidGlass", defaultValue: "Liquid Glass (macOS 26+)")
         case .sidebar: return String(localized: "settings.material.sidebar", defaultValue: "Sidebar")
+        case .titlebar: return String(localized: "settings.material.titlebar", defaultValue: "Titlebar")
+        case .selection: return String(localized: "settings.material.selection", defaultValue: "Selection")
         case .hudWindow: return String(localized: "settings.material.hudWindow", defaultValue: "HUD Window")
         case .menu: return String(localized: "settings.material.menu", defaultValue: "Menu")
         case .popover: return String(localized: "settings.material.popover", defaultValue: "Popover")
         case .underWindowBackground: return String(localized: "settings.material.underWindow", defaultValue: "Under Window")
+        case .underPageBackground: return String(localized: "settings.material.underPage", defaultValue: "Under Page")
         case .windowBackground: return String(localized: "settings.material.windowBackground", defaultValue: "Window Background")
         case .contentBackground: return String(localized: "settings.material.contentBackground", defaultValue: "Content Background")
         case .fullScreenUI: return String(localized: "settings.material.fullScreenUI", defaultValue: "Full Screen UI")
@@ -74,10 +86,13 @@ public enum WindowChromeSidebarMaterialOption: String, CaseIterable, Identifiabl
         case .none: return nil
         case .liquidGlass: return .underWindowBackground
         case .sidebar: return .sidebar
+        case .titlebar: return .titlebar
+        case .selection: return .selection
         case .hudWindow: return .hudWindow
         case .menu: return .menu
         case .popover: return .popover
         case .underWindowBackground: return .underWindowBackground
+        case .underPageBackground: return .underPageBackground
         case .windowBackground: return .windowBackground
         case .contentBackground: return .contentBackground
         case .fullScreenUI: return .fullScreenUI

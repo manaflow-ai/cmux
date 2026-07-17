@@ -227,7 +227,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let settings = model.settings
 
         // Chrome
-        let style = sidebarWorkspaceRowBackgroundStyle(
+        var style = sidebarWorkspaceRowBackgroundStyle(
             activeTabIndicatorStyle: settings.activeTabIndicatorStyle,
             isActive: model.isActive,
             isMultiSelected: model.isMultiSelected,
@@ -235,6 +235,12 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             colorScheme: palette.colorScheme,
             sidebarSelectionColorHex: settings.selectionColorHex
         )
+        if isPointerHovering, !model.isActive, !model.isMultiSelected {
+            style = SidebarWorkspaceRowBackgroundStyle(
+                color: CmuxInterfaceAppearance.current().color(.hover, fallback: .controlAccentColor),
+                opacity: 0.12
+            )
+        }
         applyBackgroundStyle(style)
         if settings.activeTabIndicatorStyle == .solidFill, model.isActive {
             backgroundView.layer?.borderWidth = 1.5
@@ -258,7 +264,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             pinImageView.image = RenderableSystemSymbol.configuredAppKitImage(
                 systemName: "pin.fill", pointSize: model.scaled(9), weight: .semibold
             )
-            pinImageView.contentTintColor = palette.secondary(0.8)
+            pinImageView.contentTintColor = CmuxInterfaceAppearance.current().color(
+                .toolbarIcon,
+                fallback: palette.secondary(0.8)
+            )
             pinImageView.toolTip = String(localized: "sidebar.pinnedWorkspaceProtected.tooltip", defaultValue: "Pinned workspace — protected from Close")
         }
         let media = snapshot.mediaActivity
@@ -307,7 +316,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         closeButton.glyphImage = RenderableSystemSymbol.configuredAppKitImage(
             systemName: "xmark", pointSize: model.scaled(9), weight: .medium
         )
-        closeButton.contentTintColor = palette.secondary(0.7)
+        closeButton.contentTintColor = CmuxInterfaceAppearance.current().color(
+            .toolbarIcon,
+            fallback: palette.secondary(0.7)
+        )
         closeButton.toolTip = snapshot.isPinned
             ? String(localized: "sidebar.pinnedWorkspaceProtected.tooltip", defaultValue: "Pinned workspace — protected from Close")
             : String(localized: "sidebar.closeWorkspace.tooltip", defaultValue: "Close workspace")

@@ -2,6 +2,58 @@
 
 Global app preferences live in `~/.config/cmux/cmux.json`.
 
+## Interface colors and icons
+
+`appearance.colors` assigns hex colors to cmux chrome roles. `appearance.icons` maps an original SF Symbol name to another valid SF Symbol.
+
+```json
+{
+  "appearance": {
+    "colors": {
+      "accent": "#7C3AED",
+      "hover": "#A78BFA",
+      "dropTarget": "#F59E0B",
+      "notification": "#22D3EE",
+      "success": "#34D399",
+      "warning": "#FBBF24",
+      "error": "#FB7185",
+      "toolbarIcon": "#E9D5FF",
+      "tabIcon": "#C4B5FD"
+    },
+    "icons": {
+      "plus": "sparkles",
+      "bell": "bell.and.waves.left.and.right",
+      "terminal": "apple.terminal",
+      "globe": "safari"
+    }
+  }
+}
+```
+
+The Appearance settings page edits the same values and accepts arbitrary SF Symbol mappings. Terminal palette colors remain Ghostty settings.
+
+## Sidebar material
+
+`sidebarAppearance` controls the left and right sidebar backdrops independently from terminal and browser panes.
+
+```json
+{
+  "sidebarAppearance": {
+    "matchTerminalBackground": false,
+    "preset": "liquidGlassSidebars",
+    "material": "liquidGlass",
+    "blendMode": "withinWindow",
+    "state": "followWindow",
+    "tintColor": "#7AB8FF",
+    "tintOpacity": 0.08,
+    "blurOpacity": 0.9,
+    "cornerRadius": 0
+  }
+}
+```
+
+`liquidGlass` uses native Liquid Glass on macOS 26 or later and falls back to the configured AppKit material on older macOS releases. Keep `matchTerminalBackground` false to leave terminal and browser panes opaque.
+
 ## `paneBorderColor` and `activePaneBorderColor`
 
 Customize split-workspace pane boundaries controlled by cmux.

@@ -42,24 +42,25 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
     }
 
     var defaultIcon: String {
-        switch self {
+        let systemName: String = switch self {
         case .newWorkspace:
-            return "plus.square"
+            "plus.square"
         case .newAgentChat:
-            return "message"
+            "message"
         case .cloudVM:
-            return "cloud"
+            "cloud"
         case .mobileConnect:
-            return "iphone"
+            "iphone"
         case .newTerminal:
-            return "terminal"
+            "terminal"
         case .newBrowser:
-            return "globe"
+            "globe"
         case .splitRight:
-            return "square.split.2x1"
+            "square.split.2x1"
         case .splitDown:
-            return "square.split.1x2"
+            "square.split.1x2"
         }
+        return CmuxInterfaceAppearance.storedIcon(defaultSystemName: systemName)
     }
 
     var bonsplitAction: BonsplitConfiguration.SplitActionButton.Action? {

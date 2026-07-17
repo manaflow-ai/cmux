@@ -5,6 +5,8 @@ import Foundation
 /// tint values; choosing `custom` keeps whatever the user has already
 /// dialed in.
 public enum SidebarPresetOption: String, CaseIterable, Sendable, SettingCodable {
+    /// Native liquid glass on the sidebars while terminal and browser panes remain opaque.
+    case liquidGlassSidebars
     case nativeSidebar
     case nativeTitlebar
     case translucent

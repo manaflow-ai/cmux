@@ -2,6 +2,113 @@ import AppKit
 import CmuxFoundation
 import SwiftUI
 
+enum CmuxInterfaceColorRole: String, CaseIterable, Sendable {
+    case accent
+    case hover
+    case dropTarget
+    case notification
+    case success
+    case warning
+    case error
+    case toolbarIcon
+    case tabIcon
+}
+
+struct CmuxInterfaceAppearance: Equatable, Sendable {
+    static let colorsDefaultsKey = "interfaceAppearanceColorsJSON"
+    static let iconsDefaultsKey = "interfaceAppearanceIconsJSON"
+
+    let colors: [String: String]
+    let icons: [String: String]
+
+    @MainActor private static var cachedRawColors: String?
+    @MainActor private static var cachedRawIcons: String?
+    @MainActor private static var cachedAppearance = Self(colors: [:], icons: [:])
+
+    private static let tabIconNames: Set<String> = ["terminal", "globe", "doc.text"]
+    private static let toolbarIconNames: Set<String> = [
+        "plus", "bell", "gearshape", "pin.fill", "xmark", "sidebar.left",
+        "square.split.2x1", "square.split.1x2", "folder.fill",
+    ]
+
+    @MainActor
+    static func current(defaults: UserDefaults = .standard) -> Self {
+        let rawColors = defaults.string(forKey: colorsDefaultsKey)
+        let rawIcons = defaults.string(forKey: iconsDefaultsKey)
+        guard rawColors != cachedRawColors || rawIcons != cachedRawIcons else {
+            return cachedAppearance
+        }
+        cachedRawColors = rawColors
+        cachedRawIcons = rawIcons
+        cachedAppearance = Self(colors: decodeMap(rawColors), icons: decodeMap(rawIcons))
+        return cachedAppearance
+    }
+
+    func icon(defaultSystemName: String) -> String {
+        guard let override = icons[defaultSystemName]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !override.isEmpty,
+              NSImage(systemSymbolName: override, accessibilityDescription: nil) != nil else {
+            return defaultSystemName
+        }
+        return override
+    }
+
+    static func storedIcon(
+        defaultSystemName: String,
+        defaults: UserDefaults = .standard
+    ) -> String {
+        Self(
+            colors: [:],
+            icons: decodeMap(defaults.string(forKey: iconsDefaultsKey))
+        ).icon(defaultSystemName: defaultSystemName)
+    }
+
+    func color(_ role: CmuxInterfaceColorRole, fallback: NSColor) -> NSColor {
+        colorOverride(role) ?? fallback
+    }
+
+    func colorOverride(_ role: CmuxInterfaceColorRole) -> NSColor? {
+        guard let hex = colors[role.rawValue] else { return nil }
+        return NSColor(hex: hex)
+    }
+
+    static func storedColorHex(
+        _ role: CmuxInterfaceColorRole,
+        defaults: UserDefaults = .standard
+    ) -> String? {
+        decodeMap(defaults.string(forKey: colorsDefaultsKey))[role.rawValue]
+    }
+
+    func iconColor(defaultSystemName: String) -> NSColor? {
+        if Self.tabIconNames.contains(defaultSystemName) {
+            return colorOverride(.tabIcon)
+        }
+        if Self.toolbarIconNames.contains(defaultSystemName) {
+            return colorOverride(.toolbarIcon)
+        }
+        return nil
+    }
+
+    static func encodeMap(_ map: [String: String]) -> String {
+        guard JSONSerialization.isValidJSONObject(map),
+              let data = try? JSONSerialization.data(withJSONObject: map, options: [.sortedKeys]),
+              let string = String(data: data, encoding: .utf8) else {
+            return "{}"
+        }
+        return string
+    }
+
+    private static func decodeMap(_ rawValue: String?) -> [String: String] {
+        guard let rawValue,
+              let data = rawValue.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data),
+              let map = object as? [String: String] else {
+            return [:]
+        }
+        return map
+    }
+}
+
 enum RenderableSystemSymbol {
     static let defaultWorkspaceGroupIcon = "folder.fill"
     static let defaultSurfaceTabIcon = "doc.text"
@@ -128,9 +235,10 @@ enum RenderableSystemSymbol {
 
     @MainActor
     static func resolvedSurfaceTabIcon(_ raw: String?, fallback: String = defaultSurfaceTabIcon) -> String {
-        normalized(raw)
+        let resolved = normalized(raw)
             ?? normalized(fallback)
             ?? defaultSurfaceTabIcon
+        return CmuxInterfaceAppearance.current().icon(defaultSystemName: resolved)
     }
 
     @MainActor
@@ -163,6 +271,7 @@ enum RenderableSystemSymbol {
         pointSize: CGFloat,
         weight: Font.Weight? = nil
     ) -> NSImage? {
+        let systemName = CmuxInterfaceAppearance.current().icon(defaultSystemName: systemName)
         let rasterSize = clampedRasterPointSize(pointSize)
         let fontWeight = nsFontWeight(for: weight)
         let cacheKey = AppKitImageCacheKey(
@@ -234,6 +343,8 @@ enum RenderableSystemSymbol {
 
 struct CmuxSystemSymbolImage: View {
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
+    @AppStorage(CmuxInterfaceAppearance.colorsDefaultsKey) private var interfaceColorsJSON = "{}"
+    @AppStorage(CmuxInterfaceAppearance.iconsDefaultsKey) private var interfaceIconsJSON = "{}"
 
     let systemName: String
     let pointSize: CGFloat
@@ -271,6 +382,9 @@ struct CmuxSystemSymbolImage: View {
     }
 
     var body: some View {
+        let _ = interfaceColorsJSON
+        let _ = interfaceIconsJSON
+        let iconColor = CmuxInterfaceAppearance.current().iconColor(defaultSystemName: systemName)
         let rasterSize = RenderableSystemSymbol.resolvedRasterPointSize(
             pointSize,
             globalFontPercent: globalFontPercent,
@@ -283,6 +397,7 @@ struct CmuxSystemSymbolImage: View {
         ) {
             Image(nsImage: image)
                 .renderingMode(.template)
+                .foregroundColor(iconColor.map { Color(nsColor: $0) })
                 .frame(width: rasterSize, height: rasterSize, alignment: alignment)
         } else {
             Color.clear

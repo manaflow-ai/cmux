@@ -175,6 +175,18 @@ extension CmuxSettingsFileStore {
                     "lightModeTintColor": NSNull(),
                     "darkModeTintColor": NSNull(),
                     "tintOpacity": SidebarTintDefaults().opacity,
+                    "blurOpacity": SidebarAppearanceCatalogSection().blurOpacity.defaultValue,
+                    "cornerRadius": SidebarAppearanceCatalogSection().cornerRadius.defaultValue,
+                    "preset": SidebarAppearanceCatalogSection().preset.defaultValue.rawValue,
+                    "material": SidebarAppearanceCatalogSection().material.defaultValue.rawValue,
+                    "blendMode": SidebarAppearanceCatalogSection().blendMode.defaultValue.rawValue,
+                    "state": SidebarAppearanceCatalogSection().state.defaultValue.rawValue,
+                ],
+            ],
+            [
+                "appearance": [
+                    "colors": [String: String](),
+                    "icons": [String: String](),
                 ],
             ],
             [

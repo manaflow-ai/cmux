@@ -39,7 +39,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .networking:
             return String(localized: "settings.section.networking", defaultValue: "Networking")
         case .workspaceColors:
-            return String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors")
+            return String(localized: "settings.section.appearance", defaultValue: "Appearance")
         case .sidebarAppearance:
             return String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar")
         case .customSidebars:
@@ -121,7 +121,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .networking:
             return "\(title) iroh relay server private network tailscale vpn direct peer custom provider region"
         case .workspaceColors:
-            return "\(title) palette tabs"
+            return "\(title) colors icons palette tabs highlights drag drop bonsplit theme"
         case .sidebarAppearance:
             return "\(title) sidebar details branches badges material terminal background"
         case .customSidebars:
@@ -392,6 +392,7 @@ enum SettingsSearchIndex {
         setting(.textBox, "focus-textbox-new-terminals", String(localized: "settings.textBox.focusOnNewTerminals", defaultValue: "Focus TextBox on New Terminals"), "terminal.focusTextBoxOnNewTerminals textbox text box rich input prompt default new workspace split tab beta"),
         setting(.textBox, "default-submit-action", String(localized: "settings.textBox.defaultSubmitAction", defaultValue: "Default Submit Action"), "terminal.textBoxDefaultSubmitAction textbox submit action shift tab codex yolo claude opencode pi agent route"),
         setting(.textBox, "textbox-max-lines", String(localized: "settings.textBox.maxLines", defaultValue: "TextBox Max Lines"), "terminal.textBoxMaxLines terminal textbox text box rich input prompt max height lines grow scroll beta"),
+        setting(.sidebarAppearance, "sidebar-style", String(localized: "settings.sidebarAppearance.preset", defaultValue: "Sidebar Style"), "liquid glass translucent opaque material blur tint sidebar only"),
         setting(.sidebarAppearance, "match-terminal", String(localized: "settings.sidebarAppearance.matchTerminalBackground", defaultValue: "Match Terminal Background"), "sidebar material transparency"),
         setting(.sidebarAppearance, "font-size", String(localized: "settings.sidebarAppearance.fontSize", defaultValue: "Sidebar Font Size"), "font size text scale workspace title badge metadata shortcut hint sidebar-font-size"),
         setting(.sidebarAppearance, "hide-sidebar-details", String(localized: "settings.app.hideAllSidebarDetails", defaultValue: "Hide All Sidebar Details"), "workspace sidebar compact"),
@@ -472,6 +473,8 @@ enum SettingsSearchIndex {
         setting(.workspaceColors, "selection", String(localized: "settings.workspaceColors.selectionColor", defaultValue: "Selection Highlight"), "selected workspace background"),
         setting(.workspaceColors, "badge", String(localized: "settings.workspaceColors.notificationBadgeColor", defaultValue: "Notification Badge"), "unread notification color"),
         setting(.workspaceColors, "palette", String(localized: "settings.workspaceColors.resetPalette", defaultValue: "Reset Palette"), "named colors palette"),
+        setting(.workspaceColors, "interface-colors", String(localized: "settings.appearance.interfaceColors", defaultValue: "Interface Colors"), "appearance colors highlights hover notification drag drop bonsplit status"),
+        setting(.workspaceColors, "interface-icons", String(localized: "settings.appearance.interfaceIcons", defaultValue: "Interface Icons"), "appearance icons sf symbols terminal browser split close pin add"),
         setting(.settingsJSON, "open-file", String(localized: "settings.settingsJSON.openFile", defaultValue: "Open cmux.json"), "config json file editor dotfiles"),
         setting(.settingsJSON, "documentation", String(localized: "settings.settingsJSON.documentation", defaultValue: "Documentation"), "cmux json schema reference docs"),
         setting(.reset, "reset-all", String(localized: "settings.reset.resetAll", defaultValue: "Reset All Settings"), "restore defaults")
@@ -570,6 +573,16 @@ enum SettingsSearchIndex {
         "workspaceColors.indicatorStyle": settingID(for: .workspaceColors, idSuffix: "indicator"),
         "workspaceColors.selectionColor": settingID(for: .workspaceColors, idSuffix: "selection"),
         "workspaceColors.notificationBadgeColor": settingID(for: .workspaceColors, idSuffix: "badge"),
+        "appearance.colors": settingID(for: .workspaceColors, idSuffix: "interface-colors"),
+        "appearance.icons": settingID(for: .workspaceColors, idSuffix: "interface-icons"),
+        "sidebarAppearance.preset": settingID(for: .sidebarAppearance, idSuffix: "sidebar-style"),
+        "sidebarAppearance.material": settingID(for: .sidebarAppearance, idSuffix: "sidebar-style"),
+        "sidebarAppearance.blendMode": settingID(for: .sidebarAppearance, idSuffix: "sidebar-style"),
+        "sidebarAppearance.state": settingID(for: .sidebarAppearance, idSuffix: "sidebar-style"),
+        "sidebarAppearance.tintColor": settingID(for: .sidebarAppearance, idSuffix: "sidebar-style"),
+        "sidebarAppearance.tintOpacity": settingID(for: .sidebarAppearance, idSuffix: "sidebar-style"),
+        "sidebarAppearance.blurOpacity": settingID(for: .sidebarAppearance, idSuffix: "sidebar-style"),
+        "sidebarAppearance.cornerRadius": settingID(for: .sidebarAppearance, idSuffix: "sidebar-style"),
         "sidebarAppearance.matchTerminalBackground": settingID(for: .sidebarAppearance, idSuffix: "match-terminal"),
         "customSidebars.renderer": settingID(for: .customSidebars, idSuffix: "renderer"),
         "automation.socketControlMode": settingID(for: .automation, idSuffix: "socket-mode"),

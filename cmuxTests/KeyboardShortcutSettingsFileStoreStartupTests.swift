@@ -442,6 +442,81 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testSettingsFileParsesSidebarMaterialAndInterfaceAppearanceMaps() throws {
+        let defaults = UserDefaults.standard
+        let keys = [
+            "sidebarMatchTerminalBackground",
+            "sidebarMaterial",
+            "sidebarMaterialBlendMode",
+            "sidebarMaterialState",
+            "sidebarTintColor",
+            "sidebarTintOpacity",
+            "sidebarBlurOpacity",
+            "sidebarCornerRadius",
+            CmuxInterfaceAppearance.colorsDefaultsKey,
+            CmuxInterfaceAppearance.iconsDefaultsKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]
+
+        try preservingDefaults(keys: keys) {
+            keys.forEach { defaults.removeObject(forKey: $0) }
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "sidebarAppearance": {
+                    "matchTerminalBackground": false,
+                    "material": "liquidGlass",
+                    "blendMode": "withinWindow",
+                    "state": "followWindow",
+                    "tintColor": "#7AB8FF",
+                    "tintOpacity": 0.08,
+                    "blurOpacity": 0.9,
+                    "cornerRadius": 12
+                  },
+                  "appearance": {
+                    "colors": {
+                      "dropTarget": "#FF44AA",
+                      "toolbarIcon": "#DDEEFF"
+                    },
+                    "icons": {
+                      "plus": "star.fill",
+                      "terminal": "apple.terminal"
+                    }
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.bool(forKey: "sidebarMatchTerminalBackground"), false)
+            XCTAssertEqual(defaults.string(forKey: "sidebarMaterial"), "liquidGlass")
+            XCTAssertEqual(defaults.string(forKey: "sidebarMaterialBlendMode"), "withinWindow")
+            XCTAssertEqual(defaults.string(forKey: "sidebarMaterialState"), "followWindow")
+            XCTAssertEqual(defaults.string(forKey: "sidebarTintColor"), "#7AB8FF")
+            XCTAssertEqual(defaults.double(forKey: "sidebarTintOpacity"), 0.08, accuracy: 0.001)
+            XCTAssertEqual(defaults.double(forKey: "sidebarBlurOpacity"), 0.9, accuracy: 0.001)
+            XCTAssertEqual(defaults.double(forKey: "sidebarCornerRadius"), 12, accuracy: 0.001)
+
+            let colors = CmuxInterfaceAppearance.current(defaults: defaults).colors
+            let icons = CmuxInterfaceAppearance.current(defaults: defaults).icons
+            XCTAssertEqual(colors["dropTarget"], "#FF44AA")
+            XCTAssertEqual(colors["toolbarIcon"], "#DDEEFF")
+            XCTAssertEqual(icons["plus"], "star.fill")
+            XCTAssertEqual(icons["terminal"], "apple.terminal")
+        }
+    }
+
     func testSettingsFileParsesMarkdownTypographyDefaults() throws {
         let defaults = UserDefaults.standard
 
