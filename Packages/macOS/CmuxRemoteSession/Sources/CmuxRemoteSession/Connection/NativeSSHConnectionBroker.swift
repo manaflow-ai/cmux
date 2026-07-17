@@ -20,7 +20,7 @@ public final class NativeSSHConnectionBroker {
 
     private var ownerLeases: [UUID: [NativeSSHControlMasterKey: WorkspaceRemoteConfiguration]] = [:]
     private var ownersByControlMaster: [NativeSSHControlMasterKey: Set<UUID>] = [:]
-    private var attemptStates: [NativeSSHConnectionKey: NativeSSHConnectionAttemptState] = [:]
+    var attemptStates: [NativeSSHConnectionKey: NativeSSHConnectionAttemptState] = [:]
     private var cleanupProcesses: [UUID: Process] = [:]
     private var cleanupTimeoutTasks: [UUID: Task<Void, Never>] = [:]
     private var cleanupTerminationRequested: Set<UUID> = []
@@ -132,6 +132,7 @@ public final class NativeSSHConnectionBroker {
         }
         let permit = try await acquireConnectionAttempt(for: key)
         do {
+            try Task.checkCancellation()
             let result = try await operation()
             releaseConnectionAttempt(permit)
             return result
@@ -210,21 +211,13 @@ public final class NativeSSHConnectionBroker {
         }
     }
 
-    func pendingConnectionAttemptCount(for configuration: WorkspaceRemoteConfiguration) -> Int {
-        guard let key = NativeSSHConnectionKey(
-            configuration: configuration,
-            sharingOptions: sharingOptions
-        ) else { return 0 }
-        return attemptStates[key]?.waiters.count ?? 0
-    }
-
     private func releaseConnectionAttempt(_ permit: NativeSSHConnectionPermit) {
         guard var state = attemptStates[permit.key],
               state.activeToken == permit.token else {
             return
         }
         state.activeToken = nil
-        guard !state.waiterOrder.isEmpty else {
+        guard !state.waiters.isEmpty else {
             state.cooldownTask?.cancel()
             attemptStates.removeValue(forKey: permit.key)
             return
@@ -234,9 +227,9 @@ public final class NativeSSHConnectionBroker {
         let delay = min(350, max(100, jitterMilliseconds()))
         let clock = self.clock
         state.cooldownToken = cooldownToken
-        state.cooldownTask = Task { @MainActor [weak self] in
+        state.cooldownTask = Task { @MainActor in
             guard (try? await clock.sleep(forMilliseconds: delay)) != nil else { return }
-            self?.grantNextWaiter(for: permit.key, cooldownToken: cooldownToken)
+            self.grantNextWaiter(for: permit.key, cooldownToken: cooldownToken)
         }
         attemptStates[permit.key] = state
     }
@@ -251,11 +244,7 @@ public final class NativeSSHConnectionBroker {
         }
         state.cooldownTask = nil
         state.cooldownToken = nil
-        while let waiterToken = state.waiterOrder.first {
-            state.waiterOrder.removeFirst()
-            guard let continuation = state.waiters.removeValue(forKey: waiterToken) else {
-                continue
-            }
+        if let continuation = state.nextWaiter() {
             let permitToken = UUID()
             state.activeToken = permitToken
             attemptStates[key] = state
@@ -273,9 +262,8 @@ public final class NativeSSHConnectionBroker {
               let continuation = state.waiters.removeValue(forKey: waiterToken) else {
             return
         }
-        state.waiterOrder.removeAll { $0 == waiterToken }
         continuation.resume(throwing: CancellationError())
-        if state.activeToken == nil, state.waiterOrder.isEmpty {
+        if state.activeToken == nil, state.waiters.isEmpty {
             state.cooldownTask?.cancel()
             attemptStates.removeValue(forKey: key)
         } else {

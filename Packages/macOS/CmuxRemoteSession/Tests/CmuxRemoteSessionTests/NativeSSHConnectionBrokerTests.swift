@@ -43,9 +43,9 @@ struct NativeSSHConnectionBrokerTests {
         let request = recorder.requests[0]
         let lockPath = request.authenticationLockPath
         #expect(lockPath?.contains("cmux-ssh-501-auth-") == true)
-        #expect(request.processInvocation.executableURL.path == "/bin/sh")
+        #expect(request.processInvocation.executableURL.path == "/bin/zsh")
         #expect(request.processInvocation.arguments.contains(lockPath.map { $0 + ".inflight" } ?? "") == true)
-        #expect(request.processInvocation.arguments[1].contains("/usr/bin/lockf -s -t 45 9"))
+        #expect(request.processInvocation.arguments[1].contains("zsystem flock -t 45 -e"))
         #expect(request.processInvocation.arguments[1].contains("/bin/kill -0"))
     }
 
@@ -248,7 +248,7 @@ struct NativeSSHConnectionBrokerTests {
             }
         }
         await Task.yield()
-        #expect(broker.pendingConnectionAttemptCount(for: followerConfiguration) == 1)
+        #expect(pendingConnectionAttemptCount(in: broker, for: followerConfiguration) == 1)
 
         await leaderGate.open()
         try await leader.value
@@ -332,7 +332,7 @@ struct NativeSSHConnectionBrokerTests {
             }
         }
         await Task.yield()
-        #expect(broker.pendingConnectionAttemptCount(for: configuration) == 1)
+        #expect(pendingConnectionAttemptCount(in: broker, for: configuration) == 1)
 
         follower.cancel()
         do {
@@ -341,7 +341,7 @@ struct NativeSSHConnectionBrokerTests {
         } catch is CancellationError {
             // Expected.
         }
-        #expect(broker.pendingConnectionAttemptCount(for: configuration) == 0)
+        #expect(pendingConnectionAttemptCount(in: broker, for: configuration) == 0)
 
         await gate.open()
         try await leader.value
@@ -358,6 +358,17 @@ struct NativeSSHConnectionBrokerTests {
             jitterMilliseconds: { 200 },
             cleanupLauncher: { request in cleanupRecorder.requests.append(request) }
         )
+    }
+
+    private func pendingConnectionAttemptCount(
+        in broker: NativeSSHConnectionBroker,
+        for configuration: WorkspaceRemoteConfiguration
+    ) -> Int {
+        guard let key = NativeSSHConnectionKey(
+            configuration: configuration,
+            sharingOptions: sharingOptions
+        ) else { return 0 }
+        return broker.attemptStates[key]?.waiters.count ?? 0
     }
 
     private func configuration(

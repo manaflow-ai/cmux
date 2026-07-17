@@ -36,6 +36,23 @@ struct SSHConnectionSharingOptionsTests {
         ])
     }
 
+    @Test("Resolved legacy relay-scoped paths remain cmux-owned and migrate")
+    func migratesResolvedLegacyRelayPath() {
+        let legacyPath = "/tmp/cmux-ssh-501-64001-0123456789abcdef0123456789abcdef01234567"
+        let supplied = [
+            "ControlMaster=auto",
+            "ControlPath=\(legacyPath)",
+            "ControlPersist=45",
+        ]
+
+        #expect(options.cmuxOwnedControlPath(in: supplied) == legacyPath)
+        #expect(options.mergingDefaults(into: supplied) == [
+            "ControlMaster=auto",
+            "ControlPath=/tmp/cmux-ssh-501-%C",
+            "ControlPersist=45",
+        ])
+    }
+
     @Test("Caller-provided control settings remain authoritative")
     func preservesCustomControlSettings() {
         let supplied = [

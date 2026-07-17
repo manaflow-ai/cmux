@@ -136,6 +136,7 @@ public struct SSHConnectionSharingOptions: Sendable {
             values[key] = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
+        // Keep the fallback explicitly disabled if an OpenSSH version omits default-valued keys.
         let controlMaster = values["controlmaster"] ?? "false"
         let controlPath = values["controlpath"] ?? "none"
         let controlPersist = values["controlpersist"] ?? "no"
@@ -187,7 +188,7 @@ public struct SSHConnectionSharingOptions: Sendable {
     ///   - options: Effective OpenSSH `-o` values.
     /// The lock lives in Darwin's user-private temporary directory rather
     /// than shared `/tmp`, so shell redirection cannot follow a symlink planted
-    /// by another local user before `lockf` acquires the descriptor.
+    /// by another local user before the foreground-auth locker opens it.
     ///
     /// - Returns: A user-private temporary lock path, or `nil` for a user-managed socket.
     public func foregroundAuthenticationLockPath(
@@ -253,10 +254,17 @@ public struct SSHConnectionSharingOptions: Sendable {
 
     private func isLegacyRelayScopedControlPath(_ path: String) -> Bool {
         let prefix = "/tmp/cmux-ssh-\(userID)-"
-        let suffix = "-%C"
-        guard path.hasPrefix(prefix), path.hasSuffix(suffix) else { return false }
-        let relayPort = path.dropFirst(prefix.count).dropLast(suffix.count)
+        guard path.hasPrefix(prefix) else { return false }
+        let remainder = path.dropFirst(prefix.count)
+        if remainder.hasSuffix("-%C") {
+            let relayPort = remainder.dropLast(3)
+            return !relayPort.isEmpty && relayPort.allSatisfy(\.isNumber)
+        }
+        guard let separator = remainder.firstIndex(of: "-") else { return false }
+        let relayPort = remainder[..<separator]
+        let hash = remainder[remainder.index(after: separator)...]
         return !relayPort.isEmpty && relayPort.allSatisfy(\.isNumber)
+            && hash.count == 40 && hash.allSatisfy(\.isHexDigit)
     }
 
     private func isStableResolvedControlPath(_ path: String) -> Bool {

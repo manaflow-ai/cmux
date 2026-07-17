@@ -35,8 +35,10 @@ extension NativeSSHControlMasterCleanupRequest {
         }
         let inFlightPath = authenticationLockPath + ".inflight"
         let script = """
-        exec 9>"$1" || exit 0
-        /usr/bin/lockf -s -t 45 9 || exit 0
+        umask 077
+        : >> "$1" || exit 0
+        zmodload zsh/system || exit 0
+        zsystem flock -t 45 -e -f cmux_ssh_auth_lock_fd "$1" || exit 0
         cmux_auth_pid="$(/bin/cat -- "$2" 2>/dev/null || true)"
         case "$cmux_auth_pid" in
           ''|*[!0-9]*) ;;
@@ -55,9 +57,9 @@ extension NativeSSHControlMasterCleanupRequest {
         exec /usr/bin/ssh "$@"
         """
         return (
-            URL(fileURLWithPath: "/bin/sh"),
+            URL(fileURLWithPath: "/bin/zsh"),
             [
-                "-c",
+                "-fc",
                 script,
                 "cmux-ssh-cleanup",
                 authenticationLockPath,
