@@ -1,28 +1,29 @@
 import CmuxTerminalCore
 import Foundation
 
-func resolvedAgentLifecycleStates(
-    _ panelStates: [String: AgentHibernationLifecycleState]
-) -> [AgentHibernationLifecycleState] {
-    var lifecycle = panelStates.filter {
-        !AgentHibernationLifecycleStatusKeys.isManualKey($0.key) &&
-            !AgentHibernationLifecycleStatusKeys.isDetectionKey($0.key)
-    }
-    var screen: [AgentHibernationLifecycleState] = []
-    for (key, state) in panelStates where AgentHibernationLifecycleStatusKeys.isDetectionKey(key) {
-        guard let familyID = AgentHibernationLifecycleStatusKeys.detectionFamilyID(key: key),
-              let profile = AgentTerminalProfileCatalog.builtIn.profile(id: familyID) else {
-            screen.append(state)
-            continue
+extension AgentHibernationLifecycleStatusKeys {
+    static func resolvedStates(
+        _ panelStates: [String: AgentHibernationLifecycleState]
+    ) -> [AgentHibernationLifecycleState] {
+        var lifecycle = panelStates.filter {
+            !isManualKey($0.key) && !isDetectionKey($0.key)
         }
-        if profile.lifecycleAuthoritative {
-            if lifecycle[profile.statusKey] == nil { screen.append(state) }
-        } else {
-            lifecycle.removeValue(forKey: profile.statusKey)
-            screen.append(state)
+        var screen: [AgentHibernationLifecycleState] = []
+        for (key, state) in panelStates where isDetectionKey(key) {
+            guard let familyID = detectionFamilyID(key: key),
+                  let profile = AgentTerminalProfileCatalog.builtIn.profile(id: familyID) else {
+                screen.append(state)
+                continue
+            }
+            if profile.lifecycleAuthoritative {
+                if lifecycle[profile.statusKey] == nil { screen.append(state) }
+            } else {
+                lifecycle.removeValue(forKey: profile.statusKey)
+                screen.append(state)
+            }
         }
+        return Array(lifecycle.values) + screen
     }
-    return Array(lifecycle.values) + screen
 }
 
 extension Workspace {

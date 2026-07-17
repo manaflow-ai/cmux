@@ -382,7 +382,7 @@ class GhosttyApp {
     static let terminalSurfaceRestoreSpawnScheduler = TerminalSurfaceRestoreSpawnScheduler()
     /// Process-wide coding-agent terminal-state runtime, constructed at the app composition root.
     @MainActor
-    static let agentTerminalStateRuntime = AgentTerminalStateRuntime()
+    private static let agentTerminalStateRuntime = AgentTerminalStateRuntime()
     /// Snapshotted once per app session so all workspaces use consistent values.
     static let terminalSessionPortBase: Int = {
         let val = UserDefaults.standard.integer(forKey: AutomationSettings.portBaseKey)

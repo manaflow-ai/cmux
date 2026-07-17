@@ -47,13 +47,6 @@ final class AgentTerminalStateRuntime {
         workspace.clearDetectedAgentLifecycle(panelId: surfaceID)
     }
 
-    func debugState(workspaceID: UUID, surfaceID: UUID) -> (family: String?, state: String, source: String) {
-        guard let workspace = AppDelegate.shared?.workspaceFor(tabId: workspaceID) else {
-            return (nil, AgentTerminalSemanticState.unknown.rawValue, "none")
-        }
-        return workspace.debugDetectedAgentState(panelId: surfaceID)
-    }
-
     private func startUpdateConsumerIfNeeded() {
         guard updateTask == nil else { return }
         updateTask = Task { [weak self] in

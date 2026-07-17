@@ -245,7 +245,7 @@ extension Workspace {
         panelId: UUID,
         fallback: AgentHibernationLifecycleState?
     ) -> AgentHibernationLifecycleState {
-        let states = resolvedAgentLifecycleStates(
+        let states = AgentHibernationLifecycleStatusKeys.resolvedStates(
             agentLifecycleStatesByPanelId[panelId] ?? [:]
         )
         guard !states.isEmpty else {
