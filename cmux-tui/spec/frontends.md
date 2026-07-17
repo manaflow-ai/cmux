@@ -37,7 +37,7 @@ Protocol v7 lifecycle events (`workspace-*`, `screen-*`, `pane-*`, and `tab-*`) 
 
 Always implement `tree-changed`: it is the delta stream's coarse resync fallback for churn and changes not represented by lifecycle deltas. Do not rely on it for ordinary delta-representable mutations. On receipt, fetch a new `list-workspaces` snapshot and treat it as authoritative over older buffered deltas. See the [event-scoping table](events.md#event-scoping) before routing events from a connection with streams.
 
-Initial surface dimensions and later resize ownership follow the consolidated [`Sizing`](commands.md#sizing) contract.
+Initial surface dimensions and smallest-client resize reporting follow the consolidated [`Sizing`](commands.md#sizing) contract.
 
 ## 4. Render A PTY Surface
 

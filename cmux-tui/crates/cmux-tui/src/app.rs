@@ -7319,7 +7319,7 @@ mod tests {
         let mux = Mux::new("motion-enqueue-rollback-test", SurfaceOptions::default());
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
         surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1003h\x1b[?1006h"));
-        let handle = SurfaceHandle::Local(surface.clone());
+        let handle = SurfaceHandle::Local(surface.clone(), mux.clone());
         let mut app = test_app(Session::Local(mux.clone()));
         let input = test_mouse_motion();
 
@@ -7348,7 +7348,7 @@ mod tests {
         let mux = Mux::new("motion-cancel-rollback-test", SurfaceOptions::default());
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
         surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1003h\x1b[?1006h"));
-        let handle = SurfaceHandle::Local(surface.clone());
+        let handle = SurfaceHandle::Local(surface.clone(), mux.clone());
         let mut app = test_app(Session::Local(mux.clone()));
         let input = test_mouse_motion();
 

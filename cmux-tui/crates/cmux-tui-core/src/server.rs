@@ -3231,10 +3231,10 @@ mod tests {
     fn stalled_websocket_handshake_times_out() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
-        let (server, _) = listener.accept().unwrap();
+        let (server, peer) = listener.accept().unwrap();
         let (done, finished) = std::sync::mpsc::channel();
         let handler = std::thread::spawn(move || {
-            handle_websocket_connection(test_mux(), server, None);
+            handle_websocket_connection(test_mux(), server, peer, None);
             done.send(()).unwrap();
         });
 
@@ -3249,10 +3249,10 @@ mod tests {
     fn stalled_websocket_authentication_times_out() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let client_stream = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
-        let (server, _) = listener.accept().unwrap();
+        let (server, peer) = listener.accept().unwrap();
         let (done, finished) = std::sync::mpsc::channel();
         let handler = std::thread::spawn(move || {
-            handle_websocket_connection(test_mux(), server, Some("secret"));
+            handle_websocket_connection(test_mux(), server, peer, Some("secret"));
             done.send(()).unwrap();
         });
         let (client, _) = tungstenite::client("ws://localhost/", client_stream).unwrap();

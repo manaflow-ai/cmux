@@ -165,6 +165,7 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
                 overflowed = true;
                 break;
               }
+            }
           }
           stream.close();
           stream = null;

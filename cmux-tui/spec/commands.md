@@ -100,19 +100,21 @@ The `dead` pane variant is serialized only if the tree references a pane missing
 
 Every surface has one authoritative cell grid. Byte and render attach modes observe the same grid; attaching by itself never resizes it.
 
-The latest valid client sizing interaction wins. A successful explicit creation request with both `cols` and `rows`, or any successful `resize-surface`, stores its final clamped pair as the session's latest client size. A later interaction replaces it, including a same-size `resize-surface`. Internal server-only resizes, including sidebar plugin tracking, do not update this session default.
+Each attached client reports the cell grid available for a surface with `resize-surface`. The authoritative grid uses the smallest reported `cols` and the smallest reported `rows`, matching tmux's `window-size smallest` policy. Input does not claim or change sizing ownership. When a client detaches from a surface or disconnects, its report is removed and the surface expands to the minimum of the remaining reports.
+
+The final effective grid stores the session's latest client size for later unsized creation. Internal server-only resizes, including sidebar plugin tracking, do not update this session default.
 
 Size-aware creation commands are `apply-layout`, `new-tab`, `new-browser-tab`, `new-workspace`, `new-screen`, `split`, and `run`. Their rules are:
 
 | Input | Behavior |
 | --- | --- |
-| both `cols` and `rows` supplied | Clamp each to at least `1`, use the pair for the new surface or surfaces, and record it as the latest client size |
+| both `cols` and `rows` supplied | Clamp each to at least `1`, use the pair for the new surface or surfaces, and record the effective grid as the latest client size |
 | neither supplied | Use the latest client size, or the configured legacy server default if no client size has been observed |
 | only one supplied | Preserve protocol-v6 behavior: the incomplete pair is ignored; clients must always send both |
 
-The JSON type `uint16` supplies the upper bound. `resize-surface` requires both fields, clamps each to at least `1`, resizes the authoritative surface, and records the final pair even if the surface size did not change.
+The JSON type `uint16` supplies the upper bound. `resize-surface` requires both fields and clamps each to at least `1`. Attached clients update their own persistent report. Unattached control clients resize directly and update the session default without joining the viewer set.
 
-With multiple clients, the server does not choose the minimum, maximum, or most recently attached viewport. Frontends should resize on active user/layout interaction, not continuously from passive presentation. See [`render.md`](render.md#sizing-and-multi-client-presentation) for smaller-client guidance.
+Frontends report their grid after attach and whenever their viewport changes. A frontend must not re-report merely because another client changed the authoritative surface size. See [`render.md`](render.md#sizing-and-multi-client-presentation) for presentation guidance.
 
 ## Implemented Commands
 
