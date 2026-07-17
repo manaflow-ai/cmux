@@ -21,6 +21,7 @@ struct TaskComposerHero: View {
                     .accessibilityHidden(true)
             }
             .frame(width: 48, height: 48)
+            .padding(.top, 6)
             .shadow(color: Color.accentColor.opacity(0.22), radius: 12, y: 6)
 
             VStack(alignment: .leading, spacing: 5) {

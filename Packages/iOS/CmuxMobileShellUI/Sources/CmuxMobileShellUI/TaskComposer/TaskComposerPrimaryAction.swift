@@ -85,6 +85,8 @@ struct TaskComposerPrimaryAction: View {
                         }
                         Text(isSubmitting ? progressTitle : actionTitle)
                             .fontWeight(.semibold)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.82)
                         if !isSubmitting {
                             Image(systemName: "arrow.up.right")
                                 .font(.subheadline.weight(.bold))
@@ -101,13 +103,19 @@ struct TaskComposerPrimaryAction: View {
                 .accessibilityIdentifier("MobileTaskComposerCreateButton")
 
                 Text(caption)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity)
-                .accessibilityIdentifier("MobileTaskComposerActionCaption")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity)
+                    .accessibilityIdentifier("MobileTaskComposerActionCaption")
             }
         }
+        // Persistent chrome must stay compact even when content text uses the
+        // largest accessibility categories. Accessibility 1 remains larger
+        // than standard text while preserving enough prompt canvas to work.
+        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
         .frame(maxWidth: 680)
         .padding(.horizontal, 20)
         .padding(.top, 12)

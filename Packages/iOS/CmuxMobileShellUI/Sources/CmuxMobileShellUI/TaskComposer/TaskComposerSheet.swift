@@ -189,7 +189,7 @@ struct TaskComposerSheet: View {
                     .frame(maxWidth: 680)
                     .frame(maxWidth: .infinity)
                     .padding(.horizontal, 20)
-                    .padding(.top, 12)
+                    .padding(.top, 28)
                     .padding(.bottom, 28)
                 }
                 .scrollDismissesKeyboard(.interactively)

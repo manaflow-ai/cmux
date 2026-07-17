@@ -4,6 +4,7 @@ import SwiftUI
 
 /// One agent/template choice in the horizontal launch selector.
 struct TaskComposerTemplateOption: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ScaledMetric(relativeTo: .caption) private var cardWidth: CGFloat = 86
     @ScaledMetric(relativeTo: .caption) private var cardHeight: CGFloat = 78
     @ScaledMetric(relativeTo: .caption) private var iconDiameter: CGFloat = 40
@@ -20,9 +21,9 @@ struct TaskComposerTemplateOption: View {
                 ZStack(alignment: .topTrailing) {
                     Circle()
                         .fill(isSelected ? Color.accentColor.opacity(0.16) : Color.primary.opacity(0.055))
-                        .frame(width: iconDiameter, height: iconDiameter)
-                    TaskTemplateIcon(value: template.icon, size: iconSize)
-                        .frame(width: iconDiameter, height: iconDiameter)
+                        .frame(width: resolvedIconDiameter, height: resolvedIconDiameter)
+                    TaskTemplateIcon(value: template.icon, size: resolvedIconSize)
+                        .frame(width: resolvedIconDiameter, height: resolvedIconDiameter)
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.caption.weight(.semibold))
@@ -36,10 +37,12 @@ struct TaskComposerTemplateOption: View {
                 Text(template.name)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(isSelected ? Color.accentColor : .primary)
-                    .lineLimit(1)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
+                    .multilineTextAlignment(.center)
                     .minimumScaleFactor(0.78)
             }
-            .frame(width: cardWidth, height: cardHeight)
+            .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+            .frame(width: resolvedCardWidth, height: resolvedCardHeight)
             .background(
                 isSelected ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.045),
                 in: RoundedRectangle(cornerRadius: 18, style: .continuous)
@@ -58,6 +61,22 @@ struct TaskComposerTemplateOption: View {
         .accessibilityHint(TaskComposerSheet.templateAccessibilityHint)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .animation(.snappy(duration: 0.2), value: isSelected)
+    }
+
+    private var resolvedCardWidth: CGFloat {
+        min(cardWidth, dynamicTypeSize.isAccessibilitySize ? 118 : 96)
+    }
+
+    private var resolvedCardHeight: CGFloat {
+        min(cardHeight, dynamicTypeSize.isAccessibilitySize ? 108 : 88)
+    }
+
+    private var resolvedIconDiameter: CGFloat {
+        min(iconDiameter, dynamicTypeSize.isAccessibilitySize ? 52 : 44)
+    }
+
+    private var resolvedIconSize: CGFloat {
+        min(iconSize, dynamicTypeSize.isAccessibilitySize ? 28 : 24)
     }
 }
 #endif
