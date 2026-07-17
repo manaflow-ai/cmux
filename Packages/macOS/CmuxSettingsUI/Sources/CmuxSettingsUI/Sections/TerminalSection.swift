@@ -11,6 +11,7 @@ public struct TerminalSection: View {
     private let jsonStore: JSONConfigStore
     private let catalog: SettingCatalog
     private let hostActions: SettingsHostActions
+    private let errorLog: SettingsErrorLog
     private let sessionContentWidthSettings = SessionContentWidthSettings()
 
     @State private var surfaceTabBarFont: SettingsFontSize
@@ -37,10 +38,12 @@ public struct TerminalSection: View {
         defaultsStore: UserDefaultsSettingsStore,
         jsonStore: JSONConfigStore,
         catalog: SettingCatalog,
+        errorLog: SettingsErrorLog,
         hostActions: SettingsHostActions
     ) {
         self.jsonStore = jsonStore
         self.catalog = catalog
+        self.errorLog = errorLog
         self.hostActions = hostActions
         _surfaceTabBarFont = State(initialValue: hostActions.surfaceTabBarFontSize())
         _scrollSpeed = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.scrollSpeed))
@@ -64,6 +67,7 @@ public struct TerminalSection: View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.terminal", defaultValue: "Terminal"), section: .terminal)
             mainCard
+            TerminalFaceSettingsCard(store: jsonStore, key: catalog.terminal.face, errorLog: errorLog)
             resumeCommandsCard
         }
         .task { startObservingSettings() }

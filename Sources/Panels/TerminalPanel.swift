@@ -5,6 +5,7 @@ import AppKit
 import Bonsplit
 import CmuxTerminal
 import CmuxWorkspaces
+import CmuxSettings
 
 struct AgentHibernationPanelState {
     let agent: SessionRestorableAgentSnapshot
@@ -50,6 +51,13 @@ final class TerminalPanel: Panel, ObservableObject {
 
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
+    private(set) var terminalFaceOverride: TerminalFaceConfiguration?
+    let terminalFacePresentation = TerminalFacePresentation()
+
+    func setTerminalFaceOverride(_ configuration: TerminalFaceConfiguration?) {
+        terminalFaceOverride = configuration
+        AppDelegate.shared?.terminalFaceController?.refresh(panel: self)
+    }
 
     var ownedSessionScrollbackReplayFileURL: URL? = nil
     /// The workspace-env key/value pairs this panel inherited from its workspace's
@@ -183,6 +191,7 @@ final class TerminalPanel: Panel, ObservableObject {
                 }
             }
             .store(in: &cancellables)
+        AppDelegate.shared?.terminalFaceController?.refresh(panel: self)
     }
 
     /// Create a new terminal panel with a fresh surface

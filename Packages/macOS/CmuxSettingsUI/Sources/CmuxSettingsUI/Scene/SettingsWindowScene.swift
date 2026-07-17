@@ -435,6 +435,7 @@ public struct SettingsWindowRoot: View {
             defaultsStore: defaultsStore,
             jsonStore: jsonStore,
             catalog: catalog,
+            errorLog: runtime.errorLog,
             hostActions: hostActions
         )
         .id(anchorID(for: .terminal))

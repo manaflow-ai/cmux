@@ -115,6 +115,20 @@ extension TerminalController {
             workspace.setPanelCustomTitle(panelId: surfaceId, title: nil)
             return finish(.none)
 
+        case "customize_face":
+            guard let panel = workspace.terminalPanel(for: surfaceId) else {
+                return .tabNotFound(surfaceID: surfaceId)
+            }
+            AppDelegate.shared?.terminalFaceController?.presentEditor(for: panel)
+            return finish(.none)
+
+        case "toggle_face":
+            guard let panel = workspace.terminalPanel(for: surfaceId) else {
+                return .tabNotFound(surfaceID: surfaceId)
+            }
+            AppDelegate.shared?.terminalFaceController?.toggle(for: panel)
+            return finish(.none)
+
         case "pin":
             workspace.setPanelPinned(panelId: surfaceId, pinned: true)
             return finish(.pinned(true))

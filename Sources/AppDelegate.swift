@@ -784,6 +784,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// `ContentView` environment so `@LiveSetting` can resolve the stores it
     /// observes inside the sidebar.
     var settingsRuntime: SettingsRuntime?
+    private(set) var terminalFaceController: TerminalFaceController?
     weak var fileExplorerState: FileExplorerState?
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
     weak var sidebarSelectionState: SidebarSelectionState?
@@ -2033,6 +2034,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) {
         self.tabManager = tabManager
         self.settingsRuntime = settingsRuntime
+        terminalFaceController = TerminalFaceController(runtime: settingsRuntime)
+        terminalFaceController?.refreshAll()
         self.notificationStore = notificationStore
         self.sidebarState = sidebarState
         self.auth = auth
