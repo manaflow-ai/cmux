@@ -19,6 +19,7 @@ struct NewWorkspaceMenuModel: Equatable {
 
     enum Section: Equatable {
         case create([CreateRow])
+        case feed
         case cloud
         case layouts([LayoutRow])
         case templates([String])
@@ -30,6 +31,7 @@ struct NewWorkspaceMenuModel: Equatable {
     static func build(
         newWorkspaceContextMenuItems: [CmuxResolvedConfigContextMenuItem],
         agentChatAction: CmuxResolvedConfigAction?,
+        feedSectionEnabled: Bool = false,
         cloudSectionEnabled: Bool,
         templateNames: [String],
         loadedActions: [CmuxResolvedConfigAction],
@@ -102,6 +104,7 @@ struct NewWorkspaceMenuModel: Equatable {
 
         var sections: [Section] = []
         let createSection: Section? = createRows.isEmpty ? nil : .create(createRows)
+        let feedSection: Section? = feedSectionEnabled ? .feed : nil
         let cloudSection: Section? = cloudSectionEnabled ? .cloud : nil
         let layoutsSection: Section? = layoutRows.isEmpty ? nil : .layouts(layoutRows)
 
@@ -111,9 +114,9 @@ struct NewWorkspaceMenuModel: Equatable {
         // labeled Layouts section) stays above the built-in Cloud VM section.
         switch sectionOrder {
         case .customFirst:
-            sections.append(contentsOf: [createSection, layoutsSection, cloudSection].compactMap { $0 })
+            sections.append(contentsOf: [createSection, feedSection, layoutsSection, cloudSection].compactMap { $0 })
         case .cloudFirst:
-            sections.append(contentsOf: [cloudSection, createSection, layoutsSection].compactMap { $0 })
+            sections.append(contentsOf: [cloudSection, createSection, feedSection, layoutsSection].compactMap { $0 })
         }
         if !templateNames.isEmpty {
             sections.append(.templates(templateNames))

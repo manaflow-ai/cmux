@@ -1630,6 +1630,7 @@ extension Workspace {
         case .rightSidebarTool:
             guard let mode = snapshot.rightSidebarTool?.mode,
                   mode.canOpenAsPane,
+                  mode.isAvailable(),
                   let toolPanel = newRightSidebarToolSurface(
                     inPane: paneId,
                     mode: mode,
@@ -3018,6 +3019,25 @@ final class Workspace: Identifiable, ObservableObject {
                 initialTabId = tabId
             }
             installBrowserPanelSubscription(browserPanel)
+        } else if initialSurface == .feed {
+            let feedPanel = RightSidebarToolPanel(workspace: self, mode: .feed)
+            panels[feedPanel.id] = feedPanel
+            panelTitles[feedPanel.id] = feedPanel.displayTitle
+
+            if let tabId = bonsplitController.createTab(
+                title: feedPanel.displayTitle,
+                icon: feedPanel.displayIcon,
+                kind: SurfaceKind.rightSidebarTool.rawValue,
+                isDirty: false,
+                isLoading: false,
+                isPinned: false
+            ) {
+                bindSurface(tabId, toPanelId: feedPanel.id)
+                initialTabId = tabId
+            } else {
+                panels.removeValue(forKey: feedPanel.id)
+                panelTitles.removeValue(forKey: feedPanel.id)
+            }
         } else if initialSurface == .cloudVMLoading {
             let loadingPanel = CloudVMLoadingPanel(workspaceId: id)
             panels[loadingPanel.id] = loadingPanel
@@ -8459,7 +8479,7 @@ final class Workspace: Identifiable, ObservableObject {
         mode: RightSidebarMode,
         focus: Bool = true
     ) -> RightSidebarToolPanel? {
-        guard mode.canOpenAsPane else { return nil }
+        guard mode.canOpenAsPane, mode.isAvailable() else { return nil }
         for (existingId, panel) in panels {
             guard let toolPanel = panel as? RightSidebarToolPanel,
                   toolPanel.mode == mode else {
@@ -8480,7 +8500,7 @@ final class Workspace: Identifiable, ObservableObject {
         focus: Bool? = nil,
         targetIndex: Int? = nil
     ) -> RightSidebarToolPanel? {
-        guard mode.canOpenAsPane else { return nil }
+        guard mode.canOpenAsPane, mode.isAvailable() else { return nil }
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView

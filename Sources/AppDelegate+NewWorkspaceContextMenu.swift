@@ -75,6 +75,7 @@ extension AppDelegate {
         let model = NewWorkspaceMenuModel.build(
             newWorkspaceContextMenuItems: cmuxConfigStore.newWorkspaceContextMenuItems,
             agentChatAction: resolvedBuiltInNewAgentChatAction(cmuxConfigStore: cmuxConfigStore),
+            feedSectionEnabled: CmuxFeatureFlags.shared.isFeedUIEnabled,
             cloudSectionEnabled: CmuxFeatureFlags.shared.isCloudVMUIEnabled,
             templateNames: savedLayoutNames(),
             loadedActions: cmuxConfigStore.loadedActions,
@@ -141,5 +142,14 @@ extension AppDelegate {
             NSSound.beep()
             return
         }
+    }
+
+    @objc func performNewFeedWorkspaceMenuItem(_ sender: NSMenuItem) {
+        guard let windowID = sender.representedObject as? NSUUID,
+              let context = mainWindowContexts.values.first(where: { $0.windowId == windowID as UUID }) else {
+            NSSound.beep()
+            return
+        }
+        _ = feedOpeningCoordinator.openPinnedWorkspace(in: context.tabManager)
     }
 }

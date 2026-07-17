@@ -7,7 +7,7 @@ import Foundation
 @MainActor
 final class RightSidebarModeShortcutMatcher {
     typealias ShortcutProvider = (KeyboardShortcutSettings.Action) -> StoredShortcut
-    typealias Availability = (RightSidebarMode) -> Bool
+    typealias Availability = @MainActor (RightSidebarMode) -> Bool
     typealias LayoutCharacterProvider = (UInt16, NSEvent.ModifierFlags) -> String?
 
     private let shortcutProvider: ShortcutProvider

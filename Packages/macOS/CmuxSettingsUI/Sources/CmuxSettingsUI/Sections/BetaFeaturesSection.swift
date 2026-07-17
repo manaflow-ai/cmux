@@ -7,7 +7,6 @@ import SwiftUI
 /// off by default.
 @MainActor
 public struct BetaFeaturesSection: View {
-    @State private var feed: DefaultsValueModel<Bool>
     @State private var dock: DefaultsValueModel<Bool>
     @State private var extensions: DefaultsValueModel<Bool>
     @State private var customSidebars: DefaultsValueModel<Bool>
@@ -16,7 +15,6 @@ public struct BetaFeaturesSection: View {
     @State private var workspaceTodosChecklistStyle: DefaultsValueModel<WorkspaceTodoChecklistStyle>
 
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
-        _feed = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarFeed))
         _dock = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarDock))
         _extensions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.extensions))
         _customSidebars = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.customSidebars))
@@ -32,8 +30,6 @@ public struct BetaFeaturesSection: View {
                 BetaFeaturesWarningNote(
                     String(localized: "settings.betaFeatures.warning", defaultValue: "These features are experimental and may change or break. Enable them only when you are testing them.")
                 )
-                SettingsCardDivider()
-                feedRow
                 SettingsCardDivider()
                 dockRow
                 SettingsCardDivider()
@@ -53,7 +49,6 @@ public struct BetaFeaturesSection: View {
 
     private func startObservingSettings() {
         let models: [any SettingObservationStarting] = [
-            feed,
             dock,
             extensions,
             customSidebars,
@@ -102,23 +97,6 @@ public struct BetaFeaturesSection: View {
             .labelsHidden()
             .pickerStyle(.segmented)
             .accessibilityIdentifier("SettingsBetaWorkspaceTodosChecklistStylePicker")
-        }
-    }
-
-    @ViewBuilder
-    private var feedRow: some View {
-        SettingsCardRow(
-            configurationReview: .settingsOnly,
-            searchAnchorID: "setting:betaFeatures:feed",
-            String(localized: "settings.betaFeatures.feed", defaultValue: "Feed"),
-            subtitle: feed.current
-                ? String(localized: "settings.betaFeatures.feed.subtitleOn", defaultValue: "Shows Feed in the right sidebar mode switcher for inline agent decisions.")
-                : String(localized: "settings.betaFeatures.feed.subtitleOff", defaultValue: "Hides Feed from the right sidebar until you enable it here.")
-        ) {
-            Toggle("", isOn: Binding(get: { feed.current }, set: { feed.set($0) }))
-                .labelsHidden()
-                .controlSize(.small)
-                .accessibilityIdentifier("SettingsBetaFeedToggle")
         }
     }
 
