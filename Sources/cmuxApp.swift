@@ -198,7 +198,10 @@ struct cmuxApp: App {
             jsonStore: settingsRuntime.jsonStore,
             catalog: settingsCatalog
         )
-        _tabManager = StateObject(wrappedValue: TabManager(browserWebExtensionHost: browserWebExtensionHost))
+        _tabManager = StateObject(wrappedValue: TabManager(
+            browserWebExtensionHost: browserWebExtensionHost,
+            nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker
+        ))
         StartupBreadcrumbLog.append("app.init.tabManager.complete")
         // Migrate legacy and old-format socket mode values to the new enum.
         if let stored = defaults.string(forKey: SocketControlSettings.appStorageKey) {

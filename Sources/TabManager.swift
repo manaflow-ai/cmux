@@ -8,6 +8,7 @@ import CmuxBrowser
 import CmuxGit
 import CmuxNotifications
 import CmuxPanes
+import CmuxRemoteSession
 import CmuxSettings
 import CmuxSidebar
 import CmuxSidebarGit
@@ -398,6 +399,7 @@ class TabManager: ObservableObject {
     private let settings: any SettingsWriting
     private let settingsCatalog = SettingCatalog()
     let browserWebExtensionHost: (any BrowserWebExtensionHosting)?
+    let nativeSSHConnectionBroker: NativeSSHConnectionBroker
 
     @Published private(set) var focusHistoryRevision: UInt64 = 0 {
         didSet {
@@ -482,11 +484,13 @@ class TabManager: ObservableObject {
         panelTitleUpdateCoalescer: NotificationBurstCoalescer? = nil,
         settings: any SettingsWriting = UserDefaultsSettingsClient(defaults: .standard),
         browserWebExtensionHost: (any BrowserWebExtensionHosting)? = nil,
+        nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
         allowsStartupSessionRestore: Bool = true,
         closeTabWarningDefaults: UserDefaults = .standard
     ) {
         self.settings = settings
         self.browserWebExtensionHost = browserWebExtensionHost
+        self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
         self.allowsStartupSessionRestore = allowsStartupSessionRestore
         self.panelTitleUpdateCoalescer = panelTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.closeTabWarningDefaults = closeTabWarningDefaults
@@ -969,6 +973,7 @@ class TabManager: ObservableObject {
             workspaceEnvironment: workspaceEnvironment,
             allowTextBoxFocusDefault: allowTextBoxFocusDefault,
             browserWebExtensionHost: browserWebExtensionHost,
+            nativeSSHConnectionBroker: nativeSSHConnectionBroker,
             closeTabWarningDefaults: closeTabWarningDefaults
         )
     }
@@ -6001,6 +6006,7 @@ extension TabManager {
                 workingDirectory: workspaceSnapshot.currentDirectory,
                 portOrdinal: ordinal,
                 browserWebExtensionHost: browserWebExtensionHost,
+                nativeSSHConnectionBroker: nativeSSHConnectionBroker,
                 closeTabWarningDefaults: closeTabWarningDefaults
             )
             workspace.owningTabManager = self
@@ -6018,6 +6024,7 @@ extension TabManager {
                 title: "Terminal 1",
                 portOrdinal: ordinal,
                 browserWebExtensionHost: browserWebExtensionHost,
+                nativeSSHConnectionBroker: nativeSSHConnectionBroker,
                 closeTabWarningDefaults: closeTabWarningDefaults
             )
             fallback.owningTabManager = self

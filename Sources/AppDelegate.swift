@@ -8569,6 +8569,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             autoWelcomeIfNeeded: initialTerminalInput == nil,
             pullRequestProbeService: self.tabManager?.pullRequestProbeService,
             browserWebExtensionHost: browserWebExtensionHost ?? self.tabManager?.browserWebExtensionHost,
+            nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker,
             allowsStartupSessionRestore: allowsStartupSessionRestore
         )
         tabManager.windowId = windowId

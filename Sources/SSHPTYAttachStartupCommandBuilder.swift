@@ -141,33 +141,33 @@ enum SSHPTYAttachStartupCommandBuilder {
         // The command-line `true` below conflicts with a host-configured
         // RemoteCommand unless overridden (issue #7246).
         arguments += SSHHostConfiguredRemoteCommand().overrideArguments
+        let preflight = SSHConnectionSharingOptions().controlPathPreflightShellFunction(
+            sshArguments: arguments,
+            destination: auth.destination,
+            options: options
+        )
         arguments += ["-T", auth.destination, "true"]
-        return arguments.map(shellQuote).joined(separator: " ")
+        let command = arguments.map(shellQuote).joined(separator: " ")
+        guard let lockPath = SSHConnectionSharingOptions().foregroundAuthenticationLockPath(
+            destination: auth.destination,
+            port: auth.port,
+            options: options
+        ) else {
+            return command
+        }
+        let lockedCommand = [
+            "exec 9>\(shellQuote(lockPath))",
+            "if ! /usr/bin/lockf -s -t 45 9; then exit 255; fi",
+            preflight,
+            preflight == nil ? nil : "cmux_ssh_preflight_control_path",
+            "exec \(command)",
+        ].compactMap { $0 }.joined(separator: "\n")
+        return "/bin/sh -c \(shellQuote(lockedCommand))"
     }
 
     static func sshOptionsWithRestoreControlDefaults(_ options: [String], relayPort: Int? = nil) -> [String] {
-        var merged = options.compactMap(normalized)
-        let controlMaster = sshOptionValue(named: "ControlMaster", in: merged)
-        let controlMasterDisabled = sshOptionValueIsDisabled(controlMaster)
-        if controlMaster == nil {
-            merged.append("ControlMaster=auto")
-        }
-        if !controlMasterDisabled {
-            if !hasSSHOptionKey(merged, key: "ControlPersist") {
-                merged.append("ControlPersist=600")
-            }
-            if !hasSSHOptionKey(merged, key: "ControlPath") {
-                merged.append("ControlPath=\(restoreControlPathTemplate(relayPort: relayPort))")
-            }
-        }
-        return merged
-    }
-
-    private static func restoreControlPathTemplate(relayPort: Int?) -> String {
-        if let relayPort, relayPort > 0 {
-            return "/tmp/cmux-ssh-\(getuid())-\(relayPort)-%C"
-        }
-        return "/tmp/cmux-ssh-\(getuid())-%C"
+        _ = relayPort
+        return SSHConnectionSharingOptions().mergingDefaults(into: options)
     }
 
     static func sshOptionsSupportReusableForegroundAuth(_ options: [String]) -> Bool {

@@ -43,7 +43,7 @@ extension RemoteSessionCoordinator {
         reconnectToken = nil
         guard !isStopping, !isSystemSleeping else { return }
         guard proxyLease == nil else { return }
-        beginConnectionAttemptLocked()
+        requestConnectionAttemptLocked()
     }
 
     func cancelReconnectRetryLocked() {
