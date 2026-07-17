@@ -656,6 +656,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     func beginInlineRename() {
         guard let model else { return }
         isEditing = true
+        renameField.resetForNewSession()
         renameField.stringValue = model.snapshot.title
         renameField.font = .systemFont(ofSize: model.scaled(12.5), weight: .semibold)
         renameField.textColor = palette(model).selectedForeground(1.0)
@@ -948,6 +949,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 final class SidebarRowInlineRenameField: NSTextField, NSTextFieldDelegate {
     var onCommit: ((String) -> Void)?
     var onCancel: (() -> Void)?
+    private lazy var renameCoordinator = SidebarInlineRenameCoordinator(
+        onCommit: { [weak self] text in self?.onCommit?(text) },
+        onCancel: { [weak self] in self?.onCancel?() }
+    )
 
     init() {
         super.init(frame: .zero)
@@ -963,20 +968,16 @@ final class SidebarRowInlineRenameField: NSTextField, NSTextFieldDelegate {
         fatalError("init(coder:) has not been implemented")
     }
 
+    func resetForNewSession() {
+        renameCoordinator.resetForNewSession()
+    }
+
     func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-        if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
-            onCancel?()
-            return true
-        }
-        if commandSelector == #selector(NSResponder.insertNewline(_:)) {
-            onCommit?(stringValue)
-            return true
-        }
-        return false
+        renameCoordinator.control(control, textView: textView, doCommandBy: commandSelector)
     }
 
     func controlTextDidEndEditing(_ obj: Notification) {
         guard !isHidden else { return }
-        onCommit?(stringValue)
+        renameCoordinator.controlTextDidEndEditing(obj)
     }
 }

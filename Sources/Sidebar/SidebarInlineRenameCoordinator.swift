@@ -17,6 +17,14 @@ final class SidebarInlineRenameCoordinator: NSObject, NSTextFieldDelegate {
         self.onCancel = onCancel
     }
 
+    /// Re-arms a coordinator owned by a reusable AppKit table cell for the
+    /// next edit. SwiftUI creates a fresh coordinator when its field mounts,
+    /// while an AppKit row keeps the same field across multiple renames.
+    func resetForNewSession() {
+        hasResolved = false
+        hasMovedCaretToStart = false
+    }
+
     /// Commit/cancel fire exactly once: Enter, Escape, and focus-loss can all
     /// reach here, but only the first wins.
     private func commitOnce(_ draft: String) {
