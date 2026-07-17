@@ -69,6 +69,8 @@
   const selectionPalette = [
     "#0A84FF", "#AF52DE", "#FF9F0A", "#30D158",
     "#FF375F", "#64D2FF", "#FFD60A", "#5E5CE6",
+    "#66D4CF", "#FF7F50", "#DA8FFF", "#B0D63F",
+    "#FF5AC8", "#A2845E",
   ];
   const selectionColor = (index) => selectionPalette[((index % selectionPalette.length) + selectionPalette.length) % selectionPalette.length];
   // Colors stick to a selection for its lifetime (assigned at pick time);
@@ -1158,7 +1160,10 @@
     // Cursor-style hover: a single accent veil + outline over the element
     // bounds, tinted with the color this pick would take. The
     // margin/border/padding boxes stay hidden.
-    const tint = upcomingColor();
+    // An already-selected element keeps its own color under the hover veil;
+    // only a fresh target previews the next pick's color.
+    const existing = selectedReferences.find((reference) => reference.element === element);
+    const tint = existing ? selectionColor(existing.colorIndex || 0) : upcomingColor();
     overlay.content.style.background = colorWithAlpha(tint, 0.13);
     overlay.content.style.outline = `1.5px solid ${tint}`;
     overlay.badge.style.background = tint;
