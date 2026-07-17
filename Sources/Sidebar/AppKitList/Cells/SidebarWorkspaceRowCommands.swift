@@ -161,12 +161,7 @@ struct SidebarWorkspaceRowCommands {
         alert.accessoryView = input
         alert.addButton(withTitle: String(localized: "alert.renameWorkspace.rename", defaultValue: "Rename"))
         alert.addButton(withTitle: String(localized: "alert.renameWorkspace.cancel", defaultValue: "Cancel"))
-        let alertWindow = alert.window
-        alertWindow.initialFirstResponder = input
-        DispatchQueue.main.async {
-            alertWindow.makeFirstResponder(input)
-            input.selectText(nil)
-        }
+        alert.window.initialFirstResponder = input
         let response = alert.runModal()
         guard response == .alertFirstButtonReturn else { return }
         tabManager.setCustomTitle(tabId: tab.id, title: input.stringValue)
@@ -199,12 +194,7 @@ struct SidebarWorkspaceRowCommands {
         alert.accessoryView = input
         alert.addButton(withTitle: String(localized: "alert.customColor.apply", defaultValue: "Apply"))
         alert.addButton(withTitle: String(localized: "alert.customColor.cancel", defaultValue: "Cancel"))
-        let alertWindow = alert.window
-        alertWindow.initialFirstResponder = input
-        DispatchQueue.main.async {
-            alertWindow.makeFirstResponder(input)
-            input.selectText(nil)
-        }
+        alert.window.initialFirstResponder = input
         let response = alert.runModal()
         guard response == .alertFirstButtonReturn else { return }
         guard let normalized = WorkspaceTabColorSettings.addCustomColor(input.stringValue) else {
@@ -251,11 +241,9 @@ struct SidebarWorkspaceRowCommands {
             return
         }
         if orderedWorkspaceIds.count > 1 {
-            for workspaceId in orderedWorkspaceIds.dropFirst() {
-                _ = app.moveWorkspaceToWindow(workspaceId: workspaceId, windowId: newWindowId, focus: false)
-            }
-            if let finalWorkspaceId = orderedWorkspaceIds.last {
-                _ = app.moveWorkspaceToWindow(workspaceId: finalWorkspaceId, windowId: newWindowId, focus: true)
+            for (offset, workspaceId) in orderedWorkspaceIds.dropFirst().enumerated() {
+                let isLast = offset == orderedWorkspaceIds.count - 2
+                _ = app.moveWorkspaceToWindow(workspaceId: workspaceId, windowId: newWindowId, focus: isLast)
             }
         }
         writeSelectedTabIds(readSelectedTabIds().subtracting(orderedWorkspaceIds))
@@ -292,8 +280,7 @@ struct SidebarWorkspaceRowMenuBuilder {
         menu.onOpen = onOpen
         menu.onClose = onClose
         menu.delegate = menu
-        guard let tabManager = commands.tabManager,
-              let notificationStore = commands.notificationStore else { return menu }
+        guard let tabManager = commands.tabManager else { return menu }
 
         addPinItem(to: menu, tabManager: tabManager)
         addGroupSection(to: menu, tabManager: tabManager)
@@ -308,8 +295,12 @@ struct SidebarWorkspaceRowMenuBuilder {
         addMoveItems(to: menu, tabManager: tabManager)
         menu.addItem(.separator())
         addCloseItems(to: menu, tabManager: tabManager)
-        menu.addItem(.separator())
-        addNotificationItems(to: menu, notificationStore: notificationStore)
+        // The notification section needs the store; the rest of the menu
+        // must not disappear with it.
+        if let notificationStore = commands.notificationStore {
+            menu.addItem(.separator())
+            addNotificationItems(to: menu, notificationStore: notificationStore)
+        }
         menu.addItem(.separator())
         addCopyAndFinderItems(to: menu, tabManager: tabManager)
         return menu
@@ -703,7 +694,8 @@ struct SidebarWorkspaceRowMenuBuilder {
             enabled: notificationStore.canMarkWorkspaceRead(forTabIds: targetIds)
         ) { [weak notificationStore, commands] in
             guard let notificationStore else { return }
-            for id in commands.contextMenuWorkspaceIds {
+            for id in commands.contextMenuWorkspaceIds where
+                notificationStore.canMarkWorkspaceRead(forTabIds: [id]) {
                 notificationStore.markRead(forTabId: id)
             }
         })
@@ -715,7 +707,8 @@ struct SidebarWorkspaceRowMenuBuilder {
             enabled: notificationStore.canMarkWorkspaceUnread(forTabIds: targetIds)
         ) { [weak notificationStore, commands] in
             guard let notificationStore else { return }
-            for id in commands.contextMenuWorkspaceIds {
+            for id in commands.contextMenuWorkspaceIds where
+                notificationStore.canMarkWorkspaceUnread(forTabIds: [id]) {
                 notificationStore.markUnread(forTabId: id)
             }
         })

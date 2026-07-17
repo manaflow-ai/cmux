@@ -98,6 +98,36 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         titleView.textColor = palette.selectedForeground(1.0)
     }
 
+    /// Counterpart for the row selection is LEAVING: repaints the normal
+    /// (deselected) treatment instantly so old and new selection never show
+    /// together while the authoritative render sits behind the terminal-view
+    /// swap. configure() reconciles right after.
+    func showOptimisticDeselection() {
+        guard let model, model.isActive || model.isMultiSelected else { return }
+        let style = sidebarWorkspaceRowBackgroundStyle(
+            activeTabIndicatorStyle: model.settings.activeTabIndicatorStyle,
+            isActive: false,
+            isMultiSelected: false,
+            customColorHex: model.snapshot.customColorHex,
+            colorScheme: SidebarRowPalette(model: model).colorScheme,
+            sidebarSelectionColorHex: model.settings.selectionColorHex
+        )
+        applyBackgroundStyle(style)
+        backgroundView.layer?.borderWidth = 0
+        titleView.textColor = .labelColor
+    }
+
+    /// True when a press at this view should not repaint selection (the
+    /// close button closes without selecting).
+    func selectionPreviewShouldIgnore(_ hitView: NSView) -> Bool {
+        hitView === closeButton || hitView.isDescendant(of: closeButton)
+    }
+
+    private func applyBackgroundStyle(_ style: SidebarWorkspaceRowBackgroundStyle) {
+        backgroundView.layer?.backgroundColor = (style.color ?? .clear)
+            .withAlphaComponent((style.color == nil ? 0 : style.opacity) * ((style.color?.alphaComponent) ?? 1)).cgColor
+    }
+
     override var isFlipped: Bool { true }
 
     override init(frame frameRect: NSRect) {
@@ -205,8 +235,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             colorScheme: palette.colorScheme,
             sidebarSelectionColorHex: settings.selectionColorHex
         )
-        backgroundView.layer?.backgroundColor = (style.color ?? .clear)
-            .withAlphaComponent((style.color == nil ? 0 : style.opacity) * ((style.color?.alphaComponent) ?? 1)).cgColor
+        applyBackgroundStyle(style)
         if settings.activeTabIndicatorStyle == .solidFill, model.isActive {
             backgroundView.layer?.borderWidth = 1.5
             backgroundView.layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.5).cgColor
@@ -419,9 +448,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         )
         let agentCount = model.snapshot.activeCodingAgentCount
         let tooltip = agentCount == 1
-            ? String(localized: "sidebar.agentActivity.tooltip.one", defaultValue: "1 agent running")
+            ? String(localized: "sidebar.agentActivity.tooltip.one", defaultValue: "Loading (1 active task)")
             : String.localizedStringWithFormat(
-                String(localized: "sidebar.agentActivity.tooltip.many", defaultValue: "%lld agents running"),
+                String(localized: "sidebar.agentActivity.tooltip.many", defaultValue: "Loading (%lld active tasks)"),
                 agentCount
             )
         leadingSpinner?.toolTip = tooltip
@@ -848,6 +877,13 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             var lineHeight: CGFloat = 0
             for button in visiblePorts {
                 let size = button.intrinsicContentSize
+                if portX > leading, portX + size.width > trailing {
+                    // Wrap to a new line instead of laying ports past the
+                    // row's trailing edge (unbounded growth with many ports).
+                    y += lineHeight + 4
+                    portX = leading
+                    lineHeight = 0
+                }
                 if apply { button.frame = NSRect(x: portX, y: y, width: size.width, height: size.height) }
                 portX += size.width + 4
                 lineHeight = max(lineHeight, size.height)

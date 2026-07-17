@@ -53,7 +53,12 @@ final class SidebarWorkspaceTableViewImpl: NSTableView {
         // Arc-feel: paint the selection highlight on press, before the
         // click tracking loop and the model round trip confirm it.
         if clickedRow >= 0 {
-            workspaceController?.previewSelection(row: clickedRow)
+            let hitView = superview.flatMap { hitTest($0.convert(event.locationInWindow, from: nil)) }
+            workspaceController?.previewSelection(
+                row: clickedRow,
+                modifiers: event.modifierFlags,
+                hitView: hitView
+            )
         }
         super.mouseDown(with: event)
         if event.clickCount == 2, clickedRow < 0 {

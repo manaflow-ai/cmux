@@ -143,11 +143,11 @@ final class CmuxFeatureFlags {
                 key: "sidebar-appkit-list-experiment",
                 title: String(
                     localized: "featureFlags.appKitSidebarList.title",
-                    defaultValue: "AppKit sidebar list"
+                    defaultValue: "Lawrence Sidebar"
                 ),
                 flagDescription: String(
                     localized: "featureFlags.appKitSidebarList.description",
-                    defaultValue: "Renders the workspace sidebar with a native AppKit list for smoother scrolling with many workspaces."
+                    defaultValue: "Renders the workspace sidebar with a native AppKit list and divider for smoother scrolling and resizing with many workspaces."
                 ),
                 defaultWhenUnavailable: CmuxFeatureFlags.appKitSidebarListDefault
             ),

@@ -239,7 +239,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
-        guard rows.indices.contains(row), let actions else { return nil }
+        // Group headers carry their anchor's workspaceId; a header drag would
+        // masquerade as dragging the anchor workspace and tear it out of the
+        // group. Headers are not row-draggable in the SwiftUI sidebar either.
+        guard rows.indices.contains(row), !rows[row].isGroupHeader, let actions else { return nil }
         let workspaceId = rows[row].workspaceId
         actions.beginWorkspaceDrag(workspaceId)
         workspaceDragSessionDidBegin()
@@ -273,17 +276,33 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     /// Optimistic press highlight: paints the clicked workspace cell as
-    /// selected immediately; the authoritative apply reconciles right after.
-    func previewSelection(row: Int) {
+    /// selected immediately and, for a plain click, peels the highlight off
+    /// the outgoing rows so old and new selection never show together while
+    /// the authoritative render is queued behind the terminal-view swap.
+    /// The authoritative apply reconciles right after.
+    func previewSelection(row: Int, modifiers: NSEvent.ModifierFlags, hitView: NSView?) {
         guard rows.indices.contains(row),
               rows[row].appKitWorkspaceRowModel != nil,
-              let cell = containerView?.tableView.view(atColumn: 0, row: row, makeIfNecessary: false)
+              let table = containerView?.tableView,
+              let cell = table.view(atColumn: 0, row: row, makeIfNecessary: false)
                 as? SidebarWorkspaceRowTableCellView else { return }
+        if let hitView, cell.selectionPreviewShouldIgnore(hitView) { return }
+        let extendsSelection = modifiers.contains(.command) || modifiers.contains(.shift)
+        if !extendsSelection {
+            let visibleRows = table.rows(in: table.visibleRect)
+            for visibleRow in visibleRows.lowerBound..<(visibleRows.lowerBound + visibleRows.length)
+            where visibleRow != row {
+                (table.view(atColumn: 0, row: visibleRow, makeIfNecessary: false)
+                    as? SidebarWorkspaceRowTableCellView)?.showOptimisticDeselection()
+            }
+        }
         cell.showOptimisticSelectionHighlight()
     }
 
     func middleClick(row: Int) {
-        guard rows.indices.contains(row) else { return }
+        // Group headers carry their anchor's workspaceId; middle-closing the
+        // anchor from a header press would be destructive and non-parity.
+        guard rows.indices.contains(row), !rows[row].isGroupHeader else { return }
         actions?.closeWorkspace(rows[row].workspaceId)
     }
 

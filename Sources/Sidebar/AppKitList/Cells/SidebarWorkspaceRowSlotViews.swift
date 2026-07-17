@@ -88,16 +88,21 @@ final class SidebarRowPullRequestIconView: NSView {
                 weight: nil
             )
             if let image {
-                let tinted = image.copy() as? NSImage ?? image
-                tinted.isTemplate = false
                 let rect = NSRect(
                     x: (bounds.width - image.size.width) / 2,
                     y: (bounds.height - image.size.height) / 2,
                     width: image.size.width,
                     height: image.size.height
                 )
-                color.set()
-                image.draw(in: rect, from: .zero, operation: .sourceAtop, fraction: 1)
+                // Tint inside the image first: .sourceAtop against the view's
+                // transparent backing draws nothing (no destination pixels).
+                let tinted = NSImage(size: image.size, flipped: false) { drawRect in
+                    image.draw(in: drawRect, from: .zero, operation: .sourceOver, fraction: 1)
+                    color.set()
+                    drawRect.fill(using: .sourceAtop)
+                    return true
+                }
+                tinted.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)
             }
             return
         }
