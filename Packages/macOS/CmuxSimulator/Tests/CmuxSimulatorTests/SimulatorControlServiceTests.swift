@@ -421,6 +421,24 @@ struct SimulatorControlServiceTests {
         #expect(await commands.recordedBoundedLimits().first?.output
             == SimulatorControlService.maximumMutationOutputBytes)
     }
+
+    @Test("Application launch secrets stay in the child environment")
+    func launchEnvironmentIsNotExposedInArguments() async throws {
+        let commands = RecordingCommandRunner(results: [.success("com.example.app: 42")])
+        let service = SimulatorControlService(commands: commands)
+
+        _ = try await service.launchApplication(
+            deviceID: "DEVICE",
+            bundleIdentifier: "com.example.app",
+            configuration: SimulatorLaunchConfiguration(environment: ["API_TOKEN": "top-secret"])
+        )
+
+        let invocation = try #require(await commands.recordedInvocations().first)
+        #expect(invocation.executable == "/usr/bin/xcrun")
+        #expect(invocation.arguments == ["simctl", "launch", "DEVICE", "com.example.app"])
+        #expect(!invocation.arguments.joined(separator: " ").contains("top-secret"))
+        #expect(invocation.environment == ["SIMCTL_CHILD_API_TOKEN": "top-secret"])
+    }
 }
 
 private extension CommandResult {
