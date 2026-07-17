@@ -826,6 +826,14 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DEFC100000000000000001 /* FilePreviewTextEditorTextKitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFC100000000000000002 /* FilePreviewTextEditorTextKitTests.swift */; };
 		F11E52270000000000005227 /* FilePreviewWordWrapSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11E52270000000000005228 /* FilePreviewWordWrapSettings.swift */; };
 		A5001445A5001445A5001445 /* FilePreviewWorkspaceOpenSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001444A5001444A5001444 /* FilePreviewWorkspaceOpenSupport.swift */; };
+		F5A102000000000000000002 /* FileSearchGrouping.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5A102000000000000000001 /* FileSearchGrouping.swift */; };
+		F5A112000000000000000002 /* FileSearchGroupingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5A112000000000000000001 /* FileSearchGroupingTests.swift */; };
+		F5A103000000000000000002 /* FileSearchPreviewSlice.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5A103000000000000000001 /* FileSearchPreviewSlice.swift */; };
+		F5A113000000000000000002 /* FileSearchPreviewSliceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5A113000000000000000001 /* FileSearchPreviewSliceTests.swift */; };
+		F5A101000000000000000002 /* FileSearchRanking.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5A101000000000000000001 /* FileSearchRanking.swift */; };
+		F5A111000000000000000002 /* FileSearchRankingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5A111000000000000000001 /* FileSearchRankingTests.swift */; };
+		F5A104000000000000000002 /* FileSearchResultIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5A104000000000000000001 /* FileSearchResultIcon.swift */; };
+		F5A114000000000000000002 /* FileSearchResultIconTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5A114000000000000000001 /* FileSearchResultIconTests.swift */; };
 		FE002103 /* FileSearchRipgrepParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE002003 /* FileSearchRipgrepParserTests.swift */; };
 		C35610000000000000000001 /* FinderFileDropRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C35610000000000000000002 /* FinderFileDropRegressionTests.swift */; };
 		D0E0F0B4A1B2C3D4E5F60718 /* FindSelectionShortcutUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0E0F0B5A1B2C3D4E5F60718 /* FindSelectionShortcutUITests.swift */; };
@@ -2801,6 +2809,14 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0DEFC100000000000000002 /* FilePreviewTextEditorTextKitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilePreviewTextEditorTextKitTests.swift; sourceTree = "<group>"; };
 		F11E52270000000000005228 /* FilePreviewWordWrapSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewWordWrapSettings.swift; sourceTree = "<group>"; };
 		A5001444A5001444A5001444 /* FilePreviewWorkspaceOpenSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewWorkspaceOpenSupport.swift; sourceTree = "<group>"; };
+		F5A102000000000000000001 /* FileSearchGrouping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSearchGrouping.swift; sourceTree = "<group>"; };
+		F5A112000000000000000001 /* FileSearchGroupingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSearchGroupingTests.swift; sourceTree = "<group>"; };
+		F5A103000000000000000001 /* FileSearchPreviewSlice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSearchPreviewSlice.swift; sourceTree = "<group>"; };
+		F5A113000000000000000001 /* FileSearchPreviewSliceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSearchPreviewSliceTests.swift; sourceTree = "<group>"; };
+		F5A101000000000000000001 /* FileSearchRanking.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSearchRanking.swift; sourceTree = "<group>"; };
+		F5A111000000000000000001 /* FileSearchRankingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSearchRankingTests.swift; sourceTree = "<group>"; };
+		F5A104000000000000000001 /* FileSearchResultIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSearchResultIcon.swift; sourceTree = "<group>"; };
+		F5A114000000000000000001 /* FileSearchResultIconTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSearchResultIconTests.swift; sourceTree = "<group>"; };
 		FE002003 /* FileSearchRipgrepParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSearchRipgrepParserTests.swift; sourceTree = "<group>"; };
 		C35610000000000000000002 /* FinderFileDropRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinderFileDropRegressionTests.swift; sourceTree = "<group>"; };
 		D0E0F0B5A1B2C3D4E5F60718 /* FindSelectionShortcutUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FindSelectionShortcutUITests.swift; sourceTree = "<group>"; };
@@ -5313,6 +5329,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				FE5996050000000000000001 /* FileExplorerSearchField.swift */,
 				FE5996060000000000000001 /* FileExplorerSearchResultCellView.swift */,
 				FE5996070000000000000001 /* FileExplorerSearchResultsTableView.swift */,
+				F5A102000000000000000001 /* FileSearchGrouping.swift */,
+				F5A103000000000000000001 /* FileSearchPreviewSlice.swift */,
+				F5A101000000000000000001 /* FileSearchRanking.swift */,
+				F5A104000000000000000001 /* FileSearchResultIcon.swift */,
 				B37A0000000000000000000A /* FileExplorerState.swift */,
 				FE001001 /* FileExplorerStore.swift */,
 				FE001004 /* FileExplorerTerminalPathInsertion.swift */,
@@ -6010,6 +6030,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				FE002002 /* FileExplorerStoreTests.swift */,
 				FE002010 /* FileExplorerDoubleClickActionTests.swift */,
 				FE002003 /* FileSearchRipgrepParserTests.swift */,
+				F5A112000000000000000001 /* FileSearchGroupingTests.swift */,
+				F5A113000000000000000001 /* FileSearchPreviewSliceTests.swift */,
+				F5A111000000000000000001 /* FileSearchRankingTests.swift */,
+				F5A114000000000000000001 /* FileSearchResultIconTests.swift */,
 				9BD519CFE74530A46DF0925D /* MobileHostAuthorizationTests.swift */,
 				7A1B2C3D4E5F60718293A4B5 /* MobileHostTerminalThemeTests.swift */,
 				C1A071000000000000000011 /* MobileHostIrohAdmissionTests.swift */,
@@ -6940,6 +6964,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D0B10016A1B2C3D4E5F60001 /* FilePreviewTextEditor.swift in Sources */,
 					F11E52270000000000005227 /* FilePreviewWordWrapSettings.swift in Sources */,
 				A5001445A5001445A5001445 /* FilePreviewWorkspaceOpenSupport.swift in Sources */,
+				F5A102000000000000000002 /* FileSearchGrouping.swift in Sources */,
+				F5A103000000000000000002 /* FileSearchPreviewSlice.swift in Sources */,
+				F5A101000000000000000002 /* FileSearchRanking.swift in Sources */,
+				F5A104000000000000000002 /* FileSearchResultIcon.swift in Sources */,
 				F1A0C0DE0000000000000002 /* FindTextFieldSupport.swift in Sources */,
 				F0C05170000000000000002 /* FocusHistory.swift in Sources */,
 				C4160A020000000000000001 /* FocusHistoryMenuInvalidator.swift in Sources */,
@@ -8091,6 +8119,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5001436A5001436A5001436 /* FilePreviewPDFThumbnailSidebarTests.swift in Sources */,
 				C0DE31390000000000000103 /* FilePreviewReviewFeedbackTests.swift in Sources */,
 				C0DEFC100000000000000001 /* FilePreviewTextEditorTextKitTests.swift in Sources */,
+				F5A112000000000000000002 /* FileSearchGroupingTests.swift in Sources */,
+				F5A113000000000000000002 /* FileSearchPreviewSliceTests.swift in Sources */,
+				F5A111000000000000000002 /* FileSearchRankingTests.swift in Sources */,
+				F5A114000000000000000002 /* FileSearchResultIconTests.swift in Sources */,
 				FE002103 /* FileSearchRipgrepParserTests.swift in Sources */,
 				C35610000000000000000001 /* FinderFileDropRegressionTests.swift in Sources */,
 				C0F15A000000000000000001 /* FishShellIntegrationTests.swift in Sources */,
