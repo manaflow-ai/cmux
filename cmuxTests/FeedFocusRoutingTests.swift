@@ -119,6 +119,24 @@ import Testing
         #expect(!appDelegate.routeFeedText(surfaceId: "not-a-surface-id", text: "retry this"))
     }
 
+    @Test func feedFocusRejectsMismatchedWorkspaceWithoutChangingSelection() throws {
+        let appDelegate = AppDelegate()
+        let manager = TabManager()
+        let origin = try #require(manager.selectedWorkspace)
+        let panel = try #require(origin.focusedTerminalPanel)
+        let surfaceID = try #require(origin.surfaceIdFromPanelId(panel.id)?.uuid)
+        let other = manager.addWorkspace()
+        let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowID) }
+        let selectedBeforeRoute = manager.selectedTabId
+
+        #expect(!appDelegate.routeFeedFocus(
+            workspaceId: other.id.uuidString,
+            surfaceId: surfaceID.uuidString
+        ))
+        #expect(manager.selectedTabId == selectedBeforeRoute)
+    }
+
     @Test func stopDraftClearsOnlyAfterMatchingSuccessfulDelivery() {
         var failed = FeedStopDraft(reply: "retry this")
         failed.finishSend(submittedReply: "retry this", succeeded: false)
