@@ -103,7 +103,7 @@ actor BrowserWebExtensionDirectoryRepository {
         let data = try JSONEncoder().encode(approvals)
         try data.write(
             to: directory.appendingPathComponent(Self.approvalFileName),
-            options: [.atomic, .completeFileProtection]
+            options: .atomic
         )
     }
 
