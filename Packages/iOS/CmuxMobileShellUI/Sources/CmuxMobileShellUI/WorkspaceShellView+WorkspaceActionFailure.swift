@@ -1,5 +1,6 @@
 import CmuxMobileShell
 import CmuxMobileSupport
+import CmuxMobileToast
 import Foundation
 import SwiftUI
 
@@ -27,30 +28,23 @@ extension WorkspaceShellView {
         action: WorkspaceActionToastAction
     ) {
         guard case let .failure(failure) = result else { return }
-        withAnimation(.snappy(duration: 0.2)) {
-            workspaceActionToast = WorkspaceActionToastContent(
-                message: workspaceActionFailureMessage(action: action, failure: failure)
-            )
-        }
+        toasts.present(.failure(
+            workspaceActionFailureReasonText(failure),
+            title: workspaceActionFailureTitle(action: action),
+            // One key per action: a repeat of the same failed action re-bumps
+            // the visible toast (even if the reason changed) instead of
+            // queueing near-duplicates.
+            coalescingKey: "workspaceAction.failure.\(action)"
+        ))
     }
 
-    func dismissWorkspaceActionToast() {
-        withAnimation(.snappy(duration: 0.2)) {
-            workspaceActionToast = nil
-        }
-    }
-
-    private func workspaceActionFailureMessage(
-        action: WorkspaceActionToastAction,
-        failure: MobileWorkspaceMutationFailure
-    ) -> String {
+    private func workspaceActionFailureTitle(action: WorkspaceActionToastAction) -> String {
         String.localizedStringWithFormat(
             L10n.string(
-                "mobile.workspaceAction.failure.message",
-                defaultValue: "Couldn't %@: %@."
+                "mobile.workspaceAction.failure.titleFormat",
+                defaultValue: "Couldn't %@"
             ),
-            workspaceActionFailureActionText(action),
-            workspaceActionFailureReasonText(failure)
+            workspaceActionFailureActionText(action)
         )
     }
 
@@ -96,84 +90,84 @@ extension WorkspaceShellView {
                 return String.localizedStringWithFormat(
                     L10n.string(
                         "mobile.workspaceAction.failure.reason.notConnected.host",
-                        defaultValue: "not connected to %@"
+                        defaultValue: "Not connected to %@."
                     ),
                     hostDisplayName
                 )
             }
             return L10n.string(
                 "mobile.workspaceAction.failure.reason.notConnected.generic",
-                defaultValue: "not connected to your Mac"
+                defaultValue: "Not connected to your Mac."
             )
         case let .requestTimedOut(hostDisplayName):
             if let hostDisplayName = trimmedWorkspaceActionHostDisplayName(hostDisplayName) {
                 return String.localizedStringWithFormat(
                     L10n.string(
                         "mobile.workspaceAction.failure.reason.timedOut.host",
-                        defaultValue: "timed out talking to %@"
+                        defaultValue: "The request to %@ timed out."
                     ),
                     hostDisplayName
                 )
             }
             return L10n.string(
                 "mobile.workspaceAction.failure.reason.timedOut.generic",
-                defaultValue: "timed out talking to your Mac"
+                defaultValue: "The request to your Mac timed out."
             )
         case let .authorizationFailed(hostDisplayName):
             if let hostDisplayName = trimmedWorkspaceActionHostDisplayName(hostDisplayName) {
                 return String.localizedStringWithFormat(
                     L10n.string(
                         "mobile.workspaceAction.failure.reason.authorization.host",
-                        defaultValue: "was not authorized by %@"
+                        defaultValue: "%@ didn't authorize the request."
                     ),
                     hostDisplayName
                 )
             }
             return L10n.string(
                 "mobile.workspaceAction.failure.reason.authorization.generic",
-                defaultValue: "was not authorized by your Mac"
+                defaultValue: "Your Mac didn't authorize the request."
             )
         case let .busy(hostDisplayName):
             if let hostDisplayName = trimmedWorkspaceActionHostDisplayName(hostDisplayName) {
                 return String.localizedStringWithFormat(
                     L10n.string(
                         "mobile.workspaceAction.failure.reason.busy.host",
-                        defaultValue: "%@ is finishing another workspace action"
+                        defaultValue: "%@ is finishing another workspace action."
                     ),
                     hostDisplayName
                 )
             }
             return L10n.string(
                 "mobile.workspaceAction.failure.reason.busy.generic",
-                defaultValue: "another workspace action is still finishing"
+                defaultValue: "Another workspace action is still finishing."
             )
         case let .rejected(hostDisplayName):
             if let hostDisplayName = trimmedWorkspaceActionHostDisplayName(hostDisplayName) {
                 return String.localizedStringWithFormat(
                     L10n.string(
                         "mobile.workspaceAction.failure.reason.rejected.host",
-                        defaultValue: "was rejected by %@"
+                        defaultValue: "%@ rejected the request."
                     ),
                     hostDisplayName
                 )
             }
             return L10n.string(
                 "mobile.workspaceAction.failure.reason.rejected.generic",
-                defaultValue: "was rejected by your Mac"
+                defaultValue: "Your Mac rejected the request."
             )
         case let .unsupported(hostDisplayName):
             if let hostDisplayName = trimmedWorkspaceActionHostDisplayName(hostDisplayName) {
                 return String.localizedStringWithFormat(
                     L10n.string(
                         "mobile.workspaceAction.failure.reason.unsupported.host",
-                        defaultValue: "%@ doesn't support that action"
+                        defaultValue: "%@ doesn't support that action."
                     ),
                     hostDisplayName
                 )
             }
             return L10n.string(
                 "mobile.workspaceAction.failure.reason.unsupported.generic",
-                defaultValue: "your Mac doesn't support that action"
+                defaultValue: "Your Mac doesn't support that action."
             )
         }
     }

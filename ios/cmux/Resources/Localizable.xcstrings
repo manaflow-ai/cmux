@@ -9827,19 +9827,19 @@
         }
       }
     },
-    "mobile.workspaceAction.failure.message": {
+    "mobile.workspaceAction.failure.titleFormat": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn't %@: %@."
+            "value": "Couldn't %@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@できませんでした: %2$@。"
+            "value": "%@できませんでした"
           }
         }
       }
@@ -10105,13 +10105,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "not connected to %@"
+            "value": "Not connected to %@."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ に接続されていません"
+            "value": "%@ に接続されていません。"
           }
         }
       }
@@ -10122,13 +10122,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "not connected to your Mac"
+            "value": "Not connected to your Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac に接続されていません"
+            "value": "Mac に接続されていません。"
           }
         }
       }
@@ -10139,13 +10139,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "timed out talking to %@"
+            "value": "The request to %@ timed out."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ との通信がタイムアウトしました"
+            "value": "%@ との通信がタイムアウトしました。"
           }
         }
       }
@@ -10156,13 +10156,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "timed out talking to your Mac"
+            "value": "The request to your Mac timed out."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac との通信がタイムアウトしました"
+            "value": "Mac との通信がタイムアウトしました。"
           }
         }
       }
@@ -10173,13 +10173,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "was not authorized by %@"
+            "value": "%@ didn't authorize the request."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ で認証されませんでした"
+            "value": "%@ で認証されませんでした。"
           }
         }
       }
@@ -10190,13 +10190,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "was not authorized by your Mac"
+            "value": "Your Mac didn't authorize the request."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac で認証されませんでした"
+            "value": "Mac で認証されませんでした。"
           }
         }
       }
@@ -10207,13 +10207,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ is finishing another workspace action"
+            "value": "%@ is finishing another workspace action."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ が別のワークスペース操作を完了しています"
+            "value": "%@ が別のワークスペース操作を完了しています。"
           }
         }
       }
@@ -10224,13 +10224,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "another workspace action is still finishing"
+            "value": "Another workspace action is still finishing."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "別のワークスペース操作がまだ完了中です"
+            "value": "別のワークスペース操作がまだ完了していません。"
           }
         }
       }
@@ -10241,13 +10241,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "was rejected by %@"
+            "value": "%@ rejected the request."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ に拒否されました"
+            "value": "%@ に拒否されました。"
           }
         }
       }
@@ -10258,13 +10258,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "was rejected by your Mac"
+            "value": "Your Mac rejected the request."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac に拒否されました"
+            "value": "Mac に拒否されました。"
           }
         }
       }
@@ -10275,13 +10275,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ doesn't support that action"
+            "value": "%@ doesn't support that action."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ はその操作に対応していません"
+            "value": "%@ はその操作に対応していません。"
           }
         }
       }
@@ -10292,13 +10292,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "your Mac doesn't support that action"
+            "value": "Your Mac doesn't support that action."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac はその操作に対応していません"
+            "value": "Mac はその操作に対応していません。"
           }
         }
       }

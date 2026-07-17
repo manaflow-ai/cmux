@@ -7,6 +7,7 @@ import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 @_exported import CmuxMobileShellUI
+import CmuxMobileToast
 import CmuxMobileTransport
 import Foundation
 import OSLog
@@ -50,6 +51,10 @@ public struct CMUXMobileRootScene: View {
     /// non-iOS roots, which simply shows no Tailscale guidance.
     private let tailscaleStatusMonitor: (any TailscaleStatusObserving)?
     private let pairedMacStore: (any MobilePairedMacStoring)?
+    /// The app-wide toast presenter, hosted at this root so toasts float over
+    /// every screen (including sheets) and any descendant can present through
+    /// `@Environment(ToastCenter.self)`.
+    @State private var toastCenter = ToastCenter()
     /// Per-terminal composer drafts for the app session, so an unsent message
     /// survives keyboard dismiss and terminal switches. In-memory only for now;
     /// a disk-backed ``TerminalDraftStoring`` (drafts surviving relaunch) lands
@@ -261,6 +266,7 @@ public struct CMUXMobileRootScene: View {
 
     public var body: some View {
         content
+            .toastHost(toastCenter)
             .environment(auth.coordinator)
             .analytics(analytics)
             .tailscaleStatusMonitor(tailscaleStatusMonitor)
@@ -282,6 +288,8 @@ public struct CMUXMobileRootScene: View {
             MobileZoomStressView()
         } else if ProcessInfo.processInfo.environment["CMUX_BOTTOM_SCROLL_STRESS"] == "1" {
             MobileBottomScrollStressView()
+        } else if ProcessInfo.processInfo.environment["CMUX_TOAST_GALLERY"] == "1" {
+            ToastGalleryView()
         } else {
             CMUXMobileAppView(
                 store: makeStore(),
