@@ -14,7 +14,10 @@ nonisolated private let mobileIrohLog = Logger(
 
 /// Process-owned iOS composition for account-scoped Iroh networking.
 @MainActor
-public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProviding {
+public final class MobileIrohRuntimeComposition:
+    CmxIrohDeferredTransportProviding,
+    MobileIrohMacDiscovering
+{
     enum SettingsError: Error, Equatable {
         case unavailable
         case incompleteCustomRelay
@@ -56,7 +59,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         deferredProvider: self
     )
 
-    /// Broker-verified personal-account Mac routes used only for paired reconnects.
+    /// Broker-verified personal-account Mac routes and live discovery candidates.
     public let routeCatalog: MobileIrohRouteCatalog
 
     private let appInstances: CmxIrohAppInstanceRepository
@@ -88,6 +91,8 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
     private var relayPolicyService: CmxIrohRelayPolicyService?
     private var relayPolicyEffective: CmxIrohEffectiveRelayPolicy?
     private var relayPolicyDiagnostics: CmxIrohRelayDiagnosticsSnapshot?
+    private var consumedDiscoveryRuntimeID: ObjectIdentifier?
+    private var consumedDiscoveryGeneration: UInt64 = 0
     private var relayPolicyEndpointID: CmxIrohPeerIdentity?
     private var relayPolicyObservationTask: Task<Void, Never>?
     private var relayPolicyRefreshTask: Task<Void, Never>?
@@ -308,6 +313,35 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
     public func prepareForConnection() async {
         await reconcileLiveAuthIfNeeded()
         await transitionTask?.value
+        await sceneTransitionTask?.value
+    }
+
+    /// Refreshes the current account runtime and returns its live pairable Macs.
+    ///
+    /// The catalog keeps cached bindings in a separate route-only view, so this
+    /// method can never turn an offline cache entry into a first pairing.
+    public func discoverLiveMacs() async -> [MobileDiscoveredIrohMac] {
+        await prepareForConnection()
+        guard let runtime else { return [] }
+        let runtimeID = ObjectIdentifier(runtime)
+        var generation = await runtime.liveDiscoverySnapshotGeneration()
+        guard self.runtime === runtime else { return [] }
+        if consumedDiscoveryRuntimeID != runtimeID
+            || generation > consumedDiscoveryGeneration {
+            consumedDiscoveryRuntimeID = runtimeID
+            consumedDiscoveryGeneration = generation
+            return await routeCatalog.liveMacCandidates(preferredTag: tag)
+        }
+        guard await runtime.refreshLiveDiscovery() else {
+            guard self.runtime === runtime else { return [] }
+            await routeCatalog.clearLiveMacCandidates(scope: lifecycleRevision)
+            return []
+        }
+        generation = await runtime.liveDiscoverySnapshotGeneration()
+        guard self.runtime === runtime else { return [] }
+        consumedDiscoveryRuntimeID = runtimeID
+        consumedDiscoveryGeneration = generation
+        return await routeCatalog.liveMacCandidates(preferredTag: tag)
     }
 
     /// Resolves a disconnected transport from the active account runtime.

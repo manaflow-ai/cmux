@@ -585,6 +585,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// reconnect uses the locally persisted paired-Mac routes, so pairing
     /// survives the cloud registry being down.
     let deviceRegistry: (any DeviceRegistryRefreshing)?
+    /// Live same-account Iroh discovery. This is distinct from route refresh so
+    /// only a current broker response may initiate a first pairing.
+    let personalIrohDiscovery: (any MobileIrohMacDiscovering)?
     /// Live presence subscription (the `workers/presence` Durable Object edge).
     /// Optional and failure-tolerant like the registry: when `nil` or down, the
     /// device tree simply keeps its registry "last seen" hints.
@@ -892,6 +895,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairedMacStore: (any MobilePairedMacStoring)? = nil,
         pairedMacRestoreBoundary: PairedMacRestoreBoundary? = nil,
         deviceRegistry: (any DeviceRegistryRefreshing)? = nil,
+        personalIrohDiscovery: (any MobileIrohMacDiscovering)? = nil,
         presence: (any PresenceSubscribing)? = nil,
         clientIDRepository: MobileClientIDRepository = MobileClientIDRepository(defaults: .standard),
         identityProvider: (any MobileIdentityProviding)? = nil,
@@ -916,6 +920,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.pairedMacStore = pairedMacStore
         self.pairedMacRestoreBoundary = pairedMacRestoreBoundary
         self.deviceRegistry = deviceRegistry
+        self.personalIrohDiscovery = personalIrohDiscovery
         self.presence = presence
         self.identityProvider = identityProvider
         self.teamIDProvider = teamIDProvider
@@ -1727,15 +1732,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             candidates.append(activeMac)
         }
         candidates.append(contentsOf: allMacs.filter { $0.id != activeMac?.id })
-        guard !candidates.isEmpty else {
-            setHasKnownPairedMac(false, generation: generation)
-            finishStoredMacReconnectAttempt(generation: generation)
-            return false
-        }
         // A newer attempt may have started while we awaited the store read; if so,
         // let it own the flags rather than marking ourselves the active reconnect.
         guard generation == storedMacReconnectGeneration else { return false }
-        setHasKnownPairedMac(true, generation: generation)
+        let hadStoredCandidates = !candidates.isEmpty
+        if hadStoredCandidates {
+            setHasKnownPairedMac(true, generation: generation)
+        }
         isReconnectingStoredMac = true
         // Cap how long the restoring gate stays up: a stored Mac whose route went
         // stale (Tailscale address changed, or it's offline) makes connectManualHost
@@ -1754,6 +1757,29 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                   self.connectionState != .connected else { return }
             self.isReconnectingStoredMac = false
             self.didFinishStoredMacReconnectAttempt = true
+        }
+        let zeroTouchCandidates = await discoverZeroTouchIrohCandidates(
+            scope: scope,
+            generation: generation,
+            excluding: Set(candidates.map {
+                MobilePairedMac.pairingID(
+                    macDeviceID: $0.macDeviceID.lowercased(),
+                    instanceTag: $0.instanceTag
+                )
+            })
+        )
+        guard generation == storedMacReconnectGeneration,
+              await isScopeCurrent(scope) else {
+            restoringDeadline.cancel()
+            return false
+        }
+        candidates.append(contentsOf: zeroTouchCandidates)
+        let zeroTouchCandidateIDs = Set(zeroTouchCandidates.map(\.id))
+        guard !candidates.isEmpty else {
+            restoringDeadline.cancel()
+            setHasKnownPairedMac(false, generation: generation)
+            finishStoredMacReconnectAttempt(generation: generation)
+            return false
         }
         // Capture one coherent post-request view of the registry and paired-Mac
         // store. The store read happens after the registry await, so an
@@ -1803,7 +1829,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                 )
             }
-            if connectionState != .connected {
+            if connectionState != .connected,
+               !zeroTouchCandidateIDs.contains(mac.id) {
                 switch await freshReconnectRoutesAfterLocalFailure(
                     for: mac,
                     scope: scope,

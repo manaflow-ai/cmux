@@ -42,6 +42,60 @@ struct MobileIrohRuntimeCompositionTests {
     }
 
     @Test
+    func zeroTouchDiscoveryRejectsAmbiguousEndpointAndDeviceTagBindings() async throws {
+        let duplicateDeviceID = "30000000-0000-4000-8000-000000000001"
+        let discovery = try mobileIrohDiscovery(bindings: [
+            mobileIrohBinding(
+                bindingID: "30000000-0000-4000-8000-000000000002",
+                deviceID: "30000000-0000-4000-8000-000000000003",
+                appInstanceID: "30000000-0000-4000-8000-000000000004",
+                endpointID: String(repeating: "a", count: 64),
+                platform: "mac",
+                pairingEnabled: true
+            ),
+            mobileIrohBinding(
+                bindingID: "30000000-0000-4000-8000-000000000005",
+                deviceID: "30000000-0000-4000-8000-000000000006",
+                appInstanceID: "30000000-0000-4000-8000-000000000007",
+                endpointID: String(repeating: "a", count: 64),
+                platform: "mac",
+                pairingEnabled: true
+            ),
+            mobileIrohBinding(
+                bindingID: "30000000-0000-4000-8000-000000000008",
+                deviceID: duplicateDeviceID,
+                appInstanceID: "30000000-0000-4000-8000-000000000009",
+                endpointID: String(repeating: "b", count: 64),
+                platform: "mac",
+                pairingEnabled: true
+            ),
+            mobileIrohBinding(
+                bindingID: "30000000-0000-4000-8000-000000000010",
+                deviceID: duplicateDeviceID,
+                appInstanceID: "30000000-0000-4000-8000-000000000011",
+                endpointID: String(repeating: "c", count: 64),
+                platform: "mac",
+                pairingEnabled: true
+            ),
+            mobileIrohBinding(
+                bindingID: "30000000-0000-4000-8000-000000000012",
+                deviceID: "30000000-0000-4000-8000-000000000013",
+                appInstanceID: "30000000-0000-4000-8000-000000000014",
+                endpointID: String(repeating: "d", count: 64),
+                platform: "mac",
+                pairingEnabled: true
+            ),
+        ])
+        let catalog = MobileIrohRouteCatalog()
+        await catalog.activate(scope: 3)
+        await catalog.replace(with: discovery, scope: 3)
+
+        let candidates = await catalog.liveMacCandidates(preferredTag: "test")
+        #expect(candidates.count == 1)
+        #expect(candidates.first?.deviceID == "30000000-0000-4000-8000-000000000013")
+    }
+
+    @Test
     func relayPolicyRefreshesBeforeExpiryAndDeactivatesOnlyAtExpiry() {
         let now = Date(timeIntervalSince1970: 1_000)
         let expiresAt = now.addingTimeInterval(300)
@@ -416,7 +470,10 @@ struct MobileIrohRuntimeCompositionTests {
         ])
         let catalog = MobileIrohRouteCatalog()
         await catalog.activate(scope: 9)
+        await catalog.replace(with: discovery, scope: 9)
+        #expect(await catalog.liveMacCandidates(preferredTag: "test").count == 1)
         await catalog.replaceCachedBindings(discovery.bindings, scope: 9)
+        #expect(await catalog.liveMacCandidates(preferredTag: "test").isEmpty)
         let registry = PersonalIrohDeviceRegistryDecorator(
             base: nil,
             catalog: catalog,

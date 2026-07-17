@@ -108,6 +108,7 @@ struct cmuxApp: App {
             onboardingStore: Self.root.onboardingStore,
             tailscaleStatusMonitor: Self.root.tailscaleStatusMonitor,
             personalIrohRouteCatalog: Self.root.iroh.routeCatalog,
+            personalIrohDiscovery: Self.root.iroh,
             signOutHook: Self.root.signOutHook,
             diagnosticLog: Self.root.diagnosticLog
         )
@@ -129,6 +130,7 @@ struct cmuxApp: App {
             onboardingStore: Self.root.onboardingStore,
             tailscaleStatusMonitor: Self.root.tailscaleStatusMonitor,
             personalIrohRouteCatalog: Self.root.iroh.routeCatalog,
+            personalIrohDiscovery: Self.root.iroh,
             signOutHook: Self.root.signOutHook
         )
         .environment(\.irohSettingsController, Self.root.iroh)

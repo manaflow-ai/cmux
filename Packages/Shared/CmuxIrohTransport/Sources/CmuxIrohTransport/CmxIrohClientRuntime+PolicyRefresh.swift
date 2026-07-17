@@ -52,11 +52,8 @@ extension CmxIrohClientRuntime {
         }
         registrationRefreshPending = false
         registrationRefreshTask = Task { [weak self] in
-            do {
-                try await self?.refreshRegistration(revision: revision)
-            } catch {
-                // Terminal errors already revoke local policy and stop networking.
-            }
+            guard let self else { return }
+            try await self.refreshRegistration(revision: revision)
         }
     }
 
@@ -94,6 +91,7 @@ extension CmxIrohClientRuntime {
             if let registration = policy.registration,
                let discovery = policy.discovery {
                 await handleBinding(registration, discovery)
+                liveDiscoveryGeneration &+= 1
             } else if let lanRendezvous = policy.cachedLANRendezvous {
                 await handleCachedBindings(policy.cachedTargetBindings, lanRendezvous)
             }

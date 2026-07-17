@@ -67,6 +67,12 @@ extension MobileShellComposite {
                     if hasOnlineAuthority {
                         self.recoverMobileConnection(trigger: .presencePush)
                     }
+                } else if self.connectionState != .connected,
+                          self.personalIrohDiscovery != nil {
+                    // Presence is only a wake-up signal. The recovery pass still
+                    // obtains candidates from the authenticated personal broker,
+                    // so a team member's presence event cannot authorize pairing.
+                    self.recoverMobileConnection(trigger: .presencePush)
                 }
             }
         }
