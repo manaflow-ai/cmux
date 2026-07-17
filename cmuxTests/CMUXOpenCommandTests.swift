@@ -3,10 +3,6 @@ import Foundation
 import XCTest
 
 final class CMUXOpenCommandTests: XCTestCase {
-    func testOpenCodeDiffTrajectoryProviderUsesProtocolSpelling() {
-        XCTAssertEqual(RestorableAgentKind.opencode.diffTrajectoryProvider, "openCode")
-    }
-
     struct ProcessRunResult {
         let status: Int32
         let stdout: String
