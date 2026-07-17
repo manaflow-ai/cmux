@@ -394,7 +394,7 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
     func confirmPermissionRequest(informativeText: String, scrollableDetails: String? = nil) -> Bool {
         let content = scrollableDetails.map {
             CmuxAlertContent(flattenedText: informativeText, separatingScrollableDetails: $0)
-        } ?? CmuxAlertContent.scrollingAll(informativeText)
+        } ?? CmuxAlertContent(informativeText: informativeText)
         if let permissionConfirmation {
             return permissionConfirmation(content.flattenedText)
         }

@@ -2491,10 +2491,10 @@ final class Workspace: Identifiable, ObservableObject {
         let informativeText = String(
             format: String(
                 localized: "surfaceResumeApproval.runPrompt.message",
-                defaultValue: "cmux is restoring a terminal with this resume command:\n\n%@\n\nWorking directory: %@"
+                defaultValue: "cmux is restoring a terminal with this resume command:\n\nWorking directory: %@\n\n%@"
             ),
-            binding.command,
-            binding.cwd ?? String(localized: "surfaceResumeApproval.cwd.none", defaultValue: "None")
+            binding.cwd ?? String(localized: "surfaceResumeApproval.cwd.none", defaultValue: "None"),
+            binding.command
         )
         alert.addButton(withTitle: String(localized: "surfaceResumeApproval.runPrompt.run", defaultValue: "Run"))
         alert.addButton(withTitle: String(localized: "surfaceResumeApproval.runPrompt.skip", defaultValue: "Skip"))

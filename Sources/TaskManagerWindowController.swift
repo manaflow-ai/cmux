@@ -242,18 +242,26 @@ final class CmuxTaskManagerModel {
         let content: CmuxAlertContent
         if processIds.count == 1, let processId = processIds.first {
             alert.messageText = String(localized: "taskManager.killProcess.title.one", defaultValue: "Kill process?")
-            let message = String(format: String(
-                localized: "taskManager.killProcess.message.one",
-                defaultValue: "Ask %@ (PID %lld) to terminate gracefully. cmux will force-kill it if it is still running after a short grace period."
-            ), row.title, Int64(processId))
+            let message = String.localizedStringWithFormat(
+                String(
+                    localized: "taskManager.killProcess.message.one",
+                    defaultValue: "Ask %@ (PID %lld) to terminate gracefully. cmux will force-kill it if it is still running after a short grace period."
+                ),
+                row.title,
+                Int64(processId)
+            )
             content = CmuxAlertContent(informativeText: message)
         } else {
             let pidList = processIds.map(String.init).joined(separator: ", ")
             alert.messageText = String(localized: "taskManager.killProcess.title.other", defaultValue: "Kill processes?")
-            let message = String(format: String(
-                localized: "taskManager.killProcess.message.other",
-                defaultValue: "Ask %lld processes to terminate gracefully. cmux will force-kill remaining processes after a short grace period. PIDs: %@."
-            ), Int64(processIds.count), pidList)
+            let message = String.localizedStringWithFormat(
+                String(
+                    localized: "taskManager.killProcess.message.other",
+                    defaultValue: "Ask %lld processes to terminate gracefully. cmux will force-kill remaining processes after a short grace period. PIDs: %@."
+                ),
+                Int64(processIds.count),
+                pidList
+            )
             content = CmuxAlertContent.scrollingAll(message)
         }
         alert.alertStyle = .warning
