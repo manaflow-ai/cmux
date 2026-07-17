@@ -84,6 +84,20 @@ public final class CmuxClient implements AutoCloseable {
         return result;
     }
 
+    private void requireProtocol(int minimum, String feature) throws CmuxException {
+        int negotiated = protocol != null ? protocol : identify().protocol();
+        if (negotiated > 8) {
+            throw new CmuxProtocolMismatchException(
+                "unsupported protocol " + negotiated + "; maximum supported is 8"
+            );
+        }
+        if (negotiated < minimum) {
+            throw new CmuxProtocolMismatchException(
+                feature + " requires protocol " + minimum + "; server uses protocol " + negotiated
+            );
+        }
+    }
+
     public Tree listWorkspaces() throws CmuxException {
         return Tree.from(request("list-workspaces", new LinkedHashMap<>()));
     }
@@ -154,6 +168,7 @@ public final class CmuxClient implements AutoCloseable {
     }
 
     public SurfaceResult newPane(long pane, Integer cols, Integer rows) throws CmuxException {
+        requireProtocol(8, "new-pane");
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("pane", pane);
         putIfNotNull(params, "cols", cols);

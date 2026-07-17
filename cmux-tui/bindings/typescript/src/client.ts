@@ -355,7 +355,8 @@ export class CmuxClient {
   }
   newWorkspace(options: NewWorkspaceOptions = {}): Promise<SurfaceResult> { return this.request("new-workspace", options); }
   newScreen(options: NewScreenOptions = {}): Promise<SurfaceResult> { return this.request("new-screen", options); }
-  newPane(pane: Id, options: NewPaneOptions = {}): Promise<SurfaceResult> {
+  async newPane(pane: Id, options: NewPaneOptions = {}): Promise<SurfaceResult> {
+    await this.requireProtocol(8, "new-pane");
     return this.request("new-pane", { pane, ...options });
   }
   split(pane: Id, dir: SplitDirection, options: SplitOptions = {}): Promise<SurfaceResult> {
@@ -418,6 +419,18 @@ export class CmuxClient {
       (event, dedicated) => dedicated || this.matchesAttachEvent(event, surface),
       (event) => event.event === "detached" || this.isSurfaceOverflow(event, surface),
     );
+  }
+
+  private async requireProtocol(minimum: number, feature: string): Promise<void> {
+    const protocol = this.protocol ?? (await this.identify()).protocol;
+    if (protocol > 8) {
+      throw new CmuxProtocolError(`unsupported protocol ${protocol}; maximum supported is 8`);
+    }
+    if (protocol < minimum) {
+      throw new CmuxProtocolError(
+        `${feature} requires protocol ${minimum}; server uses protocol ${protocol}`,
+      );
+    }
   }
 
   waitFor(surface: IdRef, pattern: string, timeoutMs: number): Promise<WaitForResult> {

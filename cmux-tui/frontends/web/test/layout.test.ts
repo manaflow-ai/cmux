@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Layout } from "cmux/browser";
-import { layoutToViewModel } from "../src/lib/layout";
+import { layoutToViewModel, visibleStackPanes } from "../src/lib/layout";
 import {
   clampSplitRatio,
   splitDividerTarget,
@@ -58,6 +58,16 @@ describe("layoutToViewModel", () => {
     expect(layoutToViewModel(layout)).toEqual({ type: "stack", panes: [1, 2, 3], expanded: 2 });
     expect(layoutToViewModel(layout, null, 1)).toEqual({ type: "stack", panes: [1, 2, 3], expanded: 1 });
     expect(layoutToViewModel(layout, 3)).toEqual({ type: "pane", pane: 3 });
+  });
+});
+
+describe("visibleStackPanes", () => {
+  it("keeps the expanded pane visible and matches Zellij header selection", () => {
+    const panes = [1, 2, 3, 4, 5];
+    expect(visibleStackPanes(panes, 4, 2)).toEqual([2, 3, 4]);
+    expect(visibleStackPanes(panes, 1, 2)).toEqual([1, 2, 3]);
+    expect(visibleStackPanes(panes, 5, 0)).toEqual([5]);
+    expect(visibleStackPanes(panes, 3, null)).toEqual(panes);
   });
 });
 

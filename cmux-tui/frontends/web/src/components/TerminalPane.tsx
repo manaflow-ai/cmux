@@ -2,7 +2,7 @@ import { useCallback, useReducer, useRef, useState } from "react";
 import type { ClientInfo, CmuxClient, Id, LivePane, Tab } from "cmux/browser";
 import { t } from "../i18n";
 import type { PaneLayoutView } from "../lib/layout";
-import { layoutToViewModel } from "../lib/layout";
+import { layoutToViewModel, visibleStackPanes } from "../lib/layout";
 import type { ScreenView } from "../lib/tree";
 import { contextMenuReducer } from "../lib/contextMenu";
 import { renameCanCommit, renameReducer } from "../lib/rename";
@@ -233,11 +233,35 @@ interface LayoutStackNodeProps extends Omit<LayoutNodeProps, "node"> {
   node: Extract<PaneLayoutView, { type: "stack" }>;
 }
 
+function useVisibleStackHeaders() {
+  const observer = useRef<ResizeObserver | null>(null);
+  const [visibleHeaders, setVisibleHeaders] = useState<number | null>(null);
+  const ref = useCallback((element: HTMLDivElement | null) => {
+    observer.current?.disconnect();
+    observer.current = null;
+    if (element === null || typeof ResizeObserver === "undefined") return;
+    const update = () => {
+      const headerHeight = Number.parseFloat(
+        getComputedStyle(element).getPropertyValue("--stack-header-height"),
+      ) || 30;
+      setVisibleHeaders(Math.max(0, Math.floor(
+        (element.getBoundingClientRect().height - headerHeight) / (headerHeight + 1),
+      )));
+    };
+    update();
+    observer.current = new ResizeObserver(update);
+    observer.current.observe(element);
+  }, []);
+  return { ref, visibleHeaders };
+}
+
 function LayoutStackNode({ node, screen, basis, ...actions }: LayoutStackNodeProps) {
   const style = basis === undefined ? undefined : { flex: `0 0 ${basis}%` };
+  const { ref, visibleHeaders } = useVisibleStackHeaders();
+  const panes = visibleStackPanes(node.panes, node.expanded, visibleHeaders);
   return (
-    <div className="pane-stack" style={style}>
-      {node.panes.map((pane) => (
+    <div className="pane-stack" ref={ref} style={style}>
+      {panes.map((pane) => (
         <div
           className={`pane-leaf${pane === node.expanded ? " expanded" : " collapsed"}`}
           key={pane}

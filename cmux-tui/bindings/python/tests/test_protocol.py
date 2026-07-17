@@ -24,6 +24,13 @@ class ProtocolTests(unittest.TestCase):
         with self.assertRaisesRegex(ProtocolError, "maximum supported is 8"):
             client.attach_surface(1)
 
+    def test_new_pane_rejects_servers_older_than_protocol_eight(self) -> None:
+        client = CmuxClient.__new__(CmuxClient)
+        client._protocol = 7
+
+        with self.assertRaisesRegex(ProtocolError, "new-pane requires protocol 8"):
+            client.new_pane(1)
+
 
 if __name__ == "__main__":
     unittest.main()

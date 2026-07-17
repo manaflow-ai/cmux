@@ -414,6 +414,7 @@ impl CmuxClient {
         cols: Option<u16>,
         rows: Option<u16>,
     ) -> Result<SurfaceResult> {
+        self.require_protocol(8, "new-pane")?;
         let mut params = Map::new();
         params.insert("pane".to_string(), Value::from(pane));
         insert_opt(&mut params, "cols", cols);
@@ -580,6 +581,24 @@ impl CmuxClient {
             )));
         }
         self.open_stream("attach-surface", surface_params(surface))
+    }
+
+    fn require_protocol(&mut self, minimum: u32, feature: &str) -> Result<()> {
+        let protocol = match self.protocol {
+            Some(protocol) => protocol,
+            None => self.identify()?.protocol,
+        };
+        if protocol > 8 {
+            return Err(CmuxError::ProtocolVersion(format!(
+                "unsupported protocol {protocol}; maximum supported is 8"
+            )));
+        }
+        if protocol < minimum {
+            return Err(CmuxError::ProtocolVersion(format!(
+                "{feature} requires protocol {minimum}; server uses protocol {protocol}"
+            )));
+        }
+        Ok(())
     }
 
     fn open_stream(&mut self, cmd: &str, mut params: Map<String, Value>) -> Result<CmuxStream> {

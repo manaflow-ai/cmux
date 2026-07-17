@@ -1317,6 +1317,7 @@ impl Mux {
                     screen.root = crate::zellij_default_pane_layout(&panes)
                         .expect("new pane layout always has at least one pane");
                     screen.active_pane = pane_id;
+                    screen.zoomed_pane = None;
                     screen.zellij_auto_layout = Some(panes);
                     changed_screen = Some(screen.id);
                     break 'outer;
@@ -2648,6 +2649,23 @@ mod tests {
             screen.root.pane_ids(&mut order);
             assert_eq!(order, vec![p1, p2, p3, p4]);
             assert_eq!(screen.zellij_auto_layout.as_deref(), Some(order.as_slice()));
+        });
+    }
+
+    #[test]
+    fn zellij_new_pane_exits_zoom_before_focusing_the_new_pane() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, None).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        mux.zoom_pane(Some(first_pane), ZoomMode::On).unwrap();
+
+        let new_surface = mux.new_pane(first_pane, None).unwrap();
+        let new_pane = mux.with_state(|state| state.pane_of(new_surface.id).unwrap());
+
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            assert_eq!(screen.active_pane, new_pane);
+            assert_eq!(screen.zoomed_pane, None);
         });
     }
 

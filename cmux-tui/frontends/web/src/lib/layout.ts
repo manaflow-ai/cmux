@@ -12,6 +12,22 @@ export type PaneLayoutView =
       second: PaneLayoutView;
     };
 
+export function visibleStackPanes(
+  panes: Id[],
+  expanded: Id,
+  visibleHeaders: number | null,
+): Id[] {
+  if (visibleHeaders === null || visibleHeaders >= panes.length - 1) return panes;
+  const expandedIndex = panes.indexOf(expanded);
+  if (expandedIndex < 0) return panes;
+  const headersBefore = Math.min(expandedIndex, Math.max(0, visibleHeaders));
+  const headersAfter = Math.min(
+    Math.max(0, visibleHeaders) - headersBefore,
+    panes.length - expandedIndex - 1,
+  );
+  return panes.slice(expandedIndex - headersBefore, expandedIndex + headersAfter + 1);
+}
+
 export function layoutToViewModel(
   layout: Layout,
   zoomedPane: Id | null = null,
