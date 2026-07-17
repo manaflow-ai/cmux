@@ -1,4 +1,5 @@
 import CmuxTerminalCore
+import CmuxTerminalRenderer
 import Foundation
 import os
 
@@ -45,13 +46,15 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     let surfaceID: UUID
     private let clock = ContinuousClock()
     private let notificationHandler: PromptTurnNotificationHandler
+    private let rendererOutputRelay: RendererProcessOutputRelay?
     private var detectors: [DetectorBinding]
     private let forwardQueue = OSAllocatedUnfairLock(initialState: ForwardQueue())
 
     init(
         workspaceID: UUID,
         surfaceID: UUID,
-        agentDefinitions: [CmuxTaskManagerCodingAgentDefinition]
+        agentDefinitions: [CmuxTaskManagerCodingAgentDefinition],
+        rendererOutputRelay: RendererProcessOutputRelay? = nil
     ) {
         self.workspaceID = workspaceID
         self.surfaceID = surfaceID
@@ -59,6 +62,7 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
             workspaceID: workspaceID,
             surfaceID: surfaceID
         )
+        self.rendererOutputRelay = rendererOutputRelay
         self.detectors = agentDefinitions.compactMap { definition in
             definition.promptTurnDetection.map {
                 DetectorBinding(
@@ -70,6 +74,7 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     }
 
     func consume(_ bytes: UnsafeBufferPointer<UInt8>) {
+        rendererOutputRelay?.append(bytes)
         let now = clock.now
         for index in detectors.indices {
             if let confirmation = detectors[index].detector.pendingConfirmation,

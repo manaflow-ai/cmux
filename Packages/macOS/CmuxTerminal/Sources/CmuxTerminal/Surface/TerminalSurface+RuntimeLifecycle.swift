@@ -564,7 +564,25 @@ extension TerminalSurface {
         // grid parity by construction. The lease is released alongside
         // `surfaceCallbackContext` when the surface tears down.
         mobileByteTeeLease?.release()
-        mobileByteTeeLease = byteTee.installTee(on: createdSurface, workspaceID: tabId, surfaceID: id)
+        let initialFontSize = GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(createdSurface)
+            ?? configTemplate?.fontSize
+            ?? 13
+        let initialBackingSize = view.convertToBacking(
+            NSRect(origin: .zero, size: view.bounds.size)
+        ).size
+        mobileByteTeeLease = byteTee.installTee(
+            on: createdSurface,
+            owner: self,
+            view: view,
+            workspaceID: tabId,
+            surfaceID: id,
+            pixelWidth: max(1, pixelDimension(from: initialBackingSize.width)),
+            pixelHeight: max(1, pixelDimension(from: initialBackingSize.height)),
+            scaleX: scaleFactors.x,
+            scaleY: scaleFactors.y,
+            fontSize: initialFontSize,
+            context: surfaceContext.rawValue
+        )
         if runtimeInitialInput != nil {
             nextRuntimeInitialInput = nil
         }
@@ -598,6 +616,12 @@ extension TerminalSurface {
             lastUncappedPixelHeight = hpx
             lastXScale = scaleFactors.x
             lastYScale = scaleFactors.y
+            mobileByteTeeLease?.updateRendererSize(
+                pixelWidth: wpx,
+                pixelHeight: hpx,
+                scaleX: scaleFactors.x,
+                scaleY: scaleFactors.y
+            )
         }
 
         // Flush remote-tmux output that arrived before the surface existed
@@ -626,6 +650,8 @@ extension TerminalSurface {
         // surface converges with any focus changes that happened while the
         // surface was being initialized.
         ghostty_surface_set_focus(createdSurface, desiredFocusState)
+        mobileByteTeeLease?.updateRendererFocus(desiredFocusState)
+        mobileByteTeeLease?.updateRendererOcclusion(rendererPortalVisible)
 
         flushPendingSocketInputIfNeeded()
 

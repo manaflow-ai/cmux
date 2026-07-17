@@ -90,7 +90,9 @@ extension TerminalSurface {
         keyEvent.composing = false
         return text.withCString { ptr in
             keyEvent.text = ptr
-            return ghostty_surface_key(liveSurface, keyEvent)
+            let handled = ghostty_surface_key(liveSurface, keyEvent)
+            mirrorRendererKey(keyEvent)
+            return handled
         }
     }
 
@@ -462,11 +464,14 @@ extension TerminalSurface {
             // pointer must stay valid only for the `ghostty_surface_key` call.
             handled = canonicalText.withCString { ptr in
                 keyEvent.text = ptr
-                return ghostty_surface_key(surface, keyEvent)
+                let handled = ghostty_surface_key(surface, keyEvent)
+                mirrorRendererKey(keyEvent)
+                return handled
             }
         } else {
             keyEvent.text = nil
             handled = ghostty_surface_key(surface, keyEvent)
+            mirrorRendererKey(keyEvent)
         }
 
 #if DEBUG
@@ -489,6 +494,7 @@ extension TerminalSurface {
             guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
             ghostty_surface_text(surface, baseAddress, UInt(rawBuffer.count))
         }
+        mirrorRendererText(String(decoding: data, as: UTF8.self), marked: false)
     }
 
     func writeInputTextData(_ data: Data, to surface: ghostty_surface_t) {
@@ -496,6 +502,7 @@ extension TerminalSurface {
             guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
             ghostty_surface_text_input(surface, baseAddress, UInt(rawBuffer.count))
         }
+        mirrorRendererText(String(decoding: data, as: UTF8.self), marked: false)
     }
 
     /// Sends bytes through Ghostty's PTY-output parser so OSC commands affect terminal state.

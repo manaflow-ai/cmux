@@ -377,6 +377,13 @@ extension TerminalSurface {
             lastYScale = yScale
         }
 
+        mobileByteTeeLease?.updateRendererSize(
+            pixelWidth: wpx,
+            pixelHeight: hpx,
+            scaleX: xScale,
+            scaleY: yScale
+        )
+
         // Remote tmux display surfaces: report every APPLIED resize —
         // including same-grid re-applies, since a resize that lands on new
         // pixels without changing cols×rows still refines the measured

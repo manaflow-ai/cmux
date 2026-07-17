@@ -11,9 +11,11 @@ extension TerminalSurface {
     @discardableResult
     public func performBindingAction(_ action: String) -> Bool {
         guard let surface = surface else { return false }
-        return action.withCString { cString in
+        let handled = action.withCString { cString in
             ghostty_surface_binding_action(surface, cString, UInt(strlen(cString)))
         }
+        mirrorRendererBindingAction(action)
+        return handled
     }
 
     /// Performs an internal binding action without treating it as user input.

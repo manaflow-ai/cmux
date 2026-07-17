@@ -26,6 +26,8 @@ extension TerminalSurface {
         let posY = (Double(row) + 0.5) * cellHeightPt
         ghostty_surface_mouse_pos(surface, posX, posY, GHOSTTY_MODS_NONE)
         ghostty_surface_mouse_scroll(surface, 0, deltaLines, 0)
+        mirrorRendererMousePosition(x: posX, y: posY, modifiers: GHOSTTY_MODS_NONE)
+        mirrorRendererMouseScroll(x: 0, y: deltaLines, packedModifiers: 0)
     }
 
     /// Forward a mobile tap to this real surface as a left mouse click at the
@@ -50,6 +52,17 @@ extension TerminalSurface {
         ghostty_surface_mouse_pos(surface, posX, posY, GHOSTTY_MODS_NONE)
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, GHOSTTY_MODS_NONE)
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, GHOSTTY_MODS_NONE)
+        mirrorRendererMousePosition(x: posX, y: posY, modifiers: GHOSTTY_MODS_NONE)
+        mirrorRendererMouseButton(
+            state: GHOSTTY_MOUSE_PRESS,
+            button: GHOSTTY_MOUSE_LEFT,
+            modifiers: GHOSTTY_MODS_NONE
+        )
+        mirrorRendererMouseButton(
+            state: GHOSTTY_MOUSE_RELEASE,
+            button: GHOSTTY_MOUSE_LEFT,
+            modifiers: GHOSTTY_MODS_NONE
+        )
     }
 
     /// Exports the surface grid as a mobile render frame (optionally filtered

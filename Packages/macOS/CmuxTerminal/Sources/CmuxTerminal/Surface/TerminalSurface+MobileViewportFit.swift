@@ -111,6 +111,12 @@ extension TerminalSurface {
             return (fit.columns, fit.rows)
         }
         ghostty_surface_set_size(surface, appliedWidth, appliedHeight)
+        mobileByteTeeLease?.updateRendererSize(
+            pixelWidth: appliedWidth,
+            pixelHeight: appliedHeight,
+            scaleX: lastXScale,
+            scaleY: lastYScale
+        )
         lastPixelWidth = appliedWidth
         lastPixelHeight = appliedHeight
         ghostty_surface_refresh(surface)
@@ -160,6 +166,12 @@ extension TerminalSurface {
 
         guard sizeChanged else { return (appliedColumns, appliedRows) }
         ghostty_surface_set_size(surface, appliedWidth, appliedHeight)
+        mobileByteTeeLease?.updateRendererSize(
+            pixelWidth: appliedWidth,
+            pixelHeight: appliedHeight,
+            scaleX: lastXScale,
+            scaleY: lastYScale
+        )
         lastPixelWidth = appliedWidth
         lastPixelHeight = appliedHeight
         ghostty_surface_refresh(surface)
@@ -205,6 +217,12 @@ extension TerminalSurface {
             return fontRestored
         }
         ghostty_surface_set_size(surface, uncappedWidth, uncappedHeight)
+        mobileByteTeeLease?.updateRendererSize(
+            pixelWidth: uncappedWidth,
+            pixelHeight: uncappedHeight,
+            scaleX: lastXScale,
+            scaleY: lastYScale
+        )
         lastPixelWidth = uncappedWidth
         lastPixelHeight = uncappedHeight
         ghostty_surface_refresh(surface)
