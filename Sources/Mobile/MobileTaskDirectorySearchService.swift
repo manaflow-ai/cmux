@@ -107,14 +107,26 @@ actor MobileTaskDirectorySearchService {
         pendingRank?.task.cancel()
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty, limit > 0 else { return [] }
+        let expandedQuery = Self.expandHome(query, homeDirectory: homeDirectory.path)
+        let maximumResults = min(limit, 64)
+        let seededMatches = Self.rank(
+            searchablePaths: Self.seedCandidates(
+                seedPaths: seedPaths,
+                homeDirectory: homeDirectory
+            ),
+            query: expandedQuery,
+            limit: maximumResults
+        )
+        guard !Task.isCancelled, revision == searchRevision else { return [] }
+        if !seededMatches.isEmpty { return seededMatches }
+
         let roots = Self.searchRoots(homeDirectory: homeDirectory, seedPaths: seedPaths)
         let paths = try await indexedPaths(roots: roots, now: now)
         guard !Task.isCancelled, revision == searchRevision else { return [] }
-        let expandedQuery = Self.expandHome(query, homeDirectory: homeDirectory.path)
         return await rankLatest(
             paths: paths,
             query: expandedQuery,
-            limit: min(limit, 64),
+            limit: maximumResults,
             revision: revision
         )
     }
@@ -404,6 +416,31 @@ actor MobileTaskDirectorySearchService {
             roots.append(root)
         }
         return roots
+    }
+
+    private nonisolated static func seedCandidates(
+        seedPaths: [String],
+        homeDirectory: URL
+    ) -> [SearchablePath] {
+        let fileManager = FileManager.default
+        var paths: [String] = []
+        var seen = Set<Data>()
+        paths.reserveCapacity(seedPaths.count)
+
+        for seedPath in seedPaths {
+            guard !Task.isCancelled else { return [] }
+            let trimmed = seedPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            let expanded = expandHome(trimmed, homeDirectory: homeDirectory.path)
+            let seedURL = URL(fileURLWithPath: expanded, isDirectory: true).standardizedFileURL
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: seedURL.path, isDirectory: &isDirectory),
+                  isDirectory.boolValue,
+                  seen.insert(Data(seedURL.path.utf8)).inserted else { continue }
+            paths.append(seedURL.path)
+        }
+
+        return prepare(paths: paths)
     }
 
     nonisolated static func parentSearchRoot(for seedURL: URL) -> URL {
