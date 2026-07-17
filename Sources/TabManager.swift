@@ -602,8 +602,10 @@ class TabManager: ObservableObject {
                 self?.sidebarMetadataSettingsDidChange()
                 self?.refreshTabCloseButtonVisibility()
                 self?.refreshWindowTitle()
+                self?.refreshWebNotificationForwardingEnablement()
             }
         })
+        lastForwardWebNotificationsEnabled = BrowserWebNotificationSettings.isForwardingEnabled
 #if DEBUG
         setupUITestFocusShortcutsIfNeeded()
         setupSplitCloseRightUITestIfNeeded()
@@ -654,6 +656,21 @@ class TabManager: ObservableObject {
     /// Last ports-visibility enablement fanned out to remote sessions; gates
     /// the `UserDefaults.didChangeNotification` firehose to actual transitions.
     private var lastRemotePortScanningEnabled: Bool?
+
+    private var lastForwardWebNotificationsEnabled: Bool?
+
+    private func refreshWebNotificationForwardingEnablement() {
+        let enabled = BrowserWebNotificationSettings.isForwardingEnabled
+        guard enabled != lastForwardWebNotificationsEnabled else { return }
+        lastForwardWebNotificationsEnabled = enabled
+        guard enabled else { return }
+        BrowserPrewarmedWebViewPool.shared.discard(reason: "web-notifications-enabled")
+        for workspace in tabs {
+            for panel in workspace.panels.values.compactMap({ $0 as? BrowserPanel }) {
+                panel.enableWebNotificationForwardingForLiveWebViews()
+            }
+        }
+    }
 
     /// Propagates the sidebar ports-visibility settings to every live remote
     /// session so that disabling `sidebar.showPorts` (or enabling

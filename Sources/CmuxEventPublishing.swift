@@ -325,12 +325,17 @@ extension CmuxEventBus {
                     )
                 }
             } else {
-                let replacedIds = removed
-                    .filter {
-                        $0.workspaceTabId == notification.workspaceTabId &&
-                            $0.surfaceId == notification.surfaceId
-                    }
-                    .map { $0.id.uuidString }
+                let replacedIds: [String]
+                if let workspaceTabId = notification.workspaceTabId {
+                    replacedIds = removed
+                        .filter {
+                            $0.workspaceTabId == workspaceTabId &&
+                                $0.surfaceId == notification.surfaceId
+                        }
+                        .map { $0.id.uuidString }
+                } else {
+                    replacedIds = []
+                }
                 publishNotificationCreated(notification, delivery: "store", replacedNotificationIds: replacedIds)
             }
         }

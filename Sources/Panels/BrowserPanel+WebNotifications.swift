@@ -194,15 +194,32 @@ extension BrowserPanel {
               BrowserWebNotificationNativeAdapter.shared.shouldInstallForegroundFallback else {
             return
         }
+        installWebNotificationFallback(
+            on: configuration.userContentController,
+            profileID: profileID
+        )
+    }
+
+    @discardableResult
+    private static func installWebNotificationFallback(
+        on controller: WKUserContentController,
+        profileID: UUID
+    ) -> BrowserWebNotificationBridgeConfiguration {
+        if let existing = objc_getAssociatedObject(
+            controller,
+            &webNotificationBridgeConfigurationKey
+        ) as? BrowserWebNotificationBridgeConfiguration {
+            return existing
+        }
         let permissionOrigins = BrowserProfileStore.shared.notificationPermissions.origins(for: profileID)
         let bridge = BrowserWebNotificationBridgeConfiguration(token: UUID().uuidString, profileID: profileID)
         objc_setAssociatedObject(
-            configuration.userContentController,
+            controller,
             &webNotificationBridgeConfigurationKey,
             bridge,
             .OBJC_ASSOCIATION_RETAIN_NONATOMIC
         )
-        configuration.userContentController.addUserScript(
+        controller.addUserScript(
             WKUserScript(
                 source: webNotificationBridgeScriptSource(
                     token: bridge.token,
@@ -214,6 +231,7 @@ extension BrowserPanel {
                 in: .page
             )
         )
+        return bridge
     }
 
     /// Binds the native endpoint for a preconfigured compatibility script.
@@ -221,6 +239,7 @@ extension BrowserPanel {
         let boundWebViewInstanceID = webViewInstanceID
         let handler = makeWebNotificationMessageHandler(
             for: webView,
+            profileID: profileID,
             webViewInstanceID: boundWebViewInstanceID,
             isCurrentGeneration: { [weak self] candidate, instanceID in
                 self?.isCurrentWebView(candidate, instanceID: instanceID) == true
@@ -232,10 +251,14 @@ extension BrowserPanel {
 
     /// Binds an independently configured popup to the opener's notification
     /// destination without sharing the opener web view's bridge generation.
-    func setupPopupWebNotificationBridge(for webView: WKWebView) -> BrowserWebNotificationMessageHandler? {
+    func setupPopupWebNotificationBridge(
+        for webView: WKWebView,
+        profileID: UUID
+    ) -> BrowserWebNotificationMessageHandler? {
         let instanceID = UUID()
         return makeWebNotificationMessageHandler(
             for: webView,
+            profileID: profileID,
             webViewInstanceID: instanceID,
             isCurrentGeneration: { [weak webView] candidate, candidateInstanceID in
                 candidate === webView && candidateInstanceID == instanceID
@@ -245,18 +268,21 @@ extension BrowserPanel {
 
     private func makeWebNotificationMessageHandler(
         for webView: WKWebView,
+        profileID boundProfileID: UUID,
         webViewInstanceID boundWebViewInstanceID: UUID,
         isCurrentGeneration: @escaping @MainActor (WKWebView, UUID) -> Bool
     ) -> BrowserWebNotificationMessageHandler? {
-        BrowserWebNotificationNativeAdapter.shared.register(
-            webView: webView,
-            profileID: profileID,
-            panel: self
-        )
-        guard let bridge = objc_getAssociatedObject(
+        let bridge = objc_getAssociatedObject(
             webView.configuration.userContentController,
             &Self.webNotificationBridgeConfigurationKey
-        ) as? BrowserWebNotificationBridgeConfiguration else {
+        ) as? BrowserWebNotificationBridgeConfiguration
+        let effectiveProfileID = bridge?.profileID ?? boundProfileID
+        BrowserWebNotificationNativeAdapter.shared.register(
+            webView: webView,
+            profileID: effectiveProfileID,
+            panel: self
+        )
+        guard let bridge else {
             return nil
         }
 
@@ -266,7 +292,7 @@ extension BrowserPanel {
             webViewInstanceID: boundWebViewInstanceID,
             isCurrentGeneration: isCurrentGeneration,
             permissionDecision: { [weak self] origin in
-                self?.webNotificationPermissionDecision(for: origin) ?? .denied
+                self?.webNotificationPermissionDecision(for: origin, profileID: effectiveProfileID) ?? .denied
             },
             onPayload: { [weak self] payload, _ in
                 guard let self else { return }
@@ -277,7 +303,12 @@ extension BrowserPanel {
                     reply(false)
                     return
                 }
-                self.resolveWebNotificationPermission(for: origin, in: webView, reply: reply)
+                self.resolveWebNotificationPermission(
+                    for: origin,
+                    in: webView,
+                    profileID: effectiveProfileID,
+                    reply: reply
+                )
             }
         )
 
@@ -285,6 +316,29 @@ extension BrowserPanel {
         controller.removeScriptMessageHandler(forName: BrowserWebNotificationMessageHandler.name, contentWorld: .page)
         controller.addScriptMessageHandler(handler, contentWorld: .page, name: BrowserWebNotificationMessageHandler.name)
         return handler
+    }
+
+    /// Reconciles a live browser after website notification forwarding is
+    /// enabled, without replacing or reloading its web view.
+    func enableWebNotificationForwardingForLiveWebViews() {
+        guard BrowserWebNotificationSettings.isForwardingEnabled else { return }
+        if BrowserWebNotificationNativeAdapter.shared.shouldInstallForegroundFallback {
+            let bridge = Self.installWebNotificationFallback(
+                on: webView.configuration.userContentController,
+                profileID: profileID
+            )
+            setupWebNotificationBridge(for: webView)
+            let origins = BrowserProfileStore.shared.notificationPermissions.origins(for: profileID)
+            let source = Self.webNotificationBridgeScriptSource(
+                token: bridge.token,
+                allowedOrigins: origins.allowed,
+                deniedOrigins: origins.denied
+            )
+            webView.evaluateJavaScript(source, completionHandler: nil)
+        } else {
+            setupWebNotificationBridge(for: webView)
+        }
+        enableWebNotificationForwardingForPopups()
     }
 
     /// Removes the endpoint before a browser webview is released or superseded.
@@ -302,6 +356,7 @@ extension BrowserPanel {
     func resolveWebNotificationPermission(
         for rawOrigin: URL,
         in webView: WKWebView,
+        profileID requestProfileID: UUID? = nil,
         reply: @escaping (Bool) -> Void
     ) {
         guard BrowserWebNotificationSettings.isForwardingEnabled else {
@@ -316,13 +371,17 @@ extension BrowserPanel {
             reply(false)
             return
         }
-        switch storedWebNotificationPermissionDecision(for: origin, repository: repository) {
+        let requestProfileID = requestProfileID ?? profileID
+        switch storedWebNotificationPermissionDecision(
+            for: origin,
+            profileID: requestProfileID,
+            repository: repository
+        ) {
         case .allowed:
             reply(true)
         case .denied:
             reply(false)
         case .prompt:
-            let requestProfileID = profileID
             let requestKey = "\(requestProfileID.uuidString)|\(originKey)"
             if pendingWebNotificationPermissionReplies[requestKey] != nil {
                 pendingWebNotificationPermissionReplies[requestKey]?.append(reply)
@@ -365,7 +424,8 @@ extension BrowserPanel {
     }
 
     private func webNotificationPermissionDecision(
-        for rawOrigin: URL
+        for rawOrigin: URL,
+        profileID: UUID
     ) -> BrowserNotificationPermissionDecision {
         guard BrowserWebNotificationSettings.isForwardingEnabled else {
             return .denied
@@ -373,12 +433,14 @@ extension BrowserPanel {
         let repository = BrowserProfileStore.shared.notificationPermissions
         return storedWebNotificationPermissionDecision(
             for: rawOrigin,
+            profileID: profileID,
             repository: repository
         )
     }
 
     private func storedWebNotificationPermissionDecision(
         for securityOrigin: URL,
+        profileID: UUID,
         repository: BrowserNotificationPermissionRepository
     ) -> BrowserNotificationPermissionDecision {
         let displayOrigin = Self.remoteProxyDisplayURL(for: securityOrigin) ?? securityOrigin
@@ -397,7 +459,15 @@ extension BrowserPanel {
         guard instanceID == webViewInstanceID else { return }
         guard BrowserWebNotificationSettings.isForwardingEnabled else { return }
 
-        let rawOrigin = URL(string: "https://\(payload.hostname)")
+        var components = URLComponents()
+        components.scheme = "https"
+        let hostname = payload.hostname.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        if hostname.contains(":") {
+            components.percentEncodedHost = "[\(hostname)]"
+        } else {
+            components.host = hostname
+        }
+        let rawOrigin = components.url
         let displayHost = (Self.remoteProxyDisplayURL(for: rawOrigin) ?? rawOrigin)?.host ?? payload.hostname
         deliverWebNotification(workspaceId, id, payload.title, displayHost, payload.body)
     }

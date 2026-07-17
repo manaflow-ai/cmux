@@ -213,9 +213,16 @@ final class BrowserWebNotificationNativeAdapter {
               ) == .allowed else {
             return
         }
-        let body = Self.stringProperty("body", on: notification) ?? ""
+        let boundedTitle = Self.boundedNotificationTitle(title)
+        let body = Self.boundedNotificationBody(
+            Self.stringProperty("body", on: notification) ?? ""
+        )
         let displayOrigin = Self.displayOrigin(for: origin)
-        let notificationID = deliverGlobal(title: title, body: body, displayOrigin: displayOrigin)
+        let notificationID = deliverGlobal(
+            title: boundedTitle,
+            body: body,
+            displayOrigin: displayOrigin
+        )
         if let dictionary = Self.dictionaryProperty("dictionaryRepresentation", on: notification) {
             persistentClicks[notificationID] = PersistentClickRegistration(
                 dataStore: dataStore,
@@ -384,7 +391,10 @@ final class BrowserWebNotificationNativeAdapter {
               let title = copiedString(using: copyTitle, from: notification) else {
             return
         }
-        let body = copiedString(using: copyBody, from: notification) ?? ""
+        let boundedTitle = Self.boundedNotificationTitle(title)
+        let body = Self.boundedNotificationBody(
+            copiedString(using: copyBody, from: notification) ?? ""
+        )
         let id = notificationID?(notification) ?? 0
         let persistent = notificationIsPersistent?(notification) ?? false
         let securityOrigin = notificationSecurityOrigin?(notification)
@@ -394,17 +404,17 @@ final class BrowserWebNotificationNativeAdapter {
         if let page,
            let securityOrigin {
             let pageKey = Self.key(page)
-            guard let registration = registrations[pageKey],
+            guard !persistent,
+                  let registration = registrations[pageKey],
                   BrowserProfileStore.shared.notificationPermissions.decision(
                       for: securityOrigin,
                       profileID: registration.profileID
                   ) == .allowed,
                   registration.panel?.handleNativeWebNotification(
-                title: title,
+                title: boundedTitle,
                 body: body,
                 securityOrigin: securityOrigin
                   ) == true,
-                  !persistent,
                   id != 0 else { return }
             acknowledgeNotificationShown(manager: registration.manager, notificationID: id)
         } else if persistent {
@@ -484,6 +494,14 @@ final class BrowserWebNotificationNativeAdapter {
 
     private static func displayOrigin(for origin: URL) -> URL {
         BrowserPanel.remoteProxyDisplayURL(for: origin) ?? origin
+    }
+
+    private static func boundedNotificationTitle(_ title: String) -> String {
+        String(title.prefix(BrowserWebNotificationPayload.maximumTitleLength))
+    }
+
+    private static func boundedNotificationBody(_ body: String) -> String {
+        String(body.prefix(BrowserWebNotificationPayload.maximumBodyLength))
     }
 
     private static func objectPointer(from object: NSObject, selector name: String) -> UnsafeRawPointer? {

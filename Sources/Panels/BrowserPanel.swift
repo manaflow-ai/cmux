@@ -5456,6 +5456,10 @@ final class BrowserPanel: Panel, ObservableObject {
         reevaluateHiddenWebViewDiscardScheduling(reason: "popup_closed")
     }
 
+    func enableWebNotificationForwardingForPopups() {
+        popupControllers.forEach { $0.enableWebNotificationForwarding() }
+    }
+
     private func refreshFavicon(from webView: WKWebView) {
         faviconTask?.cancel()
         faviconTask = nil

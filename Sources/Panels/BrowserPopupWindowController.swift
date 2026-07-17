@@ -201,7 +201,10 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         let userContentController = webView.configuration.userContentController
         userContentController.removeScriptMessageHandler(forName: BrowserSSLTrustBypassMessageHandler.name)
         userContentController.add(sslTrustBypassMessageHandler, name: BrowserSSLTrustBypassMessageHandler.name)
-        webNotificationMessageHandler = openerPanel?.setupPopupWebNotificationBridge(for: webView)
+        webNotificationMessageHandler = openerPanel?.setupPopupWebNotificationBridge(
+            for: webView,
+            profileID: browserContext.profileID
+        )
         webAuthnCoordinator.install(on: webView)
 
         // Context menu "Open Link in New Tab" → open in opener's workspace,
@@ -387,7 +390,38 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
             decisionHandler(false)
             return
         }
-        openerPanel.resolveWebNotificationPermission(for: origin, in: webView, reply: decisionHandler)
+        openerPanel.resolveWebNotificationPermission(
+            for: origin,
+            in: webView,
+            profileID: browserContext.profileID,
+            reply: decisionHandler
+        )
+    }
+
+    func enableWebNotificationForwarding() {
+        guard let openerPanel else { return }
+        if BrowserWebNotificationNativeAdapter.shared.shouldInstallForegroundFallback {
+            BrowserPanel.configureWebNotificationFallback(
+                on: webView.configuration,
+                profileID: browserContext.profileID
+            )
+        }
+        webNotificationMessageHandler = openerPanel.setupPopupWebNotificationBridge(
+            for: webView,
+            profileID: browserContext.profileID
+        )
+        if let token = webNotificationMessageHandler?.token {
+            let origins = BrowserProfileStore.shared.notificationPermissions.origins(for: browserContext.profileID)
+            webView.evaluateJavaScript(
+                BrowserPanel.webNotificationBridgeScriptSource(
+                    token: token,
+                    allowedOrigins: origins.allowed,
+                    deniedOrigins: origins.denied
+                ),
+                completionHandler: nil
+            )
+        }
+        childPopups.forEach { $0.enableWebNotificationForwarding() }
     }
 
     // MARK: - Insecure HTTP prompt (parity with main browser)

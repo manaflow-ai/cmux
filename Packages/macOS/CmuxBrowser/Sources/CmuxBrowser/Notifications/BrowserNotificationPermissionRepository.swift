@@ -19,10 +19,15 @@ public enum BrowserNotificationPermissionDecision: String, Codable, Sendable {
 /// isolated because WebKit permission delegates require synchronous replies.
 @MainActor
 public final class BrowserNotificationPermissionRepository {
+    private typealias PermissionMap = [String: [String: BrowserNotificationPermissionDecision]]
+
     /// `UserDefaults` key for the encoded permission map.
     public static let defaultsKey = "browser.notificationPermissions.v1"
 
     private let defaults: UserDefaults
+    /// Decoded state paired with the exact persisted bytes. A changed snapshot
+    /// invalidates the cache, including writes made through another repository.
+    private var decodeCache: (data: Data?, map: PermissionMap)?
 
     /// Creates a repository backed by `defaults`.
     public init(defaults: UserDefaults) {
@@ -130,26 +135,28 @@ public final class BrowserNotificationPermissionRepository {
         return components.url?.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
     }
 
-    private func mutateMap(_ body: (inout [String: [String: BrowserNotificationPermissionDecision]]) -> Void) {
+    private func mutateMap(_ body: (inout PermissionMap) -> Void) {
         let original = loadMap()
         var map = original
         body(&map)
         guard map != original else { return }
         if map.isEmpty {
             defaults.removeObject(forKey: Self.defaultsKey)
+            decodeCache = (data: nil, map: [:])
         } else if let data = try? JSONEncoder().encode(map) {
             defaults.set(data, forKey: Self.defaultsKey)
+            decodeCache = (data: data, map: map)
         }
     }
 
-    private func loadMap() -> [String: [String: BrowserNotificationPermissionDecision]] {
-        guard let data = defaults.data(forKey: Self.defaultsKey),
-              let map = try? JSONDecoder().decode(
-                  [String: [String: BrowserNotificationPermissionDecision]].self,
-                  from: data
-              ) else {
-            return [:]
+    private func loadMap() -> PermissionMap {
+        let data = defaults.data(forKey: Self.defaultsKey)
+        if let decodeCache, decodeCache.data == data {
+            return decodeCache.map
         }
+
+        let map = data.flatMap { try? JSONDecoder().decode(PermissionMap.self, from: $0) } ?? [:]
+        decodeCache = (data: data, map: map)
         return map
     }
 }
