@@ -4,10 +4,11 @@ import Foundation
 
 /// Immutable presentation and menu state for one workspace-group row.
 ///
-/// Live group, notification, config, drag, and pointer models are reduced to
-/// this value before the lazy-list boundary. Only action closures are bound
-/// when SwiftUI realizes the row.
-struct SidebarWorkspaceGroupRowSnapshot {
+/// Live group, notification, config, and drag models are reduced to this
+/// value above the AppKit table. Only action closures are bound when a cell
+/// is configured; hover is injected per-cell by the table controller and is
+/// deliberately not part of this value, so equivalence checks skip it.
+struct SidebarWorkspaceGroupRowSnapshot: Equatable {
     let groupId: UUID
     let anchorWorkspaceId: UUID
     let name: String
@@ -26,7 +27,6 @@ struct SidebarWorkspaceGroupRowSnapshot {
     let shortcutDigit: Int?
     let shortcutModifierSymbol: String?
     let showsShortcutHint: Bool
-    let isPointerHovering: Bool
     let shortcutHintXOffset: Double
     let shortcutHintYOffset: Double
     let fontScale: CGFloat
@@ -37,5 +37,4 @@ struct SidebarWorkspaceGroupRowSnapshot {
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
     let bottomDropIndicatorVisible: Bool
-    let shouldCollectWorkspaceDropTargets: Bool
 }

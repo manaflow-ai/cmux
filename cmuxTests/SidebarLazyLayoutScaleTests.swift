@@ -10,29 +10,26 @@ import SwiftUI
 @testable import cmux
 #endif
 
-/// Behavioral gate for the workspace sidebar's lazy-layout contract: layout
+/// Behavioral gate for the workspace sidebar's virtualization contract: layout
 /// and diff work must stay O(visible rows) no matter how many workspaces are
 /// open, and updates must converge (no self-sustaining invalidation).
 ///
-/// The contract has regressed five times through five different mechanisms —
-/// per-row anchorPreference aggregation (#5323), per-row String ids (#5764),
-/// animated row-height interpolation (#5845), a force-measuring custom Layout
-/// (#6210), and GeometryReader → @State row-height feedback (#6556) — and each
-/// shipped to stable before being detected, because nothing exercised the
-/// sidebar at the 100+ workspace scale where O(N) per pass becomes a
-/// main-thread livelock (issue #2586). These tests mount the real
-/// `VerticalTabsSidebar` at that scale and count actual row body evaluations
+/// The SwiftUI-era contract regressed repeatedly (#5323, #5764, #5845, #6210,
+/// #6556, #6707, #8004) and each mechanism shipped to stable before being
+/// detected. The list is now an AppKit `NSTableView` with per-cell hosted
+/// SwiftUI roots (#8224); these tests mount the production
+/// `VerticalTabsSidebar` at 300 workspaces and count actual row body
+/// evaluations, cell materialization, and hosted-root reconfigurations
 /// through `SidebarLazyContractProbe`, so ANY future mechanism that realizes
-/// the whole list or loops the AttributeGraph fails here instead of on a
+/// the whole list or loops row invalidation fails here instead of on a
 /// user's machine. `scripts/check-sidebar-lazy-layout.py` bans the known
 /// source shapes; this is the mechanism-independent backstop.
 @Suite(.serialized)
 final class SidebarLazyLayoutScaleTests {
     static let workspaceCount = 300
-    /// Generous ceiling for "how many rows may be realized for one viewport".
-    /// A 640pt window shows ~20 rows; LazyVStack prefetch and a second layout
-    /// pass can multiply that, but a virtualization defeat realizes all 300.
-    private static let realizedRowCeiling = 150
+    /// A 640pt window shows ~20 rows; allow an AppKit reuse buffer plus a
+    /// second configure pass, but a virtualization defeat realizes all 300.
+    private static let realizedRowCeiling = 80
 
     final class InjectableMouseLocationWindow: NSWindow {
         var injectedMouseLocation = NSPoint.zero
@@ -57,6 +54,7 @@ final class SidebarLazyLayoutScaleTests {
         var insideWorkspaceRowBody = false
         var snapshotBuildsInCurrentRowBody = 0
         var maxSnapshotBuildsInOneRowBody = 0
+        var tableRootViewReconfigures = 0
         func reset() {
             workspaceRowBodies = 0
             groupHeaderBodies = 0
@@ -65,6 +63,7 @@ final class SidebarLazyLayoutScaleTests {
             insideWorkspaceRowBody = false
             snapshotBuildsInCurrentRowBody = 0
             maxSnapshotBuildsInOneRowBody = 0
+            tableRootViewReconfigures = 0
         }
     }
 
@@ -125,7 +124,7 @@ final class SidebarLazyLayoutScaleTests {
         }
 
         // Group the first workspaces (top of the list, inside the viewport) so
-        // group-header rows — assembled by sidebarWorkspaceGroupRow(...) in
+        // group-header rows — assembled by sidebarWorkspaceGroupTableRowConfiguration(...) in
         // VerticalTabsSidebar+WorkspaceGroups.swift, a historical regression
         // site (#4385) — are exercised by the same realization bounds.
         let groupCandidates = Array(tabManager.tabs.prefix(20).map(\.id))
@@ -186,6 +185,9 @@ final class SidebarLazyLayoutScaleTests {
                 },
                 workspaceRowInputProjection: {
                     counter.workspaceRowInputProjections += 1
+                },
+                tableRootViewReconfigure: {
+                    counter.tableRootViewReconfigures += 1
                 }
             )
         )
@@ -234,6 +236,27 @@ final class SidebarLazyLayoutScaleTests {
         }
     }
 
+    @MainActor
+    static func tableView(in rootView: NSView) -> SidebarWorkspaceTableViewImpl? {
+        var pendingViews = [rootView]
+        while let view = pendingViews.popLast() {
+            if let table = view as? SidebarWorkspaceTableViewImpl { return table }
+            pendingViews.append(contentsOf: view.subviews)
+        }
+        return nil
+    }
+
+    @MainActor
+    private static func materializedCells(in rootView: NSView) -> [SidebarWorkspaceTableCellView] {
+        var result: [SidebarWorkspaceTableCellView] = []
+        var pendingViews = [rootView]
+        while let view = pendingViews.popLast() {
+            result.append(contentsOf: view.subviews.compactMap { $0 as? SidebarWorkspaceTableCellView })
+            pendingViews.append(contentsOf: view.subviews)
+        }
+        return result
+    }
+
 
     /// Mounting the sidebar with 300 workspaces must realize only the rows a
     /// single viewport needs. Realizing all of them is the #5323/#6210 defeat:
@@ -247,16 +270,23 @@ final class SidebarLazyLayoutScaleTests {
 
         await Self.drainMainRunLoop(for: harness.window)
 
+        let rootView = try #require(harness.window.contentView)
+        let cells = Self.materializedCells(in: rootView)
+        #expect(!cells.isEmpty, "The production NSTableView mounted no reusable row cells.")
+        #expect(
+            cells.count < Self.realizedRowCeiling,
+            "NSTableView materialized \(cells.count) cells for a single viewport of \(Self.workspaceCount) rows."
+        )
+
         let realized = harness.counter.workspaceRowBodies
         #expect(realized > 0, "Sidebar mounted but no workspace row body ran; harness is broken.")
         #expect(
             realized < Self.realizedRowCeiling,
             """
             \(realized) workspace row bodies evaluated for a single ~20-row viewport with \
-            \(Self.workspaceCount) workspaces. The LazyVStack is being defeated (all rows \
-            realized per pass) — the #2586 sidebar livelock class. Look for per-row geometry \
-            feedback (GeometryReader/@State height, anchorPreference aggregation) or a \
-            force-measuring Layout; see scripts/check-sidebar-lazy-layout.py.
+            \(Self.workspaceCount) workspaces. NSTableView virtualization is being defeated \
+            (all rows realized per pass), recreating the #2586 sidebar livelock class; see \
+            scripts/check-sidebar-lazy-layout.py.
             """
         )
 
@@ -272,7 +302,7 @@ final class SidebarLazyLayoutScaleTests {
             headerRealized < Self.realizedRowCeiling,
             """
             \(headerRealized) group-header bodies evaluated for 5 groups in one viewport. \
-            The group-header row wrapper (sidebarWorkspaceGroupRow) is defeating \
+            The group-header row factory (sidebarWorkspaceGroupTableRowConfiguration) is defeating \
             virtualization or re-evaluating without bound — the #4385 regression site.
             """
         )
@@ -414,8 +444,27 @@ final class SidebarLazyLayoutScaleTests {
             """
         )
 
+        let stormReconfigures = harness.counter.tableRootViewReconfigures
+        #expect(
+            stormReconfigures > 0,
+            """
+            The unread storm reconfigured no hosted roots at all; the \
+            tableRootViewReconfigure probe is disconnected, which would make the \
+            storm bound and the quiet-period zero-check below pass vacuously.
+            """
+        )
+        #expect(
+            stormReconfigures < storms * 10,
+            "Unread storm reconfigured \(stormReconfigures) hosted roots; only changed visible rows may reconfigure."
+        )
+
         harness.counter.reset()
         await Self.drainMainRunLoop(for: harness.window, iterations: 30)
+        let quietReconfigures = harness.counter.tableRootViewReconfigures
+        #expect(
+            quietReconfigures == 0,
+            "The table reconfigured \(quietReconfigures) hosted roots during a quiet period."
+        )
         let quietEvals = harness.counter.workspaceRowBodies + harness.counter.groupHeaderBodies
         #expect(
             quietEvals < 20,
@@ -425,75 +474,5 @@ final class SidebarLazyLayoutScaleTests {
             loop (the #6556 signature). This livelocks the main thread at scale.
             """
         )
-    }
-
-
-    /// Harness self-test: prove the drain loop + body counter actually detect
-    /// a layout feedback loop. This fixture reproduces the historical
-    /// GeometryReader → @State row-height shape (#6556) in divergent form; if
-    /// the harness cannot flag THIS, the two tests above are vacuous.
-    @Test
-    @MainActor
-    func testHarnessDetectsGeometryFeedbackLoopCanary() async throws {
-        _ = NSApplication.shared
-
-        let counter = RowBodyCounter()
-        let rows = 8
-        let root = VStack(spacing: 2) {
-            ForEach(0..<rows, id: \.self) { _ in
-                DivergentGeometryFeedbackRowFixture(onBody: { counter.workspaceRowBodies += 1 })
-            }
-        }
-        .frame(width: 200)
-
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 200, height: 400),
-            styleMask: [.titled, .closable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.isReleasedWhenClosed = false
-        defer {
-            window.contentView = nil
-            window.close()
-        }
-        window.contentView = NSHostingView(rootView: root)
-
-        await Self.drainMainRunLoop(for: window, iterations: 40)
-
-        #expect(
-            counter.workspaceRowBodies > rows * 3,
-            """
-            The divergent GeometryReader → @State fixture only produced \
-            \(counter.workspaceRowBodies) body evaluations for \(rows) rows; the harness \
-            can no longer observe layout feedback loops, so the lazy-contract tests above \
-            are not protecting anything. Fix the harness before trusting them.
-            """
-        )
-    }
-}
-
-/// Reproduces the #6556 anti-pattern in deliberately divergent form: a
-/// GeometryReader writes measured height back into `@State` that feeds the
-/// row's own frame, so every layout pass invalidates the next. Test fixture
-/// only — this shape is banned in real sidebar rows by
-/// `scripts/check-sidebar-lazy-layout.py`.
-private struct DivergentGeometryFeedbackRowFixture: View {
-    let onBody: () -> Void
-    @State private var rowHeight: CGFloat = 20
-
-    var body: some View {
-        let _ = { onBody() }()
-        Color.gray
-            .frame(height: rowHeight)
-            .background {
-                GeometryReader { proxy in
-                    Color.clear
-                        .onAppear { rowHeight = proxy.size.height + 1 }
-                        .onChange(of: proxy.size.height) { _, newHeight in
-                            rowHeight = newHeight + 1
-                        }
-                }
-            }
     }
 }

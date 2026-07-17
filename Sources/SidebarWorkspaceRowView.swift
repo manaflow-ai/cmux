@@ -1,25 +1,18 @@
 import Foundation
 import SwiftUI
 
-/// Mounts one immutable workspace-row projection below the lazy-list boundary.
+/// Mounts one immutable workspace-row projection inside its table cell's
+/// hosted SwiftUI root. Rows receive value snapshots plus action closures
+/// only; row geometry and hover are owned by the AppKit table.
 struct SidebarWorkspaceRowView: View {
     let snapshot: SidebarWorkspaceRowSnapshot
     let actions: SidebarWorkspaceRowActions
-    let shouldCollectWorkspaceDropTargets: Bool
 
     var body: some View {
         TabItemView(snapshot: snapshot, actions: actions)
             .equatable()
             .id(snapshot.workspaceId)
             .accessibilityIdentifier("sidebarWorkspace.\(snapshot.workspaceId.uuidString)")
-            .sidebarWorkspaceFrameAnchor(
-                id: snapshot.workspaceId,
-                isEnabled: shouldCollectWorkspaceDropTargets
-            )
-            .sidebarPointerFrameReporting(
-                onFrameChange: actions.onPointerFrameChange,
-                onDisappear: actions.onPointerFrameDisappear
-            )
             .padding(
                 .leading,
                 snapshot.groupId != nil ? SidebarWorkspaceGroupingMetrics.memberIndent : 0

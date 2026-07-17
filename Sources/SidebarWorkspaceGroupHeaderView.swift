@@ -71,7 +71,6 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
     let bottomDropIndicatorVisible: Bool
-    let onDragStart: () -> NSItemProvider
     let onToggleCollapsed: () -> Void
     let onFocusAnchor: () -> Void
     let onTapPlus: () -> Void
@@ -87,8 +86,17 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let onDelete: () -> Void
     let onEditConfig: () -> Void
     let onOpenDocs: () -> Void
+    /// Notifies the AppKit table cell when this header's context menu opens or
+    /// closes so the controller can pin hover while the menu is up. Excluded
+    /// from `==` like every closure. Nil in isolated previews.
+    var onContextMenuVisibilityChanged: ((Bool) -> Void)?
 
     @State private var contextMenuVisible = false
+
+    private func setContextMenuVisible(_ visible: Bool) {
+        contextMenuVisible = visible
+        onContextMenuVisibilityChanged?(visible)
+    }
 
 #if DEBUG
     // Plain-value environment probe set only by SidebarLazyLayoutScaleTests;
@@ -225,10 +233,10 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     action: onTapPlus
                 )
                 .onAppear {
-                    contextMenuVisible = true
+                    setContextMenuVisible(true)
                 }
                 .onDisappear {
-                    contextMenuVisible = false
+                    setContextMenuVisible(false)
                 }
                 if !cwdContextMenuItems.isEmpty {
                     Divider()
@@ -294,8 +302,6 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 leadingInset: metrics.groupScopedBottomDropIndicatorLeadingInset
             )
         }
-        .onDrag(onDragStart)
-        .internalOnlyTabDrag()
         .contextMenu {
             Button(
                 String(
@@ -305,10 +311,10 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 action: onTapPlus
             )
             .onAppear {
-                contextMenuVisible = true
+                setContextMenuVisible(true)
             }
             .onDisappear {
-                contextMenuVisible = false
+                setContextMenuVisible(false)
             }
             Divider()
             Button(

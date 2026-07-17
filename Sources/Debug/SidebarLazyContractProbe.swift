@@ -17,5 +17,9 @@ struct SidebarLazyContractProbe {
     var groupHeaderRowBody: (() -> Void)?
     var workspaceSnapshotBuild: (() -> Void)?
     var workspaceRowInputProjection: (() -> Void)?
+    /// Fires when the AppKit table reconfigures one cell's hosted root.
+    var tableRootViewReconfigure: (() -> Void)?
+    /// Fires when the AppKit table recomputes drag drop-target geometry.
+    var tableDropTargetComputation: (() -> Void)?
 }
 #endif

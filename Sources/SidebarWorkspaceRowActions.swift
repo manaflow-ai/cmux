@@ -44,18 +44,31 @@ struct SidebarWorkspaceRowActions {
     let openPullRequest: (URL) -> Void
     let openPort: (Int) -> Void
     let checklist: SidebarWorkspaceChecklistActions
-    let onDragStart: () -> NSItemProvider
-    let bonsplitSourceWorkspaceId: (UUID) -> UUID?
-    let moveBonsplitTabToWorkspace: (BonsplitTabDragPayload.Transfer, UUID) -> Bool
-    let syncAfterBonsplitDrop: () -> Void
-    let selectAfterBonsplitDrop: () -> Void
     let onToggleChecklistExpansion: () -> Void
     let onConsumeChecklistAddFieldActivation: () -> Void
     let onChecklistPopoverPresentedChange: (Bool) -> Void
-    let onContextMenuAppear: () -> Void
-    let onContextMenuDisappear: () -> Void
-    let onPointerFrameChange: (CGRect) -> Void
-    let onPointerFrameDisappear: () -> Void
+    var onContextMenuAppear: () -> Void
+    var onContextMenuDisappear: () -> Void
+
+    /// Returns a copy whose context-menu callbacks also notify the AppKit
+    /// table cell, so the controller can pin hover while a row's menu is open.
+    func composingContextMenuCallbacks(
+        didOpen: @escaping () -> Void,
+        didClose: @escaping () -> Void
+    ) -> Self {
+        var composed = self
+        let baseAppear = onContextMenuAppear
+        let baseDisappear = onContextMenuDisappear
+        composed.onContextMenuAppear = {
+            baseAppear()
+            didOpen()
+        }
+        composed.onContextMenuDisappear = {
+            baseDisappear()
+            didClose()
+        }
+        return composed
+    }
 }
 
 /// Binds parent-owned action capabilities to one lazily realized row input.
