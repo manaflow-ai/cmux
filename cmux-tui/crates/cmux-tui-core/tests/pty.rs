@@ -554,7 +554,9 @@ fn control_socket_attach_vt_state_includes_effective_colors() {
         cursor_blink: Some(false),
     });
     let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
-    surface.try_with_terminal(|term| term.vt_write(b"\x1b]12;rgb:20/40/60\x07")).unwrap();
+    surface
+        .try_with_terminal(|term| term.vt_write(b"\x1b]12;rgb:20/40/60\x07\x1b]4;4;#112233\x07"))
+        .unwrap();
 
     let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
     let stream = connect(&sock_path);
@@ -573,6 +575,7 @@ fn control_socket_attach_vt_state_includes_effective_colors() {
             "cursor": "#204060",
             "selection_bg": null,
             "selection_fg": null,
+            "palette": {"4": "#112233"},
             "cursor_style": "bar",
             "cursor_blink": false,
         })
@@ -690,6 +693,7 @@ fn control_socket_attach_stream_receives_merged_colors_changed() {
             "cursor": null,
             "selection_bg": null,
             "selection_fg": null,
+            "palette": {},
             "cursor_style": "bar",
             "cursor_blink": false,
         })

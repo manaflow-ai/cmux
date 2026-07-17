@@ -1709,12 +1709,21 @@ fn terminal_colors_json(colors: TerminalColors) -> Value {
         ghostty_vt::CursorShape::Underline => "underline",
         ghostty_vt::CursorShape::Block | ghostty_vt::CursorShape::BlockHollow => "block",
     });
+    let palette = colors
+        .palette
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, color)| {
+            color_hex(color).map(|color| (index.to_string(), Value::String(color)))
+        })
+        .collect::<serde_json::Map<String, Value>>();
     json!({
         "fg": color_hex(colors.fg),
         "bg": color_hex(colors.bg),
         "cursor": color_hex(colors.cursor),
         "selection_bg": color_hex(colors.selection_bg),
         "selection_fg": color_hex(colors.selection_fg),
+        "palette": palette,
         "cursor_style": cursor_style,
         "cursor_blink": colors.cursor_blink,
     })

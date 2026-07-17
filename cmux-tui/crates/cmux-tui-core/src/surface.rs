@@ -98,35 +98,63 @@ pub struct DefaultColors {
 }
 
 /// Effective colors exposed to attached terminal clients.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TerminalColors {
     pub fg: Option<Rgb>,
     pub bg: Option<Rgb>,
     pub cursor: Option<Rgb>,
     pub selection_bg: Option<Rgb>,
     pub selection_fg: Option<Rgb>,
+    /// Palette entries changed by the PTY with OSC 4. Entries that still
+    /// match Ghostty's parser defaults stay `None` so an attached renderer
+    /// can preserve its own configured theme instead of adopting the
+    /// headless parser's compiled-in ANSI palette.
+    pub palette: [Option<Rgb>; 256],
     pub cursor_style: Option<CursorShape>,
     pub cursor_blink: Option<bool>,
+}
+
+impl Default for TerminalColors {
+    fn default() -> Self {
+        Self {
+            fg: None,
+            bg: None,
+            cursor: None,
+            selection_bg: None,
+            selection_fg: None,
+            palette: [None; 256],
+            cursor_style: None,
+            cursor_blink: None,
+        }
+    }
 }
 
 impl TerminalColors {
     fn from_terminal(term: &mut Terminal, defaults: DefaultColors) -> Self {
         let (fg, bg, cursor) = term.effective_colors();
-        let cursor_visual = term.cursor_overridden().then(|| {
-            RenderState::new()
-                .and_then(|mut state| {
-                    state.update(term)?;
-                    state.cursor_visual()
-                })
-                .ok()
+        let render_state = RenderState::new()
+            .and_then(|mut state| {
+                state.update(term)?;
+                Ok(state)
+            })
+            .ok();
+        let cursor_visual = term
+            .cursor_overridden()
+            .then(|| render_state.as_ref().and_then(|state| state.cursor_visual().ok()))
+            .flatten();
+        let palette = std::array::from_fn(|index| {
+            render_state.as_ref().and_then(|state| {
+                let index = index as u8;
+                state.palette_overridden(index).then(|| state.palette_color(index))
+            })
         });
-        let cursor_visual = cursor_visual.flatten();
         TerminalColors {
             fg,
             bg,
             cursor,
             selection_bg: None,
             selection_fg: None,
+            palette,
             cursor_style: cursor_visual.map(|(style, _)| style).or(defaults.cursor_style),
             cursor_blink: cursor_visual.map(|(_, blink)| blink).or(defaults.cursor_blink),
         }
