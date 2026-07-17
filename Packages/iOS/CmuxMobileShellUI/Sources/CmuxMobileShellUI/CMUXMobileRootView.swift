@@ -205,7 +205,10 @@ struct CMUXMobileRootView: View {
         .onChange(of: authManager.isRestoringSession) { _, isRestoringSession in
             syncShellAuthentication(isAuthenticated, isRestoringSession: isRestoringSession)
             guard !isRestoringSession else { return }
-            _ = consumePendingURLIfReady()
+            if consumePendingURLIfReady() {
+                return
+            }
+            reconnectStoredMacIfNeeded()
         }
         .onChange(of: store.connectionState) { _, connectionState in
             if connectionState == .connected {
@@ -404,12 +407,13 @@ struct CMUXMobileRootView: View {
     /// sign-in that completes after mount) so the restoring gate always resolves
     /// even when the auth state never transitions while this view is mounted.
     private func reconnectStoredMacIfNeeded() {
-        guard isAuthenticated else { return }
+        guard isAuthenticated, !authManager.isRestoringSession else { return }
         let startedUITestAttachURL = connectUITestAttachURLIfNeeded()
         guard !startedUITestAttachURL,
               MobileRootAuthGate.shouldReconnectStoredMac(
                 stackAuthenticated: authManager.isAuthenticated,
                 attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
+                isRestoringSession: authManager.isRestoringSession,
                 connectionState: store.connectionState
               ) else { return }
         let stackUserID = authManager.currentUser?.id

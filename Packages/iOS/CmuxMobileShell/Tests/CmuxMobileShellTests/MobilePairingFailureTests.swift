@@ -142,17 +142,34 @@ import Testing
         #expect(category.analyticsReason == "unsupported_route")
     }
 
+    @Test func incompatibleBuildNamesTheCompatibilityBoundary() {
+        let category = MobilePairingFailureCategory.classify(
+            error: MobileShellConnectionError.rpcError(
+                "build_incompatible",
+                "Mac build is incompatible with this iOS build"
+            ),
+            route: nil
+        )
+
+        #expect(category == .buildIncompatible)
+        #expect(category.analyticsReason == "build_incompatible")
+        #expect(category.message.contains("cannot connect"))
+        #expect(category.guidance?.contains("same DEV tag") == true)
+        #expect(!category.isAuthorizationFailure)
+    }
+
     @Test func authEnvironmentMismatchTellsTheTruthAboutTheChannel() {
         // A dev-channel build failing a release Mac's QR user-id binding: the
         // emails DO match, so the copy must name the auth-environment cause and
-        // the --prod-auth remedy instead of the authFailed "same email" advice
+        // the matching-build remedy instead of the authFailed "same email" advice
         // (https://github.com/manaflow-ai/cmux/issues/7145).
         let category = MobilePairingFailureCategory.authEnvironmentMismatch(macChannelIsRelease: true)
         #expect(category.analyticsReason == "auth_environment_mismatch")
         #expect(category.message.contains("development auth environment"))
         #expect(category.message != MobilePairingFailureCategory.authFailed.message)
         #expect(!category.message.contains("Make sure both devices are signed in"))
-        #expect(category.guidance?.contains("--prod-auth") == true)
+        #expect(category.guidance?.contains("BETA") == true)
+        #expect(category.guidance?.contains("same DEV tag") == true)
         // Signing out cannot move the account to another Stack project, so this
         // must not drive the re-auth (Sign Out) prompt.
         #expect(!category.isAuthorizationFailure)
@@ -235,9 +252,11 @@ import Testing
             .authFailed,
             .authEnvironmentMismatch(macChannelIsRelease: true),
             .authEnvironmentMismatch(macChannelIsRelease: false),
+            .buildIncompatible,
             .ticketExpired,
             .invalidCode,
             .unrecognizedVersion,
+            .macUpdateRequired,
             .unsupportedRoute,
             .noSupportedRoute,
             .unknown(host: "h", port: 1),
@@ -246,6 +265,18 @@ import Testing
             #expect(!category.message.isEmpty, "category \(category) had an empty message")
         }
         _ = route
+    }
+
+    @Test func macUpdateRequiredPreservesTheSavedPairing() {
+        let category = MobilePairingFailureCategory.macUpdateRequired
+
+        #expect(category.analyticsReason == "mac_update_required")
+        #expect(!category.isAuthorizationFailure)
+        #expect(category.message.localizedCaseInsensitiveContains("Update cmux"))
+        #expect(category.guidance?.localizedCaseInsensitiveContains("reconnect automatically") == true)
+        #expect(category.guidance?.localizedCaseInsensitiveContains("do not need to sign out") == true)
+        #expect(category.guidance?.localizedCaseInsensitiveContains("pair again") == true)
+        #expect(category.guidance?.localizedCaseInsensitiveContains("Iroh") != true)
     }
 
     @Test func invalidCodeNoLongerMentionsAPairingCode() {

@@ -202,9 +202,8 @@ public struct CMUXMobileRootScene: View {
     /// the current session and selected team.
     @MainActor
     private func makePresenceClient() -> PresenceClient? {
-        // Presence follows the resolved auth channel (not the build config):
-        // a --prod-auth dev build must subscribe to the production worker its
-        // production Macs heartbeat to (issue 7145).
+        // Presence follows the resolved auth channel so each worker can verify
+        // the token. Build compatibility filters the returned Mac instances.
         guard let baseURL = PresenceClient.resolvedServiceBaseURL(
             isDevelopmentAuthChannel: auth.authEnvironment == .development
         ) else { return nil }
@@ -225,7 +224,8 @@ public struct CMUXMobileRootScene: View {
     @MainActor
     private func makeBackedUpPairedMacStore(
         restoreBoundary: PairedMacRestoreBoundary,
-        buildScope: MobileIOSBuildScope?
+        buildScope: MobileIOSBuildScope?,
+        buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy
     ) -> (any MobilePairedMacStoring)? {
         guard let store = pairedMacStore else { return nil }
         let coordinator = auth.coordinator
@@ -236,7 +236,7 @@ public struct CMUXMobileRootScene: View {
             buildScopedStore = store
         }
         let scopedStore = TeamScopedPairedMacStore(
-            inner: buildScopedStore,
+            inner: buildCompatibilityPolicy.scoping(buildScopedStore),
             teamIDProvider: { await coordinator.resolvedTeamID }
         )
         guard MobilePairedMacBackup.resolved().isEnabled,
@@ -311,6 +311,9 @@ public struct CMUXMobileRootScene: View {
     private func makeStore() -> CMUXMobileShellStore {
         let coordinator = auth.coordinator
         let buildScope = MobileIOSBuildScope.current()
+        let buildCompatibilityPolicy = MobileMacBuildCompatibilityPolicy.current(
+            buildScope: buildScope
+        )
         let identityProvider = AuthCoordinatorIdentityProvider(
             coordinator: auth.coordinator,
             isDevelopmentAuthEnvironment: auth.authEnvironment == .development
@@ -318,7 +321,8 @@ public struct CMUXMobileRootScene: View {
         let restoreBoundary = PairedMacRestoreBoundary()
         let backedUpPairedMacStore = makeBackedUpPairedMacStore(
             restoreBoundary: restoreBoundary,
-            buildScope: buildScope
+            buildScope: buildScope,
+            buildCompatibilityPolicy: buildCompatibilityPolicy
         )
         let deviceRegistry = makeDeviceRegistry(pairedMacStore: backedUpPairedMacStore)
         let forgottenMacStore = UserDefaultsPairedMacForgottenStore()
@@ -330,6 +334,7 @@ public struct CMUXMobileRootScene: View {
         return CMUXMobileShellStore(
             runtime: runtime,
             pairedMacStore: backedUpPairedMacStore,
+            buildCompatibilityPolicy: buildCompatibilityPolicy,
             pairedMacRestoreBoundary: restoreBoundary,
             deviceRegistry: deviceRegistry,
             presence: makePresenceClient(),
@@ -347,6 +352,7 @@ public struct CMUXMobileRootScene: View {
         return CMUXMobileShellStore(
             runtime: runtime,
             pairedMacStore: backedUpPairedMacStore,
+            buildCompatibilityPolicy: buildCompatibilityPolicy,
             pairedMacRestoreBoundary: restoreBoundary,
             deviceRegistry: deviceRegistry,
             presence: makePresenceClient(),

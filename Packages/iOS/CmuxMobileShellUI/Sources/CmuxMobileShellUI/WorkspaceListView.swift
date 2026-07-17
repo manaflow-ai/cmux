@@ -125,6 +125,9 @@ struct WorkspaceListView: View {
     /// Stored at list scope so reusable rows do not own transient presentation
     /// state while `List` is recycling swipe-action rows.
     @State var workspacePendingCloseID: MobileWorkspacePreview.ID?
+    /// The workspace whose UIKit context-menu rename action is presenting the
+    /// list-scoped SwiftUI rename sheet.
+    @State var workspacePendingRenameID: MobileWorkspacePreview.ID?
     @State var optimisticFlatState = MobileWorkspaceOptimisticOrderReconciler()
     @State var optimisticGroupedState = MobileWorkspaceOptimisticOrderReconciler()
     /// In-flight move RPC count plus the tail of the send chain. Moves stay
@@ -232,7 +235,10 @@ struct WorkspaceListView: View {
             machineSnapshots: displayedMachineSnapshots,
             visibleSelection: currentVisibleMacSelection
         )
-        let list = List {
+        #if os(iOS)
+        let baseList = workspaceTable
+        #else
+        let baseList = List {
             switch connectionChrome {
             case .recoveryBanner:
                 if let store {
@@ -264,7 +270,7 @@ struct WorkspaceListView: View {
                                 "mobile.loading.timeout.message",
                                 defaultValue: "cmux could not finish restoring this session. Check that the selected cmux build is running, then retry or add this computer again."
                             )
-                            : nil,
+                            : disconnectedConnectionFailureDescription,
                         retry: initialConnectionTimedOut ? retryInitialConnection : nil,
                         addDevice: initialConnectionTimedOut ? showAddDevice : nil,
                         reconnect: reconnect
@@ -297,6 +303,8 @@ struct WorkspaceListView: View {
         // Let the invisible footer use its 16pt boundary height. Real rows are taller.
         .environment(\.defaultMinListRowHeight, 16)
         .workspaceListRefreshable(refresh)
+        #endif
+        let list = baseList
         .onChange(of: currentFilterMenuPresentMachineIDs) { _, present in
             // Drop machine filters whose Mac left the aggregated list (a secondary
             // Mac disconnected, or the list fell below two machines so the filter
@@ -373,6 +381,39 @@ struct WorkspaceListView: View {
                     showAddDevice: showAddDevice
                 )
             }
+        }
+        .sheet(isPresented: workspaceRenameIsPresented) {
+            if let workspaceID = workspacePendingRenameID,
+               let workspace = workspaces.first(where: { $0.id == workspaceID }) {
+                WorkspaceRenameSheet(currentName: workspace.name) { newName in
+                    renameWorkspace?(workspaceID, newName)
+                }
+            }
+        }
+        .confirmationDialog(
+            L10n.string("mobile.workspace.delete.confirmTitle", defaultValue: "Delete Workspace?"),
+            isPresented: workspaceCloseConfirmationIsPresented,
+            titleVisibility: .visible
+        ) {
+            if closeWorkspace != nil, let workspaceID = workspacePendingCloseID {
+                Button(
+                    L10n.string("mobile.workspace.delete.confirmAction", defaultValue: "Delete"),
+                    role: .destructive
+                ) {
+                    confirmCloseWorkspace()
+                }
+                .accessibilityIdentifier("MobileWorkspaceDeleteConfirmButton-\(workspaceID.rawValue)")
+            }
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
+                workspacePendingCloseID = nil
+            }
+        } message: {
+            Text(
+                L10n.string(
+                    "mobile.workspace.delete.confirmMessage",
+                    defaultValue: "This will close the workspace on your Mac."
+                )
+            )
         }
         #endif
     }
@@ -501,6 +542,17 @@ struct WorkspaceListView: View {
             isRecoveringConnection: store?.isRecoveringConnection ?? false,
             connectionStatus: connectionStatus
         )
+    }
+
+    /// Prefer the classified migration/reconnect failure over the generic
+    /// unavailable description. Guidance stays attached to its headline so a
+    /// saved legacy pairing never looks like an account or QR failure.
+    private var disconnectedConnectionFailureDescription: String? {
+        guard connectionStatus == .unavailable else { return nil }
+        return MobileDisconnectedFailureCopy(
+            error: store?.connectionError,
+            guidance: store?.connectionErrorGuidance
+        ).combined
     }
 
     private func updateMachineSnapshots(_ snapshots: WorkspaceMachineSnapshots) {
@@ -661,4 +713,20 @@ struct WorkspaceListView: View {
         #endif
     }
 
+}
+
+/// Keeps the classified headline and its recovery guidance together anywhere
+/// the disconnected shell presents a failure.
+struct MobileDisconnectedFailureCopy {
+    let error: String?
+    let guidance: String?
+
+    var combined: String? {
+        let parts = [error, guidance].compactMap { value -> String? in
+            guard let value else { return nil }
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
+    }
 }

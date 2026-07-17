@@ -13,8 +13,8 @@ extension WorkspaceRemoteConfiguration {
     ]
 
     /// `ssh` argv that execs `<remotePath> serve --stdio` (plus
-    /// `--persistent --slot <slot>` when a persistent daemon slot is
-    /// configured) on the destination for the stdio daemon transport.
+    /// `--persistent --slot <slot>` and its validated relay lease port when a
+    /// persistent daemon slot is configured) on the destination.
     /// Argument text is wire/process behavior; do not alter.
     ///
     /// The positional command conflicts with a host-configured
@@ -25,6 +25,9 @@ extension WorkspaceRemoteConfiguration {
         if let slot = persistentDaemonSlot?.trimmingCharacters(in: .whitespacesAndNewlines),
            !slot.isEmpty {
             serveArguments += ["--persistent", "--slot", slot]
+            if let relayPort, relayPort > 0, relayPort <= 65_535 {
+                serveArguments += ["--persistent-lease-port", String(relayPort)]
+            }
         }
         let daemonCommand = ([remotePath] + serveArguments)
             .map(\.shellSingleQuoted)

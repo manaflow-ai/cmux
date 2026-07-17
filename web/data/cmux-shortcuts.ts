@@ -410,6 +410,12 @@ export const shortcutCategories: ShortcutCategory[] = [
         note: { en: "Gives the focused web page first claim on shortcuts. Press Esc twice to exit.", ja: "フォーカス中のWebページにショートカットの優先権を渡します。Escを2回押すと終了します。" },
       },
       {
+        id: "toggleBrowserDesignMode",
+        combos: [["⌃", "⌥", "⌘", "D"]],
+        description: { en: "Toggle browser design mode", ja: "ブラウザデザインモードを切り替え" },
+        note: { en: "Select and visually edit elements in the focused browser", ja: "フォーカス中のブラウザで要素を選択して視覚的に編集します" },
+      },
+      {
         id: "toggleReactGrab",
         combos: [["⌘", "⇧", "G"]],
         description: { en: "Toggle React Grab", ja: "React Grabを切り替え" },
