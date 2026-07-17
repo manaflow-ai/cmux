@@ -195,6 +195,31 @@ struct AgentTerminalStateClassifierTests {
     }
 
     @Test
+    func stalePiSpinnerAboveIdleComposerDoesNotRemainWorking() {
+        let capturedTail = [
+            "Read only. Inspect the repository for 20 seconds.",
+            "",
+            "⠇ Working...",
+            "",
+            "────────────────────────────────────────",
+            "",
+            "Error: No API key for provider: openai-codex",
+            "",
+            "Warning: cmux Pi integration warning",
+            "",
+            "Warning: cmux Pi integration warning",
+            "",
+            "────────────────────────────────────────",
+            " ",
+            "────────────────────────────────────────",
+            "~/project (feat-agent-terminal-state-detection)",
+            "$0.000 (sub) 0.0%/272k (auto) (openai-codex) gpt-5.4-mini",
+            "",
+        ].joined(separator: "\n")
+        #expect(classifier.classify(screen(familyID: "pi", text: capturedTail)).state == .idle)
+    }
+
+    @Test
     func codexMultilineApprovalPromptRemainsInsideBlockedEvidenceWindow() {
         let capturedInteraction = [
             "Would you like to run the following command?",
