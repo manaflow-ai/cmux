@@ -134,7 +134,17 @@ public struct TaskComposerAccessibilityPreviewView: View {
                     .overlay(alignment: .top) {
                         VStack(spacing: 0) {
                             if let draftWasPersistedAtSubmit {
-                                Text(draftWasPersistedAtSubmit ? "persisted" : "missing")
+                                Text(
+                                    draftWasPersistedAtSubmit
+                                        ? L10n.string(
+                                            "mobile.taskComposer.debug.draftPersisted",
+                                            defaultValue: "persisted"
+                                        )
+                                        : L10n.string(
+                                            "mobile.taskComposer.debug.draftMissing",
+                                            defaultValue: "missing"
+                                        )
+                                )
                                     .accessibilityIdentifier("MobileTaskComposerSubmissionDraftState")
                             }
                             TaskComposerSubmissionHistoryProbe(attempts: submissionAttempts)

@@ -7675,6 +7675,8 @@
         }
       }
     },
+    "mobile.taskComposer.debug.draftMissing": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"missing"}},"ja":{"stringUnit":{"state":"translated","value":"未保存"}}}},
+    "mobile.taskComposer.debug.draftPersisted": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"persisted"}},"ja":{"stringUnit":{"state":"translated","value":"保存済み"}}}},
     "mobile.taskComposer.directoryPicker.browse.computer": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Computer"}},"ja":{"stringUnit":{"state":"translated","value":"コンピュータ"}}}},
     "mobile.taskComposer.directoryPicker.browse.empty.message": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"You can still use this folder for the new workspace."}},"ja":{"stringUnit":{"state":"translated","value":"このフォルダは新しいワークスペースにそのまま使用できます。"}}}},
     "mobile.taskComposer.directoryPicker.browse.empty.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No Subfolders"}},"ja":{"stringUnit":{"state":"translated","value":"サブフォルダはありません"}}}},
