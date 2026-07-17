@@ -90,7 +90,6 @@ struct Inner {
     outbound: Sender<Outbound>,
     pending: Mutex<HashMap<u64, Sender<Result<Value, String>>>>,
     events: Arc<EventQueue>,
-    event_output: SyncSender<CdpEvent>,
     next_id: AtomicU64,
     closed: AtomicBool,
     timeout: Duration,
@@ -104,9 +103,14 @@ struct EventQueue {
 
 #[derive(Default)]
 struct EventQueueState {
-    events: VecDeque<CdpEvent>,
+    events: VecDeque<QueuedEvent>,
     retained_bytes: usize,
     closed: bool,
+}
+
+struct QueuedEvent {
+    event: CdpEvent,
+    retained_bytes: usize,
 }
 
 impl EventQueue {
@@ -120,9 +124,10 @@ impl EventQueue {
             return Err(());
         }
         let event_bytes = cdp_event_retained_bytes(&event);
-        if let Some(index) = state.events.iter().position(|queued| same_replaceable(queued, &event))
+        if let Some(index) =
+            state.events.iter().position(|queued| same_replaceable(&queued.event, &event))
         {
-            let previous_bytes = cdp_event_retained_bytes(&state.events[index]);
+            let previous_bytes = state.events[index].retained_bytes;
             let retained_bytes = state
                 .retained_bytes
                 .checked_sub(previous_bytes)
@@ -131,7 +136,7 @@ impl EventQueue {
             if retained_bytes > CDP_EVENT_QUEUE_MAX_BYTES {
                 return Err(());
             }
-            state.events[index] = event;
+            state.events[index] = QueuedEvent { event, retained_bytes: event_bytes };
             state.retained_bytes = retained_bytes;
         } else {
             let retained_bytes = state.retained_bytes.checked_add(event_bytes).ok_or(())?;
@@ -140,7 +145,7 @@ impl EventQueue {
             {
                 return Err(());
             }
-            state.events.push_back(event);
+            state.events.push_back(QueuedEvent { event, retained_bytes: event_bytes });
             state.retained_bytes = retained_bytes;
         }
         Ok(())
@@ -148,14 +153,16 @@ impl EventQueue {
 
     fn drain_into(&self, output: &SyncSender<CdpEvent>) -> Result<(), ()> {
         let mut state = self.state.lock().unwrap();
-        while let Some(event) = state.events.pop_front() {
-            let event_bytes = cdp_event_retained_bytes(&event);
-            state.retained_bytes = state.retained_bytes.saturating_sub(event_bytes);
-            match output.try_send(event) {
+        while let Some(queued) = state.events.pop_front() {
+            state.retained_bytes = state.retained_bytes.saturating_sub(queued.retained_bytes);
+            match output.try_send(queued.event) {
                 Ok(()) => {}
                 Err(TrySendError::Full(event)) => {
-                    state.events.push_front(event);
-                    state.retained_bytes = state.retained_bytes.saturating_add(event_bytes);
+                    state.retained_bytes =
+                        state.retained_bytes.saturating_add(queued.retained_bytes);
+                    state
+                        .events
+                        .push_front(QueuedEvent { event, retained_bytes: queued.retained_bytes });
                     return Ok(());
                 }
                 Err(TrySendError::Disconnected(_)) => return Err(()),
@@ -170,8 +177,10 @@ impl EventQueue {
             return;
         }
         state.events.clear();
-        state.retained_bytes = reason.len();
-        state.events.push_back(CdpEvent::Closed(reason.to_string()));
+        let event = CdpEvent::Closed(reason.to_string());
+        let retained_bytes = cdp_event_retained_bytes(&event);
+        state.retained_bytes = retained_bytes;
+        state.events.push_back(QueuedEvent { event, retained_bytes });
         state.closed = true;
     }
 }
@@ -274,7 +283,6 @@ impl CdpClient {
                 outbound: outbound_tx,
                 pending: Mutex::new(HashMap::new()),
                 events: event_queue,
-                event_output: events,
                 next_id: AtomicU64::new(1),
                 closed: AtomicBool::new(false),
                 timeout: Duration::from_secs(30),
@@ -282,7 +290,7 @@ impl CdpClient {
                 reader_stopped: Arc::new(AtomicBool::new(false)),
             }),
         };
-        client.spawn_reader(ws, outbound_rx)?;
+        client.spawn_reader(ws, outbound_rx, events)?;
         Ok(client)
     }
 
@@ -290,12 +298,13 @@ impl CdpClient {
         &self,
         ws: WebSocket<TcpStream>,
         outbound: Receiver<Outbound>,
+        event_output: SyncSender<CdpEvent>,
     ) -> anyhow::Result<()> {
         let weak = Arc::downgrade(&self.inner);
         #[cfg(test)]
         let reader_stopped = self.inner.reader_stopped.clone();
         std::thread::Builder::new().name("cmux-tui-cdp-reader".into()).spawn(move || {
-            reader_loop(&weak, ws, &outbound);
+            reader_loop(&weak, ws, &outbound, &event_output);
             #[cfg(test)]
             reader_stopped.store(true, Ordering::Release);
         })?;
@@ -612,10 +621,15 @@ pub fn discover_browser_ws_url(ports: &[u16]) -> Option<String> {
     ports.iter().find_map(|port| fetch_json_version("127.0.0.1", *port).ok())
 }
 
-fn reader_loop(weak: &Weak<Inner>, mut ws: WebSocket<TcpStream>, outbound: &Receiver<Outbound>) {
+fn reader_loop(
+    weak: &Weak<Inner>,
+    mut ws: WebSocket<TcpStream>,
+    outbound: &Receiver<Outbound>,
+    event_output: &SyncSender<CdpEvent>,
+) {
     loop {
         let Some(inner) = weak.upgrade() else { break };
-        if inner.events.drain_into(&inner.event_output).is_err() {
+        if inner.events.drain_into(event_output).is_err() {
             close_inner(&inner, "CDP event receiver closed");
             break;
         }
@@ -636,7 +650,7 @@ fn reader_loop(weak: &Weak<Inner>, mut ws: WebSocket<TcpStream>, outbound: &Rece
             }
             Ok(Message::Close(_)) => {
                 close_inner(&inner, "CDP socket closed");
-                let _ = inner.events.drain_into(&inner.event_output);
+                let _ = inner.events.drain_into(event_output);
                 break;
             }
             Ok(Message::Ping(_)) | Ok(Message::Pong(_)) | Ok(Message::Frame(_)) => {}
@@ -650,7 +664,7 @@ fn reader_loop(weak: &Weak<Inner>, mut ws: WebSocket<TcpStream>, outbound: &Rece
             }
             Err(e) => {
                 close_inner(&inner, &format!("CDP socket error: {e}"));
-                let _ = inner.events.drain_into(&inner.event_output);
+                let _ = inner.events.drain_into(event_output);
                 break;
             }
         }
@@ -1060,12 +1074,10 @@ mod tests {
     #[test]
     fn rejected_screencast_frame_is_acknowledged() {
         let (outbound_tx, outbound_rx) = channel();
-        let (event_output, _event_rx) = sync_channel(1);
         let inner = Arc::new(Inner {
             outbound: outbound_tx,
             pending: Mutex::new(HashMap::new()),
             events: Arc::new(EventQueue::new()),
-            event_output,
             next_id: AtomicU64::new(1),
             closed: AtomicBool::new(false),
             timeout: Duration::from_secs(1),

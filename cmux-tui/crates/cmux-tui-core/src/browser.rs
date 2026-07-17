@@ -765,24 +765,33 @@ fn start_router(runtime: Weak<BrowserRuntime>, events: Receiver<CdpEvent>) -> an
                     }
                 }
                 CdpEvent::Closed(reason) => {
-                    runtime.closed.store(true, Ordering::Release);
-                    let senders = {
-                        let mut routes = runtime.routes.lock().unwrap();
-                        let senders = routes.by_session.values().cloned().collect::<Vec<_>>();
-                        routes.by_session.clear();
-                        routes.by_target.clear();
-                        senders
-                    };
-                    for tx in senders {
-                        tx.close(reason.clone());
-                    }
+                    close_browser_runtime(&runtime, reason);
                     break;
                 }
                 CdpEvent::Other { .. } => {}
             }
         }
+        if let Some(runtime) = runtime.upgrade() {
+            close_browser_runtime(&runtime, "CDP event channel closed".to_string());
+        }
     })?;
     Ok(())
+}
+
+fn close_browser_runtime(runtime: &BrowserRuntime, reason: String) {
+    if runtime.closed.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let senders = {
+        let mut routes = runtime.routes.lock().unwrap();
+        let senders = routes.by_session.values().cloned().collect::<Vec<_>>();
+        routes.by_session.clear();
+        routes.by_target.clear();
+        senders
+    };
+    for tx in senders {
+        tx.close(reason.clone());
+    }
 }
 
 fn start_surface_thread(
