@@ -7,7 +7,12 @@ final class SidebarWorkspaceTableCellView: NSTableCellView {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier("SidebarWorkspaceTableCellView")
 
     private let model: SidebarWorkspaceTableCellModel
-    private let hostingView: NSHostingView<SidebarWorkspaceTableCellRootView>
+    private let hostingView: SidebarWorkspaceTableHostingView
+
+    var hostedContentSizeDidInvalidate: (() -> Void)? {
+        get { hostingView.contentSizeDidInvalidate }
+        set { hostingView.contentSizeDidInvalidate = newValue }
+    }
 
 #if DEBUG
     var reconfigurationProbe: (() -> Void)?
@@ -22,7 +27,7 @@ final class SidebarWorkspaceTableCellView: NSTableCellView {
     override init(frame frameRect: NSRect) {
         let model = SidebarWorkspaceTableCellModel()
         self.model = model
-        self.hostingView = NSHostingView(
+        self.hostingView = SidebarWorkspaceTableHostingView(
             rootView: SidebarWorkspaceTableCellRootView(
                 identity: UUID(),
                 model: model
@@ -33,9 +38,9 @@ final class SidebarWorkspaceTableCellView: NSTableCellView {
         wantsLayer = true
         hostingView.wantsLayer = true
         hostingView.translatesAutoresizingMaskIntoConstraints = false
-        // NSTableView uses this live hosting view's intrinsic size for automatic
-        // row heights. Keeping sizing enabled gives rendered content and AppKit
-        // row geometry one owner, including cell-local SwiftUI expansion state.
+        // The table owns row heights explicitly. Intrinsic sizing remains
+        // enabled only as a change signal for cell-local SwiftUI expansion;
+        // the controller measures on a later run-loop turn, outside rendering.
         hostingView.sizingOptions = [.intrinsicContentSize]
         hostingView.setContentHuggingPriority(.required, for: .vertical)
         hostingView.setContentCompressionResistancePriority(.required, for: .vertical)
@@ -73,5 +78,22 @@ final class SidebarWorkspaceTableCellView: NSTableCellView {
         }
 #endif
         return didReconfigure
+    }
+
+    func hostedContentHeight() -> CGFloat {
+        ceil(max(1, hostingView.fittingSize.height))
+    }
+}
+
+/// Reports hosted-content size invalidation without mutating table geometry
+/// from inside SwiftUI rendering.
+@MainActor
+private final class SidebarWorkspaceTableHostingView:
+    NSHostingView<SidebarWorkspaceTableCellRootView> {
+    var contentSizeDidInvalidate: (() -> Void)?
+
+    override func invalidateIntrinsicContentSize() {
+        super.invalidateIntrinsicContentSize()
+        contentSizeDidInvalidate?()
     }
 }

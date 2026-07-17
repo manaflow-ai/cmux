@@ -29,7 +29,7 @@ struct SidebarWorkspaceTableTests {
         #expect(container.scrollView.contentInsets.left == 0)
         #expect(container.scrollView.contentInsets.right == 0)
         #expect(container.tableView.intercellSpacing.width == 0)
-        #expect(container.tableView.usesAutomaticRowHeights)
+        #expect(!container.tableView.usesAutomaticRowHeights)
         #expect(container.tableView.columnAutoresizingStyle == .uniformColumnAutoresizingStyle)
         #expect(column.resizingMask.contains(.autoresizingMask))
         #expect(hoverTrackingArea.options.contains(.activeAlways))

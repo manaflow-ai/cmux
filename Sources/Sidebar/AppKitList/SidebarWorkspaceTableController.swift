@@ -18,6 +18,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var appKitDropIndicatorScope: SidebarWorkspaceReorderDropIndicatorScope = .raw
     private var appKitDropIndicatorIncludesRowTargets = false
     private var clipBoundsObserver: NSObjectProtocol?
+    private let rowHeightOwner = SidebarWorkspaceTableRowHeightOwner()
     private let dropTargetGeometry = SidebarWorkspaceTableDropTargetGeometryGate()
 
 #if DEBUG
@@ -54,12 +55,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         table.allowsMultipleSelection = false
         table.allowsTypeSelect = false
         table.intercellSpacing = NSSize(width: 0, height: 2)
-        // The live hosted cell is the single source of truth for row height.
-        // A separate prototype cache cannot observe cell-local SwiftUI state
-        // (metadata expansion, inline controls), so it can leave AppKit's row
-        // rectangle shorter than the content and let rows paint over neighbors.
-        table.usesAutomaticRowHeights = true
-        table.rowHeight = SidebarWorkspaceTableRowHeightCalculator().defaultWorkspaceHeight
+        rowHeightOwner.attach(to: table)
         table.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
         table.setDraggingSourceOperationMask(.move, forLocal: true)
         table.setDraggingSourceOperationMask(.move, forLocal: false)
@@ -122,6 +118,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 && !previousRows[index].hasEquivalentContent(to: nextRows[index])
         })
         rows = nextRows
+        rowHeightOwner.apply(rows: nextRows, hasStructuralChanges: hasStructuralChanges)
 
         if hasStructuralChanges {
             containerView.tableView.reloadData()
@@ -148,6 +145,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     func numberOfRows(in tableView: NSTableView) -> Int {
         rows.count
     }
+    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+        rowHeightOwner.height(ofRow: row, fallback: tableView.rowHeight)
+    }
     func tableView(
         _ tableView: NSTableView,
         viewFor tableColumn: NSTableColumn?,
@@ -161,7 +161,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         configure(cell: cell, at: row)
         return cell
     }
-
     func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
         false
     }
@@ -191,7 +190,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // session end.
         setAppKitDropIndicator(nil, scope: .raw, includeRowTargets: false)
     }
-
     func workspaceDragSessionDidBegin() {
         if dropTargetGeometry.setWorkspaceDragSessionActive(true, rows: rows) {
             positionAppKitDropIndicator()
@@ -261,6 +259,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     func viewportDidChange() {
+        rowHeightOwner.viewportDidChange()
         recomputeHoveredRow()
         updateDropTargets()
     }
@@ -324,6 +323,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 self?.contextMenuDidClose(rowId: rowId)
             }
         )
+        rowHeightOwner.observe(cell)
     }
 
     private func scrollSelectedRowToVisibleIfNeeded() {

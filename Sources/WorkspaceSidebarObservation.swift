@@ -16,12 +16,11 @@ private struct SidebarPanelObservationState: Equatable {
 extension View {
     /// Observes row-affecting workspace publishers above the lazy-list boundary.
     ///
-    /// Each task retains the workspace identity that produced a change, so a
-    /// status/metadata/title update rebuilds one immutable row projection
-    /// instead of walking every workspace. The initial CombineLatest value is
-    /// intentionally delivered: it closes the gap between the owner's first
-    /// snapshot and subscription setup, while the snapshot equality guard makes
-    /// an unchanged initial value a no-op.
+    /// The merged streams retain the workspace identity that produced each
+    /// change. Debounced publishers collect into one keyed batch before the
+    /// parent snapshot boundary, so a simultaneous N-workspace burst cannot
+    /// publish and re-project the full list N times. Initial CombineLatest
+    /// values are intentionally delivered to close the subscription-setup gap.
     func sidebarWorkspaceObservations(
         ids: [UUID],
         workspaces: [Workspace],
@@ -29,35 +28,46 @@ extension View {
         onChange: @MainActor @escaping (UUID) -> Void
     ) -> some View {
         task(id: ids) { @MainActor in
+            let sources = zip(ids, workspaces).map { id, workspace in
+                (id: id, workspace: workspace)
+            }
+            let immediateChanges = Publishers.MergeMany(sources.map { source in
+                source.workspace.sidebarImmediateObservationPublisher
+                    .map { source.id }
+                    .eraseToAnyPublisher()
+            })
+            .buffer(
+                size: max(1, sources.count * 2),
+                prefetch: .keepFull,
+                whenFull: .dropOldest
+            )
+            .values
+            let debouncedBatch = SidebarWorkspaceObservationBatch()
+            let debouncedChangeBatches = Publishers.MergeMany(sources.map { source in
+                source.workspace.sidebarObservationPublisher
+                    .map { source.id }
+                    .eraseToAnyPublisher()
+            })
+            .receive(on: RunLoop.main)
+            .handleEvents(receiveOutput: { debouncedBatch.insert($0) })
+            .debounce(for: debouncedInterval, scheduler: RunLoop.main)
+            .map { _ in debouncedBatch.take() }
+            .filter { !$0.isEmpty }
+            .buffer(size: 1, prefetch: .byRequest, whenFull: .dropOldest)
+            .values
+
             await withTaskGroup(of: Void.self) { group in
-                for (id, workspace) in zip(ids, workspaces) {
-                    // The buffer stage makes the AsyncPublisher bridge
-                    // demand-safe: CombineLatest-backed publishers emit
-                    // synchronously once per @Published write, so two writes in
-                    // one main-runloop tick (workspace init, batch mutations)
-                    // deliver a second value while the async iterator's demand
-                    // is zero, which is a Combine fatalError ("Received an
-                    // output without requesting demand"). Events here are Void
-                    // change signals and the consumer re-reads live state, so
-                    // keeping only the newest buffered signal is lossless.
-                    let immediateChanges = workspace.sidebarImmediateObservationPublisher
-                        .buffer(size: 1, prefetch: .byRequest, whenFull: .dropOldest)
-                        .values
-                    let debouncedChanges = workspace.sidebarObservationPublisher
-                        .receive(on: RunLoop.main)
-                        .debounce(for: debouncedInterval, scheduler: RunLoop.main)
-                        .buffer(size: 1, prefetch: .byRequest, whenFull: .dropOldest)
-                        .values
-                    group.addTask { @MainActor in
-                        for await _ in immediateChanges {
-                            if Task.isCancelled { break }
-                            onChange(id)
-                        }
+                group.addTask { @MainActor in
+                    for await workspaceId in immediateChanges {
+                        if Task.isCancelled { break }
+                        onChange(workspaceId)
                     }
-                    group.addTask { @MainActor in
-                        for await _ in debouncedChanges {
-                            if Task.isCancelled { break }
-                            onChange(id)
+                }
+                group.addTask { @MainActor in
+                    for await workspaceIds in debouncedChangeBatches {
+                        if Task.isCancelled { break }
+                        for workspaceId in workspaceIds {
+                            onChange(workspaceId)
                         }
                     }
                 }
