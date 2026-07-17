@@ -325,6 +325,17 @@ def extract_type_scoped_function_bodies(source):
     return bodies
 
 
+def merge_type_scoped_function_bodies(scoped_bodies_by_file):
+    """Merge method bodies for one Swift type across its declaration files."""
+    merged = {}
+    for scoped_bodies in scoped_bodies_by_file.values():
+        for owner, function_bodies in scoped_bodies.items():
+            owner_bodies = merged.setdefault(owner, {})
+            for key, bodies in function_bodies.items():
+                owner_bodies.setdefault(key, []).extend(bodies)
+    return merged
+
+
 def called_local_functions(body, local_names):
     """Find bare/self helper calls, excluding calls on other receivers."""
     result = set()
@@ -534,13 +545,23 @@ def check_appkit_sources(sources_by_name, require_all_files=True):
             if marker not in clean:
                 violations.append(f"{filename} is missing required marker {marker}")
 
-    for filename, source in sources_by_name.items():
-        clean = neutralize_swift(source)
-        for function_bodies in extract_type_scoped_function_bodies(clean).values():
+    clean_sources = {
+        filename: neutralize_swift(source)
+        for filename, source in sources_by_name.items()
+    }
+    scoped_bodies_by_file = {
+        filename: extract_type_scoped_function_bodies(clean)
+        for filename, clean in clean_sources.items()
+    }
+    merged_bodies_by_type = merge_type_scoped_function_bodies(scoped_bodies_by_file)
+
+    for filename, clean in clean_sources.items():
+        for owner, local_function_bodies in scoped_bodies_by_file[filename].items():
+            function_bodies = merged_bodies_by_type[owner]
             for callback in LAYOUT_CALLBACKS:
-                callback_keys = [key for key in function_bodies if key[0] == callback]
+                callback_keys = [key for key in local_function_bodies if key[0] == callback]
                 for callback_key in callback_keys:
-                    for body in function_bodies[callback_key]:
+                    for body in local_function_bodies[callback_key]:
                         path = mutation_path(body, function_bodies, visited={callback_key})
                         if path is not None:
                             via = " via " + " -> ".join(path) if path else ""
@@ -554,9 +575,9 @@ def check_appkit_sources(sources_by_name, require_all_files=True):
             elif filename == "SidebarWorkspaceTableController.swift":
                 staging_callbacks = ("apply", "viewportDidChange")
             for callback in staging_callbacks:
-                callback_keys = [key for key in function_bodies if key[0] == callback]
+                callback_keys = [key for key in local_function_bodies if key[0] == callback]
                 for callback_key in callback_keys:
-                    for body in function_bodies[callback_key]:
+                    for body in local_function_bodies[callback_key]:
                         path = mutation_path(body, function_bodies, visited={callback_key})
                         if path is not None:
                             via = " via " + " -> ".join(path) if path else ""
