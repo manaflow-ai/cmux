@@ -161,8 +161,8 @@ final class SidebarLazyLayoutScaleTests {
         .environmentObject(unread)
         .environmentObject(CmuxConfigStore())
         .environmentObject(TerminalNotificationStore.shared)
-        .environmentObject(SidebarState())
-        .environmentObject(SidebarSelectionState())
+        .environment(SidebarState())
+        .environment(SidebarSelectionState())
         .environment(
             \.sidebarLazyContractProbe,
             SidebarLazyContractProbe(

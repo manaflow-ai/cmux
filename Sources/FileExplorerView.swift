@@ -36,7 +36,7 @@ enum FileExplorerPanelPlacement: Equatable {
 /// Contains the header bar (path + controls) and NSOutlineView, with no SwiftUI intermediaries.
 struct FileExplorerPanelView: NSViewRepresentable {
     @ObservedObject var store: FileExplorerStore
-    @ObservedObject var state: FileExplorerState
+    let state: FileExplorerState
     let onOpenFilePreview: (String) -> Void
     var presentation: FileExplorerPanelPresentation = .files
     var placement: FileExplorerPanelPlacement = .rightSidebar

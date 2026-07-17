@@ -279,7 +279,7 @@ struct BrowserPanelView: View {
     @AppStorage(BrowserImportHintSettings.variantKey) private var browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue
     @AppStorage(BrowserImportHintSettings.showOnBlankTabsKey) private var showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
     @AppStorage(BrowserImportHintSettings.dismissedKey) private var isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
-    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    private let keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     @State private var omnibarSuggestionRefreshScheduler = OmnibarSuggestionRefreshScheduler()
     @State private var omnibarSuggestionRefreshConsumerTask: Task<Void, Never>?
@@ -1022,7 +1022,10 @@ struct BrowserPanelView: View {
             // portal-hosted WKWebView. This SwiftUI mount only covers the empty
             // new-tab state, e.g. surfacing the "open a page first" error.
             if !panel.shouldRenderWebView {
-                BrowserDesignModePopoverHost(controller: panel.designModeController)
+                BrowserDesignModePopoverHost(
+                    controller: panel.designModeController,
+                    dragBridge: BrowserDesignModeCardDragBridge()
+                )
             }
         }
     }

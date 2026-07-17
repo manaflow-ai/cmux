@@ -167,8 +167,9 @@ final class BrowserDesignModeComposerHostingView: NSHostingView<BrowserDesignMod
 /// Relays native card drags from the AppKit hosting view into the SwiftUI
 /// placement state (translation while dragging, nil on end).
 @MainActor
-final class BrowserDesignModeCardDragBridge: ObservableObject {
-    @Published var translation: CGSize?
+@Observable
+final class BrowserDesignModeCardDragBridge {
+    var translation: CGSize?
 }
 
 /// Presents the Design Mode composer as a floating card over the browser panel.
@@ -181,7 +182,7 @@ struct BrowserDesignModePopoverHost: View {
     private static let edgeInset: CGFloat = 8
 
     @Bindable var controller: BrowserDesignModeController
-    @ObservedObject var dragBridge = BrowserDesignModeCardDragBridge()
+    let dragBridge: BrowserDesignModeCardDragBridge
     var onCardFrameChange: (CGRect) -> Void = { _ in }
 
     @State private var cardFrame: CGRect = .zero

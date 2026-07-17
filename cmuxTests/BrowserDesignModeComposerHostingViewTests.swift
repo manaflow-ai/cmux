@@ -55,7 +55,10 @@ struct BrowserDesignModeComposerHostingViewTests {
     @Test func presentedComposerRoutesEventsOnlyWithinTheCardFrame() {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 400))
         let overlay = BrowserDesignModeComposerHostingView(
-            rootView: BrowserDesignModePopoverHost(controller: makeController())
+            rootView: BrowserDesignModePopoverHost(
+                controller: makeController(),
+                dragBridge: BrowserDesignModeCardDragBridge()
+            )
         )
         overlay.frame = container.bounds
         container.addSubview(overlay)

@@ -7,7 +7,7 @@ struct NotificationsPage: View {
     @EnvironmentObject var tabManager: TabManager
     @Binding var selection: SidebarSelection
     @FocusState private var focusedNotificationId: UUID?
-    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    private let keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @AppStorage(PhonePushSettings.forwardEnabledKey) private var forwardToPhone = false
     @AppStorage(PhonePushSettings.hideContentKey) private var hidePhoneNotificationContent = false
     @AppStorage(PhonePushSettings.forwardModeKey) private var forwardToPhoneMode = PhoneForwardingMode.defaultMode.rawValue

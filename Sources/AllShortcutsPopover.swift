@@ -20,7 +20,7 @@ import SwiftUI
 /// the boundary) and its `revision` is read once at the top of `body`; no row
 /// view holds a store reference.
 struct AllShortcutsPopover: View {
-    @ObservedObject private var shortcutObserver = KeyboardShortcutSettingsObserver.shared
+    private let shortcutObserver = KeyboardShortcutSettingsObserver.shared
 
     var body: some View {
         // Reading the observer's revision keeps the popover reactive to live

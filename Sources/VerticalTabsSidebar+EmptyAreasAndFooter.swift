@@ -44,7 +44,7 @@ private struct SidebarFooterIconButtonStyleBody: View {
 #if DEBUG
 struct SidebarDevFooter: View {
     var updateViewModel: UpdateStateModel
-    @ObservedObject var fileExplorerState: FileExplorerState
+    let fileExplorerState: FileExplorerState
     let modifierKeyMonitor: WindowScopedShortcutHintModifierMonitor
     let onSendFeedback: () -> Void
     @AppStorage(DevBuildBannerDebugSettings.sidebarBannerVisibleKey)

@@ -217,9 +217,9 @@ extension Workspace {
         // lives in its own sub-model, so fold its publishers in here the same
         // way the workspace's own @Published fields are.
         let todoFields = Publishers.CombineLatest3(
-            todoState.$statusOverride,
-            todoState.$statusHidden,
-            todoState.$checklist
+            todoState.statusOverridePublisher,
+            todoState.statusHiddenPublisher,
+            todoState.checklistPublisher
         )
 
         let immediateFields = workspaceFields

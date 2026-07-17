@@ -53,7 +53,7 @@ struct SessionIndexView: View {
     /// Lives alongside the store but is owned by this view so drag-state
     /// transitions don't invalidate data-subscribed views elsewhere in the
     /// sidebar.
-    @StateObject private var dragCoordinator = SessionDragCoordinator()
+    @State private var dragCoordinator = SessionDragCoordinator()
     /// Sections the user has explicitly collapsed (default is expanded).
     @State private var collapsedSections: Set<SectionKey> = []
     /// Section whose "Show more" popover is currently open.
@@ -486,7 +486,7 @@ private struct SectionReorderGap: View, Equatable {
     /// the gap from reading drag state itself.
     let isValidDrop: Bool
     /// Closure bundle — the gap never sees `SessionIndexStore` or
-    /// `SessionDragCoordinator` directly, so it cannot `@ObservedObject` them.
+    /// `SessionDragCoordinator` directly, so it cannot observe them by reference.
     let actions: SectionGapActions
     @State private var isDropTarget: Bool = false
 
@@ -722,7 +722,7 @@ private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) 
 
 private struct SessionTranscriptPreviewView: View {
     let entry: SessionEntry
-    @ObservedObject var sizeModel: SessionTranscriptPopoverSizeModel
+    let sizeModel: SessionTranscriptPopoverSizeModel
     let onResize: (CGSize) -> Void
     let onDismiss: () -> Void
 
@@ -874,8 +874,9 @@ private enum SessionTranscriptPreviewLayout {
     }
 }
 
-private final class SessionTranscriptPopoverSizeModel: ObservableObject {
-    @Published var size: CGSize
+@Observable
+private final class SessionTranscriptPopoverSizeModel {
+    var size: CGSize
 
     init(size: CGSize = SessionTranscriptPreviewLayout.defaultSize) {
         self.size = size

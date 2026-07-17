@@ -8638,9 +8638,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .environmentObject(tabManager)
             .environmentObject(notificationStore)
             .environmentObject(notificationStore.sidebarUnread)
-            .environmentObject(sidebarState)
-            .environmentObject(sidebarSelectionState)
-            .environmentObject(fileExplorerState)
+            .environment(sidebarState)
+            .environment(sidebarSelectionState)
+            .environment(fileExplorerState)
             .environmentObject(cmuxConfigStore)
             // AppKit hosts this ContentView in its own NSHostingView, which does
             // not inherit the App scene's SwiftUI environment. Inject the

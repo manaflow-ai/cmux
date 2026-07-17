@@ -110,7 +110,7 @@ private final class WorkspaceTodoPanelOpaqueBackgroundView: NSView {
 /// churn) directly.
 private struct WorkspaceTodoPaneContent: View {
     @ObservedObject var workspace: Workspace
-    @ObservedObject var todoState: WorkspaceTodoState
+    let todoState: WorkspaceTodoState
     let paneTitle: String
     let isFocused: Bool
     /// Open-or-focus bump; re-arms the add field when `isFocused` doesn't transition.

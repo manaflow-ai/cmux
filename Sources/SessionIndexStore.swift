@@ -5,6 +5,7 @@ import CMUXAgentLaunch
 import Combine
 import Darwin
 import Foundation
+import Observation
 import os
 import SQLite3
 
@@ -187,8 +188,9 @@ enum SectionIcon: Equatable {
 /// `objectWillChange` on the data store, so rows and gaps don't re-render
 /// every time a drag begins or clears.
 @MainActor
-final class SessionDragCoordinator: ObservableObject {
-    @Published var draggedKey: SectionKey? = nil
+@Observable
+final class SessionDragCoordinator {
+    var draggedKey: SectionKey? = nil
 }
 
 /// Immutable per-directory snapshot consumed by `SectionPopoverView` for

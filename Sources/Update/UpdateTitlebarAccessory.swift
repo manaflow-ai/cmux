@@ -155,8 +155,9 @@ func titlebarControlPressedScale(isPressed _: Bool) -> CGFloat {
     1
 }
 
-final class TitlebarControlsViewModel: ObservableObject {
-    weak var notificationsAnchorView: NSView?
+@Observable
+final class TitlebarControlsViewModel {
+    @ObservationIgnored weak var notificationsAnchorView: NSView?
 }
 
 @MainActor
@@ -235,14 +236,22 @@ private enum NotificationsPopoverVisibilityUserInfoKey {
     static let windowNumber = "windowNumber"
 }
 
-final class NotificationsPopoverVisibilityState: ObservableObject {
+@Observable
+final class NotificationsPopoverVisibilityState {
     static let shared = NotificationsPopoverVisibilityState()
 
-    @Published private(set) var isShown = false
-    @Published private(set) var shownWindowNumbers: Set<Int> = []
-    private var shownPopoverIDs: Set<ObjectIdentifier> = []
-    private var shownPopoverWindowNumbers: [ObjectIdentifier: Int] = [:]
-    private var sourceLessShown = false
+    private(set) var isShown = false
+    /// Legacy Combine bridge for the remaining `foo.$prop` subscribers. Emits the
+    /// new value during willSet and replays the current value on subscribe — the
+    /// exact `Published.Publisher` semantics those call sites were written
+    /// against. Delete when the subscribers move to @Observable observation.
+    @ObservationIgnored let shownWindowNumbersPublisher = CurrentValueSubject<Set<Int>, Never>([])
+    private(set) var shownWindowNumbers: Set<Int> = [] {
+        willSet { shownWindowNumbersPublisher.send(newValue) }
+    }
+    @ObservationIgnored private var shownPopoverIDs: Set<ObjectIdentifier> = []
+    @ObservationIgnored private var shownPopoverWindowNumbers: [ObjectIdentifier: Int] = [:]
+    @ObservationIgnored private var sourceLessShown = false
 
     private init() {}
 
@@ -871,14 +880,14 @@ private final class TitlebarControlRightClickNSView: NSView {
 
 struct TitlebarControlsView: View {
     @ObservedObject var notificationStore: TerminalNotificationStore
-    @ObservedObject var viewModel: TitlebarControlsViewModel
+    let viewModel: TitlebarControlsViewModel
     let onToggleSidebar: () -> Void
     let onToggleNotifications: () -> Void
     let onNewTab: () -> Void
     let onFocusHistoryBack: () -> Void
     let onFocusHistoryForward: () -> Void
     let visibilityMode: TitlebarControlsVisibilityMode
-    @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
+    private let popoverVisibilityState = NotificationsPopoverVisibilityState.shared
     @AppStorage(TitlebarControlsStyle.storageKey) private var styleRawValue = TitlebarControlsStyle.defaultRawValue
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
     @State private var shortcutRefreshTick = 0
@@ -1391,8 +1400,8 @@ struct HiddenTitlebarSidebarControlsView: View {
     let onNewTab: () -> Void
     let onFocusHistoryBack: () -> Void
     let onFocusHistoryForward: () -> Void
-    @StateObject private var viewModel = TitlebarControlsViewModel()
-    @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
+    @State private var viewModel = TitlebarControlsViewModel()
+    private let popoverVisibilityState = NotificationsPopoverVisibilityState.shared
     @State private var isHoveringHost = false
     @State private var isHoveringWindowChrome = false
     @State private var hostWindowNumber: Int?
@@ -1511,7 +1520,7 @@ struct HiddenTitlebarSidebarControlsView: View {
             alignment: .leading
         )
         .background(MinimalModeTitlebarButtonHitRegionView(config: style.config))
-        .onReceive(MinimalModeSidebarChromeHoverState.shared.$hoveredWindowNumber) { hoveredWindowNumber in
+        .onChange(of: MinimalModeSidebarChromeHoverState.shared.hoveredWindowNumber, initial: true) { _, hoveredWindowNumber in
             isHoveringWindowChrome = hostWindowNumber == hoveredWindowNumber
             #if DEBUG
             _ = UITestCaptureSink().mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
@@ -2132,7 +2141,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
 
 private struct NotificationsPopoverView: View {
     @ObservedObject var notificationStore: TerminalNotificationStore
-    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    private let keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     let onDismiss: () -> Void
 
     @AppStorage("cmux.notifications.popover.width")

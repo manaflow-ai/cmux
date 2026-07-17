@@ -252,8 +252,8 @@ final class MobileWorkspaceListObserver {
                 // (status lane, checklist progress) and live in their own
                 // sub-model, so a pure todo mutation would otherwise never
                 // re-emit to external listeners.
-                workspace.todoState.$statusOverride.map { _ in () }.eraseToAnyPublisher(),
-                workspace.todoState.$checklist.map { _ in () }.eraseToAnyPublisher(),
+                workspace.todoState.statusOverridePublisher.map { _ in () }.eraseToAnyPublisher(),
+                workspace.todoState.checklistPublisher.map { _ in () }.eraseToAnyPublisher(),
                 workspace.currentDirectoryChangeRevisionPublisher()
                     .map { _ in () }
                     .eraseToAnyPublisher(),
