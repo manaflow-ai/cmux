@@ -1,5 +1,6 @@
 import AppKit
 import CmuxCore
+import WebKit
 
 extension Workspace {
     func browserPanelIncludingDock(for panelId: UUID) -> BrowserPanel? {
@@ -38,7 +39,11 @@ extension Workspace {
         return true
     }
 
-    func openDockBrowserLinkInNewTab(panel: BrowserPanel, seed: BrowserNewTabNavigationSeed) -> Bool {
+    func openDockBrowserLinkInNewTab(
+        panel: BrowserPanel,
+        seed: BrowserNewTabNavigationSeed,
+        allowWebExtensionContext: Bool
+    ) -> Bool {
         guard let dock = _dockSplit, let paneId = dock.paneId(forPanelId: panel.id) else { return false }
         return dock.newSurface(
             kind: .browser,
@@ -47,11 +52,16 @@ extension Workspace {
             initialRequest: seed.initialRequest,
             focus: true,
             preferredProfileID: panel.profileID,
-            bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce
+            bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce,
+            allowWebExtensionInitialNavigationConfiguration: allowWebExtensionContext
         ) != nil
     }
 
-    static func openDockBrowserLinkInNewTabIfNeeded(panel: BrowserPanel, seed: BrowserNewTabNavigationSeed) -> Bool {
+    static func openDockBrowserLinkInNewTabIfNeeded(
+        panel: BrowserPanel,
+        seed: BrowserNewTabNavigationSeed,
+        allowWebExtensionContext: Bool
+    ) -> Bool {
         guard let app = AppDelegate.shared else { return false }
         if let dock = app.windowDockContainingPanel(panel.id),
            dock.browserPanel(for: panel.id) === panel,
@@ -63,12 +73,17 @@ extension Workspace {
                 initialRequest: seed.initialRequest,
                 focus: true,
                 preferredProfileID: panel.profileID,
-                bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce
+                bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce,
+                allowWebExtensionInitialNavigationConfiguration: allowWebExtensionContext
             ) != nil
         }
         guard let manager = app.tabManagerFor(tabId: panel.workspaceId) ?? app.tabManager,
               let workspace = manager.tabs.first(where: { $0.id == panel.workspaceId }) else { return false }
-        return workspace.openDockBrowserLinkInNewTab(panel: panel, seed: seed)
+        return workspace.openDockBrowserLinkInNewTab(
+            panel: panel,
+            seed: seed,
+            allowWebExtensionContext: allowWebExtensionContext
+        )
     }
 }
 
@@ -97,7 +112,9 @@ extension DockSplitStore {
         url: URL?,
         initialRequest: URLRequest? = nil,
         preferredProfileID: UUID? = nil,
-        bypassInsecureHTTPHostOnce: String? = nil
+        bypassInsecureHTTPHostOnce: String? = nil,
+        webViewConfiguration: WKWebViewConfiguration? = nil,
+        allowWebExtensionInitialNavigationConfiguration: Bool = true
     ) -> BrowserPanel {
         let settings = currentRemoteBrowserSettings()
         let panel = BrowserPanel(
@@ -109,7 +126,10 @@ extension DockSplitStore {
             proxyEndpoint: settings.proxyEndpoint,
             bypassRemoteProxy: settings.bypassRemoteProxy,
             isRemoteWorkspace: settings.isRemoteWorkspace,
-            remoteWebsiteDataStoreIdentifier: settings.remoteWebsiteDataStoreIdentifier
+            remoteWebsiteDataStoreIdentifier: settings.remoteWebsiteDataStoreIdentifier,
+            browserWebExtensionHost: browserWebExtensionHost,
+            webViewConfiguration: webViewConfiguration,
+            allowWebExtensionInitialNavigationConfiguration: allowWebExtensionInitialNavigationConfiguration
         )
         panel.setRemoteWorkspaceStatus(settings.remoteStatus)
         panel.webViewDidRequestClose = { [weak self, weak panel] in
