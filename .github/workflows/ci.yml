@@ -95,6 +95,9 @@ jobs:
       - name: Validate release SDK build lane
         run: ./tests/test_ci_release_sdk_lane.sh
 
+      - name: Validate docs deployment authentication guard
+        run: python3 tests/test_docs_deploy_auth_guard.py
+
       - name: Validate Python test harness syntax
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
 
