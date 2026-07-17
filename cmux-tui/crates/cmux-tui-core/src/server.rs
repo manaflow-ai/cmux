@@ -3391,6 +3391,85 @@ mod tests {
     }
 
     #[test]
+    fn self_detach_responds_before_closing_and_releases_the_size_lease() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((120, 40))).unwrap();
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let events = mux.subscribe();
+        mux.resize_surface_for_client(surface.id, client, 80, 24).unwrap();
+
+        assert!(!handle_message(
+            &mux,
+            client,
+            &json!({"id": 9, "cmd": "detach-client", "client": client}).to_string(),
+            &writer,
+        ));
+
+        let response: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(response["id"], 9);
+        assert_eq!(response["ok"], true);
+        assert_eq!(mux.client_surface_size(surface.id, client), None);
+        assert!(mux.control_clients_json(client).as_array().unwrap().is_empty());
+        assert!((0..4).any(|_| matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::ClientDetached(id)) if id == client
+        )));
+        assert!(mux.surface(surface.id).is_some(), "the session must survive its last viewer");
+    }
+
+    #[test]
+    fn peer_detach_is_id_stable_and_does_not_disconnect_the_initiator() {
+        let mux = test_mux();
+        let initiator_writer = test_writer();
+        let target_writer = test_writer();
+        let initiator =
+            mux.control_clients.register(ClientTransport::Unix, initiator_writer.clone());
+        let target = mux.control_clients.register(ClientTransport::Unix, target_writer.clone());
+
+        handle_command(
+            &mux,
+            initiator,
+            Command::DetachClient { client: target },
+            &initiator_writer,
+        )
+        .unwrap();
+
+        let listed =
+            handle_command(&mux, initiator, Command::ListClients, &initiator_writer).unwrap();
+        assert_eq!(listed.as_array().unwrap().len(), 1);
+        assert_eq!(listed[0]["client"], initiator);
+        let error = handle_command(
+            &mux,
+            initiator,
+            Command::DetachClient { client: target },
+            &initiator_writer,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains(&format!("unknown client {target}")));
+    }
+
+    #[test]
+    fn remote_client_cannot_detach_synthetic_local_client_zero() {
+        let mux = test_mux();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+
+        let error =
+            handle_command(&mux, client, Command::DetachClient { client: 0 }, &writer).unwrap_err();
+
+        assert!(error.to_string().contains("unknown client 0"));
+        assert!(
+            mux.control_clients_json(client)
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|info| { info["client"] == client })
+        );
+    }
+
+    #[test]
     fn closing_bounded_writer_wakes_a_waiting_drain() {
         let outbound = Arc::new(BoundedOutbound::default());
         let waiting = outbound.clone();

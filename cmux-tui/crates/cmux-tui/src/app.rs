@@ -712,8 +712,19 @@ impl OrderedSession {
         self.inner.set_client_sizing(client, enabled)
     }
 
-    fn disconnect_client(&self, client: u64) -> anyhow::Result<()> {
-        self.inner.disconnect_client(client)
+    fn disconnect_client(&self, client: u64) {
+        self.enqueue_coalescing_session_mutation(
+            "disconnect client",
+            ("disconnect client", client),
+            move |session| match session.disconnect_client(client) {
+                Err(error) if error.to_string().contains(&format!("unknown client {client}")) => {
+                    // The menu is a snapshot. A peer can disappear before activation, which
+                    // makes this an already-completed detach rather than a session failure.
+                    Ok(())
+                }
+                result => result,
+            },
+        );
     }
 
     pub(crate) fn surface(&self, id: SurfaceId) -> Option<SurfaceHandle> {
@@ -5170,8 +5181,17 @@ impl App {
                 self.refresh_clients();
             }
             MenuAction::DisconnectClient(client) => {
-                self.session.disconnect_client(client)?;
-                self.refresh_clients();
+                if self.clients.iter().any(|info| info.client == client && info.is_self) {
+                    // Disconnecting this control connection would close the socket that must
+                    // carry the response. Exit through the same local detach lifecycle as the
+                    // keyboard action instead, without another request on that socket.
+                    self.run_action(Action::Detach)?;
+                } else {
+                    // Peer disconnects stay ordered with PTY input but run off the UI thread.
+                    // A stale client id therefore becomes a harmless no-op instead of blocking
+                    // or terminating the event loop.
+                    self.session.disconnect_client(client);
+                }
             }
         }
         Ok(())
@@ -7501,6 +7521,66 @@ mod tests {
 
         assert!(app.activate_menu(MenuAction::DisconnectClient(7)).is_ok());
         assert!(app.quit, "self-disconnect must take the same clean exit path as Ctrl-b d");
+
+        assert!(app.activate_menu(MenuAction::DisconnectClient(7)).is_ok());
+        assert!(app.quit, "repeated self-disconnect must remain idempotent");
+    }
+
+    #[test]
+    fn stale_peer_disconnect_is_an_idempotent_noop_without_quitting_the_tui() {
+        let mux = Mux::new("stale-peer-disconnect-test", SurfaceOptions::default());
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
+        app.clients = vec![ClientInfo {
+            client: 7,
+            transport: "unix".to_string(),
+            name: Some("stale peer".to_string()),
+            kind: Some("tui".to_string()),
+            connected_seconds: 1,
+            attached: vec![],
+            sizes: vec![],
+            is_self: false,
+            size_participating: true,
+        }];
+
+        assert!(app.activate_menu(MenuAction::DisconnectClient(7)).is_ok());
+        assert!(!app.quit);
+        let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            event,
+            AppEvent::SessionMutationSettled {
+                outcome: super::SessionMutationOutcome::Success { .. },
+                ..
+            }
+        ));
+        assert!(app.handle(event).is_ok());
+        assert!(!app.quit);
+        assert!(app.status_message.is_none());
+    }
+
+    #[test]
+    fn synthetic_local_client_cannot_be_disconnected_from_the_menu() {
+        let local = ClientInfo {
+            client: 0,
+            transport: "local".to_string(),
+            name: Some("local tui".to_string()),
+            kind: Some("tui".to_string()),
+            connected_seconds: 1,
+            attached: vec![31],
+            sizes: vec![ClientSizeInfo { surface: 31, cols: Some(80), rows: Some(24) }],
+            is_self: true,
+            size_participating: true,
+        };
+        let Some(MenuItem::Submenu { items, .. }) = client_menu_item(&[local], 31) else {
+            panic!("expected connected clients submenu");
+        };
+        assert!(!items.iter().any(|item| matches!(
+            item,
+            MenuItem::Submenu { items, .. }
+                if items.iter().any(|action| matches!(
+                    action,
+                    MenuItem::Action(MenuAction::DisconnectClient(0))
+                ))
+        )));
     }
 
     #[test]
