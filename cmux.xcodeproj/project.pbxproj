@@ -121,6 +121,7 @@
 		A9F200000000000000000014 /* AgentSessionWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000014 /* AgentSessionWebView.swift */; };
 		FEA700020000000000000001 /* AgentTerminalClassificationWorker.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEA700020000000000000002 /* AgentTerminalClassificationWorker.swift */; };
 		FEA700040000000000000001 /* AgentTerminalStateRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEA700040000000000000002 /* AgentTerminalStateRuntime.swift */; };
+		A57A7E010000000000000001 /* AgentTerminalStateRuntimeLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A57A7E010000000000000002 /* AgentTerminalStateRuntimeLifecycleTests.swift */; };
 		FEA700030000000000000001 /* AgentTerminalStateSurfaceObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEA700030000000000000002 /* AgentTerminalStateSurfaceObserver.swift */; };
 		REE0CA0000000000000000F2 /* AIAccountCredentialSources.swift in Sources */ = {isa = PBXBuildFile; fileRef = REE0CA0000000000000000F1 /* AIAccountCredentialSources.swift */; };
 		REE0CA0000000000000000E2 /* AIAccountsClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = REE0CA0000000000000000E1 /* AIAccountsClient.swift */; };
@@ -2227,6 +2228,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A9F100000000000000000014 /* AgentSessionWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionWebView.swift; sourceTree = "<group>"; };
 		FEA700020000000000000002 /* AgentTerminalClassificationWorker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTerminalClassificationWorker.swift; sourceTree = "<group>"; };
 		FEA700040000000000000002 /* AgentTerminalStateRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTerminalStateRuntime.swift; sourceTree = "<group>"; };
+		A57A7E010000000000000002 /* AgentTerminalStateRuntimeLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTerminalStateRuntimeLifecycleTests.swift; sourceTree = "<group>"; };
 		FEA700030000000000000002 /* AgentTerminalStateSurfaceObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTerminalStateSurfaceObserver.swift; sourceTree = "<group>"; };
 		REE0CA0000000000000000F1 /* AIAccountCredentialSources.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AIAccountCredentialSources.swift; sourceTree = "<group>"; };
 		REE0CA0000000000000000E1 /* AIAccountsClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AIAccountsClient.swift; sourceTree = "<group>"; };
@@ -6147,6 +6149,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5D41221A1B2C3D4E5F60718 /* ClaudeHookSurfaceResolutionSwiftTests.swift */,
 				79390002AA11BB22CC33DD02 /* ClaudeHookLiveDeliveryTargetTests.swift */,
 				7939000CAA11BB22CC33DD0C /* ClaudeHookLifecycleCleanupTests.swift */,
+				A57A7E010000000000000002 /* AgentTerminalStateRuntimeLifecycleTests.swift */,
 				7939000AAA11BB22CC33DD0A /* ClaudeHookLiveDeliveryTargetTestSupport.swift */,
 				79390004AA11BB22CC33DD04 /* AgentNotificationLiveRetargetTests.swift */,
 				79390010AA11BB22CC33DD10 /* AgentNotificationMoveRaceTests.swift */,
@@ -8152,6 +8155,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D3610B020000000000000001 /* AgentSessionAutoResumeSwiftTests.swift in Sources */,
 				A9E030000000000000000002 /* AgentSessionSocketSurfaceTests.swift in Sources */,
 				A9E050000000000000000002 /* AgentSessionWebRendererTests.swift in Sources */,
+				A57A7E010000000000000001 /* AgentTerminalStateRuntimeLifecycleTests.swift in Sources */,
 				725746692D9647948561044D /* AppDelegateBareSpaceShortcutRoutingTests.swift in Sources */,
 				A1B2C3D4E5F600000000CF01 /* AppDelegateDisplayConfigRestoreTests.swift in Sources */,
 				E3309A09 /* AppDelegateEqualizeSplitsShortcutTests.swift in Sources */,

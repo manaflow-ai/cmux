@@ -160,6 +160,18 @@ struct AgentTerminalStateClassifierTests {
     }
 
     @Test
+    func exactBlockedPromptMustOccupyItsOwnRenderedLine() {
+        #expect(classifier.classify(screen(
+            familyID: "gemini",
+            text: "Enter your API key"
+        )).state == .blocked)
+        #expect(classifier.classify(screen(
+            familyID: "gemini",
+            text: "The setup guide says to enter your API key before continuing."
+        )).state == .idle)
+    }
+
+    @Test
     func codexMultilineApprovalPromptRemainsInsideBlockedEvidenceWindow() {
         let capturedInteraction = [
             "Would you like to run the following command?",
@@ -272,6 +284,9 @@ struct AgentTerminalStateClassifierTests {
         #expect(AgentTerminalProfileCatalog(profiles: [
             profile(id: "empty-group", executable: "empty-group", working: [[]]),
         ]) == nil)
+        #expect(AgentTerminalProfileCatalog(profiles: [
+            profile(id: "singleton-blocked", executable: "singleton-blocked", blocked: [["approval required"]]),
+        ]) == nil)
     }
 
     private var identity: AgentTerminalProcessIdentity {
@@ -298,7 +313,8 @@ struct AgentTerminalStateClassifierTests {
         id: String,
         executable: String,
         argumentNeedles: [String] = [],
-        working: [[String]] = []
+        working: [[String]] = [],
+        blocked: [[String]] = []
     ) -> AgentTerminalFamilyProfile {
         AgentTerminalFamilyProfile(
             id: id,
@@ -306,7 +322,8 @@ struct AgentTerminalStateClassifierTests {
             displayName: id,
             executableBasenames: [executable],
             argumentNeedles: argumentNeedles,
-            workingEvidenceGroups: working
+            workingEvidenceGroups: working,
+            blockedEvidenceGroups: blocked
         )
     }
 }
