@@ -217,13 +217,19 @@ def wait_render_contains(needle, seconds=15):
             return last
     raise AssertionError(last[-1200:])
 
-def wait_render_excludes(needle, seconds=15):
+def wait_render_excludes(needle, seconds=15, stable_seconds=0.5):
     deadline = time.time() + seconds
     last = ""
+    absent_since = None
     while time.time() < deadline:
         drain(0.2)
         last = render_text_snapshot(output)
-        if needle not in last:
+        if needle in last:
+            absent_since = None
+            continue
+        if absent_since is None:
+            absent_since = time.time()
+        elif time.time() - absent_since >= stable_seconds:
             return last
     raise AssertionError(last[-1200:])
 
