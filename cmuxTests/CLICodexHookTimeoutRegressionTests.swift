@@ -24,6 +24,8 @@ struct CLICodexHookTimeoutRegressionTests {
         }
         #expect(lifecycleHooks.count == 3)
         #expect(lifecycleHooks.allSatisfy { $0.body.contains("hooks codex enqueue") })
+        #expect(lifecycleHooks.allSatisfy { $0.body.contains("agent.hook.enqueue") })
+        #expect(lifecycleHooks.allSatisfy { $0.body.contains("/usr/bin/nc") })
         #expect(lifecycleHooks.allSatisfy { !$0.body.contains("nohup") })
         #expect(lifecycleHooks.allSatisfy { !$0.body.contains("mktemp") })
         #expect(lifecycleHooks.allSatisfy { !$0.body.contains("sleep 30") })
@@ -64,15 +66,15 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(!hooks.map(\.body).contains(previousCommand), "Installer should remove stale synchronous hook")
         #expect(sessionStartHooks.count == 1, "Installer should install one session-start hook")
         #expect(sessionStartHooks.allSatisfy { $0.body.contains("hooks codex session-start") })
-        #expect(sessionStartHooks.allSatisfy { $0.body.contains("nohup sh -c") && $0.body.contains("cat >\"$payload\"") })
+        #expect(sessionStartHooks.allSatisfy { $0.body.contains("hooks codex enqueue session-start") })
         #expect(sessionStartHooks.allSatisfy { $0.body.contains("agent_pid=") && $0.body.contains("CMUX_CODEX_PID=") })
         #expect(promptHooks.count == 1, "Installer should collapse duplicate prompt hooks")
         #expect(promptHooks.allSatisfy { $0.body.contains("hooks codex prompt-submit") })
-        #expect(promptHooks.allSatisfy { $0.body.contains("nohup sh -c") && $0.body.contains("cat >\"$payload\"") })
+        #expect(promptHooks.allSatisfy { $0.body.contains("hooks codex enqueue prompt-submit") })
         #expect(promptHooks.allSatisfy { $0.body.contains("agent_pid=") && $0.body.contains("CMUX_CODEX_PID=") })
         #expect(stopHooks.count == 1, "Installer should install one stop hook")
         #expect(stopHooks.allSatisfy { $0.body.contains("hooks codex stop") })
-        #expect(stopHooks.allSatisfy { $0.body.contains("nohup sh -c") && $0.body.contains("cat >\"$payload\"") })
+        #expect(stopHooks.allSatisfy { $0.body.contains("hooks codex enqueue stop") })
         #expect(stopHooks.allSatisfy { $0.body.contains("agent_pid=") && $0.body.contains("CMUX_CODEX_PID=") })
         let expectedFeedEvents: Set<String> = [
             "PreToolUse",
@@ -91,7 +93,7 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(feedHooks.allSatisfy { !$0.body.contains("nohup sh -c") && !$0.body.contains(">/dev/null 2>&1 &") })
     }
 
-    @Test func codexInstalledHookReturnsBeforeSlowCmuxCommandFinishes() throws {
+    @Test func codexInstalledHookHandsPayloadToInboxCommand() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-hook-async-\(UUID().uuidString)", isDirectory: true)
@@ -109,7 +111,6 @@ struct CLICodexHookTimeoutRegressionTests {
             "printf '%s\\n' \"$*\" > \"$CMUX_TEST_ARGS\"",
             "printf '%s\\n' \"$CMUX_CODEX_PID\" > \"$CMUX_TEST_PID\"",
             "cat > \"$CMUX_TEST_STDIN\"",
-            "sleep 4",
             "printf done > \"$CMUX_TEST_DONE\"",
         ])
 
@@ -150,12 +151,12 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(run.status == 0, Comment(rawValue: run.stderr))
         #expect(run.stdout == "{}\n")
         #expect(waitForFile(capturedStdin, containing: payload, timeout: 1))
-        #expect(waitForFile(capturedArgs, containing: "--socket /tmp/cmux-test.sock hooks codex prompt-submit", timeout: 1))
+        #expect(waitForFile(capturedArgs, containing: "--socket /tmp/cmux-test.sock hooks codex enqueue prompt-submit", timeout: 1))
         #expect(waitForFile(capturedPID, containing: "4242", timeout: 1))
-        #expect(waitForFile(doneFile, containing: "done", timeout: 6))
+        #expect(waitForFile(doneFile, containing: "done", timeout: 1))
     }
 
-    @Test func codexInstalledStopHookReturnsBeforeSlowCmuxCommandFinishes() throws {
+    @Test func codexInstalledStopHookHandsPayloadToInboxCommand() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-stop-hook-async-\(UUID().uuidString)", isDirectory: true)
@@ -173,7 +174,6 @@ struct CLICodexHookTimeoutRegressionTests {
             "printf '%s\\n' \"$*\" > \"$CMUX_TEST_ARGS\"",
             "printf '%s\\n' \"$CMUX_CODEX_PID\" > \"$CMUX_TEST_PID\"",
             "cat > \"$CMUX_TEST_STDIN\"",
-            "sleep 2",
             "printf done > \"$CMUX_TEST_DONE\"",
         ])
 
@@ -214,7 +214,7 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(run.status == 0, Comment(rawValue: run.stderr))
         #expect(run.stdout == "{}\n")
         #expect(waitForFile(capturedStdin, containing: payload, timeout: 1))
-        #expect(waitForFile(capturedArgs, containing: "--socket /tmp/cmux-test.sock hooks codex stop", timeout: 1))
+        #expect(waitForFile(capturedArgs, containing: "--socket /tmp/cmux-test.sock hooks codex enqueue stop", timeout: 1))
         #expect(waitForFile(capturedPID, containing: "4242", timeout: 1))
         #expect(waitForFile(doneFile, containing: "done", timeout: 3))
     }
@@ -253,12 +253,6 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(!install.timedOut, Comment(rawValue: install.stderr))
         #expect(install.status == 0, Comment(rawValue: install.stderr))
 
-        let promptCommand = try #require(
-            codexHookEntries(in: codexHome).first { $0.eventName == "UserPromptSubmit" }?.command
-        )
-        let stopCommand = try #require(
-            codexHookEntries(in: codexHome).first { $0.eventName == "Stop" }?.command
-        )
         let environment = [
             "HOME": root.path,
             "CODEX_HOME": codexHome.path,
@@ -275,8 +269,8 @@ struct CLICodexHookTimeoutRegressionTests {
         ]
 
         let oldPrompt = runCodexHookProcess(
-            executablePath: "/bin/sh",
-            arguments: ["-c", promptCommand],
+            executablePath: cliPath,
+            arguments: ["--socket", socketPath, "hooks", "codex", "prompt-submit"],
             environment: environment,
             standardInput: #"{"session_id":"\#(sessionId)","turn_id":"old-turn","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","prompt":"old"}"#,
             timeout: 3
@@ -288,8 +282,8 @@ struct CLICodexHookTimeoutRegressionTests {
         })
 
         let currentPrompt = runCodexHookProcess(
-            executablePath: "/bin/sh",
-            arguments: ["-c", promptCommand],
+            executablePath: cliPath,
+            arguments: ["--socket", socketPath, "hooks", "codex", "prompt-submit"],
             environment: environment,
             standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","prompt":"current"}"#,
             timeout: 3
@@ -304,8 +298,8 @@ struct CLICodexHookTimeoutRegressionTests {
 
         let staleStopStart = commands.snapshot().count
         let staleStop = runCodexHookProcess(
-            executablePath: "/bin/sh",
-            arguments: ["-c", stopCommand],
+            executablePath: cliPath,
+            arguments: ["--socket", socketPath, "hooks", "codex", "stop"],
             environment: environment,
             standardInput: #"{"session_id":"\#(sessionId)","turn_id":"old-turn","cwd":"\#(root.path)","hook_event_name":"Stop","last_assistant_message":"old done"}"#,
             timeout: 3

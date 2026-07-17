@@ -34692,6 +34692,10 @@ export default CMUXSessionRestore;
             guard let def = Self.agentDef(named: first) else {
                 throw CLIError(message: "Unknown hooks target: \(first)")
             }
+            if def.name == "codex", rest.first?.lowercased() == "enqueue" {
+                try enqueueCodexLifecycleHook(commandArgs: Array(rest.dropFirst()), client: client)
+                return
+            }
             telemetry.breadcrumb("hooks.\(def.name).dispatch")
             do {
                 try runGenericAgentHook(def: def, commandArgs: rest, client: client, telemetry: telemetry, socketPassword: socketPassword)

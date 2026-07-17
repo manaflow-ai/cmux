@@ -87,6 +87,9 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "feed.permission.reply",
         "feed.question.reply",
         "feed.exit_plan.reply",
+        // Lifecycle hooks acknowledge after entering the actor-owned delivery
+        // queue. The queue performs all process and socket work after the reply.
+        "agent.hook.enqueue",
         "browser.download.wait",
         "browser.profiles.list",
         "browser.profiles.create",
