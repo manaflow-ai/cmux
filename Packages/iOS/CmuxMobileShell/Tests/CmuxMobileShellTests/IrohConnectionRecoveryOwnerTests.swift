@@ -131,7 +131,17 @@ extension ReconnectRouteSelectionTests {
                 && fixture.store.connectionRecoveryFailed
         })
         fixture.factory.setConnectsFailing(false)
-        fixture.store.recoverMobileConnection(trigger: .presencePush)
+        let scope = try #require(
+            await fixture.store.currentScopeSnapshot(userID: "user-1")
+        )
+        fixture.store.applyPresenceUpdate(.online(PresenceInstance(
+            deviceId: "test-mac",
+            tag: "default",
+            platform: "mac",
+            online: true,
+            lastSeenAt: fixture.clock.now.timeIntervalSince1970 * 1_000,
+            routes: [try iroh()]
+        )), scope: scope)
 
         #expect(try await pollUntil {
             let subscribeCount = await fixture.router.count(of: "mobile.events.subscribe")
