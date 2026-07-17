@@ -1,4 +1,5 @@
 import CmuxCore
+import Dispatch
 import Foundation
 import Testing
 
@@ -11,8 +12,10 @@ import Testing
 private struct FakeDockConfigFileSystem: DockConfigFileSystem {
     let directories: Set<String>
     let files: [String: Data]
+    var enforcesDeadline = false
 
-    func metadata(at path: String) async throws -> DockConfigFileMetadata {
+    func metadata(at path: String, deadline: DispatchTime) async throws -> DockConfigFileMetadata {
+        try checkDeadline(deadline)
         if directories.contains(path) {
             return DockConfigFileMetadata(exists: true, kind: .directory, size: nil)
         }
@@ -26,11 +29,20 @@ private struct FakeDockConfigFileSystem: DockConfigFileSystem {
         return DockConfigFileMetadata(exists: false, kind: nil, size: nil)
     }
 
-    func readFile(at path: String) async throws -> Data {
+    func readFile(at path: String, deadline: DispatchTime) async throws -> Data {
+        try checkDeadline(deadline)
         guard let data = files[path] else {
             throw CocoaError(.fileNoSuchFile)
         }
         return data
+    }
+
+    private func checkDeadline(_ deadline: DispatchTime) throws {
+        guard enforcesDeadline,
+              deadline.uptimeNanoseconds <= DispatchTime.now().uptimeNanoseconds else {
+            return
+        }
+        throw NSError(domain: "test.dock.config", code: 1)
     }
 }
 
@@ -108,6 +120,38 @@ struct DockConfigSourceResolutionTests {
 
         #expect(resolution.sourcePath == nested)
         #expect(resolution.controls.map(\.id) == ["nested"])
+    }
+
+    @Test("config resolution applies one bounded operation deadline")
+    func configResolutionHonorsOperationDeadline() async {
+        let root = "/srv/repo/apps/web/src"
+        let source = DockProjectConfigSource(
+            origin: .remote(identity: "ssh|host|22", displayTarget: "host"),
+            fileSystem: FakeDockConfigFileSystem(
+                directories: [root],
+                files: [:],
+                enforcesDeadline: true
+            ),
+            rootDirectory: DockConfigPath(root)!,
+            boundaryDirectory: DockConfigPath("/")!,
+            executionContext: .local
+        )
+        let context = DockConfigurationContext(
+            identity: DockConfigurationContext.Identity(
+                projectOrigin: source.origin,
+                rootDirectory: root,
+                availabilityRevision: "test",
+                executionWorkspaceID: nil,
+                includesGlobalFallback: false
+            ),
+            projectSource: source,
+            includesGlobalFallback: false,
+            emptyBaseDirectory: root
+        )
+
+        await #expect(throws: (any Error).self) {
+            _ = try await DockConfigResolver(operationTimeout: 0).resolve(context: context)
+        }
     }
 
     @Test("remote trust identities distinguish hosts with the same path and config")
@@ -255,13 +299,12 @@ struct DockConfigSourceResolutionTests {
     }
 
     @Test("remote control startup without a command still carries cwd and Dock environment")
-    func remoteControlStartupWithoutCommandCarriesContext() throws {
-        let script = try #require(DockSplitStore.remoteControlStartupCommand(
+    func remoteControlStartupWithoutCommandCarriesContext() {
+        let script = DockSplitStore.remoteControlStartupCommand(
             command: nil,
-            useLoginShellWrapper: true,
             workingDirectory: "/home/me/project",
             environment: ["CMUX_DOCK_CONTROL_ID": "shell"]
-        ))
+        )
 
         #expect(script.contains(Data("/home/me/project".utf8).base64EncodedString()))
         #expect(script.contains("export CMUX_DOCK_CONTROL_ID=shell"))

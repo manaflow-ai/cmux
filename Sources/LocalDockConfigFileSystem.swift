@@ -1,7 +1,8 @@
+import Dispatch
 import Foundation
 
 struct LocalDockConfigFileSystem: DockConfigFileSystem {
-    func metadata(at path: String) async throws -> DockConfigFileMetadata {
+    func metadata(at path: String, deadline: DispatchTime) async throws -> DockConfigFileMetadata {
         try await Task.detached(priority: .utility) {
             var isDirectory: ObjCBool = false
             guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) else {
@@ -24,7 +25,7 @@ struct LocalDockConfigFileSystem: DockConfigFileSystem {
         }.value
     }
 
-    func readFile(at path: String) async throws -> Data {
+    func readFile(at path: String, deadline: DispatchTime) async throws -> Data {
         try await Task.detached(priority: .utility) {
             try Data(contentsOf: URL(fileURLWithPath: path, isDirectory: false))
         }.value

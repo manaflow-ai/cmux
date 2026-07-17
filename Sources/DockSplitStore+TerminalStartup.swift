@@ -3,14 +3,10 @@ import Foundation
 extension DockSplitStore {
     static func remoteControlStartupCommand(
         command: String?,
-        useLoginShellWrapper: Bool,
         workingDirectory: String,
         environment: [String: String]
-    ) -> String? {
-        guard useLoginShellWrapper else {
-            return command.flatMap { $0.isEmpty ? nil : $0 }
-        }
-        return remoteShellStartupScript(
+    ) -> String {
+        remoteShellStartupScript(
             command: command,
             workingDirectory: workingDirectory,
             environment: environment

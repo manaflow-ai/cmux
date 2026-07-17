@@ -539,7 +539,6 @@ final class DockSplitStore: BonsplitDelegate {
             localWorkingDirectory = FileManager.default.homeDirectoryForCurrentUser.path
             let remoteCommand = Self.remoteControlStartupCommand(
                 command: command,
-                useLoginShellWrapper: useLoginShellWrapper,
                 workingDirectory: workingDirectory,
                 environment: resolvedEnvironment
             )
