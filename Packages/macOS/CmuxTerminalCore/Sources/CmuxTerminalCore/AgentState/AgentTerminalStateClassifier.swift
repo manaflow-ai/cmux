@@ -54,13 +54,11 @@ public struct AgentTerminalStateClassifier: Sendable {
         let text = Self.normalizedVisibleText(snapshot.liveBottomVT)
         let physicalLines = text.split(separator: "\n", omittingEmptySubsequences: false)
         let liveBottom = physicalLines.suffix(18).joined(separator: "\n")
-        let currentInteraction = physicalLines.suffix(10).joined(separator: "\n")
         let liveEvidence = String(liveBottom.suffix(48 * 1024))
-        let interactionEvidence = String(currentInteraction.suffix(24 * 1024))
         let state: AgentTerminalSemanticState
         if profile.historyViewNeedles.contains(where: liveEvidence.contains) {
             state = snapshot.previousReliableState ?? .unknown
-        } else if Self.matchesAnyEvidenceGroup(profile.blockedEvidenceGroups, in: interactionEvidence) {
+        } else if Self.matchesAnyEvidenceGroup(profile.blockedEvidenceGroups, in: liveEvidence) {
             state = .blocked
         } else if Self.matchesAnyEvidenceGroup(profile.workingEvidenceGroups, in: liveEvidence) {
             state = .working
