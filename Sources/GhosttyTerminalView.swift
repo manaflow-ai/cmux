@@ -12430,13 +12430,16 @@ struct GhosttyTerminalView: NSViewRepresentable {
             // can re-anchor on-screen content but can never reveal a hidden
             // tab (bind is a show path — a hidden survivor waits for its own
             // update instead).
-            coordinator.vacancyRetry = { [weak host, weak hostedView, weak coordinator] in
-                guard let host, let hostedView, let coordinator else { return }
+            coordinator.vacancyRetry = { [weak host, weak hostedView, weak coordinator, weak terminalSurface] in
+                guard let host, let hostedView, let coordinator, let terminalSurface else { return }
                 guard coordinator.attachGeneration == generation else { return }
                 guard isCurrentPaneOwner() else { return }
                 guard coordinator.desiredIsVisibleInUI else { return }
                 guard host.window != nil else { return }
-                guard portalBindingStillLive() else { return }
+                guard terminalSurface.canAcceptPortalBinding(
+                    expectedSurfaceId: portalExpectedSurfaceId,
+                    expectedGeneration: portalExpectedGeneration
+                ) else { return }
                 guard terminalSurface.claimPortalHost(
                     hostId: ObjectIdentifier(host),
                     paneId: paneId,
@@ -12463,7 +12466,10 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 // when it lost the earlier claim. Restore the owner-owned
                 // non-visibility state; visible/active stay with updates.
                 hostedView.setSessionContentWidthPresentation(sessionContentWidthPresentation)
-                hostedView.setFocusHandler { onFocus?(terminalSurface.id) }
+                hostedView.setFocusHandler { [weak terminalSurface] in
+                    guard let terminalSurface else { return }
+                    onFocus?(terminalSurface.id)
+                }
                 hostedView.setTriggerFlashHandler(onTriggerFlash)
                 hostedView.setPaneDropContext(TerminalPaneDropContext(
                     workspaceId: terminalSurface.tabId,
