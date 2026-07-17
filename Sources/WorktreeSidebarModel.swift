@@ -6,29 +6,10 @@ import Observation
 @MainActor
 @Observable
 final class WorktreeSidebarModel {
-    enum ListingPhase: Equatable {
-        case idle
-        case loading
-        case loaded
-        case failed
-    }
-
-    enum OperationPhase: Equatable {
-        case idle
-        case creating
-        case inspecting(String)
-        case removing(String)
-    }
-
-    private enum LifecyclePhase {
-        case stopped
-        case running
-    }
-
-    private enum RefreshState {
-        case idle
-        case running(needsRerun: Bool)
-    }
+    typealias ListingPhase = WorktreeSidebarListingPhase
+    typealias OperationPhase = WorktreeSidebarOperationPhase
+    private typealias LifecyclePhase = WorktreeSidebarModelLifecyclePhase
+    private typealias RefreshState = WorktreeSidebarModelRefreshState
 
     let projectRootPath: String
     private(set) var rows: [WorktreeSidebarRow] = []

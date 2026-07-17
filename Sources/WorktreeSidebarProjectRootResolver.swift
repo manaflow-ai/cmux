@@ -2,16 +2,10 @@ import Foundation
 
 /// Serial resolver with one Git listing in flight and one pending request per workspace.
 actor WorktreeSidebarProjectRootResolver {
-    private struct Request: Sendable {
-        let requesterID: UUID
-        let directory: String
-        let continuation: CheckedContinuation<String?, Never>
-    }
-
     private let git: any WorktreeSidebarGitOperating
     private var isResolving = false
     private var pendingOrder = WorktreeSidebarRequesterQueue()
-    private var pendingRequests: [UUID: Request] = [:]
+    private var pendingRequests: [UUID: WorktreeSidebarProjectRootRequest] = [:]
 
     init(git: (any WorktreeSidebarGitOperating)? = nil) {
         self.git = git ?? WorktreeSidebarGitService()
@@ -22,7 +16,7 @@ actor WorktreeSidebarProjectRootResolver {
         requesterID: UUID = UUID()
     ) async -> String? {
         await withCheckedContinuation { continuation in
-            enqueue(Request(
+            enqueue(WorktreeSidebarProjectRootRequest(
                 requesterID: requesterID,
                 directory: directory,
                 continuation: continuation
@@ -30,7 +24,7 @@ actor WorktreeSidebarProjectRootResolver {
         }
     }
 
-    private func enqueue(_ request: Request) {
+    private func enqueue(_ request: WorktreeSidebarProjectRootRequest) {
         guard isResolving else {
             isResolving = true
             Task { await resolve(request) }
@@ -43,8 +37,8 @@ actor WorktreeSidebarProjectRootResolver {
         }
     }
 
-    private func resolve(_ initialRequest: Request) async {
-        var currentRequest: Request? = initialRequest
+    private func resolve(_ initialRequest: WorktreeSidebarProjectRootRequest) async {
+        var currentRequest: WorktreeSidebarProjectRootRequest? = initialRequest
         while let request = currentRequest {
             let worktrees = try? await git.listWorktrees(projectRootPath: request.directory)
             let projectRoot = worktrees?.first?.path
@@ -66,7 +60,7 @@ actor WorktreeSidebarProjectRootResolver {
         }
     }
 
-    private func dequeueRequest() -> Request? {
+    private func dequeueRequest() -> WorktreeSidebarProjectRootRequest? {
         while let requesterID = pendingOrder.dequeue() {
             if let request = pendingRequests.removeValue(forKey: requesterID) {
                 return request

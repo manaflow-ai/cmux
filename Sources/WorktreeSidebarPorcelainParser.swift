@@ -10,11 +10,11 @@ struct WorktreeSidebarPorcelainParser: Sendable {
 
     private func parse(fields: [String]) -> [WorktreeSidebarWorktree] {
         var parsed: [WorktreeSidebarWorktree] = []
-        var record = Record()
+        var record = WorktreeSidebarPorcelainRecord()
 
         func flush() {
             guard let path = record.path else {
-                record = Record()
+                record = WorktreeSidebarPorcelainRecord()
                 return
             }
             parsed.append(WorktreeSidebarWorktree(
@@ -32,7 +32,7 @@ struct WorktreeSidebarPorcelainParser: Sendable {
                 isPrunable: record.isPrunable,
                 prunableReason: record.prunableReason
             ))
-            record = Record()
+            record = WorktreeSidebarPorcelainRecord()
         }
 
         for field in fields {
@@ -65,17 +65,5 @@ struct WorktreeSidebarPorcelainParser: Sendable {
         let suffix = line.dropFirst(keyword.count)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return suffix.isEmpty ? nil : suffix
-    }
-
-    private struct Record {
-        var path: String?
-        var head: String?
-        var branchRef: String?
-        var isDetached = false
-        var isBare = false
-        var isLocked = false
-        var lockReason: String?
-        var isPrunable = false
-        var prunableReason: String?
     }
 }

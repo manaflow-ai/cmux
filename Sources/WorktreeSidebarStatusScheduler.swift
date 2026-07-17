@@ -1,10 +1,7 @@
 /// Serializes visible-row status probes without assuming cancellation kills subprocesses.
 @MainActor
 final class WorktreeSidebarStatusScheduler {
-    enum ProbeResult: Sendable {
-        case success(WorktreeSidebarStatus)
-        case failure
-    }
+    typealias ProbeResult = WorktreeSidebarStatusProbeResult
 
     typealias Probe = @MainActor @Sendable (String) async -> ProbeResult
     typealias Completion = @MainActor @Sendable (String, ProbeResult) -> Void
