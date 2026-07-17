@@ -1,3 +1,4 @@
+import CmuxCore
 import Foundation
 import Testing
 
@@ -126,6 +127,29 @@ struct DockConfigSourceResolutionTests {
 
         #expect(DockSplitStore.configIdentity(for: first) != DockSplitStore.configIdentity(for: second))
         #expect(DockSplitStore.trustDescriptor(for: first) != DockSplitStore.trustDescriptor(for: second))
+    }
+
+    @Test("remote trust identity follows the complete daemon transport identity")
+    func remoteTrustIdentityIncludesSSHRoute() {
+        func configuration(identityFile: String, proxyJump: String) -> WorkspaceRemoteConfiguration {
+            WorkspaceRemoteConfiguration(
+                destination: "me@example.com",
+                port: 22,
+                identityFile: identityFile,
+                sshOptions: ["ProxyJump=\(proxyJump)"],
+                localProxyPort: nil,
+                relayPort: nil,
+                relayID: nil,
+                relayToken: nil,
+                localSocketPath: nil,
+                terminalStartupCommand: nil
+            )
+        }
+        let first = configuration(identityFile: "/keys/first", proxyJump: "bastion-a")
+        let second = configuration(identityFile: "/keys/second", proxyJump: "bastion-b")
+
+        #expect(Workspace.remoteDockTrustIdentity(first) == first.proxyBrokerTransportKey)
+        #expect(Workspace.remoteDockTrustIdentity(first) != Workspace.remoteDockTrustIdentity(second))
     }
 
     @Test("remote execution identity distinguishes workspaces on the same host and path")

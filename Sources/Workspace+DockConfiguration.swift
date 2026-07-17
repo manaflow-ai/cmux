@@ -101,14 +101,9 @@ extension Workspace {
         ].joined(separator: "|")
     }
 
-    private static func remoteDockTrustIdentity(
+    static func remoteDockTrustIdentity(
         _ configuration: WorkspaceRemoteConfiguration
     ) -> String {
-        [
-            configuration.transport.rawValue,
-            configuration.destination.trimmingCharacters(in: .whitespacesAndNewlines),
-            configuration.port.map(String.init) ?? "",
-            configuration.managedCloudVMID ?? "",
-        ].joined(separator: "|")
+        configuration.proxyBrokerTransportKey
     }
 }
