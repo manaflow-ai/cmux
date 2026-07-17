@@ -451,19 +451,26 @@ struct ProcessTerminationGateTests {
     func prelaunchTerminationRequestIsDeferredUntilLaunch() {
         var gate = ProcessTerminationGate()
 
-        #expect(gate.requestTermination() == false)
-        #expect(gate.markLaunched())
+        // Mutating calls hoisted out of #expect: the macro captures the
+        // value into an immutable closure parameter and fails to compile.
+        let prelaunchTerminated = gate.requestTermination()
+        #expect(prelaunchTerminated == false)
+        let launchedWithDeferredTermination = gate.markLaunched()
+        #expect(launchedWithDeferredTermination)
         gate.markFinished()
-        #expect(gate.requestTermination() == false)
+        let postFinishTerminated = gate.requestTermination()
+        #expect(postFinishTerminated == false)
     }
 
     @Test("A finished prelaunch process ignores deferred termination")
     func finishedPrelaunchProcessIgnoresDeferredTermination() {
         var gate = ProcessTerminationGate()
 
-        #expect(gate.requestTermination() == false)
+        let prelaunchTerminated = gate.requestTermination()
+        #expect(prelaunchTerminated == false)
         gate.markFinished()
-        #expect(gate.markLaunched() == false)
+        let launchedAfterFinish = gate.markLaunched()
+        #expect(launchedAfterFinish == false)
     }
 }
 
