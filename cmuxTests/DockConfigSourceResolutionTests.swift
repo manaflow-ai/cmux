@@ -267,4 +267,48 @@ struct DockConfigSourceResolutionTests {
         #expect(script.contains("export CMUX_DOCK_CONTROL_ID=shell"))
         #expect(script.contains(#"cd "$cmux_dock_working_directory""#))
     }
+
+    @Test("remote control startup does not run when its working directory is unavailable")
+    func remoteControlStartupFailsClosedForMissingWorkingDirectory() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-remote-dock-cwd-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let marker = root.appendingPathComponent("command-ran")
+        let script = DockSplitStore.remoteShellStartupScript(
+            command: "printf ran > \(marker.path)",
+            workingDirectory: root.appendingPathComponent("missing").path,
+            environment: [:]
+        )
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", script]
+        process.standardError = Pipe()
+
+        try process.run()
+        process.waitUntilExit()
+
+        #expect(process.terminationStatus != 0)
+        #expect(!FileManager.default.fileExists(atPath: marker.path))
+    }
+
+    @Test("remote config environment is not inherited by the local attach shell")
+    func remoteConfigEnvironmentStaysRemote() {
+        let environment = ["REMOTE_ONLY": "value"]
+        let remoteContext = DockExecutionContext.remote(DockRemoteExecutionContext(
+            workspaceID: UUID(),
+            foregroundAuth: nil
+        ))
+
+        #expect(DockSplitStore.localAttachEnvironment(
+            resolvedEnvironment: environment,
+            executionContext: remoteContext
+        ).isEmpty)
+        #expect(DockSplitStore.localAttachEnvironment(
+            resolvedEnvironment: environment,
+            executionContext: .local
+        ) == environment)
+    }
 }

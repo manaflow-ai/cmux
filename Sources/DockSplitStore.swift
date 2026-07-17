@@ -521,6 +521,10 @@ final class DockSplitStore: BonsplitDelegate {
 
         let initialCommand: String?
         let localWorkingDirectory: String
+        let initialEnvironmentOverrides = Self.localAttachEnvironment(
+            resolvedEnvironment: resolvedEnvironment,
+            executionContext: executionContext
+        )
         switch executionContext {
         case .local:
             localWorkingDirectory = workingDirectory
@@ -553,7 +557,7 @@ final class DockSplitStore: BonsplitDelegate {
             workingDirectory: localWorkingDirectory,
             initialCommand: initialCommand,
             tmuxStartCommand: tmuxStartCommand,
-            initialEnvironmentOverrides: resolvedEnvironment,
+            initialEnvironmentOverrides: initialEnvironmentOverrides,
             focusPlacement: .rightSidebarDock
         )
     }
@@ -913,8 +917,13 @@ final class DockSplitStore: BonsplitDelegate {
     func openConfiguration() {
         let target: URL
         do {
-            if let activeConfigLocation, let localURL = activeConfigLocation.localURL {
+            if let activeConfigLocation {
+                guard let localURL = activeConfigLocation.localURL else {
+                    throw Self.remoteConfigurationOpenError()
+                }
                 target = localURL
+            } else if currentConfigurationContext().identity.projectOrigin != .local {
+                throw Self.remoteConfigurationOpenError()
             } else {
                 target = try Self.preferredEditableConfigURL(scope: scope, rootDirectory: currentBaseDirectory())
             }

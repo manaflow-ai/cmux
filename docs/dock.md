@@ -117,6 +117,8 @@ The source determines execution semantics:
 
 Remote project configs require a daemon that advertises the `file.read` and `fs.stat` capabilities. Normal SSH workspaces bootstrap or upgrade `cmuxd-remote` as needed. A pre-baked remote image that does not advertise those capabilities cannot load a remote project Dock config; cmux reports a Dock config load error rather than silently ignoring the file or running its paths locally.
 
+**Open Dock Config** opens Mac-local configs only. For a remote project config, edit `.cmux/dock.json` on the remote host; cmux reports that limitation instead of opening or creating an unrelated local file.
+
 ## Trust
 
 Project Dock configs can start commands. The first time cmux sees a project Dock config, it shows a trust gate before launching controls. Changing the config changes the trust fingerprint and asks again. Remote trust identities include the remote transport target, so the same path and config contents on a different host require separate approval.

@@ -25,6 +25,14 @@ extension DockSplitStore {
         return (baseDirectory as NSString).appendingPathComponent(cwd)
     }
 
+    static func localAttachEnvironment(
+        resolvedEnvironment: [String: String],
+        executionContext: DockExecutionContext
+    ) -> [String: String] {
+        guard case .local = executionContext else { return [:] }
+        return resolvedEnvironment
+    }
+
     static func shellStartupScript(command: String, workingDirectory: String) -> String {
         let tempDir = FileManager.default.temporaryDirectory
         let scriptURL = tempDir.appendingPathComponent(
@@ -91,12 +99,15 @@ extension DockSplitStore {
         if [ -z "$cmux_dock_shell" ] || [ ! -x "$cmux_dock_shell" ]; then cmux_dock_shell=/bin/sh; fi
         \(exports)
         export SHELL="$cmux_dock_shell"
-        cd "$cmux_dock_working_directory" 2>/dev/null || true
+        if ! cd "$cmux_dock_working_directory" 2>/dev/null; then
+          printf 'cmux: could not enter Dock working directory: %s\n' "$cmux_dock_working_directory" >&2
+          exit 1
+        fi
         case "$(basename "$cmux_dock_shell")" in
           fish)
-            CMUX_DOCK_START_COMMAND="$cmux_dock_command" CMUX_DOCK_START_DIRECTORY="$cmux_dock_working_directory" "$cmux_dock_shell" -l -c 'if test -n "$CMUX_DOCK_START_DIRECTORY"; cd "$CMUX_DOCK_START_DIRECTORY"; end; eval "$CMUX_DOCK_START_COMMAND"'
+            CMUX_DOCK_START_COMMAND="$cmux_dock_command" CMUX_DOCK_START_DIRECTORY="$cmux_dock_working_directory" "$cmux_dock_shell" -l -c 'if test -n "$CMUX_DOCK_START_DIRECTORY"; cd "$CMUX_DOCK_START_DIRECTORY"; or exit 1; end; eval "$CMUX_DOCK_START_COMMAND"'
             ;;
-          *) CMUX_DOCK_START_COMMAND="$cmux_dock_command" CMUX_DOCK_START_DIRECTORY="$cmux_dock_working_directory" "$cmux_dock_shell" -lc 'cd "$CMUX_DOCK_START_DIRECTORY" 2>/dev/null || true; eval "$CMUX_DOCK_START_COMMAND"'
+          *) CMUX_DOCK_START_COMMAND="$cmux_dock_command" CMUX_DOCK_START_DIRECTORY="$cmux_dock_working_directory" "$cmux_dock_shell" -lc 'cd "$CMUX_DOCK_START_DIRECTORY" 2>/dev/null || exit 1; eval "$CMUX_DOCK_START_COMMAND"'
             ;;
         esac
         printf '\n'

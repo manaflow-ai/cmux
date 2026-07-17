@@ -98,6 +98,15 @@ extension DockSplitStore {
         )
     }
 
+    nonisolated static func remoteConfigurationOpenError() -> NSError {
+        NSError(domain: "cmux.dock", code: 6, userInfo: [
+            NSLocalizedDescriptionKey: String(
+                localized: "dock.error.remoteOpenUnsupported",
+                defaultValue: "Remote Dock configs cannot be opened on this Mac. Edit dock.json on the remote host."
+            ),
+        ])
+    }
+
     nonisolated private static func dockValidationErrorMessage(for error: Error) -> String? {
         let nsError = error as NSError
         if nsError.domain == "cmux.dock",
