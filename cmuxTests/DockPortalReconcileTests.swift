@@ -105,6 +105,7 @@ struct DockPortalReconcileTests {
         defer { panel.close() }
         let liveSourceHost = NSView()
         let detachedDestinationHost = NSView()
+        let laterSamePaneHost = NSView()
         let sourcePane = PaneID()
         let destinationPane = PaneID()
         let bounds = CGRect(x: 0, y: 0, width: 210, height: 510)
@@ -116,6 +117,10 @@ struct DockPortalReconcileTests {
             bounds: bounds,
             reason: "test.dock.browser.liveSource"
         ))
+        panel.preparePortalHostReplacementForNextDistinctClaim(
+            inPane: destinationPane,
+            reason: "test.dock.browser.moveRearm"
+        )
 
         #expect(!panel.claimPortalHost(
             hostId: ObjectIdentifier(detachedDestinationHost),
@@ -135,6 +140,13 @@ struct DockPortalReconcileTests {
             inWindow: true,
             bounds: bounds,
             reason: "test.dock.browser.attachedDestination"
+        ))
+        #expect(!panel.claimPortalHost(
+            hostId: ObjectIdentifier(laterSamePaneHost),
+            paneId: destinationPane,
+            inWindow: true,
+            bounds: bounds,
+            reason: "test.dock.browser.laterSamePaneHost"
         ))
     }
 
