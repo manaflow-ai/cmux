@@ -5259,8 +5259,8 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func configureRemoteConnection(_ configuration: WorkspaceRemoteConfiguration, autoConnect: Bool = true) {
-        let configuration = configuration.scopedToOwnerWorkspace(id)
-        nativeSSHConnectionBroker.retainWorkspace(configuration)
+        var configuration = configuration.scopedToOwnerWorkspace(id)
+        configuration = nativeSSHConnectionBroker.retainWorkspace(configuration)
         defer { TerminalController.shared.notifyRemotePTYControllerAvailabilityChanged() }
         let previousConfiguration = remoteConfiguration
         let previousPresentedDirectory = presentedCurrentDirectory

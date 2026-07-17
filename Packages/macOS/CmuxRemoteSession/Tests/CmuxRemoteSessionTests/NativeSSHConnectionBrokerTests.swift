@@ -32,12 +32,12 @@ struct NativeSSHConnectionBrokerTests {
             relayPort: 64_002
         )
 
-        broker.retainWorkspace(first)
-        broker.retainWorkspace(second)
-        broker.releaseWorkspace(first)
+        let firstLease = broker.retainWorkspace(first)
+        let secondLease = broker.retainWorkspace(second)
+        broker.releaseWorkspace(firstLease)
         #expect(recorder.requests.isEmpty)
 
-        broker.releaseWorkspace(second)
+        broker.releaseWorkspace(secondLease)
         #expect(recorder.requests.count == 1)
         #expect(recorder.requests[0].arguments.contains(resolvedOwnedSSHOptions[2]))
     }
@@ -55,8 +55,8 @@ struct NativeSSHConnectionBrokerTests {
             ]
         )
 
-        broker.retainWorkspace(custom)
-        broker.releaseWorkspace(custom)
+        let customLease = broker.retainWorkspace(custom)
+        broker.releaseWorkspace(customLease)
 
         #expect(recorder.requests.isEmpty)
     }
@@ -69,12 +69,30 @@ struct NativeSSHConnectionBrokerTests {
         let original = configuration(owner: owner, relayPort: 64_001, relayToken: "old")
         let replacement = configuration(owner: owner, relayPort: 64_002, relayToken: "new")
 
-        broker.retainWorkspace(original)
-        broker.retainWorkspace(replacement)
-        broker.releaseWorkspace(original)
+        let originalLease = broker.retainWorkspace(original)
+        let replacementLease = broker.retainWorkspace(replacement)
+        broker.releaseWorkspace(originalLease)
         #expect(recorder.requests.isEmpty)
 
-        broker.releaseWorkspace(replacement)
+        broker.releaseWorkspace(replacementLease)
+        #expect(recorder.requests.count == 1)
+    }
+
+    @Test("An identical replacement has a distinct lease generation")
+    func identicalReplacementHasDistinctGeneration() {
+        let recorder = CleanupRequestRecorder()
+        let broker = makeBroker(cleanupRecorder: recorder)
+        let configuration = configuration(owner: UUID())
+
+        let originalLease = broker.retainWorkspace(configuration)
+        let replacementLease = broker.retainWorkspace(configuration)
+
+        #expect(originalLease == replacementLease)
+        #expect(originalLease.sshControlMasterLeaseGeneration != replacementLease.sshControlMasterLeaseGeneration)
+        broker.releaseWorkspace(originalLease)
+        #expect(recorder.requests.isEmpty)
+
+        broker.releaseWorkspace(replacementLease)
         #expect(recorder.requests.count == 1)
     }
 
@@ -102,15 +120,15 @@ struct NativeSSHConnectionBrokerTests {
             ]
         )
 
-        broker.retainWorkspace(original)
-        broker.retainWorkspace(replacement)
+        let originalLease = broker.retainWorkspace(original)
+        let replacementLease = broker.retainWorkspace(replacement)
         #expect(recorder.requests.isEmpty)
 
-        broker.releaseWorkspace(original)
+        broker.releaseWorkspace(originalLease)
         #expect(recorder.requests.count == 1)
         #expect(recorder.requests[0].arguments.contains(original.sshOptions[2]))
 
-        broker.releaseWorkspace(replacement)
+        broker.releaseWorkspace(replacementLease)
         #expect(recorder.requests.count == 2)
         #expect(recorder.requests[1].arguments.contains(replacement.sshOptions[2]))
     }

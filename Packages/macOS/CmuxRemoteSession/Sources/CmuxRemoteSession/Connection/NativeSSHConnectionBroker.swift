@@ -68,20 +68,23 @@ public final class NativeSSHConnectionBroker {
     /// session finishes cleanup and releases its exact configuration.
     ///
     /// - Parameter configuration: Owner-scoped workspace configuration.
-    public func retainWorkspace(_ configuration: WorkspaceRemoteConfiguration) {
-        guard let ownerWorkspaceID = configuration.ownerWorkspaceID else { return }
+    @discardableResult
+    public func retainWorkspace(_ configuration: WorkspaceRemoteConfiguration) -> WorkspaceRemoteConfiguration {
+        guard let ownerWorkspaceID = configuration.ownerWorkspaceID else { return configuration }
         let nextKey = NativeSSHControlMasterKey(
             configuration: configuration,
             sharingOptions: sharingOptions
         )
-        guard let nextKey else { return }
+        guard let nextKey else { return configuration }
+        let leasedConfiguration = configuration.withSSHControlMasterLeaseGeneration(UUID())
         var leases = ownerLeases[ownerWorkspaceID] ?? [:]
         let isNewMaster = leases[nextKey] == nil
-        leases[nextKey] = configuration
+        leases[nextKey] = leasedConfiguration
         ownerLeases[ownerWorkspaceID] = leases
         if isNewMaster {
             ownersByControlMaster[nextKey, default: []].insert(ownerWorkspaceID)
         }
+        return leasedConfiguration
     }
 
     /// Releases a workspace lease and closes the master only for its last owner.
@@ -92,11 +95,12 @@ public final class NativeSSHConnectionBroker {
     /// - Parameter configuration: Exact owner-scoped configuration being released.
     public func releaseWorkspace(_ configuration: WorkspaceRemoteConfiguration) {
         guard let ownerWorkspaceID = configuration.ownerWorkspaceID,
+              let generation = configuration.sshControlMasterLeaseGeneration,
               let key = NativeSSHControlMasterKey(
                 configuration: configuration,
                 sharingOptions: sharingOptions
               ),
-              ownerLeases[ownerWorkspaceID]?[key] == configuration else {
+              ownerLeases[ownerWorkspaceID]?[key]?.sshControlMasterLeaseGeneration == generation else {
             return
         }
         removeLease(ownerWorkspaceID: ownerWorkspaceID, key: key)

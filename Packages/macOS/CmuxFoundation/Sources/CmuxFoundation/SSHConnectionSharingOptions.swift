@@ -11,10 +11,12 @@ internal import Foundation
 public struct SSHConnectionSharingOptions: Sendable {
     /// Local uid used to namespace cmux-owned control sockets in `/tmp`.
     public let userID: Int
+    private let authenticationLockDirectory: URL
 
     /// Creates an option merger for the current local user.
     public init() {
         self.userID = Int(getuid())
+        self.authenticationLockDirectory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
     }
 
     /// Creates an option merger for a specific local uid.
@@ -22,6 +24,20 @@ public struct SSHConnectionSharingOptions: Sendable {
     /// - Parameter userID: Local uid used in the cmux-owned socket template.
     public init(userID: Int) {
         self.userID = userID
+        self.authenticationLockDirectory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+    }
+
+    /// Creates an option merger with an injected authentication-lock directory.
+    ///
+    /// - Parameters:
+    ///   - userID: Local uid used in the cmux-owned socket template.
+    ///   - authenticationLockDirectoryPath: User-private directory for authentication locks.
+    public init(userID: Int, authenticationLockDirectoryPath: String) {
+        self.userID = userID
+        self.authenticationLockDirectory = URL(
+            fileURLWithPath: authenticationLockDirectoryPath,
+            isDirectory: true
+        )
     }
 
     /// The cmux-owned, host-stable OpenSSH control-socket template.
@@ -64,10 +80,14 @@ public struct SSHConnectionSharingOptions: Sendable {
             return trimmed.isEmpty ? nil : trimmed
         }
         let controlKeys = ["ControlMaster", "ControlPath", "ControlPersist"]
-        if !controlKeys.contains(where: { resolver.hasOptionKey(merged, key: $0) }),
-           let userConfiguredControlOptions {
-            merged.append(contentsOf: userConfiguredControlOptions)
-            return merged
+        if let userConfiguredControlOptions {
+            for key in controlKeys where !resolver.hasOptionKey(merged, key: key) {
+                if let effectiveOption = userConfiguredControlOptions.first(where: {
+                    resolver.optionKey($0) == key.lowercased()
+                }) {
+                    merged.append(effectiveOption)
+                }
+            }
         }
         let controlMaster = resolver.optionValue(named: "ControlMaster", in: merged)
         let controlMasterDisabled = Self.isDisabled(controlMaster)
@@ -165,18 +185,20 @@ public struct SSHConnectionSharingOptions: Sendable {
     ///   - destination: SSH destination or config alias.
     ///   - port: Explicit SSH port, when supplied.
     ///   - options: Effective OpenSSH `-o` values.
-    /// - Returns: A `/tmp` lock path, or `nil` for a user-managed socket.
+    /// The lock lives in Darwin's user-private temporary directory rather
+    /// than shared `/tmp`, so shell redirection cannot follow a symlink planted
+    /// by another local user before `lockf` acquires the descriptor.
+    ///
+    /// - Returns: A user-private temporary lock path, or `nil` for a user-managed socket.
     public func foregroundAuthenticationLockPath(
         destination: String,
         port: Int?,
         options: [String]
     ) -> String? {
-        guard cmuxOwnedControlPath(in: options) != nil else { return nil }
-        if let controlPath = cmuxOwnedControlPath(in: options),
-           !controlPath.contains("%") {
-            return controlPath + ".auth.lock"
-        }
-        let fingerprint = "\(destination.trimmingCharacters(in: .whitespacesAndNewlines))\u{1f}\(port.map(String.init) ?? "")"
+        guard let controlPath = cmuxOwnedControlPath(in: options) else { return nil }
+        let fingerprint = controlPath.contains("%")
+            ? "\(destination.trimmingCharacters(in: .whitespacesAndNewlines))\u{1f}\(port.map(String.init) ?? "")"
+            : controlPath
         var hash: UInt64 = 0xcbf2_9ce4_8422_2325
         for byte in fingerprint.utf8 {
             hash ^= UInt64(byte)
@@ -184,7 +206,9 @@ public struct SSHConnectionSharingOptions: Sendable {
         }
         let unpaddedHash = String(hash, radix: 16, uppercase: false)
         let paddedHash = String(repeating: "0", count: max(0, 16 - unpaddedHash.count)) + unpaddedHash
-        return "/tmp/cmux-ssh-\(userID)-auth-\(paddedHash).lock"
+        return authenticationLockDirectory
+            .appendingPathComponent("cmux-ssh-\(userID)-auth-\(paddedHash).lock", isDirectory: false)
+            .path
     }
 
     /// Builds a shell function that removes a stale cmux-owned control socket.

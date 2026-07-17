@@ -3,12 +3,6 @@ import Foundation
 
 extension CMUXCLI {
     func resolvedUserSSHControlOptions(for options: SSHCommandOptions) -> [String]? {
-        let resolver = SSHAgentSocketResolver()
-        let controlKeys = ["ControlMaster", "ControlPath", "ControlPersist"]
-        guard !controlKeys.contains(where: { resolver.hasOptionKey(options.sshOptions, key: $0) }) else {
-            return nil
-        }
-
         guard let output = resolvedSSHConfigurationOutput(for: options) else { return nil }
         return SSHConnectionSharingOptions()
             .userConfiguredControlOptions(fromSSHConfigOutput: output)

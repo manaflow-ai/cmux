@@ -1,9 +1,13 @@
+import Foundation
 import Testing
 @testable import CmuxFoundation
 
 @Suite("SSH connection-sharing options")
 struct SSHConnectionSharingOptionsTests {
-    private let options = SSHConnectionSharingOptions(userID: 501)
+    private let lockDirectory = URL(fileURLWithPath: "/private/var/folders/cmux-tests", isDirectory: true)
+    private var options: SSHConnectionSharingOptions {
+        SSHConnectionSharingOptions(userID: 501, authenticationLockDirectoryPath: lockDirectory.path)
+    }
 
     @Test("Default control path is stable across workspace relay identities")
     func stableDefaultControlPath() {
@@ -87,7 +91,7 @@ struct SSHConnectionSharingOptionsTests {
         ).contains("ControlPath=/tmp/cmux-ssh-501-%C"))
     }
 
-    @Test("Explicit CLI control options win over resolved ssh_config settings")
+    @Test("Explicit CLI control options win per key over resolved ssh_config settings")
     func explicitOptionsWinOverResolvedConfiguration() {
         let configured = [
             "ControlMaster=auto",
@@ -98,7 +102,29 @@ struct SSHConnectionSharingOptionsTests {
         #expect(options.mergingDefaults(
             into: ["ControlMaster=no"],
             userConfiguredControlOptions: configured
-        ) == ["ControlMaster=no"])
+        ) == [
+            "ControlMaster=no",
+            "ControlPath=/Users/alice/.ssh/configured-%C",
+            "ControlPersist=90",
+        ])
+    }
+
+    @Test("Partial CLI control options preserve remaining ssh_config settings")
+    func partialOptionsPreserveResolvedConfiguration() {
+        let configured = [
+            "ControlMaster=no",
+            "ControlPath=none",
+            "ControlPersist=10",
+        ]
+
+        #expect(options.mergingDefaults(
+            into: ["ControlPersist=10"],
+            userConfiguredControlOptions: configured
+        ) == [
+            "ControlPersist=10",
+            "ControlMaster=no",
+            "ControlPath=none",
+        ])
     }
 
     @Test("An explicitly disabled master gets no sharing defaults")
@@ -137,12 +163,16 @@ struct SSHConnectionSharingOptionsTests {
             options: owned
         )
         #expect(first == second)
-        #expect(first?.hasPrefix("/tmp/cmux-ssh-501-auth-") == true)
-        #expect(options.foregroundAuthenticationLockPath(
+        #expect(first.map { URL(fileURLWithPath: $0).deletingLastPathComponent() } == lockDirectory)
+        #expect(first.map { URL(fileURLWithPath: $0).lastPathComponent.hasPrefix("cmux-ssh-501-auth-") } == true)
+        let resolvedLock = options.foregroundAuthenticationLockPath(
             destination: "ssh-alias",
             port: nil,
             options: resolvedOwned
-        ) == "/tmp/cmux-ssh-501-0123456789abcdef0123456789abcdef01234567.auth.lock")
+        )
+        #expect(resolvedLock.map { URL(fileURLWithPath: $0).deletingLastPathComponent() } == lockDirectory)
+        #expect(resolvedLock.map { URL(fileURLWithPath: $0).lastPathComponent.hasPrefix("cmux-ssh-501-auth-") } == true)
+        #expect(resolvedLock != first)
         #expect(options.cmuxOwnedControlPath(in: resolvedOwned) == String(
             resolvedOwned[1].dropFirst("ControlPath=".count)
         ))
