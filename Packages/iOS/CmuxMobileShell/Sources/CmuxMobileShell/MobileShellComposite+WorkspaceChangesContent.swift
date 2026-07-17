@@ -1,4 +1,5 @@
 public import CmuxAgentChat
+internal import CmuxMobileDiagnostics
 public import Foundation
 internal import CmuxMobileRPC
 
@@ -117,6 +118,9 @@ extension MobileShellComposite {
         } catch is CancellationError {
             throw CancellationError()
         } catch {
+            MobileDebugLog.anchormux(
+                "changes.content error method=\(request.method) params=\(request.params) error=\(error)"
+            )
             throw Self.workspaceChangesArtifactError(from: error)
         }
     }
