@@ -88,6 +88,16 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
     var currentModelForMeasurement: SidebarWorkspaceRowModel? { model }
 
+    /// Paints the selected-row background instantly on press; the next
+    /// authoritative configure() repaints the full selected treatment (or
+    /// reverts if the selection did not land).
+    func showOptimisticSelectionHighlight() {
+        guard let model, !model.isActive else { return }
+        let palette = SidebarRowPalette(model: model)
+        backgroundView.layer?.backgroundColor = palette.selectedBackground.cgColor
+        titleView.textColor = palette.selectedForeground(1.0)
+    }
+
     override var isFlipped: Bool { true }
 
     override init(frame frameRect: NSRect) {

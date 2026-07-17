@@ -272,6 +272,16 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         dropTargetGeometry.setReorderTargetCollectionActive(false, rows: rows)
     }
 
+    /// Optimistic press highlight: paints the clicked workspace cell as
+    /// selected immediately; the authoritative apply reconciles right after.
+    func previewSelection(row: Int) {
+        guard rows.indices.contains(row),
+              rows[row].appKitWorkspaceRowModel != nil,
+              let cell = containerView?.tableView.view(atColumn: 0, row: row, makeIfNecessary: false)
+                as? SidebarWorkspaceRowTableCellView else { return }
+        cell.showOptimisticSelectionHighlight()
+    }
+
     func middleClick(row: Int) {
         guard rows.indices.contains(row) else { return }
         actions?.closeWorkspace(rows[row].workspaceId)

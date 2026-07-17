@@ -50,6 +50,11 @@ final class SidebarWorkspaceTableViewImpl: NSTableView {
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         let clickedRow = row(at: point)
+        // Arc-feel: paint the selection highlight on press, before the
+        // click tracking loop and the model round trip confirm it.
+        if clickedRow >= 0 {
+            workspaceController?.previewSelection(row: clickedRow)
+        }
         super.mouseDown(with: event)
         if event.clickCount == 2, clickedRow < 0 {
             workspaceController?.doubleClickEmptyArea()
