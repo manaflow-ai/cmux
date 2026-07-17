@@ -401,6 +401,18 @@ final class SharedLiveAgentIndex {
         let panelKey = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
         let probeKey = ForkProbeKey(panelKey: panelKey, isRemoteContext: isRemoteContext)
         scheduleRefreshIfStale(validating: panelKey, isRemoteContext: isRemoteContext)
+        if fallbackSnapshot != nil,
+           let validation = forkSupportValidation(
+               workspaceId: panelKey.workspaceId,
+               panelId: panelKey.panelId,
+               isRemoteContext: isRemoteContext,
+               fallbackSnapshot: fallbackSnapshot
+           ) {
+            if validation.refreshBeforeReuse {
+                requestForkAvailabilityRefresh(validating: probeKey, fallbackSnapshot: fallbackSnapshot)
+            }
+            return true
+        }
         guard let index else {
             requestForkAvailabilityRefresh(validating: probeKey, fallbackSnapshot: fallbackSnapshot)
             return false
@@ -505,7 +517,7 @@ final class SharedLiveAgentIndex {
                     fallbackSnapshot: fallbackSnapshot
                 )
                 return
-            } else if insertion.isFreshValidation {
+            } else if insertion.isFreshValidation, fallbackSnapshot != nil {
                 return
             }
         }
@@ -1174,21 +1186,20 @@ final class SharedLiveAgentIndex {
                         from: pendingRequestBatches[(batchIndex + 1)...]
                     )
                     requestsToRestore[probeKey, default: []].append(contentsOf: pendingRequests)
-                    var requestIDsToDropOnRestore = pendingRequestIDsToRemoveOnCancellation
-                    requestIDsToDropOnRestore[probeKey, default: []].formUnion(cancelledRequestIDsForProbe)
                     restorePendingForkValidationsAfterCancellation(
                         requestsToRestore,
-                        dropping: requestIDsToDropOnRestore,
+                        dropping: [probeKey: cancelledRequestIDsForProbe],
                         restartIfPending: false
                     )
                     requeuedPendingRequests = true
                     deferredForkAvailabilityRefreshAfterActiveValidation = true
                     await waitForActiveForkSupportValidation(resolvedProbeKey)
+                    deferredForkAvailabilityRefreshAfterActiveValidation = false
                     guard !Task.isCancelled else {
                         removeOrMarkCancelledForkValidationRequests(pendingRequestIDsToRemoveOnCancellation)
+                        restartForkAvailabilityRefreshIfPending()
                         return processedPanelIdsByWorkspaceId
                     }
-                    deferredForkAvailabilityRefreshAfterActiveValidation = false
                     let recursivelyProcessedPanelIdsByWorkspaceId = await applyPendingForkValidations(
                         pendingRequestIDsToRemoveOnCancellation: pendingRequestIDsToRemoveOnCancellation
                     )
@@ -1266,8 +1277,8 @@ final class SharedLiveAgentIndex {
                     let executableFingerprintBeforeProbe = requiresExecutableIdentity
                         ? AgentForkSupport.forkValidationExecutableFingerprint(executableResolutionBeforeProbe)
                         : nil
-                    let watchGeneration: UUID?
-                    let refreshBeforeReuse: Bool
+                    var watchGeneration: UUID? = nil
+                    var refreshBeforeReuse = false
                     switch executableResolutionBeforeProbe.status {
                     case "notRequired":
                         guard !requiresExecutableIdentity else {
@@ -1290,28 +1301,12 @@ final class SharedLiveAgentIndex {
                         )
                         continue
                     case "resolved":
-                        guard let lookupPath = executableResolutionBeforeProbe.lookupPath,
-                              let realPath = executableResolutionBeforeProbe.realPath else {
+                        guard executableResolutionBeforeProbe.lookupPath != nil,
+                              executableResolutionBeforeProbe.realPath != nil else {
                             removeForkSupportValidation(for: resolvedProbeKey)
                             continue
                         }
-                        watchGeneration = await updateForkExecutableWatch(
-                            for: resolvedProbeKey,
-                            requestingPanelKey: panelKey,
-                            lookupPath: lookupPath,
-                            realPath: realPath,
-                            watchDirectories: executableResolutionBeforeProbe.watchDirectories
-                        )
-                        guard !Task.isCancelled else {
-                            markCancelledForkValidationRequests(pendingRequestIDsToRemoveOnCancellation)
-                            removeForkSupportValidation(for: resolvedProbeKey)
-                            restorePendingForkValidationsAfterCancellation(
-                                unprocessedRequestsByProbeKey,
-                                dropping: pendingRequestIDsToRemoveOnCancellation
-                            )
-                            return processedPanelIdsByWorkspaceId
-                        }
-                        refreshBeforeReuse = watchGeneration == nil
+                        clearForkExecutableWatch(for: resolvedProbeKey)
                     default:
                         removeForkSupportValidation(for: resolvedProbeKey)
                         continue
@@ -1350,6 +1345,47 @@ final class SharedLiveAgentIndex {
                             removeForkSupportValidation(for: resolvedProbeKey)
                             continue
                         }
+                        if executableResolutionBeforeProbe.status == "resolved",
+                           let lookupPath = executableResolutionBeforeProbe.lookupPath,
+                           let realPath = executableResolutionBeforeProbe.realPath {
+                            watchGeneration = await updateForkExecutableWatch(
+                                for: resolvedProbeKey,
+                                requestingPanelKey: panelKey,
+                                lookupPath: lookupPath,
+                                realPath: realPath,
+                                watchDirectories: executableResolutionBeforeProbe.watchDirectories
+                            )
+                            guard !Task.isCancelled else {
+                                markCancelledForkValidationRequests(pendingRequestIDsToRemoveOnCancellation)
+                                removeForkSupportValidation(for: resolvedProbeKey)
+                                restorePendingForkValidationsAfterCancellation(
+                                    unprocessedRequestsByProbeKey,
+                                    dropping: pendingRequestIDsToRemoveOnCancellation
+                                )
+                                return processedPanelIdsByWorkspaceId
+                            }
+                            let executableResolutionAfterWatch = await forkValidationExecutableResolution(
+                                snapshot: snapshot,
+                                isRemoteContext: probeKey.isRemoteContext
+                            )
+                            guard !Task.isCancelled else {
+                                markCancelledForkValidationRequests(pendingRequestIDsToRemoveOnCancellation)
+                                removeForkSupportValidation(for: resolvedProbeKey)
+                                restorePendingForkValidationsAfterCancellation(
+                                    unprocessedRequestsByProbeKey,
+                                    dropping: pendingRequestIDsToRemoveOnCancellation
+                                )
+                                return processedPanelIdsByWorkspaceId
+                            }
+                            guard Self.forkExecutableResolutionMatches(
+                                executableResolutionAfterWatch,
+                                executableResolutionBeforeProbe
+                            ) else {
+                                removeForkSupportValidation(for: resolvedProbeKey)
+                                continue
+                            }
+                            refreshBeforeReuse = watchGeneration == nil
+                        }
                     }
                     if let watchGeneration {
                         guard forkExecutableWatchGenerations[resolvedProbeKey] == watchGeneration else {
@@ -1371,7 +1407,8 @@ final class SharedLiveAgentIndex {
                 }
             }
         }
-        if activeForkSupportValidationKeys.isEmpty {
+        if activeForkSupportValidationKeys.isEmpty,
+           !deferredForkAvailabilityRefreshAfterActiveValidation {
             restartForkAvailabilityRefreshIfPending()
         }
         return processedPanelIdsByWorkspaceId
