@@ -5630,7 +5630,10 @@ class TerminalController {
                 waitTimeout: waitTimeout
             ))
         }
-        let result = bridge.wait()
+        let result = bridge.wait(
+            timeout: waitTimeout + 10,
+            fallback: .timedOut(itemId: nil)
+        )
         CmuxEventBus.shared.publishWorkstreamEvent(
             event,
             phase: "completed",
@@ -5753,7 +5756,7 @@ class TerminalController {
                 decision: decision
             ))
         }
-        return bridge.wait()
+        return bridge.wait(timeout: 10, fallback: false)
     }
 
     // MARK: - V2 Browser Methods

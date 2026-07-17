@@ -22,11 +22,8 @@ struct FeedListView: View {
     @State private var focusHostReference = FeedFocusHostReference()
 
     var body: some View {
-        let snapshots = filter == .actionable
-            ? presentation.actionable
-            : presentation.activity.ordered
         let activityGroups = filter == .activity ? presentation.activity : nil
-        let focusSnapshots = activityGroups?.ordered ?? snapshots
+        let snapshots = activityGroups?.ordered ?? presentation.actionable
         let rowActions = FeedRowActions.bound()
         ScrollViewReader { proxy in
             Group {
@@ -67,13 +64,13 @@ struct FeedListView: View {
                         focusSnapshot.isKeyboardActive = false
                     },
                     onMoveSelection: { delta in
-                        moveSelection(in: focusSnapshots, delta: delta)
+                        moveSelection(in: snapshots, delta: delta)
                     },
                     onActivateSelection: {
-                        activateSelection(in: focusSnapshots, actions: rowActions)
+                        activateSelection(in: snapshots, actions: rowActions)
                     },
                     onFocusFirstItemRequested: {
-                        focusFirstVisibleItem(in: focusSnapshots, focusHost: false)
+                        focusFirstVisibleItem(in: snapshots, focusHost: false)
                     },
                     onFocusChanged: { focused in
                         let window = activeFeedWindow()
@@ -122,11 +119,11 @@ struct FeedListView: View {
     ) -> some View {
         ScrollView(.vertical) {
             LazyVStack(spacing: 0) {
-                ForEach(Array(snapshots.enumerated()), id: \.element.id) { idx, snapshot in
+                ForEach(snapshots, id: \.id) { snapshot in
                     rowSurface(
                         snapshot: snapshot,
                         actions: actions,
-                        showsDivider: idx < snapshots.count - 1
+                        showsDivider: snapshot.id != snapshots.last?.id
                     )
                 }
             }
@@ -142,11 +139,11 @@ struct FeedListView: View {
         showsLoadMore: Bool
     ) -> some View {
         List {
-            ForEach(Array(groups.stable.enumerated()), id: \.element.id) { idx, snapshot in
+            ForEach(groups.stable, id: \.id) { snapshot in
                 rowSurface(
                     snapshot: snapshot,
                     actions: actions,
-                    showsDivider: idx < groups.stable.count - 1
+                    showsDivider: snapshot.id != groups.stable.last?.id
                 )
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
@@ -159,11 +156,11 @@ struct FeedListView: View {
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
             }
-            ForEach(Array(groups.history.enumerated()), id: \.element.id) { idx, snapshot in
+            ForEach(groups.history, id: \.id) { snapshot in
                 rowSurface(
                     snapshot: snapshot,
                     actions: actions,
-                    showsDivider: idx < groups.history.count - 1
+                    showsDivider: snapshot.id != groups.history.last?.id
                 )
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)

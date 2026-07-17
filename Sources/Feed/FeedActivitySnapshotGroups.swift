@@ -2,6 +2,11 @@
 struct FeedActivitySnapshotGroups: Equatable {
     let stable: [FeedItemSnapshot]
     let history: [FeedItemSnapshot]
+    let ordered: [FeedItemSnapshot]
 
-    var ordered: [FeedItemSnapshot] { stable + history }
+    init(stable: [FeedItemSnapshot], history: [FeedItemSnapshot]) {
+        self.stable = stable
+        self.history = history
+        self.ordered = stable + history
+    }
 }
