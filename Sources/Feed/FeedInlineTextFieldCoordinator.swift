@@ -61,7 +61,8 @@ final class FeedInlineTextFieldCoordinator: NSObject, NSTextViewDelegate {
             return
         }
         let responder = window.firstResponder
-        if !(responder is FeedKeyboardFocusView) && !(responder is FeedInlineNativeTextView) {
+        let focusedScopeID = (responder as? FeedScopedKeyboardFocusResponder)?.feedFocusScopeID
+        if focusedScopeID != parent.focusScopeID {
             parent.onBlur()
         }
     }
