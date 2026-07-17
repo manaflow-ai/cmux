@@ -2539,6 +2539,21 @@ mod tests {
     }
 
     #[test]
+    fn oversized_surface_event_fails_the_route() {
+        let route = Arc::new(super::SurfaceRoute::new());
+        let overflowed = route.deliver(cmux_tui_cdp::CdpEvent::Other {
+            method: "Test.large".to_string(),
+            params: json!({
+                "payload": "x".repeat(cmux_tui_cdp::CDP_EVENT_QUEUE_MAX_BYTES),
+            }),
+            session_id: Some("session-1".to_string()),
+        });
+
+        assert!(overflowed);
+        assert!(route.is_closed());
+    }
+
+    #[test]
     fn unregister_closes_and_wakes_surface_route() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();

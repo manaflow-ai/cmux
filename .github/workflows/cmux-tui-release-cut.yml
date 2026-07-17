@@ -34,10 +34,6 @@ jobs:
       # other workflows' push triggers (GitHub suppresses token-created events),
       # so the release cut must dispatch them explicitly.
       actions: write
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-      tag: ${{ steps.version.outputs.tag }}
-      release_sha: ${{ github.sha }}
     steps:
       - name: Require main branch dispatch
         run: |
@@ -49,7 +45,7 @@ jobs:
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: main
+          ref: ${{ github.sha }}
           fetch-depth: 0
 
       - name: Compute next TUI version
@@ -152,12 +148,12 @@ jobs:
           TAG: ${{ steps.version.outputs.tag }}
         run: git push origin "refs/tags/$TAG"
 
-      - name: Dispatch release artifact build
+      - name: Dispatch release workflows
         # The tag push above was made with the default GITHUB_TOKEN, which
         # never triggers other workflows' tag-push events. Dispatch the
-        # artifact builder explicitly against the new tag. Registry publishers
-        # are reusable jobs in this run, so their provenance stays bound to the
-        # same protected-main commit and failed jobs can be retried in place.
+        # release workflows explicitly against the new tag. This keeps registry
+        # OIDC identities on their top-level workflow files and binds provenance
+        # to the exact immutable release commit. Failed runs retain that ref.
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
@@ -165,28 +161,9 @@ jobs:
         run: |
           set -euo pipefail
           gh workflow run cmux-tui-release.yml --repo "$GITHUB_REPOSITORY" --ref "refs/tags/$TAG" -f version="$VERSION"
+          gh workflow run tui-publish-pypi.yml --repo "$GITHUB_REPOSITORY" --ref "refs/tags/$TAG" -f version="$VERSION"
+          gh workflow run tui-publish-npm.yml --repo "$GITHUB_REPOSITORY" --ref "refs/tags/$TAG" -f version="$VERSION" -f confirm_tui_cmux=true
           {
             echo "- Dispatched cmux-tui-release.yml on $TAG"
-            echo "- Registry publishers run as reusable jobs in this release-cut run"
+            echo "- Dispatched npm and PyPI publishers on $TAG"
           } >> "$GITHUB_STEP_SUMMARY"
-
-  publish-npm:
-    name: publish npm packages
-    needs: tag
-    permissions:
-      contents: read
-      id-token: write
-    uses: ./.github/workflows/tui-publish-npm.yml
-    with:
-      version: ${{ needs.tag.outputs.version }}
-      confirm_tui_cmux: true
-
-  publish-pypi:
-    name: publish PyPI packages
-    needs: tag
-    permissions:
-      contents: read
-      id-token: write
-    uses: ./.github/workflows/tui-publish-pypi.yml
-    with:
-      version: ${{ needs.tag.outputs.version }}

@@ -626,10 +626,7 @@ export class CmuxClient {
       case "frame":
         return typeof event.data === "string" ? event.data.length : 0;
       case "browser-state":
-        if (!event.frame || typeof event.frame !== "object" || Array.isArray(event.frame)) return 0;
-        return typeof (event.frame as { data?: unknown }).data === "string"
-          ? ((event.frame as { data: string }).data).length
-          : 0;
+        return new TextEncoder().encode(JSON.stringify(event)).byteLength;
       default:
         return 0;
     }

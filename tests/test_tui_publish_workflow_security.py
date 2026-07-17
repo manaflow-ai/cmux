@@ -38,7 +38,7 @@ def test_npm_publishers_pin_the_oidc_capable_npm_version() -> None:
 def test_release_cut_dispatches_top_level_publishers_at_the_tagged_main_commit() -> None:
     release_cut = workflow("cmux-tui-release-cut.yml")
     assert "ref: ${{ github.sha }}" in release_cut
-    assert 'gh workflow run tui-publish-npm.yml --repo "$GITHUB_REPOSITORY" --ref "refs/tags/$TAG"' in release_cut
-    assert 'gh workflow run tui-publish-pypi.yml --repo "$GITHUB_REPOSITORY" --ref "refs/tags/$TAG"' in release_cut
+    assert 'gh workflow run tui-publish-npm.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"' in release_cut
+    assert 'gh workflow run tui-publish-pypi.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"' in release_cut
     for name in ("tui-publish-npm.yml", "tui-publish-pypi.yml"):
         assert "workflow_call:" not in workflow(name)
