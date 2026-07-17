@@ -12488,7 +12488,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 }
             } else {
                 coordinator.vacancyRetry = nil
-                coordinator.vacancyParkedSurface?.removePortalVacancyRetry(hostId: ObjectIdentifier(host))
+                coordinator.vacancyParkedSurface?.removePortalVacancyRetry(hostId: ObjectIdentifier(host), instanceSerial: host.instanceSerial)
                 coordinator.vacancyParkedSurface = nil
             }
             host.onGeometryChanged = { [weak host, weak hostedView, weak coordinator] in
@@ -12667,7 +12667,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
             // never owned has no vacate path, so drop it here — through the
             // coordinator's reference, since hostedView can already be gone.
             coordinator.vacancyRetry = nil
-            coordinator.vacancyParkedSurface?.removePortalVacancyRetry(hostId: ObjectIdentifier(host))
+            coordinator.vacancyParkedSurface?.removePortalVacancyRetry(hostId: ObjectIdentifier(host), instanceSerial: host.instanceSerial)
             coordinator.vacancyParkedSurface = nil
             hostedView?.prepareOwnedPortalHostForTransientReattach(
                 hostId: ObjectIdentifier(host),

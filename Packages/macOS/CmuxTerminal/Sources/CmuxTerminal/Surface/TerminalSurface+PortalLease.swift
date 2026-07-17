@@ -105,7 +105,7 @@ extension TerminalSurface {
             area: current.area
         )
         clearPortalHostAuthorityIfHeld(by: hostId, instanceSerial: current.instanceSerial)
-        notifyPortalHostVacated(vacatedHostId: hostId)
+        notifyPortalHostVacated(vacatedHostId: hostId, instanceSerial: current.instanceSerial)
 #if DEBUG
         logDebugEvent(
             "terminal.portal.host.rearm surface=\(id.uuidString.prefix(5)) " +
@@ -148,8 +148,10 @@ extension TerminalSurface {
     /// vacate mid divider-drag, where a default-mode block waits for mouse-up.
     /// Deferred a turn so no retry mutates the lease inside the dying host's
     /// dismantle.
-    private func notifyPortalHostVacated(vacatedHostId: ObjectIdentifier) {
-        portalHostVacancyRetries.removeValue(forKey: vacatedHostId)
+    private func notifyPortalHostVacated(vacatedHostId: ObjectIdentifier, instanceSerial: UInt64) {
+        if portalHostVacancyRetries[vacatedHostId]?.instanceSerial == instanceSerial {
+            portalHostVacancyRetries.removeValue(forKey: vacatedHostId)
+        }
         guard !portalHostVacancyRetries.isEmpty else { return }
         let retries = portalHostVacancyRetries.values
             .sorted { $0.instanceSerial > $1.instanceSerial }
@@ -320,7 +322,7 @@ extension TerminalSurface {
               current.instanceSerial == instanceSerial else { return }
         activePortalHostLease = nil
         clearPortalHostAuthorityIfHeld(by: hostId, instanceSerial: current.instanceSerial)
-        notifyPortalHostVacated(vacatedHostId: hostId)
+        notifyPortalHostVacated(vacatedHostId: hostId, instanceSerial: current.instanceSerial)
 #if DEBUG
         logDebugEvent(
             "terminal.portal.host.release surface=\(id.uuidString.prefix(5)) " +

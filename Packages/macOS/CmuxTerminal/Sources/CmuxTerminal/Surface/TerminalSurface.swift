@@ -335,8 +335,11 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     /// Drops a host's vacancy retry (dismantle, or the host stopped owning
-    /// its pane; the owner's own vacate paths drop theirs).
-    public func removePortalVacancyRetry(hostId: ObjectIdentifier) {
+    /// its pane; the owner's own vacate paths drop theirs). Serial-matched
+    /// like every other identity check here: a recycled object address must
+    /// not remove a newer incarnation's park.
+    public func removePortalVacancyRetry(hostId: ObjectIdentifier, instanceSerial: UInt64) {
+        guard portalHostVacancyRetries[hostId]?.instanceSerial == instanceSerial else { return }
         portalHostVacancyRetries.removeValue(forKey: hostId)
     }
 
