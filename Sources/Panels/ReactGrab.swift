@@ -223,7 +223,12 @@ extension BrowserPanel {
             self?.handleReactGrabBridgeMessage(message)
         }
         reactGrabMessageHandler = handler
-        webView.configuration.userContentController.add(handler, name: reactGrabMessageHandlerName)
+        // Extension-context web views share one WKUserContentController across
+        // every web view the extension owns; a second add(_:name:) for the same
+        // name throws NSInvalidArgumentException, so rebind instead of add.
+        let userContentController = webView.configuration.userContentController
+        userContentController.removeScriptMessageHandler(forName: reactGrabMessageHandlerName)
+        userContentController.add(handler, name: reactGrabMessageHandlerName)
     }
 
     func armReactGrabRoundTrip(returnTo panelId: UUID) {

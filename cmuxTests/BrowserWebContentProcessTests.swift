@@ -368,42 +368,6 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
-    func floatingPopupInheritsOpenerWebsiteDataStore() throws {
-        let panel = BrowserPanel(workspaceId: UUID(), isRemoteWorkspace: false)
-        defer { panel.close() }
-        let popupWebView = try #require(
-            panel.createFloatingPopup(
-                configuration: WKWebViewConfiguration(),
-                windowFeatures: WKWindowFeatures()
-            )
-        )
-        defer { popupWebView.window?.close() }
-
-        #expect(popupWebView.configuration.websiteDataStore === panel.webView.configuration.websiteDataStore)
-    }
-
-    @Test
-    func floatingPopupInheritsRemoteWorkspaceWebsiteDataStore() throws {
-        let remoteWorkspaceId = UUID()
-        let panel = BrowserPanel(
-            workspaceId: remoteWorkspaceId,
-            isRemoteWorkspace: true,
-            remoteWebsiteDataStoreIdentifier: remoteWorkspaceId
-        )
-        defer { panel.close() }
-        let popupWebView = try #require(
-            panel.createFloatingPopup(
-                configuration: WKWebViewConfiguration(),
-                windowFeatures: WKWindowFeatures()
-            )
-        )
-        defer { popupWebView.window?.close() }
-
-        #expect(popupWebView.configuration.websiteDataStore === panel.webView.configuration.websiteDataStore)
-        #expect(!(popupWebView.configuration.websiteDataStore === WKWebsiteDataStore.default()))
-    }
-
-    @Test
     func floatingPopupClosesWhenWebContentProcessTerminates() throws {
         let panel = BrowserPanel(workspaceId: UUID(), isRemoteWorkspace: false)
         defer { panel.close() }

@@ -102,7 +102,7 @@ extension AppDelegate {
         TerminalController.shared.startSocketTransport(
             config,
             socketPath: restartPath,
-            preferredTabManager: manager,
+            preferredTabManager: manager
         )
     }
 }

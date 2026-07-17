@@ -231,9 +231,11 @@ extension BrowserPanel {
 
     /// Installs the media-playback message handler on `webView`.
     ///
-    /// Each `BrowserPanel` webview is created with a fresh `WKWebViewConfiguration`
-    /// (`makeWebView`), so the handler name is never registered twice on one
-    /// content controller. Reset `isPlayingMedia` for the freshly bound webview.
+    /// Extension-context webviews share one `WKUserContentController` across
+    /// every web view the extension owns, so the handler name can already be
+    /// registered there; rebind (remove, then add) instead of a bare add,
+    /// which throws `NSInvalidArgumentException` on a duplicate name. Reset
+    /// `isPlayingMedia` for the freshly bound webview.
     func setupMediaPlaybackMessageHandler(for webView: WKWebView) {
         resetMediaPlaybackTracking()
         // Bind the handler to this webview generation. The handler stays alive on
@@ -245,7 +247,12 @@ extension BrowserPanel {
             self?.handleMediaPlaybackReport(report, fromWebViewInstanceID: boundWebViewInstanceID)
         }
         mediaPlaybackMessageHandler = handler
-        webView.configuration.userContentController.add(
+        let userContentController = webView.configuration.userContentController
+        userContentController.removeScriptMessageHandler(
+            forName: mediaPlaybackMessageHandlerName,
+            contentWorld: Self.mediaPlaybackContentWorld
+        )
+        userContentController.add(
             handler,
             contentWorld: Self.mediaPlaybackContentWorld,
             name: mediaPlaybackMessageHandlerName

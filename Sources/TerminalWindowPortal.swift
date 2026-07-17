@@ -936,7 +936,7 @@ final class WindowTerminalPortal: NSObject {
                     shouldFlushLatestNow = self.window?.inLiveResize == true
                 }
                 if !shouldFlushLatestNow {
-                    shouldFlushLatestNow = TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive
+                    shouldFlushLatestNow = TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: self.window)
                 }
                 // During sidebar/split drags, new geometry requests can arrive
                 // faster than this queued sync runs. Flush the latest visible
@@ -974,7 +974,7 @@ final class WindowTerminalPortal: NSObject {
                 shouldPerformNow = self.window?.inLiveResize == true
             }
             if !shouldPerformNow {
-                shouldPerformNow = TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive
+                shouldPerformNow = TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: self.window)
             }
             if shouldPerformNow {
                 performSync()
@@ -1654,7 +1654,7 @@ final class WindowTerminalPortal: NSObject {
         // window-relative position changed without their own frame
         // changing, and the end-of-resize sync (windowDidEndLiveResize →
         // scheduleExternalGeometrySynchronize) stays unconditional.
-        guard TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive else {
+        guard TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window) else {
             if !isWindowLiveResizeActive {
                 pruneDeadEntries()
             }
@@ -2259,7 +2259,10 @@ enum TerminalWindowPortalRegistry {
     static var hostedToWindowId: [ObjectIdentifier: ObjectIdentifier] = [:]
     private static var hasPendingExternalGeometrySyncForAllWindows = false
     private static var externalGeometrySyncForAllWindowsGeneration: UInt64 = 0
-    private static var interactiveGeometryResizeCount = 0
+    private static var interactiveGeometryResizeCountsByWindowId: [ObjectIdentifier: Int] = [:]
+    private static var unscopedInteractiveGeometryResizeCount = 0
+    private static var interactiveGeometryResizeOwnerWindowIds: [ObjectIdentifier: ObjectIdentifier] = [:]
+    private static var unscopedInteractiveGeometryResizeOwnerIds: Set<ObjectIdentifier> = []
     private static var activeSplitDividerDragWindowId: ObjectIdentifier?
     private static var activeSplitDividerDragEventNumber: Int?
 #if DEBUG
@@ -2267,11 +2270,24 @@ enum TerminalWindowPortalRegistry {
     static var blockedBindReasons: [String: Int] = [:]
 #endif
 
-    static var isInteractiveGeometryResizeActive: Bool {
+    static func isInteractiveGeometryResizeActive(in window: NSWindow?) -> Bool {
 #if DEBUG
         if Self.isPointerDragActiveForTesting { return true }
 #endif
-        if Self.interactiveGeometryResizeCount > 0 { return true }
+        if Self.unscopedInteractiveGeometryResizeCount > 0 { return true }
+        if let window,
+           Self.interactiveGeometryResizeCountsByWindowId[ObjectIdentifier(window), default: 0] > 0 {
+            return true
+        }
+        return isSplitDividerDragActive(in: window)
+    }
+
+    private static var isAnyInteractiveGeometryResizeActive: Bool {
+#if DEBUG
+        if Self.isPointerDragActiveForTesting { return true }
+#endif
+        if Self.unscopedInteractiveGeometryResizeCount > 0 { return true }
+        if Self.interactiveGeometryResizeCountsByWindowId.values.contains(where: { $0 > 0 }) { return true }
         return isCurrentEventSplitDividerDrag()
     }
 
@@ -2408,6 +2424,8 @@ enum TerminalWindowPortalRegistry {
             portal.tearDown()
         }
         hostedToWindowId = hostedToWindowId.filter { $0.value != windowId }
+        interactiveGeometryResizeCountsByWindowId.removeValue(forKey: windowId)
+        interactiveGeometryResizeOwnerWindowIds = interactiveGeometryResizeOwnerWindowIds.filter { $0.value != windowId }
 
         guard let window else { return }
         if let observer = objc_getAssociatedObject(window, &cmuxWindowTerminalPortalCloseObserverKey) {
@@ -2521,24 +2539,78 @@ enum TerminalWindowPortalRegistry {
     }
 #endif
 
-    static func beginInteractiveGeometryResize() {
-        interactiveGeometryResizeCount += 1
+    static func beginInteractiveGeometryResize(in window: NSWindow?) {
+        beginInteractiveGeometryResize(windowId: window.map(ObjectIdentifier.init))
     }
 
-    static func endInteractiveGeometryResize() {
-        interactiveGeometryResizeCount = max(0, interactiveGeometryResizeCount - 1)
+    static func endInteractiveGeometryResize(in window: NSWindow?) {
+        endInteractiveGeometryResize(windowId: window.map(ObjectIdentifier.init))
+    }
+
+    static func beginInteractiveGeometryResize(owner: AnyObject, in window: NSWindow?) {
+        let ownerId = ObjectIdentifier(owner)
+        guard interactiveGeometryResizeOwnerWindowIds[ownerId] == nil,
+              !unscopedInteractiveGeometryResizeOwnerIds.contains(ownerId) else { return }
+        if let windowId = window.map(ObjectIdentifier.init) {
+            interactiveGeometryResizeOwnerWindowIds[ownerId] = windowId
+            beginInteractiveGeometryResize(windowId: windowId)
+        } else {
+            unscopedInteractiveGeometryResizeOwnerIds.insert(ownerId)
+            beginInteractiveGeometryResize(windowId: nil)
+        }
+    }
+
+    static func endInteractiveGeometryResize(owner: AnyObject) {
+        let ownerId = ObjectIdentifier(owner)
+        if let windowId = interactiveGeometryResizeOwnerWindowIds.removeValue(forKey: ownerId) {
+            endInteractiveGeometryResize(windowId: windowId)
+        } else if unscopedInteractiveGeometryResizeOwnerIds.remove(ownerId) != nil {
+            endInteractiveGeometryResize(windowId: nil)
+        }
+    }
+
+    private static func beginInteractiveGeometryResize(windowId: ObjectIdentifier?) {
+        guard let windowId else {
+            unscopedInteractiveGeometryResizeCount += 1
+            return
+        }
+        interactiveGeometryResizeCountsByWindowId[windowId, default: 0] += 1
+    }
+
+    private static func endInteractiveGeometryResize(windowId: ObjectIdentifier?) {
+        guard let windowId else {
+            guard unscopedInteractiveGeometryResizeCount > 0 else { return }
+            unscopedInteractiveGeometryResizeCount -= 1
+            if unscopedInteractiveGeometryResizeCount == 0 {
+                for (portalWindowId, portal) in portalsByWindowId
+                where interactiveGeometryResizeCountsByWindowId[portalWindowId, default: 0] == 0 {
+                    portal.scheduleExternalGeometrySynchronize(forceImmediate: false)
+                }
+            }
+            return
+        }
+
+        guard let count = interactiveGeometryResizeCountsByWindowId[windowId], count > 0 else { return }
+        if count == 1 {
+            interactiveGeometryResizeCountsByWindowId.removeValue(forKey: windowId)
+            // Apply the final exact renderer and PTY dimensions only in the
+            // window whose pixel-only coalescing gate just cleared.
+            if unscopedInteractiveGeometryResizeCount == 0 {
+                portalsByWindowId[windowId]?.scheduleExternalGeometrySynchronize(forceImmediate: false)
+            }
+        } else {
+            interactiveGeometryResizeCountsByWindowId[windowId] = count - 1
+        }
     }
 
 #if DEBUG
-    /// Test support: clears the interactive-geometry state the production API
-    /// cannot reach. beginInteractiveGeometryResize is refcounted with no
-    /// owner handle, so a test that fails (or wedges) before its balancing
-    /// end call would leave the flag latched for every later test — and a
-    /// latched flag turns each anchor geometry callback into a synchronous
-    /// full-layout pass, which re-dirties layout when it runs inside a
-    /// SwiftUI layout pass. Suites that touch this state call it in tearDown.
+    /// Test support: clears interactive geometry state after a failed test
+    /// whose balancing end call may not have run.
     static func resetInteractiveGeometryStateForTesting() {
-        interactiveGeometryResizeCount = 0
+        interactiveGeometryResizeCountsByWindowId.removeAll()
+        unscopedInteractiveGeometryResizeCount = 0
+        interactiveGeometryResizeOwnerWindowIds.removeAll()
+        unscopedInteractiveGeometryResizeOwnerIds.removeAll()
         clearActiveSplitDividerDrag()
         isPointerDragActiveForTesting = false
     }
@@ -2551,12 +2623,12 @@ enum TerminalWindowPortalRegistry {
         let generation = Self.externalGeometrySyncForAllWindowsGeneration
         guard !Self.hasPendingExternalGeometrySyncForAllWindows else { return }
         Self.hasPendingExternalGeometrySyncForAllWindows = true
-        let isDragEvent = forceImmediate || Self.isInteractiveGeometryResizeActive
+        let isDragEvent = forceImmediate || Self.isAnyInteractiveGeometryResizeActive
         DispatchQueue.main.async {
             let performSync = {
                 var shouldFlushLatestNow = isDragEvent
                 if !shouldFlushLatestNow {
-                    shouldFlushLatestNow = Self.isInteractiveGeometryResizeActive
+                    shouldFlushLatestNow = Self.isAnyInteractiveGeometryResizeActive
                 }
                 if Self.externalGeometrySyncForAllWindowsGeneration != generation, !shouldFlushLatestNow {
                     Self.hasPendingExternalGeometrySyncForAllWindows = false
@@ -2570,7 +2642,7 @@ enum TerminalWindowPortalRegistry {
             }
             var shouldPerformNow = isDragEvent
             if !shouldPerformNow {
-                shouldPerformNow = Self.isInteractiveGeometryResizeActive
+                shouldPerformNow = Self.isAnyInteractiveGeometryResizeActive
             }
             if shouldPerformNow {
                 performSync()

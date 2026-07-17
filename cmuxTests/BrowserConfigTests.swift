@@ -5410,10 +5410,10 @@ final class BrowserExternalNavigationSchemeTests: XCTestCase {
         let zoom = try XCTUnwrap(URL(string: "zoommtg://zoom.us/join"))
         let mailto = try XCTUnwrap(URL(string: "mailto:test@example.com"))
 
-        XCTAssertTrue(browserShouldOpenURLExternally(discord))
-        XCTAssertTrue(browserShouldOpenURLExternally(slack))
-        XCTAssertTrue(browserShouldOpenURLExternally(zoom))
-        XCTAssertTrue(browserShouldOpenURLExternally(mailto))
+        XCTAssertTrue(discord.browserShouldOpenExternally)
+        XCTAssertTrue(slack.browserShouldOpenExternally)
+        XCTAssertTrue(zoom.browserShouldOpenExternally)
+        XCTAssertTrue(mailto.browserShouldOpenExternally)
     }
 
     func testEmbeddedBrowserSchemesStayInWebView() throws {
@@ -5427,42 +5427,42 @@ final class BrowserExternalNavigationSchemeTests: XCTestCase {
         let javascript = try XCTUnwrap(URL(string: "javascript:void(0)"))
         let webkitInternal = try XCTUnwrap(URL(string: "applewebdata://local/page"))
 
-        XCTAssertFalse(browserShouldOpenURLExternally(https))
-        XCTAssertFalse(browserShouldOpenURLExternally(http))
-        XCTAssertFalse(browserShouldOpenURLExternally(about))
-        XCTAssertFalse(browserShouldOpenURLExternally(data))
-        XCTAssertFalse(browserShouldOpenURLExternally(file))
-        XCTAssertFalse(browserShouldOpenURLExternally(blob))
-        XCTAssertFalse(browserShouldOpenURLExternally(diffViewer))
-        XCTAssertFalse(browserShouldOpenURLExternally(javascript))
-        XCTAssertFalse(browserShouldOpenURLExternally(webkitInternal))
+        XCTAssertFalse(https.browserShouldOpenExternally)
+        XCTAssertFalse(http.browserShouldOpenExternally)
+        XCTAssertFalse(about.browserShouldOpenExternally)
+        XCTAssertFalse(data.browserShouldOpenExternally)
+        XCTAssertFalse(file.browserShouldOpenExternally)
+        XCTAssertFalse(blob.browserShouldOpenExternally)
+        XCTAssertFalse(diffViewer.browserShouldOpenExternally)
+        XCTAssertFalse(javascript.browserShouldOpenExternally)
+        XCTAssertFalse(webkitInternal.browserShouldOpenExternally)
     }
 
     func testCustomAppSchemesRouteExternallyFromSubframes() throws {
         let vscode = try XCTUnwrap(URL(string: "vscode://file/Users/example/project/README.md"))
 
-        XCTAssertTrue(browserShouldRouteExternalNavigation(vscode))
-        XCTAssertEqual(browserExternalNavigationAction(for: vscode), .promptToOpenApp(vscode))
+        XCTAssertTrue(vscode.browserShouldRouteExternalNavigation)
+        XCTAssertEqual(vscode.browserExternalNavigationAction, .promptToOpenApp(vscode))
     }
 
     func testEmbeddedSubframeNavigationStaysInWebView() throws {
         let https = try XCTUnwrap(URL(string: "https://example.com/iframe"))
 
-        XCTAssertFalse(browserShouldRouteExternalNavigation(https))
+        XCTAssertFalse(https.browserShouldRouteExternalNavigation)
     }
 
     func testIntentBrowserFallbackURLExtraction() throws {
         let intent = try XCTUnwrap(URL(string: "intent://join/abc#Intent;scheme=zoommtg;package=us.zoom.videomeetings;S.browser_fallback_url=https%3A%2F%2Fzoom.us%2Fjoin%2Fabc;end"))
         let fallback = try XCTUnwrap(URL(string: "https://zoom.us/join/abc"))
 
-        XCTAssertEqual(browserIntentFallbackURL(for: intent), fallback)
-        XCTAssertEqual(browserExternalNavigationAction(for: intent), .browserFallback(fallback))
+        XCTAssertEqual(intent.browserIntentFallbackURL, fallback)
+        XCTAssertEqual(intent.browserExternalNavigationAction, .browserFallback(fallback))
     }
 
     func testIntentBrowserFallbackURLRejectsExternalSchemes() throws {
         let intent = try XCTUnwrap(URL(string: "intent://open#Intent;S.browser_fallback_url=slack%3A%2F%2Fopen;end"))
 
-        XCTAssertNil(browserIntentFallbackURL(for: intent))
+        XCTAssertNil(intent.browserIntentFallbackURL)
     }
 }
 
@@ -5585,6 +5585,30 @@ final class BrowserOmnibarFocusPolicyTests: XCTestCase {
                 desiredOmnibarFocus: false,
                 nextResponderIsOtherTextField: false
             )
+        )
+    }
+}
+
+@MainActor
+final class BrowserSharedWebViewConfigurationHandlerTests: XCTestCase {
+    /// Extension-context tabs share one WKUserContentController across every
+    /// web view the extension owns. Re-adding a fixed-name script message
+    /// handler to that controller throws NSInvalidArgumentException, which is
+    /// uncatchable from Swift and killed the app when a 1Password action
+    /// opened its webkit-extension: unlock tab alongside an existing
+    /// extension-context web view.
+    func testPanelsSharingOneWebViewConfigurationDoNotCollideOnScriptMessageHandlers() {
+        let sharedConfiguration = WKWebViewConfiguration()
+        let first = BrowserPanel(workspaceId: UUID(), webViewConfiguration: sharedConfiguration)
+        defer { first.close() }
+
+        let second = BrowserPanel(workspaceId: UUID(), webViewConfiguration: sharedConfiguration)
+        defer { second.close() }
+
+        XCTAssertTrue(
+            second.webView.configuration.userContentController
+                === first.webView.configuration.userContentController,
+            "Both panels must share the extension-style user content controller for this repro"
         )
     }
 }
