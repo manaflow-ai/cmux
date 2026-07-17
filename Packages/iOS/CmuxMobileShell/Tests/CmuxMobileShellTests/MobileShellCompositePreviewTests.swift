@@ -196,6 +196,31 @@ import Testing
         #expect(await pairedStore.didStartLoad(teamID: "team-b"))
     }
 
+    @Test func repeatedTeamChangeCancelsOwnedReconnectTask() async throws {
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [:],
+            blockedTeams: []
+        )
+        await pairedStore.gateBackupCancellation(call: 1)
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            forgottenMacStore: InMemoryPairedMacForgottenStore()
+        )
+
+        store.currentTeamDidChange()
+        await pairedStore.waitUntilBackupCancellationStarted(call: 1)
+        store.currentTeamDidChange()
+        await pairedStore.waitUntilBackupCancellationStarted(call: 2)
+        await pairedStore.releaseBackupCancellation(call: 1)
+
+        #expect(try await pollUntil {
+            await pairedStore.backupCancellationWasCancelled(call: 1) != nil
+        })
+        #expect(await pairedStore.backupCancellationWasCancelled(call: 1) == true)
+    }
+
     @Test func createWorkspaceSelectsNewWorkspaceAndTerminal() {
         let store = MobileShellComposite.preview()
         store.signIn()

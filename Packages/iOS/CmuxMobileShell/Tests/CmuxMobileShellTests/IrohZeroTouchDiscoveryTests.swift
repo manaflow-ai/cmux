@@ -79,6 +79,28 @@ struct IrohZeroTouchDiscoveryTests {
     }
 
     @Test
+    func malformedDuplicateCannotHideLaterAuthenticatedCandidate() async throws {
+        let valid = try candidate(deviceID: "mac-a", endpointByte: "a")
+        let malformed = MobileDiscoveredIrohMac(
+            deviceID: valid.deviceID,
+            displayName: valid.displayName,
+            instanceTag: valid.instanceTag,
+            routes: [],
+            lastSeenAt: valid.lastSeenAt.addingTimeInterval(-1)
+        )
+        let fixture = try await makeFixture(
+            candidates: [malformed, valid],
+            reportedDeviceID: "mac-a"
+        )
+        defer { fixture.cleanup() }
+
+        #expect(await fixture.shell.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(fixture.factory.attemptedRouteIDs() == ["iroh-mac-a"])
+        let rows = try await fixture.store.loadAll(stackUserID: "user-1", teamID: nil)
+        #expect(rows.map(\.macDeviceID) == ["mac-a"])
+    }
+
+    @Test
     func presenceRetriesBrokerDiscoveryWhenMacStartsAfterIOS() async throws {
         let live = try candidate(deviceID: "mac-a", endpointByte: "a")
         let discovery = ScriptedIrohDiscovery(snapshots: [[], [live]])
@@ -103,6 +125,43 @@ struct IrohZeroTouchDiscoveryTests {
                 && fixture.shell.foregroundMacDeviceID == "mac-a"
         })
         #expect(discovery.callCount() == 2)
+    }
+
+    @Test
+    func unrelatedPresenceStillWakesBrokerDiscoveryWhenStoredActiveMacIsStale() async throws {
+        let live = try candidate(deviceID: "mac-live", endpointByte: "b")
+        let stale = try candidate(deviceID: "mac-stale", endpointByte: "c")
+        let fixture = try await makeFixture(
+            candidates: [live],
+            reportedDeviceID: "mac-live"
+        )
+        defer { fixture.cleanup() }
+        try await fixture.store.upsert(
+            macDeviceID: stale.deviceID,
+            displayName: stale.displayName,
+            routes: stale.routes,
+            instanceTag: stale.instanceTag,
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: stale.lastSeenAt
+        )
+        await fixture.shell.loadPairedMacs()
+        let scope = try #require(await fixture.shell.currentScopeSnapshot(userID: "user-1"))
+
+        fixture.shell.applyPresenceUpdate(.online(PresenceInstance(
+            deviceId: "unrelated-presence-host",
+            tag: "stable",
+            platform: "mac",
+            online: true,
+            lastSeenAt: Date().timeIntervalSince1970 * 1_000
+        )), scope: scope)
+
+        #expect(try await pollUntil {
+            fixture.shell.connectionState == .connected
+                && fixture.shell.foregroundMacDeviceID == "mac-live"
+        })
+        #expect(fixture.factory.attemptedRouteIDs() == ["iroh-mac-stale", "iroh-mac-live"])
     }
 
     @Test

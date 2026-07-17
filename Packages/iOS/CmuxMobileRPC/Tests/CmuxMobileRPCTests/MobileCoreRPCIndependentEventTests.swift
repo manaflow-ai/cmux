@@ -6,6 +6,58 @@ import Testing
 @Suite
 struct MobileCoreRPCIndependentEventTests {
     @Test
+    func retireCannotSplitTransportAdmissionFromAllocation() async throws {
+        let route = try irohRoute(hexBytePair: "89")
+        let factory = BlockingTransportFactory(transport: NeverConnectedTransport())
+        let runtime = TestMobileSyncRuntime(transportFactory: factory)
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: try ticket(route: route, deviceSuffix: "001")
+        )
+        let request = try MobileCoreRPCClient.requestData(method: "mobile.host.status")
+        let requestTask = Task { try? await client.sendRequest(request) }
+
+        #expect(await pollUntil { factory.didEnter() })
+        let retireCompleted = AsyncFlag()
+        let retireTask = Task.detached {
+            client.retire()
+            await retireCompleted.set()
+        }
+        for _ in 0..<100 { await Task.yield() }
+
+        #expect(!(await retireCompleted.isSet()))
+        factory.release()
+        await retireTask.value
+        await client.disconnect()
+        _ = await requestTask.value
+    }
+
+    @Test
+    func retireDisposesIndependentEventStreamCreatedAfterRetirement() async throws {
+        let route = try irohRoute(hexBytePair: "90")
+        let source = SuspendedIndependentEventSource()
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: FixedTransportFactory(transport: NeverConnectedTransport()),
+            independentEventByteStreamProvider: { _ in try await source.makeStream() }
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: try ticket(route: route, deviceSuffix: "002")
+        )
+        let preparation = Task { await client.prepareIndependentServerEvents() }
+        await source.waitUntilRequested()
+
+        client.retire()
+        await source.resume()
+
+        #expect(!(await preparation.value))
+        #expect(await pollUntil { await source.wasTerminated() })
+        await client.disconnect()
+    }
+
+    @Test
     func subscribeAdvertisesIndependentDeliveryOnlyAfterReceiverPreparation() async throws {
         let route = try irohRoute(hexBytePair: "9a")
         let source = IndependentEventSource()
@@ -132,6 +184,75 @@ struct MobileCoreRPCIndependentEventTests {
             authToken: nil
         )
     }
+}
+
+private func pollUntil(
+    attempts: Int = 1_000,
+    condition: () async -> Bool
+) async -> Bool {
+    for _ in 0..<attempts {
+        if await condition() { return true }
+        await Task.yield()
+    }
+    return await condition()
+}
+
+private final class BlockingTransportFactory: CmxByteTransportFactory, @unchecked Sendable {
+    private let transport: any CmxByteTransport
+    private let lock = NSLock()
+    private let releaseGate = DispatchSemaphore(value: 0)
+    private var entered = false
+
+    init(transport: any CmxByteTransport) {
+        self.transport = transport
+    }
+
+    func makeTransport(for _: CmxAttachRoute) throws -> any CmxByteTransport {
+        lock.withLock { entered = true }
+        releaseGate.wait()
+        return transport
+    }
+
+    func didEnter() -> Bool { lock.withLock { entered } }
+    func release() { releaseGate.signal() }
+}
+
+private actor SuspendedIndependentEventSource {
+    private var requested = false
+    private var requestWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseWaiter: CheckedContinuation<Void, Never>?
+    private var released = false
+    private var terminated = false
+
+    func makeStream() async throws -> CmxIndependentEventByteStream {
+        requested = true
+        let waiters = requestWaiters
+        requestWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+        if !released {
+            await withCheckedContinuation { releaseWaiter = $0 }
+        }
+        return AsyncThrowingStream { continuation in
+            continuation.onTermination = { [weak self] _ in
+                Task { await self?.recordTermination() }
+            }
+        }
+    }
+
+    func waitUntilRequested() async {
+        guard !requested else { return }
+        await withCheckedContinuation { requestWaiters.append($0) }
+    }
+
+    func resume() {
+        released = true
+        releaseWaiter?.resume()
+        releaseWaiter = nil
+    }
+
+    func wasTerminated() -> Bool { terminated }
+
+    private func recordTermination() { terminated = true }
 }
 
 private enum IndependentEventTestError: Error {

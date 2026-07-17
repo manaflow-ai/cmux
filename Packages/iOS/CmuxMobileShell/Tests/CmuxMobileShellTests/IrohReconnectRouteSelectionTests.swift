@@ -946,6 +946,49 @@ extension ReconnectRouteSelectionTests {
         #expect(store.activeRoute?.kind == .iroh)
     }
 
+    @Test func switchRejectsDisplayCacheRowRemovedFromAuthoritativeStore() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(deviceID: "test-mac", instanceTag: "stable")
+        let factory = KindRecordingTransportFactory(router: router, box: TransportBox())
+        let (pairedStore, directory) = try makePairedMacStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await pairedStore.upsert(
+            macDeviceID: "test-mac",
+            displayName: "Test Mac",
+            routes: [try iroh()],
+            instanceTag: "stable",
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: clock.now
+        )
+        let store = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { clock.now },
+                supportedRouteKinds: [.iroh]
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(
+                suiteName: "iroh-store-authority-\(UUID().uuidString)"
+            )!
+        )
+        await store.loadPairedMacs()
+        #expect(store.pairedMacs.map(\.macDeviceID) == ["test-mac"])
+        try await pairedStore.remove(
+            macDeviceID: "test-mac",
+            stackUserID: "user-1",
+            teamID: nil
+        )
+
+        #expect(!(await store.switchToMac(macDeviceID: "test-mac")))
+        #expect(factory.attemptedKinds().isEmpty)
+    }
+
     @Test func foregroundResumeRedialsDeadIrohSessionBeforeUserAction() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
