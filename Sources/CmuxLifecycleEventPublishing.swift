@@ -227,6 +227,8 @@ extension Workspace {
             return "workspace_todo"
         case .cloudVMLoading:
             return "cloud_vm_loading"
+        case .mobilePairing:
+            return "mobile_pairing"
         }
     }
 }

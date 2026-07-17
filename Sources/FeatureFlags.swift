@@ -38,6 +38,7 @@ final class CmuxFeatureFlags {
     #endif
 
     private static let mobileConnectButtonDefault = true
+    private static let sidebarAccountButtonDefault = true
 
     #if DEBUG
     private static let cloudVMUIDefault = true
@@ -81,9 +82,23 @@ final class CmuxFeatureFlags {
                 title: String(localized: "featureFlags.mobileConnect.title", defaultValue: "Mobile Connect button"),
                 flagDescription: String(
                     localized: "featureFlags.mobileConnect.description",
-                    defaultValue: "Shows the iPhone button that opens the Mobile Connect pairing window."
+                    defaultValue: "Shows Mobile Connect entrypoints that open the iPhone pairing workspace."
                 ),
                 defaultWhenUnavailable: CmuxFeatureFlags.mobileConnectButtonDefault
+            ),
+
+            // FLAG(key: sidebar-account-button-enabled-release, owner: lawrencecchen,
+            //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
+            // Shows the account control in the bottom-left sidebar footer. The
+            // Settings account section remains available when this shortcut is off.
+            CmuxFeatureFlagDefinition(
+                key: "sidebar-account-button-enabled-release",
+                title: String(localized: "featureFlags.sidebarAccount.title", defaultValue: "Sidebar account button"),
+                flagDescription: String(
+                    localized: "featureFlags.sidebarAccount.description",
+                    defaultValue: "Shows the profile and sign-in control in the sidebar footer."
+                ),
+                defaultWhenUnavailable: CmuxFeatureFlags.sidebarAccountButtonDefault
             ),
 
             // FLAG(key: cloud-vm-ui-enabled-release, owner: lawrencecchen,
@@ -182,23 +197,27 @@ final class CmuxFeatureFlags {
     }
 
     var isCloudVMUIEnabled: Bool {
-        effectiveValue(for: Self.allFlags[2])
-    }
-
-    var isAgentChatUIEnabled: Bool {
         effectiveValue(for: Self.allFlags[3])
     }
 
-    var isSidebarWorkspaceAgentSpinnerEnabled: Bool {
+    var isAgentChatUIEnabled: Bool {
         effectiveValue(for: Self.allFlags[4])
     }
 
-    var isWorkspaceTodoControlsEnabled: Bool {
+    var isSidebarWorkspaceAgentSpinnerEnabled: Bool {
         effectiveValue(for: Self.allFlags[5])
     }
 
-    var isAppKitSidebarListEnabled: Bool {
+    var isWorkspaceTodoControlsEnabled: Bool {
         effectiveValue(for: Self.allFlags[6])
+    }
+
+    var isAppKitSidebarListEnabled: Bool {
+        effectiveValue(for: Self.allFlags[7])
+    }
+
+    var isSidebarAccountButtonEnabled: Bool {
+        effectiveValue(for: Self.allFlags[2])
     }
 
     @ObservationIgnored

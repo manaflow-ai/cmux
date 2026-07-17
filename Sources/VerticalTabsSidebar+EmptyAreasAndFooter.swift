@@ -14,6 +14,176 @@ struct SidebarFooterIconButtonStyle: ButtonStyle {
     }
 }
 
+struct SidebarAccountMenuButton: View {
+    private let accountFlow: HostAccountFlow? = AppDelegate.shared?.auth?.accountFlow
+    private let title = String(localized: "settings.section.account", defaultValue: "Account")
+    private let buttonSize: CGFloat = 22
+    @State private var isPopoverPresented = false
+
+    var body: some View {
+        let identity = accountFlow?.currentIdentity
+        Button {
+            isPopoverPresented.toggle()
+        } label: {
+            SidebarAccountAvatar(
+                avatarURL: identity?.avatarURL,
+                displayName: identity?.displayName ?? "",
+                email: identity?.email ?? "",
+                isSignedIn: identity != nil,
+                size: 17
+            )
+            .frame(width: buttonSize, height: buttonSize)
+        }
+        .buttonStyle(SidebarFooterIconButtonStyle())
+        .frame(width: buttonSize, height: buttonSize)
+        .background(ArrowlessPopoverAnchor(
+            isPresented: $isPopoverPresented,
+            preferredEdge: .maxY,
+            detachedGap: 4
+        ) {
+            SidebarAccountPopover(
+                accountFlow: accountFlow,
+                dismiss: { isPopoverPresented = false }
+            )
+        })
+        .safeHelp(title)
+        .accessibilityLabel(title)
+        .accessibilityIdentifier("SidebarAccountMenuButton")
+    }
+}
+
+private struct SidebarAccountPopover: View {
+    let accountFlow: HostAccountFlow?
+    let dismiss: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let identity = accountFlow?.currentIdentity {
+                HStack(spacing: 10) {
+                    SidebarAccountAvatar(
+                        avatarURL: identity.avatarURL,
+                        displayName: identity.displayName,
+                        email: identity.email,
+                        isSignedIn: true,
+                        size: 34
+                    )
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(identity.displayName.isEmpty ? identity.email : identity.displayName)
+                            .cmuxFont(size: 13, weight: .semibold)
+                            .lineLimit(1)
+                        if !identity.email.isEmpty && identity.email != identity.displayName {
+                            Text(identity.email)
+                                .cmuxFont(size: 11)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                }
+                Divider()
+                Button {
+                    dismiss()
+                    Task { await accountFlow?.signOut() }
+                } label: {
+                    Label(
+                        String(localized: "settings.account.signOut", defaultValue: "Sign Out"),
+                        systemImage: "rectangle.portrait.and.arrow.right"
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .accessibilityIdentifier("SidebarAccountSignOutButton")
+            } else {
+                Text(String(localized: "settings.account.signedOut.title", defaultValue: "Not signed in"))
+                    .cmuxFont(size: 13, weight: .semibold)
+                Button {
+                    dismiss()
+                    accountFlow?.startSignIn()
+                } label: {
+                    Label(
+                        String(localized: "settings.account.signIn", defaultValue: "Sign In…"),
+                        systemImage: "person.crop.circle.badge.plus"
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .accessibilityIdentifier("SidebarAccountSignInButton")
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(accountFlow?.isWorkingOnAuth == true)
+        .padding(12)
+        .frame(width: 220, alignment: .leading)
+    }
+}
+
+private struct SidebarAccountAvatar: View {
+    let avatarURL: URL?
+    let displayName: String
+    let email: String
+    let isSignedIn: Bool
+    let size: CGFloat
+
+    var body: some View {
+        Group {
+            if isSignedIn, let avatarURL {
+                AsyncImage(url: avatarURL) { phase in
+                    if let image = phase.image {
+                        image.resizable().scaledToFill()
+                    } else {
+                        fallback
+                    }
+                }
+            } else {
+                fallback
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+        .overlay(Circle().stroke(Color.primary.opacity(0.12), lineWidth: 0.5))
+    }
+
+    @ViewBuilder
+    private var fallback: some View {
+        if isSignedIn, let initial = accountInitial {
+            ZStack {
+                Circle().fill(Color.accentColor.opacity(0.18))
+                Text(initial)
+                    .cmuxFont(size: max(8, size * 0.4), weight: .semibold)
+                    .foregroundStyle(Color.accentColor)
+            }
+        } else {
+            CmuxSystemSymbolImage(systemName: "person.circle", pointSize: max(11, size - 3), weight: .medium)
+                .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+        }
+    }
+
+    private var accountInitial: String? {
+        let source = displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? email : displayName
+        return source.first.map { String($0).uppercased() }
+    }
+}
+
+struct SidebarMobileConnectButton: View {
+    @EnvironmentObject private var tabManager: TabManager
+    private let title = String(localized: "command.mobileConnect.title", defaultValue: "Connect iPhone/iPad")
+
+    var body: some View {
+        Button {
+            _ = AppDelegate.shared?.performMobileConnectWorkspaceAction(
+                tabManager: tabManager,
+                debugSource: "sidebar.mobileConnect"
+            )
+        } label: {
+            CmuxSystemSymbolImage(systemName: "iphone", pointSize: 12, weight: .medium)
+                .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                .frame(width: 22, height: 22)
+        }
+        .buttonStyle(SidebarFooterIconButtonStyle())
+        .frame(width: 22, height: 22)
+        .safeHelp(title)
+        .accessibilityLabel(title)
+        .accessibilityIdentifier("SidebarMobileConnectButton")
+    }
+}
+
 private struct SidebarFooterIconButtonStyleBody: View {
     let configuration: SidebarFooterIconButtonStyle.Configuration
 

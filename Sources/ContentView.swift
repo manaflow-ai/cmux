@@ -5552,6 +5552,8 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.workspaceTodo", defaultValue: "Todos")
         case .cloudVMLoading:
             return String(localized: "commandPalette.kind.cloudVMLoading", defaultValue: "Cloud VM")
+        case .mobilePairing:
+            return String(localized: "command.mobileConnect.subtitle", defaultValue: "Mobile")
         }
     }
     private func commandPaletteSurfaceKeywords(for panelType: PanelType) -> [String] {
@@ -5578,6 +5580,8 @@ struct ContentView: View {
             return ["todo", "todos", "checklist", "task", "status"]
         case .cloudVMLoading:
             return ["cloud", "vm", "loading"]
+        case .mobilePairing:
+            return Self.commandPaletteMobileConnectKeywords
         }
     }
     private func commandPaletteCachedCommandsContext() -> CommandPaletteCommandsContext {
@@ -7097,14 +7101,16 @@ struct ContentView: View {
                 keywords: ["open", "ghostty", "settings", "config", "configuration", "file", "textedit", "terminal"]
             )
         )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.mobileConnect",
-                title: constant(String(localized: "command.mobileConnect.title", defaultValue: "Connect iPhone/iPad")),
-                subtitle: constant(String(localized: "command.mobileConnect.subtitle", defaultValue: "Mobile")),
-                keywords: Self.commandPaletteMobileConnectKeywords
+        if CmuxFeatureFlags.shared.isMobileConnectButtonEnabled {
+            contributions.append(
+                CommandPaletteCommandContribution(
+                    commandId: "palette.mobileConnect",
+                    title: constant(String(localized: "command.mobileConnect.title", defaultValue: "Connect iPhone/iPad")),
+                    subtitle: constant(String(localized: "command.mobileConnect.subtitle", defaultValue: "Mobile")),
+                    keywords: Self.commandPaletteMobileConnectKeywords
+                )
             )
-        )
+        }
         contributions.append(contentsOf: Self.commandPaletteAuthCommandContributions() + Self.commandPaletteProCommandContributions())
         contributions.append(
             CommandPaletteCommandContribution(
@@ -8243,7 +8249,11 @@ struct ContentView: View {
 #if DEBUG
             cmuxDebugLog("palette.mobileConnect.invoke")
 #endif
-            MobilePairingWindowController.shared.show()
+            _ = AppDelegate.shared?.performMobileConnectWorkspaceAction(
+                tabManager: tabManager,
+                preferredWindow: observedWindow,
+                debugSource: "palette.mobileConnect"
+            )
         }
         registerAuthCommandHandlers(&registry)
         registerProCommandHandlers(&registry)
@@ -12039,7 +12049,7 @@ struct VerticalTabsSidebar: View {
             return .project
         case .extensionBrowser:
             return .unknown
-        case .workspaceTodo, .cloudVMLoading:
+        case .workspaceTodo, .cloudVMLoading, .mobilePairing:
             return .unknown
         }
     }
@@ -14221,6 +14231,12 @@ struct SidebarFooterButtons: View {
 
     var body: some View {
         HStack(spacing: 4) {
+            if CmuxFeatureFlags.shared.isSidebarAccountButtonEnabled {
+                SidebarAccountMenuButton()
+            }
+            if CmuxFeatureFlags.shared.isMobileConnectButtonEnabled {
+                SidebarMobileConnectButton()
+            }
             SidebarHelpMenuButton(onSendFeedback: onSendFeedback)
             SidebarProBadge()
             // The puzzle button opens the extensions browser; it only shows

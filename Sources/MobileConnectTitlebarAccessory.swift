@@ -23,44 +23,10 @@ final class MobileConnectTitlebarAccessoryViewController: NSTitlebarAccessoryVie
     }
 }
 
-/// Trailing titlebar cluster: the Pro badge (active ``ProBadgeStyle``)
-/// followed by the Mobile Connect iPhone button.
+/// Trailing titlebar cluster. Mobile Connect now lives in the sidebar footer.
 private struct TitlebarTrailingControls: View {
     var body: some View {
-        HStack(spacing: 4) {
-            ProBadgeView()
-            MobileConnectTitlebarButton()
-        }
-        .padding(.trailing, 8)
-    }
-}
-
-private struct MobileConnectTitlebarButton: View {
-    @State private var isHovered = false
-
-    private var helpTitle: String {
-        String(localized: "command.mobileConnect.title", defaultValue: "Connect iPhone/iPad")
-    }
-
-    var body: some View {
-        if CmuxFeatureFlags.shared.isMobileConnectButtonEnabled {
-            Button {
-                MobilePairingWindowController.shared.show()
-            } label: {
-                Image(systemName: "iphone")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color(nsColor: .secondaryLabelColor))
-                    .frame(width: 24, height: 22, alignment: .center)
-                    .background(
-                        RoundedRectangle(cornerRadius: 5)
-                            .fill(isHovered ? Color(nsColor: .quaternaryLabelColor) : .clear)
-                    )
-            }
-            .buttonStyle(.plain)
-            .onHover { isHovered = $0 }
-            .safeHelp(helpTitle)
-            .accessibilityLabel(helpTitle)
-            .accessibilityIdentifier("TitlebarMobileConnectButton")
-        }
+        ProBadgeView()
+            .padding(.trailing, 8)
     }
 }

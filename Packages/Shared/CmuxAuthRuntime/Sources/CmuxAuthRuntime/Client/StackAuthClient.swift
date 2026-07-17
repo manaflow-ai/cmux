@@ -120,6 +120,12 @@ public struct StackAuthClient: AuthClient {
         let id = await user.id
         let email = await user.primaryEmail
         let name = await user.displayName
-        return CMUXAuthUser(id: id, primaryEmail: email, displayName: name)
+        let profileImageURL = await user.profileImageUrl
+        return CMUXAuthUser(
+            id: id,
+            primaryEmail: email,
+            displayName: name,
+            profileImageURL: profileImageURL
+        )
     }
 }

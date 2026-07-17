@@ -122,7 +122,12 @@ struct CMUXAuthStateTests {
 
     @Test("Primed cached user remains restoring while validating tokens")
     func primedCachedUserRemainsRestoringWhileValidatingTokens() {
-        let user = CMUXAuthUser(id: "user_123", primaryEmail: "user@example.com", displayName: "Test User")
+        let user = CMUXAuthUser(
+            id: "user_123",
+            primaryEmail: "user@example.com",
+            displayName: "Test User",
+            profileImageURL: "https://example.com/avatar.png"
+        )
         let state = CMUXAuthState.primed(
             clearAuthRequested: false,
             mockDataEnabled: false,

@@ -22,6 +22,8 @@ struct MacAuthComposition {
     let callbackRouter: AuthCallbackRouter
     /// The token store the Stack client persists through.
     let tokenStore: any StackAuthTokenStoreProtocol
+    /// Shared observable account projection used by Settings and sidebar UI.
+    let accountFlow: HostAccountFlow
 
     /// Build the auth graph.
     /// - Parameters:
@@ -119,7 +121,7 @@ struct MacAuthComposition {
             extraAllowedScheme: AuthEnvironment.callbackScheme
         )
         self.callbackRouter = callbackRouter
-        self.browserSignIn = HostBrowserSignInFlow(
+        let browserSignIn = HostBrowserSignInFlow(
             coordinator: coordinator,
             tokenStore: tokenStore,
             sessionFactory: ASWebBrowserAuthSessionFactory(anchor: anchor),
@@ -136,6 +138,11 @@ struct MacAuthComposition {
                     refreshToken: refreshToken
                 )
             }
+        )
+        self.browserSignIn = browserSignIn
+        self.accountFlow = HostAccountFlow(
+            coordinator: coordinator,
+            browserSignIn: browserSignIn
         )
     }
 

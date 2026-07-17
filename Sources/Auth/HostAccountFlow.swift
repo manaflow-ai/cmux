@@ -140,7 +140,7 @@ final class HostAccountFlow: AccountFlow {
             id: user.id,
             displayName: user.displayName ?? "",
             email: user.primaryEmail ?? "",
-            avatarURL: nil
+            avatarURL: user.profileImageURL.flatMap(URL.init(string:))
         )
     }
 }

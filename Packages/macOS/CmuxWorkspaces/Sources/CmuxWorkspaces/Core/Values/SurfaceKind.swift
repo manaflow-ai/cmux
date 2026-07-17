@@ -37,4 +37,6 @@ public struct SurfaceKind: RawRepresentable, Hashable, Sendable {
     public static let todo = SurfaceKind(rawValue: "todo")
     /// A transient Cloud VM loading pane.
     public static let cloudVMLoading = SurfaceKind(rawValue: "cloudVMLoading")
+    /// A transient iPhone pairing pane.
+    public static let mobilePairing = SurfaceKind(rawValue: "mobilePairing")
 }
