@@ -2545,7 +2545,7 @@ struct TextBoxInputContainer: View {
             )
         )
         .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .padding(.bottom, 7)
         .task(id: submitActionImageCacheTaskKey) {
             await refreshSubmitActionImageCache(keys: submitActionImageCacheKeys)
         }
