@@ -5,6 +5,7 @@ import Foundation
 final class FakeUpdater: UpdaterHandle {
     private(set) var checkForUpdatesCallCount = 0
     var canCheckForUpdates = true
+    var sessionInProgress = false
     // False so the controller skips the background launch probe in tests.
     var automaticallyChecksForUpdates = false
     var automaticallyDownloadsUpdates = false

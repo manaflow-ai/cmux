@@ -27,6 +27,16 @@ actor TestDeadlineClock: UpdateClock {
         }
     }
 
+    func fireDeadlineWhenReady() async {
+        // A test may request a deadline and immediately release it before the task running
+        // `sleep(for:)` reaches the actor. Yield until that real signal is registered instead of
+        // adding timing sleeps to the test.
+        while parked.isEmpty {
+            await Task.yield()
+        }
+        fireDeadlines()
+    }
+
     private func cancelParked(_ id: UUID) {
         parked.removeValue(forKey: id)?.resume(throwing: CancellationError())
     }
