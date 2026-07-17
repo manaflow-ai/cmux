@@ -8,6 +8,8 @@ actor LocationLifecyclePaneClient: SimulatorPaneClient {
     private var operationValues: [String] = []
     private var discoveryFailure: SimulatorFailure?
     private var stopFailuresRemaining = 0
+    private var shouldBlockNextStart = false
+    private var pendingStartContinuation: CheckedContinuation<Void, Never>?
 
     init(devices: [SimulatorDevice]) {
         deviceValues = devices
@@ -43,6 +45,10 @@ actor LocationLifecyclePaneClient: SimulatorPaneClient {
         switch action {
         case let .startLocationRoute(deviceID, _):
             operationValues.append("start:\(deviceID)")
+            if shouldBlockNextStart {
+                shouldBlockNextStart = false
+                await withCheckedContinuation { pendingStartContinuation = $0 }
+            }
         case let .stopLocationRoute(deviceID):
             operationValues.append("stop:\(deviceID)")
             if stopFailuresRemaining > 0 {
@@ -73,5 +79,13 @@ actor LocationLifecyclePaneClient: SimulatorPaneClient {
     func setDevices(_ devices: [SimulatorDevice]) { deviceValues = devices }
     func setDiscoveryFailure(_ failure: SimulatorFailure?) { discoveryFailure = failure }
     func failNextStops(_ count: Int) { stopFailuresRemaining = count }
+    func blockNextStart() { shouldBlockNextStart = true }
+    func waitUntilStartIsPending() async {
+        while pendingStartContinuation == nil { await Task.yield() }
+    }
+    func resumePendingStart() {
+        pendingStartContinuation?.resume()
+        pendingStartContinuation = nil
+    }
     func operations() -> [String] { operationValues }
 }

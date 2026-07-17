@@ -26,6 +26,37 @@ struct SimulatorPaneCoordinatorLocationLifecycleTests {
         await coordinator.close()
     }
 
+    @Test("A route that commits during device selection is stopped before activation")
+    func pendingRouteCommitIsReclaimedDuringDeviceSwitch() async {
+        let client = LocationLifecyclePaneClient(devices: [Self.device("A"), Self.device("B")])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        await coordinator.start()
+        await eventually { await client.operations().contains("activate:A") }
+        await client.blockNextStart()
+
+        coordinator.scheduleControlAction("location-route") {
+            await $0.startLocationRoute(Self.route())
+        }
+        await client.waitUntilStartIsPending()
+        coordinator.selectDevice(id: "B")
+        await client.resumePendingStart()
+        await eventually { await client.operations().contains("activate:B") }
+
+        let operations = await client.operations()
+        let startIndex = operations.firstIndex(of: "start:A")
+        let stopIndex = operations.firstIndex(of: "stop:A")
+        let activationIndex = operations.firstIndex(of: "activate:B")
+        #expect(startIndex != nil)
+        #expect(stopIndex != nil)
+        #expect(activationIndex != nil)
+        if let startIndex, let stopIndex, let activationIndex {
+            #expect(startIndex < stopIndex)
+            #expect(stopIndex < activationIndex)
+        }
+        #expect(coordinator.locationRouteDeviceID == nil)
+        await coordinator.close()
+    }
+
     @Test("Close and shutdown restore a route before ending their device lifecycle")
     func closeAndShutdownStopRouteFirst() async {
         let closeClient = LocationLifecyclePaneClient(devices: [Self.device("A")])
