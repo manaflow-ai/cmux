@@ -1099,6 +1099,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C248FC7D0000000000000002 /* MobileTaskDirectorySearchService+FuzzyMatching.swift in Sources */ = {isa = PBXBuildFile; fileRef = C248FC7D0000000000000001 /* MobileTaskDirectorySearchService+FuzzyMatching.swift */; };
 		D1A700000000000000000001 /* MobileTaskDirectorySearchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A700000000000000000004 /* MobileTaskDirectorySearchService.swift */; };
 		D1A700000000000000000003 /* MobileTaskDirectorySearchServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A700000000000000000006 /* MobileTaskDirectorySearchServiceTests.swift */; };
+		F5A700000000000000000001 /* MobileTaskFilesystemJobQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5A700000000000000000011 /* MobileTaskFilesystemJobQuotaTests.swift */; };
 		AB57F0C27BECE8EDFC6B2B97 /* MobileTerminalByteTee.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F05EBBC2FE0D5CB2F662B8A /* MobileTerminalByteTee.swift */; };
 		C9CFB398DF94D6DDEAF42D67 /* MobileTerminalRenderObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = F51B54FAD18160281FC1C2B6 /* MobileTerminalRenderObserver.swift */; };
 		F7A110000000000000000003 /* MobileTerminalThemeEmissionDecision.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A110000000000000000004 /* MobileTerminalThemeEmissionDecision.swift */; };
@@ -3160,6 +3161,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C248FC7D0000000000000001 /* MobileTaskDirectorySearchService+FuzzyMatching.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MobileTaskDirectorySearchService+FuzzyMatching.swift"; sourceTree = "<group>"; };
 		D1A700000000000000000004 /* MobileTaskDirectorySearchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileTaskDirectorySearchService.swift; sourceTree = "<group>"; };
 		D1A700000000000000000006 /* MobileTaskDirectorySearchServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileTaskDirectorySearchServiceTests.swift; sourceTree = "<group>"; };
+		F5A700000000000000000011 /* MobileTaskFilesystemJobQuotaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileTaskFilesystemJobQuotaTests.swift; sourceTree = "<group>"; };
 		4F05EBBC2FE0D5CB2F662B8A /* MobileTerminalByteTee.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileTerminalByteTee.swift; sourceTree = "<group>"; };
 		F51B54FAD18160281FC1C2B6 /* MobileTerminalRenderObserver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileTerminalRenderObserver.swift; sourceTree = "<group>"; };
 		F7A110000000000000000004 /* MobileTerminalThemeEmissionDecision.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileTerminalThemeEmissionDecision.swift; sourceTree = "<group>"; };
@@ -6278,6 +6280,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				9BD519CFE74530A46DF0925D /* MobileHostAuthorizationTests.swift */,
 				D1B800000000000000000015 /* MobileTaskDirectoryListServiceTests.swift */,
 				D1A700000000000000000006 /* MobileTaskDirectorySearchServiceTests.swift */,
+				F5A700000000000000000011 /* MobileTaskFilesystemJobQuotaTests.swift */,
 				7A1B2C3D4E5F60718293A4B5 /* MobileHostTerminalThemeTests.swift */,
 				C1A071000000000000000011 /* MobileHostIrohAdmissionTests.swift */,
 				C1A071000000000000000012 /* MobileHostConnectionEventLaneTests.swift */,
@@ -8504,6 +8507,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				9B08F916D7FF7626C6820727 /* MobilePairingConnectionTransitionTests.swift in Sources */,
 				D1B800000000000000000005 /* MobileTaskDirectoryListServiceTests.swift in Sources */,
 				D1A700000000000000000003 /* MobileTaskDirectorySearchServiceTests.swift in Sources */,
+				F5A700000000000000000001 /* MobileTaskFilesystemJobQuotaTests.swift in Sources */,
 				F6448F377504F33956E7E03B /* MobileWorkspaceListFidelityTests.swift in Sources */,
 				13AB1A2E5DA6AD02DCAE971D /* MockBridgeInputCapture.swift in Sources */,
 				596100000000000000000001 /* NativeNotificationFallbackCommandTests.swift in Sources */,
