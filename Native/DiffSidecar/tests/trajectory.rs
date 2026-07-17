@@ -401,6 +401,35 @@ fn claude_resolver_rejects_malformed_jsonl() {
 }
 
 #[test]
+fn claude_resolver_rejects_a_jsonl_record_over_the_line_limit() {
+    let fixture = FixtureRoot::new("claude-oversized-jsonl-record");
+    prepare_common_directories(&fixture);
+    let transcript = fixture.home().join("claude-oversized.jsonl");
+    let repo = fixture.repo();
+    let oversized = serde_json::json!({
+        "type": "user",
+        "cwd": repo,
+        "padding": "x".repeat(16 * 1024 * 1024)
+    });
+    fs::write(&transcript, oversized.to_string()).expect("write oversized transcript record");
+    write_hook_store(
+        &fixture.home(),
+        "claude",
+        "session",
+        &repo,
+        Some(&transcript),
+    );
+
+    let error = resolve_last_turn_patch(
+        &AgentTurnIdentity::new(AgentProvider::Claude, "session"),
+        &TrajectoryRoots::for_home(fixture.home()),
+    )
+    .expect_err("oversized JSONL records must fail closed");
+
+    assert_eq!(error.to_string(), "agent trajectory is invalid");
+}
+
+#[test]
 fn claude_resolver_skips_out_of_repo_patch_results() {
     let fixture = FixtureRoot::new("claude-outside-repo");
     prepare_common_directories(&fixture);

@@ -61,6 +61,22 @@ private final class BrowserPanelTestScriptMessageHandler: NSObject, WKScriptMess
     }
 }
 
+private actor DiffViewerStreamConcurrencyProbe {
+    private var active = 0
+    private var peak = 0
+
+    func started() {
+        active += 1
+        peak = max(peak, active)
+    }
+
+    func finished() {
+        active -= 1
+    }
+
+    func peakCount() -> Int { peak }
+}
+
 @MainActor
 private final class BrowserHiddenWebViewDiscardTestDelegate: BrowserHiddenWebViewDiscardManagerDelegate {
     var snapshot: BrowserHiddenWebViewDiscardManager.BlockerSnapshot
@@ -807,6 +823,44 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
             delivered += 1
         })
         XCTAssertEqual(delivered, 2)
+    }
+
+    func testDiffViewerAssetStreamLimiterBoundsConcurrentReaders() async {
+        let limiter = DiffViewerAssetStreamLimiter(limit: 2)
+        let probe = DiffViewerStreamConcurrencyProbe()
+        let tasks = (0..<8).map { _ in
+            Task {
+                await limiter.withPermit {
+                    await probe.started()
+                    try? await Task.sleep(for: .milliseconds(25))
+                    await probe.finished()
+                }
+            }
+        }
+
+        for task in tasks {
+            await task.value
+        }
+
+        let peak = await probe.peakCount()
+        XCTAssertEqual(peak, 2)
+    }
+
+    func testDiffViewerLoadingOwnershipIncludesDeferredOpeningPage() throws {
+        let token = UUID().uuidString.lowercased()
+        let openingURL = try XCTUnwrap(CmuxDiffViewerURLSchemeHandler.diffViewerURL(
+            token: token,
+            requestPath: "/diff-group-opening.html"
+        ))
+        let completedURL = try XCTUnwrap(CmuxDiffViewerURLSchemeHandler.diffViewerURL(
+            token: token,
+            requestPath: "/diff-group-viewer.html"
+        ))
+        let expectedURL = DiffViewerLoadingPage.url.absoluteString
+
+        XCTAssertTrue(DiffViewerLoadingPage.owns(url: DiffViewerLoadingPage.url, expectedURL: expectedURL))
+        XCTAssertTrue(DiffViewerLoadingPage.owns(url: openingURL, expectedURL: expectedURL))
+        XCTAssertFalse(DiffViewerLoadingPage.owns(url: completedURL, expectedURL: expectedURL))
     }
 
     func testDiffViewerSchemeLoadsSameOriginModuleFromAllowlist() throws {
