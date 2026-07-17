@@ -589,22 +589,29 @@ impl Mux {
         rows: u16,
     ) -> anyhow::Result<(bool, Option<u64>)> {
         let requested = (cols.max(1), rows.max(1));
-        let effective = {
+        let (effective, previous) = {
             let mut sizes = self.client_surface_sizes.lock().unwrap();
             let viewers = sizes.entry(id).or_default();
-            viewers.insert(client, requested);
-            viewers
+            let previous = viewers.insert(client, requested);
+            let effective = viewers
                 .values()
                 .copied()
-                .fold(requested, |smallest, size| (smallest.0.min(size.0), smallest.1.min(size.1)))
+                .fold(requested, |smallest, size| (smallest.0.min(size.0), smallest.1.min(size.1)));
+            (effective, previous)
         };
-        self.record_client_size(effective.0, effective.1);
         match self.resize_surface_with_reservation(id, effective.0, effective.1) {
-            Ok(changed) => Ok(changed),
+            Ok(changed) => {
+                self.record_client_size(effective.0, effective.1);
+                Ok(changed)
+            }
             Err(error) => {
                 let mut sizes = self.client_surface_sizes.lock().unwrap();
                 if let Some(viewers) = sizes.get_mut(&id) {
-                    viewers.remove(&client);
+                    if let Some(previous) = previous {
+                        viewers.insert(client, previous);
+                    } else {
+                        viewers.remove(&client);
+                    }
                     if viewers.is_empty() {
                         sizes.remove(&id);
                     }
@@ -629,7 +636,9 @@ impl Mux {
             effective
         };
         if let Some((cols, rows)) = effective {
-            let _ = self.resize_surface(id, cols, rows);
+            if self.resize_surface(id, cols, rows).is_ok() {
+                self.record_client_size(cols, rows);
+            }
         }
     }
 
