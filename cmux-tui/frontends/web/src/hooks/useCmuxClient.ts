@@ -9,6 +9,7 @@ import {
   type IdentifyResult,
   type NotificationEvent,
   type PairingChallenge,
+  type TitleChangedEvent,
   type Tree,
 } from "cmux/browser";
 import { browserClientName } from "../lib/clientName";
@@ -18,7 +19,8 @@ import {
   selectionSnapshot,
 } from "../lib/localSelection";
 import { reconnectTransition, type ReconnectState } from "../lib/reconnect";
-import { activeScreen, locateSurface, treeToViewModel } from "../lib/tree";
+import { supportsProtocol } from "../lib/protocol";
+import { activeScreen, locateSurface, SurfaceTitleReconciler, treeToViewModel } from "../lib/tree";
 import { t } from "../i18n";
 
 export interface ConnectionConfig {
@@ -58,7 +60,7 @@ export function useCmuxClient() {
   const [unread, setUnread] = useState<Set<Id>>(() => new Set());
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [selection, dispatchSelection] = useReducer(localSelectionReducer, initialLocalSelectionState);
-  const refreshRef = useRef<(() => Promise<void>) | null>(null);
+  const refreshRef = useRef<(() => Promise<Tree | null>) | null>(null);
   const localToastId = useRef(-1);
   const pairingCredential = useRef<string | undefined>(undefined);
 
@@ -67,14 +69,40 @@ export function useCmuxClient() {
     let cancelled = false;
     let activeClient: CmuxClient | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let titleFlushTimer: ReturnType<typeof setTimeout> | undefined;
+    const pendingSurfaceTitles = new Map<Id, string>();
+    let titleReconciler = new SurfaceTitleReconciler();
+
+    const discardPendingSurfaceTitles = () => {
+      if (titleFlushTimer !== undefined) clearTimeout(titleFlushTimer);
+      titleFlushTimer = undefined;
+      pendingSurfaceTitles.clear();
+    };
+    const flushSurfaceTitles = () => {
+      titleFlushTimer = undefined;
+      if (cancelled || pendingSurfaceTitles.size === 0) return;
+      pendingSurfaceTitles.clear();
+      setState((current) => current.tree === null
+        ? current
+        : { ...current, tree: titleReconciler.apply(current.tree) });
+    };
+    const queueSurfaceTitle = (surface: Id, title: string) => {
+      titleReconciler.record(surface, title);
+      pendingSurfaceTitles.set(surface, title);
+      titleFlushTimer ??= setTimeout(flushSurfaceTitles, 0);
+    };
 
     const refresh = async () => {
-      if (!activeClient) return;
+      if (!activeClient) return null;
+      discardPendingSurfaceTitles();
+      const token = titleReconciler.beginRefresh();
       const tree = await activeClient.listWorkspaces();
-      if (!cancelled) {
-        setState((current) => ({ ...current, tree }));
-        dispatchSelection({ type: "tree-updated", snapshot: selectionSnapshot(tree) });
+      const committed = titleReconciler.commit(tree, token);
+      if (!cancelled && committed.applied) {
+        setState((current) => ({ ...current, tree: committed.tree }));
+        dispatchSelection({ type: "tree-updated", snapshot: selectionSnapshot(committed.tree) });
       }
+      return committed.tree;
     };
     const refreshClients = async () => {
       if (!activeClient) return;
@@ -85,6 +113,10 @@ export function useCmuxClient() {
 
     const start = async (reconnecting: boolean, previousAttempt = 0): Promise<void> => {
       if (cancelled) return;
+      // Retained title events belong to one transport generation. A restarted
+      // server may reuse surface IDs, so no title state may cross reconnects.
+      discardPendingSurfaceTitles();
+      titleReconciler = new SurfaceTitleReconciler();
       let dropHandled = false;
       let canReconnect = false;
       const transport = new WebSocketTransport(config.url, {
@@ -125,10 +157,7 @@ export function useCmuxClient() {
       try {
         const info = await client.identify();
         if (info.app !== "cmux-tui") throw new Error(t("wrongApp", { app: info.app }));
-        // v6 is the baseline this client speaks; v7 servers are additive
-        // (byte mode and coarse tree events are their defaults), so any
-        // newer protocol is acceptable until we opt into v7 features.
-        if (info.protocol < 6) throw new Error(t("wrongProtocol", { protocol: info.protocol }));
+        if (!supportsProtocol(info.protocol)) throw new Error(t("wrongProtocol", { protocol: info.protocol }));
         // Presence commands are additive (7c5a9e3e60); a protocol-6 server
         // predating them still serves everything else, so degrade instead of
         // failing the whole connect.
@@ -177,7 +206,23 @@ export function useCmuxClient() {
                 setUnread((current) => new Set(current).add(notification.surface!));
               }
             }
-            if (["tree-changed", "layout-changed", "surface-resized", "surface-exited", "title-changed"].includes(event.event)) {
+            if (event.event === "title-changed") {
+              const changed = event as TitleChangedEvent;
+              if (changed.title === undefined) {
+                discardPendingSurfaceTitles();
+                await refresh();
+              } else {
+                queueSurfaceTitle(changed.surface, changed.title);
+              }
+            }
+            // This frontend passes only live PTY tabs to useAttachedTerminal;
+            // browser tabs render the unsupported placeholder and never call
+            // resizeSurface. A surface-resize-failed broadcast therefore
+            // belongs to another client and must not be echoed into a
+            // multi-client retry loop. Browser rendering must add explicit
+            // per-client geometry ownership before handling that event.
+            if (["tree-changed", "layout-changed", "surface-resized", "surface-exited"].includes(event.event)) {
+              discardPendingSurfaceTitles();
               await refresh();
             }
             if (
@@ -228,6 +273,7 @@ export function useCmuxClient() {
     return () => {
       cancelled = true;
       if (retryTimer !== undefined) clearTimeout(retryTimer);
+      discardPendingSurfaceTitles();
       refreshRef.current = null;
       void activeClient?.close();
     };
@@ -289,9 +335,8 @@ export function useCmuxClient() {
     (create: (client: CmuxClient) => Promise<{ surface: Id }>) =>
       runMutation(async (client) => {
         const created = await create(client);
-        const tree = await client.listWorkspaces();
-        setState((current) => ({ ...current, tree }));
-        dispatchSelection({ type: "tree-updated", snapshot: selectionSnapshot(tree) });
+        const tree = await refreshRef.current?.();
+        if (!tree) return;
         const target = locateSurface(tree, created.surface);
         if (target) {
           dispatchSelection({ type: "navigate", workspaceId: target.workspaceId, screenId: target.screenId });

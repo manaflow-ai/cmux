@@ -1,8 +1,17 @@
 # Event Contract
 
-This file specifies event lines emitted by protocol v5 and v6 plus the protocol-v7 draft additions. Event lines are JSON objects with an `event` string and no response envelope.
+This file specifies event lines emitted by protocol v7, including compatibility notes for fields and attach behavior introduced in earlier versions. Event lines are JSON objects with an `event` string and no response envelope.
 
 The schema notation and `Id`, `Workspace`, `Screen`, `Pane`, and `Tab` types come from [`commands.md`](commands.md#notation). `Cursor`, `Row`, and `Run` come from [`render.md`](render.md#shared-render-types).
+
+Implemented event lines can appear on two stream types:
+
+| Stream | How to start | Event names |
+| --- | --- | --- |
+| Subscribe stream | `subscribe` command | `tree-changed`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `bell`, `notification`, `config-reload-requested`, `window-title-requested`, `client-attached`, `client-changed`, `client-detached`, `empty`, `overflow` |
+| Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached`, `overflow` |
+| Attach stream v6 | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `scroll-changed`, `detached`, `overflow` |
+| Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
 
 Events and command responses share one full-duplex connection. Each event or response is a complete transport message: a JSON line on Unix or a text frame on WebSocket. Clients must route messages by checking for `event`. If `event` is absent, the message is a command response and should be matched by `id`.
 
@@ -53,7 +62,11 @@ Subscribe events belong to the `subscribe` registration. Tree lifecycle deltas b
 
 The server writes each response or event as one complete transport message. JSON lines and WebSocket text frames are not interleaved at the byte level.
 
-For a single subscription, events are delivered in the order the mux broadcasts them. The server does not create a total order across unrelated producer threads beyond the order in which events enter the mux broadcaster.
+For a single subscription, ordinary events are delivered in the order the mux broadcasts them. The server does not create a total order across unrelated producer threads beyond the order in which events enter the mux broadcaster.
+
+Protocol v7 treats `title-changed` as a latest-state notification. A slow subscriber retains at most one pending title per surface. Repeated pending titles for the same surface coalesce to the newest `title` and take the newest event's position relative to ordinary events. Subscribers are independent, and a pending title is discarded when its surface exits.
+
+Each subscription retains at most 4,096 pending events. If a client falls behind that bound, the server drains the accepted backlog, emits `overflow`, and ends that subscription. A subscribe client must open a new subscription and fetch `list-workspaces` to reconcile state. An attach client must reattach the named surface.
 
 `subscribe` registers the event receiver before the command response is written. A client must not treat the `subscribe` response as an event-stream barrier.
 
@@ -68,6 +81,28 @@ Protocol v7 render attach streams are ordered as `render-state -> (render-delta 
 When a surface exits, the mux removes it from the tree itself. Before `surface-exited`, a coarse subscription normally receives `tree-changed`, while a delta subscription normally receives the applicable close delta or the `tree-changed` fallback; either mode may also receive `empty`. By the time `surface-exited` is observed, frontends should consider the surface reaped from authoritative tree state.
 
 ## Subscribe Events
+
+### overflow
+
+| Field | Value |
+| --- | --- |
+| event | `overflow` |
+| status | implemented |
+| since | protocol 7 |
+
+Payload:
+
+```text
+object{event:"overflow",error:string,scope?:"surface",surface?:Id}
+```
+
+Meaning: The client stopped draining events before the bounded server backlog filled. Without `scope`, the subscribe stream ended and the client must subscribe again, then fetch `list-workspaces`. With `scope:"surface"`, the attach notification stream ended and the client must reattach `surface`.
+
+Example:
+
+```json
+{"event":"overflow","error":"subscriber fell behind; resubscribe to continue receiving events"}
+```
 
 ### client-attached
 
@@ -406,15 +441,37 @@ Example:
 Payload:
 
 ```text
-object{event:"surface-resized",surface:Id,cols:uint16,rows:uint16}
+object{event:"surface-resized",surface:Id,cols:uint16,rows:uint16,reservation_id:uint64|null}
 ```
 
-Meaning: A surface's final clamped cell size changed. A same-size `resize-surface` command returns success but emits no `surface-resized` event.
+Meaning: A surface's final clamped cell size changed. `reservation_id` identifies the accepted asynchronous browser resize that completed, and is `null` for PTY resizes. A same-size `resize-surface` command returns success but emits no `surface-resized` event.
 
 Example:
 
 ```json
-{"event":"surface-resized","surface":1,"cols":120,"rows":40}
+{"event":"surface-resized","surface":1,"cols":120,"rows":40,"reservation_id":7}
+```
+
+### surface-resize-failed
+
+| Field | Value |
+| --- | --- |
+| event | `surface-resize-failed` |
+| status | implemented |
+| since | protocol 7 |
+
+Payload:
+
+```text
+object{event:"surface-resize-failed",surface:Id,cols:uint16,rows:uint16,error:string,retry_after_ms:uint64|null,reservation_id:uint64}
+```
+
+Meaning: An accepted asynchronous browser resize failed. `reservation_id` matches the accepted request. A numeric `retry_after_ms` is the delay before the requesting client retries the same geometry. `null` means automatic retries are exhausted; a new geometry request or browser reconnection may retry it. The event is broadcast, so subscribers that did not request this geometry must not echo it.
+
+Example:
+
+```json
+{"event":"surface-resize-failed","surface":1,"cols":120,"rows":40,"error":"browser is not responding","retry_after_ms":250,"reservation_id":7}
 ```
 
 ### surface-exited
@@ -446,19 +503,20 @@ Example:
 | event | `title-changed` |
 | status | implemented |
 | since | protocol 5 |
+| `title` field | protocol 7 |
 
 Payload:
 
 ```text
-object{event:"title-changed",surface:Id}
+object{event:"title-changed",surface:Id,title:string}
 ```
 
-Meaning: A surface title changed. The event does not include the new title. Clients should call `list-workspaces` to read the current tab title.
+Meaning: A surface title changed. Protocol v7 includes the authoritative current title, so clients can update that surface directly without fetching the workspace tree. Protocol v5-v6 events omit `title`; clients connected to those versions must call `list-workspaces`.
 
 Example:
 
 ```json
-{"event":"title-changed","surface":1}
+{"event":"title-changed","surface":1,"title":"build logs"}
 ```
 
 ### bell
@@ -769,7 +827,7 @@ Example:
 | --- | --- |
 | event | `agent-state-changed` |
 | status | proposed |
-| since | proposed protocol 6 |
+| since | proposed protocol 8 |
 
 Payload:
 
@@ -799,7 +857,7 @@ Example:
 | --- | --- |
 | event | `notification` |
 | status | proposed |
-| since | proposed protocol 6 |
+| since | proposed protocol 8 |
 
 Payload:
 
@@ -825,7 +883,7 @@ Example:
 
 ## Proposed Subscribe Filters
 
-Protocol v6 extends `subscribe` with optional filters:
+Proposed protocol v8 extends `subscribe` with optional filters:
 
 Params:
 

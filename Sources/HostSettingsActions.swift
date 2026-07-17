@@ -19,6 +19,33 @@ private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category:
 final class HostSettingsActions: SettingsHostActions {
     private let configFileURL: URL
 
+    func browserWebExtensionsSupported() -> Bool {
+        if #available(macOS 15.4, *) { return true }
+        return false
+    }
+
+    func discoverBrowserWebExtensions() async -> [SettingsDiscoveredBrowserExtension] {
+        guard browserWebExtensionsSupported() else { return [] }
+        let candidates = await BrowserWebExtensionDiscoveryService().discoverInstalledSafariExtensions()
+        return candidates.map { candidate in
+            SettingsDiscoveredBrowserExtension(
+                id: candidate.id,
+                displayName: candidate.displayName,
+                version: candidate.version,
+                path: candidate.path
+            )
+        }
+    }
+
+    func browserWebExtensionLoadErrorUpdates() -> AsyncStream<[String: String]> {
+        guard #available(macOS 15.4, *),
+              let support = AppDelegate.shared?.browserWebExtensionHost
+                as? BrowserWebExtensionSupport else {
+            return AsyncStream { $0.finish() }
+        }
+        return support.loadErrorUpdates()
+    }
+
     /// Serializes font-size config writes so rapid slider saves persist in order.
     private let fontConfigWriter = FontConfigWriter()
 
@@ -89,6 +116,17 @@ final class HostSettingsActions: SettingsHostActions {
     func resetAllSettingsSideEffects() {
         LanguageSettingsStore(defaults: .standard).applyLanguageOverride(.system)
         PaneChromeSettings.notifyDidChange()
+        AppDelegate.shared?.reconcileSocketListenerConfiguration(source: "settings.reset_all")
+    }
+
+    func notifyShortcutSettingsDidChange() {
+        // reload() already posts didChangeNotification when the file's
+        // contents changed; posting again here double-notified every
+        // listener. Only post when the reload saw no change, so callers
+        // still get exactly one notification either way.
+        if !KeyboardShortcutSettings.settingsFileStore.reload() {
+            KeyboardShortcutSettings.notifySettingsFileDidChange()
+        }
     }
 
     func applyLanguageOverride(_ language: AppLanguage) {
@@ -124,6 +162,12 @@ final class HostSettingsActions: SettingsHostActions {
         task.arguments = ["-n", bundlePath]
         try? task.run()
         NSApp.terminate(nil)
+    }
+
+    func socketControlConfigurationDidChange() {
+        AppDelegate.shared?.reconcileSocketListenerConfiguration(
+            source: "settings.automation.socketControlMode.commit"
+        )
     }
 
     func openBrowserImportFlow() {

@@ -6,4 +6,3 @@ public protocol CmuxProtocolClientFactory: Sendable {
     /// - Returns: A client whose transport has not yet been opened.
     func makeClient() async -> CmuxProtocolClient
 }
-

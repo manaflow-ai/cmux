@@ -39,6 +39,7 @@ import type {
   ReadScrollbackResult,
   ReadScreenResult,
   ReloadConfigResult,
+  ResizeSurfaceResult,
   ReportAgentResult,
   RunResult,
   RenderAttachEvent,
@@ -287,6 +288,7 @@ export class CmuxClient {
   private readonly streamTransportFactory?: () => Transport;
   private nextRequestId = 1;
   private identifiedProtocol: number | null = null;
+  private sharedSubscriptionActive = false;
 
   constructor(options: CmuxClientOptions) {
     this.transport = options.transport;
@@ -397,8 +399,9 @@ export class CmuxClient {
   renameSurface(surface: Id, name: string): Promise<EmptyResult> { return this.request("rename-surface", { surface, name }); }
   renameScreen(screen: Id, name: string): Promise<EmptyResult> { return this.request("rename-screen", { screen, name }); }
   renameWorkspace(workspace: Id, name: string): Promise<EmptyResult> { return this.request("rename-workspace", { workspace, name }); }
-  resizeSurface(surface: Id, cols: number, rows: number): Promise<EmptyResult> {
-    return this.request("resize-surface", { surface, cols, rows });
+  async resizeSurface(surface: Id, cols: number, rows: number): Promise<ResizeSurfaceResult> {
+    const result = await this.request("resize-surface", { surface, cols, rows });
+    return { ...result, accepted: result.accepted ?? true };
   }
   focusPane(pane: Id): Promise<EmptyResult> { return this.request("focus-pane", { pane }); }
   selectTab(options: SelectTabOptions = {}): Promise<EmptyResult> { return this.request("select-tab", options); }
@@ -412,7 +415,10 @@ export class CmuxClient {
     return this.openStream(
       { cmd: "subscribe", tree_events: options.treeEvents },
       (event) => event as SubscribeEvent,
-      (event, dedicated) => dedicated || !this.attachOnlyEvent(event.event),
+      (event, dedicated) => dedicated
+        || (!this.attachOnlyEvent(event.event) && !this.isSurfaceOverflow(event)),
+      (event) => event.event === "overflow" && !this.isSurfaceOverflow(event),
+      true,
     );
   }
 
@@ -444,14 +450,14 @@ export class CmuxClient {
         request,
         (event) => event as RenderAttachEvent,
         (event, dedicated) => dedicated || this.matchesAttachEvent(event, surface, mode),
-        (event) => event.event === "detached",
+        (event) => event.event === "detached" || this.isSurfaceOverflow(event, surface),
       );
     }
     return this.openStream(
       request,
       (event) => this.decodeAttachEvent(event as AttachEvent),
       (event, dedicated) => dedicated || this.matchesAttachEvent(event, surface, mode),
-      (event) => event.event === "detached",
+      (event) => event.event === "detached" || this.isSurfaceOverflow(event, surface),
     );
   }
 
@@ -486,8 +492,17 @@ export class CmuxClient {
     map: (event: UnknownEvent) => T,
     accept: (event: UnknownEvent, dedicated: boolean) => boolean,
     terminal: (event: T) => boolean = () => false,
+    exclusiveSharedSubscription = false,
   ): Promise<CmuxStream<T>> {
     const dedicated = this.streamTransportFactory !== undefined;
+    if (exclusiveSharedSubscription && !dedicated) {
+      if (this.sharedSubscriptionActive) {
+        throw new CmuxProtocolError(
+          "concurrent subscriptions require streamTransportFactory",
+        );
+      }
+      this.sharedSubscriptionActive = true;
+    }
     const transport = this.streamTransportFactory?.() ?? this.transport;
     const router = dedicated ? new MessageRouter(transport) : this.router;
     let eventSubscription: Unsubscribe = () => undefined;
@@ -495,6 +510,9 @@ export class CmuxClient {
     const stream = new CmuxStream<T>(this.timeoutMs, () => {
       eventSubscription();
       terminalSubscription();
+      if (exclusiveSharedSubscription && !dedicated) {
+        this.sharedSubscriptionActive = false;
+      }
       if (dedicated) transport.close();
     });
     eventSubscription = router.onEvent((event) => {
@@ -547,10 +565,21 @@ export class CmuxClient {
       return mode === "bytes" && (!("surface" in event) || event.surface === surface);
     }
     if (!("surface" in event) || event.surface !== surface) return false;
-    if (event.event === "detached" || event.event === "scroll-changed") return true;
+    if (event.event === "detached" || event.event === "scroll-changed"
+      || this.isSurfaceOverflow(event, surface)) return true;
     return mode === "render"
       ? event.event === "render-state" || event.event === "render-delta"
       : event.event === "vt-state" || event.event === "output" || event.event === "resized";
+  }
+
+  private isSurfaceOverflow(
+    event: { event: string; scope?: unknown; surface?: unknown },
+    surface?: Id,
+  ): boolean {
+    return event.event === "overflow"
+      && event.scope === "surface"
+      && "surface" in event
+      && (surface === undefined || event.surface === surface);
   }
 
   private attachOnlyEvent(event: string): boolean {

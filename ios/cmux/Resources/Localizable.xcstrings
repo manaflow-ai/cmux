@@ -2534,6 +2534,125 @@
         }
       }
     },
+    "mobile.hostPicker.app.dev": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux DEV"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux DEV"
+          }
+        }
+      }
+    },
+    "mobile.hostPicker.app.devTaggedFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux DEV %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux DEV %@"
+          }
+        }
+      }
+    },
+    "mobile.hostPicker.app.legacy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Legacy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "旧形式"
+          }
+        }
+      }
+    },
+    "mobile.hostPicker.app.nightly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Nightly"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Nightly"
+          }
+        }
+      }
+    },
+    "mobile.hostPicker.app.rc": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux RC"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux RC"
+          }
+        }
+      }
+    },
+    "mobile.hostPicker.app.stable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux"
+          }
+        }
+      }
+    },
+    "mobile.hostPicker.app.staging": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Staging"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Staging"
+          }
+        }
+      }
+    },
     "mobile.hostPicker.active": {
       "extractionState": "manual",
       "localizations": {
@@ -3452,6 +3571,23 @@
         }
       }
     },
+    "mobile.pairing.guidance.macUpdateRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your saved computer will reconnect automatically after you update cmux on the Mac. You do not need to sign out or pair again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macのcmuxをアップデートすると、保存済みのコンピュータに自動的に再接続します。サインアウトや再ペアリングは不要です。"
+          }
+        }
+      }
+    },
     "mobile.pairing.guidance.openMacApp": {
       "extractionState": "manual",
       "localizations": {
@@ -3584,6 +3720,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "iOSが接続をブロックしました。iOSの設定でcmuxにローカルネットワークの使用を許可してから、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.macUpdateRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update cmux on this Mac to connect securely."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安全に接続するには、このMacのcmuxをアップデートしてください。"
           }
         }
       }

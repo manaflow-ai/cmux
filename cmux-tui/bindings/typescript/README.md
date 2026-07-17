@@ -84,7 +84,9 @@ await client.close();
 
 `new CmuxClient()` uses `CMUX_TUI_SOCKET`, then legacy `CMUX_MUX_SOCKET`, then
 the default session socket. Unix subscribe and attach streams retain dedicated
-connections; an injected transport can multiplex them on its main connection.
+connections. An injected transport can multiplex attach streams and one
+subscription on its main connection; concurrent subscriptions require a
+`streamTransportFactory` because overflow events are terminal to one stream.
 
 ## Raw typed requests
 

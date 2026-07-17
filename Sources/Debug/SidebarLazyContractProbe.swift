@@ -16,5 +16,6 @@ struct SidebarLazyContractProbe {
     var workspaceRowBodyEnd: (() -> Void)?
     var groupHeaderRowBody: (() -> Void)?
     var workspaceSnapshotBuild: (() -> Void)?
+    var workspaceRowInputProjection: (() -> Void)?
 }
 #endif

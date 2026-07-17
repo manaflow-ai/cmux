@@ -20,7 +20,7 @@ Only then send protocol requests. See [`transports.md`](transports.md#authentica
 
 ## 2. Identify And Select Capabilities
 
-Send [`identify`](commands.md#identify) immediately. Verify `data.app == "cmux-tui"`, preserve request ids, and route every message without `event` to its pending request.
+Send [`identify`](commands.md#identify) immediately after connecting. Verify `data.app == "cmux-tui"` and `data.protocol == 7` before enabling protocol-v7 behavior. Preserve request `id` values and route every non-event response back to the pending request with that id.
 
 ```json
 {"id":1,"cmd":"identify"}
@@ -37,7 +37,7 @@ Protocol v7 lifecycle events (`workspace-*`, `screen-*`, `pane-*`, and `tab-*`) 
 
 Always implement `tree-changed`: it is the delta stream's coarse resync fallback for churn and changes not represented by lifecycle deltas. Do not rely on it for ordinary delta-representable mutations. On receipt, fetch a new `list-workspaces` snapshot and treat it as authoritative over older buffered deltas. See the [event-scoping table](events.md#event-scoping) before routing events from a connection with streams.
 
-Initial surface dimensions and later resize ownership follow the consolidated [`Sizing`](commands.md#sizing) contract.
+Initial surface dimensions and smallest-client resize reporting follow the consolidated [`Sizing`](commands.md#sizing) contract.
 
 ## 4. Render A PTY Surface
 

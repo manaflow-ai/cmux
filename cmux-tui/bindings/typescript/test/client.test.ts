@@ -21,6 +21,24 @@ class ScriptedTransport implements Transport {
   }
 }
 
+test("legacy resize response defaults to accepted", async () => {
+  const transport = new ScriptedTransport((request, connection) => {
+    connection.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+  assert.deepEqual(await client.resizeSurface(7, 80, 24), { accepted: true });
+  await client.close();
+});
+
+test("resize response preserves reservation identity", async () => {
+  const transport = new ScriptedTransport((request, connection) => {
+    connection.emit({ id: request.id, ok: true, data: { accepted: true, reservation_id: 41 } });
+  });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+  assert.deepEqual(await client.resizeSurface(7, 80, 24), { accepted: true, reservation_id: 41 });
+  await client.close();
+});
+
 test("attachSurface decodes VT colors, output, and resized payloads", async () => {
   const main = new ScriptedTransport((request, transport) => {
     assert.equal(request.cmd, "identify");
@@ -79,6 +97,43 @@ test("attachSurface decodes VT colors, output, and resized payloads", async () =
     assert.deepEqual(resized.replay, resized.data);
   }
   stream.close();
+  await client.close();
+});
+
+test("surface overflow terminates only the matching shared attach stream", async () => {
+  const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "identify") {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: { app: "cmux-tui", version: "0.1.2", protocol: 6, session: "main", pid: 1 },
+      });
+      return;
+    }
+    assert.ok(request.cmd === "attach-surface" || request.cmd === "subscribe");
+    connection.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+  const attach = await client.attachSurface(7);
+  const subscription = await client.subscribe();
+
+  transport.emit({
+    event: "overflow",
+    scope: "surface",
+    surface: 7,
+    error: "surface stream fell behind",
+  });
+  transport.emit({ event: "overflow", error: "subscriber fell behind" });
+
+  const attachOverflow = await attach.next();
+  assert.equal(attachOverflow.event, "overflow");
+  await assert.rejects(() => attach.next(), /stream is closed/);
+  const subscriptionOverflow = await subscription.next();
+  assert.equal(subscriptionOverflow.event, "overflow");
+  if (subscriptionOverflow.event === "overflow") {
+    assert.equal(subscriptionOverflow.scope, undefined);
+  }
+  await assert.rejects(() => subscription.next(), /stream is closed/);
   await client.close();
 });
 
@@ -346,6 +401,25 @@ test("subscribe yields client attached, changed, and detached events", async () 
   assert.deepEqual(await events.next(), { event: "client-changed", client: 2, name: "tablet", kind: "web" });
   assert.deepEqual(await events.next(), { event: "client-detached", client: 2 });
   events.close();
+  await client.close();
+});
+
+test("concurrent shared subscriptions require dedicated transports", async () => {
+  const transport = new ScriptedTransport((request, connection) => {
+    assert.equal(request.cmd, "subscribe");
+    connection.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+  const first = await client.subscribe();
+
+  await assert.rejects(
+    () => client.subscribe(),
+    /concurrent subscriptions require streamTransportFactory/,
+  );
+
+  first.close();
+  const replacement = await client.subscribe();
+  replacement.close();
   await client.close();
 });
 

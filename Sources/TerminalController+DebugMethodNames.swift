@@ -3,6 +3,7 @@ extension TerminalController {
     nonisolated static let v2DebugMethodNames: [String] = [
         "remote.tmux.test_exec",
         "remote.tmux.test_set_frame",
+        "remote.tmux.test_perturb_divider",
         "remote.tmux.sizing_settled",
         "debug.shortcut.set",
         "debug.shortcut.simulate",
@@ -42,8 +43,6 @@ extension TerminalController {
         "debug.panel_snapshot.reset",
         "debug.session_snapshot_benchmark",
         "debug.session_snapshot_seed_scrollback",
-        "debug.process_metrics.read",
-        "debug.process_metrics.reset",
         "debug.window.screenshot",
         "debug.terminal.simulate_file_drop",
         "debug.sidebar.simulate_drag",

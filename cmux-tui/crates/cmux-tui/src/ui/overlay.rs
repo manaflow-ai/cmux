@@ -1,7 +1,7 @@
 //! Overlays drawn on top of the frame: the right-click context menu and
 //! the centered rename dialog. Menu items get a one-cell padding column
-//! each side inside a border (no extra rows), and the selected row (arrow
-//! keys or mouse hover) highlights across the inner row, padding included.
+//! each side inside a border, separator rows divide related groups, and the
+//! selected row (arrow keys or mouse hover) highlights across the inner row.
 
 use cmux_tui_core::Rect;
 use ratatui::Frame;
@@ -9,7 +9,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Position;
 use ratatui::style::{Modifier, Style};
 
-use crate::app::{App, ContextMenu};
+use crate::app::{App, ContextMenu, MenuItem};
 
 struct PairingCopy {
     title: &'static str,
@@ -227,6 +227,7 @@ pub fn draw_prompt(app: &mut App, frame: &mut Frame) {
 pub fn draw_menu(app: &mut App, frame: &mut Frame) {
     let screen = frame.area();
     let Some(menu) = app.menu.as_mut() else { return };
+    menu.fit_to_rows(screen.height.saturating_sub(2) as usize);
 
     // Clamp to the screen and write the final rect back so click and
     // hover hit-testing match what is drawn.
@@ -265,18 +266,28 @@ pub fn draw_menu(app: &mut App, frame: &mut Frame) {
         if i as u16 >= inner_h {
             break;
         }
-        let style = if i == menu.selected { selected } else { base };
-        // The highlight spans the full inner row, side padding included.
-        for dx in 0..inner_w {
-            set_cell(buf, inner_x + dx, row_y, " ", style);
+        if *item == MenuItem::Separator {
+            set_cell(buf, x, row_y, "├", border);
+            for dx in 0..inner_w {
+                set_cell(buf, inner_x + dx, row_y, "─", border);
+            }
+            set_cell(buf, x + width - 1, row_y, "┤", border);
+            continue;
         }
-        buf.set_stringn(
-            inner_x + pad + 1,
-            row_y,
-            item.label(),
-            inner_w.saturating_sub(pad * 2) as usize,
-            style,
-        );
+        if let Some(label) = item.label() {
+            let style = if i == menu.selected { selected } else { base };
+            // The highlight spans the full inner row, side padding included.
+            for dx in 0..inner_w {
+                set_cell(buf, inner_x + dx, row_y, " ", style);
+            }
+            buf.set_stringn(
+                inner_x + pad + 1,
+                row_y,
+                label,
+                inner_w.saturating_sub(pad * 2) as usize,
+                style,
+            );
+        }
     }
 }
 

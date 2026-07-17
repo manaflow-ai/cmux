@@ -22,9 +22,18 @@ export interface ScrollChangedEvent {
   at_bottom: boolean;
 }
 
-export interface SurfaceResizedEvent { event: "surface-resized"; surface: Id; cols: number; rows: number }
+export interface SurfaceResizedEvent { event: "surface-resized"; surface: Id; cols: number; rows: number; reservation_id?: number | null }
+export interface SurfaceResizeFailedEvent {
+  event: "surface-resize-failed";
+  surface: Id;
+  cols: number;
+  rows: number;
+  error: string;
+  retry_after_ms: number | null;
+  reservation_id?: number | null;
+}
 export interface SurfaceExitedEvent { event: "surface-exited"; surface: Id }
-export interface TitleChangedEvent { event: "title-changed"; surface: Id }
+export interface TitleChangedEvent { event: "title-changed"; surface: Id; title?: string }
 export interface BellEvent { event: "bell"; surface: Id }
 
 export interface NotificationEvent {
@@ -175,18 +184,27 @@ export interface VtStateEvent {
 /** Live base64 PTY bytes after the attach snapshot. */
 export interface OutputEvent { event: "output"; surface: Id; data: Base64 }
 
-/** A protocol v6 replay that replaces the existing terminal mirror. */
-export interface ResizedEvent {
+interface ResizedEventBase {
   event: "resized";
   surface: Id;
   cols: number;
   rows: number;
-  data: Base64;
-  /** @deprecated Compatibility with early protocol-v6 drafts. Servers send `data`. */
-  replay?: Base64;
 }
 
+/** A replacement replay using the protocol-v7 field or protocol-v6 compatibility field. */
+export type ResizedEvent = ResizedEventBase & (
+  | { replay: Base64; data?: Base64 }
+  | { data: Base64; replay?: Base64 }
+);
+
 export interface DetachedEvent { event: "detached"; surface: Id }
+
+export interface OverflowEvent {
+  event: "overflow";
+  error: string;
+  scope?: "surface";
+  surface?: Id;
+}
 
 /** Updated effective special colors for this attach stream's surface. */
 export interface ColorsChangedEvent extends TerminalColors {
@@ -225,6 +243,7 @@ export type KnownSubscribeEvent =
   | SurfaceOutputEvent
   | ScrollChangedEvent
   | SurfaceResizedEvent
+  | SurfaceResizeFailedEvent
   | SurfaceExitedEvent
   | TitleChangedEvent
   | BellEvent
@@ -234,7 +253,8 @@ export type KnownSubscribeEvent =
   | ClientAttachedEvent
   | ClientChangedEvent
   | ClientDetachedEvent
-  | EmptyEvent;
+  | EmptyEvent
+  | OverflowEvent;
 
 /** Subscribe events, including unknown future event names. */
 export type SubscribeEvent = KnownSubscribeEvent | UnknownEvent;
@@ -248,7 +268,8 @@ export type KnownAttachEvent =
   | RenderStateEvent
   | RenderDeltaEvent
   | ScrollChangedEvent
-  | DetachedEvent;
+  | DetachedEvent
+  | OverflowEvent;
 
 /** Wire-format attach events, including unknown future event names. */
 export type AttachEvent = KnownAttachEvent | UnknownEvent;
@@ -283,6 +304,7 @@ export type DecodedAttachEvent =
   | DecodedColorsChangedEvent
   | ScrollChangedEvent
   | DetachedEvent
+  | OverflowEvent
   | UnknownEvent;
 
 /** Known events yielded by a protocol v7 render attachment. */

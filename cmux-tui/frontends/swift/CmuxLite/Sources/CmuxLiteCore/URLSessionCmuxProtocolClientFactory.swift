@@ -16,4 +16,3 @@ public struct URLSessionCmuxProtocolClientFactory: CmuxProtocolClientFactory {
         CmuxProtocolClient(transport: URLSessionWebSocketTransport(url: url))
     }
 }
-

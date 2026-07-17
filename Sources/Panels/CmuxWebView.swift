@@ -1,15 +1,18 @@
 import AppKit
 import Bonsplit
+import CmuxBrowser
 import ObjectiveC
 import UniformTypeIdentifiers
 import WebKit
 
-/// WKWebView tends to consume some app command equivalents,
-/// preventing the app menu/SwiftUI Commands from receiving them. Route app/menu
-/// shortcuts first by default, but allow browser content to try browser-local
-/// Find-family shortcuts. The configured Find shortcut stays app-owned so cmux can
-/// choose browser find or right-sidebar file search from the current focus owner.
+/// WKWebView can consume app command equivalents before app menu/SwiftUI Commands.
+/// Route app/menu shortcuts first, but allow browser content to try browser-local
+/// Find shortcuts. The configured shortcut stays app-owned so cmux can choose browser
+/// find or right-sidebar file search from the current focus owner.
 final class CmuxWebView: WKWebView {
+    var browserViewportModel: BrowserViewportModel?
+    var onBrowserViewportHierarchyChanged: (() -> Void)?
+
     // Some sites/WebKit paths report middle-click link activations as
     // WKNavigationAction.buttonNumber=4 instead of 2. Track a recent local
     // middle-click so navigation delegates can recover intent reliably.
@@ -17,7 +20,6 @@ final class CmuxWebView: WKWebView {
         let webViewID: ObjectIdentifier
         let uptime: TimeInterval
     }
-
     private static var lastMiddleClickIntent: MiddleClickIntent?
     private static let middleClickIntentMaxAge: TimeInterval = 0.8
     private static let pasteAsPlainTextFocusMessageHandlerName = "cmuxPasteAsPlainTextFocus"
@@ -25,6 +27,7 @@ final class CmuxWebView: WKWebView {
         NSUserInterfaceItemIdentifier("cmux.browserFocusMode.toggle")
     private static var pasteAsPlainTextFocusHandlerInstalledKey: UInt8 = 0
     private static var diffViewerEditableFocusHandlerInstalledKey: UInt8 = 0
+
     private static let pasteAsPlainTextSharedHelpersScriptSource = """
     const __cmuxPasteAsPlainTextHelpers = (() => {
       const existing = window.__cmuxPasteAsPlainTextHelpers;
@@ -239,6 +242,11 @@ final class CmuxWebView: WKWebView {
             webViewID: ObjectIdentifier(webView),
             uptime: ProcessInfo.processInfo.systemUptime
         )
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        onBrowserViewportHierarchyChanged?()
     }
 
     private final class ContextMenuFallbackBox: NSObject {
@@ -652,32 +660,19 @@ final class CmuxWebView: WKWebView {
         }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
-        if let decision = AppDelegate.shared?.handleBrowserFocusModeKeyEvent(
-            event,
-            webView: self,
-            source: "web.performKeyEquivalent"
-        ), decision != .inactive {
-            switch decision {
-            case .inactive:
-                break
-            case .forwardToWebView:
-                let isReturnKey = event.keyCode == 36 || event.keyCode == 76
-                if (normalizedFlags.isEmpty && event.keyCode == 53) ||
-                    (isReturnKey && !normalizedFlags.contains(.command)) {
-                    forwardKeyDownToWebKit(event)
-                    return finish(true)
-                }
-                let result = super.performKeyEquivalent(with: event)
-                // While focus mode is active, the page gets the shortcut once and cmux/main-menu
-                // fallback must not see unhandled command equivalents.
-                return finish(result || normalizedFlags.contains(.command))
-            case .consume:
-                return finish(true)
-            }
+        if let focusModeHandled = performBrowserFocusModeKeyEquivalent(
+            with: event,
+            normalizedFlags: normalizedFlags
+        ) {
+            return finish(focusModeHandled)
         }
 
         if event.keyCode == 36 || event.keyCode == 76 {
             return finish(AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true)
+        }
+
+        if AppDelegate.shared?.performBrowserWebExtensionCommandKeyEquivalent(event) == true {
+            return finish(true)
         }
 
         // Menu/app shortcut routing is only needed for Command equivalents

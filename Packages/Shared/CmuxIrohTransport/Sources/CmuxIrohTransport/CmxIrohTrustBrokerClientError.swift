@@ -32,6 +32,28 @@ public enum CmxIrohTrustBrokerClientError: Error, Equatable, Sendable {
         }
     }
 
+    /// Accepts only failures that are safe to retry before any binding is trusted.
+    static func retriesInitialActivation(_ error: any Error) -> Bool {
+        guard let brokerError = error as? Self else { return false }
+        switch brokerError {
+        case .connectivity, .rateLimited:
+            return true
+        case let .rejected(statusCode, _):
+            // A server failure cannot establish trust, so retrying the request
+            // is safe while the lifecycle-owned start task remains current.
+            return statusCode == 408
+                || statusCode == 425
+                || statusCode == 429
+                || (500...599).contains(statusCode)
+        case .invalidBaseURL,
+             .missingAuthentication,
+             .invalidAuthentication,
+             .nonHTTPResponse,
+             .invalidResponse:
+            return false
+        }
+    }
+
     /// The validated server retry floor, when present.
     public var retryAfterSeconds: Int? {
         guard case let .rateLimited(_, retryAfterSeconds) = self else { return nil }

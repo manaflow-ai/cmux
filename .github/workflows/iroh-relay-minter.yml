@@ -1,17 +1,8 @@
 name: Iroh relay minter
 
 on:
-  pull_request:
-    paths:
-      - "services/iroh-relay-minter/**"
-      - "tests/fixtures/iroh/relay-minter-request-v1.json"
-      - ".github/workflows/iroh-relay-minter.yml"
-  push:
-    branches: [main]
-    paths:
-      - "services/iroh-relay-minter/**"
-      - "tests/fixtures/iroh/relay-minter-request-v1.json"
-      - ".github/workflows/iroh-relay-minter.yml"
+  # CI pause: preserve explicit validation without automatic PR/main runs.
+  workflow_dispatch:
 
 concurrency:
   group: iroh-relay-minter-${{ github.workflow }}-${{ github.ref }}

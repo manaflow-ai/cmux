@@ -2,7 +2,7 @@
 
 Generated bindings live under `cmux-tui/bindings/<lang>/` in a future round. They are generated from this spec and validated by the conformance suite in this file.
 
-All bindings must expose the implemented protocol v5/v6 commands, events, and transports. Protocol-v7 draft APIs may be generated only behind explicit version checks or feature gates.
+All bindings must expose the implemented protocol v7 commands, events, and transports. APIs newer than the connected server must be guarded by explicit version checks or feature gates.
 
 ## Shared Requirements
 
@@ -15,10 +15,11 @@ Bindings must:
 | Version check | Call `identify` or require the caller to supply protocol compatibility before using newer features |
 | Error handling | Preserve the server error string and expose a typed transport vs command distinction |
 | Events | Route response lines and event lines correctly on full-duplex connections |
-| Attach | Preserve attach ordering for the selected mode: v5/v6 byte events as documented; v7 render mode as `render-state`, then `(render-delta | scroll-changed)*`, then `detached` |
+| Attach | Preserve attach ordering for the selected mode: v5 `vt-state`, then `output`, then `detached`; v6 byte mode `vt-state`, then `(resized | output | colors-changed | scroll-changed)*`, then `detached`; v7 render mode `render-state`, then `(render-delta | scroll-changed)*`, then `detached` |
+| Title changes | Decode `title-changed` as a typed event with `surface` and an optional `title`; protocol v7 guarantees the authoritative title, while v5-v6 omit it |
 | JSON mode | Provide a way to send raw command JSON for forward compatibility |
 | Timeouts | Let callers configure request timeout without changing wire schema |
-| Ids | Use numeric ids for v5 and `IdRef` for proposed v6 |
+| Ids | Use numeric ids for v5 and `IdRef` where supported by the negotiated protocol |
 
 ## Protocol v7 SDK Expectations
 

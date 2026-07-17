@@ -12,4 +12,3 @@ actor ScriptedClientFactory: CmuxProtocolClientFactory {
         return CmuxProtocolClient(transport: transports.removeFirst())
     }
 }
-
