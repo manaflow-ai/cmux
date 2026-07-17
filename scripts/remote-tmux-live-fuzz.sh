@@ -267,13 +267,16 @@ check_screen_oracle() {
     # through a fresh census is a defect.
     # Judging the stale snapshot again would just repeat the first read, so
     # a failed refresh defers the verdict to the next iteration entirely.
-    if refresh_pane_surfaces; then
-      on_screen_windows=$(printf '%s' "$PANE_SURFACES_JSON" | jq -r '
-        [.panes[]? | select(.on_screen == true) | .window_id] | unique | join(" ")
-      ' 2>/dev/null)
-      if [ "$(printf '%s\n' $on_screen_windows | grep -c .)" -gt 1 ]; then
-        note_fail "$iter" "overlay: surfaces from multiple windows on screen at once [$on_screen_windows]"
-      fi
+    if ! refresh_pane_surfaces; then
+      return
+    fi
+    panes=$(on_screen_panes)
+    [ -n "$panes" ] || return
+    on_screen_windows=$(printf '%s' "$PANE_SURFACES_JSON" | jq -r '
+      [.panes[]? | select(.on_screen == true) | .window_id] | unique | join(" ")
+    ' 2>/dev/null)
+    if [ "$(printf '%s\n' $on_screen_windows | grep -c .)" -gt 1 ]; then
+      note_fail "$iter" "overlay: surfaces from multiple windows on screen at once [$on_screen_windows]"
     fi
   fi
   for window in $on_screen_windows; do
@@ -302,7 +305,11 @@ check_screen_oracle() {
       # fresh state on BOTH sides before recording a defect: a stable zoom
       # flag alone cannot clear a toggle that completed before its first
       # read. Only a mismatch that survives the re-read is one.
-      refresh_pane_surfaces || continue
+      if ! refresh_pane_surfaces; then
+        return
+      fi
+      panes=$(on_screen_panes)
+      [ -n "$panes" ] || return
       window_still_on_screen=$(printf '%s' "$PANE_SURFACES_JSON" | jq -r --arg w "$window" '
         any(.panes[]?; .window_id == $w and .on_screen == true)
       ' 2>/dev/null)
