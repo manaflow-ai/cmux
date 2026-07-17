@@ -13,7 +13,7 @@ struct FeedCoordinatorTests {
     @Test func blockingBridgeReturnsFallbackAtItsDeadline() {
         let bridge = FeedBlockingCallBridge<Bool>()
 
-        #expect(bridge.wait(timeout: 0, fallback: false) == false)
+        #expect(bridge.wait(timeout: 0) == nil)
     }
 
     @MainActor

@@ -119,12 +119,14 @@ struct FeedItemRow: View, Equatable {
                     fg: sourceChipForeground,
                     bg: sourceChipBackground
                 )
-                chip(
-                    text: relativeTimeChip(snapshot.createdAt),
-                    fg: .secondary,
-                    bg: Color.primary.opacity(0.10),
-                    mono: true
-                )
+                TimelineView(.periodic(from: .now, by: 60)) { context in
+                    chip(
+                        text: relativeTimeChip(snapshot.createdAt, now: context.date),
+                        fg: .secondary,
+                        bg: Color.primary.opacity(0.10),
+                        mono: true
+                    )
+                }
             }
         }
     }
@@ -202,8 +204,8 @@ struct FeedItemRow: View, Equatable {
         return sourceChipForeground.opacity(0.18)
     }
 
-    private func relativeTimeChip(_ date: Date) -> String {
-        let interval = Date().timeIntervalSince(date)
+    private func relativeTimeChip(_ date: Date, now: Date) -> String {
+        let interval = now.timeIntervalSince(date)
         if interval < 60 {
             return String(localized: "feed.time.underMinute", defaultValue: "<1m")
         }

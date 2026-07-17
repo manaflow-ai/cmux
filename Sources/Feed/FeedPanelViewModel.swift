@@ -4,7 +4,7 @@ import Foundation
 import Observation
 import SwiftUI
 
-/// Projects the shared Workstream store into immutable Feed snapshots.
+/// Mirrors the process-wide Feed projection into one panel's observable state.
 @MainActor
 @Observable
 final class FeedPanelViewModel {
@@ -13,40 +13,24 @@ final class FeedPanelViewModel {
     private(set) var hasMorePersistedItems = false
     private(set) var isLoadingOlderItems = false
 
-    @ObservationIgnored private let coordinator: FeedCoordinator
-    @ObservationIgnored private var storeInstallTask: Task<Void, Never>?
+    @ObservationIgnored private let presentationStore: FeedPresentationStore
     @ObservationIgnored private var loadOlderTask: Task<Void, Never>?
 
-    init(
-        coordinator: FeedCoordinator = .shared,
-        notificationCenter: NotificationCenter = .default
-    ) {
-        self.coordinator = coordinator
-        storeInstallTask = Task { @MainActor [weak self, weak coordinator] in
-            guard let coordinator else { return }
-            self?.arm()
-            for await _ in notificationCenter.notifications(
-                named: FeedCoordinator.storeInstalledNotification,
-                object: coordinator
-            ) {
-                guard !Task.isCancelled else { return }
-                self?.arm()
-            }
-        }
+    init(coordinator: FeedCoordinator = .shared) {
+        self.presentationStore = coordinator.presentationStore
+        arm()
     }
 
     deinit {
-        storeInstallTask?.cancel()
         loadOlderTask?.cancel()
     }
 
     private func arm() {
-        guard let store = coordinator.store else { return }
         withObservationTracking {
-            items = store.items
-            presentation = Self.makePresentation(items: store.items)
-            hasMorePersistedItems = store.hasMorePersistedItems
-            isLoadingOlderItems = store.isLoadingOlderItems
+            items = presentationStore.items
+            presentation = presentationStore.presentation
+            hasMorePersistedItems = presentationStore.hasMorePersistedItems
+            isLoadingOlderItems = presentationStore.isLoadingOlderItems
         } onChange: { [weak self] in
             Task { @MainActor in
                 self?.arm()
@@ -54,54 +38,12 @@ final class FeedPanelViewModel {
         }
     }
 
-    private static func makePresentation(items: [WorkstreamItem]) -> FeedPresentationSnapshot {
-        var lastPromptByWorkstream: [String: String] = [:]
-        for item in items {
-            if case .userPrompt(let text) = item.payload, !text.isEmpty {
-                lastPromptByWorkstream[item.workstreamId] = text
-            }
-        }
-
-        var actionable: [FeedItemSnapshot] = []
-        var activityStable: [FeedItemSnapshot] = []
-        var activityHistory: [FeedItemSnapshot] = []
-        actionable.reserveCapacity(items.count)
-        activityStable.reserveCapacity(items.count)
-        activityHistory.reserveCapacity(items.count)
-
-        for item in items.reversed() {
-            let snapshot = FeedItemSnapshot(
-                item: item,
-                userPromptEcho: lastPromptByWorkstream[item.workstreamId]
-            )
-            if item.kind.isActionable {
-                actionable.append(snapshot)
-            }
-            guard item.kind.isActionable || item.kind == .todos || item.kind == .stop else {
-                continue
-            }
-            if snapshot.status.isPending || snapshot.kind == .stop {
-                activityStable.append(snapshot)
-            } else {
-                activityHistory.append(snapshot)
-            }
-        }
-        return FeedPresentationSnapshot(
-            actionable: actionable,
-            activity: FeedActivitySnapshotGroups(
-                stable: activityStable,
-                history: activityHistory
-            )
-        )
-    }
-
     func loadOlderItems() {
         guard !isLoadingOlderItems,
-              hasMorePersistedItems,
-              let store = coordinator.store else { return }
+              hasMorePersistedItems else { return }
         loadOlderTask?.cancel()
         loadOlderTask = Task { @MainActor in
-            await store.loadOlderItems()
+            await presentationStore.loadOlderItems()
         }
     }
 }

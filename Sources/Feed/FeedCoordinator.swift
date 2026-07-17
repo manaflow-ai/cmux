@@ -19,11 +19,11 @@ import Foundation
 // state lives in `FeedBlockingWaiterRegistry` behind its documented lock.
 final class FeedCoordinator: @unchecked Sendable {
   static let shared = FeedCoordinator()
-  static let storeInstalledNotification = Notification.Name("cmux.feed.storeInstalled")
 
   // The store runs on the main actor. The coordinator is not isolated,
   // so it hops to main explicitly when touching the store.
   @MainActor private(set) var store: WorkstreamStore!
+  @MainActor private(set) lazy var presentationStore = FeedPresentationStore()
 
   private let waiterRegistry = FeedBlockingWaiterRegistry()
   let notificationHookCache = CmuxNotificationHookCache()
@@ -62,7 +62,7 @@ final class FeedCoordinator: @unchecked Sendable {
   @MainActor
   func install(store: WorkstreamStore) {
     self.store = store
-    NotificationCenter.default.post(name: Self.storeInstalledNotification, object: self)
+    presentationStore.install(source: store)
     // Catch any pending items that were restored from disk whose
     // agent is already gone. After this, live tracking is
     // kqueue-driven — no polling.
@@ -104,19 +104,26 @@ final class FeedCoordinator: @unchecked Sendable {
     event: WorkstreamEvent,
     waitTimeout: TimeInterval
   ) async -> IngestBlockingResult {
+    guard !Task.isCancelled else { return .timedOut(itemId: nil) }
     guard let requestId = event.requestId, waitTimeout > 0 else {
-      Task { @MainActor in
-        FeedCoordinator.shared.store.ingest(event)
+      let itemID = await MainActor.run { () -> UUID? in
+        guard !Task.isCancelled else { return nil }
+        self.store.ingest(event)
         if let ppid = event.ppid, ppid > 0 {
-          FeedCoordinator.shared.armPidWatcher(ppid: ppid)
+          self.armPidWatcher(ppid: ppid)
         }
+        return self.store.items.last?.id
       }
-      return .acknowledged(itemId: nil)
+      return Task.isCancelled ? .timedOut(itemId: itemID) : .acknowledged(itemId: itemID)
     }
 
     // Register the waiter before the store sees the event so a very
     // fast reply can't slip through.
     guard let decisions = await waiterRegistry.register(requestID: requestId) else {
+      return .timedOut(itemId: nil)
+    }
+    guard !Task.isCancelled else {
+      _ = await waiterRegistry.remove(requestID: requestId)
       return .timedOut(itemId: nil)
     }
 
@@ -129,6 +136,7 @@ final class FeedCoordinator: @unchecked Sendable {
       ? resolveAttentionTarget(event: event)
       : nil
     let ingestResult: (itemID: UUID?, attentionTarget: AttentionTarget?) = await MainActor.run {
+      guard !Task.isCancelled else { return (nil, nil) }
       self.store.ingest(event)
       let itemID = self.store.items.last?.id
       if let ppid = event.ppid, ppid > 0 {
@@ -140,11 +148,27 @@ final class FeedCoordinator: @unchecked Sendable {
       )
       return (itemID, attentionTarget)
     }
+    guard !Task.isCancelled else {
+      await cancelIngest(
+        requestID: requestId,
+        itemID: ingestResult.itemID,
+        attentionTarget: ingestResult.attentionTarget
+      )
+      return .timedOut(itemId: ingestResult.itemID)
+    }
     let registration = await waiterRegistry.recordIngest(
       itemID: ingestResult.itemID,
       attentionTarget: ingestResult.attentionTarget,
       requestID: requestId
     )
+    guard !Task.isCancelled else {
+      await cancelIngest(
+        requestID: requestId,
+        itemID: ingestResult.itemID,
+        attentionTarget: ingestResult.attentionTarget
+      )
+      return .timedOut(itemId: ingestResult.itemID)
+    }
     guard registration.registered else {
       await MainActor.run {
         self.concludeBlockingDecisionAttentionIfPresent(ingestResult.attentionTarget)
@@ -187,6 +211,17 @@ final class FeedCoordinator: @unchecked Sendable {
 
     let waiter = await waiterRegistry.remove(requestID: requestId)
 
+    guard !Task.isCancelled else {
+      cancelNotification(requestId: requestId)
+      await MainActor.run {
+        self.concludeBlockingDecisionAttentionIfPresent(waiter?.attentionTarget)
+        if let itemID = waiter?.itemID {
+          self.store?.markExpired(itemID)
+        }
+      }
+      return .timedOut(itemId: waiter?.itemID)
+    }
+
     if let decision = deliveredDecision ?? waiter?.decision {
       // A decision that wins at the timeout boundary remains terminal
       // even when Dispatch reports the timeout result first.
@@ -197,6 +232,21 @@ final class FeedCoordinator: @unchecked Sendable {
     concludeAttentionOnMain(waiter?.attentionTarget)
     expireTimedOutItem(waiter?.itemID)
     return .timedOut(itemId: waiter?.itemID)
+  }
+
+  private func cancelIngest(
+    requestID: String,
+    itemID: UUID?,
+    attentionTarget: AttentionTarget?
+  ) async {
+    _ = await waiterRegistry.remove(requestID: requestID)
+    cancelNotification(requestId: requestID)
+    await MainActor.run {
+      self.concludeBlockingDecisionAttentionIfPresent(attentionTarget)
+      if let itemID {
+        self.store?.markExpired(itemID)
+      }
+    }
   }
 
   /// Concludes an attention overlay (if any) on the main actor, hopping if

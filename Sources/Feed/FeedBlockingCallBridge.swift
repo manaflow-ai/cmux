@@ -19,12 +19,12 @@ final class FeedBlockingCallBridge<Value: Sendable>: @unchecked Sendable {
         completion.leave()
     }
 
-    func wait(timeout: TimeInterval, fallback: @autoclosure () -> Value) -> Value {
+    func wait(timeout: TimeInterval) -> Value? {
         let boundedTimeout = timeout.isFinite ? max(timeout, 0) : 0
         guard completion.wait(timeout: .now() + boundedTimeout) == .success else {
-            return fallback()
+            return nil
         }
         precondition(value != nil, "Feed blocking call completed without a result")
-        return value!
+        return value
     }
 }

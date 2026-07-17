@@ -5624,16 +5624,16 @@ class TerminalController {
         Task { @MainActor in self.agentChatTranscriptService?.noteHookEvent(event) }
 
         let bridge = FeedBlockingCallBridge<FeedCoordinator.IngestBlockingResult>()
-        Task {
+        let ingestTask = Task {
             bridge.finish(with: await FeedCoordinator.shared.ingestBlocking(
                 event: event,
                 waitTimeout: waitTimeout
             ))
         }
-        let result = bridge.wait(
-            timeout: waitTimeout + 10,
-            fallback: .timedOut(itemId: nil)
-        )
+        let result = bridge.wait(timeout: waitTimeout + 10) ?? {
+            ingestTask.cancel()
+            return .timedOut(itemId: nil)
+        }()
         CmuxEventBus.shared.publishWorkstreamEvent(
             event,
             phase: "completed",
@@ -5750,13 +5750,17 @@ class TerminalController {
         decision: WorkstreamDecision
     ) -> Bool {
         let bridge = FeedBlockingCallBridge<Bool>()
-        Task {
+        let replyTask = Task {
             bridge.finish(with: await FeedCoordinator.shared.deliverReply(
                 requestId: requestId,
                 decision: decision
             ))
         }
-        return bridge.wait(timeout: 10, fallback: false)
+        guard let delivered = bridge.wait(timeout: 10) else {
+            replyTask.cancel()
+            return false
+        }
+        return delivered
     }
 
     // MARK: - V2 Browser Methods
