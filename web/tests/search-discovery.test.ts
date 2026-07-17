@@ -105,9 +105,9 @@ describe("search discovery", () => {
     );
   });
 
-  test("rejects deployment triggers without the dedicated secret", async () => {
-    const originalSecret = process.env.INDEXNOW_TRIGGER_SECRET;
-    delete process.env.INDEXNOW_TRIGGER_SECRET;
+  test("rejects deployment triggers without the server cron secret", async () => {
+    const originalSecret = process.env.CRON_SECRET;
+    delete process.env.CRON_SECRET;
 
     try {
       const response = await submitIndexNowDeployment(
@@ -117,9 +117,9 @@ describe("search discovery", () => {
       expect(response.status).toBe(401);
     } finally {
       if (originalSecret === undefined) {
-        delete process.env.INDEXNOW_TRIGGER_SECRET;
+        delete process.env.CRON_SECRET;
       } else {
-        process.env.INDEXNOW_TRIGGER_SECRET = originalSecret;
+        process.env.CRON_SECRET = originalSecret;
       }
     }
   });

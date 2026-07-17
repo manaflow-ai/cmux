@@ -5,7 +5,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request): Promise<Response> {
-  const triggerSecret = process.env.INDEXNOW_TRIGGER_SECRET?.trim();
+  const triggerSecret = process.env.CRON_SECRET?.trim();
   if (
     !triggerSecret ||
     request.headers.get("authorization") !== `Bearer ${triggerSecret}`
