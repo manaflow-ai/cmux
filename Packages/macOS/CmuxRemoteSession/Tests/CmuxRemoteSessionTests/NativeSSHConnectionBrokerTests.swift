@@ -211,6 +211,35 @@ struct NativeSSHConnectionBrokerTests {
         #expect(FileManager.default.fileExists(atPath: markerPath))
     }
 
+    @Test("Cleanup requests a retry for a recent dead authentication marker")
+    func cleanupRequestsRetryForRecentDeadAuthentication() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-cleanup-test-\(UUID().uuidString)", isDirectory: true)
+        let lockPath = root.appendingPathComponent("auth.lock").path
+        let markerPath = lockPath + ".inflight"
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try "2147483647\n".write(toFile: markerPath, atomically: true, encoding: .utf8)
+
+        let request = NativeSSHControlMasterCleanupRequest(
+            arguments: ["-Z"],
+            environment: nil,
+            authenticationLockPath: lockPath
+        )
+        let invocation = request.processInvocation
+        let process = Process()
+        process.executableURL = invocation.executableURL
+        process.arguments = invocation.arguments
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+
+        #expect(process.terminationStatus == 75)
+        #expect(FileManager.default.fileExists(atPath: markerPath))
+    }
+
     @Test("Same-host attempts are FIFO and separated by bounded jitter")
     func sameHostAttemptsAreSerialized() async throws {
         let clock = ManualBrokerClock()
