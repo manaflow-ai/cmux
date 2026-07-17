@@ -25,7 +25,7 @@ struct MobileMacCompatiblePairedMacStore: MobilePairedMacStoring {
         teamID: String?,
         now: Date
     ) async throws {
-        guard policy.allows(instanceTag: instanceTag) else { return }
+        guard isCompatible(instanceTag: instanceTag) else { return }
         try await inner.upsert(
             macDeviceID: macDeviceID,
             displayName: displayName,
@@ -52,7 +52,7 @@ struct MobileMacCompatiblePairedMacStore: MobilePairedMacStoring {
         teamID: String?,
         now: Date
     ) async throws -> Bool {
-        guard policy.allows(instanceTag: instanceTag) else { return false }
+        guard isCompatible(instanceTag: instanceTag) else { return false }
         return try await inner.upsertIfNewer(
             macDeviceID: macDeviceID,
             displayName: displayName,
@@ -86,7 +86,7 @@ struct MobileMacCompatiblePairedMacStore: MobilePairedMacStoring {
         case .unclaimed:
             instanceTag = nil
         }
-        guard policy.allows(instanceTag: instanceTag) else { return false }
+        guard isCompatible(instanceTag: instanceTag) else { return false }
         return try await inner.upsertRoutesIfAuthorized(
             macDeviceID: macDeviceID,
             displayName: displayName,
@@ -104,7 +104,7 @@ struct MobileMacCompatiblePairedMacStore: MobilePairedMacStoring {
         teamID: String?
     ) async throws -> [MobilePairedMac] {
         try await inner.loadAll(stackUserID: stackUserID, teamID: teamID).filter {
-            policy.allows(instanceTag: $0.instanceTag)
+            isCompatible(instanceTag: $0.instanceTag)
         }
     }
 
@@ -137,7 +137,7 @@ struct MobileMacCompatiblePairedMacStore: MobilePairedMacStoring {
         stackUserID: String?,
         teamID: String?
     ) async throws {
-        guard policy.allows(instanceTag: instanceTag) else { return }
+        guard isCompatible(instanceTag: instanceTag) else { return }
         try await inner.setActive(
             macDeviceID: macDeviceID,
             instanceTag: instanceTag,
@@ -183,7 +183,7 @@ struct MobileMacCompatiblePairedMacStore: MobilePairedMacStoring {
         teamID: String?,
         now: Date
     ) async throws {
-        guard policy.allows(instanceTag: instanceTag) else { return }
+        guard isCompatible(instanceTag: instanceTag) else { return }
         try await inner.setCustomization(
             macDeviceID: macDeviceID,
             instanceTag: instanceTag,
@@ -217,7 +217,7 @@ struct MobileMacCompatiblePairedMacStore: MobilePairedMacStoring {
         stackUserID: String?,
         teamID: String?
     ) async throws {
-        guard policy.allows(instanceTag: instanceTag) else { return }
+        guard isCompatible(instanceTag: instanceTag) else { return }
         try await inner.remove(
             macDeviceID: macDeviceID,
             instanceTag: instanceTag,
@@ -227,6 +227,20 @@ struct MobileMacCompatiblePairedMacStore: MobilePairedMacStoring {
     }
 
     func removeAll() async throws {
-        try await inner.removeAll()
+        for mac in try await loadAll(stackUserID: nil, teamID: nil) {
+            try await inner.remove(
+                macDeviceID: mac.macDeviceID,
+                instanceTag: mac.instanceTag,
+                stackUserID: mac.stackUserID,
+                teamID: mac.teamID
+            )
+        }
+    }
+
+    /// Legacy rows remain visible long enough to be claimed by an
+    /// authenticated tagged instance. Live route adoption still fails closed
+    /// in ``MobileMacBuildCompatibilityPolicy/allows(instanceTag:)``.
+    private func isCompatible(instanceTag: String?) -> Bool {
+        instanceTag == nil || policy.allows(instanceTag: instanceTag)
     }
 }

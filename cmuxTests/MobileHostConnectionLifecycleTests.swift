@@ -104,15 +104,20 @@ extension MobileHostAuthorizationTests {
 
     private static func mobileHostSubscribeFrame(id: String) throws -> Data {
         try MobileSyncFrameCodec.encodeFrame(
-            Data("{\"id\":\"\(id)\",\"method\":\"mobile.events.subscribe\",\"params\":{\"stream_id\":\"events\",\"topics\":[]}}".utf8)
+            Data("{\"id\":\"\(id)\",\"method\":\"mobile.events.subscribe\",\"params\":{\"stream_id\":\"events\",\"topics\":[\"terminal.updated\"]}}".utf8)
         )
     }
 
     private func waitForMobileHostConnectionCount(_ expected: Int) async {
-        for _ in 0..<1_000 {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while clock.now < deadline {
             if MobileHostConnectionRegistry.shared.count == expected { return }
             await Task.yield()
         }
+        Issue.record(
+            "Timed out waiting for \(expected) mobile host connections; observed \(MobileHostConnectionRegistry.shared.count)"
+        )
     }
 
     @Test func testIrohEventWriterTimesOutBackpressureWithInjectedClock() async {
@@ -404,6 +409,8 @@ private actor ScriptedMobileHostByteTransport: CmxByteTransport {
     private var receiveWaiter: CheckedContinuation<Data?, Never>?
     private var sent: [Data] = []
     private var closeCount = 0
+    private var sentWaiters: [(count: Int, continuation: CheckedContinuation<[Data], Never>)] = []
+    private var closeWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
     func connect() async throws {}
 
@@ -416,10 +423,20 @@ private actor ScriptedMobileHostByteTransport: CmxByteTransport {
 
     func send(_ data: Data) async throws {
         sent.append(data)
+        let ready = sentWaiters.filter { sent.count >= $0.count }
+        sentWaiters.removeAll { sent.count >= $0.count }
+        for waiter in ready {
+            waiter.continuation.resume(returning: sent)
+        }
     }
 
     func close() async {
         closeCount += 1
+        let ready = closeWaiters.filter { closeCount >= $0.count }
+        closeWaiters.removeAll { closeCount >= $0.count }
+        for waiter in ready {
+            waiter.continuation.resume()
+        }
         receiveWaiter?.resume(returning: nil)
         receiveWaiter = nil
     }
@@ -443,19 +460,22 @@ private actor ScriptedMobileHostByteTransport: CmxByteTransport {
     }
 
     func waitForSentBufferCount(_ count: Int) async -> [Data] {
-        for _ in 0..<1_000 {
-            if sent.count >= count { return sent }
-            await Task.yield()
+        if sent.count >= count {
+            return sent
         }
-        return sent
+        return await withCheckedContinuation { continuation in
+            sentWaiters.append((count, continuation))
+        }
     }
 
     func observedCloseCount() -> Int { closeCount }
 
     func waitForCloseCount(_ count: Int) async {
-        for _ in 0..<1_000 {
-            if closeCount >= count { return }
-            await Task.yield()
+        if closeCount >= count {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            closeWaiters.append((count, continuation))
         }
     }
 }
