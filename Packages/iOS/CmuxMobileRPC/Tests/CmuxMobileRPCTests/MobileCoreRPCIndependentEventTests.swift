@@ -6,9 +6,10 @@ import Testing
 @Suite
 struct MobileCoreRPCIndependentEventTests {
     @Test
-    func retireCannotSplitTransportAdmissionFromAllocation() async throws {
+    func retireReturnsPromptlyAndDisposesTransportAllocatedAfterRetirement() async throws {
         let route = try irohRoute(hexBytePair: "89")
-        let factory = BlockingTransportFactory(transport: NeverConnectedTransport())
+        let transport = CloseTrackingNeverConnectedTransport()
+        let factory = BlockingTransportFactory(transport: transport)
         let runtime = TestMobileSyncRuntime(transportFactory: factory)
         let client = MobileCoreRPCClient(
             runtime: runtime,
@@ -24,13 +25,14 @@ struct MobileCoreRPCIndependentEventTests {
             client.retire()
             await retireCompleted.set()
         }
-        for _ in 0..<100 { await Task.yield() }
-
-        #expect(!(await retireCompleted.isSet()))
+        let retiredPromptly = await pollUntil { await retireCompleted.isSet() }
         factory.release()
         await retireTask.value
-        await client.disconnect()
         _ = await requestTask.value
+
+        #expect(retiredPromptly)
+        #expect(await pollUntil { await transport.wasClosed() })
+        await client.disconnect()
     }
 
     @Test
@@ -283,6 +285,17 @@ private actor NeverConnectedTransport: CmxByteTransport {
     func receive() async throws -> Data? { nil }
     func send(_: Data) async throws {}
     func close() async {}
+}
+
+private actor CloseTrackingNeverConnectedTransport: CmxByteTransport {
+    private var closed = false
+
+    func connect() async throws {}
+    func receive() async throws -> Data? { nil }
+    func send(_: Data) async throws {}
+    func close() async { closed = true }
+
+    func wasClosed() -> Bool { closed }
 }
 
 private actor SubscribeRoundTripTransport: CmxByteTransport {

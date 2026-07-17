@@ -38,7 +38,9 @@ struct MobilePairedMacPersistenceFailureTests {
         )
         let ticket = try CmxAttachTicket(
             workspaceID: "workspace-1",
+            terminalID: "terminal-1",
             macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
             routes: [route],
             expiresAt: Date().addingTimeInterval(3_600)
         )

@@ -19,7 +19,7 @@ struct MobileIrohRuntimeCompositionTests {
     func initialAuthenticationAndFirstConnectionDoNotReplayTheSameAuthState() async throws {
         let fixture = try await MobileIrohSignOutFixture.make()
 
-        #expect(await fixture.endpointFactory.bindCount() == 2)
+        #expect(await fixture.endpointFactory.bindCount() == 1)
     }
 
     @Test

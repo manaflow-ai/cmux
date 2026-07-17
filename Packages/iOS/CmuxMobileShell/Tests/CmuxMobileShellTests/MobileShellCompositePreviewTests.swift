@@ -81,7 +81,7 @@ import Testing
             macDeviceID: "legacy-mac",
             macDisplayName: "Legacy Mac",
             routes: [route],
-            expiresAt: Date().addingTimeInterval(60)
+            expiresAt: Date(timeIntervalSince1970: 86_400)
         )
         store.remoteClient = MobileCoreRPCClient(
             runtime: PairingDeadlineRuntime(),

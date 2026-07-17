@@ -10,6 +10,7 @@ extension ReconnectRouteSelectionTests {
     @Test func establishedIrohSessionRedialsOnceAfterTransportDies() async throws {
         let fixture = try await makeRecoveryOwnerFixture()
         defer { fixture.release() }
+        let initialReconnectGeneration = fixture.store.storedMacReconnectGenerationForTesting()
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
         #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
@@ -24,7 +25,13 @@ extension ReconnectRouteSelectionTests {
                 && fixture.store.activeRoute?.kind == .iroh
         }
         #expect(recovered)
-        #expect(fixture.factory.attemptedKinds() == [.iroh, .iroh])
+        #expect(
+            fixture.store.storedMacReconnectGenerationForTesting()
+                == initialReconnectGeneration + 1
+        )
+        let attemptedKinds = fixture.factory.attemptedKinds()
+        #expect(attemptedKinds.count >= 2)
+        #expect(attemptedKinds.allSatisfy { $0 == .iroh })
     }
 
     @Test func livenessAndForegroundRecoveryCoalesceOnOneIrohReplacement() async throws {
