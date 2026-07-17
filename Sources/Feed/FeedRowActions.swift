@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import Foundation
 
 /// Closure bundle; binds to `FeedCoordinator` by default.
 struct FeedRowActions {
