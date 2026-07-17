@@ -39,7 +39,7 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
       allowProposedApi: true,
       convertEol: false,
       disableStdin: true,
-      fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
+      fontFamily: 'Menlo, "SFMono-Regular", Consolas, "Liberation Mono", monospace',
       fontSize: 13,
       lineHeight: 1.15,
       theme: baseTheme,
