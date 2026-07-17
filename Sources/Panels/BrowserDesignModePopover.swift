@@ -361,6 +361,11 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             // Fixed line metrics tall enough for the 18pt token cells keep
             // wrapped pill rows evenly spaced instead of jumping per line.
             let paragraph = NSMutableParagraphStyle()
+            // Pin every fragment to the text's rounded natural height:
+            // attachment-only rows otherwise lay out 1pt shorter than rows
+            // with glyphs, so the first typed character shifted the pills.
+            paragraph.minimumLineHeight = BrowserDesignModeTokenStyle.fixedLineHeight
+            paragraph.maximumLineHeight = BrowserDesignModeTokenStyle.fixedLineHeight
             paragraph.lineSpacing = 3
             return [
                 .font: BrowserDesignModeTokenStyle.font,
@@ -567,8 +572,11 @@ enum BrowserDesignModeTokenStyle {
     /// row's fragment ever grows past a plain text row (selection highlights
     /// and the caret then hug the glyphs instead of floating above them).
     static var naturalLineHeight: CGFloat { font.ascender - font.descender }
-    /// Single-line field height: one rounded-up line plus the 2pt insets.
-    static var singleLineFieldHeight: CGFloat { ceil(naturalLineHeight) + 4 }
+    /// Every fragment is pinned to this height — the font's rounded natural
+    /// line — so rows never resize as pills and glyphs come and go.
+    static var fixedLineHeight: CGFloat { ceil(naturalLineHeight) }
+    /// Single-line field height: one line plus the 2pt insets.
+    static var singleLineFieldHeight: CGFloat { fixedLineHeight + 4 }
 }
 
 /// One selection embedded in the prompt text.
@@ -604,6 +612,8 @@ final class BrowserDesignModeTokenAttachment: NSTextAttachment {
         )
         // Match the field's paragraph so pill rows share text-row metrics.
         let paragraph = NSMutableParagraphStyle()
+        paragraph.minimumLineHeight = BrowserDesignModeTokenStyle.fixedLineHeight
+        paragraph.maximumLineHeight = BrowserDesignModeTokenStyle.fixedLineHeight
         paragraph.lineSpacing = 3
         token.addAttribute(
             .paragraphStyle,
