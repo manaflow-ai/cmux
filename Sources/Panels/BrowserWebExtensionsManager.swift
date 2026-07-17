@@ -99,7 +99,7 @@ final class BrowserWebExtensionsManager: NSObject {
         configuration.webViewConfiguration.userContentController.addUserScript(
             WKUserScript(
                 source: BrowserPanel.telemetryHookBootstrapScriptSource
-                    + "\n"
+                    + "\n;\n"
                     + Self.extensionTelemetryBootstrapScriptSource,
                 injectionTime: .atDocumentStart,
                 forMainFrameOnly: true
