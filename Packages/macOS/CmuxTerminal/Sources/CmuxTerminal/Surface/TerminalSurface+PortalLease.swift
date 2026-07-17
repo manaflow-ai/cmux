@@ -81,8 +81,18 @@ extension TerminalSurface {
 
     /// Re-arms the lease when SwiftUI is about to rebuild the owning host.
     @discardableResult
-    public func preparePortalHostReplacementIfOwned(hostId: ObjectIdentifier, reason: String) -> Bool {
-        guard let current = activePortalHostLease, current.hostId == hostId else { return false }
+    public func preparePortalHostReplacementIfOwned(
+        hostId: ObjectIdentifier,
+        instanceSerial: UInt64,
+        reason: String
+    ) -> Bool {
+        // The serial authenticates the vacating incarnation: ObjectIdentifier
+        // values are reused after dealloc, so a stale vacate from an earlier
+        // object at the same address must not re-arm the lease or clear a
+        // newer host's authority.
+        guard let current = activePortalHostLease,
+              current.hostId == hostId,
+              current.instanceSerial == instanceSerial else { return false }
         // SwiftUI can tear down and rebuild the host NSView during split churn. Keep the
         // existing portal binding alive, but make the old lease non-usable so the next
         // distinct host in the same pane can claim immediately instead of waiting for a
@@ -94,6 +104,7 @@ extension TerminalSurface {
             inWindow: false,
             area: current.area
         )
+        clearPortalHostAuthorityIfHeld(by: hostId, instanceSerial: current.instanceSerial)
 #if DEBUG
         logDebugEvent(
             "terminal.portal.host.rearm surface=\(id.uuidString.prefix(5)) " +
@@ -102,6 +113,32 @@ extension TerminalSurface {
         )
 #endif
         return true
+    }
+
+    /// Drops host-authority supremacy when the authority holder itself vacates.
+    ///
+    /// The authority record exists to stop a retired host from stealing the
+    /// surface back from the host that replaced it. Once the replacement host
+    /// is dismantled there is nobody left to protect, but its record would
+    /// still outrank every live host with an older creation serial at the same
+    /// ownership generation — claimPortalHost decides "replace" yet the
+    /// reservation refuses, and the surface stays pinned to a dead host's
+    /// final anchor until an unrelated model-generation bump.
+    ///
+    /// Matched on host AND creation serial: a stale vacate from an earlier
+    /// incarnation of the same host object must not erase a newer record.
+    private func clearPortalHostAuthorityIfHeld(by hostId: ObjectIdentifier, instanceSerial: UInt64) {
+        guard let authority = portalHostAuthority,
+              authority.hostId == hostId,
+              authority.instanceSerial == instanceSerial else { return }
+        portalHostAuthority = nil
+#if DEBUG
+        logDebugEvent(
+            "terminal.portal.host.authorityCleared surface=\(id.uuidString.prefix(5)) " +
+            "host=\(hostId) pane=\(authority.paneId.uuidString.prefix(5)) " +
+            "generation=\(authority.ownershipGeneration) serial=\(authority.instanceSerial)"
+        )
+#endif
     }
 
     /// Claims (or re-claims) the portal host for a pane.
@@ -137,6 +174,21 @@ extension TerminalSurface {
             return false
         }
 
+#if DEBUG
+        func logAuthorityRefusal() {
+            logDebugEvent(
+                "terminal.portal.host.skip surface=\(id.uuidString.prefix(5)) " +
+                "reason=\(reason) host=\(hostId) pane=\(paneId.id.uuidString.prefix(5)) " +
+                "cause=authorityRefused authorityHost=\(portalHostAuthority.map { String(describing: $0.hostId) } ?? "nil") " +
+                "authorityGeneration=\(portalHostAuthority?.ownershipGeneration ?? 0) " +
+                "authoritySerial=\(portalHostAuthority?.instanceSerial ?? 0) " +
+                "claimGeneration=\(ownershipGeneration) claimSerial=\(instanceSerial)"
+            )
+        }
+#else
+        func logAuthorityRefusal() {}
+#endif
+
         if let current = activePortalHostLease {
             if current.hostId == hostId {
                 guard reservePortalHostAuthority(
@@ -144,7 +196,10 @@ extension TerminalSurface {
                     paneId: paneId,
                     instanceSerial: instanceSerial,
                     ownershipGeneration: ownershipGeneration
-                ) else { return false }
+                ) else {
+                    logAuthorityRefusal()
+                    return false
+                }
                 activePortalHostLease = next
                 return true
             }
@@ -176,7 +231,10 @@ extension TerminalSurface {
                     paneId: paneId,
                     instanceSerial: instanceSerial,
                     ownershipGeneration: ownershipGeneration
-                ) else { return false }
+                ) else {
+                    logAuthorityRefusal()
+                    return false
+                }
 #if DEBUG
                 logDebugEvent(
                     "terminal.portal.host.claim surface=\(id.uuidString.prefix(5)) " +
@@ -211,7 +269,10 @@ extension TerminalSurface {
             paneId: paneId,
             instanceSerial: instanceSerial,
             ownershipGeneration: ownershipGeneration
-        ) else { return false }
+        ) else {
+            logAuthorityRefusal()
+            return false
+        }
         activePortalHostLease = next
 #if DEBUG
         logDebugEvent(
@@ -225,9 +286,16 @@ extension TerminalSurface {
     }
 
     /// Releases the lease when the owning host disappears.
-    public func releasePortalHostIfOwned(hostId: ObjectIdentifier, reason: String) {
-        guard let current = activePortalHostLease, current.hostId == hostId else { return }
+    public func releasePortalHostIfOwned(
+        hostId: ObjectIdentifier,
+        instanceSerial: UInt64,
+        reason: String
+    ) {
+        guard let current = activePortalHostLease,
+              current.hostId == hostId,
+              current.instanceSerial == instanceSerial else { return }
         activePortalHostLease = nil
+        clearPortalHostAuthorityIfHeld(by: hostId, instanceSerial: current.instanceSerial)
 #if DEBUG
         logDebugEvent(
             "terminal.portal.host.release surface=\(id.uuidString.prefix(5)) " +
