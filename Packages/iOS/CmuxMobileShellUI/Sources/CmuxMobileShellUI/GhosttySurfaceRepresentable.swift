@@ -394,6 +394,28 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             surfaceView: GhosttySurfaceView,
             store: CMUXMobileShellStore
         ) async {
+            if let chunkConfigTheme = chunk.terminalConfigTheme,
+               chunkConfigTheme != store.terminalConfigTheme(for: surfaceID) {
+                store.terminalOutputDidReset(
+                    surfaceID: surfaceID,
+                    streamToken: chunk.streamToken
+                )
+                return
+            }
+            await applyThemeMatchedVerifiedRenderGrid(
+                frame,
+                chunk: chunk,
+                surfaceView: surfaceView,
+                store: store
+            )
+        }
+
+        private func applyThemeMatchedVerifiedRenderGrid(
+            _ frame: MobileTerminalRenderGridFrame,
+            chunk: MobileTerminalOutputChunk,
+            surfaceView: GhosttySurfaceView,
+            store: CMUXMobileShellStore
+        ) async {
             guard case .apply(let transaction) = verifiedReplayState.begin(frame: frame) else {
                 _ = await surfaceView.freezeVerifiedReplayPresentation(
                     transactionID: frame.renderRevision
@@ -422,8 +444,11 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 return
             }
 
-            if !chunk.data.isEmpty {
-                let applied = await surfaceView.processOutputAndWait(chunk.data)
+            if !chunk.data.isEmpty || chunk.terminalConfigTheme != nil {
+                let applied = await surfaceView.processOutputAndWait(
+                    chunk.data,
+                    terminalConfigTheme: chunk.terminalConfigTheme
+                )
                 guard !Task.isCancelled else { return }
                 guard applied else {
                     requestVerifiedReplayReset(transactionID: transaction.id, chunk: chunk, store: store)
@@ -432,11 +457,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             }
 
             let observed = await surfaceView.presentVerifiedReplayAndReadBack(
-                surfaceID: frame.surfaceID,
-                stateSeq: frame.stateSeq,
-                renderEpoch: frame.renderEpoch,
-                renderRevision: frame.renderRevision,
-                expectedCursorColor: frame.terminalCursorColor
+                frame: frame,
+                configuredCursorColor: chunk.terminalConfigTheme?.cursor
+                    ?? surfaceView.terminalConfigTheme.cursor
             )
             guard !Task.isCancelled else { return }
             finishVerifiedReplay(

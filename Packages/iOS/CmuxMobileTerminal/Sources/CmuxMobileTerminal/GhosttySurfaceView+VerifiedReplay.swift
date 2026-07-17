@@ -131,11 +131,8 @@ extension GhosttySurfaceView {
     /// Exports the locally reconstructed Ghostty grid, submits a Metal frame,
     /// and resumes only after that target reaches the presentation tree.
     public func presentVerifiedReplayAndReadBack(
-        surfaceID: String,
-        stateSeq: UInt64,
-        renderEpoch: String,
-        renderRevision: UInt64,
-        expectedCursorColor: String?
+        frame: MobileTerminalRenderGridFrame,
+        configuredCursorColor: String?
     ) async -> MobileTerminalRenderGridFrame? {
         guard let surface,
               !isDismantled,
@@ -146,12 +143,12 @@ extension GhosttySurfaceView {
         let read = VerifiedReplaySurfaceRead(
             surface: surface,
             generation: generation,
-            surfaceID: surfaceID,
-            stateSeq: stateSeq,
-            renderEpoch: renderEpoch,
-            renderRevision: renderRevision,
-            expectedCursorColor: expectedCursorColor,
-            configuredCursorColor: TerminalThemeStore.current.cursor
+            surfaceID: frame.surfaceID,
+            stateSeq: frame.stateSeq,
+            renderEpoch: frame.renderEpoch,
+            renderRevision: frame.renderRevision,
+            expectedCursorColor: frame.terminalCursorColor,
+            configuredCursorColor: configuredCursorColor
         )
         let submission = await submitVerifiedReplayRenderAndWait(read: read)
         guard !Task.isCancelled else { return nil }
