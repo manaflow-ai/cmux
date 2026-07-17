@@ -231,8 +231,10 @@ struct TaskComposerDirectoryPickerView: View {
                             .foregroundStyle(.secondary)
                     }
                     .frame(minHeight: 44)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .frame(minHeight: 44)
                 .disabled(isLoadingDirectory)
                 .accessibilityIdentifier("MobileTaskDirectoryBrowseMore")
             }
@@ -671,8 +673,23 @@ struct TaskComposerDirectoryPickerView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Button(L10n.string("mobile.common.retry", defaultValue: "Retry"), action: retry)
-                .buttonStyle(.bordered)
+            Button(action: retry) {
+                Text(L10n.string("mobile.common.retry", defaultValue: "Retry"))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background(
+                        Color.accentColor.opacity(0.1),
+                        in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    )
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(Color.accentColor.opacity(0.16), lineWidth: 1)
+                    }
+                    .frame(minHeight: 44, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.accentColor)
                 .accessibilityIdentifier(identifier)
         }
         .padding(16)
