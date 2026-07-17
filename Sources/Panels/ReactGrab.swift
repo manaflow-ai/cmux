@@ -223,12 +223,7 @@ extension BrowserPanel {
             self?.handleReactGrabBridgeMessage(message)
         }
         reactGrabMessageHandler = handler
-        // Extension-context web views share one WKUserContentController across
-        // every web view the extension owns; a second add(_:name:) for the same
-        // name throws NSInvalidArgumentException, so rebind instead of add.
-        let userContentController = webView.configuration.userContentController
-        userContentController.removeScriptMessageHandler(forName: reactGrabMessageHandlerName)
-        userContentController.add(handler, name: reactGrabMessageHandlerName)
+        webView.configuration.userContentController.add(handler, name: reactGrabMessageHandlerName)
     }
 
     func armReactGrabRoundTrip(returnTo panelId: UUID) {
@@ -322,7 +317,7 @@ extension BrowserPanel {
         }
     }
 
-    func injectReactGrab() async {
+    private func injectReactGrab() async {
         #if DEBUG
         cmuxDebugLog("reactGrab.inject.start")
         #endif
@@ -416,7 +411,7 @@ extension BrowserPanel {
         #endif
     }
 
-    func toggleReactGrab() {
+    private func toggleReactGrab() {
         #if DEBUG
         cmuxDebugLog("reactGrab.toggle.start")
         #endif
@@ -431,11 +426,13 @@ extension BrowserPanel {
         if isReactGrabActive {
             toggleReactGrab()
         } else {
+            guard await prepareForReactGrabActivation(reason: "reactGrab.toggle") else { return }
             await injectReactGrab()
         }
     }
 
     func ensureReactGrabActive() async {
+        guard await prepareForReactGrabActivation(reason: "reactGrab.ensureActive") else { return }
         if isReactGrabActive {
             guard pendingReactGrabRoundTripToken != nil else { return }
             if await refreshReactGrabBridgeSessionToken() {
