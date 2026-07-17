@@ -15,6 +15,9 @@ pub const CDP_EVENT_QUEUE_CAPACITY: usize = 64;
 const CDP_INGRESS_EVENT_CAPACITY: usize = 1024;
 const CDP_EVENT_QUEUE_MAX_BYTES: usize = 32 * 1024 * 1024;
 
+#[cfg(test)]
+static RETAINED_SIZE_CALLS: AtomicU64 = AtomicU64::new(0);
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScreencastFrame {
     pub session_id: String,
@@ -91,6 +94,8 @@ struct Inner {
     next_id: AtomicU64,
     closed: AtomicBool,
     timeout: Duration,
+    #[cfg(test)]
+    reader_stopped: Arc<AtomicBool>,
 }
 
 struct EventQueue {
@@ -184,6 +189,8 @@ fn same_replaceable(queued: &CdpEvent, incoming: &CdpEvent) -> bool {
 }
 
 fn cdp_event_retained_bytes(event: &CdpEvent) -> usize {
+    #[cfg(test)]
+    RETAINED_SIZE_CALLS.fetch_add(1, Ordering::Relaxed);
     match event {
         CdpEvent::ScreencastFrame(frame) => frame
             .data_b64
@@ -271,6 +278,8 @@ impl CdpClient {
                 next_id: AtomicU64::new(1),
                 closed: AtomicBool::new(false),
                 timeout: Duration::from_secs(30),
+                #[cfg(test)]
+                reader_stopped: Arc::new(AtomicBool::new(false)),
             }),
         };
         client.spawn_reader(ws, outbound_rx)?;
@@ -283,8 +292,12 @@ impl CdpClient {
         outbound: Receiver<Outbound>,
     ) -> anyhow::Result<()> {
         let weak = Arc::downgrade(&self.inner);
+        #[cfg(test)]
+        let reader_stopped = self.inner.reader_stopped.clone();
         std::thread::Builder::new().name("cmux-tui-cdp-reader".into()).spawn(move || {
             reader_loop(&weak, ws, &outbound);
+            #[cfg(test)]
+            reader_stopped.store(true, Ordering::Release);
         })?;
         Ok(())
     }
@@ -1021,6 +1034,30 @@ mod tests {
     }
 
     #[test]
+    fn backpressured_event_reuses_its_cached_retained_size() {
+        RETAINED_SIZE_CALLS.store(0, Ordering::Relaxed);
+        let queue = EventQueue::new();
+        queue
+            .push(CdpEvent::Other {
+                method: "Test.large".to_string(),
+                params: json!({"payload": "x".repeat(1024 * 1024)}),
+                session_id: Some("session-1".to_string()),
+            })
+            .unwrap();
+        let (event_tx, _event_rx) = sync_channel(0);
+
+        queue.drain_into(&event_tx).unwrap();
+        let calls_after_first_retry = RETAINED_SIZE_CALLS.load(Ordering::Relaxed);
+        queue.drain_into(&event_tx).unwrap();
+
+        assert_eq!(
+            RETAINED_SIZE_CALLS.load(Ordering::Relaxed),
+            calls_after_first_retry,
+            "retry rescanned the retained JSON event"
+        );
+    }
+
+    #[test]
     fn rejected_screencast_frame_is_acknowledged() {
         let (outbound_tx, outbound_rx) = channel();
         let (event_output, _event_rx) = sync_channel(1);
@@ -1032,6 +1069,7 @@ mod tests {
             next_id: AtomicU64::new(1),
             closed: AtomicBool::new(false),
             timeout: Duration::from_secs(1),
+            reader_stopped: Arc::new(AtomicBool::new(false)),
         });
         handle_text(
             &inner,
@@ -1315,6 +1353,43 @@ mod tests {
         assert!(
             matches!(retained_event, Ok(CdpEvent::Other { .. })),
             "critical event was lost: {retained_event:?}"
+        );
+    }
+
+    #[test]
+    fn socket_shutdown_disconnects_a_backpressured_event_receiver() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            ws.close(None).unwrap();
+        });
+        let (event_tx, event_rx) = sync_channel(1);
+        event_tx
+            .send(CdpEvent::Other {
+                method: "Test.blocked".to_string(),
+                params: Value::Null,
+                session_id: None,
+            })
+            .unwrap();
+        let client =
+            CdpClient::connect(&format!("ws://{addr}/devtools/browser/fake"), event_tx).unwrap();
+        server.join().unwrap();
+
+        let deadline = Instant::now() + Duration::from_millis(500);
+        while !client.inner.reader_stopped.load(Ordering::Acquire) {
+            assert!(Instant::now() < deadline, "CDP reader did not stop");
+            thread::yield_now();
+        }
+        assert!(matches!(event_rx.recv(), Ok(CdpEvent::Other { .. })));
+
+        let shutdown = event_rx.recv_timeout(Duration::from_millis(500));
+        drop(client);
+
+        assert!(
+            matches!(shutdown, Err(std::sync::mpsc::RecvTimeoutError::Disconnected)),
+            "reader exit left the event channel live: {shutdown:?}"
         );
     }
 }
