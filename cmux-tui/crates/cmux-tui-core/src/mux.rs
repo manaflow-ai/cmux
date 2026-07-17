@@ -22,6 +22,12 @@ use crate::{
 
 pub type SurfaceResizeReporter = Arc<dyn Fn(SurfaceId, (u16, u16), Option<u64>) + Send + Sync>;
 
+const TERMINAL_DIMENSION_MAX: u16 = 10_000;
+
+pub(crate) fn clamp_terminal_size(cols: u16, rows: u16) -> (u16, u16) {
+    (cols.clamp(1, TERMINAL_DIMENSION_MAX), rows.clamp(1, TERMINAL_DIMENSION_MAX))
+}
+
 #[derive(Debug, Default)]
 pub struct CellPixelUpdate {
     pub resizes: Vec<(SurfaceId, (u16, u16), u64)>,
@@ -598,18 +604,18 @@ impl Mux {
     ) -> (u16, u16) {
         let mut latest = self.latest_client_size.lock().unwrap();
         if let Some((cols, rows)) = requested {
-            let size = (cols.max(1), rows.max(1));
+            let size = clamp_terminal_size(cols, rows);
             *latest = Some(size);
             return size;
         }
-        latest.unwrap_or((default.0.max(1), default.1.max(1)))
+        latest.unwrap_or_else(|| clamp_terminal_size(default.0, default.1))
     }
 
     /// Record a genuine client-chosen size (protocol resize-surface, sized
     /// creation, or the local TUI sizing a pane) as the default for future
     /// unsized surface creation.
     pub fn record_client_size(&self, cols: u16, rows: u16) -> (u16, u16) {
-        let size = (cols.max(1), rows.max(1));
+        let size = clamp_terminal_size(cols, rows);
         *self.latest_client_size.lock().unwrap() = Some(size);
         size
     }
@@ -634,7 +640,7 @@ impl Mux {
         cols: u16,
         rows: u16,
     ) -> anyhow::Result<(bool, Option<u64>)> {
-        let requested = (cols.max(1), rows.max(1));
+        let requested = clamp_terminal_size(cols, rows);
         let attached_clients = self.control_clients.attached_client_ids();
         // Serialize the report and its application. Otherwise an older
         // effective size can reach the PTY after a newer shared minimum.
@@ -1206,7 +1212,7 @@ impl Mux {
         // sidebar plugin surface tracking the TUI rect every frame) also land
         // in this method and must not become the default for new surfaces.
         // Client interactions record explicitly at the protocol/TUI layers.
-        let (cols, rows) = (cols.max(1), rows.max(1));
+        let (cols, rows) = clamp_terminal_size(cols, rows);
         if surface.as_browser().is_some() {
             let reservation_id =
                 surface.resize_reporting_acceptance(cols, rows, Box::new(|_| {}))?;

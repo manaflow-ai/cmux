@@ -40,6 +40,7 @@ use tungstenite::protocol::{Role, WebSocketConfig};
 use tungstenite::{Message, WebSocket, accept_with_config};
 
 use crate::model::{Screen, State};
+use crate::mux::clamp_terminal_size;
 use crate::platform::{self, transport};
 use crate::surface::AttachLifecycle;
 use crate::{
@@ -2741,8 +2742,8 @@ fn handle_command(
             Ok(json!({}))
         }
         Command::ResizeSurface { surface, cols, rows } => {
-            let attached =
-                mux.control_clients.record_size(client, surface, cols.max(1), rows.max(1))?;
+            let (cols, rows) = clamp_terminal_size(cols, rows);
+            let attached = mux.control_clients.record_size(client, surface, cols, rows)?;
             let (accepted, reservation_id) = if attached.is_some() {
                 mux.resize_surface_for_client_with_reservation(surface, client, cols, rows)?
             } else {

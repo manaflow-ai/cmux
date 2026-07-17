@@ -61,9 +61,11 @@ fn client_border_label(clients: &[ClientInfo], surface: u64) -> Option<String> {
     {
         return None;
     }
+    let use_excluded =
+        !clients.iter().any(|client| client.size_participating && !client.attached.is_empty());
     let minimum = visible_clients
         .iter()
-        .filter(|(client, _)| client.size_participating)
+        .filter(|(client, _)| use_excluded || client.size_participating)
         .map(|(_, size)| *size)
         .reduce(|smallest, size| (smallest.0.min(size.0), smallest.1.min(size.1)));
     minimum.map(|(cols, rows)| format!(" {} clients · {cols}×{rows} min ", visible_clients.len()))
