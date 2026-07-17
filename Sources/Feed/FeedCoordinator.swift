@@ -229,8 +229,12 @@ final class FeedCoordinator: @unchecked Sendable {
     }
 
     cancelNotification(requestId: requestId)
-    concludeAttentionOnMain(waiter?.attentionTarget)
-    expireTimedOutItem(waiter?.itemID)
+    await MainActor.run {
+      self.concludeBlockingDecisionAttentionIfPresent(waiter?.attentionTarget)
+      if let itemID = waiter?.itemID {
+        self.store?.markExpired(itemID)
+      }
+    }
     return .timedOut(itemId: waiter?.itemID)
   }
 
@@ -326,13 +330,6 @@ final class FeedCoordinator: @unchecked Sendable {
 
   func isAwaitingDecision(requestId: String) async -> Bool {
     await waiterRegistry.isAwaitingDecision(requestID: requestId)
-  }
-
-  private func expireTimedOutItem(_ itemId: UUID?) {
-    guard let itemId else { return }
-    Task { @MainActor [weak self] in
-      self?.store?.markExpired(itemId)
-    }
   }
 
   enum IngestBlockingResult: Sendable {

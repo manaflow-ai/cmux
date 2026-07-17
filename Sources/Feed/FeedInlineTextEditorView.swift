@@ -118,7 +118,6 @@ final class FeedInlineTextEditorView: NSView {
         updatePlaceholderVisibility()
         needsLayout = true
         invalidateIntrinsicContentSize()
-        layoutSubtreeIfNeeded()
     }
 
     func focusIfNeeded() {
@@ -169,4 +168,3 @@ final class FeedInlineTextEditorView: NSView {
         placeholderField.isHidden = !textView.string.isEmpty
     }
 }
-
