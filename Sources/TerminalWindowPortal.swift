@@ -2623,6 +2623,14 @@ enum TerminalWindowPortalRegistry {
             if unscopedInteractiveGeometryResizeCount == 0 {
                 portalsByWindowId[windowId]?.scheduleExternalGeometrySynchronize(forceImmediate: false)
             }
+            // Single choke point every drag-end path funnels through (tracker
+            // onEnded, legacy gesture onEnded, cursor failsafe): observers
+            // that deferred work during the drag settle NOW instead of on a
+            // trailing timer.
+            NotificationCenter.default.post(
+                name: .cmuxInteractiveGeometryResizeDidEnd,
+                object: nil
+            )
         } else {
             interactiveGeometryResizeCountsByWindowId[windowId] = count - 1
         }
@@ -2724,4 +2732,13 @@ enum TerminalWindowPortalRegistry {
         return portal.terminalPaneDropTargetAtWindowPoint(windowPoint)
     }
 
+}
+
+extension Notification.Name {
+    /// Posted when the last interactive geometry resize session in a window
+    /// ends (sidebar/split divider drags). Fired from the registry's single
+    /// end path so every drag-end route (tracker, legacy gesture, failsafe)
+    /// reaches observers.
+    static let cmuxInteractiveGeometryResizeDidEnd =
+        Notification.Name("cmux.interactiveGeometryResizeDidEnd")
 }

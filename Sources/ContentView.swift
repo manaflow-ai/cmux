@@ -10505,6 +10505,8 @@ struct VerticalTabsSidebar: View, Equatable {
     // or palette "Add Checklist Item…". Held at the container so rows stay
     // behind the snapshot boundary (they receive a Bool/Int + closures).
     @State private var expandedChecklistWorkspaceIds: Set<UUID> = []
+    @State private var expandedMetadataWorkspaceIds: Set<UUID> = []
+    @State private var expandedMarkdownWorkspaceIds: Set<UUID> = []
     @State private var checklistAddFieldActivationTokens: [UUID: Int] = [:]
     // Which workspace row's checklist popover is open (at most one across
     // the sidebar). Held at the container so rows stay behind the snapshot
@@ -11601,7 +11603,9 @@ struct VerticalTabsSidebar: View, Equatable {
             colorSchemeIsDark: environment.colorScheme == .dark,
             globalFontMagnificationPercent: environment.globalFontMagnificationPercent,
             isChecklistExpanded: input.isChecklistExpanded,
-            checklistAddFieldActivationToken: input.checklistAddFieldActivationToken
+            checklistAddFieldActivationToken: input.checklistAddFieldActivationToken,
+            isMetadataExpanded: expandedMetadataWorkspaceIds.contains(tab.id),
+            isMarkdownExpanded: expandedMarkdownWorkspaceIds.contains(tab.id)
         )
         let commands = SidebarWorkspaceRowCommands(
             tab: tab,
@@ -11651,6 +11655,20 @@ struct VerticalTabsSidebar: View, Equatable {
                     expandedChecklistWorkspaceIds.remove(tabId)
                 } else {
                     expandedChecklistWorkspaceIds.insert(tabId)
+                }
+            },
+            onToggleMetadataExpansion: { [tabId = tab.id] in
+                if expandedMetadataWorkspaceIds.contains(tabId) {
+                    expandedMetadataWorkspaceIds.remove(tabId)
+                } else {
+                    expandedMetadataWorkspaceIds.insert(tabId)
+                }
+            },
+            onToggleMarkdownExpansion: { [tabId = tab.id] in
+                if expandedMarkdownWorkspaceIds.contains(tabId) {
+                    expandedMarkdownWorkspaceIds.remove(tabId)
+                } else {
+                    expandedMarkdownWorkspaceIds.insert(tabId)
                 }
             },
             onConsumeChecklistAddFieldActivation: { [tabId = tab.id] in

@@ -31,9 +31,15 @@ final class SidebarWorkspaceTableRowHeightCache {
 
     func prepareHostedRows(
         _ rows: [SidebarWorkspaceTableRowConfiguration],
-        columnWidth: CGFloat
+        columnWidth: CGFloat,
+        skippingEquivalenceCheckAt unchanged: IndexSet = []
     ) -> IndexSet {
-        return prepare(rows: rows, columnWidth: columnWidth, measure: measureHostedRow)
+        return prepare(
+            rows: rows,
+            columnWidth: columnWidth,
+            skippingEquivalenceCheckAt: unchanged,
+            measure: measureHostedRow
+        )
     }
 
     func prepareHostedRowsIfWidthChanged(
@@ -46,9 +52,17 @@ final class SidebarWorkspaceTableRowHeightCache {
 
     /// Measures only missing or invalid entries. Call from render updates or
     /// viewport-width notifications, never from `heightOfRow`.
+    ///
+    /// `skippingEquivalenceCheckAt`: indices the caller already proved
+    /// content-equivalent to the previous apply (the controller's reconfigure
+    /// diff). Their entries carry over without re-running the row equality
+    /// check here, so one apply performs a single equivalence pass instead
+    /// of two. Only valid when the row at that index kept its id, which the
+    /// controller guarantees by passing it only on non-structural applies.
     func prepare(
         rows: [SidebarWorkspaceTableRowConfiguration],
         columnWidth: CGFloat,
+        skippingEquivalenceCheckAt unchanged: IndexSet = [],
         measure: Measurement
     ) -> IndexSet {
         guard columnWidth > 0 else {
@@ -56,6 +70,7 @@ final class SidebarWorkspaceTableRowHeightCache {
             preparedColumnWidth = nil
             return []
         }
+        let widthUnchanged = preparedColumnWidth == columnWidth
         preparedColumnWidth = columnWidth
 
         var nextEntries: [SidebarWorkspaceRenderItemID: Entry] = [:]
@@ -64,6 +79,10 @@ final class SidebarWorkspaceTableRowHeightCache {
 
         for (index, row) in rows.enumerated() {
             let previous = entries[row.id]
+            if widthUnchanged, unchanged.contains(index), let previous {
+                nextEntries[row.id] = previous
+                continue
+            }
             if let previous, previous.matches(row: row, columnWidth: columnWidth) {
                 nextEntries[row.id] = previous
                 continue

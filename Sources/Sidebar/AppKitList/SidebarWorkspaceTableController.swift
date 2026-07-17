@@ -18,6 +18,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var appKitDropIndicatorScope: SidebarWorkspaceReorderDropIndicatorScope = .raw
     private var appKitDropIndicatorIncludesRowTargets = false
     private var clipBoundsObserver: NSObjectProtocol?
+    private var resizeDidEndObserver: NSObjectProtocol?
     private let rowHeightCache = SidebarWorkspaceTableRowHeightCache()
     private let dropTargetGeometry = SidebarWorkspaceTableDropTargetGeometryGate()
 
@@ -32,6 +33,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     deinit {
         if let clipBoundsObserver {
             NotificationCenter.default.removeObserver(clipBoundsObserver)
+        }
+        if let resizeDidEndObserver {
+            NotificationCenter.default.removeObserver(resizeDidEndObserver)
         }
     }
     func makeContainerView() -> SidebarWorkspaceTableContainerView {
@@ -106,6 +110,16 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             }
         }
 
+        resizeDidEndObserver = NotificationCenter.default.addObserver(
+            forName: .cmuxInteractiveGeometryResizeDidEnd,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.performWidthRemeasureNow()
+            }
+        }
+
         return container
     }
 
@@ -130,7 +144,18 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let width = currentColumnWidth()
         var heightChanges = IndexSet()
         if width == lastMeasuredWidth || lastMeasuredWidth == 0 {
-            heightChanges = rowHeightCache.prepareHostedRows(nextRows, columnWidth: width)
+            // Reuse this apply's equivalence pass: indices outside
+            // contentChanges are proven equivalent, so the cache skips its
+            // own row-equality re-check for them (one O(n) equality pass per
+            // apply instead of two). Only valid when ids didn't move.
+            let provenUnchanged = hasStructuralChanges
+                ? IndexSet()
+                : IndexSet(nextRows.indices).subtracting(contentChanges)
+            heightChanges = rowHeightCache.prepareHostedRows(
+                nextRows,
+                columnWidth: width,
+                skippingEquivalenceCheckAt: provenUnchanged
+            )
             if width > 0 { lastMeasuredWidth = width }
         } else {
             // Divider drag in flight: keep last-width heights (text truncates
@@ -389,22 +414,35 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var lastMeasuredWidth: CGFloat = 0
     private var widthRemeasureTask: Task<Void, Never>?
 
-    /// One trailing re-measure ~120ms after the sidebar width stops moving;
-    /// per-pixel divider drags otherwise re-measure every row every frame.
+    /// Trailing re-measure fallback for width churn with no explicit end
+    /// signal (window live resize); per-pixel drags otherwise re-measure
+    /// every row every frame. Divider drags don't wait for this: the
+    /// registry's end-of-resize notification triggers an immediate
+    /// re-measure via performWidthRemeasureNow().
     private func scheduleWidthRemeasure() {
         widthRemeasureTask?.cancel()
         widthRemeasureTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 120_000_000)
             guard let self, !Task.isCancelled else { return }
             self.widthRemeasureTask = nil
-            let width = self.currentColumnWidth()
-            guard width > 0 else { return }
-            let changed = self.rowHeightCache.prepareHostedRows(self.rows, columnWidth: width)
-            self.lastMeasuredWidth = width
-            self.pumpHeightOverrides.removeAll(keepingCapacity: true)
-            if !changed.isEmpty {
-                self.containerView?.tableView.noteHeightOfRows(withIndexesChanged: changed)
-            }
+            self.performWidthRemeasureNow()
+        }
+    }
+
+    /// Explicit resize-completion path: re-measures at the settled width
+    /// immediately (drag just ended, geometry is final) and cancels any
+    /// pending trailing fallback.
+    func performWidthRemeasureNow() {
+        widthRemeasureTask?.cancel()
+        widthRemeasureTask = nil
+        let width = currentColumnWidth()
+        guard width > 0 else { return }
+        guard width != lastMeasuredWidth else { return }
+        let changed = rowHeightCache.prepareHostedRows(rows, columnWidth: width)
+        lastMeasuredWidth = width
+        pumpHeightOverrides.removeAll(keepingCapacity: true)
+        if !changed.isEmpty {
+            containerView?.tableView.noteHeightOfRows(withIndexesChanged: changed)
         }
     }
 

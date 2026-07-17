@@ -38,7 +38,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private let remoteStatusView = SidebarRowTextView(lines: 1)
     private let remoteReconnectButton = NSButton()
     private var metadataRows: [SidebarRowIconTextLine] = []
+    private let metadataToggleButton = SidebarRowLinkButton()
     private var markdownBlocks: [SidebarRowTextView] = []
+    private let markdownToggleButton = SidebarRowLinkButton()
     private let logLine = SidebarRowIconTextLine()
     private let progressView = SidebarRowProgressView()
     private let branchIconView = NSImageView()
@@ -166,6 +168,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         remoteReconnectButton.target = self
         remoteReconnectButton.action = #selector(didClickReconnect)
         addSubview(remoteReconnectButton)
+        addSubview(metadataToggleButton)
+        addSubview(markdownToggleButton)
         addSubview(logLine)
         addSubview(progressView)
         branchIconView.imageScaling = .scaleProportionallyDown
@@ -506,8 +510,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     }
 
     private func configureMetadata(model: SidebarWorkspaceRowModel, palette: SidebarRowPalette) {
-        let entries = model.snapshot.metadataEntries
-        let visible = model.settings.visibleAuxiliaryDetails.showsMetadata ? Array(entries.prefix(3)) : []
+        let allEntries = model.settings.visibleAuxiliaryDetails.showsMetadata
+            ? model.snapshot.metadataEntries : []
+        let visible = model.isMetadataExpanded ? allEntries : Array(allEntries.prefix(3))
         Self.pool(&metadataRows, count: visible.count, parent: self) { SidebarRowIconTextLine() }
         for (index, entry) in visible.enumerated() {
             metadataRows[index].configureMetadataEntry(
@@ -515,7 +520,33 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 color: entry.color.flatMap { NSColor(hex: $0) } ?? (model.isActive ? palette.secondary(0.95).withAlphaComponent(0.84) : .secondaryLabelColor)
             )
         }
-        let blocks = model.settings.visibleAuxiliaryDetails.showsMetadata ? Array(model.snapshot.metadataBlocks.prefix(1)) : []
+        let toggleFont = NSFont.systemFont(ofSize: model.scaled(10), weight: .semibold)
+        let toggleColor = model.isActive
+            ? palette.secondary(0.9)
+            : NSColor.secondaryLabelColor.withAlphaComponent(0.9)
+        metadataToggleButton.isHidden = allEntries.count <= 3
+        if !metadataToggleButton.isHidden {
+            metadataToggleButton.configure(
+                title: model.isMetadataExpanded
+                    ? String(localized: "sidebar.metadata.showLess", defaultValue: "Show less")
+                    : String(localized: "sidebar.metadata.showMore", defaultValue: "Show more"),
+                font: toggleFont, color: toggleColor, underlined: false, toolTip: nil,
+                onClick: { [weak self] in self?.actions?.onToggleMetadataExpansion() }
+            )
+        }
+        let allBlocks = model.settings.visibleAuxiliaryDetails.showsMetadata
+            ? model.snapshot.metadataBlocks : []
+        let blocks = model.isMarkdownExpanded ? allBlocks : Array(allBlocks.prefix(1))
+        markdownToggleButton.isHidden = allBlocks.count <= 1
+        if !markdownToggleButton.isHidden {
+            markdownToggleButton.configure(
+                title: model.isMarkdownExpanded
+                    ? String(localized: "sidebar.metadata.showLessDetails", defaultValue: "Show less details")
+                    : String(localized: "sidebar.metadata.showMoreDetails", defaultValue: "Show more details"),
+                font: toggleFont, color: toggleColor, underlined: false, toolTip: nil,
+                onClick: { [weak self] in self?.actions?.onToggleMarkdownExpansion() }
+            )
+        }
         Self.pool(&markdownBlocks, count: blocks.count, parent: self) { SidebarRowTextView(lines: 12) }
         for (index, block) in blocks.enumerated() {
             let view = markdownBlocks[index]
@@ -832,11 +863,31 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             if apply { row.frame = NSRect(x: leading, y: y, width: contentWidth, height: height) }
             y += height
         }
+        if !metadataToggleButton.isHidden {
+            y += 2
+            let size = metadataToggleButton.intrinsicContentSize
+            if apply {
+                metadataToggleButton.frame = NSRect(
+                    x: leading, y: y, width: min(size.width, contentWidth), height: size.height
+                )
+            }
+            y += size.height
+        }
         for block in markdownBlocks where !block.isHidden {
             y += 3
             let height = block.measuredHeight(width: contentWidth)
             if apply { block.frame = NSRect(x: leading, y: y, width: contentWidth, height: height) }
             y += height
+        }
+        if !markdownToggleButton.isHidden {
+            y += 2
+            let size = markdownToggleButton.intrinsicContentSize
+            if apply {
+                markdownToggleButton.frame = NSRect(
+                    x: leading, y: y, width: min(size.width, contentWidth), height: size.height
+                )
+            }
+            y += size.height
         }
         if !logLine.isHidden {
             y += spacing
