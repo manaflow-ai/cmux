@@ -40,10 +40,12 @@ extension MobileShellComposite {
     static let workspaceLaunchAgentCapability = "workspace.launch_agent.v1"
 
     /// Whether the connected Mac supports the prompt-compose agent launch
-    /// (`mobile.workspace.launch_agent`).
+    /// (`mobile.workspace.launch_agent`). Capability-gated only: like
+    /// `workspace.create`, a non-group launch is authorized for
+    /// workspace-scoped attach tickets too, so the Mac-wide-ticket policy that
+    /// gates group mutations must not hide this feature.
     public var supportsAgentLaunch: Bool {
         supportedHostCapabilities.contains(Self.workspaceLaunchAgentCapability)
-            && allowsMacScopedWorkspaceMutations
     }
 
     /// Fetches launch options from the connected Mac. Options are advisory:
