@@ -51,6 +51,9 @@ public final class UpdateStateModel {
     /// `updateErrorDomain` code for "the user asked to install but the flow never started
     /// downloading" (the install-watchdog trip).
     public nonisolated static let installDidNotStartCode = 2
+    /// `updateErrorDomain` code for an active foreground check whose Sparkle session ended before
+    /// producing a visible result.
+    public nonisolated static let foregroundCycleEndedCode = 3
 
     // MARK: - Change stream
 

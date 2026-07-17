@@ -189,9 +189,10 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     }
 
     func dismissUpdateInstallation() {
-        // This callback has no prompt/session identity. Every user-driven terminal action already
-        // updates the model synchronously at its causal boundary, so mutating here could only let
-        // an old session erase a newer prompt or an accepted install (#8368).
+        // This callback has no prompt/session identity. User actions update the model at their
+        // causal boundary, and UpdateController reconciles unexpected active-session termination
+        // from Sparkle's authoritative cycle-finished callback. Mutating here could only let an old
+        // session erase a newer prompt or an accepted install (#8368).
         log.append("dismiss update installation observed (state=\(describe(model.state)); no state mutation)")
     }
 

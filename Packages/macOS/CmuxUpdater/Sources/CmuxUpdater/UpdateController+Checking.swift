@@ -208,16 +208,52 @@ extension UpdateController: UpdateDriverEventDelegate {
             return
         }
 
-        guard finishedIntent == .installLatest, attemptCoordinator.isMonitoring else { return }
-        switch model.state {
-        case .downloading, .extracting, .installing, .error:
+        if finishedIntent == .installLatest, attemptCoordinator.isMonitoring {
+            switch model.state {
+            case .downloading, .extracting, .installing, .error:
+                return
+            case .idle, .permissionRequest, .preparingCheck, .checking, .updateAvailable,
+                    .notFound, .startingDownload:
+                setInstallDidNotStartError(
+                    diagnostic: "accepted install cycle finished before download (check=\(updateCheck.rawValue), error=\(error.map(driver.formatErrorForLog) ?? "none"))"
+                )
+            }
             return
-        case .idle, .permissionRequest, .preparingCheck, .checking, .updateAvailable,
-                .notFound, .startingDownload:
-            setInstallDidNotStartError(
-                diagnostic: "accepted install cycle finished before download (check=\(updateCheck.rawValue), error=\(error.map(driver.formatErrorForLog) ?? "none"))"
-            )
         }
+
+        guard finishedIntent == .manual else { return }
+        switch model.state {
+        case .idle, .notFound, .error, .downloading, .extracting, .installing:
+            return
+        case .permissionRequest, .preparingCheck, .checking, .updateAvailable, .startingDownload:
+            setForegroundCycleEndedError(updateCheck: updateCheck, underlyingError: error)
+        }
+    }
+
+    private func setForegroundCycleEndedError(updateCheck: SPUUpdateCheck, underlyingError: NSError?) {
+        let diagnostic = underlyingError.map(driver.formatErrorForLog) ?? "none"
+        log.append(
+            "manual update cycle ended without a visible terminal (check=\(updateCheck.rawValue), state=\(describeLifecycleState(model.state)), error=\(diagnostic))"
+        )
+        let error = underlyingError ?? NSError(
+            domain: UpdateStateModel.updateErrorDomain,
+            code: UpdateStateModel.foregroundCycleEndedCode,
+            userInfo: [NSLocalizedDescriptionKey: String(
+                localized: "update.error.failed.message",
+                defaultValue: "Something went wrong while checking for updates. Try again, or check the update log for details."
+            )]
+        )
+        model.clearDetectedUpdate()
+        model.setState(.error(.init(
+            error: error,
+            retry: { [weak self] in
+                self?.model.setState(.idle)
+                self?.checkForUpdates()
+            },
+            dismiss: { [weak self] in self?.model.setState(.idle) },
+            technicalDetails: underlyingError.map(driver.formatErrorForLog),
+            feedURLString: driver.resolvedFeedURLString()
+        )))
     }
 
     func updateDriverUserDidCancelCheck() {

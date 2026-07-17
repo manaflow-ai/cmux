@@ -46,6 +46,51 @@ import Testing
 
     // MARK: - Replays
 
+    /// Sparkle's dismissal callback is deliberately identity-free, so the authoritative cycle-end
+    /// signal must terminate an aborted manual check instead of leaving its spinner permanently
+    /// visible. The surfaced error remains actionable and starts a genuinely new check on retry.
+    @Test func finishedManualCycleCannotLeaveCheckingStateStale() {
+        let harness = Harness()
+
+        harness.controller.checkForUpdates()
+        #expect(harness.updater.checkForUpdatesCallCount == 1)
+        harness.controller.driver.showUserInitiatedUpdateCheck(cancellation: {})
+        harness.controller.driver.dismissUpdateInstallation()
+        guard case .checking = harness.model.state else {
+            Issue.record("identity-free dismissal unexpectedly mutated the active manual check")
+            return
+        }
+
+        harness.finishSparkleCycle()
+        guard case .error(let failure) = harness.model.state else {
+            Issue.record("finished manual cycle left stale state: \(harness.model.state)")
+            return
+        }
+        #expect((failure.error as NSError).code == UpdateStateModel.foregroundCycleEndedCode)
+
+        failure.retry()
+        #expect(harness.updater.checkForUpdatesCallCount == 2)
+    }
+
+    /// The same terminal reconciliation applies after an update prompt was shown: once Sparkle
+    /// says that manual session is over, cmux must not leave an action backed by the dead session.
+    @Test func finishedManualCycleCannotLeaveUpdatePromptStale() {
+        let harness = Harness()
+        let prompt = ChoiceBox()
+
+        harness.controller.checkForUpdates()
+        harness.model.setState(updateAvailable("0.64.16", replyingInto: prompt))
+        harness.controller.driver.dismissUpdateInstallation()
+        guard case .updateAvailable = harness.model.state else {
+            Issue.record("identity-free dismissal unexpectedly mutated the active prompt")
+            return
+        }
+
+        harness.finishSparkleCycle()
+        #expect(errorCode(for: harness.model.state) == UpdateStateModel.foregroundCycleEndedCode)
+        #expect(prompt.choice == nil)
+    }
+
     /// End-to-end accepted-install lifecycle: retire the old prompt, wait for Sparkle's cycle-end
     /// signal, re-resolve the newest nightly, retain visible ownership through the install reply,
     /// and end only when Sparkle starts downloading.
