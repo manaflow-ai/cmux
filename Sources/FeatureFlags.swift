@@ -46,11 +46,7 @@ final class CmuxFeatureFlags {
     #endif
     private static let agentChatUIDefault = false
     private static let sidebarWorkspaceAgentSpinnerDefault = false
-    #if DEBUG
-    private static let workspaceTodoControlsDefault = true
-    #else
     private static let workspaceTodoControlsDefault = false
-    #endif
 
     private static let overrideKeyPrefix = "cmux.flags.override."
 
@@ -141,9 +137,8 @@ final class CmuxFeatureFlags {
             // FLAG(key: workspace-todo-controls-enabled-release, owner: lawrencecchen,
             //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
             // Shows user-facing workspace todo controls that create checklist
-            // items or set completion/status lanes. Release builds hide them
-            // until the PostHog flag is enabled; DEBUG keeps them visible for
-            // dogfood and regression coverage.
+            // items or set completion/status lanes. Hidden until the local
+            // beta setting opts in or the PostHog flag is enabled.
             CmuxFeatureFlagDefinition(
                 key: "workspace-todo-controls-enabled-release",
                 title: String(

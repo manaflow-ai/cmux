@@ -10,12 +10,27 @@ import UniformTypeIdentifiers
 /// through ``WorkspaceTodoActions`` so gated status/add-item mutations and the
 /// backend caps/anti-rot apply identically everywhere.
 enum WorkspaceTodoFeature {
-    /// Synchronous read of the remote-enabled feature flag for status and
-    /// add-item controls. Existing checklist items stay visible/usable when
-    /// this is off; only the controls that create items or set workspace
-    /// completion/status lanes are hidden.
+    /// Synchronous read of the local beta opt-in plus remote-enabled feature
+    /// flag for status and add-item controls. Existing checklist items stay
+    /// visible/usable when this is off; only the controls that create items or
+    /// set workspace completion/status lanes are hidden.
     @MainActor
-    static var isEnabled: Bool { CmuxFeatureFlags.shared.isWorkspaceTodoControlsEnabled }
+    static var isEnabled: Bool {
+        isEnabled(
+            defaults: .standard,
+            remoteEnabled: CmuxFeatureFlags.shared.isWorkspaceTodoControlsEnabled
+        )
+    }
+
+    static func isEnabled(defaults: UserDefaults, remoteEnabled: Bool) -> Bool {
+        remoteEnabled || localControlsOptIn(defaults: defaults)
+    }
+
+    static func localControlsOptIn(defaults: UserDefaults) -> Bool {
+        let key = BetaFeaturesCatalogSection().workspaceTodoControls
+        guard defaults.object(forKey: key.userDefaultsKey) != nil else { return key.defaultValue }
+        return defaults.bool(forKey: key.userDefaultsKey)
+    }
 
     /// The checklist presentation style (popover or inline), user-selectable.
     static var checklistStyle: WorkspaceTodoChecklistStyle {

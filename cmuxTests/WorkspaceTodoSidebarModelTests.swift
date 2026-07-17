@@ -1,3 +1,4 @@
+import CmuxSettings
 import CmuxWorkspaces
 import CoreGraphics
 import Foundation
@@ -73,6 +74,29 @@ struct WorkspaceTodoSidebarModelTests {
     }
 
     // MARK: - Minimal todo visibility
+
+    @Test
+    func workspaceTodoControlsGateDefaultsOffAndAllowsLocalOrRemoteOptIn() throws {
+        let suiteName = "cmux.workspace.todo.controls.setting.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        let key = BetaFeaturesCatalogSection().workspaceTodoControls
+
+        #expect(key.defaultValue == false)
+        #expect(!WorkspaceTodoFeature.localControlsOptIn(defaults: defaults))
+        #expect(!WorkspaceTodoFeature.isEnabled(defaults: defaults, remoteEnabled: false))
+        #expect(WorkspaceTodoFeature.isEnabled(defaults: defaults, remoteEnabled: true))
+
+        defaults.set(true, forKey: key.userDefaultsKey)
+        #expect(WorkspaceTodoFeature.localControlsOptIn(defaults: defaults))
+        #expect(WorkspaceTodoFeature.isEnabled(defaults: defaults, remoteEnabled: false))
+
+        defaults.set(false, forKey: key.userDefaultsKey)
+        #expect(!WorkspaceTodoFeature.localControlsOptIn(defaults: defaults))
+        #expect(!WorkspaceTodoFeature.isEnabled(defaults: defaults, remoteEnabled: false))
+    }
 
     @Test
     func compactStatusOnlyShowsWhenDetailsAreHiddenAndStatusIsEngaged() {

@@ -76,11 +76,7 @@ struct PostHogAnalyticsPropertiesTests {
             remoteValues[key]
         }
 
-        #if DEBUG
-        #expect(flags.isWorkspaceTodoControlsEnabled)
-        #else
         #expect(!flags.isWorkspaceTodoControlsEnabled)
-        #endif
 
         remoteValues[flag.key] = false
         flags.applyLoadedFlags()
