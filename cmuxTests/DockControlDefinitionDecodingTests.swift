@@ -307,6 +307,24 @@ struct DockControlDefinitionDecodingTests {
         #expect(store.bonsplitController.allTabIds.isEmpty)
     }
 
+    @Test("Transient Dock identity probe failures preserve live panels")
+    @MainActor
+    func identityProbeFailurePreservesLivePanels() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { root.path })
+        defer { store.closeAllPanels() }
+
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let panelID = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
+
+        store.applyConfigurationIdentityFailure(generation: 0)
+
+        #expect(store.containsPanel(panelID))
+        #expect(store.bonsplitController.allTabIds.count == 1)
+    }
+
     @Test("Workspace close confirmation includes Dock panels")
     @MainActor
     func workspaceCloseConfirmationIncludesDockPanels() throws {

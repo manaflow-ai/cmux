@@ -7,6 +7,16 @@ struct DockConfigurationContext: Sendable {
         let availabilityRevision: String
         let executionWorkspaceID: UUID?
         let includesGlobalFallback: Bool
+
+        /// Whether both contexts address the same durable configuration and
+        /// execution source. Availability revisions only request a fresh probe;
+        /// they do not invalidate already-running panels from that source.
+        func hasSameConfigurationSource(as other: Self) -> Bool {
+            projectOrigin == other.projectOrigin &&
+                rootDirectory == other.rootDirectory &&
+                executionWorkspaceID == other.executionWorkspaceID &&
+                includesGlobalFallback == other.includesGlobalFallback
+        }
     }
 
     let identity: Identity

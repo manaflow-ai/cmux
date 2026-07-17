@@ -251,6 +251,43 @@ struct DockConfigSourceResolutionTests {
         #expect(secondLoadedIdentity.requiresPanelReload(comparedTo: firstLoadedIdentity))
     }
 
+    @Test("daemon availability revisions do not change the durable Dock source")
+    func availabilityRevisionDoesNotInvalidateConfigurationSource() {
+        let workspaceID = UUID()
+        let ready = DockConfigurationContext.Identity(
+            projectOrigin: .remote(identity: "ssh|host-a|22", displayTarget: "host-a"),
+            rootDirectory: "/home/me/project",
+            availabilityRevision: "ready|file.read",
+            executionWorkspaceID: workspaceID,
+            includesGlobalFallback: true
+        )
+        let unavailable = DockConfigurationContext.Identity(
+            projectOrigin: ready.projectOrigin,
+            rootDirectory: ready.rootDirectory,
+            availabilityRevision: "error|",
+            executionWorkspaceID: workspaceID,
+            includesGlobalFallback: true
+        )
+        let otherWorkspace = DockConfigurationContext.Identity(
+            projectOrigin: ready.projectOrigin,
+            rootDirectory: ready.rootDirectory,
+            availabilityRevision: ready.availabilityRevision,
+            executionWorkspaceID: UUID(),
+            includesGlobalFallback: true
+        )
+        let otherRoot = DockConfigurationContext.Identity(
+            projectOrigin: ready.projectOrigin,
+            rootDirectory: "/home/me/other-project",
+            availabilityRevision: ready.availabilityRevision,
+            executionWorkspaceID: workspaceID,
+            includesGlobalFallback: true
+        )
+
+        #expect(unavailable.hasSameConfigurationSource(as: ready))
+        #expect(!otherWorkspace.hasSameConfigurationSource(as: ready))
+        #expect(!otherRoot.hasSameConfigurationSource(as: ready))
+    }
+
     @Test("POSIX traversal never escapes the filesystem root")
     func pathTraversalStopsAtRoot() {
         #expect(DockConfigPath("/../../home/me")?.value == "/home/me")

@@ -45,6 +45,7 @@ final class DockSplitStore: BonsplitDelegate {
     private var configurationIdentityGeneration = 0
     private var configurationLoadRootDirectory: String?
     private var configurationLoadContextIdentity: DockConfigurationContext.Identity?
+    private var lastAppliedConfigurationContextIdentity: DockConfigurationContext.Identity?
     private var configurationSeedSuppressionGeneration: Int?
     private var activeConfigLocation: DockConfigLocation?
     private var rootDirectoryOverride: String?
@@ -191,12 +192,18 @@ final class DockSplitStore: BonsplitDelegate {
     private func reloadIfBaseDirectoryChanged() {
         guard hasLoadedConfiguration else { return }
         let context = currentConfigurationContext()
-        if configurationLoadTask != nil,
-           context.identity != configurationLoadContextIdentity {
+        if configurationLoadTask != nil {
+            if let loadingIdentity = configurationLoadContextIdentity,
+               !context.identity.hasSameConfigurationSource(as: loadingIdentity) {
+                reload()
+            }
+            return
+        }
+        if let appliedIdentity = lastAppliedConfigurationContextIdentity,
+           !context.identity.hasSameConfigurationSource(as: appliedIdentity) {
             reload()
             return
         }
-        guard configurationLoadTask == nil else { return }
         configurationIdentityGeneration += 1
         let generation = configurationIdentityGeneration
         configurationIdentityTask?.cancel()
@@ -726,6 +733,7 @@ final class DockSplitStore: BonsplitDelegate {
         configurationIdentityTask = nil
         configurationLoadRootDirectory = nil
         configurationLoadContextIdentity = nil
+        lastAppliedConfigurationContextIdentity = nil
     }
 
     private func startConfigurationLoad(replacingPanels: Bool) {
@@ -758,10 +766,11 @@ final class DockSplitStore: BonsplitDelegate {
         reload()
     }
 
-    private func applyConfigurationIdentityFailure(generation: Int) {
+    /// Completes a failed source probe without tearing down panels that already
+    /// belong to the same durable configuration context.
+    func applyConfigurationIdentityFailure(generation: Int) {
         guard generation == configurationIdentityGeneration else { return }
         configurationIdentityTask = nil
-        reload()
     }
 
     private nonisolated static func loadConfigurationSnapshot(
@@ -787,9 +796,13 @@ final class DockSplitStore: BonsplitDelegate {
         replacingPanels: Bool
     ) {
         guard generation == configurationLoadGeneration else { return }
+        let completedContextIdentity = configurationLoadContextIdentity
         configurationLoadTask = nil
         configurationLoadRootDirectory = nil
         configurationLoadContextIdentity = nil
+        if let completedContextIdentity {
+            lastAppliedConfigurationContextIdentity = completedContextIdentity
+        }
         errorMessage = nil
         trustRequest = nil
         activeConfigLocation = nil
