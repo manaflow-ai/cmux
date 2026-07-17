@@ -42,6 +42,63 @@ extension MobileHostAuthorizationTests {
         #expect(await closeRecorder.recordedIDs() == [connectionID])
     }
 
+    @Test func testTransportInitializerReplacesSupersededWorkspaceDiffRequests() async throws {
+        let transport = RecordingMobileHostByteTransport()
+        let activeStarted = AsyncTestSignal()
+        let activeCancelled = AsyncTestSignal()
+        let activeGate = MobileHostDiffOperationGate()
+        let session = MobileHostConnection(
+            id: UUID(),
+            transport: transport,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { request in
+                if request.id as? String == "first" {
+                    return await withTaskCancellationHandler {
+                        activeStarted.fulfill()
+                        await activeGate.wait()
+                        return .ok(["request": "first"])
+                    } onCancel: {
+                        activeCancelled.fulfill()
+                    }
+                }
+                return .ok(["request": request.id as? String ?? "unknown"])
+            },
+            onClose: { _ in }
+        )
+
+        await session.debugHandleReceiveDataForTesting(
+            try mobileHostTestFrame(id: "first", method: "mobile.workspace.diff_status")
+        )
+        try await activeStarted.wait()
+
+        await session.debugHandleReceiveDataForTesting(
+            try mobileHostTestFrame(id: "second", method: "mobile.workspace.diff_file")
+        )
+        try await activeCancelled.wait()
+
+        await session.debugHandleReceiveDataForTesting(
+            try mobileHostTestFrame(id: "third", method: "mobile.workspace.diff_status")
+        )
+
+        let sentBeforeRelease = await transport.waitForSentBufferCount(2)
+        let responsesBeforeRelease = try mobileHostTestResponses(from: sentBeforeRelease)
+        let first = try #require(responsesBeforeRelease.first { $0["id"] as? String == "first" })
+        let second = try #require(responsesBeforeRelease.first { $0["id"] as? String == "second" })
+        #expect(first["ok"] as? Bool == false)
+        #expect((first["error"] as? [String: Any])?["code"] as? String == "cancelled")
+        #expect(second["ok"] as? Bool == false)
+        #expect((second["error"] as? [String: Any])?["code"] as? String == "cancelled")
+        #expect(!responsesBeforeRelease.contains { $0["id"] as? String == "third" })
+
+        await activeGate.release()
+        let sentAfterRelease = await transport.waitForSentBufferCount(3)
+        let responsesAfterRelease = try mobileHostTestResponses(from: sentAfterRelease)
+        let third = try #require(responsesAfterRelease.first { $0["id"] as? String == "third" })
+        #expect(third["ok"] as? Bool == true)
+        #expect((third["result"] as? [String: Any])?["request"] as? String == "third")
+    }
+
     @Test func testNewestAuthorizedIrohConnectionSupersedesOlderOverlap() async throws {
         let service = MobileHostService.shared
         service.debugResetMobileLifecycleStateForTesting()
@@ -476,6 +533,46 @@ private actor ScriptedMobileHostByteTransport: CmxByteTransport {
         }
         await withCheckedContinuation { continuation in
             closeWaiters.append((count, continuation))
+        }
+    }
+}
+
+private actor MobileHostDiffOperationGate {
+    private var isReleased = false
+    private var waiter: CheckedContinuation<Void, Never>?
+
+    func wait() async {
+        guard !isReleased else { return }
+        await withCheckedContinuation { continuation in
+            waiter = continuation
+        }
+    }
+
+    func release() {
+        isReleased = true
+        waiter?.resume()
+        waiter = nil
+    }
+}
+
+private enum MobileHostConnectionTestDecodeError: Error {
+    case invalidJSONResponse
+}
+
+private func mobileHostTestFrame(id: String, method: String) throws -> Data {
+    try MobileSyncFrameCodec.encodeFrame(
+        Data(#"{"id":"\#(id)","method":"\#(method)","params":{}}"#.utf8)
+    )
+}
+
+private func mobileHostTestResponses(from sentFrames: [Data]) throws -> [[String: Any]] {
+    try sentFrames.flatMap { sentFrame in
+        var framed = sentFrame
+        return try MobileSyncFrameCodec.decodeFrames(from: &framed).map { payload in
+            guard let response = try JSONSerialization.jsonObject(with: payload) as? [String: Any] else {
+                throw MobileHostConnectionTestDecodeError.invalidJSONResponse
+            }
+            return response
         }
     }
 }

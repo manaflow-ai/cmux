@@ -75,16 +75,28 @@ import Testing
         #expect(noTerminals.selectedName == nil)
     }
 
+    @Test func diffReviewCapabilityChangesMenuValue() {
+        let terminal = MobileTerminalPreview(id: "terminal-1", name: "Build")
+        let hidden = menuValue(liveTerminals: [terminal], snapshotRows: [], canReviewChanges: false)
+        let visible = menuValue(liveTerminals: [terminal], snapshotRows: [], canReviewChanges: true)
+
+        #expect(hidden != visible)
+        #expect(!hidden.canReviewChanges)
+        #expect(visible.canReviewChanges)
+    }
+
     private func menuValue(
         liveTerminals: [MobileTerminalPreview],
         snapshotRows: [TerminalPickerMenuRow],
-        selectedID: MobileTerminalPreview.ID? = "terminal-1"
+        selectedID: MobileTerminalPreview.ID? = "terminal-1",
+        canReviewChanges: Bool = false
     ) -> TerminalPickerMenuValue {
         TerminalPickerMenuValue(
             liveTerminals: liveTerminals,
             snapshotRows: snapshotRows,
             selectedID: selectedID,
             canCreateWorkspace: true,
+            canReviewChanges: canReviewChanges,
             hasActiveBrowser: false,
             isChatMode: false
         )

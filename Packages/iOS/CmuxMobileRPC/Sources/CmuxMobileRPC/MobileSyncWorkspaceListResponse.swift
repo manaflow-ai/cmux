@@ -17,6 +17,10 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         public let currentDirectory: String?
         /// Whether the Mac currently has this workspace selected.
         public let isSelected: Bool
+        /// Whether this is a remote SSH workspace. `nil` for older Macs.
+        public let isRemoteWorkspace: Bool?
+        /// Whether this workspace mirrors a remote tmux session. `nil` for older Macs.
+        public let isRemoteTmuxMirror: Bool?
         /// Whether this workspace is pinned, if the Mac reported it. `nil` when
         /// connected to a Mac old enough not to emit `is_pinned`.
         public let isPinned: Bool?
@@ -48,6 +52,8 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case title
             case currentDirectory = "current_directory"
             case isSelected = "is_selected"
+            case isRemoteWorkspace = "is_remote_workspace"
+            case isRemoteTmuxMirror = "is_remote_tmux_mirror"
             case isPinned = "is_pinned"
             case groupID = "group_id"
             case preview

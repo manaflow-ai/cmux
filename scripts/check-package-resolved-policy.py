@@ -45,6 +45,24 @@ XCODE_PACKAGE_REFERENCE_TOKENS = (
 PACKAGE_DEPENDENCY_RE = re.compile(r"\.package\(([^)]*)\)", re.DOTALL)
 PACKAGE_PATH_ARGUMENT_RE = re.compile(r'\bpath\s*:\s*"([^"]+)"')
 PACKAGE_URL_ARGUMENT_RE = re.compile(r'\burl\s*:\s*"[^"]+"')
+PACKAGE_ARGUMENT_RE = re.compile(
+    r'\b([A-Za-z_][A-Za-z0-9_]*)\s*:\s*("(?:[^"\\]|\\.)*"|[^,]+)'
+)
+STRING_LITERAL_RE = re.compile(r'"(?:[^"\\]|\\.)*"')
+REMOTE_LITERAL_ARGUMENTS = {
+    "name",
+    "url",
+    "from",
+    "exact",
+    "branch",
+    "revision",
+}
+REMOTE_REQUIREMENT_ARGUMENTS = {
+    "from",
+    "exact",
+    "branch",
+    "revision",
+}
 WORKSPACE_GROUP_LOCATION_RE = re.compile(r'\blocation\s*=\s*"group:([^"]+)"')
 
 SKIPPED_DIRS = {
@@ -151,6 +169,37 @@ def dependency_calls_include_url(calls: list[str]) -> bool:
     return any(PACKAGE_URL_ARGUMENT_RE.search(call) for call in calls)
 
 
+def remote_dependency_call_is_literal(call: str) -> bool:
+    """Return true only when a remote .package call is fully literal."""
+    if not PACKAGE_URL_ARGUMENT_RE.search(call):
+        return False
+    matched_spans: list[tuple[int, int]] = []
+    saw_url = False
+    saw_requirement = False
+    for match in PACKAGE_ARGUMENT_RE.finditer(call):
+        label = match.group(1)
+        value = match.group(2).strip()
+        matched_spans.append(match.span())
+        if label == "url":
+            saw_url = True
+        if label in REMOTE_REQUIREMENT_ARGUMENTS:
+            saw_requirement = True
+        if label in REMOTE_LITERAL_ARGUMENTS and STRING_LITERAL_RE.fullmatch(value):
+            continue
+        if label not in REMOTE_LITERAL_ARGUMENTS:
+            continue
+        return False
+
+    if not saw_url or not saw_requirement:
+        return False
+
+    remainder = call
+    for start, end in reversed(matched_spans):
+        remainder = remainder[:start] + remainder[end:]
+    remainder = remainder.replace(",", "").strip()
+    return not remainder
+
+
 def has_remote_dependency(
     root: str,
     graph: dict[str, tuple[bool, list[str]]],
@@ -190,6 +239,26 @@ def package_dependency_closure(
     return closure
 
 
+def workspace_dependency_pins_changed(
+    current_workspace_roots: set[str],
+    previous_workspace_roots: set[str],
+    current_graph: dict[str, tuple[bool, list[str]]],
+    previous_graph: dict[str, tuple[bool, list[str]]],
+    changed_dependency_roots: set[str],
+    pin_affecting_dependency_roots: set[str],
+) -> bool:
+    current_dependency_roots: set[str] = set()
+    for root in current_workspace_roots:
+        current_dependency_roots.update(package_dependency_closure(root, current_graph))
+    previous_dependency_roots: set[str] = set()
+    for root in previous_workspace_roots:
+        previous_dependency_roots.update(package_dependency_closure(root, previous_graph))
+    changed_workspace_dependency_roots = (
+        current_dependency_roots | previous_dependency_roots
+    ) & changed_dependency_roots
+    return bool(changed_workspace_dependency_roots & pin_affecting_dependency_roots)
+
+
 def workspace_package_roots(
     workspace_file: str,
     manifests: dict[str, Path],
@@ -227,6 +296,90 @@ def package_roots_requiring_lockfiles(
         root for root in cmux_manifests
         if has_remote_dependency(root, graph, memo, set())
     }
+
+
+def dependency_call_delta_affects_pins(
+    root: str,
+    current_manifests: dict[str, Path],
+    current_graph: dict[str, tuple[bool, list[str]]],
+    previous_manifests: dict[str, Path],
+    previous_graph: dict[str, tuple[bool, list[str]]],
+    *,
+    previous_ref: str | None = None,
+) -> bool:
+    """Whether an edited manifest's dependency-call delta can change remote pins.
+
+    A downstream consumer's originHash covers only its own manifest. Compare
+    the edited package's complete before/after remote requirements so replacing
+    one local wrapper with another pin-equivalent wrapper does not demand an
+    impossible byte change in every consumer lockfile. Unknown dependency forms
+    stay strict.
+    """
+    current_remote_calls = transitive_remote_dependency_calls(
+        root,
+        current_manifests,
+        current_graph,
+    )
+    previous_remote_calls = transitive_remote_dependency_calls(
+        root,
+        previous_manifests,
+        previous_graph,
+        ref=previous_ref,
+    )
+    if current_remote_calls is None or previous_remote_calls is None:
+        return True
+    return current_remote_calls != previous_remote_calls
+
+
+def transitive_remote_dependency_calls(
+    root: str,
+    manifests: dict[str, Path],
+    graph: dict[str, tuple[bool, list[str]]],
+    *,
+    ref: str | None = None,
+) -> frozenset[str] | None:
+    """Return normalized remote requirements, or None for an unknown form."""
+    if root not in manifests:
+        return frozenset()
+
+    root_by_resolved_path = {
+        manifest.parent.resolve(): package_root
+        for package_root, manifest in manifests.items()
+    }
+    remote_calls: set[str] = set()
+    visited: set[str] = set()
+
+    def visit(package_root: str) -> bool:
+        if package_root in visited:
+            return True
+        visited.add(package_root)
+        manifest = manifests.get(package_root)
+        if manifest is None:
+            return False
+        text = (
+            file_text_at(ref, manifest.as_posix())
+            if ref is not None
+            else manifest.read_text(encoding="utf-8")
+        )
+        for call in package_dependency_calls(text):
+            if PACKAGE_URL_ARGUMENT_RE.search(call):
+                if not remote_dependency_call_is_literal(call):
+                    return False
+                remote_calls.add(call)
+                continue
+            path_match = PACKAGE_PATH_ARGUMENT_RE.search(call)
+            if path_match is None:
+                return False
+            resolved_root = root_by_resolved_path.get(
+                (manifest.parent / path_match.group(1)).resolve()
+            )
+            if resolved_root is not None and not visit(resolved_root):
+                return False
+        return True
+
+    if not visit(root):
+        return None
+    return frozenset(remote_calls)
 
 
 def package_lockfile_path(root: str) -> str:
@@ -339,6 +492,7 @@ def main() -> int:
     merge_base = merge_base_with_base_ref()
     changed_files = changed_files_since(merge_base)
     changed_dependency_roots: set[str] = set()
+    pin_affecting_dependency_roots: set[str] = set()
     previous_manifests: dict[str, Path] = {}
     previous_graph: dict[str, tuple[bool, list[str]]] = {}
 
@@ -376,6 +530,15 @@ def main() -> int:
                 )
             ):
                 changed_dependency_roots.add(root)
+            if dependency_call_delta_affects_pins(
+                root,
+                all_manifests,
+                graph,
+                previous_manifests,
+                previous_graph,
+                previous_ref=merge_base,
+            ):
+                pin_affecting_dependency_roots.add(root)
 
     if (
         xcode_package_reference_changed(
@@ -403,22 +566,13 @@ def main() -> int:
         if merge_base is not None
         else set()
     )
-    current_ios_workspace_dependency_roots: set[str] = set()
-    for root in current_ios_workspace_roots:
-        current_ios_workspace_dependency_roots.update(
-            package_dependency_closure(root, graph)
-        )
-    previous_ios_workspace_dependency_roots: set[str] = set()
-    for root in previous_ios_workspace_roots:
-        previous_ios_workspace_dependency_roots.update(
-            package_dependency_closure(root, previous_graph)
-        )
-    ios_workspace_dependencies_changed = bool(
-        (
-            current_ios_workspace_dependency_roots
-            | previous_ios_workspace_dependency_roots
-        )
-        & changed_dependency_roots
+    ios_workspace_dependencies_changed = workspace_dependency_pins_changed(
+        current_ios_workspace_roots,
+        previous_ios_workspace_roots,
+        graph,
+        previous_graph,
+        changed_dependency_roots,
+        pin_affecting_dependency_roots,
     )
     changed_ios_workspace_members = (
         current_ios_workspace_roots ^ previous_ios_workspace_roots
@@ -483,9 +637,16 @@ def main() -> int:
         )
         if not has_or_requires_lockfile:
             continue
-        affected_dependency_roots = (
-            package_dependency_closure(root, graph) & changed_dependency_roots
-        )
+        closure = package_dependency_closure(root, graph)
+        if root in changed_dependency_roots:
+            affected_dependency_roots = closure & changed_dependency_roots
+        else:
+            # A consumer's Package.resolved can only change when the edited
+            # manifest's dependency-call delta can add or remove remote pins;
+            # a path-only, pin-neutral change leaves consumer resolution
+            # byte-identical, so an honest regeneration cannot produce the
+            # required diff (only the edited package's own originHash moves).
+            affected_dependency_roots = closure & pin_affecting_dependency_roots
         if not affected_dependency_roots:
             continue
         if expected_lockfile in changed_files:

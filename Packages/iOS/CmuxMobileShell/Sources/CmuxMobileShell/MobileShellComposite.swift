@@ -3459,7 +3459,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// aggregate. A failed refresh/reconnect should make stale rows visibly
     /// unavailable, not leave them connected/actionable until a stream callback
     /// happens to run.
-    private func markSecondaryMacUnavailable(_ macID: String) {
+    func markSecondaryMacUnavailable(_ macID: String) {
         guard var state = workspacesByMac[macID] else { return }
         state.status = .unavailable
         workspacesByMac[macID] = state
@@ -7596,7 +7596,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     func disconnectForAuthorizationFailureIfNeeded(_ error: any Error) -> Bool {
-        guard Self.shouldDisconnectForAuthorizationFailure(error) else {
+        guard shouldDisconnectForAuthorizationFailure(error) else {
             return false
         }
         let category = MobilePairingFailureCategory.classify(error: error, route: activeRoute)
@@ -7619,7 +7619,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return true
     }
 
-    private static func shouldDisconnectForAuthorizationFailure(_ error: any Error) -> Bool {
+    func shouldDisconnectForAuthorizationFailure(_ error: any Error) -> Bool {
         guard let connectionError = error as? MobileShellConnectionError else {
             return false
         }

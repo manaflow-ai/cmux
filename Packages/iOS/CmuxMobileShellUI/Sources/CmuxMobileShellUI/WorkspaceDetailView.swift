@@ -47,6 +47,7 @@ struct WorkspaceDetailView: View {
     /// editable text (seeded with the current name when presented).
     @State var isRenamePresented = false
     @State var renameText = ""
+    @State var isDiffReviewPresented = false
     /// Live pane width for capping the leading glass title pill.
     @State private var contentWidth: CGFloat = 0
     /// Terminal captured for the current "View as Text" sheet presentation.
@@ -120,6 +121,7 @@ struct WorkspaceDetailView: View {
             .sheet(isPresented: $isTextSheetPresented) {
                 TerminalTextSheetView(surfaceID: textSheetSurfaceID)
             }
+            .diffReviewEntry(isPresented: $isDiffReviewPresented, store: store, workspace: workspace)
             .workspaceRenameDialog(
                 isPresented: $isRenamePresented,
                 text: $renameText,
@@ -377,6 +379,7 @@ struct WorkspaceDetailView: View {
                 snapshotRows: terminalPickerRows,
                 selectedID: store.selectedTerminalID,
                 canCreateWorkspace: canCreateWorkspace,
+                canReviewChanges: store.supportsDiffReview(for: workspace.id),
                 hasActiveBrowser: activeBrowser != nil,
                 isChatMode: isChatMode
             ),
@@ -385,6 +388,7 @@ struct WorkspaceDetailView: View {
                 createWorkspace: createWorkspaceFromToolbar,
                 createTerminal: createTerminalFromToolbar,
                 openBrowser: openBrowserFromToolbar,
+                openDiffReview: openDiffReviewFromMenu,
                 openTextSheet: openTextSheetFromMenu,
                 copyDebugLogs: {
                     #if DEBUG

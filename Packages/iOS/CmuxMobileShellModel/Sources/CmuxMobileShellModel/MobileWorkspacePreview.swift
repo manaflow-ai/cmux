@@ -95,6 +95,9 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     public var macConnectionStatus: MobileMacConnectionStatus? = nil
     /// Workspace actions supported by the Mac that owns this row.
     public var actionCapabilities: MobileWorkspaceActionCapabilities = .none
+    /// Whether the workspace has a local repository context the mobile diff
+    /// RPC can inspect. Remote SSH and remote-tmux mirrors are ineligible.
+    public var isDiffReviewEligible: Bool = true
 
     /// The workspace id to use in RPC params.
     public var rpcWorkspaceID: ID {

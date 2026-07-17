@@ -95,6 +95,23 @@ import Testing
         #expect(await router.count(of: "workspace.group.create") == 0)
     }
 
+    @Test func diffReviewCapabilityFailsClosedForRemoteWorkspace() async throws {
+        let connected = try await connectedStore(capabilities: [
+            "events.v1",
+            "terminal.render_grid.v1",
+            "terminal.replay.v1",
+            "workspace.diff.v1",
+        ])
+        let workspaceID = try #require(connected.store.workspaces.first?.id)
+        #expect(connected.store.supportsDiffReview(for: workspaceID))
+
+        var remoteWorkspace = try #require(connected.store.workspaces.first)
+        remoteWorkspace.isDiffReviewEligible = false
+        connected.store.replaceForegroundWorkspaceState([remoteWorkspace])
+
+        #expect(!connected.store.supportsDiffReview(for: workspaceID))
+    }
+
     private func connectedStore(
         capabilities: [String],
         ticketWorkspaceID: String = "live-workspace",

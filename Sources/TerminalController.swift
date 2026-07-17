@@ -7,6 +7,7 @@ import CmuxFeedback
 import CmuxBrowser
 import CmuxControlSocket
 import CmuxFoundation
+import CmuxGit
 import CmuxPanes
 import CmuxRemoteDaemon
 import CmuxRemoteWorkspace
@@ -22,7 +23,6 @@ import Bonsplit
 import WebKit
 import CmuxSidebar
 import CmuxWorkspaces
-
 extension Notification.Name {
     static let socketListenerDidStart = Notification.Name("cmux.socketListenerDidStart")
     // terminalSurfaceDidBecomeReady moved to CmuxTerminal (posted by TerminalSurface).
@@ -115,7 +115,6 @@ nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) ->
 @MainActor
 class TerminalController {
     static let shared = TerminalController()
-
     private nonisolated let remotePTYControllerAvailabilityCondition = NSCondition()
     private nonisolated(unsafe) var remotePTYControllerAvailabilityGeneration: UInt64 = 0
     var tabManager: TabManager?
@@ -130,6 +129,7 @@ class TerminalController {
     private nonisolated let socketPasswordFileWatcher: FileWatcher?
     nonisolated let socketClientCapabilityAuthority: SocketClientCapabilityAuthority
     private nonisolated let socketClientPreauthorizationLimiter: SocketClientPreauthorizationLimiter
+    nonisolated let mobileWorkspaceDiffProcessLifecycle = GitProcessLifecycleService()
     /// Process-wide proxy-tunnel broker (one shared tunnel per remote transport across all
     /// windows), constructed at this app-hub composition point and injected into each
     /// `WorkspaceRemoteSessionController`; ownership moves to the composition root with the
@@ -1154,8 +1154,8 @@ class TerminalController {
         }
         return seconds
     }
-
     private nonisolated func socketWorkerV2Response(_ request: V2SocketRequest) -> String {
+        if let response = v2MobileWorkspaceDiffWorkerResponse(method: request.method, id: request.id, params: request.params) { return response }
         switch request.method {
         case "auth.status":
             let semaphore = DispatchSemaphore(value: 0)
@@ -2314,6 +2314,8 @@ class TerminalController {
             "mobile.attach_ticket.create",
             "mobile.terminal.set_font",
             "mobile.workspace.list",
+            "mobile.workspace.diff_status",
+            "mobile.workspace.diff_file",
             "mobile.terminal.create",
             "mobile.terminal.input",
             "mobile.terminal.paste",
@@ -13783,7 +13785,6 @@ class TerminalController {
     }
 
     // MARK: - Mobile Host V2 Methods
-
     @MainActor
     func mobileHostHandleRPC(_ request: MobileHostRPCRequest) async -> MobileHostRPCResult {
         // The mobile data-plane RPC speaks `MobileHostRPCRequest` /
@@ -13795,6 +13796,7 @@ class TerminalController {
         // MobileHostRPCResult` type round-trip with no behavior change. The v2
         // control socket shares the same bodies through `handleMobileHost`, so the
         // wire bytes stay identical across both entrypoints without a bridge here.
+        if let result = await v2MobileWorkspaceDiffDataPlaneResult(method: request.method, params: request.params) { return mobileHostResult(result) }
         let result: V2CallResult
         switch request.method {
         case "mobile.host.status":
