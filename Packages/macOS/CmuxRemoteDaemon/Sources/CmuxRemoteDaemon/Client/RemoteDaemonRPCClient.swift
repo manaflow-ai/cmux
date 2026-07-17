@@ -62,6 +62,10 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     /// Optional wire capability for sequenced, acked PTY input
     /// (`pty.input.seq_ack`; value is test-pinned, do not change).
     public static let optionalPTYInputSeqAckCapability = RemoteDaemonCapability.ptyInputSeqAck.rawValue
+    /// Wire capability required for bounded remote file reads (`file.read`).
+    public static let requiredFileReadCapability = RemoteDaemonCapability.fileRead.rawValue
+    /// Wire capability required for remote filesystem metadata (`fs.stat`).
+    public static let requiredFSStatCapability = RemoteDaemonCapability.fsStat.rawValue
     /// Wire-pinned rpc error code the daemon returns for a sequenced
     /// `pty.write` whose seq is not exactly last+1.
     public static let ptyInputSeqGapErrorCode = "pty_input_seq_gap"
@@ -197,11 +201,15 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     }
 
     /// The daemon capabilities a connection with `configuration` requires:
-    /// always proxy streaming, plus the persistent-PTY family when sessions
-    /// outlive their terminal, plus the persistent-daemon capability when a
-    /// slot is configured.
+    /// proxy streaming and, for bootstrapped daemons, remote file access; plus
+    /// the persistent-PTY family when sessions outlive their terminal and the
+    /// persistent-daemon capability when a slot is configured.
     public static func requiredCapabilities(for configuration: WorkspaceRemoteConfiguration) -> [String] {
         var capabilities = [requiredProxyStreamCapability]
+        if !configuration.skipDaemonBootstrap {
+            capabilities.append(requiredFileReadCapability)
+            capabilities.append(requiredFSStatCapability)
+        }
         if configuration.preserveAfterTerminalExit {
             capabilities.append(requiredPTYSessionCapability)
             capabilities.append(requiredPTYSessionTokenCapability)
