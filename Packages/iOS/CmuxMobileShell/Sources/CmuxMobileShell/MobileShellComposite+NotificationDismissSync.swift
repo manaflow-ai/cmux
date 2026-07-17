@@ -104,6 +104,7 @@ extension MobileShellComposite {
         Task { [weak self] in
             await self?.flushPendingNotificationDismisses()
             await self?.reconcileNotificationsWithMac(client: client)
+            await self?.refreshNotificationFeed()
         }
     }
 
@@ -132,9 +133,11 @@ extension MobileShellComposite {
 
     func applyNotificationReconcile(_ response: MobileNotificationReconcileResponse) async {
         if !response.handledIDs.isEmpty {
+            notificationFeed.markRead(response.handledIDs.compactMap(UUID.init(uuidString:)))
             await clearDeliveredNotifications(ids: response.handledIDs)
         }
         if let unreadCount = response.unreadCount {
+            notificationFeed.applyUnreadCount(unreadCount)
             applyAuthoritativeUnreadBadge(unreadCount)
         }
     }

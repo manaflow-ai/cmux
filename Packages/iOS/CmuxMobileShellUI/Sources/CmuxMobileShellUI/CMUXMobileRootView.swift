@@ -22,6 +22,7 @@ struct CMUXMobileRootView: View {
     /// The persisted first-run onboarding "seen" flag store. The one-time
     /// onboarding screen gates ahead of the never-paired add-device state.
     private let onboardingStore: MobileOnboardingStore
+    private let notificationFeedIntroStore: MobileNotificationFeedIntroStore
     /// Mirrors ``MobileOnboardingStore/hasSeenOnboarding`` so completing
     /// onboarding (which calls `markSeen()` in the button action) re-renders the
     /// root and falls through to the pairing flow. Seeded synchronously from the
@@ -48,10 +49,12 @@ struct CMUXMobileRootView: View {
     init(
         store: CMUXMobileShellStore,
         onboardingStore: MobileOnboardingStore,
+        notificationFeedIntroStore: MobileNotificationFeedIntroStore,
         signOutHook: MobileSignOutHook
     ) {
         self.store = store
         self.onboardingStore = onboardingStore
+        self.notificationFeedIntroStore = notificationFeedIntroStore
         self.signOutHook = signOutHook
         _hasSeenOnboarding = State(initialValue: onboardingStore.hasSeenOnboarding)
     }
@@ -83,6 +86,22 @@ struct CMUXMobileRootView: View {
         return UITestConfig.streamingChatPreviewEnabled
         #else
         return false
+        #endif
+    }
+
+    private var shouldShowNotificationFeedPreview: Bool {
+        #if os(iOS) && DEBUG
+        return UITestConfig.notificationFeedPreview != nil
+        #else
+        return false
+        #endif
+    }
+
+    @ViewBuilder private var notificationFeedPreview: some View {
+        #if os(iOS) && DEBUG
+        NotificationFeedPreviewView()
+        #else
+        EmptyView()
         #endif
     }
 
@@ -217,6 +236,8 @@ struct CMUXMobileRootView: View {
             workspaceListLayoutPreview
         } else if shouldShowStreamingChatPreview {
             streamingChatPreview
+        } else if shouldShowNotificationFeedPreview {
+            notificationFeedPreview
         } else if !isAuthenticated {
             SignInView()
         } else if store.connectionState != .connected && shouldShowRestoringStoredMac {
@@ -224,7 +245,8 @@ struct CMUXMobileRootView: View {
                 store: store,
                 signOut: signOut,
                 showAddDevice: showAddDevice,
-                reconnectStoredMac: reconnectStoredMacIfNeeded
+                reconnectStoredMac: reconnectStoredMacIfNeeded,
+                notificationFeedIntroStore: notificationFeedIntroStore
             )
         } else if shouldShowOnboarding {
             // Show the one-time explainer before the add-device flow. This is
@@ -248,7 +270,12 @@ struct CMUXMobileRootView: View {
             // whatever workspaces have aggregated (foreground + live secondary
             // subscriptions); the foreground connection is established without any
             // tap. Opening a workspace attaches its Mac on demand.
-            WorkspaceShellView(store: store, signOut: signOut, showAddDevice: showAddDevice)
+            WorkspaceShellView(
+                store: store,
+                signOut: signOut,
+                showAddDevice: showAddDevice,
+                notificationFeedIntroStore: notificationFeedIntroStore
+            )
         }
     }
 

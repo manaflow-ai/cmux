@@ -43,6 +43,7 @@ public struct CMUXMobileRootScene: View {
     /// it gates the one-time onboarding screen ahead of the never-paired
     /// add-device state.
     private let onboardingStore: MobileOnboardingStore
+    private let notificationFeedIntroStore: MobileNotificationFeedIntroStore
     #endif
     /// The app-root tailnet detector (behind the shell UI's read-only
     /// observing port), injected into the environment so pairing and
@@ -77,6 +78,7 @@ public struct CMUXMobileRootScene: View {
     ///     the environment (drives workspace-title wrapping).
     ///   - onboardingStore: The app-root first-run onboarding "seen" flag store,
     ///     injected into the root view to gate the one-time onboarding screen.
+    ///   - notificationFeedIntroStore: Persistence for the feed's education card.
     ///   - tailscaleStatusMonitor: The app-root tailnet detector, injected into
     ///     the environment for the pairing and disconnected surfaces.
     ///   - personalIrohRouteCatalog: Authenticated personal-account Iroh routes
@@ -92,6 +94,7 @@ public struct CMUXMobileRootScene: View {
         pushCoordinator: MobilePushCoordinator,
         displaySettings: MobileDisplaySettings,
         onboardingStore: MobileOnboardingStore,
+        notificationFeedIntroStore: MobileNotificationFeedIntroStore,
         tailscaleStatusMonitor: any TailscaleStatusObserving,
         personalIrohRouteCatalog: MobileIrohRouteCatalog? = nil,
         signOutHook: MobileSignOutHook,
@@ -104,6 +107,7 @@ public struct CMUXMobileRootScene: View {
         self.pushCoordinator = pushCoordinator
         self.displaySettings = displaySettings
         self.onboardingStore = onboardingStore
+        self.notificationFeedIntroStore = notificationFeedIntroStore
         self.tailscaleStatusMonitor = tailscaleStatusMonitor
         self.personalIrohRouteCatalog = personalIrohRouteCatalog
         self.signOutHook = signOutHook
@@ -286,6 +290,7 @@ public struct CMUXMobileRootScene: View {
             CMUXMobileAppView(
                 store: makeStore(),
                 onboardingStore: onboardingStore,
+                notificationFeedIntroStore: notificationFeedIntroStore,
                 signOutHook: signOutHook
             )
         }
@@ -293,6 +298,7 @@ public struct CMUXMobileRootScene: View {
         CMUXMobileAppView(
             store: makeStore(),
             onboardingStore: onboardingStore,
+            notificationFeedIntroStore: notificationFeedIntroStore,
             signOutHook: signOutHook
         )
         #endif

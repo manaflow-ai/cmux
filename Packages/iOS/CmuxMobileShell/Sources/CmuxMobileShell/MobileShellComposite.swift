@@ -45,11 +45,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         var eventTopics: [String] {
             switch self {
             case .hybrid:
-                return ["workspace.updated", "terminal.bytes", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge"]
+                return ["workspace.updated", "terminal.bytes", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge", "notification.feed.changed"]
             case .renderGrid:
-                return ["workspace.updated", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge"]
+                return ["workspace.updated", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge", "notification.feed.changed"]
             case .rawBytes:
-                return ["workspace.updated", "terminal.bytes", "terminal.set_font", "notification.dismissed", "notification.badge"]
+                return ["workspace.updated", "terminal.bytes", "terminal.set_font", "notification.dismissed", "notification.badge", "notification.feed.changed"]
             }
         }
 
@@ -269,6 +269,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Bumped on every ``workspaces`` mutation: a cheap "lists may have
     /// changed" signal (e.g. for retrying a parked notification deep link).
     public private(set) var workspaceTopologyVersion: UInt64 = 0
+    /// Notification-feed state for the active Mac.
+    public let notificationFeed = MobileNotificationFeedModel()
     /// Last authoritative chat-session snapshots, keyed by the workspace row id the UI renders.
     var chatSessionSnapshotsByWorkspaceID: [String: [ChatSessionDescriptor]] = [:]
     /// The group sections the UI renders. A materialized derivation of
@@ -6362,6 +6364,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     await self.handleNotificationDismissedEvent(event)
                 } else if event.topic == "notification.badge" {
                     self.handleNotificationBadgeEvent(event)
+                } else if event.topic == "notification.feed.changed" {
+                    self.scheduleNotificationFeedRefreshFromEvent()
                 }
             }
             guard let self else { return }
@@ -7332,9 +7336,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         if !payload.ids.isEmpty {
+            notificationFeed.markRead(payload.ids.compactMap(UUID.init(uuidString:)))
             await clearDeliveredNotifications(ids: payload.ids)
         }
         if let unreadCount = payload.unreadCount {
+            notificationFeed.applyUnreadCount(unreadCount)
             applyAuthoritativeUnreadBadge(unreadCount)
         }
     }
@@ -7347,6 +7353,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         else {
             return
         }
+        notificationFeed.applyUnreadCount(unreadCount)
         applyAuthoritativeUnreadBadge(unreadCount)
     }
 

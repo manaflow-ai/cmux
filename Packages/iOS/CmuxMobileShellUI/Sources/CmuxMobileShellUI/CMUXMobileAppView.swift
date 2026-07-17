@@ -19,6 +19,7 @@ public struct CMUXMobileAppView: View {
     private let signOutHook: MobileSignOutHook
     #if os(iOS)
     private let onboardingStore: MobileOnboardingStore
+    private let notificationFeedIntroStore: MobileNotificationFeedIntroStore
     #endif
 
     #if os(iOS)
@@ -30,15 +31,21 @@ public struct CMUXMobileAppView: View {
     ///   - onboardingStore: The first-run onboarding "seen" flag store. Defaults
     ///     to a `.standard`-backed store marked already-seen, so SwiftUI previews
     ///     and ad-hoc construction never present onboarding.
+    ///   - notificationFeedIntroStore: The notification-feed intro persistence store.
     public init(
         store: CMUXMobileShellStore = .preview(),
         browserStore: BrowserSurfaceStore = BrowserSurfaceStore(),
         onboardingStore: MobileOnboardingStore = MobileOnboardingStore(defaults: .standard, forceSeen: true),
+        notificationFeedIntroStore: MobileNotificationFeedIntroStore = MobileNotificationFeedIntroStore(
+            defaults: .standard,
+            forceDismissed: true
+        ),
         signOutHook: MobileSignOutHook = MobileSignOutHook()
     ) {
         _store = State(initialValue: store)
         _browserStore = State(initialValue: browserStore)
         self.onboardingStore = onboardingStore
+        self.notificationFeedIntroStore = notificationFeedIntroStore
         self.signOutHook = signOutHook
     }
     #else
@@ -58,6 +65,7 @@ public struct CMUXMobileAppView: View {
         CMUXMobileRootView(
             store: store,
             onboardingStore: onboardingStore,
+            notificationFeedIntroStore: notificationFeedIntroStore,
             signOutHook: signOutHook
         )
             .environment(browserStore)

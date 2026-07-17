@@ -13837,8 +13837,14 @@ class TerminalController {
             result = v2MobileWorkspaceGroupSetCollapsed(params: request.params, isCollapsed: true)
         case "workspace.group.expand":
             result = v2MobileWorkspaceGroupSetCollapsed(params: request.params, isCollapsed: false)
+        case "notification.list":
+            result = v2MobileNotificationList(params: request.params)
         case "notification.dismiss":
             result = v2MobileNotificationDismiss(params: request.params)
+        case "notification.mark_unread":
+            result = v2MobileNotificationMarkUnread(params: request.params)
+        case "notification.remove":
+            result = v2MobileNotificationRemove(params: request.params)
         case "notification.reconcile":
             result = v2MobileNotificationReconcile(params: request.params)
         case "dogfood.feedback.submit":

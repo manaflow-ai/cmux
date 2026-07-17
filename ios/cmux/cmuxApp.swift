@@ -106,6 +106,7 @@ struct cmuxApp: App {
             pushCoordinator: Self.root.pushCoordinator,
             displaySettings: Self.root.displaySettings,
             onboardingStore: Self.root.onboardingStore,
+            notificationFeedIntroStore: Self.root.notificationFeedIntroStore,
             tailscaleStatusMonitor: Self.root.tailscaleStatusMonitor,
             personalIrohRouteCatalog: Self.root.iroh.routeCatalog,
             signOutHook: Self.root.signOutHook,
@@ -127,6 +128,7 @@ struct cmuxApp: App {
             pushCoordinator: Self.root.pushCoordinator,
             displaySettings: Self.root.displaySettings,
             onboardingStore: Self.root.onboardingStore,
+            notificationFeedIntroStore: Self.root.notificationFeedIntroStore,
             tailscaleStatusMonitor: Self.root.tailscaleStatusMonitor,
             personalIrohRouteCatalog: Self.root.iroh.routeCatalog,
             signOutHook: Self.root.signOutHook

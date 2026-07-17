@@ -23,6 +23,12 @@ extension WorkspaceListView {
                             }
                         }
                         ToolbarItemGroup(placement: .topBarTrailing) {
+                            if let store, notificationFeedIntroStore != nil {
+                                NotificationFeedBellButton(
+                                    unreadCount: store.notificationFeed.unreadCount,
+                                    action: { showingNotificationFeed = true }
+                                )
+                            }
                             if let macUpdateHint, let dismissMacUpdateHint,
                                connectionChrome.showsMacUpdateHintIndicator {
                                 MacUpdateHintIndicatorButton(
@@ -44,6 +50,12 @@ extension WorkspaceListView {
             content
                 .toolbar {
                     ToolbarItemGroup {
+                        if let store, notificationFeedIntroStore != nil {
+                            NotificationFeedBellButton(
+                                unreadCount: store.notificationFeed.unreadCount,
+                                action: { showingNotificationFeed = true }
+                            )
+                        }
                         WorkspaceListFilterMenu(filter: $filter, machines: filterMachines)
                         if canCreateWorkspace {
                             newWorkspaceButton

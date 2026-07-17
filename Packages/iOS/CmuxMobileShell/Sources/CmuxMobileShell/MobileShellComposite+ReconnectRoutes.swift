@@ -206,6 +206,9 @@ extension MobileShellComposite {
             resyncTerminalOutput(reason: "foreground", restartEventStream: true)
         }
         recoverForegroundConnectionIfNeeded()
+        if let remoteClient, connectionState == .connected {
+            scheduleNotificationReconcile(client: remoteClient)
+        }
         // The foreground Mac's workspace list updates live over the sync stream,
         // but the other Macs are a read-only snapshot. Re-aggregate them on
         // foreground so workspaces created on another Mac while backgrounded
