@@ -1117,6 +1117,13 @@ describe("SEO middleware", () => {
     ]);
   });
 
+  test("excludes redirect-only and noindex docs routes from the sitemap", () => {
+    const urls = sitemap().map((entry) => entry.url);
+
+    expect(urls.some((url) => url.endsWith("/docs/base"))).toBe(false);
+    expect(urls.some((url) => url.endsWith("/docs/nightly/base"))).toBe(false);
+  });
+
   test("canonicalizes English-only blog posts", () => {
     for (const canonicalPath of [
       "/blog/cmux-claude-teams",
