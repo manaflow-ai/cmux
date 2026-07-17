@@ -464,8 +464,19 @@ final class FileExplorerSearchResultsView: NSScrollView {
             )
         }
         outlineView.endUpdates()
-        for item in newItems where !collapsedPaths.contains(item.group.relativePath) {
-            outlineView.expandItem(item)
+        // Expand new groups in one dedicated update transaction. Unbatched,
+        // EACH expandItem runs a full NSTableRowData pass (visible-row frame
+        // maintenance + total-height span recomputation): ~7.3ms per
+        // 100-result page at a 5,000-result buffer vs ~2.9ms batched. The
+        // batch must stay SEPARATE from the insert transaction above:
+        // expanding inside the same transaction as the parent inserts forces
+        // per-op reconciliation and measured ~2.5x slower than no batching.
+        if !newItems.isEmpty {
+            outlineView.beginUpdates()
+            for item in newItems where !collapsedPaths.contains(item.group.relativePath) {
+                outlineView.expandItem(item)
+            }
+            outlineView.endUpdates()
         }
     }
 
@@ -602,12 +613,20 @@ final class FileExplorerSearchResultsView: NSScrollView {
         outlineView.endUpdates()
 
         // Expand newly-inserted groups (unless the user had them collapsed
-        // earlier under the same relative path).
-        for idx in insertIndexes {
-            let item = rebuilt[idx]
-            if !collapsedPaths.contains(item.group.relativePath) {
-                outlineView.expandItem(item)
+        // earlier under the same relative path). Same dedicated-transaction
+        // batching as applyAppendedResults, same constraint (must not merge
+        // into the structural batch above): query-change re-render with
+        // materialized rows measured 38ms -> 12ms, and the initial
+        // 5,000-result apply 451ms -> 187ms.
+        if !insertIndexes.isEmpty {
+            outlineView.beginUpdates()
+            for idx in insertIndexes {
+                let item = rebuilt[idx]
+                if !collapsedPaths.contains(item.group.relativePath) {
+                    outlineView.expandItem(item)
+                }
             }
+            outlineView.endUpdates()
         }
 
         // Refresh visible group header cells (badge count / filename / dir).
