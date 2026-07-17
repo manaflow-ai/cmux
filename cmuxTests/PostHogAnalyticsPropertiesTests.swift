@@ -6,6 +6,15 @@ import Testing
 
 @Suite(.serialized)
 struct PostHogAnalyticsPropertiesTests {
+    @Test("feature flag control plane opts out of analytics capture")
+    func featureFlagControlPlaneRespectsTelemetryConsent() {
+        let config = PostHogAnalytics.makeConfig(analyticsEnabled: false)
+
+        #expect(config.optOut)
+        #expect(!config.captureApplicationLifecycleEvents)
+        #expect(!config.captureScreenViews)
+    }
+
     @Test("feature flag bool coercion accepts PostHog bool-like values")
     func featureFlagBoolCoercionAcceptsPostHogBoolLikeValues() {
         #expect(CmuxFeatureFlags.coerceBoolFlagValue(true, default: false))
