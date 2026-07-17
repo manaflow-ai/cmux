@@ -106,18 +106,24 @@ struct GhosttyRemoteIOSurfaceLayerTests {
         #expect(layer.retainedSurface == nil)
     }
 
-    @Test func sizeAndScaleUpdatesRetainLastFrameUntilMatchingReplacement() throws {
+    @Test func liveResizeAcceptsNewerConsistentFrameAtPreviouslyRenderedSize() throws {
         let layer = makeLayer()
         let accepted = try makeFrame(sequence: 3)
         #expect(layer.present(accepted))
-        let retainedID = IOSurfaceGetID(accepted.surface)
 
         let newSize = GhosttyRenderPixelSize(width: 48, height: 40)
         layer.updateExpectedPixelSize(newSize)
         layer.updateBackingScaleFactor(3)
         #expect(layer.contentsScale == 3)
-        expectRetainsSurface(layer, id: retainedID, sequence: 3)
-        #expect(!layer.present(try makeFrame(sequence: 4)))
+
+        let newerFrameAtPreviousSize = try makeFrame(sequence: 4)
+        try #require(layer.present(newerFrameAtPreviousSize))
+        expectRetainsSurface(
+            layer,
+            id: IOSurfaceGetID(newerFrameAtPreviousSize.surface),
+            sequence: 4
+        )
+
         #expect(layer.present(try makeFrame(sequence: 5, metadataSize: newSize, surfaceSize: newSize)))
     }
 
