@@ -308,6 +308,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var portalLifecycleState: PortalLifecycleState = .live
     var portalLifecycleGeneration: UInt64 = 1
     var activePortalHostLease: PortalHostLease?
+    var portalHostAuthority: TerminalPortalHostAuthority?
 
     /// The live find session, or nil when find is closed. Setting it arms the
     /// debounced needle pipeline; clearing it ends the runtime search.
@@ -506,6 +507,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// Rebinds the surface (and its views) to a new owning workspace id.
     @MainActor
     public func updateWorkspaceId(_ newTabId: UUID) {
+        if tabId != newTabId {
+            portalLifecycleGeneration &+= 1
+        }
         tabId = newTabId
         attachedView?.tabId = newTabId
         surfaceView.tabId = newTabId

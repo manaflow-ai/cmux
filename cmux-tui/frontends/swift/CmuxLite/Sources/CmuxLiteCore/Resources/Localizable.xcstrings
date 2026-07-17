@@ -1,0 +1,132 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "connection.argument.invalid_url" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Invalid WebSocket URL: %@" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "無効な WebSocket URL です: %@" } }
+      }
+    },
+    "connection.argument.missing_value" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Missing value for %@" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%@ の値がありません" } }
+      }
+    },
+    "connection.argument.no_sockets" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "none" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "なし" } }
+      }
+    },
+    "connection.argument.selector_conflict" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%@ cannot be combined with another transport selector" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%@ は別のトランスポート選択オプションと同時に指定できません" } }
+      }
+    },
+    "connection.argument.session_empty" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Session name must not be empty" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "セッション名を空にすることはできません" } }
+      }
+    },
+    "connection.argument.socket_discovery" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Expected exactly one *.sock in %1$@, found %2$lld: %3$@; pass --socket <path>, --session <name>, or --url <ws://...>" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%1$@ に *.sock が 1 個必要ですが、%2$lld 個見つかりました: %3$@; --socket <path>、--session <name>、または --url <ws://...> を指定してください" } }
+      }
+    },
+    "connection.argument.socket_empty" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Socket path must not be empty" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ソケットパスを空にすることはできません" } }
+      }
+    },
+    "connection.argument.token_requires_url" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "--token and --token-file require --url" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "--token と --token-file には --url が必要です" } }
+      }
+    },
+    "connection.argument.unknown_option" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Unknown option: %@" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "不明なオプションです: %@" } }
+      }
+    },
+    "frontend.error.pane_unavailable" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Pane %lld is unavailable" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ペイン %lld は利用できません" } }
+      }
+    },
+    "frontend.error.pane_size_unavailable" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Pane %lld has no terminal grid yet" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ペイン %lld にはまだターミナルグリッドがありません" } }
+      }
+    },
+    "frontend.error.render_protocol_required" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Render mode requires cmux-tui protocol 7 or newer; server reported %@ protocol %lld" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "レンダーモードには cmux-tui プロトコル 7 以降が必要です。サーバーは %@ プロトコル %lld を返しました" } }
+      }
+    },
+    "frontend.error.surface_not_attached" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Surface %lld is not attached" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "サーフェス %lld はアタッチされていません" } }
+      }
+    },
+    "frontend.error.surface_unavailable" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Surface %lld is unavailable" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "サーフェス %lld は利用できません" } }
+      }
+    },
+    "frontend.error.tab_unavailable" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Tab %1$lld in pane %2$lld is unavailable" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ペイン %2$lld のタブ %1$lld は利用できません" } }
+      }
+    },
+    "transport.payload.inbound_not_utf8" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Inbound JSON line is not UTF-8" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "受信した JSON 行は UTF-8 ではありません" } }
+      }
+    },
+    "transport.payload.outbound_not_utf8" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Outbound JSON is not UTF-8" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "送信する JSON は UTF-8 ではありません" } }
+      }
+    },
+    "transport.state.already_connected" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Already connected" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "すでに接続されています" } }
+      }
+    },
+    "transport.state.not_connected" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Not connected" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "接続されていません" } }
+      }
+    },
+    "transport.state.unix_closed" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Unix socket closed" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Unix ソケットが閉じられました" } }
+      }
+    },
+    "transport.state.unix_no_data" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Unix socket receive completed without data" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Unix ソケットの受信がデータなしで完了しました" } }
+      }
+    }
+  },
+  "version" : "1.0"
+}

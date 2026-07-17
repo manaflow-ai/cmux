@@ -10,6 +10,11 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
     private var blockers: [String: [CheckedContinuation<Void, Never>]] = [:]
     private var upsertCount = 0
     private var loadAllCount = 0
+    private var recordReplacement: (
+        afterLoadAllCount: Int,
+        teamKey: String,
+        records: [MobilePairedMac]
+    )?
     private var upsertWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
     private var gatedUpsertIDs: Set<String> = []
     private var upsertStartedIDs: Set<String> = []
@@ -142,12 +147,22 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
                 blockers[key, default: []].append(continuation)
             }
         }
-        let scoped = recordsByTeam[key] ?? []
-        guard key != "" else { return scoped }
-        let legacyTeamless = (recordsByTeam[""] ?? []).filter { mac in
-            mac.stackUserID == nil || mac.stackUserID == stackUserID
+        let result: [MobilePairedMac]
+        if key.isEmpty {
+            result = recordsByTeam[key] ?? []
+        } else {
+            let scoped = recordsByTeam[key] ?? []
+            let legacyTeamless = (recordsByTeam[""] ?? []).filter { mac in
+                mac.stackUserID == nil || mac.stackUserID == stackUserID
+            }
+            result = scoped + legacyTeamless
         }
-        return scoped + legacyTeamless
+        if let recordReplacement,
+           loadAllCount == recordReplacement.afterLoadAllCount {
+            recordsByTeam[recordReplacement.teamKey] = recordReplacement.records
+            self.recordReplacement = nil
+        }
+        return result
     }
 
     func activeMac(stackUserID: String?, teamID: String?) async throws -> MobilePairedMac? { nil }
@@ -199,6 +214,10 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
         }
     }
 
+    func didStartLoad(teamID: String?) -> Bool {
+        startedTeams.contains(teamID ?? "")
+    }
+
     func release(teamID: String?) {
         let key = teamID ?? ""
         guard var queued = blockers[key], !queued.isEmpty else { return }
@@ -224,6 +243,14 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
 
     func resetLoadAllCount() {
         loadAllCount = 0
+    }
+
+    func replaceRecords(
+        afterLoadAllCount: Int,
+        teamID: String?,
+        with records: [MobilePairedMac]
+    ) {
+        recordReplacement = (afterLoadAllCount, teamID ?? "", records)
     }
 
     func currentLoadAllCount() -> Int {
