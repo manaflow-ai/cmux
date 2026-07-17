@@ -52,6 +52,20 @@ extension MobileShellComposite {
     /// shows Retry and the next network change re-attempts automatically.
     func recoverMobileConnection(trigger: RecoveryTrigger) {
         guard remoteClient != nil || pairedMacStore != nil else { return }
+        if let accountID = identityProvider?.currentUserID {
+            switch trigger {
+            case .manual, .networkChange:
+                clearTransientAutomaticReconnectBackoff(accountID: accountID)
+            case .presencePush:
+                guard !automaticIrohReconnectIsBlocked(accountID: accountID) else {
+                    return
+                }
+            case .foreground, .liveness, .eventStreamEnded,
+                 .subscriptionStartFailed, .transportWriteTimedOut,
+                 .automaticBackoffExpired:
+                break
+            }
+        }
         beginConnectionRecovery(
             trigger: trigger,
             expectedClient: remoteClient,
@@ -132,7 +146,7 @@ extension MobileShellComposite {
                 markMacConnectionReconnecting()
                 resyncTerminalOutput(reason: trigger.description, restartEventStream: true)
             case .manual, .presencePush, .foreground, .eventStreamEnded,
-                 .subscriptionStartFailed, .transportWriteTimedOut, .brokerRetryAfter:
+                 .subscriptionStartFailed, .transportWriteTimedOut, .automaticBackoffExpired:
                 markMacConnectionUnavailableIfNoStore()
             }
             return
@@ -527,11 +541,35 @@ extension MobileShellComposite {
         scheduleAutomaticReconnectRetry(accountID: accountID, retryAt: retryAt, now: now)
     }
 
+    func recordTransientAutomaticReconnectBackoff(accountID: String) {
+        let now = runtime?.now() ?? Date()
+        let retryAt = automaticReconnectBackoffOwner.recordTransientFailure(
+            accountID: accountID,
+            now: now
+        )
+        scheduleAutomaticReconnectRetry(accountID: accountID, retryAt: retryAt, now: now)
+    }
+
+    func clearTransientAutomaticReconnectBackoff(accountID: String) {
+        automaticReconnectBackoffOwner.clearTransientCooldown(accountID: accountID)
+        let now = runtime?.now() ?? Date()
+        if let retryAt = automaticReconnectBackoffOwner.retryAt, retryAt > now {
+            scheduleAutomaticReconnectRetry(accountID: accountID, retryAt: retryAt, now: now)
+        } else {
+            automaticReconnectRetryTask?.cancel()
+            automaticReconnectRetryTask = nil
+            automaticReconnectRetryAccountID = nil
+            automaticReconnectRetryAt = nil
+        }
+    }
+
     func clearAutomaticReconnectBackoff(accountID: String? = nil) {
         automaticReconnectBackoffOwner.clear(accountID: accountID)
         guard accountID == nil || automaticReconnectBackoffOwner.accountID == nil else { return }
         automaticReconnectRetryTask?.cancel()
         automaticReconnectRetryTask = nil
+        automaticReconnectRetryAccountID = nil
+        automaticReconnectRetryAt = nil
     }
 
     private func scheduleAutomaticReconnectRetry(
@@ -539,7 +577,14 @@ extension MobileShellComposite {
         retryAt: Date,
         now: Date
     ) {
+        if automaticReconnectRetryTask != nil,
+           automaticReconnectRetryAccountID == accountID,
+           automaticReconnectRetryAt == retryAt {
+            return
+        }
         automaticReconnectRetryTask?.cancel()
+        automaticReconnectRetryAccountID = accountID
+        automaticReconnectRetryAt = retryAt
         let delay = max(0, retryAt.timeIntervalSince(now))
         automaticReconnectRetryTask = Task { @MainActor [weak self] in
             do {
@@ -551,11 +596,25 @@ extension MobileShellComposite {
                   !Task.isCancelled,
                   self.identityProvider?.currentUserID == accountID,
                   self.automaticReconnectBackoffOwner.accountID == accountID,
-                  self.automaticReconnectBackoffOwner.retryAt == retryAt else { return }
-            self.automaticReconnectBackoffOwner.clear(accountID: accountID)
+                  self.automaticReconnectRetryAccountID == accountID,
+                  self.automaticReconnectRetryAt == retryAt else { return }
             self.automaticReconnectRetryTask = nil
+            self.automaticReconnectRetryAccountID = nil
+            self.automaticReconnectRetryAt = nil
             guard self.isSignedIn, self.connectionState != .connected else { return }
-            self.recoverMobileConnection(trigger: .brokerRetryAfter)
+            let currentNow = self.runtime?.now() ?? Date()
+            if self.automaticReconnectBackoffOwner.isBlocked(
+                accountID: accountID,
+                now: currentNow
+            ), let nextRetryAt = self.automaticReconnectBackoffOwner.retryAt {
+                self.scheduleAutomaticReconnectRetry(
+                    accountID: accountID,
+                    retryAt: nextRetryAt,
+                    now: currentNow
+                )
+                return
+            }
+            self.recoverMobileConnection(trigger: .automaticBackoffExpired)
         }
     }
 

@@ -238,6 +238,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var storedMacReconnectGeneration = 0
     var automaticReconnectBackoffOwner = MobileAutomaticReconnectBackoffOwner()
     var automaticReconnectRetryTask: Task<Void, Never>?
+    var automaticReconnectRetryAccountID: String?
+    var automaticReconnectRetryAt: Date?
+    var lastPresenceReconnectEvidence: (
+        scope: MobileShellScopeSnapshot,
+        instances: [MobilePresenceReconnectEvidence]
+    )?
     /// Whether the current attach ticket has a non-empty auth token and has not expired.
     public var hasActiveUnexpiredAttachTicket: Bool {
         guard let activeTicket,
@@ -1099,6 +1105,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         suppressNextConnectionOutageEdge = true
         clearAutomaticReconnectBackoff()
+        lastPresenceReconnectEvidence = nil
         invalidatePairingAttempt()
         clearMacSwitchAttemptState()
         connectionGeneration = UUID()
@@ -1479,7 +1486,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         case eventStreamEnded
         case subscriptionStartFailed
         case transportWriteTimedOut
-        case brokerRetryAfter
+        case automaticBackoffExpired
 
         var reschedulesSecondaryAggregation: Bool { self != .presencePush }
 
@@ -1493,7 +1500,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             case .eventStreamEnded: return "eventStreamEnded"
             case .subscriptionStartFailed: return "subscriptionStartFailed"
             case .transportWriteTimedOut: return "transportWriteTimedOut"
-            case .brokerRetryAfter: return "brokerRetryAfter"
+            case .automaticBackoffExpired: return "automaticBackoffExpired"
             }
         }
     }
@@ -1817,6 +1824,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
 
         var firstCandidateNeedingMacUpdate: MobilePairedMac?
+        var attemptedAutomaticIroh = false
         // Try each candidate until one connects, so a single offline Mac never
         // blocks the others.
         for (candidateIndex, mac) in candidates.enumerated() {
@@ -1843,6 +1851,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // Tailscale/TCP route. Such a saved route is a migration hint only;
             // consult the authenticated registry for the Mac's Iroh identity.
             if localCanConnectSecurely {
+                attemptedAutomaticIroh = attemptedAutomaticIroh || localHasIroh
                 _ = await connectStoredMac(
                     name: mac.displayName ?? mac.macDeviceID,
                     routes: localRoutes,
@@ -1863,6 +1872,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     snapshot: await loadRefreshSnapshotIfNeeded()
                 ) {
                 case .refreshedRoutes(let refreshedRoutes):
+                    attemptedAutomaticIroh = attemptedAutomaticIroh
+                        || refreshedRoutes.contains { $0.kind == .iroh }
                     _ = await connectStoredMac(
                         name: mac.displayName ?? mac.macDeviceID,
                         routes: refreshedRoutes,
@@ -1908,6 +1919,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                ) {
                 applyStoredMacUpdateRequiredFailure(disconnect: true)
             }
+        }
+        if connectionState != .connected,
+           !connectionRequiresReauth,
+           attemptedAutomaticIroh {
+            recordTransientAutomaticReconnectBackoff(accountID: scope.userID)
         }
         return connectionState == .connected
     }

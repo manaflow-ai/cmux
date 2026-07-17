@@ -79,9 +79,17 @@ struct MobileAutomaticReconnectBackoffOwnerTests {
                 accountID: "account-a",
                 now: failureTime
             )
+            let blockedBeforeDeadline = owner.isBlocked(
+                accountID: "account-a",
+                now: deadline.addingTimeInterval(-1)
+            )
+            let blockedAtDeadline = owner.isBlocked(
+                accountID: "account-a",
+                now: deadline
+            )
             #expect(deadline == failureTime.addingTimeInterval(expectedDelay))
-            #expect(owner.isBlocked(accountID: "account-a", now: deadline.addingTimeInterval(-1)))
-            #expect(!owner.isBlocked(accountID: "account-a", now: deadline))
+            #expect(blockedBeforeDeadline)
+            #expect(!blockedAtDeadline)
         }
 
         #expect(owner.transientFailureCount == expectedDelays.count)

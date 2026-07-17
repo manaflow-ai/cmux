@@ -239,17 +239,23 @@ public actor CmxIrohClientSession {
     }
 
     private func establishConnection() async throws -> CmxIrohConnectedControl {
-        let establishedConnection: any CmxIrohConnection
-        do {
-            establishedConnection = try await endpoint.connect(
-                to: CmxIrohEndpointAddress(
-                    identity: targetIdentity,
-                    pathHints: dialPlan.publicPaths
-                ),
-                alpn: protocolConfiguration.alpn
-            )
-        } catch {
-            try Task.checkCancellation()
+        var establishedConnection: (any CmxIrohConnection)?
+        var publicConnectionError: (any Error)?
+        if !dialPlan.publicPaths.isEmpty {
+            do {
+                establishedConnection = try await endpoint.connect(
+                    to: CmxIrohEndpointAddress(
+                        identity: targetIdentity,
+                        pathHints: dialPlan.publicPaths
+                    ),
+                    alpn: protocolConfiguration.alpn
+                )
+            } catch {
+                try Task.checkCancellation()
+                publicConnectionError = error
+            }
+        }
+        if establishedConnection == nil {
             let fallbackContext: CmxIrohClientContext
             if let privateFallbackContextProvider {
                 fallbackContext = try await privateFallbackContextProvider()
@@ -265,7 +271,10 @@ public actor CmxIrohClientSession {
                 )
             }
             let fallbackPaths = fallbackContext.dialPlan.privateFallbackPaths
-            guard !fallbackPaths.isEmpty else { throw error }
+            guard !fallbackPaths.isEmpty else {
+                if let publicConnectionError { throw publicConnectionError }
+                throw CmxIrohRegistryContextError.dialPlanUnavailable
+            }
             guard let privateFallbackValidator else {
                 throw CmxIrohPrivateFallbackValidationError.unavailable
             }
@@ -284,6 +293,9 @@ public actor CmxIrohClientSession {
                 ),
                 alpn: protocolConfiguration.alpn
             )
+        }
+        guard let establishedConnection else {
+            throw CmxIrohRegistryContextError.dialPlanUnavailable
         }
 
         do {

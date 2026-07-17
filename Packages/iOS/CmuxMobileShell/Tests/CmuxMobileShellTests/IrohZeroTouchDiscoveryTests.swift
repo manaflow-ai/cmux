@@ -203,7 +203,6 @@ struct IrohZeroTouchDiscoveryTests {
         let scope = try #require(await fixture.shell.currentScopeSnapshot(userID: "user-1"))
 
         for index in 0 ..< 5 {
-            let priorGeneration = fixture.shell.storedMacReconnectGenerationForTesting()
             fixture.shell.applyPresenceUpdate(.online(PresenceInstance(
                 deviceId: "presence-\(index)",
                 tag: "stable",
@@ -212,10 +211,6 @@ struct IrohZeroTouchDiscoveryTests {
                 lastSeenAt: Self.fixedNow.timeIntervalSince1970 * 1_000
             )), scope: scope)
             await fixture.shell.pushedRouteSyncTask?.value
-            #expect(try await pollUntil {
-                fixture.shell.storedMacReconnectGenerationForTesting() > priorGeneration
-                    && !fixture.shell.isRecoveringConnection
-            })
         }
 
         #expect(discovery.callCount() == 1)
@@ -250,7 +245,7 @@ struct IrohZeroTouchDiscoveryTests {
             #expect(try await pollUntil { !fixture.shell.isRecoveringConnection })
         }
 
-        #expect(fixture.factory.attemptedRouteIDs() == ["iroh-mac-a"])
+        #expect(fixture.factory.attemptedRouteIDs() == ["iroh-mac-a", "iroh-mac-a"])
     }
 
     private func makeFixture(
