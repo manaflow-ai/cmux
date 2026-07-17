@@ -20,6 +20,12 @@ nonisolated struct BrowserDesignModePromptPayload: Decodable {
         }
     }
 
+    /// A decoded prompt segment: exactly one of text or selection index.
+    struct PromptSegment: Decodable, Equatable {
+        let text: String?
+        let selection: Int?
+    }
+
     let pageURL: String
     let requestedChange: String
     let pageScreenshotPath: String?
@@ -27,6 +33,7 @@ nonisolated struct BrowserDesignModePromptPayload: Decodable {
     let cssDiff: String
     let edits: [BrowserDesignModeEdit]
     let selections: [SelectionEntry]
+    let prompt: [PromptSegment]
 
     private enum CodingKeys: String, CodingKey {
         case pageURL = "page_url"
@@ -36,6 +43,7 @@ nonisolated struct BrowserDesignModePromptPayload: Decodable {
         case cssDiff = "css_diff"
         case edits
         case selections
+        case prompt
     }
 
     init(from decoder: any Decoder) throws {
@@ -47,5 +55,6 @@ nonisolated struct BrowserDesignModePromptPayload: Decodable {
         cssDiff = try container.decodeIfPresent(String.self, forKey: .cssDiff) ?? ""
         edits = try container.decodeIfPresent([BrowserDesignModeEdit].self, forKey: .edits) ?? []
         selections = try container.decode([SelectionEntry].self, forKey: .selections)
+        prompt = try container.decodeIfPresent([PromptSegment].self, forKey: .prompt) ?? []
     }
 }

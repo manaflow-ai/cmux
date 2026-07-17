@@ -466,7 +466,8 @@ final class BrowserDesignModeController {
                     snapshot: capture.snapshot,
                     screenshotPaths: screenshotPaths,
                     requestedChange: requestedChange,
-                    pageScreenshotPath: pageScreenshotPath
+                    pageScreenshotPath: pageScreenshotPath,
+                    prompt: promptRuns
                 )
             )
             guard !prompt.isEmpty else { throw BrowserDesignModeError.invalidRuntimeResponse }

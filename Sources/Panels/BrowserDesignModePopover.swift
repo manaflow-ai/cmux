@@ -624,14 +624,6 @@ final class BrowserDesignModeTokenTextView: NSTextView {
     }
 }
 
-/// One run of composer content — literal text or a selection pill — in
-/// document order. Archived on the controller so the prompt survives the
-/// field's NSTextView being torn down (e.g. when the browser pane moves).
-enum BrowserDesignModePromptRun: Equatable {
-    case text(String)
-    case token(String)
-}
-
 enum BrowserDesignModeTokenStyle {
     static var font: NSFont { .systemFont(ofSize: 13.5) }
     static let blue = NSColor(calibratedRed: 0.35, green: 0.62, blue: 1.0, alpha: 1)

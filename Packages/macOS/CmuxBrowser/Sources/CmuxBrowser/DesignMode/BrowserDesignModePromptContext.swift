@@ -14,6 +14,9 @@ public nonisolated struct BrowserDesignModePromptContext: Equatable, Sendable {
     public let pageScreenshotPath: String?
     /// The optional source-level change requested by the user.
     public let requestedChange: String
+    /// The instruction in composed order: text runs interleaved with pill
+    /// references (by primary selector). Empty when order is unknown.
+    public let prompt: [BrowserDesignModePromptRun]
 
     /// Creates the context for one clipboard handoff.
     /// - Parameters:
@@ -26,7 +29,8 @@ public nonisolated struct BrowserDesignModePromptContext: Equatable, Sendable {
         snapshot: BrowserDesignModeSnapshot,
         screenshotPath: String?,
         requestedChange: String,
-        pageScreenshotPath: String? = nil
+        pageScreenshotPath: String? = nil,
+        prompt: [BrowserDesignModePromptRun] = []
     ) {
         self.pageURL = BrowserDesignModePageURL(rawValue: pageURL).sanitizedValue
         self.snapshot = snapshot
@@ -35,6 +39,7 @@ public nonisolated struct BrowserDesignModePromptContext: Equatable, Sendable {
             : Array(repeating: nil, count: snapshot.selections.count - 1) + [screenshotPath]
         self.pageScreenshotPath = pageScreenshotPath
         self.requestedChange = requestedChange
+        self.prompt = prompt
     }
 
     /// Creates context for an ordered stack of element references.
@@ -48,12 +53,14 @@ public nonisolated struct BrowserDesignModePromptContext: Equatable, Sendable {
         snapshot: BrowserDesignModeSnapshot,
         screenshotPaths: [String?],
         requestedChange: String,
-        pageScreenshotPath: String? = nil
+        pageScreenshotPath: String? = nil,
+        prompt: [BrowserDesignModePromptRun] = []
     ) {
         self.pageURL = BrowserDesignModePageURL(rawValue: pageURL).sanitizedValue
         self.snapshot = snapshot
         self.screenshotPaths = screenshotPaths
         self.pageScreenshotPath = pageScreenshotPath
         self.requestedChange = requestedChange
+        self.prompt = prompt
     }
 }
