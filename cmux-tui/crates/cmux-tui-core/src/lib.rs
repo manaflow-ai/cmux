@@ -12,6 +12,7 @@ mod browser;
 mod event_bus;
 mod model;
 mod mux;
+mod pairing;
 mod short_id;
 mod surface;
 
@@ -30,13 +31,14 @@ pub use mux::{
     AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane, CellPixelUpdate,
     CellPixelUpdateFailure, Direction, LayoutLeafSpec, LayoutSpec, Mux, MuxEvent,
     NotificationEvent, NotificationLevel, RunPlacement, SidebarPluginOptions, SidebarPluginStatus,
-    SurfaceNotification, SurfaceResizeReporter, ZoomMode, ZoomState,
+    SurfaceNotification, SurfaceResizeReporter, TreeDelta, TreeDeltaKind, ZoomMode, ZoomState,
 };
+pub use pairing::{PairingChallenge, PairingDecision, PairingError};
 pub use short_id::assign_short_ids;
 pub use surface::{
     AttachFrame, AttachFrameReceiver, AttachStream, BrowserAttachState, BrowserFrame,
-    BrowserFrameStream, BrowserSource, BrowserStatus, DefaultColors, Surface, SurfaceKind,
-    SurfaceOptions, TerminalColors,
+    BrowserFrameStream, BrowserSource, BrowserStatus, DefaultColors, RenderAttachFrame,
+    RenderAttachStream, Surface, SurfaceKind, SurfaceOptions, SurfaceRenderFrame, TerminalColors,
 };
 
 pub use cmux_tui_cdp::BrowserMode;

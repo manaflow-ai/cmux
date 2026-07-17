@@ -1,7 +1,10 @@
 name: Nightly macOS build
 
 on:
-  # Keep PR Release builds warm, then publish one signed Nightly each day.
+  # Publish every changed main revision, while keeping the scheduled cache warm.
+  push:
+    branches:
+      - main
   schedule:
     - cron: "17 */6 * * *"
     - cron: "47 8 * * *"
@@ -49,15 +52,10 @@ jobs:
               : 'main';
             const isMainRef = requestedRef === 'main';
 
-            let headSha = context.sha;
-            if (isMainRef) {
-              const branch = await github.rest.repos.getBranch({
-                owner,
-                repo,
-                branch: 'main',
-              });
-              headSha = branch.data.commit.sha;
-            }
+            // Pin every run to the revision that triggered it. In particular,
+            // queued main pushes must each build their own merge commit instead
+            // of all resolving to whichever commit is newest when `decide` runs.
+            const headSha = context.sha;
 
             let nightlySha = null;
             if (isMainRef) {

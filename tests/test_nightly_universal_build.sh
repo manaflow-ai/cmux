@@ -54,6 +54,27 @@ if ! grep -Fq 'cron: "47 8 * * *"' "$WORKFLOW_FILE"; then
 fi
 
 if ! awk '
+  /^  push:/ { in_push=1; next }
+  in_push && /^  [a-zA-Z0-9_-]+:/ { in_push=0 }
+  in_push && /^    branches:/ { saw_branches=1 }
+  in_push && /^      - main$/ { saw_main=1 }
+  END { exit !(saw_branches && saw_main) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: every push to main must trigger a Nightly publication attempt"
+  exit 1
+fi
+
+if ! grep -Fq 'const headSha = context.sha;' "$WORKFLOW_FILE"; then
+  echo "FAIL: each Nightly run must build the exact revision that triggered it"
+  exit 1
+fi
+
+if grep -Fq 'github.rest.repos.getBranch' "$WORKFLOW_FILE"; then
+  echo "FAIL: queued Nightly runs must not replace their triggering revision with a newer main HEAD"
+  exit 1
+fi
+
+if ! awk '
   /^  refresh-compilation-cache:/ { in_refresh=1; next }
   in_refresh && /^  [a-zA-Z0-9_-]+:/ { in_refresh=0 }
   in_refresh && /timeout-minutes: 45/ { saw_cold_build_timeout=1 }
