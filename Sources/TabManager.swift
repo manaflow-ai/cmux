@@ -323,6 +323,7 @@ class TabManager: ObservableObject {
                 }
             }
             publishCmuxWorkspaceSelectedChange(from: previousTabId)
+            AppDelegate.shared?.refreshWorkspaceFloatingDocks(for: self)
             let notificationDismissalContext = notificationDismissal.takePendingSelectionContext() ?? .activeFocus
 #if DEBUG
             let switchId = debugWorkspaceSwitchId

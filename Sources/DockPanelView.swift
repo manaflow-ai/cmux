@@ -18,6 +18,7 @@ struct DockPanelView: View {
     /// dims its focus ring when false so Dock and main-pane focus are mutually
     /// exclusive (the main pane dims its ring when this is true).
     var rightSidebarOwnsInputFocus: Bool = false
+    var onKeyboardFocusIntent: (() -> Void)? = nil
 
     @State private var appearanceConfig = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "dock.initial")
     @State private var visibilityHostId = UUID()
@@ -80,7 +81,8 @@ struct DockPanelView: View {
                 store: store,
                 appearance: appearance,
                 windowAppearance: windowAppearance,
-                rightSidebarOwnsInputFocus: rightSidebarOwnsInputFocus
+                rightSidebarOwnsInputFocus: rightSidebarOwnsInputFocus,
+                onKeyboardFocusIntent: onKeyboardFocusIntent
             )
         }
     }
@@ -93,6 +95,7 @@ private struct DockSplitContentView: View {
     let appearance: PanelAppearance
     let windowAppearance: WindowAppearanceSnapshot
     let rightSidebarOwnsInputFocus: Bool
+    let onKeyboardFocusIntent: (() -> Void)?
 
     /// Portal z-priority for Dock-hosted terminal/browser surfaces. Kept low so
     /// Dock surfaces never overlay main-area surfaces.
@@ -138,10 +141,12 @@ private struct DockSplitContentView: View {
                 },
                 onFocus: {
                     store.bonsplitController.focusPane(paneId)
-                    store.noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
+                    if let onKeyboardFocusIntent { onKeyboardFocusIntent() }
+                    else { store.noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow) }
                 },
                 onRequestPanelFocus: {
-                    store.noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
+                    if let onKeyboardFocusIntent { onKeyboardFocusIntent() }
+                    else { store.noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow) }
                     store.focusPanel(panel.id)
                 },
                 onResumeAgentHibernation: {},

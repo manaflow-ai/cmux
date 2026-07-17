@@ -10,6 +10,35 @@ import SwiftUI
 
 @MainActor
 final class MainWindowSelfSizingTests: XCTestCase {
+    func testUserSizedHostKeepsFloatingWindowFrameAuthoritative() {
+        let window = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 300),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        let overReporting = Color.clear
+            .frame(width: 4_000, height: 3_000)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        window.contentView = UserSizedWindowHostingView(
+            rootView: AnyView(overReporting),
+            minimumContentSize: NSSize(width: 320, height: 220)
+        )
+        window.makeKeyAndOrderFront(nil)
+
+        for _ in 0..<5 {
+            window.displayIfNeeded()
+            window.contentView?.layoutSubtreeIfNeeded()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        }
+
+        XCTAssertEqual(window.frame.width, 420, accuracy: 1.0)
+        XCTAssertEqual(window.frame.height, 300, accuracy: 1.0)
+        XCTAssertLessThanOrEqual(window.contentView?.frame.width ?? .infinity, window.frame.width + 1)
+        XCTAssertLessThanOrEqual(window.contentView?.frame.height ?? .infinity, window.frame.height + 1)
+    }
+
     /// The main window must never resize itself to fit its SwiftUI content.
     /// NSHostingView watches window layout and calls NSWindow.setFrame when
     /// the measured content size disagrees with the window
