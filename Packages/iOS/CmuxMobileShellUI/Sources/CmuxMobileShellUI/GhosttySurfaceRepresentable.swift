@@ -46,6 +46,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     /// Ghostty config update without remounting or changing another scene.
     var configThemeGeneration: UInt64 = 0
     var artifactFilesEnabled: Bool = false
+    var terminalFilesChipEnabled: Bool = false
     var sessionArtifactCountEnabled: Bool = false
     var visibleArtifactCount: Int = 0
     var onArtifactFilesRequested: @MainActor (_ anchor: UnitPoint) -> Void = { _ in }
@@ -59,6 +60,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             surfaceID: surfaceID,
             store: store,
             artifactFilesEnabled: artifactFilesEnabled,
+            terminalFilesChipEnabled: terminalFilesChipEnabled,
             sessionArtifactCountEnabled: sessionArtifactCountEnabled,
             visibleArtifactCount: visibleArtifactCount,
             onArtifactFilesRequested: onArtifactFilesRequested,
@@ -131,6 +133,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         context.coordinator.onArtifactGalleryRefreshSignal = onArtifactGalleryRefreshSignal
         let artifactCountModeChanged = context.coordinator.updateArtifactCountMode(
             artifactFilesEnabled: artifactFilesEnabled,
+            terminalFilesChipEnabled: terminalFilesChipEnabled,
             sessionArtifactCountEnabled: sessionArtifactCountEnabled
         )
         surfaceView.artifactFilesEnabled = artifactFilesEnabled
@@ -140,10 +143,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         let projectedArtifactCount = context.coordinator.artifactCountNeedsRefresh
             ? 0
             : visibleArtifactCount
-        context.coordinator.updateArtifactChip(
-            count: projectedArtifactCount,
-            enabled: artifactFilesEnabled
-        )
+        context.coordinator.updateArtifactChip(count: projectedArtifactCount)
         surfaceView.setComposerActive(isComposerActive)
         context.coordinator.setComposerMounted(isComposerActive)
         context.coordinator.scheduleTheme(terminalConfigTheme, generation: configThemeGeneration)
@@ -166,6 +166,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         weak var store: CMUXMobileShellStore?
         weak var surfaceView: GhosttySurfaceView?
         var artifactFilesEnabled: Bool
+        var artifactChipGate: TerminalArtifactChipFeatureGate
         var sessionArtifactCountEnabled: Bool
         var visibleArtifactCount: Int
         var onArtifactFilesRequested: @MainActor (_ anchor: UnitPoint) -> Void
@@ -207,6 +208,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             surfaceID: String,
             store: CMUXMobileShellStore,
             artifactFilesEnabled: Bool,
+            terminalFilesChipEnabled: Bool,
             sessionArtifactCountEnabled: Bool,
             visibleArtifactCount: Int,
             onArtifactFilesRequested: @escaping @MainActor (_ anchor: UnitPoint) -> Void,
@@ -218,9 +220,13 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             self.surfaceID = surfaceID
             self.store = store
             self.artifactFilesEnabled = artifactFilesEnabled
+            self.artifactChipGate = TerminalArtifactChipFeatureGate(
+                artifactsAvailable: artifactFilesEnabled,
+                preferenceEnabled: terminalFilesChipEnabled
+            )
             self.sessionArtifactCountEnabled = sessionArtifactCountEnabled
             self.visibleArtifactCount = visibleArtifactCount
-            self.artifactCountNeedsRefresh = artifactFilesEnabled
+            self.artifactCountNeedsRefresh = artifactChipGate.isEnabled
             self.onArtifactFilesRequested = onArtifactFilesRequested
             self.onArtifactPathTapped = onArtifactPathTapped
             self.onVisibleArtifactCountChanged = onVisibleArtifactCountChanged
@@ -231,10 +237,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         func attach(surfaceView: GhosttySurfaceView) {
             self.surfaceView = surfaceView
             surfaceView.artifactFilesEnabled = artifactFilesEnabled
-            updateArtifactChip(
-                count: artifactCountNeedsRefresh ? 0 : visibleArtifactCount,
-                enabled: artifactFilesEnabled
-            )
+            updateArtifactChip(count: artifactCountNeedsRefresh ? 0 : visibleArtifactCount)
             guard let store else { return }
             let surfaceID = surfaceID
             viewportReportScheduler = TerminalViewportReportScheduler(
