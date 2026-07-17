@@ -162,6 +162,24 @@ extension ReconnectRouteSelectionTests {
         #expect(fixture.factory.attemptedKinds() == [.iroh])
     }
 
+    @Test func storedReconnectDoesNotReplaceAnAlreadyLiveIrohClient() async throws {
+        let fixture = try await makeRecoveryOwnerFixture()
+        defer { fixture.release() }
+
+        #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        let liveClient = try #require(fixture.store.remoteClient)
+        let liveGeneration = fixture.store.connectionGeneration
+
+        #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+
+        #expect(fixture.store.remoteClient === liveClient)
+        #expect(fixture.store.connectionGeneration == liveGeneration)
+        #expect(fixture.store.connectionState == .connected)
+        #expect(fixture.factory.attemptedKinds() == [.iroh])
+        #expect(await fixture.router.count(of: "mobile.events.subscribe") == 1)
+    }
+
     @Test func stalledWriteRedialsExactCurrentIrohClientOnce() async throws {
         let fixture = try await makeRecoveryOwnerFixture()
         defer { fixture.release() }
