@@ -139,11 +139,11 @@ struct WorkspaceChecklistAttachmentMenu: View {
                 defaultValue: "No images attached. Attach images."
             )
         case 1:
-            return String(localized: "sidebar.checklist.attachments.oneAccessibility", defaultValue: "1 image attached")
+            return String(localized: "sidebar.checklist.attachments.one", defaultValue: "1 image attached")
         default:
             return String.localizedStringWithFormat(
                 String(
-                    localized: "sidebar.checklist.attachments.manyAccessibility",
+                    localized: "sidebar.checklist.attachments.other",
                     defaultValue: "%lld images attached"
                 ),
                 Int64(item.attachmentCount)
