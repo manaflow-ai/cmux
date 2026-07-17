@@ -191,8 +191,8 @@ button { color: inherit; touch-action: manipulation; }
 .context-menu-entry { position: relative; }
 .context-menu-entry > button { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .context-menu-arrow { margin-left: auto; color: var(--status-dim); }
-.context-menu-submenu { position: absolute; top: -4px; left: calc(100% - 2px); display: none; }
-.context-menu-entry:hover > .context-menu-submenu, .context-menu-entry:focus-within > .context-menu-submenu { display: block; }
+.context-menu-submenu { position: absolute; top: -4px; left: calc(100% - 2px); visibility: hidden; pointer-events: none; }
+.context-menu-entry:hover > .context-menu-submenu, .context-menu-entry:focus-within > .context-menu-submenu { visibility: visible; pointer-events: auto; }
 .context-menu-separator { height: 1px; margin: 3px 5px; background: var(--border-inactive); }
 .clients-popover { width: min(320px, calc(100vw - 16px)); max-height: min(420px, calc(100vh - 16px)); overflow-y: auto; }
 .client-row { padding: 9px 10px; border-bottom: 1px solid var(--border-inactive); }

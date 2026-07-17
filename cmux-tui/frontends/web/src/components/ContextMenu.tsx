@@ -140,13 +140,49 @@ function MenuItems({ items, onClose }: { items: ContextMenuItem[]; onClose(): vo
               {nested && <span className="context-menu-arrow" aria-hidden="true">›</span>}
             </button>
             {nested && (
-              <div className="context-menu context-menu-submenu" role="menu">
-                <MenuItems items={item.children!} onClose={onClose} />
-              </div>
+              <Submenu items={item.children!} onClose={onClose} />
             )}
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function Submenu({ items, onClose }: { items: ContextMenuItem[]; onClose(): void }) {
+  const submenuRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState<{ left: number; top: number }>();
+
+  useLayoutEffect(() => {
+    const submenu = submenuRef.current;
+    const entry = submenu?.parentElement;
+    if (!submenu || !entry) return;
+
+    const margin = 8;
+    const overlap = 2;
+    const verticalOffset = 4;
+    const submenuRect = submenu.getBoundingClientRect();
+    const entryRect = entry.getBoundingClientRect();
+    const maxX = Math.max(margin, window.innerWidth - submenuRect.width - margin);
+    const maxY = Math.max(margin, window.innerHeight - submenuRect.height - margin);
+    const opensLeft = entryRect.right + submenuRect.width - overlap > window.innerWidth - margin;
+    const x = Math.max(
+      margin,
+      Math.min(opensLeft ? entryRect.left - submenuRect.width + overlap : entryRect.right - overlap, maxX),
+    );
+    const y = Math.max(margin, Math.min(entryRect.top - verticalOffset, maxY));
+    const next = { left: x - entryRect.left, top: y - entryRect.top };
+    setPosition((current) => current?.left === next.left && current.top === next.top ? current : next);
+  }, [items]);
+
+  return (
+    <div
+      className="context-menu context-menu-submenu"
+      ref={submenuRef}
+      role="menu"
+      style={position}
+    >
+      <MenuItems items={items} onClose={onClose} />
     </div>
   );
 }
