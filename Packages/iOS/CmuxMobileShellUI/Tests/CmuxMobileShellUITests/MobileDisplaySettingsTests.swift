@@ -1,3 +1,4 @@
+import CmuxDiffUI
 import Foundation
 import Testing
 @testable import CmuxMobileShellUI
@@ -103,5 +104,28 @@ import Testing
         #expect(reloaded.unreadIndicatorLeftShift == 0)
         #expect(reloaded.profilePictureLeftShift == 24)
         #expect(reloaded.profilePictureSize == 36)
+    }
+
+    @Test func diffNavigationModelDefaultsToFilesFirstAndReadsPersistedValue() throws {
+        let defaults = try makeDefaults("diffNavigationModel")
+        #expect(MobileDisplaySettings(defaults: defaults).diffNavigationModel == .filesFirst)
+        #expect(defaults.object(forKey: "cmux.mobile.debug.diffNavigationModel.v1") == nil)
+
+        let settings = MobileDisplaySettings(defaults: defaults)
+        settings.diffNavigationModel = .diffFirst
+        #expect(MobileDisplaySettings(defaults: defaults).diffNavigationModel == .diffFirst)
+
+        defaults.set("invalid", forKey: "cmux.mobile.debug.diffNavigationModel.v1")
+        #expect(MobileDisplaySettings(defaults: defaults).diffNavigationModel == .filesFirst)
+    }
+
+    @Test func diffDebugEntryPointsDefaultOffAndPersist() throws {
+        let defaults = try makeDefaults("diffEntryPoints")
+        #expect(MobileDisplaySettings(defaults: defaults).showDiffEntryPoints == false)
+        #expect(defaults.object(forKey: "cmux.mobile.debug.showDiffEntryPoints.v1") == nil)
+
+        let settings = MobileDisplaySettings(defaults: defaults)
+        settings.showDiffEntryPoints = true
+        #expect(MobileDisplaySettings(defaults: defaults).showDiffEntryPoints)
     }
 }

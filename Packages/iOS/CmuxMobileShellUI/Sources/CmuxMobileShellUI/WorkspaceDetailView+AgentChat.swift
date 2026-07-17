@@ -14,7 +14,7 @@ extension WorkspaceDetailView {
     /// store still has the last authoritative GUI-history snapshot for this
     /// workspace. Use that immediately so the toolbar does not flicker while the
     /// refresh task reconnects.
-    private var visibleChatSessions: [ChatSessionDescriptor] {
+    var visibleChatSessions: [ChatSessionDescriptor] {
         if chatSessionsWorkspaceID == workspace.id.rawValue {
             return chatSessions
         }
@@ -96,6 +96,8 @@ extension WorkspaceDetailView {
                     get: { chatDrafts[session.id] ?? "" },
                     set: { chatDrafts[session.id] = $0 }
                 ),
+                showsDiffDebugEntry: showsDebugDiffEntryPoints,
+                openDiff: presentWorkspaceDiff,
                 onExitChat: {
                     withAnimation(.snappy(duration: 0.28)) {
                         isChatMode = false
@@ -309,7 +311,7 @@ extension WorkspaceDetailView {
             return
         }
 
-        if let selectedTerminalID {
+        if selectedTerminalID != nil {
             cachedChatToggleTerminalID = nil
             return
         }
@@ -324,7 +326,7 @@ extension WorkspaceDetailView {
     /// called from tasks/actions, not from `body`, so the body remains a pure
     /// projection of state.
     @discardableResult
-    private func ensureChatConversationStore(
+    func ensureChatConversationStore(
         for session: ChatSessionDescriptor,
         requiresCurrentSource: Bool = false
     ) -> ChatConversationStore? {

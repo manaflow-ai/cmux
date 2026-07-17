@@ -1,3 +1,4 @@
+import CmuxDiffUI
 import Foundation
 import Observation
 
@@ -26,6 +27,8 @@ public final class MobileDisplaySettings {
     private static let unreadIndicatorLeftShiftKey = "cmux.mobile.debug.unreadIndicatorLeftShift.v2"
     private static let profilePictureLeftShiftKey = "cmux.mobile.debug.profilePictureLeftShift"
     private static let profilePictureSizeKey = "cmux.mobile.debug.profilePictureSize"
+    private static let diffNavigationModelKey = "cmux.mobile.debug.diffNavigationModel.v1"
+    private static let showDiffEntryPointsKey = "cmux.mobile.debug.showDiffEntryPoints.v1"
 
     /// The preview line counts the "Preview Lines" setting offers.
     public static let workspacePreviewLineCountRange = 1...2
@@ -99,6 +102,16 @@ public final class MobileDisplaySettings {
         }
     }
 
+    /// DEBUG-only navigation model for native diff screens. Defaults to files-first.
+    public var diffNavigationModel: DiffNavigationModel {
+        didSet { defaults.set(diffNavigationModel.rawValue, forKey: Self.diffNavigationModelKey) }
+    }
+
+    /// Whether DEBUG-only diff placements appear in chat-derived surfaces.
+    public var showDiffEntryPoints: Bool {
+        didSet { defaults.set(showDiffEntryPoints, forKey: Self.showDiffEntryPointsKey) }
+    }
+
     /// Creates the display settings, seeding stored values from `defaults`.
     /// - Parameter defaults: The store backing the persisted preferences.
     ///   Defaults to `.standard`; tests pass a scoped suite. Stored properties
@@ -127,6 +140,9 @@ public final class MobileDisplaySettings {
             storedProfilePictureSize ?? Self.defaultProfilePictureSize,
             to: Self.profilePictureSizeRange
         )
+        self.diffNavigationModel = defaults.string(forKey: Self.diffNavigationModelKey)
+            .flatMap(DiffNavigationModel.init(rawValue:)) ?? .filesFirst
+        self.showDiffEntryPoints = defaults.bool(forKey: Self.showDiffEntryPointsKey)
     }
 
     /// Clamps a stored or assigned preview line count to the supported range.

@@ -33,15 +33,15 @@ struct WorkspaceDetailView: View {
     let backButtonConfiguration: WorkspaceBackButtonConfiguration?
     let signOut: (() -> Void)?
     @Environment(BrowserSurfaceStore.self) var browserStore
-    @Environment(MobileDisplaySettings.self) private var displaySettings
+    @Environment(MobileDisplaySettings.self) var displaySettings
     /// Drives the destructive close-workspace confirmation dialog.
     @State var isConfirmingClose = false
     #if canImport(UIKit)
-    @State private var isFeedbackComposerPresented = false
-    @State private var feedbackText = ""
-    @State private var feedbackEmail = ""
-    @State private var isSubmittingFeedback = false
-    @State private var feedbackErrorMessage: String?
+    @State var isFeedbackComposerPresented = false
+    @State var feedbackText = ""
+    @State var feedbackEmail = ""
+    @State var isSubmittingFeedback = false
+    @State var feedbackErrorMessage: String?
     @State private var isTextSheetPresented = false
     /// Drives the rename-workspace dialog launched from the picker menu, and its
     /// editable text (seeded with the current name when presented).
@@ -68,6 +68,8 @@ struct WorkspaceDetailView: View {
     @State var chatConversationStores: [String: ChatConversationStore] = [:]
     /// Per-session composer drafts, surviving toggles back to the terminal.
     @State var chatDrafts: [String: String] = [:]
+    /// Drives the one shared native-diff presentation path.
+    @State var isWorkspaceDiffPresented = false
     @State var terminalArtifactFilesContext: TerminalArtifactContext?
     @State var selectedTerminalArtifact: TerminalArtifactSelection?
     @State var terminalArtifactThumbnailCache = ChatArtifactThumbnailCache()
@@ -120,6 +122,9 @@ struct WorkspaceDetailView: View {
             .sheet(isPresented: $isTextSheetPresented) {
                 TerminalTextSheetView(surfaceID: textSheetSurfaceID)
             }
+            .sheet(isPresented: $isWorkspaceDiffPresented) {
+                workspaceDiffPresentation
+            }
             .workspaceRenameDialog(
                 isPresented: $isRenamePresented,
                 text: $renameText,
@@ -149,6 +154,15 @@ struct WorkspaceDetailView: View {
         }
         ToolbarItem(id: "workspace-title", placement: .topBarLeading) {
             workspaceTitleToolbarMenu
+        }
+        if workspaceDiffEntryGate.canPresent {
+            ToolbarItem(id: "workspace-changes", placement: .topBarTrailing) {
+                Button(action: presentWorkspaceDiff) {
+                    Label(workspaceChangesLabel, systemImage: "doc.text.magnifyingglass")
+                        .labelStyle(.iconOnly)
+                }
+                .accessibilityIdentifier("MobileWorkspaceChangesButton")
+            }
         }
         if let selectedTerminalID,
            store.isAlternateScreen(surfaceID: selectedTerminalID),
@@ -181,14 +195,24 @@ struct WorkspaceDetailView: View {
         if isChatMode,
            let session = chosenChatSession,
            let conversation = chatConversationStores[session.id] {
-            ChatSessionHeaderView(
-                descriptor: conversation.descriptor,
-                agentState: conversation.agentState,
-                isConnected: conversation.isConnected,
-                titleOverride: workspace.name,
-                subtitle: tabName(for: session),
-                style: .toolbarCompact
-            )
+            HStack(spacing: 4) {
+                ChatSessionHeaderView(
+                    descriptor: conversation.descriptor,
+                    agentState: conversation.agentState,
+                    isConnected: conversation.isConnected,
+                    titleOverride: workspace.name,
+                    subtitle: tabName(for: session),
+                    style: .toolbarCompact
+                )
+                if showsDebugDiffEntryPoints {
+                    Button(action: presentWorkspaceDiff) {
+                        Image(systemName: "doc.text.magnifyingglass")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(workspaceChangesLabel)
+                    .accessibilityIdentifier("MobileSessionSummaryChangesButton")
+                }
+            }
         } else if let browser = activeBrowser {
             Text(browser.title ?? workspace.name)
                 .font(.headline)
@@ -288,43 +312,6 @@ struct WorkspaceDetailView: View {
         #endif
     }
 
-    #if os(iOS)
-    func terminalArtifactLoader(workspaceID: String, surfaceID: String) -> ChatArtifactLoader {
-        guard let source = store.makeChatEventSource() else {
-            return .unsupported(cache: terminalArtifactThumbnailCache)
-        }
-        return ChatArtifactLoader(
-            terminalWorkspaceID: workspaceID,
-            terminalSurfaceID: surfaceID,
-            supportsArtifacts: store.supportsTerminalArtifacts,
-            cache: terminalArtifactThumbnailCache,
-            stat: { path in
-                try await source.terminalArtifactStat(
-                    workspaceID: workspaceID,
-                    surfaceID: surfaceID,
-                    path: path
-                )
-            },
-            fetch: { path, progress in
-                try await source.terminalArtifactFetch(
-                    workspaceID: workspaceID,
-                    surfaceID: surfaceID,
-                    path: path,
-                    progress: progress
-                )
-            },
-            thumbnail: { path, maxDimension in
-                try await source.terminalArtifactThumbnail(
-                    workspaceID: workspaceID,
-                    surfaceID: surfaceID,
-                    path: path,
-                    maxDimension: maxDimension
-                )
-            }
-        )
-    }
-    #endif
-
     @ViewBuilder
     private var terminalToolbarButtons: some View {
         newWorkspaceToolbarButton
@@ -422,142 +409,6 @@ struct WorkspaceDetailView: View {
         isTextSheetPresented = true
     }
 
-    private func openFeedbackComposerFromMenu() {
-        feedbackText = ""
-        feedbackErrorMessage = nil
-        // A prior submission may still be in flight if the user dismissed the
-        // sheet mid-send (Cancel stays enabled); reset so the reopened composer
-        // does not render Send permanently disabled until that task times out.
-        isSubmittingFeedback = false
-        // Prefill the reply-to address with the signed-in email on the email
-        // path; the privileged agent path never reads it.
-        feedbackEmail = store.signedInUserEmail ?? ""
-        isFeedbackComposerPresented = true
-    }
-
-    /// Whether the current submission will go straight to the agent (privileged
-    /// `@manaflow.ai` user on an active connection) vs the email inbox.
-    private var feedbackRoutesToAgent: Bool {
-        store.currentFeedbackRoute == .privilegedAgent
-    }
-
-    // Release-safe Send Feedback composer. Privileged @manaflow.ai users on an
-    // active connection ship a diagnostic bundle straight to the paired Mac's
-    // agent sink; everyone else emails the feedback inbox. Either way the
-    // submission is stamped with build type + version + device.
-    private var feedbackComposer: some View {
-        NavigationStack {
-            VStack(alignment: .leading, spacing: 12) {
-                Text(feedbackComposerExplanation)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                TextField(
-                    L10n.string("mobile.feedback.placeholder", defaultValue: "What happened?"),
-                    text: $feedbackText,
-                    axis: .vertical
-                )
-                .lineLimit(3...8)
-                .textFieldStyle(.roundedBorder)
-                .accessibilityIdentifier("MobileFeedbackComposerField")
-                if !feedbackRoutesToAgent {
-                    TextField(
-                        L10n.string("mobile.feedback.emailPlaceholder", defaultValue: "Your email"),
-                        text: $feedbackEmail
-                    )
-                    .keyboardType(.emailAddress)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .textFieldStyle(.roundedBorder)
-                    .accessibilityIdentifier("MobileFeedbackComposerEmailField")
-                }
-                if let feedbackErrorMessage {
-                    Text(feedbackErrorMessage)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                        .accessibilityIdentifier("MobileFeedbackComposerError")
-                }
-                Spacer()
-            }
-            .padding(16)
-            .navigationTitle(L10n.string("mobile.feedback.send", defaultValue: "Send Feedback"))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(L10n.string("mobile.feedback.cancel", defaultValue: "Cancel")) {
-                        isFeedbackComposerPresented = false
-                    }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(L10n.string("mobile.feedback.sendAction", defaultValue: "Send"), action: submitFeedbackFromComposer)
-                        .disabled(isSubmittingFeedback || !isFeedbackSubmittable)
-                        .accessibilityIdentifier("MobileFeedbackComposerSend")
-                }
-            }
-        }
-        .presentationDetents([.medium])
-    }
-
-    private var feedbackComposerExplanation: String {
-        if feedbackRoutesToAgent {
-            // Intentionally does not promise the structured event log: that log
-            // is only captured in DEBUG builds, so a Release agent bundle carries
-            // the debug log + visible terminal + your note, not the event trace.
-            return L10n.string(
-                "mobile.feedback.explanation.agent",
-                defaultValue: "Sends diagnostics (debug log + visible terminal) and your note straight to the paired Mac."
-            )
-        }
-        return L10n.string(
-            "mobile.feedback.explanation.email",
-            defaultValue: "Emails your feedback to the cmux team, stamped with your app version and device."
-        )
-    }
-
-    private var isFeedbackSubmittable: Bool {
-        let messageOK = !feedbackText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        if feedbackRoutesToAgent {
-            return messageOK
-        }
-        // The email route requires a valid reply-to address; the web route's
-        // zod schema rejects an empty/invalid email with a 400.
-        return messageOK && feedbackEmail.contains("@")
-    }
-
-    private func submitFeedbackFromComposer() {
-        guard !isSubmittingFeedback, isFeedbackSubmittable else { return }
-        isSubmittingFeedback = true
-        feedbackErrorMessage = nil
-        let note = feedbackText
-        let email = feedbackEmail
-        let routesToAgent = feedbackRoutesToAgent
-        // Only the agent path reads the terminal/debug snapshots; reading them is
-        // cheap and harmless on the email path, but skip the work when unused.
-        // `visibleTerminalSnapshot()` reads off the output queue with a bounded
-        // async deadline (never a main-thread `ghostty_surface_read_text`, which blanks the
-        // terminal). The debug-log snapshot is awaited from its actor.
-        Task { @MainActor in
-            let terminalText = routesToAgent ? await GhosttySurfaceView.visibleTerminalSnapshot() : ""
-            let debugLogText = routesToAgent ? await MobileDebugLog.shared.sink.snapshotWithCount().1 : ""
-            let outcome = await store.submitFeedback(
-                message: note,
-                emailOverride: email,
-                debugLogText: debugLogText,
-                terminalText: terminalText
-            )
-            isSubmittingFeedback = false
-            switch outcome {
-            case .sentToAgent, .emailed:
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
-                isFeedbackComposerPresented = false
-            case .failed:
-                UINotificationFeedbackGenerator().notificationOccurred(.error)
-                feedbackErrorMessage = L10n.string(
-                    "mobile.feedback.error",
-                    defaultValue: "Could not send feedback. Check your connection and try again."
-                )
-            }
-        }
-    }
     #endif
 
     private func createWorkspaceFromToolbar() {

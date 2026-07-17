@@ -1,5 +1,8 @@
 #if os(iOS)
 import CmuxAuthRuntime
+#if DEBUG
+import CmuxDiffUI
+#endif
 import CmuxMobileShell
 import CmuxMobileSupport
 import CmuxMobileWorkspace
@@ -169,6 +172,42 @@ struct MobileSettingsView: View {
 
                 #if DEBUG
                 Section(L10n.string("mobile.settings.developer", defaultValue: "Developer")) {
+                    Picker(selection: $displaySettings.diffNavigationModel) {
+                        Text(String(localized:
+                            "mobile.settings.diffNavigation.filesFirst",
+                            defaultValue: "Files first",
+                            bundle: .module
+                        ))
+                        .tag(DiffNavigationModel.filesFirst)
+                        Text(String(localized:
+                            "mobile.settings.diffNavigation.diffFirst",
+                            defaultValue: "Diff first",
+                            bundle: .module
+                        ))
+                        .tag(DiffNavigationModel.diffFirst)
+                    } label: {
+                        Text(String(localized:
+                            "mobile.settings.diffNavigation",
+                            defaultValue: "Diff Navigation",
+                            bundle: .module
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsDiffNavigation")
+
+                    Toggle(isOn: $displaySettings.showDiffEntryPoints) {
+                        Text(String(localized:
+                            "mobile.settings.diffEntryPoints",
+                            defaultValue: "Diff Debug Entry Points",
+                            bundle: .module
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsDiffEntryPoints")
+
+                    NavigationLink {
+                        DiffFixtureScreen(defaults: .standard)
+                    } label: {
+                        Label(DiffFixtureScreen.settingsLabel, systemImage: "doc.text.magnifyingglass")
+                    }
                     Button {
                         showingChatDemo = true
                     } label: {

@@ -45,6 +45,9 @@
          location = "group:CmuxAgentChatUI">
       </FileRef>
       <FileRef
+         location = "group:CmuxDiffUI">
+      </FileRef>
+      <FileRef
          location = "group:CmuxMobileAnalytics">
       </FileRef>
       <FileRef
@@ -119,6 +122,9 @@
       </FileRef>
       <FileRef
          location = "group:CMUXDebugLog">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxDiffEngine">
       </FileRef>
       <FileRef
          location = "group:CmuxExtensionKit">

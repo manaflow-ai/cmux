@@ -1,0 +1,1 @@
+struct FakeDiffTransportError: Error, Sendable {}
