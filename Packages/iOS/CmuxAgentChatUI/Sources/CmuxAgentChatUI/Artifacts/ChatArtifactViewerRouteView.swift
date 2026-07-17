@@ -16,6 +16,7 @@ struct ChatArtifactViewerRouteView: View {
     let onImageMinimumZoomChanged: (Bool) -> Void
 
     @Environment(\.colorScheme) private var colorScheme
+    @State private var presentation = ChatArtifactViewerPresentationCoordinator()
 
     init(
         snapshot: ChatArtifactViewerPageSnapshot,
@@ -33,8 +34,17 @@ struct ChatArtifactViewerRouteView: View {
 
     var body: some View {
         content
-            .task(id: "\(path)\u{0}\(snapshot.retryGeneration)") {
-                await actions.load()
+            .onAppear {
+                presentation.present()
+            }
+            .onDisappear {
+                presentation.dismiss()
+            }
+            .task(id: "\(path)\u{0}\(snapshot.retryGeneration)\u{0}\(presentation.generation)") {
+                let didStart = await presentation.loadAfterPresentation {
+                    await actions.load()
+                }
+                guard didStart else { return }
                 await waitForViewerTaskCancellation()
                 await actions.cleanup()
             }

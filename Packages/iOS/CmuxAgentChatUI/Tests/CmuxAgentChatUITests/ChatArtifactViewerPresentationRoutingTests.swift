@@ -72,7 +72,7 @@ struct ChatArtifactViewerPresentationRoutingTests {
         }
 
         await stream.resume()
-        await loadTask.value
+        _ = await loadTask.value
 
         if isMarkdown {
             #expect(model.state == .markdown)
