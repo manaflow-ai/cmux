@@ -231,6 +231,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
               request["method"] as? String == "mobile.events.subscribe",
               var params = request["params"] as? [String: Any],
               params["event_transport"] == nil,
+              let streamID = params["stream_id"] as? String,
               let remaining = try? deadline.remainingNanoseconds() else {
             return requestData
         }
@@ -239,6 +240,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             Self.independentEventPreparationTimeoutNanoseconds
         )
         guard await session.prepareIndependentServerEvents(
+            forSubscriptionStreamID: streamID,
             timeoutNanoseconds: preparationTimeout
         ) else {
             return requestData

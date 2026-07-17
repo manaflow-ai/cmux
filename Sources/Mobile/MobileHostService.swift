@@ -1040,7 +1040,7 @@ final class MobileHostService {
                 )
             },
             onAuthorizedRequest: { request in
-                await MobileHostService.shared.retireSupersededIrohConnections(
+                await Self.retireSupersededIrohConnections(
                     newestConnectionID: id
                 )
                 guard let clientID = Self.clientID(from: request.params) else {
@@ -1232,7 +1232,12 @@ final class MobileHostService {
         MobileHostRequestActivity.endConnection()
     }
 
-    private func retireSupersededIrohConnections(newestConnectionID: UUID) async {
+    /// The registry is lock-protected and connection close is actor-isolated,
+    /// so Iroh handoff never needs to queue behind unrelated AppKit work on the
+    /// main actor. This path runs before every authorized RPC.
+    nonisolated private static func retireSupersededIrohConnections(
+        newestConnectionID: UUID
+    ) async {
         let superseded = MobileHostConnectionRegistry.shared
             .removeOlderIrohConnectionsIfNewest(id: newestConnectionID)
         for connection in superseded {
@@ -1981,11 +1986,23 @@ actor MobileHostConnection {
             // it the registration had been lost (events emitted in the gap
             // were never delivered), so it requests a catch-up replay instead
             // of trusting delta continuity.
-            let alreadySubscribed = subscriptions[streamID] != nil
+            let existingSubscription = subscriptions[streamID]
+            let alreadySubscribed = existingSubscription != nil
             let requestedTransport = request.params["event_transport"] as? String
             let selectedTransport: MobileHostEventTransport
-            if requestedTransport == MobileHostEventTransport.irohServerEvents.rawValue,
-               await prepareIndependentEventWriter() {
+            if let existingSubscription {
+                // An idempotent subscribe proves the authenticated control
+                // connection and registration. Keep its negotiated lane only
+                // while the client still advertises an active reader. Never
+                // re-probe or re-upgrade here: actual event delivery owns lane
+                // failure detection and atomically falls back to control.
+                if requestedTransport == MobileHostEventTransport.irohServerEvents.rawValue {
+                    selectedTransport = existingSubscription.transport
+                } else {
+                    selectedTransport = .control
+                }
+            } else if requestedTransport == MobileHostEventTransport.irohServerEvents.rawValue,
+                      await prepareIndependentEventWriter() {
                 selectedTransport = .irohServerEvents
             } else {
                 selectedTransport = .control

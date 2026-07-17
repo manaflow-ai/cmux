@@ -54,6 +54,9 @@ actor MobileCoreRPCSession {
     private var readerTask: Task<Void, Never>?
     var independentEventPreparation: IndependentEventPreparation?
     var independentEventReader: IndependentEventReader?
+    /// Subscription stream IDs that already made their one optional-lane
+    /// negotiation attempt during this control-session generation.
+    var independentEventSubscriptionStreamIDs: Set<String> = []
     var pending: [String: PendingContinuation] = [:]
     var requestTimeoutTasks: [String: Task<Void, Never>] = [:]
     private var queuedWriteIDs: [String: UUID] = [:]
@@ -209,6 +212,7 @@ actor MobileCoreRPCSession {
         independentEventPreparation = nil
         independentEventReader?.task.cancel()
         independentEventReader = nil
+        independentEventSubscriptionStreamIDs.removeAll()
         if let transportToClose {
             enqueueTransportClose(transportToClose)
         }
