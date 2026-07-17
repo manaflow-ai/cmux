@@ -1322,13 +1322,13 @@ extension CMUXCLI {
                     index += 2
                     continue
                 case "--agent":
-                    let provider = try openOptionValue(commandArgs, index: index, name: arg)
+                    let providerInput = try openOptionValue(commandArgs, index: index, name: arg)
                         .trimmingCharacters(in: .whitespacesAndNewlines)
                         .lowercased()
-                    guard ["codex", "claude", "opencode"].contains(provider) else {
-                        throw CLIError(message: "Unknown diff agent '\(provider)'. Expected codex, claude, or opencode.")
+                    guard ["codex", "claude", "opencode"].contains(providerInput) else {
+                        throw CLIError(message: "Unknown diff agent '\(providerInput)'. Expected codex, claude, or opencode.")
                     }
-                    parsed.agentProvider = provider
+                    parsed.agentProvider = providerInput == "opencode" ? "openCode" : providerInput
                     index += 2
                     continue
                 case "--source":
@@ -1569,7 +1569,7 @@ extension CMUXCLI {
             patch = try gitStdout(gitDiffPatchArguments([mergeBase, "--"]), in: repoRoot)
             sourceLabel = "git branch \(baseRef)"
         case .lastTurn:
-            throw CLIError(message: "Last-turn diffs require the Rust diff sidecar.")
+            throw EmptyDiffSourceError(message: "Last-turn diffs require the Rust diff sidecar.")
         }
         return DiffInput(
             patch: patch,

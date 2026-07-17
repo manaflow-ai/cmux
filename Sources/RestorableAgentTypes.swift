@@ -102,8 +102,10 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
 
     var diffTrajectoryProvider: String? {
         switch self {
-        case .codex, .claude, .opencode:
+        case .codex, .claude:
             return rawValue
+        case .opencode:
+            return "openCode"
         default:
             return nil
         }

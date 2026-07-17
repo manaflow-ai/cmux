@@ -125,10 +125,11 @@ extension CMUXCLI {
                 }
                 return payload
             case .lastTurn:
-                guard let provider = normalizedDiffSourceValue(context.agentProvider),
+                guard let providerInput = normalizedDiffSourceValue(context.agentProvider),
                       let sessionId = normalizedDiffSourceValue(context.sessionId) else {
                     return nil
                 }
+                let provider = providerInput.lowercased() == "opencode" ? "openCode" : providerInput
                 return [
                     "kind": "agentTurn",
                     "provider": provider,

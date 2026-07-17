@@ -693,19 +693,22 @@ async fn open_session(
             source: params.source,
         });
     }
-    let _permit = state
-        .child_processes
-        .try_acquire()
-        .map_err(|_| SessionOpenError::Failed)?;
-
     let resolved_turn = if let DiffSource::AgentTurn {
         provider,
         session_id,
     } = &params.source
     {
         let identity = AgentTurnIdentity::new(*provider, session_id.clone());
+        let permit = state
+            .child_processes
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| SessionOpenError::Failed)?;
         Some(
             tokio::task::spawn_blocking(move || {
+                // Blocking tasks outlive an aborted async waiter, so the work
+                // itself owns the permit until its transcript scan finishes.
+                let _permit = permit;
                 let roots = TrajectoryRoots::from_environment()?;
                 resolve_last_turn_patch(&identity, &roots)
             })
@@ -715,6 +718,17 @@ async fn open_session(
                 TrajectoryError::Empty => SessionOpenError::Empty,
                 TrajectoryError::Unavailable | TrajectoryError::Invalid => SessionOpenError::Failed,
             })?,
+        )
+    } else {
+        None
+    };
+    let _git_permit = if resolved_turn.is_none() {
+        Some(
+            state
+                .child_processes
+                .clone()
+                .try_acquire_owned()
+                .map_err(|_| SessionOpenError::Failed)?,
         )
     } else {
         None

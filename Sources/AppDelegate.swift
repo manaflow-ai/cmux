@@ -6221,6 +6221,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // repo paths and file contents, so report a byte count, not the text.
                 cmuxDebugLog("openDiffViewer exited status=\(terminationStatus) outputBytes=\(output.utf8.count)")
 #endif
+                if let targetSurfaceId,
+                   let targetExpectedURL,
+                   let appDelegate = AppDelegate.shared,
+                   let workspace = appDelegate.workspaceFor(tabId: workspaceId),
+                   let panel = workspace.panels[targetSurfaceId] as? BrowserPanel,
+                   panel.hasCurrentURL(targetExpectedURL) {
+                    _ = workspace.closePanel(targetSurfaceId, force: true)
+                }
                 NSSound.beep()
             }
         }

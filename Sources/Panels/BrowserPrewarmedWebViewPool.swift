@@ -196,10 +196,12 @@ final class BrowserPrewarmedWebViewPool: NSObject {
     }
 
     private func evictOldestEntryIfNeeded() {
-        guard entries.count >= capacity,
-              let oldest = entries.min(by: { $0.value.lastRequestedAt < $1.value.lastRequestedAt })?.key else {
-            return
-        }
+        guard entries.count >= capacity else { return }
+        let expiringEntries = entries.filter { $0.value.expires }
+        let candidates = expiringEntries.isEmpty ? entries : expiringEntries
+        guard let oldest = candidates.min(by: {
+            $0.value.lastRequestedAt < $1.value.lastRequestedAt
+        })?.key else { return }
         discard(key: oldest, reason: "capacity")
     }
 

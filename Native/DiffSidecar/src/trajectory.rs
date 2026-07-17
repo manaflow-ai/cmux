@@ -35,12 +35,16 @@ impl AgentTurnIdentity {
 #[derive(Clone, Debug)]
 pub struct TrajectoryRoots {
     home: PathBuf,
+    hook_state_dir: Option<PathBuf>,
 }
 
 impl TrajectoryRoots {
     #[must_use]
     pub fn for_home(home: PathBuf) -> Self {
-        Self { home }
+        Self {
+            home,
+            hook_state_dir: None,
+        }
     }
 
     /// Resolves trajectory storage from the current process environment.
@@ -53,7 +57,13 @@ impl TrajectoryRoots {
             .filter(|value| !value.is_empty())
             .map(PathBuf::from)
             .ok_or(TrajectoryError::Unavailable)?;
-        Ok(Self { home })
+        let hook_state_dir = std::env::var_os("CMUX_AGENT_HOOK_STATE_DIR")
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from);
+        Ok(Self {
+            home,
+            hook_state_dir,
+        })
     }
 
     fn hook_store(&self, provider: AgentProvider) -> PathBuf {
@@ -62,8 +72,9 @@ impl TrajectoryRoots {
             AgentProvider::Claude => "claude",
             AgentProvider::OpenCode => "opencode",
         };
-        self.home
-            .join(".cmuxterm")
+        self.hook_state_dir
+            .clone()
+            .unwrap_or_else(|| self.home.join(".cmuxterm"))
             .join(format!("{name}-hook-sessions.json"))
     }
 
@@ -142,6 +153,8 @@ fn validate_session_id(session_id: &str) -> Result<(), TrajectoryError> {
     if session_id.is_empty()
         || session_id.len() > MAX_SESSION_ID_BYTES
         || session_id.chars().any(char::is_control)
+        || session_id.contains(['/', '\\'])
+        || matches!(session_id, "." | "..")
     {
         return Err(TrajectoryError::Invalid);
     }
@@ -153,36 +166,28 @@ fn resolve_codex(
     roots: &TrajectoryRoots,
 ) -> Result<ResolvedTurnPatch, TrajectoryError> {
     let hook = read_hook_record(roots, identity.provider, &identity.session_id);
-    let database_record = if hook
-        .as_ref()
-        .and_then(|record| record.transcript_path.as_ref())
-        .is_none()
-        || hook
-            .as_ref()
-            .and_then(|record| record.cwd.as_ref())
-            .is_none()
+    let (transcript, repo_root) = if let Some(record) =
+        hook.filter(|record| record.transcript_path.is_some() && record.cwd.is_some())
     {
-        read_codex_database_record(&roots.codex_database(), &identity.session_id)
+        (
+            expanded_path(
+                record
+                    .transcript_path
+                    .as_deref()
+                    .ok_or(TrajectoryError::Unavailable)?,
+            ),
+            expanded_path(record.cwd.as_deref().ok_or(TrajectoryError::Unavailable)?),
+        )
     } else {
-        None
+        let (transcript, repo_root) =
+            read_codex_database_record(&roots.codex_database(), &identity.session_id)
+                .ok_or(TrajectoryError::Unavailable)?;
+        (
+            expanded_path(&transcript),
+            expanded_path(repo_root.as_deref().ok_or(TrajectoryError::Unavailable)?),
+        )
     };
-    let transcript = hook
-        .as_ref()
-        .and_then(|record| record.transcript_path.as_deref())
-        .or_else(|| database_record.as_ref().map(|record| record.0.as_str()))
-        .map(expanded_path)
-        .ok_or(TrajectoryError::Unavailable)?;
-    let repo_root = hook
-        .as_ref()
-        .and_then(|record| record.cwd.as_deref())
-        .or_else(|| {
-            database_record
-                .as_ref()
-                .and_then(|record| record.1.as_deref())
-        })
-        .map(expanded_path)
-        .ok_or(TrajectoryError::Unavailable)?;
-    let repo_root = canonical_directory(&repo_root)?;
+    let repo_root = canonical_repository_root(&repo_root)?;
     let patch = codex_last_turn_patch(&transcript, &repo_root)?;
     finish(repo_root, patch)
 }
@@ -192,19 +197,25 @@ fn resolve_claude(
     roots: &TrajectoryRoots,
 ) -> Result<ResolvedTurnPatch, TrajectoryError> {
     let hook = read_hook_record(roots, identity.provider, &identity.session_id);
-    let transcript = hook
-        .as_ref()
-        .and_then(|record| record.transcript_path.as_deref())
-        .map(expanded_path)
-        .or_else(|| find_claude_transcript(roots, &identity.session_id))
-        .ok_or(TrajectoryError::Unavailable)?;
-    let repo_root = hook
-        .as_ref()
-        .and_then(|record| record.cwd.as_deref())
-        .map(expanded_path)
-        .or_else(|| claude_transcript_cwd(&transcript))
-        .ok_or(TrajectoryError::Unavailable)?;
-    let repo_root = canonical_directory(&repo_root)?;
+    let (transcript, repo_root) = if let Some(record) =
+        hook.filter(|record| record.transcript_path.is_some() && record.cwd.is_some())
+    {
+        (
+            expanded_path(
+                record
+                    .transcript_path
+                    .as_deref()
+                    .ok_or(TrajectoryError::Unavailable)?,
+            ),
+            expanded_path(record.cwd.as_deref().ok_or(TrajectoryError::Unavailable)?),
+        )
+    } else {
+        let transcript = find_claude_transcript(roots, &identity.session_id)
+            .ok_or(TrajectoryError::Unavailable)?;
+        let repo_root = claude_transcript_cwd(&transcript).ok_or(TrajectoryError::Unavailable)?;
+        (transcript, repo_root)
+    };
+    let repo_root = canonical_repository_root(&repo_root)?;
     let patch = claude_last_turn_patch(&transcript, &repo_root)?;
     finish(repo_root, patch)
 }
@@ -254,7 +265,7 @@ fn resolve_opencode(
     for row in rows {
         append_patch_fragment(&mut patch, &row.map_err(|_| TrajectoryError::Invalid)?)?;
     }
-    let repo_root = canonical_directory(&expanded_path(&repo))?;
+    let repo_root = canonical_repository_root(&expanded_path(&repo))?;
     finish(repo_root, patch)
 }
 
@@ -325,10 +336,8 @@ fn find_claude_transcript(roots: &TrajectoryRoots, session_id: &str) -> Option<P
 fn claude_transcript_cwd(transcript: &Path) -> Option<PathBuf> {
     let mut cwd = None;
     for_json_lines(transcript, |object| {
-        if cwd.is_none() {
-            cwd = object.get("cwd").and_then(Value::as_str).map(expanded_path);
-        }
-        Ok(())
+        cwd = object.get("cwd").and_then(Value::as_str).map(expanded_path);
+        Ok(cwd.is_some())
     })
     .ok()?;
     cwd
@@ -342,24 +351,27 @@ fn codex_last_turn_patch(transcript: &Path, repo_root: &Path) -> Result<String, 
             .get("payload")
             .filter(|_| object.get("type").and_then(Value::as_str) == Some("event_msg"))
         else {
-            return Ok(());
+            return Ok(false);
         };
         let event_type = payload.get("type").and_then(Value::as_str);
         let turn_id = payload.get("turn_id").and_then(Value::as_str);
         if event_type == Some("task_started") {
-            if let Some(turn_id) = turn_id {
-                current_turn = Some(turn_id.to_owned());
+            let Some(turn_id) = turn_id else {
+                current_turn = None;
                 patch.clear();
-            }
-            return Ok(());
+                return Err(TrajectoryError::Invalid);
+            };
+            current_turn = Some(turn_id.to_owned());
+            patch.clear();
+            return Ok(false);
         }
         if event_type != Some("patch_apply_end")
             || payload.get("success") == Some(&Value::Bool(false))
         {
-            return Ok(());
+            return Ok(false);
         }
         let Some(turn_id) = turn_id else {
-            return Ok(());
+            return Ok(false);
         };
         if current_turn.as_deref() != Some(turn_id) {
             current_turn = Some(turn_id.to_owned());
@@ -370,7 +382,7 @@ fn codex_last_turn_patch(transcript: &Path, repo_root: &Path) -> Result<String, 
                 append_codex_change(&mut patch, repo_root, path, change)?;
             }
         }
-        Ok(())
+        Ok(false)
     })?;
     Ok(patch)
 }
@@ -402,25 +414,35 @@ fn append_codex_change(
             append_added_file(output, &new_path, content)?;
         }
         "delete" => {
-            let hunks = change
-                .get("unified_diff")
-                .and_then(Value::as_str)
-                .unwrap_or("");
+            let old_a = git_prefixed_path("a/", &old_path);
+            let new_b = git_prefixed_path("b/", &new_path);
             write!(
                 output,
-                "diff --git a/{old_path} b/{new_path}\ndeleted file mode 100644\n--- a/{old_path}\n+++ /dev/null\n"
+                "diff --git {old_a} {new_b}\ndeleted file mode 100644\n--- {old_a}\n+++ /dev/null\n"
             )
             .map_err(|_| TrajectoryError::Invalid)?;
-            append_patch_fragment(output, hunks)?;
+            if let Some(hunks) = change
+                .get("unified_diff")
+                .and_then(Value::as_str)
+                .filter(|hunks| !hunks.trim().is_empty())
+            {
+                append_patch_fragment(output, hunks)?;
+            } else if let Some(content) = change.get("content").and_then(Value::as_str) {
+                append_deleted_content(output, content)?;
+            } else {
+                return Err(TrajectoryError::Invalid);
+            }
         }
         _ => {
             let hunks = change
                 .get("unified_diff")
                 .and_then(Value::as_str)
                 .ok_or(TrajectoryError::Invalid)?;
+            let old_a = git_prefixed_path("a/", &old_path);
+            let new_b = git_prefixed_path("b/", &new_path);
             write!(
                 output,
-                "diff --git a/{old_path} b/{new_path}\n--- a/{old_path}\n+++ b/{new_path}\n"
+                "diff --git {old_a} {new_b}\n--- {old_a}\n+++ {new_b}\n"
             )
             .map_err(|_| TrajectoryError::Invalid)?;
             append_patch_fragment(output, hunks)?;
@@ -435,9 +457,11 @@ fn append_added_file(
     content: &str,
 ) -> Result<(), TrajectoryError> {
     let line_count = content.lines().count();
+    let old_a = git_prefixed_path("a/", path);
+    let new_b = git_prefixed_path("b/", path);
     write!(
         output,
-        "diff --git a/{path} b/{path}\nnew file mode 100644\n--- /dev/null\n+++ b/{path}\n@@ -0,0 +1,{line_count} @@\n"
+        "diff --git {old_a} {new_b}\nnew file mode 100644\n--- /dev/null\n+++ {new_b}\n@@ -0,0 +1,{line_count} @@\n"
     )
     .map_err(|_| TrajectoryError::Invalid)?;
     for line in content.split_inclusive('\n') {
@@ -455,18 +479,16 @@ fn claude_last_turn_patch(transcript: &Path, repo_root: &Path) -> Result<String,
     let mut patch = String::new();
     for_json_lines(transcript, |object| {
         if object.get("type").and_then(Value::as_str) != Some("user") {
-            return Ok(());
+            return Ok(false);
         }
         let prompt_id = object.get("promptId").and_then(Value::as_str);
         if object.get("toolUseResult").is_none() {
-            if let Some(prompt_id) = prompt_id {
-                current_prompt = Some(prompt_id.to_owned());
-                patch.clear();
-            }
-            return Ok(());
+            patch.clear();
+            current_prompt = prompt_id.map(str::to_owned);
+            return Ok(false);
         }
         if prompt_id.is_none() || prompt_id != current_prompt.as_deref() {
-            return Ok(());
+            return Ok(false);
         }
         if let Some(result) = object.get("toolUseResult")
             && result
@@ -476,7 +498,7 @@ fn claude_last_turn_patch(transcript: &Path, repo_root: &Path) -> Result<String,
         {
             append_claude_result(&mut patch, repo_root, result)?;
         }
-        Ok(())
+        Ok(false)
     })?;
     Ok(patch)
 }
@@ -490,27 +512,32 @@ fn append_claude_result(
         .get("filePath")
         .and_then(Value::as_str)
         .ok_or(TrajectoryError::Invalid)?;
-    let path = relative_patch_path(repo_root, Path::new(raw_path))?;
+    let Ok(path) = relative_patch_path(repo_root, Path::new(raw_path)) else {
+        return Ok(());
+    };
     let hunks = result
         .get("structuredPatch")
         .and_then(Value::as_array)
         .ok_or(TrajectoryError::Invalid)?;
+    let is_create = result.get("type").and_then(Value::as_str) == Some("create");
     if hunks.is_empty() {
+        if is_create {
+            let content = result
+                .get("content")
+                .and_then(Value::as_str)
+                .ok_or(TrajectoryError::Invalid)?;
+            return append_added_file(output, &path, content);
+        }
         return Ok(());
     }
-    let is_create = result.get("type").and_then(Value::as_str) == Some("create")
-        || hunks
-            .iter()
-            .all(|hunk| hunk.get("oldLines").and_then(Value::as_u64) == Some(0));
-    writeln!(output, "diff --git a/{path} b/{path}").map_err(|_| TrajectoryError::Invalid)?;
+    let old_a = git_prefixed_path("a/", &path);
+    let new_b = git_prefixed_path("b/", &path);
+    writeln!(output, "diff --git {old_a} {new_b}").map_err(|_| TrajectoryError::Invalid)?;
     if is_create {
-        write!(
-            output,
-            "new file mode 100644\n--- /dev/null\n+++ b/{path}\n"
-        )
-        .map_err(|_| TrajectoryError::Invalid)?;
+        write!(output, "new file mode 100644\n--- /dev/null\n+++ {new_b}\n")
+            .map_err(|_| TrajectoryError::Invalid)?;
     } else {
-        write!(output, "--- a/{path}\n+++ b/{path}\n").map_err(|_| TrajectoryError::Invalid)?;
+        write!(output, "--- {old_a}\n+++ {new_b}\n").map_err(|_| TrajectoryError::Invalid)?;
     }
     for hunk in hunks {
         let old_start = hunk
@@ -548,7 +575,7 @@ fn append_claude_result(
 
 fn for_json_lines(
     path: &Path,
-    mut consume: impl FnMut(&Value) -> Result<(), TrajectoryError>,
+    mut consume: impl FnMut(&Value) -> Result<bool, TrajectoryError>,
 ) -> Result<(), TrajectoryError> {
     let file = File::open(path).map_err(|_| TrajectoryError::Unavailable)?;
     if file
@@ -572,8 +599,13 @@ fn for_json_lines(
         if line.len() > MAX_JSONL_LINE_BYTES {
             return Err(TrajectoryError::Invalid);
         }
-        if let Ok(object) = serde_json::from_slice::<Value>(&line) {
-            consume(&object)?;
+        if line.iter().all(u8::is_ascii_whitespace) {
+            continue;
+        }
+        let object =
+            serde_json::from_slice::<Value>(&line).map_err(|_| TrajectoryError::Invalid)?;
+        if consume(&object)? {
+            break;
         }
     }
     Ok(())
@@ -587,6 +619,14 @@ fn canonical_directory(path: &Path) -> Result<PathBuf, TrajectoryError> {
         return Err(TrajectoryError::Unavailable);
     }
     Ok(canonical)
+}
+
+fn canonical_repository_root(path: &Path) -> Result<PathBuf, TrajectoryError> {
+    let directory = canonical_directory(path)?;
+    Ok(directory
+        .ancestors()
+        .find(|ancestor| ancestor.join(".git").exists())
+        .map_or(directory.clone(), Path::to_path_buf))
 }
 
 fn expanded_path(raw: &str) -> PathBuf {
@@ -624,6 +664,37 @@ fn relative_patch_path(repo_root: &Path, path: &Path) -> Result<String, Trajecto
     Ok(components.join("/"))
 }
 
+fn git_prefixed_path(prefix: &str, path: &str) -> String {
+    git_quote_path(&format!("{prefix}{path}"))
+}
+
+fn git_quote_path(path: &str) -> String {
+    if !path.chars().any(|character| {
+        character.is_whitespace() || character == '"' || character == '\\' || character.is_control()
+    }) {
+        return path.to_owned();
+    }
+    let mut quoted = String::from("\"");
+    for character in path.chars() {
+        match character {
+            '"' => quoted.push_str("\\\""),
+            '\\' => quoted.push_str("\\\\"),
+            '\n' => quoted.push_str("\\n"),
+            '\r' => quoted.push_str("\\r"),
+            '\t' => quoted.push_str("\\t"),
+            control if control.is_control() => {
+                let mut encoded = [0_u8; 4];
+                for byte in control.encode_utf8(&mut encoded).as_bytes() {
+                    write!(quoted, "\\{byte:03o}").expect("writing to String cannot fail");
+                }
+            }
+            other => quoted.push(other),
+        }
+    }
+    quoted.push('"');
+    quoted
+}
+
 fn canonicalize_with_missing(path: &Path) -> Result<PathBuf, TrajectoryError> {
     let mut existing = path;
     let mut suffix = Vec::new();
@@ -651,6 +722,21 @@ fn append_patch_fragment(output: &mut String, fragment: &str) -> Result<(), Traj
     }
     output.push_str(fragment);
     output.push('\n');
+    ensure_patch_limit(output)
+}
+
+fn append_deleted_content(output: &mut String, content: &str) -> Result<(), TrajectoryError> {
+    let line_count = content.lines().count();
+    if line_count > 0 {
+        writeln!(output, "@@ -1,{line_count} +0,0 @@").map_err(|_| TrajectoryError::Invalid)?;
+        for line in content.split_inclusive('\n') {
+            output.push('-');
+            output.push_str(line);
+        }
+        if !content.ends_with('\n') {
+            output.push_str("\n\\ No newline at end of file\n");
+        }
+    }
     ensure_patch_limit(output)
 }
 
