@@ -1177,6 +1177,7 @@ jobs:
             CmuxControlSocket
             CmuxFoundation
             CmuxGit
+            CmuxOrchestration
             CmuxSettings
             CmuxSettingsUI
             CmuxTerminal
