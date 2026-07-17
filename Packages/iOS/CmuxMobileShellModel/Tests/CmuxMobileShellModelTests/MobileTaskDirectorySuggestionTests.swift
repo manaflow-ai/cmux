@@ -15,6 +15,19 @@ import Testing
         ])
     }
 
+    @Test func exactBasenameOutranksHigherContextDescendantMatch() {
+        let project = "/Users/me/Dev/Manaflow/cmuxterm-hq/worktrees/feat-ios-task-composer"
+        let index = MobileTaskDirectorySuggestionIndex(candidates: [
+            candidate("\(project)/web", source: .activeTerminal),
+            candidate(project, source: .filesystemSearch),
+        ])
+
+        #expect(index.suggestions(matching: "feat-ios-task-composer").map(\.path) == [
+            project,
+            "\(project)/web",
+        ])
+    }
+
     @Test func activeAndRecentContextOrdersEqualMatches() {
         let now = Date(timeIntervalSince1970: 10_000)
         let index = MobileTaskDirectorySuggestionIndex(candidates: [
