@@ -4,6 +4,7 @@ import {
   indexNowEndpoint,
   indexNowKey,
   indexNowPayload,
+  indexNowTimeoutMs,
   recentlyModifiedUrls,
   submitIndexNowUrls,
 } from "../app/lib/indexnow";
@@ -65,6 +66,22 @@ describe("search discovery", () => {
     ]);
   });
 
+  test("anchors the lookback to sitemap changes after a delayed deployment", () => {
+    const urls = recentlyModifiedUrls(
+      [
+        { url: "https://cmux.com/new", lastModified: "2026-07-17" },
+        { url: "https://cmux.com/recent", lastModified: "2026-07-16" },
+        { url: "https://cmux.com/old", lastModified: "2026-07-01" },
+      ],
+      new Date("2026-08-17T14:00:00.000Z"),
+    );
+
+    expect(urls).toEqual([
+      "https://cmux.com/new",
+      "https://cmux.com/recent",
+    ]);
+  });
+
   test("submits the IndexNow protocol payload", async () => {
     const requests: Array<{ url: string; init?: RequestInit }> = [];
     const fetcher = (async (url: string | URL | Request, init?: RequestInit) => {
@@ -77,6 +94,8 @@ describe("search discovery", () => {
     expect(status).toBe(200);
     expect(requests).toHaveLength(1);
     expect(requests[0]?.url).toBe(indexNowEndpoint);
+    expect(requests[0]?.init?.signal).toBeInstanceOf(AbortSignal);
+    expect(indexNowTimeoutMs).toBe(10_000);
     expect(JSON.parse(String(requests[0]?.init?.body))).toEqual(
       indexNowPayload(["https://cmux.com/new"]),
     );

@@ -3,6 +3,7 @@ import type { MetadataRoute } from "next";
 export const indexNowKey = "82cc8125a8624a4db9e07502db0b7d46";
 export const indexNowEndpoint = "https://api.indexnow.org/indexnow";
 export const indexNowLookbackHours = 48;
+export const indexNowTimeoutMs = 10_000;
 
 type SitemapEntry = MetadataRoute.Sitemap[number];
 
@@ -12,16 +13,22 @@ export function recentlyModifiedUrls(
   lookbackHours = indexNowLookbackHours,
 ): string[] {
   const latest = now.getTime();
-  const earliest = latest - lookbackHours * 60 * 60 * 1000;
-
-  return entries.flatMap((entry) => {
+  const modifiedEntries = entries.flatMap((entry) => {
     if (!entry.lastModified) return [];
     const modified = new Date(entry.lastModified).getTime();
-    if (!Number.isFinite(modified) || modified < earliest || modified > latest) {
-      return [];
-    }
-    return [String(entry.url)];
+    if (!Number.isFinite(modified) || modified > latest) return [];
+    return [{ modified, url: String(entry.url) }];
   });
+  const newestModification = Math.max(
+    ...modifiedEntries.map((entry) => entry.modified),
+  );
+  // Sitemap dates describe content, not deployment time. Anchor the overlap to
+  // the newest eligible entry so a delayed deployment cannot age the release out.
+  const earliest = newestModification - lookbackHours * 60 * 60 * 1000;
+
+  return modifiedEntries
+    .filter((entry) => entry.modified >= earliest)
+    .map((entry) => entry.url);
 }
 
 export function indexNowPayload(urls: readonly string[]) {
@@ -36,6 +43,7 @@ export function indexNowPayload(urls: readonly string[]) {
 export async function submitIndexNowUrls(
   urls: readonly string[],
   fetcher: typeof fetch = fetch,
+  timeoutMs = indexNowTimeoutMs,
 ): Promise<number> {
   if (urls.length === 0) return 0;
   if (urls.length > 10_000) {
@@ -46,6 +54,7 @@ export async function submitIndexNowUrls(
     method: "POST",
     headers: { "Content-Type": "application/json; charset=utf-8" },
     body: JSON.stringify(indexNowPayload(urls)),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (!response.ok) {
     const detail = (await response.text()).slice(0, 240);
