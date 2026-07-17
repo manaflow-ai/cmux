@@ -8183,6 +8183,13 @@ final class GhosttySurfaceScrollView: NSView {
     private var searchOverlayMutationGeneration: UInt64 = 0
     private var observers: [NSObjectProtocol] = []
     private var windowObservers: [NSObjectProtocol] = []
+    /// One-shot hook consumed the next time this view attaches to a window
+    /// (`viewDidMoveToWindow` with `window != nil`). A single owner arms it to
+    /// act on the mount edge — the remote-tmux mirror uses it to establish key
+    /// focus on a freshly created pane whose view SwiftUI has not yet inserted.
+    /// Consumed before it runs, so reparent churn after the first attach never
+    /// re-fires it.
+    var onDidAttachToWindow: (() -> Void)?
     private var scrollbarTrackingArea: NSTrackingArea?
     private var isLiveScrolling = false
     private var lastSentRow: Int?
@@ -9163,6 +9170,10 @@ final class GhosttySurfaceScrollView: NSView {
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
         windowObservers.removeAll()
         guard let window else { return }
+        if let attachHook = onDidAttachToWindow {
+            onDidAttachToWindow = nil
+            attachHook()
+        }
         windowObservers.append(NotificationCenter.default.addObserver(
             forName: NSWindow.didBecomeKeyNotification,
             object: window,

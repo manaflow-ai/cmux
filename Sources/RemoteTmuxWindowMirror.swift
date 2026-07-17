@@ -128,6 +128,12 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     /// active pane, so exactly one creation drives key focus — never a later
     /// active-pane echo or a co-attached client's pane switch.
     @ObservationIgnored private var panesAwaitingCreationFocus: Set<Int> = []
+    /// Bumped on every active-pane transition, including to `nil`. A pending
+    /// creation-focus intent captures this when it arms; any intervening
+    /// transition — even one that returns to the same pane (N→O→N) —
+    /// invalidates the intent, so an attach hook that fires later can never
+    /// replay a stale activation as a focus steal.
+    @ObservationIgnored private(set) var paneActivationGeneration: UInt64 = 0
     @ObservationIgnored var isApplyingRemoteLayout = false
     @ObservationIgnored var isApplyingTmuxFocus = false
     @ObservationIgnored var lastDividerPositions: [UUID: CGFloat] = [:]
@@ -397,7 +403,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
             panelsByPaneId[paneId] = nil
             cwdByPaneId[paneId] = nil
             panesAwaitingCreationFocus.remove(paneId)
-            if activePaneId == paneId { activePaneId = nil }
+            if activePaneId == paneId { recordActivePane(nil) }
         }
         lastRenderedGrids = lastRenderedGrids.filter { livePaneIds.contains($0.key) }
         // Structural change (split/close/re-nest) vs geometry-only reflow: only
@@ -484,14 +490,14 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     /// tmux truth, not local focus alone. Tolerates unknown panes: the
     /// matching layout may still be pending its rects publication.
     func noteRemoteActivePane(_ paneId: Int) {
-        if activePaneId != paneId { activePaneId = paneId }
+        recordActivePane(paneId)
         focusBonsplitPane(forTmuxPane: paneId)
         establishCreationKeyFocusIfPending(forPane: paneId)
     }
 
     func setActivePane(_ paneId: Int, fromTmux: Bool) {
         guard layout.paneIDsInOrder.contains(paneId) else { return }
-        if activePaneId != paneId { activePaneId = paneId }
+        recordActivePane(paneId)
         focusBonsplitPane(forTmuxPane: paneId)
         if !fromTmux {
             connection?.send("select-pane -t @\(windowId).%\(paneId)")
@@ -513,6 +519,14 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
               let panel = panelsByPaneId[paneId] else { return }
         panesAwaitingCreationFocus.remove(paneId)
         onEstablishPaneKeyFocus?(paneId, panel)
+    }
+
+    /// Records an active-pane transition; every change bumps the activation
+    /// generation that pending creation-focus intents are validated against.
+    private func recordActivePane(_ paneId: Int?) {
+        guard activePaneId != paneId else { return }
+        activePaneId = paneId
+        paneActivationGeneration &+= 1
     }
 
     /// Records the user-focused pane and asks tmux to make it active.
@@ -588,48 +602,167 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         cwdByPaneId.removeAll()
         panesAwaitingCreationFocus.removeAll()
         lastRenderedGrids.removeAll()
-        activePaneId = nil
+        recordActivePane(nil)
         connection = nil
+    }
+
+    /// What to do with a freshly created pane's key focus, given the state the
+    /// guards can see. Pure so the policy is pinned by a truth table without a
+    /// live window (``RemoteTmuxMirrorPaneKeyFocusDecisionTests``).
+    enum PaneKeyFocusDecision: Equatable {
+        /// The view is mounted in a visible key window, the pane is still the
+        /// one the user just created and made active, and the responder chain
+        /// still belongs to the terminal layer: focus it now.
+        case focusNow
+        /// Everything still holds but the view has not reached a presentation
+        /// window — it is unattached, or attached to the surface's offscreen
+        /// bootstrap/parking window. Both states end in another
+        /// `viewDidMoveToWindow` (the parking window is never where a pane is
+        /// presented), so (re-)arm the attach hook and decide again on that
+        /// edge. No timer; an intent whose pane never gets presented dies on
+        /// the pane-switch or teardown guards instead.
+        case waitForMount
+        /// The intent is dead: the pane is no longer the active one, the
+        /// mirror is gone or off screen, the view's final attachment is in a
+        /// hidden or non-key window (which has no attach edge to wait on), or
+        /// the user has since focused a non-terminal responder (a search
+        /// field, a palette). Focus stays where it is — never steal it,
+        /// never hold a stale intent.
+        case skip
+    }
+
+    /// The guard set every focus attempt shares (at the creation event, and
+    /// again on each attach edge). Only pre-presentation states wait — they
+    /// have an exact edge (`viewDidMoveToWindow` fires again when the view
+    /// leaves the parking window for its presentation window). Everything
+    /// else either focuses or cancels: a real window that is hidden or not
+    /// key has no wakeup edge, so retaining the intent would risk a stale
+    /// focus steal later.
+    static func paneKeyFocusDecision(
+        mirrorAlive: Bool,
+        paneStillActive: Bool,
+        mirrorOnScreen: Bool,
+        viewInWindow: Bool,
+        inParkingWindow: Bool,
+        viewVisibleInUI: Bool,
+        windowIsKey: Bool,
+        responderYields: Bool
+    ) -> PaneKeyFocusDecision {
+        guard mirrorAlive, paneStillActive, mirrorOnScreen else { return .skip }
+        guard viewInWindow, !inParkingWindow else { return .waitForMount }
+        guard viewVisibleInUI, windowIsKey, responderYields else { return .skip }
+        return .focusNow
     }
 
     /// Establishes key focus on a freshly created pane the way a click does —
     /// `moveFocus()` makes the pane surface the window's first responder directly,
     /// since a mirror pane surface is not a workspace Bonsplit tab and so cannot
-    /// travel the guarded `applyFirstResponderIfNeeded` path. Retries briefly
-    /// because the seam fires from the control-stream event that makes the pane
-    /// active, which can land before SwiftUI has mounted the pane's hosted view.
+    /// travel the guarded `applyFirstResponderIfNeeded` path. The seam fires from
+    /// the control-stream event that makes the pane active, which can land before
+    /// SwiftUI has mounted the pane's hosted view; in that case the view's own
+    /// attach edge (`onDidAttachToWindow`, consumed once per fire from
+    /// `viewDidMoveToWindow`) re-runs the decision — no timer, no retry. An
+    /// attach that lands in the surface's offscreen bootstrap/parking window
+    /// re-arms the hook: leaving that window for the presentation window is
+    /// itself another attach edge.
     ///
     /// Every attempt re-checks the mirror is still on screen and this pane is
-    /// still its active pane, so a pane switch (a click elsewhere, a co-attached
-    /// client, or a tab change) that lands within the retry window cancels the
-    /// pending focus rather than stealing it back. A mirror whose panes are not
-    /// hosted in a key window — a background tab, or any headless caller — never
-    /// moves the first responder at all.
+    /// still its active pane on the SAME activation that armed the intent — an
+    /// activation generation captured at arm time invalidates the intent on
+    /// any intervening pane switch, even one that returns to this pane
+    /// (N→O→N), so a hook that fires later can never replay a stale
+    /// activation. The user focusing a non-terminal responder such as a
+    /// search field also cancels, since a late mount must not pull focus out
+    /// of it. A mirror whose panes land in a hidden or non-key window — a
+    /// background tab, or any headless caller — never moves the first
+    /// responder and never keeps the intent alive. If the view never mounts,
+    /// the armed hook is simply never called and focus stays where it was.
     static func establishPaneKeyFocusWhenMounted(
         paneId: Int,
         panel: TerminalPanel,
-        mirror: RemoteTmuxWindowMirror?,
-        attemptsRemaining: Int = 6
+        mirror: RemoteTmuxWindowMirror?
     ) {
-        guard attemptsRemaining > 0,
-              let mirror,
-              !mirror.isTornDown,
-              mirror.activePaneId == paneId,
-              mirror.isEffectivelyVisibleForSizing else { return }
+        attemptPaneKeyFocus(
+            paneId: paneId,
+            panel: panel,
+            mirror: mirror,
+            armedGeneration: mirror?.paneActivationGeneration ?? 0
+        )
+    }
+
+    private static func attemptPaneKeyFocus(
+        paneId: Int,
+        panel: TerminalPanel,
+        mirror: RemoteTmuxWindowMirror?,
+        armedGeneration: UInt64
+    ) {
         let hostedView = panel.hostedView
-        if hostedView.isVisibleInUI,
-           let window = hostedView.uiWindow,
-           window.isKeyWindow {
+        switch paneKeyFocusDecision(
+            paneId: paneId,
+            hostedView: hostedView,
+            mirror: mirror,
+            armedGeneration: armedGeneration
+        ) {
+        case .focusNow:
             hostedView.moveFocus()
-            return
+        case .waitForMount:
+            hostedView.onDidAttachToWindow = { [weak mirror, weak panel] in
+                // One hop off the view-insertion/layout pass that delivered
+                // `viewDidMoveToWindow`; mutating the first responder inside it
+                // is unsafe. This is a re-entrancy guard, not a wait.
+                Task { @MainActor in
+                    guard let panel else { return }
+                    attemptPaneKeyFocus(
+                        paneId: paneId,
+                        panel: panel,
+                        mirror: mirror,
+                        armedGeneration: armedGeneration
+                    )
+                }
+            }
+        case .skip:
+            break
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.016) { [weak mirror] in
-            establishPaneKeyFocusWhenMounted(
-                paneId: paneId,
-                panel: panel,
-                mirror: mirror,
-                attemptsRemaining: attemptsRemaining - 1
-            )
-        }
+    }
+
+    private static func paneKeyFocusDecision(
+        paneId: Int,
+        hostedView: GhosttySurfaceScrollView,
+        mirror: RemoteTmuxWindowMirror?,
+        armedGeneration: UInt64
+    ) -> PaneKeyFocusDecision {
+        // Mount state reads the view's OWN window — the state
+        // `viewDidMoveToWindow` reports on. `uiWindow` differs from it in
+        // exactly one case: the attach landed in the surface's offscreen
+        // bootstrap/parking window, which `TerminalSurface.uiWindow` filters
+        // to nil. That case must wait (the presentation reattach is another
+        // attach edge), not consume the intent.
+        let window = hostedView.window
+        return paneKeyFocusDecision(
+            mirrorAlive: mirror.map { !$0.isTornDown } ?? false,
+            paneStillActive: mirror?.activePaneId == paneId
+                && mirror?.paneActivationGeneration == armedGeneration,
+            mirrorOnScreen: mirror?.isEffectivelyVisibleForSizing == true,
+            viewInWindow: window != nil,
+            inParkingWindow: window != nil && hostedView.uiWindow == nil,
+            viewVisibleInUI: hostedView.isVisibleInUI,
+            windowIsKey: window?.isKeyWindow == true,
+            responderYields: window.map { responderYieldsToPaneFocus($0.firstResponder) } ?? true
+        )
+    }
+
+    /// Whether the window's current first responder belongs to the terminal
+    /// content layer — nothing, the window itself, or a responder owned by a
+    /// terminal surface view (``cmuxOwningGhosttyView(for:)``, which also
+    /// resolves field editors to their owner). Anything else — a search
+    /// field's editor, a palette, a sidebar text view — means the user has
+    /// since put focus somewhere deliberate, and the pending creation focus
+    /// must cancel instead of stealing it. The terminal search overlay mounts
+    /// inside the pane's scroll view but not inside its surface view, so it
+    /// correctly reads as foreign here.
+    private static func responderYieldsToPaneFocus(_ responder: NSResponder?) -> Bool {
+        guard let responder else { return true }
+        if responder is NSWindow { return true }
+        return cmuxOwningGhosttyView(for: responder) != nil
     }
 }

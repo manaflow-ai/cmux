@@ -146,4 +146,78 @@ struct RemoteTmuxMirrorNewPaneKeyFocusTests {
             "Only pane creation may drive key focus; a plain active-pane switch must not"
         )
     }
+
+    /// A pending focus intent captures `paneActivationGeneration` when it arms
+    /// and is invalidated by ANY later transition — `activePaneId` alone cannot
+    /// tell N→O→N apart from N staying put, and a stale intent firing after
+    /// that round trip would be a focus steal. The generation must therefore
+    /// bump on every transition, including back to the original pane, and must
+    /// NOT bump on a repeated report of the already-active pane (or churn
+    /// without a pane switch would cancel a legitimate pending focus).
+    @Test
+    func activationGenerationBumpsOnEveryTransitionIncludingABA() throws {
+        let harness = Harness()
+        harness.splitMakingPaneFiveActive()
+        let armed = harness.mirror.paneActivationGeneration
+
+        // N→O→N: away and back. Two transitions, two bumps.
+        harness.mirror.noteRemoteActivePane(4)
+        harness.mirror.noteRemoteActivePane(5)
+
+        #expect(harness.mirror.activePaneId == 5)
+        #expect(
+            harness.mirror.paneActivationGeneration == armed + 2,
+            "An N→O→N round trip must invalidate a generation captured at N's activation"
+        )
+
+        // A repeated report of the already-active pane is not a transition.
+        harness.mirror.noteRemoteActivePane(5)
+        #expect(harness.mirror.paneActivationGeneration == armed + 2)
+    }
+
+    /// The attach-edge mechanics the establishment leans on: an armed
+    /// `onDidAttachToWindow` hook fires exactly once, is consumed before it
+    /// runs, and a later reparent does not replay it. This drives the real
+    /// `viewDidMoveToWindow` edge on the real pane view, not the policy table.
+    @Test
+    func attachHookFiresOnceAndIsConsumedByTheAttachEdge() throws {
+        let harness = Harness()
+        harness.splitMakingPaneFiveActive()
+        let newPane = try #require(harness.mirror.panel(forPane: 5))
+        let hostedView = newPane.hostedView
+        // A fresh pane's view starts parked in the surface's offscreen
+        // bootstrap window; detach so the test drives a clean attach edge.
+        hostedView.removeFromSuperview()
+        try #require(hostedView.window == nil)
+
+        var fired = 0
+        var slotWasClearedBeforeCallbackRan = false
+        hostedView.onDidAttachToWindow = { [weak hostedView] in
+            fired += 1
+            // Consumption must happen BEFORE the callback runs, or a hook
+            // that re-arms from inside its own fire would be clobbered.
+            slotWasClearedBeforeCallbackRan = hostedView?.onDidAttachToWindow == nil
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        defer { window.orderOut(nil) }
+        window.contentView?.addSubview(hostedView)
+
+        #expect(fired == 1, "attaching to a window must fire the armed hook exactly once")
+        #expect(
+            slotWasClearedBeforeCallbackRan,
+            "the hook slot must already be nil while the callback runs"
+        )
+
+        // A later reparent must not replay a consumed hook.
+        hostedView.removeFromSuperview()
+        window.contentView?.addSubview(hostedView)
+        #expect(fired == 1, "a consumed hook must not fire again on reparent churn")
+    }
 }
