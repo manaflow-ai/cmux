@@ -1000,7 +1000,7 @@ impl Surface {
             return Err(ghostty_vt::Error::InvalidValue);
         };
         let mut term = pty.term.lock().unwrap();
-        let (tx, rx) = std::sync::mpsc::sync_channel(ATTACH_STREAM_CAPACITY);
+        let (tx, rx) = sync_channel(ATTACH_STREAM_CAPACITY);
         let queued_bytes = Arc::new(AtomicUsize::new(0));
         // Snapshot and tap registration under the same terminal lock:
         // the reader thread cannot apply bytes between the two.
@@ -1320,8 +1320,8 @@ fn spawn_frame_producer(surface: &Arc<Surface>, requests: Receiver<u64>) -> anyh
                 }
                 match requests.recv_timeout(deadline.saturating_duration_since(now)) {
                     Ok(next) => requested = requested.max(next),
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => break,
-                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
+                    Err(RecvTimeoutError::Timeout) => break,
+                    Err(RecvTimeoutError::Disconnected) => return,
                 }
             }
             let Some(surface) = weak.upgrade() else { break };
@@ -1358,7 +1358,7 @@ mod tests {
     #[test]
     fn attach_tap_overflow_cancels_the_shared_lifecycle_once() {
         let lifecycle = AttachLifecycle::default();
-        let (sender, _receiver) = std::sync::mpsc::sync_channel(1);
+        let (sender, _receiver) = sync_channel(1);
         let tap = AttachTap {
             sender,
             lifecycle: lifecycle.clone(),
@@ -1377,7 +1377,7 @@ mod tests {
     #[test]
     fn attach_tap_overflow_is_bounded_by_retained_bytes() {
         let lifecycle = AttachLifecycle::default();
-        let (sender, _receiver) = std::sync::mpsc::sync_channel(4);
+        let (sender, _receiver) = sync_channel(4);
         let frame_bytes = AttachFrame::Output(vec![1]).retained_bytes();
         let tap = AttachTap {
             sender,
