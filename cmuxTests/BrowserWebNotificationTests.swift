@@ -832,6 +832,31 @@ struct BrowserWebNotificationTests {
         #expect(adapter.provisionManagerForTesting(manager))
     }
 
+    @Test func nativeForegroundAcknowledgementSurvivesPageRegistrationTeardown() {
+        let adapter = BrowserWebNotificationNativeAdapter.shared
+        let pageKey: UInt = 0xBEEF
+        let manager = UnsafeRawPointer(bitPattern: 0xCAFE)!
+        let notificationID: UInt64 = 42
+        var acknowledged: (manager: UnsafeRawPointer, notificationID: UInt64)?
+        adapter.didShowObserverForTesting = { manager, notificationID in
+            acknowledged = (manager, notificationID)
+        }
+        adapter.trackPageManagerForTesting(pageKey: pageKey, manager: manager)
+        adapter.simulatePageRegistrationTeardownForTesting(pageKey: pageKey)
+        defer {
+            adapter.simulateManagerRemovalForTesting(manager)
+            adapter.resetNativeDeliveryTestingState()
+        }
+
+        adapter.acknowledgeForegroundNotificationForTesting(
+            pageKey: pageKey,
+            notificationID: notificationID
+        )
+
+        #expect(acknowledged?.manager == manager)
+        #expect(acknowledged?.notificationID == notificationID)
+    }
+
     @Test func rejectedPersistentClickOpensTheDisplayOrigin() throws {
         let adapter = BrowserWebNotificationNativeAdapter.shared
         let dataStore = WKWebsiteDataStore.nonPersistent()
