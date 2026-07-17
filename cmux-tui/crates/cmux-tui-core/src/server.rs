@@ -1326,8 +1326,7 @@ fn handle_websocket_connection(
     let writer_outbound = outbound;
     let Ok(writer_thread) =
         std::thread::Builder::new().name("mux-ws-out".into()).spawn(move || {
-            let mut websocket =
-                tungstenite::WebSocket::from_raw_socket(writer_stream, Role::Server, None);
+            let mut websocket = WebSocket::from_raw_socket(writer_stream, Role::Server, None);
             while let Some(text) = writer_outbound.recv() {
                 if websocket.send(Message::Text(text.into())).is_err() {
                     writer_outbound.close();
