@@ -211,6 +211,26 @@ struct ViewerNavigationTests {
     }
 
     @Test
+    func sidecarTerminationEscalatesAndReapsUncooperativeProcess() async throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        process.arguments = [
+            "-c",
+            "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(30)",
+        ]
+        try process.run()
+
+        await DiffSidecarProcessSupervisor.terminateAndReap(
+            process,
+            gracePeriod: .milliseconds(100)
+        )
+
+        #expect(!process.isRunning)
+        #expect(process.terminationReason == .uncaughtSignal)
+        #expect(process.terminationStatus == SIGKILL)
+    }
+
+    @Test
     func sidecarBridgeNormalizesViewerInstanceIdentity() {
         let identifier = UUID()
         let body: [String: Any] = [

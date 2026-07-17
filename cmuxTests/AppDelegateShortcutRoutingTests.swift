@@ -3,6 +3,7 @@ import CmuxTerminal
 import AppKit
 import Carbon.HIToolbox
 import Combine
+import os
 import SwiftUI
 @testable import CmuxSettingsUI
 
@@ -2178,6 +2179,28 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(context.useLastTurnSource)
         XCTAssertEqual(context.sessionId, "codex-session")
         XCTAssertEqual(context.agentProvider, "codex")
+    }
+
+    func testDiffViewerAgentSnapshotForcesFreshIndexLoad() async {
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                loadCount.withLock { $0 += 1 }
+                return (
+                    index: .empty,
+                    liveAgentProcessFingerprint: [],
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: []
+                )
+            }
+        )
+        let workspaceID = UUID()
+        let panelID = UUID()
+
+        _ = await sharedIndex.freshSnapshot(workspaceId: workspaceID, panelId: panelID)
+        _ = await sharedIndex.freshSnapshot(workspaceId: workspaceID, panelId: panelID)
+
+        XCTAssertEqual(loadCount.withLock { $0 }, 2)
     }
 
     func testCmdCtrlWPromptsBeforeClosingWindow() {

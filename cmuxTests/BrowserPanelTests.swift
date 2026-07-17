@@ -7,6 +7,7 @@ import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
 import Darwin
+import os
 import Testing
 import CmuxBrowser
 
@@ -886,6 +887,70 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
 
         let peak = await probe.peakCount()
         XCTAssertEqual(peak, 2)
+    }
+
+    func testDiffViewerAssetStreamLimiterCancelsQueuedWaiterAndKeepsFIFOOrder() async {
+        let limiter = DiffViewerAssetStreamLimiter(limit: 1, queueLimit: 2)
+        let firstKey = UUID()
+        let cancelledKey = UUID()
+        let finalKey = UUID()
+        let firstStarted = AsyncStream<Void>.makeStream()
+        let releaseFirst = AsyncStream<Void>.makeStream()
+        let order = OSAllocatedUnfairLock(initialState: [String]())
+
+        let first = Task {
+            await limiter.withPermit(key: firstKey) {
+                order.withLock { $0.append("first") }
+                firstStarted.continuation.yield()
+                for await _ in releaseFirst.stream { return }
+            }
+        }
+        var firstStartedIterator = firstStarted.stream.makeAsyncIterator()
+        _ = await firstStartedIterator.next()
+
+        let cancelled = Task {
+            await limiter.withPermit(key: cancelledKey) {
+                order.withLock { $0.append("cancelled") }
+            }
+        }
+        let final = Task {
+            await limiter.withPermit(key: finalKey) {
+                order.withLock { $0.append("final") }
+            }
+        }
+        await limiter.waitUntilQueued(count: 2)
+        await limiter.cancel(cancelledKey)
+        releaseFirst.continuation.yield()
+        releaseFirst.continuation.finish()
+
+        XCTAssertTrue(await first.value)
+        XCTAssertFalse(await cancelled.value)
+        XCTAssertTrue(await final.value)
+        XCTAssertEqual(order.withLock { $0 }, ["first", "final"])
+    }
+
+    func testDiffViewerAssetStreamLimiterRejectsWorkBeyondQueueBound() async {
+        let limiter = DiffViewerAssetStreamLimiter(limit: 1, queueLimit: 1)
+        let firstStarted = AsyncStream<Void>.makeStream()
+        let releaseFirst = AsyncStream<Void>.makeStream()
+        let first = Task {
+            await limiter.withPermit(key: UUID()) {
+                firstStarted.continuation.yield()
+                for await _ in releaseFirst.stream { return }
+            }
+        }
+        var firstStartedIterator = firstStarted.stream.makeAsyncIterator()
+        _ = await firstStartedIterator.next()
+
+        let queued = Task { await limiter.withPermit(key: UUID()) {} }
+        await limiter.waitUntilQueued(count: 1)
+        let rejected = await limiter.withPermit(key: UUID()) {}
+        releaseFirst.continuation.yield()
+        releaseFirst.continuation.finish()
+
+        XCTAssertFalse(rejected)
+        XCTAssertTrue(await first.value)
+        XCTAssertTrue(await queued.value)
     }
 
     func testDiffViewerLoadingOwnershipIncludesDeferredOpeningPage() throws {
