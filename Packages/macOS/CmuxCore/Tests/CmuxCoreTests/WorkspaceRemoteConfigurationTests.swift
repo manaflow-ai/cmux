@@ -205,11 +205,18 @@ struct WorkspaceRemoteConfigurationValueTests {
             expiresAtUnix: 100
         )
         let refreshedBrokerSession = WorkspaceRemoteWebSocketDaemonEndpoint(
-            url: "wss://broker.example/session-b",
+            url: "WSS://BROKER.EXAMPLE:443/session-b",
             headers: [:],
             token: "token-b",
             sessionId: "session-b",
             expiresAtUnix: 200
+        )
+        let otherBrokerSession = WorkspaceRemoteWebSocketDaemonEndpoint(
+            url: "wss://other-broker.example/session-c",
+            headers: [:],
+            token: "token-c",
+            sessionId: "session-c",
+            expiresAtUnix: 300
         )
         let firstWebSocket = makeConfiguration(
             transport: .websocket,
@@ -225,8 +232,32 @@ struct WorkspaceRemoteConfigurationValueTests {
             ownerWorkspaceID: UUID(),
             daemonWebSocketEndpoint: refreshedBrokerSession
         )
+        let otherBrokerWebSocket = makeConfiguration(
+            transport: .websocket,
+            destination: "cloud-vm",
+            managedCloudVMID: "vm-1",
+            ownerWorkspaceID: UUID(),
+            daemonWebSocketEndpoint: otherBrokerSession
+        )
 
         #expect(firstWebSocket.durableTransportTrustKey == refreshedWebSocket.durableTransportTrustKey)
+        #expect(firstWebSocket.durableTransportTrustKey != otherBrokerWebSocket.durableTransportTrustKey)
+
+        let firstUnmanagedWebSocket = makeConfiguration(
+            transport: .websocket,
+            destination: "cloud-vm",
+            daemonWebSocketEndpoint: firstBrokerSession
+        )
+        let refreshedUnmanagedWebSocket = makeConfiguration(
+            transport: .websocket,
+            destination: "cloud-vm",
+            daemonWebSocketEndpoint: refreshedBrokerSession
+        )
+
+        #expect(
+            firstUnmanagedWebSocket.durableTransportTrustKey
+                != refreshedUnmanagedWebSocket.durableTransportTrustKey
+        )
     }
 
     @Test("hasSamePersistentPTYIdentity requires preserve on both sides and a matching slot")
