@@ -1,6 +1,23 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "chat.error.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Something went wrong"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "問題が発生しました"
+          }
+        }
+      }
+    },
     "chat.artifact.accessibility.large_text_truncated": {
       "extractionState": "manual",
       "localizations": {

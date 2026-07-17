@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import CmuxMobileSupport
 import SwiftUI
 
 #Preview("Chat — full fixture") {
@@ -8,6 +9,7 @@ import SwiftUI
     NavigationStack {
         ChatScreen(store: store, onOpenTerminal: {})
     }
+    .mobileToastHost()
     .preferredColorScheme(.dark)
 }
 

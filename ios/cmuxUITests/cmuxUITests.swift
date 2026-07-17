@@ -121,6 +121,37 @@ final class cmuxUITests: XCTestCase {
         add(attachment)
     }
 
+    @MainActor
+    func testMobileToastShowcasePresentsReplacesAndDismisses() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_MOBILE_TOAST_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.otherElements["MobileToastShowcase"].waitForExistence(timeout: 8))
+        let replay = app.buttons["MobileToastShowcaseReplay"]
+        XCTAssertTrue(replay.exists)
+        replay.tap()
+
+        let progress = app.descendants(matching: .any)["MobileToastShowcaseProgress"]
+        XCTAssertTrue(progress.waitForExistence(timeout: 3))
+
+        let success = app.descendants(matching: .any)["MobileToastShowcaseSuccess"]
+        XCTAssertTrue(success.waitForExistence(timeout: 4))
+        XCTAssertFalse(progress.exists)
+
+        let warningMatches = app.descendants(matching: .any)
+            .matching(identifier: "MobileToastShowcaseWarning")
+        let warning = warningMatches.firstMatch
+        XCTAssertTrue(warning.waitForExistence(timeout: 5))
+        XCTAssertEqual(warningMatches.count, 1)
+        warning.swipeUp()
+        XCTAssertFalse(warning.waitForExistence(timeout: 2))
+
+        let error = app.descendants(matching: .any)["MobileToastShowcaseError"]
+        XCTAssertTrue(error.waitForExistence(timeout: 5))
+    }
+
     /// Regression: fast pinch-zoom must not hang the main thread (the
     /// scene-update watchdog `0x8BADF00D` was killing the app because
     /// libghostty surface calls block on the main thread) and must not

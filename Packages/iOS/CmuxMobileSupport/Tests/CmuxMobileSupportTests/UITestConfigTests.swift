@@ -161,4 +161,22 @@ import Testing
             environment: ["CMUX_UITEST_AGENT_CHAT_INLINE_PREVIEW": "0"]
         ).agentChatInlinePreviewEnabled == false)
     }
+
+    @Test func mobileToastPreviewFlagIsDebugOnly() {
+        let config = UITestEnvironmentConfig(environment: [
+            "CMUX_UITEST_MOBILE_TOAST_PREVIEW": "1"
+        ])
+        #if DEBUG
+        #expect(config.mobileToastPreviewEnabled)
+        #else
+        #expect(!config.mobileToastPreviewEnabled)
+        #endif
+    }
+
+    @Test func mobileToastPreviewFlagRequiresOne() {
+        #expect(!UITestEnvironmentConfig(environment: [:]).mobileToastPreviewEnabled)
+        #expect(!UITestEnvironmentConfig(environment: [
+            "CMUX_UITEST_MOBILE_TOAST_PREVIEW": "0"
+        ]).mobileToastPreviewEnabled)
+    }
 }
