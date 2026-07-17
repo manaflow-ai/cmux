@@ -7229,8 +7229,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // sites in this file; the buffer is length-counted, not NUL-terminated.
         let word = String(decoding: Data(bytes: textPtr, count: Int(text.text_len)), as: UTF8.self)
 
-        // Ghostty uses a top-left origin; convert to AppKit's bottom-left.
-        let point = NSPoint(x: text.tl_px_x, y: frame.size.height - text.tl_px_y)
+        // Ghostty uses a top-left origin; convert to AppKit's bottom-left. Use the
+        // view's own bounds (matching the other coordinate conversions in this file).
+        let point = NSPoint(x: text.tl_px_x, y: bounds.height - text.tl_px_y)
         let string = NSAttributedString(string: word, attributes: attributes)
         showDefinition(for: string, at: point)
     }
