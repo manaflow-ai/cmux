@@ -2165,6 +2165,21 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
+    func testDiffViewerLaunchContextKeepsAgentIdentityWithoutWorkingDirectory() {
+        let context = AppDelegate.openDiffViewerLaunchContext(
+            preferAgentContext: true,
+            fallbackCwd: "/fallback",
+            sessionId: "codex-session",
+            agentProvider: "codex",
+            agentWorkingDirectory: nil
+        )
+
+        XCTAssertEqual(context.cwd, "/fallback")
+        XCTAssertTrue(context.useLastTurnSource)
+        XCTAssertEqual(context.sessionId, "codex-session")
+        XCTAssertEqual(context.agentProvider, "codex")
+    }
+
     func testCmdCtrlWPromptsBeforeClosingWindow() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
