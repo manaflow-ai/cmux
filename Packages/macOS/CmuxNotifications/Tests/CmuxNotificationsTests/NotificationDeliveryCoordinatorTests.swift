@@ -412,7 +412,8 @@ struct NotificationDeliveryCoordinatorTests {
             terminalIdentifiers: TerminalNotificationDeliveryIdentifiers(
                 categoryIdentifier: "terminal.category",
                 showActionIdentifier: "terminal.show",
-                retargetsToLiveSurfaceOwnerUserInfoKey: "retargetsToLiveSurfaceOwner"
+                retargetsToLiveSurfaceOwnerUserInfoKey: "retargetsToLiveSurfaceOwner",
+                websiteDisplayOriginUserInfoKey: "websiteDisplayOrigin"
             ),
             actionTitles: NotificationDeliveryActionTitles(
                 show: "Show",

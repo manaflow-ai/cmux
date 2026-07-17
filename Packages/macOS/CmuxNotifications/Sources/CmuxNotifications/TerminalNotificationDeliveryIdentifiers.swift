@@ -20,11 +20,12 @@ public struct TerminalNotificationDeliveryIdentifiers: Sendable, Equatable {
     ///   - categoryIdentifier: Category identifier for terminal notifications.
     ///   - showActionIdentifier: Explicit show-action identifier.
     ///   - retargetsToLiveSurfaceOwnerUserInfoKey: `userInfo` key for routing provenance.
+    ///   - websiteDisplayOriginUserInfoKey: `userInfo` key for a website display origin.
     public init(
         categoryIdentifier: String,
         showActionIdentifier: String,
         retargetsToLiveSurfaceOwnerUserInfoKey: String,
-        websiteDisplayOriginUserInfoKey: String = "websiteDisplayOrigin"
+        websiteDisplayOriginUserInfoKey: String
     ) {
         self.categoryIdentifier = categoryIdentifier
         self.showActionIdentifier = showActionIdentifier

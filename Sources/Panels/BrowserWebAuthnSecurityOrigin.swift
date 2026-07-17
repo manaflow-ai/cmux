@@ -114,9 +114,12 @@ struct BrowserWebAuthnSecurityOrigin {
 }
 
 extension WKSecurityOrigin {
-    /// The origin as a canonical URL — lowercased, default ports omitted,
-    /// IPv6 hosts bracketed — or nil when the origin has no URL form.
+    /// The origin as a canonical URL, preserving every non-zero port WebKit reported.
     var canonicalURL: URL? {
-        URL(string: BrowserWebAuthnSecurityOrigin(origin: self).serializedString)
+        var components = URLComponents()
+        components.scheme = self.protocol.lowercased()
+        components.host = host.lowercased()
+        if port != 0 { components.port = port }
+        return components.url
     }
 }

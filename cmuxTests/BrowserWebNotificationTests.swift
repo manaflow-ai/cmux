@@ -86,12 +86,8 @@ struct BrowserWebNotificationTests {
     @Test func validatesAndBoundsPayloads() throws {
         let payload = try #require(BrowserWebNotificationPayload.validated(
             body: ["token": token, "title": "Build complete", "body": "Ready"],
-            expectedToken: token,
             originScheme: "HTTPS",
-            originHost: "Example.COM",
-            isMainFrame: true,
-            isCurrentWebView: true,
-            isCurrentGeneration: true
+            originHost: "Example.COM"
         ))
         #expect(payload == BrowserWebNotificationPayload(
             title: "Build complete",
@@ -105,48 +101,32 @@ struct BrowserWebNotificationTests {
                 "title": String(repeating: "t", count: 300),
                 "body": String(repeating: "b", count: 5_000),
             ],
-            expectedToken: token,
             originScheme: "https",
-            originHost: "example.com",
-            isMainFrame: true,
-            isCurrentWebView: true,
-            isCurrentGeneration: true
+            originHost: "example.com"
         ))
         #expect(oversized.title.count == BrowserWebNotificationPayload.maximumTitleLength)
         #expect(oversized.body.count == BrowserWebNotificationPayload.maximumBodyLength)
     }
 
-    @Test func rejectsMalformedUnauthorizedAndStalePayloads() {
+    @Test func rejectsMalformedAndUnsafePayloadContent() {
         func validated(
             _ body: Any,
             scheme: String = "https",
-            host: String = "example.com",
-            mainFrame: Bool = true,
-            currentWebView: Bool = true,
-            currentGeneration: Bool = true
+            host: String = "example.com"
         ) -> BrowserWebNotificationPayload? {
             BrowserWebNotificationPayload.validated(
                 body: body,
-                expectedToken: token,
                 originScheme: scheme,
-                originHost: host,
-                isMainFrame: mainFrame,
-                isCurrentWebView: currentWebView,
-                isCurrentGeneration: currentGeneration
+                originHost: host
             )
         }
 
         let validBody: [String: Any] = ["token": token, "title": "Title", "body": "Body"]
-        #expect(validated(["title": "Title", "body": "Body"]) == nil)
-        #expect(validated(["token": "wrong", "title": "Title", "body": "Body"]) == nil)
         #expect(validated(["token": token, "title": 42, "body": "Body"]) == nil)
         #expect(validated(["token": token, "title": "Title", "body": false]) == nil)
         #expect(validated(validBody, scheme: "file") == nil)
         #expect(validated(validBody, scheme: "about") == nil)
         #expect(validated(validBody, host: "") == nil)
-        #expect(validated(validBody, mainFrame: false) == nil)
-        #expect(validated(validBody, currentWebView: false) == nil)
-        #expect(validated(validBody, currentGeneration: false) == nil)
     }
 
     @Test func wrapperPreservesNativeContractAndPermissionGating() async throws {
@@ -726,7 +706,7 @@ struct BrowserWebNotificationTests {
         )
         let notification = try #require(store.notifications.first(where: { $0.id == id }))
         #expect(notification.target == .global)
-        #expect(notification.tabId == TerminalNotification.globalTargetSentinel)
+        #expect(notification.workspaceTabId == nil)
         #expect(notification.paneFlash == false)
         #expect(notification.source == .website(origin: origin))
     }

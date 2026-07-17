@@ -355,6 +355,13 @@ final class TerminalNotificationStore: ObservableObject {
             indexes = Self.buildIndexes(for: notifications)
             refreshUnreadPresentation()
             if !suppressNotificationDiffPublishing { CmuxEventBus.shared.publishNotificationChanges(oldValue: oldValue, newValue: notifications) }
+            let retainedIDs = Set(notifications.map(\.id))
+            let removedWebsiteIDs = oldValue.compactMap { notification -> UUID? in
+                guard !retainedIDs.contains(notification.id),
+                      case .website = notification.source else { return nil }
+                return notification.id
+            }
+            if !removedWebsiteIDs.isEmpty { notificationRemovalHandler(removedWebsiteIDs) }
         }
     }
     @Published private(set) var notificationMenuSnapshot = NotificationMenuSnapshotBuilder.make(notifications: [])
@@ -419,6 +426,7 @@ final class TerminalNotificationStore: ObservableObject {
         effects in
         store.scheduleUserNotification(notification, effects: effects)
     }
+    var notificationRemovalHandler: ([UUID]) -> Void = { _ in }
     private var nativeNotificationDeliveryHooks = NativeNotificationDeliveryHooks()
     private var suppressedNotificationFeedbackHandler: (TerminalNotificationStore, TerminalNotification, TerminalNotificationPolicyEffects) -> Void = {
         store,
@@ -978,7 +986,6 @@ final class TerminalNotificationStore: ObservableObject {
     ) -> UUID {
         let notification = TerminalNotification(
             id: UUID(),
-            tabId: TerminalNotification.globalTargetSentinel,
             surfaceId: nil,
             retargetsToLiveSurfaceOwner: false,
             title: title,
@@ -1688,7 +1695,7 @@ final class TerminalNotificationStore: ObservableObject {
             !manualUnreadWorkspaceIds.isEmpty ||
             !panelDerivedUnreadWorkspaceIds.isEmpty ||
             !restoredUnreadWorkspaceIds.isEmpty else { return }
-        let tabIdsToClearPanelUnread = panelDerivedUnreadWorkspaceIds.union(notifications.map(\.tabId))
+        let tabIdsToClearPanelUnread = panelDerivedUnreadWorkspaceIds.union(notifications.compactMap(\.workspaceTabId))
         let ids = notifications.map { $0.id.uuidString }
         replaceNotificationsForClear([])
         clearWorkspaceManualUnread()
@@ -2113,22 +2120,23 @@ final class TerminalNotificationStore: ObservableObject {
     private static func buildIndexes(for notifications: [TerminalNotification]) -> NotificationIndexes {
         var indexes = NotificationIndexes()
         for notification in notifications {
-            if indexes.latestByTabId[notification.tabId] == nil {
-                indexes.latestByTabId[notification.tabId] = notification
+            if !notification.isRead { indexes.unreadCount += 1 }
+            guard let tabId = notification.workspaceTabId else { continue }
+            if indexes.latestByTabId[tabId] == nil {
+                indexes.latestByTabId[tabId] = notification
             }
             guard !notification.isRead else { continue }
-            indexes.unreadCount += 1
-            indexes.unreadCountByTabId[notification.tabId, default: 0] += 1
+            indexes.unreadCountByTabId[tabId, default: 0] += 1
             indexes.unreadByTabSurface.insert(
-                TabSurfaceKey(tabId: notification.tabId, surfaceId: notification.surfaceId)
+                TabSurfaceKey(tabId: tabId, surfaceId: notification.surfaceId)
             )
             if let panelId = notification.panelId, panelId != notification.surfaceId {
                 indexes.unreadByTabSurface.insert(
-                    TabSurfaceKey(tabId: notification.tabId, surfaceId: panelId)
+                    TabSurfaceKey(tabId: tabId, surfaceId: panelId)
                 )
             }
-            if indexes.latestUnreadByTabId[notification.tabId] == nil {
-                indexes.latestUnreadByTabId[notification.tabId] = notification
+            if indexes.latestUnreadByTabId[tabId] == nil {
+                indexes.latestUnreadByTabId[tabId] = notification
             }
         }
         return indexes
@@ -2185,6 +2193,14 @@ final class TerminalNotificationStore: ObservableObject {
         notificationDeliveryHandler = { store, notification, effects in
             store.scheduleUserNotification(notification, effects: effects)
         }
+    }
+
+    func configureNotificationRemovalHandlerForTesting(_ handler: @escaping ([UUID]) -> Void) {
+        notificationRemovalHandler = handler
+    }
+
+    func resetNotificationRemovalHandlerForTesting() {
+        notificationRemovalHandler = { _ in }
     }
 
     func configureNativeNotificationDeliveryHooksForTesting(

@@ -11,10 +11,7 @@ enum TerminalNotificationTarget: Hashable, Sendable {
 }
 
 struct TerminalNotification: Identifiable, Hashable, Sendable {
-    static let globalTargetSentinel = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
-
     let id: UUID
-    let tabId: UUID
     let surfaceId: UUID?
     let panelId: UUID?
     let retargetsToLiveSurfaceOwner: Bool
@@ -31,7 +28,7 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
 
     init(
         id: UUID,
-        tabId: UUID,
+        tabId: UUID? = nil,
         surfaceId: UUID?,
         panelId: UUID? = nil,
         retargetsToLiveSurfaceOwner: Bool = true,
@@ -47,7 +44,6 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
         target: TerminalNotificationTarget? = nil
     ) {
         self.id = id
-        self.tabId = tabId
         self.surfaceId = surfaceId
         self.panelId = panelId
         self.retargetsToLiveSurfaceOwner = retargetsToLiveSurfaceOwner
@@ -60,13 +56,22 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
         self.scrollPosition = scrollPosition
         self.clickAction = clickAction
         self.source = source
-        self.target = target ?? .workspace(tabId: tabId)
+        self.target = target ?? tabId.map(TerminalNotificationTarget.workspace(tabId:)) ?? .global
     }
 
     var isGlobal: Bool { target == .global }
 
+    var workspaceTabId: UUID? {
+        guard case .workspace(let tabId) = target else { return nil }
+        return tabId
+    }
+
+    /// Compatibility identity for legacy notification projections. Global
+    /// notifications use their own notification id and never masquerade as a workspace.
+    var tabId: UUID { workspaceTabId ?? id }
+
     func matches(tabId targetTabId: UUID, surfaceId targetSurfaceId: UUID?) -> Bool {
-        guard tabId == targetTabId else { return false }
+        guard workspaceTabId == targetTabId else { return false }
         guard let targetSurfaceId else {
             return surfaceId == nil && panelId == nil
         }
@@ -75,7 +80,8 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
 
     /// Matches a clear without letting live-owner expansion cross a confined notification's workspace boundary.
     func matchesClear(tabId targetTabId: UUID, liveTabId: UUID, surfaceId targetSurfaceId: UUID?) -> Bool {
-        let matchesWorkspace = tabId == targetTabId || (retargetsToLiveSurfaceOwner && tabId == liveTabId)
-        return matchesWorkspace && matches(tabId: tabId, surfaceId: targetSurfaceId)
+        guard let workspaceTabId else { return false }
+        let matchesWorkspace = workspaceTabId == targetTabId || (retargetsToLiveSurfaceOwner && workspaceTabId == liveTabId)
+        return matchesWorkspace && matches(tabId: workspaceTabId, surfaceId: targetSurfaceId)
     }
 }

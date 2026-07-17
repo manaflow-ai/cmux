@@ -65,7 +65,8 @@ public final class NotificationDeliveryCoordinator {
         return options
     }
 
-    func handle(_ response: NotificationDeliveryResponse) {
+    /// Routes already-decoded response data through the same Feed and terminal paths as an OS response.
+    public func handle(_ response: NotificationDeliveryResponse) {
         if handleFeedNotificationResponse(response) {
             return
         }
