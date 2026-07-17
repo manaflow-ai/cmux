@@ -10,10 +10,10 @@ extension ReconnectRouteSelectionTests {
     @Test func establishedIrohSessionRedialsOnceAfterTransportDies() async throws {
         let fixture = try await makeRecoveryOwnerFixture()
         defer { fixture.release() }
-        let initialReconnectGeneration = fixture.store.storedMacReconnectGenerationForTesting()
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
         #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        let initialReconnectGeneration = fixture.store.storedMacReconnectGenerationForTesting()
         let firstClient = try #require(fixture.store.remoteClient)
         let first = try #require(fixture.box.get())
         await first.close()
