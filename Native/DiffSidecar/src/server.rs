@@ -762,6 +762,9 @@ async fn open_session(
         session_id,
     } = &params.source
     {
+        if !authorize_agent_turn_for_token(state, &params.capability_token).await {
+            return Err(SessionOpenError::Unauthorized);
+        }
         let identity = AgentTurnIdentity::new(*provider, session_id.clone());
         Some(
             resolve_agent_turn_coalesced(state, identity)
@@ -800,7 +803,9 @@ async fn open_session(
             .ok_or(SessionOpenError::Unauthorized)?,
         (DiffSource::AgentTurn { .. }, None) | (DiffSource::Patch { .. }, _) => unreachable!(),
     };
-    if !authorize_repo_for_token(state, &params.capability_token, repo).await {
+    if resolved_turn.is_none()
+        && !authorize_repo_for_token(state, &params.capability_token, repo).await
+    {
         return Err(SessionOpenError::Unauthorized);
     }
     let canonical_repo = if let Some(resolved) = &resolved_turn {
@@ -1953,6 +1958,29 @@ async fn authorize_repo_for_token(state: &AppState, token: &str, repo: &str) -> 
             continue;
         };
         if session.token == token && session_allows_repo(&session, &canonical_repo).await {
+            return true;
+        }
+    }
+    false
+}
+
+async fn authorize_agent_turn_for_token(state: &AppState, token: &str) -> bool {
+    if !valid_token(token) {
+        return false;
+    }
+    let Ok(mut entries) = tokio::fs::read_dir(&state.config.root).await else {
+        return false;
+    };
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if !name.starts_with(".branch-session-") || !name.ends_with(".json") {
+            continue;
+        }
+        if read_branch_session(&entry.path())
+            .await
+            .is_ok_and(|session| session.token == token)
+        {
             return true;
         }
     }

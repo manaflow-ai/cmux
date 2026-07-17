@@ -85,7 +85,11 @@ extension CMUXCLI {
         target: DiffViewerGitHTMLSetTarget,
         extraAllowedPageURL: URL?
     ) throws -> DiffViewerWriteResult {
-        let repoRoot = try gitRepoRootForDiff(context)
+        let repoRoot = if selectedSource == .lastTurn {
+            nil
+        } else {
+            try gitRepoRootForDiff(context)
+        }
         let fileURL = target.directory.appendingPathComponent(
             "diff-\(target.groupID)-viewer.html",
             isDirectory: false
@@ -97,11 +101,13 @@ extension CMUXCLI {
             shortcuts: diffViewerShortcutPayload(),
             generatedAt: ISO8601DateFormatter().string(from: Date())
         )
-        let repoCandidates = gitDiffViewerRepoOptions(selectedRepoRoot: repoRoot, context: context)
+        let repoCandidates = repoRoot.map {
+            gitDiffViewerRepoOptions(selectedRepoRoot: $0, context: context)
+        } ?? []
         let session = DiffViewerBranchSession(
             token: target.mapper.token,
             groupID: target.groupID,
-            repoRoot: repoRoot,
+            repoRoot: repoRoot ?? "",
             allowedRepoRoots: repoCandidates.map(\.repoRoot),
             layout: layout,
             layoutSource: layoutSource,
@@ -111,13 +117,16 @@ extension CMUXCLI {
             surfaceId: context.surfaceId
         )
         try writeDiffViewerBranchSession(session, rootDirectory: target.directory)
-        func sessionSource(_ source: DiffSource, repo: String) -> [String: Any]? {
+        func sessionSource(_ source: DiffSource, repo: String?) -> [String: Any]? {
             switch source {
             case .unstaged:
+                guard let repo else { return nil }
                 return ["kind": "unstaged", "repoRoot": repo]
             case .staged:
+                guard let repo else { return nil }
                 return ["kind": "staged", "repoRoot": repo]
             case .branch:
+                guard let repo else { return nil }
                 var payload: [String: Any] = ["kind": "branch", "repoRoot": repo]
                 if repo == repoRoot,
                    let base = normalizedDiffSourceValue(context.branchBaseRef) {
@@ -153,7 +162,7 @@ extension CMUXCLI {
         let repoOptions: [DiffViewerSourceOption]
         if selectedSource == .lastTurn {
             repoOptions = []
-        } else if repoCandidates.count > 1 {
+        } else if let repoRoot, repoCandidates.count > 1 {
             repoOptions = repoCandidates.map { option in
                 DiffViewerSourceOption(
                     value: option.repoRoot,
@@ -195,7 +204,7 @@ extension CMUXCLI {
             sourceOptions: sourceOptions,
             repoOptions: repoOptions,
             repoRoot: repoRoot,
-            branchBaseRef: context.branchBaseRef,
+            branchBaseRef: repoRoot == nil ? nil : context.branchBaseRef,
             sessionSource: selectedSessionSource,
             capabilityToken: target.mapper.token,
             assets: assets,

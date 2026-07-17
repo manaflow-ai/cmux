@@ -6098,8 +6098,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) else {
             return false
         }
-        let presentedImmediately = sourcePresentationView.map {
-            placement.panel.presentDiffViewerLoadingImmediately(relativeTo: $0)
+        let immediatePresentationReference = if placement.createdSplit {
+            sourcePresentationView
+        } else {
+            placement.immediatePresentationReferenceView
+                ?? placement.panel.webView.cmuxBrowserViewportPresentationView
+        }
+        let immediatePresentationPlacement: DiffViewerImmediatePresentationPlacement =
+            placement.createdSplit ? .futureRightSplit : .existingTargetPane
+        let presentedImmediately = immediatePresentationReference.map {
+            placement.panel.presentDiffViewerLoadingImmediately(
+                relativeTo: $0,
+                placement: immediatePresentationPlacement
+            )
         } ?? false
 #if DEBUG
         let attachMilliseconds = (CFAbsoluteTimeGetCurrent() - attachStartedAt) * 1_000

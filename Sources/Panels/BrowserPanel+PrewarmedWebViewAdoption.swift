@@ -45,6 +45,27 @@ private final class DiffViewerLoadingOverlayView: NSView {
 /// Hover-prewarm adoption support for ``BrowserPanel``: profile resolution
 /// shared with prewarm callers, and the eligibility gate the initializer uses
 /// to swap a pool-prewarmed webview in place of a cold load.
+enum DiffViewerImmediatePresentationPlacement {
+    case futureRightSplit
+    case existingTargetPane
+
+    func targetFrame(in referenceFrame: NSRect) -> NSRect {
+        switch self {
+        case .futureRightSplit:
+            let dividerWidth: CGFloat = 1
+            let targetWidth = (referenceFrame.width - dividerWidth) / 2
+            return NSRect(
+                x: referenceFrame.maxX - targetWidth,
+                y: referenceFrame.minY,
+                width: targetWidth,
+                height: referenceFrame.height
+            )
+        case .existingTargetPane:
+            return referenceFrame
+        }
+    }
+}
+
 extension BrowserPanel {
     /// The profile a panel would use for the given requested ID. Shared with
     /// prewarm callers so a prewarmed webview and the panel that later adopts
@@ -140,23 +161,19 @@ extension BrowserPanel {
     /// synchronously. The normal browser portal reparents the same presentation
     /// view when SwiftUI materializes the split, then this host removes itself.
     @discardableResult
-    func presentDiffViewerLoadingImmediately(relativeTo sourceView: NSView) -> Bool {
-        guard let window = sourceView.window,
+    func presentDiffViewerLoadingImmediately(
+        relativeTo referenceView: NSView,
+        placement: DiffViewerImmediatePresentationPlacement = .futureRightSplit
+    ) -> Bool {
+        guard let window = referenceView.window,
               let contentView = window.contentView else {
             return false
         }
-        let sourceFrame = sourceView.convert(sourceView.bounds, to: contentView)
-        guard sourceFrame.width >= 2, sourceFrame.height >= 1 else { return false }
+        let referenceFrame = referenceView.convert(referenceView.bounds, to: contentView)
+        guard referenceFrame.width >= 2, referenceFrame.height >= 1 else { return false }
 
         closeDiffViewerImmediatePresentationHost()
-        let dividerWidth: CGFloat = 1
-        let targetWidth = (sourceFrame.width - dividerWidth) / 2
-        let targetFrame = NSRect(
-            x: sourceFrame.maxX - targetWidth,
-            y: sourceFrame.minY,
-            width: targetWidth,
-            height: sourceFrame.height
-        )
+        let targetFrame = placement.targetFrame(in: referenceFrame)
         let host = NSView(frame: targetFrame)
         host.wantsLayer = true
         host.layer?.backgroundColor = GhosttyBackgroundTheme.currentColor().cgColor

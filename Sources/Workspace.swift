@@ -1939,6 +1939,7 @@ final class Workspace: Identifiable, ObservableObject {
         let sourcePaneID: PaneID?
         let targetPaneID: PaneID?
         let createdSplit: Bool
+        let immediatePresentationReferenceView: NSView?
     }
 
     enum BrowserPanelCreationPolicy {
@@ -7958,7 +7959,9 @@ final class Workspace: Identifiable, ObservableObject {
         let sourcePaneID = paneId(forPanelId: sourceSurfaceID)
         let panel: BrowserPanel?
         let createdSplit: Bool
+        let immediatePresentationReferenceView: NSView?
         if let targetPane = preferredRightSideTargetPane(fromPanelId: sourceSurfaceID) {
+            immediatePresentationReferenceView = selectedPresentationView(inPane: targetPane)
             panel = newBrowserSurface(
                 inPane: targetPane,
                 url: url,
@@ -7971,6 +7974,7 @@ final class Workspace: Identifiable, ObservableObject {
             )
             createdSplit = false
         } else {
+            immediatePresentationReferenceView = nil
             panel = newBrowserSplit(
                 from: sourceSurfaceID,
                 orientation: .horizontal,
@@ -7988,8 +7992,24 @@ final class Workspace: Identifiable, ObservableObject {
             panel: panel,
             sourcePaneID: sourcePaneID,
             targetPaneID: paneId(forPanelId: panel.id),
-            createdSplit: createdSplit
+            createdSplit: createdSplit,
+            immediatePresentationReferenceView: immediatePresentationReferenceView
         )
+    }
+
+    private func selectedPresentationView(inPane paneID: PaneID) -> NSView? {
+        guard let surfaceID = bonsplitController.selectedTab(inPane: paneID)?.id,
+              let panelID = panelIdFromSurfaceId(surfaceID),
+              let panel = panels[panelID] else {
+            return nil
+        }
+        if let terminal = panel as? TerminalPanel {
+            return terminal.hostedView
+        }
+        if let browser = panel as? BrowserPanel {
+            return browser.webView.cmuxBrowserViewportPresentationView
+        }
+        return nil
     }
 
     /// Create a new browser surface in the specified pane.
