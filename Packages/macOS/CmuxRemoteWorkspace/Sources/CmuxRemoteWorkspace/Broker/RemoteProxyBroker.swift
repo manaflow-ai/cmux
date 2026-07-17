@@ -121,14 +121,16 @@ public final class RemoteProxyBroker: @unchecked Sendable {
     /// - Parameters:
     ///   - configuration: Remote transport whose ready tunnel serves the path.
     ///   - path: Absolute path on the remote host.
+    ///   - deadline: Monotonic deadline shared with the originating file operation.
     /// - Returns: The remote filesystem metadata snapshot.
     /// - Throws: A tunnel-readiness, RPC, capability, or filesystem error.
     public func statFile(
         configuration: WorkspaceRemoteConfiguration,
-        path: String
+        path: String,
+        deadline: DispatchTime
     ) throws -> RemoteDaemonFileStat {
         try withReadyTunnel(configuration: configuration) { tunnel in
-            try tunnel.statFile(path: path)
+            try tunnel.statFile(path: path, deadline: deadline)
         }
     }
 
@@ -137,14 +139,16 @@ public final class RemoteProxyBroker: @unchecked Sendable {
     /// - Parameters:
     ///   - configuration: Remote transport whose ready tunnel serves the path.
     ///   - path: Absolute regular-file path on the remote host.
+    ///   - deadline: Monotonic deadline shared with the originating file operation.
     /// - Returns: The bounded remote file contents.
     /// - Throws: A tunnel-readiness, RPC, capability, bounds, or filesystem error.
     public func readFile(
         configuration: WorkspaceRemoteConfiguration,
-        path: String
+        path: String,
+        deadline: DispatchTime
     ) throws -> Data {
         try withReadyTunnel(configuration: configuration) { tunnel in
-            try tunnel.readFile(path: path)
+            try tunnel.readFile(path: path, deadline: deadline)
         }
     }
 

@@ -36,17 +36,21 @@ public protocol RemoteProxyTunneling: AnyObject {
 
     /// Returns metadata for an absolute path on the remote filesystem.
     ///
-    /// - Parameter path: Absolute path on the remote host.
+    /// - Parameters:
+    ///   - path: Absolute path on the remote host.
+    ///   - deadline: Monotonic deadline shared with the originating file operation.
     /// - Returns: The remote filesystem metadata snapshot.
     /// - Throws: An RPC, capability, or filesystem error.
-    func statFile(path: String) throws -> RemoteDaemonFileStat
+    func statFile(path: String, deadline: DispatchTime) throws -> RemoteDaemonFileStat
 
     /// Reads a bounded regular file on the remote filesystem.
     ///
-    /// - Parameter path: Absolute regular-file path on the remote host.
+    /// - Parameters:
+    ///   - path: Absolute regular-file path on the remote host.
+    ///   - deadline: Monotonic deadline shared with the originating file operation.
     /// - Returns: The bounded remote file contents.
     /// - Throws: An RPC, capability, bounds, or filesystem error.
-    func readFile(path: String) throws -> Data
+    func readFile(path: String, deadline: DispatchTime) throws -> Data
 
     /// Closes a persistent PTY session on the daemon before `deadline`.
     ///
@@ -84,14 +88,14 @@ public protocol RemoteProxyTunneling: AnyObject {
 
 public extension RemoteProxyTunneling {
     /// Default unavailable implementation for tunnels without remote file RPCs.
-    func statFile(path: String) throws -> RemoteDaemonFileStat {
+    func statFile(path: String, deadline: DispatchTime) throws -> RemoteDaemonFileStat {
         throw NSError(domain: "cmux.remote.files", code: 1, userInfo: [
             NSLocalizedDescriptionKey: "remote filesystem access is unavailable",
         ])
     }
 
     /// Default unavailable implementation for tunnels without remote file RPCs.
-    func readFile(path: String) throws -> Data {
+    func readFile(path: String, deadline: DispatchTime) throws -> Data {
         throw NSError(domain: "cmux.remote.files", code: 2, userInfo: [
             NSLocalizedDescriptionKey: "remote filesystem access is unavailable",
         ])

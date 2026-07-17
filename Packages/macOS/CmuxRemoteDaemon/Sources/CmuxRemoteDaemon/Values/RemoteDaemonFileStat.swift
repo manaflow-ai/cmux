@@ -17,15 +17,17 @@ public struct RemoteDaemonFileStat: Equatable, Sendable {
     /// The object's byte size, or `nil` when ``exists`` is false.
     public let size: Int64?
 
-    /// Creates a filesystem metadata snapshot.
-    ///
-    /// - Parameters:
-    ///   - exists: Whether the requested path exists.
-    ///   - kind: The object's kind when it exists.
-    ///   - size: The object's byte size when it exists.
-    public init(exists: Bool, kind: Kind?, size: Int64?) {
+    private init(exists: Bool, kind: Kind?, size: Int64?) {
         self.exists = exists
         self.kind = kind
         self.size = size
+    }
+
+    /// Metadata for a path that does not exist.
+    public static let missing = RemoteDaemonFileStat(exists: false, kind: nil, size: nil)
+
+    /// Validated constructor used by the daemon wire decoder.
+    static func existing(kind: Kind, size: Int64) -> RemoteDaemonFileStat {
+        RemoteDaemonFileStat(exists: true, kind: kind, size: size)
     }
 }

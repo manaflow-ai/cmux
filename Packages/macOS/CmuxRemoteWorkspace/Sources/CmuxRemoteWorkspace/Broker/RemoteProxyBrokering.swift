@@ -36,11 +36,13 @@ public protocol RemoteProxyBrokering: AnyObject, Sendable {
     /// - Parameters:
     ///   - configuration: Remote transport whose ready tunnel serves the path.
     ///   - path: Absolute path on the remote host.
+    ///   - deadline: Monotonic deadline shared with the originating file operation.
     /// - Returns: The remote filesystem metadata snapshot.
     /// - Throws: A tunnel-readiness, RPC, capability, or filesystem error.
     func statFile(
         configuration: WorkspaceRemoteConfiguration,
-        path: String
+        path: String,
+        deadline: DispatchTime
     ) throws -> RemoteDaemonFileStat
 
     /// Reads one bounded file through the ready tunnel.
@@ -48,11 +50,13 @@ public protocol RemoteProxyBrokering: AnyObject, Sendable {
     /// - Parameters:
     ///   - configuration: Remote transport whose ready tunnel serves the path.
     ///   - path: Absolute regular-file path on the remote host.
+    ///   - deadline: Monotonic deadline shared with the originating file operation.
     /// - Returns: The bounded remote file contents.
     /// - Throws: A tunnel-readiness, RPC, capability, bounds, or filesystem error.
     func readFile(
         configuration: WorkspaceRemoteConfiguration,
-        path: String
+        path: String,
+        deadline: DispatchTime
     ) throws -> Data
 
     /// Closes a persistent PTY session through the ready tunnel before `deadline`.
@@ -121,7 +125,8 @@ public extension RemoteProxyBrokering {
     /// Default unavailable implementation for brokers without remote file RPCs.
     func statFile(
         configuration: WorkspaceRemoteConfiguration,
-        path: String
+        path: String,
+        deadline: DispatchTime
     ) throws -> RemoteDaemonFileStat {
         throw NSError(domain: "cmux.remote.files", code: 5, userInfo: [
             NSLocalizedDescriptionKey: "remote filesystem access is unavailable",
@@ -131,7 +136,8 @@ public extension RemoteProxyBrokering {
     /// Default unavailable implementation for brokers without remote file RPCs.
     func readFile(
         configuration: WorkspaceRemoteConfiguration,
-        path: String
+        path: String,
+        deadline: DispatchTime
     ) throws -> Data {
         throw NSError(domain: "cmux.remote.files", code: 6, userInfo: [
             NSLocalizedDescriptionKey: "remote filesystem access is unavailable",

@@ -87,6 +87,41 @@ func TestFileRPCStatAndRead(t *testing.T) {
 	}
 }
 
+func TestFileRPCPreservesValidPathWhitespace(t *testing.T) {
+	path := filepath.Join(t.TempDir(), " dock.json ")
+	data := []byte(`{"controls":[]}`)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("write whitespace path: %v", err)
+	}
+
+	server := &rpcServer{}
+	stat := server.handleRequest(rpcRequest{
+		ID:     1,
+		Method: "fs.stat",
+		Params: map[string]any{"path": path},
+	})
+	if !stat.OK {
+		t.Fatalf("fs.stat whitespace path failed: %+v", stat.Error)
+	}
+
+	read := server.handleRequest(rpcRequest{
+		ID:     2,
+		Method: "file.read",
+		Params: map[string]any{"path": path},
+	})
+	if !read.OK {
+		t.Fatalf("file.read whitespace path failed: %+v", read.Error)
+	}
+	result := read.Result.(map[string]any)
+	decoded, err := base64.StdEncoding.DecodeString(result["data_base64"].(string))
+	if err != nil {
+		t.Fatalf("decode whitespace path data: %v", err)
+	}
+	if string(decoded) != string(data) {
+		t.Fatalf("file.read whitespace path data = %q, want %q", decoded, data)
+	}
+}
+
 func TestFileRPCMissingDirectoryAndBounds(t *testing.T) {
 	server := &rpcServer{}
 	missing := filepath.Join(t.TempDir(), "missing.json")

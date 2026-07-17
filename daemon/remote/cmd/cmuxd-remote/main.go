@@ -1516,8 +1516,7 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 
 func remoteFilePath(req rpcRequest) (string, *rpcResponse) {
 	path, _ := req.Params["path"].(string)
-	path = strings.TrimSpace(path)
-	if path == "" || !filepath.IsAbs(path) {
+	if strings.TrimSpace(path) == "" || !filepath.IsAbs(path) {
 		response := rpcResponse{
 			ID: req.ID,
 			Error: &rpcError{

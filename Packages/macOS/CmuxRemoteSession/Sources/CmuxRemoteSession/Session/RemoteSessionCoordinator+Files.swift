@@ -1,4 +1,5 @@
 public import CmuxRemoteDaemon
+internal import Dispatch
 public import Foundation
 
 extension RemoteSessionCoordinator {
@@ -14,7 +15,9 @@ extension RemoteSessionCoordinator {
         path: String,
         timeout: TimeInterval = 8.0
     ) throws -> RemoteDaemonFileStat {
-        try runOnControllerQueue(timeout: timeout) {
+        let boundedTimeout = max(0, timeout)
+        let deadline = DispatchTime.now() + boundedTimeout
+        return try runOnControllerQueue(timeout: boundedTimeout) {
             guard self.daemonReady, self.proxyLease != nil else {
                 throw NSError(domain: "cmux.remote.files", code: 7, userInfo: [
                     NSLocalizedDescriptionKey: "remote daemon is not ready",
@@ -22,7 +25,8 @@ extension RemoteSessionCoordinator {
             }
             return try self.proxyBroker.statFile(
                 configuration: self.configuration,
-                path: path
+                path: path,
+                deadline: deadline
             )
         }
     }
@@ -38,7 +42,9 @@ extension RemoteSessionCoordinator {
         path: String,
         timeout: TimeInterval = 8.0
     ) throws -> Data {
-        try runOnControllerQueue(timeout: timeout) {
+        let boundedTimeout = max(0, timeout)
+        let deadline = DispatchTime.now() + boundedTimeout
+        return try runOnControllerQueue(timeout: boundedTimeout) {
             guard self.daemonReady, self.proxyLease != nil else {
                 throw NSError(domain: "cmux.remote.files", code: 8, userInfo: [
                     NSLocalizedDescriptionKey: "remote daemon is not ready",
@@ -46,7 +52,8 @@ extension RemoteSessionCoordinator {
             }
             return try self.proxyBroker.readFile(
                 configuration: self.configuration,
-                path: path
+                path: path,
+                deadline: deadline
             )
         }
     }

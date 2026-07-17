@@ -18,19 +18,19 @@ protocol RemoteDaemonTunnelRPCClient: RemotePTYLifecycleRPCClient {
     /// Closes a daemon-side TCP proxy stream.
     func closeStream(streamID: String)
     /// Returns metadata for one remote path.
-    func statFile(path: String) throws -> RemoteDaemonFileStat
+    func statFile(path: String, timeout: TimeInterval) throws -> RemoteDaemonFileStat
     /// Reads one bounded remote regular file.
-    func readFile(path: String) throws -> Data
+    func readFile(path: String, timeout: TimeInterval) throws -> Data
 }
 
 extension RemoteDaemonTunnelRPCClient {
-    func statFile(path: String) throws -> RemoteDaemonFileStat {
+    func statFile(path: String, timeout: TimeInterval) throws -> RemoteDaemonFileStat {
         throw NSError(domain: "cmux.remote.files", code: 9, userInfo: [
             NSLocalizedDescriptionKey: "remote filesystem access is unavailable",
         ])
     }
 
-    func readFile(path: String) throws -> Data {
+    func readFile(path: String, timeout: TimeInterval) throws -> Data {
         throw NSError(domain: "cmux.remote.files", code: 10, userInfo: [
             NSLocalizedDescriptionKey: "remote filesystem access is unavailable",
         ])
