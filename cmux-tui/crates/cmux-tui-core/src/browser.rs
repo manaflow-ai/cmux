@@ -2438,6 +2438,33 @@ mod tests {
     }
 
     #[test]
+    fn coalesced_surface_state_keeps_chronological_order() {
+        let route = Arc::new(super::SurfaceRoute::new());
+        let target = |title: &str| {
+            cmux_tui_cdp::CdpEvent::TargetInfoChanged(cmux_tui_cdp::TargetInfo {
+                session_id: Some("session-1".to_string()),
+                target_id: "target-1".to_string(),
+                title: title.to_string(),
+                url: "https://example.test".to_string(),
+            })
+        };
+        assert!(!route.deliver(target("old")));
+        assert!(!route.deliver(cmux_tui_cdp::CdpEvent::Other {
+            method: "Page.frameNavigated".to_string(),
+            params: Value::Null,
+            session_id: Some("session-1".to_string()),
+        }));
+        assert!(!route.deliver(target("new")));
+
+        assert!(matches!(route.try_recv().unwrap(), cmux_tui_cdp::CdpEvent::Other { .. }));
+        assert!(matches!(
+            route.try_recv().unwrap(),
+            cmux_tui_cdp::CdpEvent::TargetInfoChanged(cmux_tui_cdp::TargetInfo { title, .. })
+                if title == "new"
+        ));
+    }
+
+    #[test]
     fn surface_route_retains_only_the_latest_screencast_frame() {
         let route = Arc::new(super::SurfaceRoute::new());
         let frame = |index| {

@@ -1072,6 +1072,37 @@ mod tests {
     }
 
     #[test]
+    fn coalesced_event_keeps_chronological_order() {
+        let queue = EventQueue::new();
+        let target = |title: &str| {
+            CdpEvent::TargetInfoChanged(TargetInfo {
+                session_id: Some("session-1".to_string()),
+                target_id: "target-1".to_string(),
+                title: title.to_string(),
+                url: "https://example.test".to_string(),
+            })
+        };
+        queue.push(target("old")).unwrap();
+        queue
+            .push(CdpEvent::Other {
+                method: "Page.frameNavigated".to_string(),
+                params: Value::Null,
+                session_id: Some("session-1".to_string()),
+            })
+            .unwrap();
+        queue.push(target("new")).unwrap();
+        let (event_tx, event_rx) = sync_channel(2);
+
+        queue.drain_into(&event_tx).unwrap();
+
+        assert!(matches!(event_rx.recv().unwrap(), CdpEvent::Other { .. }));
+        assert!(matches!(
+            event_rx.recv().unwrap(),
+            CdpEvent::TargetInfoChanged(TargetInfo { title, .. }) if title == "new"
+        ));
+    }
+
+    #[test]
     fn rejected_screencast_frame_is_acknowledged() {
         let (outbound_tx, outbound_rx) = channel();
         let inner = Arc::new(Inner {

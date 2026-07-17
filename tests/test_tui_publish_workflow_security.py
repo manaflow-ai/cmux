@@ -32,3 +32,14 @@ def test_npm_publishers_pin_the_oidc_capable_npm_version() -> None:
         text = workflow(name)
         assert "npm install -g npm@11.5.1" in text
         assert "npm@^11.5.1" not in text
+
+
+def test_release_cut_calls_publishers_at_the_tagged_main_commit() -> None:
+    release_cut = workflow("cmux-tui-release-cut.yml")
+    assert "uses: ./.github/workflows/tui-publish-npm.yml" in release_cut
+    assert "uses: ./.github/workflows/tui-publish-pypi.yml" in release_cut
+    assert "needs: tag" in release_cut
+    assert "gh workflow run tui-publish-npm.yml" not in release_cut
+    assert "gh workflow run tui-publish-pypi.yml" not in release_cut
+    for name in ("tui-publish-npm.yml", "tui-publish-pypi.yml"):
+        assert "workflow_call:" in workflow(name)
