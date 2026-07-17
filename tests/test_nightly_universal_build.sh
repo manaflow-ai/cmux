@@ -167,11 +167,15 @@ if ! awk '
   job == "app" && /runs-on: \$\{\{ vars\.MACOS_RUNNER_26_RELEASE/ { saw_app_runner=1 }
   job == "app" && /CMUX_CI_XCODE_APP_MACOS_26/ { saw_app_xcode=1 }
   job == "app" && /select-ci-xcode\.sh/ { saw_app_selection=1 }
+  job == "app" && /name: cmux-nightly-unsigned-app/ { saw_app_artifact=1 }
   job == "publish" && /build-nightly-ghostty-cli-helper/ { saw_publish_needs_helper=1 }
   job == "publish" && /build-nightly-app/ { saw_publish_needs_app=1 }
-  END { exit !(saw_helper_runner && saw_build && saw_arch_assert && saw_helper_artifact && saw_app_runner && saw_app_xcode && saw_app_selection && saw_publish_needs_helper && saw_publish_needs_app) }
+  job == "publish" && /name: cmux-nightly-unsigned-app/ { saw_app_download=1 }
+  job == "publish" && /path: nightly-inputs\/app/ { saw_app_download_path=1 }
+  job == "publish" && /tar -C "\$products" -xzf nightly-inputs\/app\/cmux-nightly-unsigned\.tar\.gz/ { saw_app_restore=1 }
+  END { exit !(saw_helper_runner && saw_build && saw_arch_assert && saw_helper_artifact && saw_app_runner && saw_app_xcode && saw_app_selection && saw_app_artifact && saw_publish_needs_helper && saw_publish_needs_app && saw_app_download && saw_app_download_path && saw_app_restore) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly must build the Ghostty helper on macOS 15 and the Xcode 26.5 app on macOS 26 before publishing"
+  echo "FAIL: nightly must build and hand off the macOS 15 helper and Xcode 26.5 app before publishing"
   exit 1
 fi
 
