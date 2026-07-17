@@ -308,18 +308,6 @@ jobs:
       - name: Sanitize Swift package cache
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .spm-cache
 
-      - name: Derive Sparkle public key from private key
-        env:
-          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
-        run: |
-          if [ -z "$SPARKLE_PRIVATE_KEY" ]; then
-            echo "Missing SPARKLE_PRIVATE_KEY secret" >&2
-            exit 1
-          fi
-          DERIVED_PUBLIC_KEY=$(swift scripts/derive_sparkle_public_key.swift "$SPARKLE_PRIVATE_KEY")
-          echo "Derived Sparkle public key: $DERIVED_PUBLIC_KEY"
-          echo "SPARKLE_PUBLIC_KEY=$DERIVED_PUBLIC_KEY" >> "$GITHUB_ENV"
-
       - name: Build universal nightly app (Release)
         run: |
           set -euo pipefail
@@ -446,6 +434,18 @@ jobs:
         with:
           go-version-file: daemon/remote/go.mod
           cache-dependency-path: daemon/remote/go.sum
+
+      - name: Derive Sparkle public key from private key
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          if [ -z "$SPARKLE_PRIVATE_KEY" ]; then
+            echo "Missing SPARKLE_PRIVATE_KEY secret" >&2
+            exit 1
+          fi
+          DERIVED_PUBLIC_KEY=$(swift scripts/derive_sparkle_public_key.swift "$SPARKLE_PRIVATE_KEY")
+          echo "Derived Sparkle public key: $DERIVED_PUBLIC_KEY"
+          echo "SPARKLE_PUBLIC_KEY=$DERIVED_PUBLIC_KEY" >> "$GITHUB_ENV"
 
       - name: Inject universal Ghostty CLI helper
         run: |

@@ -186,6 +186,19 @@ if ! awk '
 fi
 
 if ! awk '
+  /^  build-nightly-app:/ { job="build"; next }
+  /^  build-sign-notarize-nightly:/ { job="publish"; next }
+  /^  [a-zA-Z0-9_-]+:/ { job="" }
+  job == "build" && /^      - name: Derive Sparkle public key from private key/ { derived_in_build=1 }
+  job == "publish" && /^      - name: Derive Sparkle public key from private key/ { derived_in_publish=1 }
+  job == "publish" && /echo "SPARKLE_PUBLIC_KEY=\$DERIVED_PUBLIC_KEY" >> "\$GITHUB_ENV"/ { exported_in_publish=1 }
+  END { exit !(!derived_in_build && derived_in_publish && exported_in_publish) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: the publishing job must derive and export the Sparkle public key it consumes"
+  exit 1
+fi
+
+if ! awk '
   /^      - name: Verify nightly binary architectures/ { in_verify=1; next }
   in_verify && /^      - name:/ { in_verify=0 }
   in_verify && /lipo -archs "\$APP_BINARY"/ { saw_app=1 }
