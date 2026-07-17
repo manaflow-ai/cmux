@@ -87,6 +87,9 @@ the default session socket. Unix subscribe and attach streams retain dedicated
 connections. An injected transport can multiplex attach streams and one
 subscription on its main connection; concurrent subscriptions require a
 `streamTransportFactory` because overflow events are terminal to one stream.
+Each stream retains at most 256 unread events, and each encoded attach payload
+is limited to 16 MiB by default. `maxBufferedEvents` and
+`maxAttachEncodedChars` may lower those limits for constrained clients.
 
 ## Raw typed requests
 

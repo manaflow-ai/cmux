@@ -8006,6 +8006,7 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             if selectWhenNotFocused {
                 hideBrowserPortalsForDeselectedTabs(inPane: paneId, selectedTabId: newTabId)
+                reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
             }
             preserveFocusAfterNonFocusSplit(
                 preferredPanelId: previousFocusedPanelId,
@@ -11419,6 +11420,7 @@ extension Workspace: BonsplitDelegate {
             browserPanel.hideBrowserPortalView(source: "tabDeselected")
         }
     }
+
 
     private func applyTabSelectionNow(
         tabId: TabID,
