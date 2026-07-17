@@ -97,7 +97,7 @@ struct WorkspaceDetailView: View {
         content
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
             .navigationTitle(systemNavigationTitle)
-            .mobileTerminalNavigationChrome()
+            .mobileTerminalNavigationChrome(theme: store.activeTerminalTheme)
             .toolbar { workspaceDetailToolbar }
             .navigationDestination(isPresented: changesNavigationIsPresented) {
                 changesDestination()
@@ -200,7 +200,7 @@ struct WorkspaceDetailView: View {
                 .font(.headline)
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .foregroundStyle(TerminalPalette.foreground)
+                .foregroundStyle(store.activeTerminalTheme.terminalChromeForegroundColor)
         } else {
             WorkspaceToolbarTitleView(title: workspace.name, subtitle: selectedToolbarSubtitle)
         }
@@ -215,11 +215,11 @@ struct WorkspaceDetailView: View {
             if let terminalID = selectedTerminal?.id.rawValue {
                 terminalArtifactSurface(terminalID: terminalID)
             } else {
-                TerminalPalette.background
+                store.activeTerminalTheme.terminalBackgroundColor
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
             #else
-            TerminalPalette.background
+            store.activeTerminalTheme.terminalBackgroundColor
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             #endif
         }
@@ -232,7 +232,11 @@ struct WorkspaceDetailView: View {
         .overlay {
             // Show a reconnecting/offline state instead of a black terminal.
             if connectionStatus != .connected {
-                TerminalDisconnectedOverlay(status: connectionStatus, host: host) {
+                TerminalDisconnectedOverlay(
+                    status: connectionStatus,
+                    host: host,
+                    theme: store.activeTerminalTheme
+                ) {
                     Task {
                         if let macDeviceID = workspace.macDeviceID,
                            !macDeviceID.isEmpty,
@@ -263,7 +267,7 @@ struct WorkspaceDetailView: View {
         )
         .background {
             // Fill under translucent chrome with the terminal's own color.
-            TerminalPalette.background
+            store.activeTerminalTheme.terminalBackgroundColor
                 .ignoresSafeArea(.container, edges: [.horizontal, .top, .bottom])
         }
         .sheet(item: $selectedTerminalArtifact) { selection in
@@ -277,11 +281,11 @@ struct WorkspaceDetailView: View {
                 )
         }
         #else
-        .background(TerminalPalette.background)
+        .background(store.activeTerminalTheme.terminalBackgroundColor)
         #endif
         #if !os(iOS)
         .navigationTitle(systemNavigationTitle)
-        .mobileTerminalNavigationChrome()
+        .mobileTerminalNavigationChrome(theme: store.activeTerminalTheme)
         .toolbar {
             ToolbarItem {
                 terminalToolbarButtons
@@ -365,7 +369,7 @@ struct WorkspaceDetailView: View {
             Label(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"), systemImage: "plus.square.on.square")
                 .labelStyle(.iconOnly)
         }
-        .foregroundStyle(TerminalPalette.foreground)
+        .foregroundStyle(store.activeTerminalTheme.terminalChromeForegroundColor)
         .disabled(!canCreateWorkspace)
         .accessibilityIdentifier("MobileTerminalNewWorkspaceButton")
     }
@@ -394,7 +398,8 @@ struct WorkspaceDetailView: View {
                     #endif
                 },
                 sendFeedback: openFeedbackComposerFromMenu
-            )
+            ),
+            terminalTheme: store.activeTerminalTheme
         )
         .equatable()
         .simultaneousGesture(TapGesture().onEnded { syncTerminalPickerRows(includeTitleChanges: true) })

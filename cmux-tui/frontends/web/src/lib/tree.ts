@@ -6,6 +6,7 @@ export interface ScreenView {
   id: Id;
   workspaceId: Id;
   label: string;
+  statusLabel?: string;
   active: boolean;
   pane: LivePane | null;
   tab: Tab | null;
@@ -59,7 +60,7 @@ export function treeToViewModel(
       name: workspace.name,
       active: workspaceSelected,
       subtitle,
-      screens: workspace.screens.map((screen) => {
+      screens: workspace.screens.map((screen, screenIndex) => {
         const screenSelected = workspaceSelected && screen.id === selection.selectedScreenId;
         const pane = livePane(screen, screenSelected ? selection.selectedPaneId : null);
         const tab = pane?.tabs[pane.active_tab] ?? null;
@@ -68,6 +69,7 @@ export function treeToViewModel(
           id: screen.id,
           workspaceId: workspace.id,
           label: screen.name || tab?.name || tab?.title || `#${screen.id}`,
+          statusLabel: screen.name || String(screenIndex + 1),
           active: screenSelected,
           pane,
           tab,
@@ -103,4 +105,130 @@ export function locateSurface(tree: Tree, surface: Id): { workspaceId: Id; scree
     }
   }
   return null;
+}
+
+export function applySurfaceTitles(tree: Tree, titles: ReadonlyMap<Id, string>): Tree {
+  let treeChanged = false;
+  const workspaces = tree.workspaces.map((workspace) => {
+    let workspaceChanged = false;
+    const screens = workspace.screens.map((screen) => {
+      let screenChanged = false;
+      const panes = screen.panes.map((pane) => {
+        if (!("tabs" in pane)) return pane;
+        let paneChanged = false;
+        const tabs = pane.tabs.map((tab) => {
+          const title = titles.get(tab.surface);
+          if (title === undefined || title === tab.title) return tab;
+          paneChanged = true;
+          return { ...tab, title };
+        });
+        if (!paneChanged) return pane;
+        screenChanged = true;
+        return { ...pane, tabs };
+      });
+      if (!screenChanged) return screen;
+      workspaceChanged = true;
+      return { ...screen, panes };
+    });
+    if (!workspaceChanged) return workspace;
+    treeChanged = true;
+    return { ...workspace, screens };
+  });
+  return treeChanged ? { workspaces } : tree;
+}
+
+export interface TreeRefreshToken {
+  requestSequence: number;
+  titleGeneration: number;
+}
+
+interface GeneratedTitle {
+  generation: number;
+  title: string;
+}
+
+type SurfaceLocation = readonly [workspace: number, screen: number, pane: number, tab: number];
+
+export interface TreeRefreshCommit {
+  tree: Tree;
+  applied: boolean;
+}
+
+export class SurfaceTitleReconciler {
+  private titleGeneration = 0;
+  private requestSequence = 0;
+  private appliedRequestSequence = 0;
+  private latestTree: Tree | null = null;
+  private readonly titles = new Map<Id, GeneratedTitle>();
+  private readonly surfaceLocations = new Map<Id, SurfaceLocation>();
+
+  record(surface: Id, title: string): void {
+    this.titleGeneration += 1;
+    this.titles.set(surface, { generation: this.titleGeneration, title });
+  }
+
+  beginRefresh(): TreeRefreshToken {
+    this.requestSequence += 1;
+    return {
+      requestSequence: this.requestSequence,
+      titleGeneration: this.titleGeneration,
+    };
+  }
+
+  apply(tree: Tree): Tree {
+    if (tree !== this.latestTree) this.rebuildSurfaceLocations(tree);
+    let updated = tree;
+    for (const [surface, update] of this.titles) {
+      const location = this.surfaceLocations.get(surface);
+      if (location) updated = this.applyTitleAt(updated, location, update.title);
+    }
+    this.latestTree = updated;
+    return updated;
+  }
+
+  commit(tree: Tree, token: TreeRefreshToken): TreeRefreshCommit {
+    if (token.requestSequence <= this.appliedRequestSequence && this.latestTree !== null) {
+      return { tree: this.latestTree, applied: false };
+    }
+    this.appliedRequestSequence = token.requestSequence;
+    for (const [surface, update] of this.titles) {
+      if (update.generation <= token.titleGeneration) this.titles.delete(surface);
+    }
+    this.latestTree = this.apply(tree);
+    return { tree: this.latestTree, applied: true };
+  }
+
+  private rebuildSurfaceLocations(tree: Tree): void {
+    this.surfaceLocations.clear();
+    tree.workspaces.forEach((workspace, workspaceIndex) => {
+      workspace.screens.forEach((screen, screenIndex) => {
+        screen.panes.forEach((pane, paneIndex) => {
+          if (!("tabs" in pane)) return;
+          pane.tabs.forEach((tab, tabIndex) => {
+            this.surfaceLocations.set(tab.surface, [workspaceIndex, screenIndex, paneIndex, tabIndex]);
+          });
+        });
+      });
+    });
+  }
+
+  private applyTitleAt(tree: Tree, location: SurfaceLocation, title: string): Tree {
+    const [workspaceIndex, screenIndex, paneIndex, tabIndex] = location;
+    const workspace = tree.workspaces[workspaceIndex];
+    const screen = workspace?.screens[screenIndex];
+    const pane = screen?.panes[paneIndex];
+    if (!pane || !("tabs" in pane)) return tree;
+    const tab = pane.tabs[tabIndex];
+    if (!tab || tab.title === title) return tree;
+
+    const tabs = [...pane.tabs];
+    tabs[tabIndex] = { ...tab, title };
+    const panes = [...screen.panes];
+    panes[paneIndex] = { ...pane, tabs };
+    const screens = [...workspace.screens];
+    screens[screenIndex] = { ...screen, panes };
+    const workspaces = [...tree.workspaces];
+    workspaces[workspaceIndex] = { ...workspace, screens };
+    return { workspaces };
+  }
 }

@@ -9,6 +9,28 @@ public struct TerminalCatalogSection: SettingCatalogSection {
     /// Maximum allowed multiplier for terminal scroll deltas.
     public static let scrollSpeedMaximum = 3.0
 
+    /// Maximum width for terminal and agent-session content, or a negative
+    /// sentinel when the cap is disabled.
+    public let sessionContentMaxWidth = DefaultsKey<Double>(
+        id: SessionContentWidthSettings.settingsPath,
+        defaultValue: SessionContentWidthSettings.noMaximumWidth,
+        userDefaultsKey: SessionContentWidthSettings.maxWidthKey
+    )
+
+    /// Last enabled session content width, restored by the settings toggle.
+    public let rememberedSessionContentMaxWidth = DefaultsKey<Double>(
+        id: "terminal.sessionContentMaxWidth.remembered",
+        defaultValue: SessionContentWidthSettings.defaultConfiguredMaximumWidth,
+        userDefaultsKey: SessionContentWidthSettings.rememberedMaxWidthKey
+    )
+
+    /// Horizontal placement for width-capped session content.
+    public let sessionContentAlignment = DefaultsKey<SessionContentAlignment>(
+        id: SessionContentWidthSettings.alignmentSettingsPath,
+        defaultValue: .center,
+        userDefaultsKey: SessionContentWidthSettings.alignmentKey
+    )
+
     public let showScrollBar = DefaultsKey<Bool>(
         id: "terminal.showScrollBar",
         defaultValue: true,
@@ -143,6 +165,24 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         id: "terminal.scrollSpeed",
         defaultValue: TerminalCatalogSection.scrollSpeedDefault,
         userDefaultsKey: "terminal.scrollSpeed"
+    )
+
+    /// Whether the per-pane runaway-memory guardrail is active. When on, cmux
+    /// polls each pane's process-tree memory and warns (badge + dismissible
+    /// banner with a kill action) when one crosses the threshold, before the OS
+    /// can OOM-suspend the whole app. On by default.
+    public let runawayMemoryGuardrailEnabled = DefaultsKey<Bool>(
+        id: "terminal.runawayMemoryGuardrail.enabled",
+        defaultValue: true,
+        userDefaultsKey: "terminal.runawayMemoryGuardrail.enabled"
+    )
+
+    /// Process-tree resident-memory threshold, in gigabytes, at which a pane is
+    /// flagged as a runaway. Default 8 GB.
+    public let runawayMemoryGuardrailThresholdGB = DefaultsKey<Double>(
+        id: "terminal.runawayMemoryGuardrail.thresholdGB",
+        defaultValue: 8,
+        userDefaultsKey: "terminal.runawayMemoryGuardrail.thresholdGB"
     )
 
     public init() {}

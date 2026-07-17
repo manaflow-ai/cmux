@@ -19,15 +19,24 @@ public import GhosttyKit
 /// to the main actor, as it always did.
 public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable {
     private let lock = NSLock()
-    // SAFETY: all four are guarded by `lock`; callers arrive on the main
+    // SAFETY: all five are guarded by `lock`; callers arrive on the main
     // actor and from nonisolated `deinit` paths.
     nonisolated(unsafe) private let surfaces = NSHashTable<AnyObject>.weakObjects()
     nonisolated(unsafe) private var runtimeSurfaceOwners: [UInt: UUID] = [:]
     nonisolated(unsafe) private var surfaceFocusPlacements: [UUID: TerminalSurfaceFocusPlacement] = [:]
+    // SAFETY: every read and write is guarded by `lock`.
+    nonisolated(unsafe) private var generation: UInt64 = 0
     nonisolated(unsafe) private weak var routeRetirer: (any MainWindowRouteRetiring)?
 
     /// Creates an empty registry.
     public init() {}
+
+    /// Monotonically increasing revision of surface registrations and removals.
+    public var topologyGeneration: UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        return generation
+    }
 
     /// Attaches the collaborator notified when a surface unregisters, so
     /// recoverable main-window routes without surfaces can be retired.
@@ -43,6 +52,7 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         defer { lock.unlock() }
         surfaces.add(surface)
         surfaceFocusPlacements[surface.id] = surface.focusPlacement
+        generation &+= 1
     }
 
     /// Removes a surface; drops its focus placement when no other surface
@@ -58,6 +68,7 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         if !stillRegistered {
             surfaceFocusPlacements.removeValue(forKey: surfaceId)
         }
+        generation &+= 1
         let routeRetirer = routeRetirer
         lock.unlock()
 
