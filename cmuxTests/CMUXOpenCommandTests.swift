@@ -1289,7 +1289,9 @@ final class CMUXOpenCommandTests: XCTestCase {
         let openingHTML = try XCTUnwrap(openedHTMLBox.get())
         XCTAssertTrue(htmlURL.lastPathComponent.hasSuffix("-opening.html"), htmlURL.path)
         XCTAssertTrue(openingHTML.contains("data-cmux-diff-pending=\"true\""), openingHTML)
-        XCTAssertTrue(openingHTML.contains("Loading diff: Unstaged"), openingHTML)
+        XCTAssertTrue(openingHTML.contains("class=\"skeleton\""), openingHTML)
+        XCTAssertFalse(openingHTML.contains("Loading diff:"), openingHTML)
+        XCTAssertFalse(openingHTML.contains("spinner"), openingHTML)
         XCTAssertFalse(openingHTML.contains("cmux-diff-viewer-config"), openingHTML)
 
         let redirectHTML = try String(contentsOf: htmlURL, encoding: .utf8)
