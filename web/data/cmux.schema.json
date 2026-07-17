@@ -560,7 +560,6 @@
             {
               "type": "number",
               "minimum": 320,
-              "maximum": 2400,
               "multipleOf": 20
             }
           ],
@@ -1446,6 +1445,20 @@
           "type": "string",
           "default": "0.1.29",
           "description": "Pinned react-grab version for the browser toolbar helper."
+        }
+      }
+    },
+    "mobile": {
+      "title": "mobile",
+      "description": "Mac-side settings for cmux on iOS.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "artifactFolderAccess": {
+          "type": "string",
+          "enum": ["subtree", "oneLevel"],
+          "default": "subtree",
+          "description": "Controls whether a referenced or terminal-visible directory authorizes its full canonical subtree or only immediate children."
         }
       }
     },

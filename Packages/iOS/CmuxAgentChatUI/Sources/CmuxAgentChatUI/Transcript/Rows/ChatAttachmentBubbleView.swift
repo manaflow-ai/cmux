@@ -14,6 +14,7 @@ public struct ChatAttachmentBubbleView: View {
     private let groupPosition: ChatGroupPosition
     private let showsTimestamp: Bool
     private let timestamp: Date
+    private let onOpenArtifact: ((String) -> Void)?
 
     @Environment(\.chatTheme) private var theme
     @Environment(\.chatBubbleMaxWidth) private var bubbleMaxWidth
@@ -22,7 +23,7 @@ public struct ChatAttachmentBubbleView: View {
     @State private var thumbnailData: Data?
     @State private var thumbnailFailed = false
     @State private var thumbnailPath: String?
-    @State private var selectedArtifact: ChatArtifactPathSelection?
+    @State private var fallbackSelection: ChatArtifactPathSelection?
 
     /// Creates an attachment bubble.
     ///
@@ -32,16 +33,20 @@ public struct ChatAttachmentBubbleView: View {
     ///   - showsTimestamp: Whether the group timestamp renders under this
     ///     bubble.
     ///   - timestamp: When the attachment was sent.
+    ///   - onOpenArtifact: Pushes the host path inline when the caller owns a
+    ///     navigation stack. When omitted, the standalone bubble uses a sheet.
     public init(
         attachment: ChatAttachment,
         groupPosition: ChatGroupPosition,
         showsTimestamp: Bool,
-        timestamp: Date
+        timestamp: Date,
+        onOpenArtifact: ((String) -> Void)? = nil
     ) {
         self.attachment = attachment
         self.groupPosition = groupPosition
         self.showsTimestamp = showsTimestamp
         self.timestamp = timestamp
+        self.onOpenArtifact = onOpenArtifact
     }
 
     public var body: some View {
@@ -60,7 +65,7 @@ public struct ChatAttachmentBubbleView: View {
             .accessibilityElement(children: .combine)
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
-        .sheet(item: $selectedArtifact) { selection in
+        .sheet(item: $fallbackSelection) { selection in
             ChatArtifactViewerSheet(path: selection.path)
         }
     }
@@ -69,7 +74,11 @@ public struct ChatAttachmentBubbleView: View {
     private var artifactAwareBubble: some View {
         if artifactLoader.supportsArtifacts, let hostPath = attachment.hostPath, !hostPath.isEmpty {
             Button {
-                selectedArtifact = ChatArtifactPathSelection(path: hostPath)
+                if let onOpenArtifact {
+                    onOpenArtifact(hostPath)
+                } else {
+                    fallbackSelection = ChatArtifactPathSelection(path: hostPath)
+                }
             } label: {
                 if thumbnailFailed {
                     bubble

@@ -28,7 +28,11 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
     /// cell, so TUIs with mouse reporting (lazygit/htop/fzf) receive the click.
     /// The Mac's libghostty self-gates: a normal screen treats it as a harmless
     /// empty selection. Optional.
-    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didTapAtCol col: Int, row: Int)
+    func ghosttySurfaceView(
+        _ surfaceView: GhosttySurfaceView,
+        didTapAtCol col: Int,
+        row: Int
+    ) async -> GhosttySurfaceTapDisposition
     /// The user tapped the "customize" button at the end of the input-accessory
     /// bar; the host should present the toolbar shortcuts editor. Optional.
     func ghosttySurfaceViewDidRequestToolbarSettings(_ surfaceView: GhosttySurfaceView)
@@ -77,8 +81,14 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
 public extension GhosttySurfaceViewDelegate {
     /// Default no-op so hosts without remote scroll forwarding can ignore it.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int) {}
-    /// Default no-op so hosts without remote click forwarding can ignore it.
-    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didTapAtCol col: Int, row: Int) {}
+    /// Default terminal disposition so hosts without remote click forwarding retain input focus.
+    func ghosttySurfaceView(
+        _ surfaceView: GhosttySurfaceView,
+        didTapAtCol col: Int,
+        row: Int
+    ) async -> GhosttySurfaceTapDisposition {
+        .focusTerminal
+    }
     /// Default no-op so hosts without a toolbar editor can ignore the request.
     func ghosttySurfaceViewDidRequestToolbarSettings(_ surfaceView: GhosttySurfaceView) {}
     /// Default no-op so hosts without terminal artifacts can ignore the request.
