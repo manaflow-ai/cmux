@@ -123,7 +123,7 @@
 		FEA700040000000000000001 /* AgentTerminalStateRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEA700040000000000000002 /* AgentTerminalStateRuntime.swift */; };
 		A57A7E010000000000000001 /* AgentTerminalStateRuntimeLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A57A7E010000000000000002 /* AgentTerminalStateRuntimeLifecycleTests.swift */; };
 		FEA700030000000000000001 /* AgentTerminalStateSurfaceObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEA700030000000000000002 /* AgentTerminalStateSurfaceObserver.swift */; };
-		FEA700050000000000000001 /* AgentTerminalSurfaceTaskSequencer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEA700050000000000000002 /* AgentTerminalSurfaceTaskSequencer.swift */; };
+		C386C7FA4103F812B0A00001 /* AgentTerminalSurfaceTaskSequencer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C386C7FA4103F812B0A00002 /* AgentTerminalSurfaceTaskSequencer.swift */; };
 		REE0CA0000000000000000F2 /* AIAccountCredentialSources.swift in Sources */ = {isa = PBXBuildFile; fileRef = REE0CA0000000000000000F1 /* AIAccountCredentialSources.swift */; };
 		REE0CA0000000000000000E2 /* AIAccountsClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = REE0CA0000000000000000E1 /* AIAccountsClient.swift */; };
 		A115C0DE0000000000000002 /* AllShortcutsPopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = A115C0DE0000000000000001 /* AllShortcutsPopover.swift */; };
@@ -2231,7 +2231,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		FEA700040000000000000002 /* AgentTerminalStateRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTerminalStateRuntime.swift; sourceTree = "<group>"; };
 		A57A7E010000000000000002 /* AgentTerminalStateRuntimeLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTerminalStateRuntimeLifecycleTests.swift; sourceTree = "<group>"; };
 		FEA700030000000000000002 /* AgentTerminalStateSurfaceObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTerminalStateSurfaceObserver.swift; sourceTree = "<group>"; };
-		FEA700050000000000000002 /* AgentTerminalSurfaceTaskSequencer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTerminalSurfaceTaskSequencer.swift; sourceTree = "<group>"; };
+		C386C7FA4103F812B0A00002 /* AgentTerminalSurfaceTaskSequencer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTerminalSurfaceTaskSequencer.swift; sourceTree = "<group>"; };
 		REE0CA0000000000000000F1 /* AIAccountCredentialSources.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AIAccountCredentialSources.swift; sourceTree = "<group>"; };
 		REE0CA0000000000000000E1 /* AIAccountsClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AIAccountsClient.swift; sourceTree = "<group>"; };
 		A115C0DE0000000000000001 /* AllShortcutsPopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AllShortcutsPopover.swift; sourceTree = "<group>"; };
@@ -4732,7 +4732,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				FEA700020000000000000002 /* AgentTerminalClassificationWorker.swift */,
 				FEA700030000000000000002 /* AgentTerminalStateSurfaceObserver.swift */,
 				FEA700040000000000000002 /* AgentTerminalStateRuntime.swift */,
-				FEA700050000000000000002 /* AgentTerminalSurfaceTaskSequencer.swift */,
+				C386C7FA4103F812B0A00002 /* AgentTerminalSurfaceTaskSequencer.swift */,
 				6799A0026799A0026799A002 /* WorkspaceSidebarAgentRuntimeObservationModel.swift */,
 				4AF464BD9CEDF14931D55126 /* Workspace+Todos.swift */,
 				97A8F8FE70450C596AE80D94 /* Workspace+TodoNotifications.swift */,
@@ -6791,7 +6791,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				FEA700020000000000000001 /* AgentTerminalClassificationWorker.swift in Sources */,
 				FEA700040000000000000001 /* AgentTerminalStateRuntime.swift in Sources */,
 				FEA700030000000000000001 /* AgentTerminalStateSurfaceObserver.swift in Sources */,
-				FEA700050000000000000001 /* AgentTerminalSurfaceTaskSequencer.swift in Sources */,
+				C386C7FA4103F812B0A00001 /* AgentTerminalSurfaceTaskSequencer.swift in Sources */,
 				REE0CA0000000000000000F2 /* AIAccountCredentialSources.swift in Sources */,
 				REE0CA0000000000000000E2 /* AIAccountsClient.swift in Sources */,
 				A115C0DE0000000000000002 /* AllShortcutsPopover.swift in Sources */,
