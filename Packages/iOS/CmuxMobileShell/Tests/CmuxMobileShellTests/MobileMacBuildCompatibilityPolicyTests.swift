@@ -146,7 +146,7 @@ import Testing
             kind: .tailscale,
             endpoint: .hostPort(host: "100.64.0.1", port: 22)
         )
-        for tag in ["icap", "tsmig"] {
+        for (tag, seenAt) in [("icap", 1.0), ("tsmig", 2.0)] {
             try await raw.upsert(
                 macDeviceID: "shared-mac",
                 displayName: tag,
@@ -155,7 +155,7 @@ import Testing
                 markActive: false,
                 stackUserID: "user-1",
                 teamID: "team-a",
-                now: Date()
+                now: Date(timeIntervalSince1970: seenAt)
             )
         }
         let scoped = MobileMacBuildCompatibilityPolicy
