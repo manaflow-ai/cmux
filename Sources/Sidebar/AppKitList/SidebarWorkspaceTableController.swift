@@ -44,7 +44,12 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         table.dataSource = self
         table.delegate = self
         table.headerView = nil
-        table.style = .fullWidth
+        // .plain, not .fullWidth: fullWidth still insets cell frames by
+        // ~6pt per side, which pushed the whole row (selection background
+        // and content) 6pt inboard of the legacy sidebar's geometry. The
+        // cell owns its own 6pt outer padding (rowOuterHorizontalPadding),
+        // so the table must hand it the full row width.
+        table.style = .plain
         table.backgroundColor = .clear
         table.enclosingScrollView?.backgroundColor = .clear
         table.focusRingType = .none
