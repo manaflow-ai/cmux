@@ -135,6 +135,30 @@ import Testing
         #expect(await builder.count == 0)
     }
 
+    @Test func exactProjectRootOutranksMatchingSeedDescendant() async throws {
+        let fixture = try Self.makeFreshLaunchDirectoryFixture()
+        let seededDescendant = fixture.project.appendingPathComponent("web", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+        try FileManager.default.createDirectory(at: seededDescendant, withIntermediateDirectories: true)
+        let service = MobileTaskDirectorySearchService(
+            homeDirectory: fixture.home,
+            configuration: .init(
+                maximumDirectories: 200,
+                maximumDepth: 6,
+                cacheLifetime: 0,
+                maximumFilesystemEntries: 36,
+                indexBuildTimeout: .seconds(60)
+            )
+        )
+
+        let matches = try await service.search(
+            query: "feat-ios-task-composer",
+            seedPaths: [seededDescendant.path]
+        )
+
+        #expect(matches == [fixture.project.standardizedFileURL.path])
+    }
+
     @Test func freshLaunchFindsDeepProjectWithinEntryBudget() async throws {
         let fixture = try Self.makeFreshLaunchDirectoryFixture()
         defer { try? FileManager.default.removeItem(at: fixture.home) }
