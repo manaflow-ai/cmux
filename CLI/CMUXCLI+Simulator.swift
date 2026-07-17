@@ -409,7 +409,7 @@ extension CMUXCLI {
         windowOverride: String?,
         responseTimeout: TimeInterval? = nil
     ) throws -> [String: Any] {
-        var params = simulatorRoutingParams(
+        var params = try simulatorRoutingParams(
             surface: surface,
             client: client,
             windowOverride: windowOverride
