@@ -91,6 +91,37 @@ test("shared attach rejects buffered overflow before its success response", asyn
   await client.close();
 });
 
+test("attach buffering enforces aggregate bytes and browser-frame limits", async () => {
+  for (const events of [
+    [
+      { event: "output", surface: 7, data: "YWJj" },
+      { event: "output", surface: 7, data: "ZGVm" },
+    ],
+    [{ event: "frame", surface: 7, data: "AAAAA" }],
+  ]) {
+    const transport = new ScriptedTransport((request, connection) => {
+      if (request.cmd === "identify") {
+        connection.emit({
+          id: request.id,
+          ok: true,
+          data: { app: "cmux-tui", version: "0.1.2", protocol: 6, session: "main", pid: 1 },
+        });
+        return;
+      }
+      for (const event of events) connection.emit(event);
+      connection.emit({ id: request.id, ok: true, data: {} });
+    });
+    const client = new CmuxClient({
+      transport,
+      timeoutMs: 100,
+      maxAttachEncodedChars: 4,
+    } as CmuxClientOptionsWithSecurityLimits);
+
+    await assert.rejects(() => client.attachSurface(7), /exceeds 4/);
+    await client.close();
+  }
+});
+
 type CmuxClientOptionsWithSecurityLimits = ConstructorParameters<typeof CmuxClient>[0] & {
   maxAttachEncodedChars: number;
 };

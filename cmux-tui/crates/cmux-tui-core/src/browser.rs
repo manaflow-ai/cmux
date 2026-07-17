@@ -2428,6 +2428,31 @@ mod tests {
     }
 
     #[test]
+    fn surface_route_retains_only_the_latest_screencast_frame() {
+        let (tx, rx) = mpsc::sync_channel(cmux_tui_cdp::CDP_EVENT_QUEUE_CAPACITY);
+        let route = Arc::new(super::SurfaceRoute::new(tx));
+        let frame = |index| {
+            cmux_tui_cdp::CdpEvent::ScreencastFrame(cmux_tui_cdp::ScreencastFrame {
+                session_id: "session-1".to_string(),
+                data_b64: format!("frame-{index}"),
+                css_width: 80,
+                css_height: 24,
+                ack_id: index,
+            })
+        };
+
+        for index in 1..=3 {
+            assert!(!route.deliver(frame(index)));
+        }
+        let received = rx.recv_timeout(Duration::from_millis(200)).unwrap();
+        let cmux_tui_cdp::CdpEvent::ScreencastFrame(frame) = received else {
+            panic!("expected a screencast frame");
+        };
+        assert_eq!(frame.ack_id, 3);
+        assert!(rx.try_recv().is_err(), "stale frames remained queued");
+    }
+
+    #[test]
     fn external_runtime_does_not_query_or_override_user_agent() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();

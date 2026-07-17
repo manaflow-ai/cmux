@@ -1032,4 +1032,57 @@ mod tests {
         }
         server.join().unwrap();
     }
+
+    #[test]
+    fn undrained_event_sink_does_not_block_command_responses() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (stop_tx, stop_rx) = channel();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            let request = ws.read().unwrap();
+            let Message::Text(request) = request else { panic!("expected text request") };
+            let request: Value = serde_json::from_str(&request).unwrap();
+            ws.send(Message::Text(
+                json!({
+                    "method": "Target.targetInfoChanged",
+                    "params": {
+                        "targetInfo": {
+                            "targetId": "target-1",
+                            "title": "busy",
+                            "url": "https://example.test"
+                        }
+                    }
+                })
+                .to_string()
+                .into(),
+            ))
+            .unwrap();
+            ws.send(Message::Text(
+                json!({
+                    "id": request["id"],
+                    "result": {"userAgent": "Mozilla/5.0 Chrome/136.0 Safari/537.36"}
+                })
+                .to_string()
+                .into(),
+            ))
+            .unwrap();
+            let _ = stop_rx.recv();
+        });
+        let (event_tx, event_rx) = std::sync::mpsc::sync_channel(0);
+        let client =
+            CdpClient::connect(&format!("ws://{addr}/devtools/browser/fake"), event_tx).unwrap();
+        let (result_tx, result_rx) = channel();
+        let call = thread::spawn(move || {
+            result_tx.send(client.browser_version()).unwrap();
+        });
+
+        let result = result_rx.recv_timeout(Duration::from_millis(200));
+        stop_tx.send(()).unwrap();
+        server.join().unwrap();
+        drop(event_rx);
+        call.join().unwrap();
+        assert!(result.is_ok(), "undrained event sink blocked command response: {result:?}");
+    }
 }
