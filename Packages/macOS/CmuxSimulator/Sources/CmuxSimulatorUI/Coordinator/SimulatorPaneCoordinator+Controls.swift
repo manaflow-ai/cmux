@@ -433,7 +433,8 @@ private func simulatorCoordinatorActionName(_ action: SimulatorControlAction) ->
     switch action {
     case .interactive:
         "interactive"
-    case .listApplications, .installApplication, .launchApplication, .terminateApplication:
+    case .listApplications, .installApplication, .launchApplication,
+         .terminateApplication, .cleanupCameraApplication:
         "applications"
     case .openURL:
         "open_url"

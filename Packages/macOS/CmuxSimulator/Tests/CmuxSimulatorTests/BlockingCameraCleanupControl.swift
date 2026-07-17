@@ -14,7 +14,8 @@ actor BlockingCameraCleanupControl: SimulatorControlling {
 
     func perform(_ action: SimulatorControlAction) async throws -> SimulatorControlResult {
         actions.append(action)
-        if !released, !isBlocked, case .terminateApplication = action {
+        if !released, !isBlocked,
+           action.isCameraCleanupMutation {
             isBlocked = true
             await withCheckedContinuation { continuation = $0 }
         }
@@ -25,5 +26,14 @@ actor BlockingCameraCleanupControl: SimulatorControlling {
         released = true
         continuation?.resume()
         continuation = nil
+    }
+}
+
+private extension SimulatorControlAction {
+    var isCameraCleanupMutation: Bool {
+        switch self {
+        case .terminateApplication, .cleanupCameraApplication: true
+        default: false
+        }
     }
 }

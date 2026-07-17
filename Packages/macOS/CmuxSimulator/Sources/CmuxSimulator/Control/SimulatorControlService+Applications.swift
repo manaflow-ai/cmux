@@ -101,6 +101,35 @@ extension SimulatorControlService {
         }
     }
 
+    func cleanupCameraApplication(
+        deviceID: String,
+        bundleIdentifier: String,
+        ownershipToken: UUID
+    ) async throws {
+        try await mutationGate.withLocks([
+            .application(deviceIdentifier: deviceID, bundleIdentifier: bundleIdentifier),
+        ]) {
+            let ownership = SimulatorCrossProcessOwnershipStore()
+            let components = [deviceID, bundleIdentifier]
+            guard ownership.isCurrent(
+                ownershipToken,
+                namespace: "camera",
+                components: components
+            ) else { return }
+            _ = try? await output(arguments: [
+                "simctl", "terminate", deviceID, bundleIdentifier,
+            ])
+            guard ownership.isCurrent(
+                ownershipToken,
+                namespace: "camera",
+                components: components
+            ) else { return }
+            _ = try? await output(arguments: [
+                "simctl", "launch", "--terminate-running-process", deviceID, bundleIdentifier,
+            ])
+        }
+    }
+
     /// Opens a URL through the selected simulated operating system.
     public func openURL(deviceID: String, url: URL) async throws {
         _ = try await output(arguments: ["simctl", "openurl", deviceID, url.absoluteString])

@@ -5,6 +5,22 @@ import Testing
 
 @Suite("Simulator cross-process mutation gate")
 struct SimulatorMutationGateTests {
+    @Test("Durable ownership rejects an older process token")
+    func durableOwnershipIsLastWriterWins() {
+        let directory = temporaryLockDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let firstProcess = SimulatorCrossProcessOwnershipStore(directory: directory)
+        let secondProcess = SimulatorCrossProcessOwnershipStore(directory: directory)
+        let components = ["DEVICE", "com.example.app"]
+
+        let first = firstProcess.claim(namespace: "camera", components: components)
+        #expect(secondProcess.isCurrent(first, namespace: "camera", components: components))
+        let second = secondProcess.claim(namespace: "camera", components: components)
+
+        #expect(!firstProcess.isCurrent(first, namespace: "camera", components: components))
+        #expect(firstProcess.isCurrent(second, namespace: "camera", components: components))
+    }
+
     @Test("Lock descriptors cannot leak through exec")
     func descriptorIsCloseOnExec() throws {
         let directory = temporaryLockDirectory()

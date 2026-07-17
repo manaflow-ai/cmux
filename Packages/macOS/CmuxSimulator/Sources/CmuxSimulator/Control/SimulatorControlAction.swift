@@ -12,6 +12,8 @@ public enum SimulatorControlAction: Equatable, Sendable {
     case launchApplication(deviceID: String, bundleIdentifier: String, configuration: SimulatorLaunchConfiguration)
     /// Terminate a running application.
     case terminateApplication(deviceID: String, bundleIdentifier: String)
+    /// Reconcile an injected camera target only while its durable owner remains current.
+    case cleanupCameraApplication(deviceID: String, bundleIdentifier: String, ownershipToken: UUID)
     /// Open a URL through the simulated operating system.
     case openURL(deviceID: String, url: URL)
     /// Add photos, videos, Live Photo pairs, or contacts.

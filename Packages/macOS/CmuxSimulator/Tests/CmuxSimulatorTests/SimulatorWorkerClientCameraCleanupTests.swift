@@ -23,10 +23,11 @@ extension SimulatorWorkerClientTests {
                 cleanupCoordinator: coordinator
             )
         }
-        for _ in 0..<1_000 {
-            if await control.isBlocked { break }
-            await Task.yield()
+        let deadline = ContinuousClock().now.advanced(by: .seconds(2))
+        while ContinuousClock().now < deadline, !(await control.isBlocked) {
+            try? await ContinuousClock().sleep(for: .milliseconds(1))
         }
+        #expect(await control.isBlocked)
 
         let newClaim = Task {
             await coordinator.claim(
@@ -35,12 +36,13 @@ extension SimulatorWorkerClientTests {
             )
         }
         for _ in 0..<100 { await Task.yield() }
-        #expect(await control.actions.count == 1)
+        let actionCountBeforeRelease = await control.actions.count
+        #expect(actionCountBeforeRelease == 1, "Observed \(actionCountBeforeRelease) cleanup actions")
         await control.release()
         await cleanup.value
         _ = await newClaim.value
 
-        #expect(await control.actions == cameraCleanupActions(
+        #expect(cameraCleanupActionsMatch(await control.actions,
             deviceIdentifier: deviceIdentifier,
             bundleIdentifiers: [bundleIdentifier]
         ))
@@ -179,11 +181,11 @@ extension SimulatorWorkerClientTests {
         await control.release()
         try await recovery.value
 
-        let expectedActions = cameraCleanupActions(
+        #expect(cameraCleanupActionsMatch(
+            await control.actions,
             deviceIdentifier: deviceIdentifier,
             bundleIdentifiers: ["com.example.a", "com.example.b"]
-        )
-        #expect(await control.actions == expectedActions)
+        ))
         let third = try #require(launcher.endpoint(at: 2))
         third.setResponder { message in
             switch message {
@@ -259,7 +261,7 @@ extension SimulatorWorkerClientTests {
         await client.stop()
 
         #expect(!region.exists())
-        #expect(await control.actions == cameraCleanupActions(
+        #expect(cameraCleanupActionsMatch(await control.actions,
             deviceIdentifier: deviceIdentifier,
             bundleIdentifiers: ["com.example.camera"]
         ))
@@ -346,24 +348,17 @@ extension SimulatorWorkerClientTests {
         )
     }
 
-    private func cameraCleanupActions(
+    private func cameraCleanupActionsMatch(
+        _ actions: [SimulatorControlAction],
         deviceIdentifier: String,
         bundleIdentifiers: [String]
-    ) -> [SimulatorControlAction] {
-        bundleIdentifiers.sorted().flatMap { bundleIdentifier in
-            [
-                .terminateApplication(
-                    deviceID: deviceIdentifier,
-                    bundleIdentifier: bundleIdentifier
-                ),
-                .launchApplication(
-                    deviceID: deviceIdentifier,
-                    bundleIdentifier: bundleIdentifier,
-                    configuration: SimulatorLaunchConfiguration(
-                        terminateRunningProcess: true
-                    )
-                ),
-            ]
+    ) -> Bool {
+        guard actions.count == bundleIdentifiers.count else { return false }
+        return zip(actions, bundleIdentifiers.sorted()).allSatisfy { action, bundleIdentifier in
+            guard case let .cleanupCameraApplication(deviceID, target, _) = action else {
+                return false
+            }
+            return deviceID == deviceIdentifier && target == bundleIdentifier
         }
     }
 }

@@ -25,6 +25,12 @@ extension SimulatorControlService {
             ))
         case let .terminateApplication(deviceID, bundleIdentifier):
             try await terminateApplication(deviceID: deviceID, bundleIdentifier: bundleIdentifier)
+        case let .cleanupCameraApplication(deviceID, bundleIdentifier, ownershipToken):
+            try await cleanupCameraApplication(
+                deviceID: deviceID,
+                bundleIdentifier: bundleIdentifier,
+                ownershipToken: ownershipToken
+            )
         case let .openURL(deviceID, url):
             try await openURL(deviceID: deviceID, url: url)
         case let .addMedia(deviceID, urls):

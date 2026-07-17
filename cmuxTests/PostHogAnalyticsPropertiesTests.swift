@@ -12,7 +12,8 @@ struct PostHogAnalyticsPropertiesTests {
         let body = try #require(request.httpBody)
         let payload = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
 
-        #expect(payload["distinct_id"] as? String == "cmux-desktop-release-control")
+        #expect(request.url?.host == "cmux.com")
+        #expect(payload["distinctId"] as? String == "cmux-desktop-release-control")
         #expect(payload["$anon_distinct_id"] == nil)
         #expect(payload["person_properties"] == nil)
     }

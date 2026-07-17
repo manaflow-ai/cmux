@@ -188,6 +188,8 @@ final class CmuxFeatureFlags {
     private let remoteFlagLoader: @Sendable () async -> [String: Bool]?
     @ObservationIgnored
     private var refreshTask: Task<Void, Never>?
+    @ObservationIgnored
+    private var refreshTimer: Timer?
 
     private var localOverridesByKey: [String: Bool] = [:]
     private var remoteValuesByKey: [String: Bool] = [:]
@@ -223,11 +225,22 @@ final class CmuxFeatureFlags {
     /// uses one product-wide identifier, so it cannot correlate an installation
     /// or reuse PostHog's analytics identity.
     func start() {
+        guard refreshTimer == nil else { return }
+        refreshRemoteFlags()
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: 5 * 60, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.refreshRemoteFlags() }
+        }
+    }
+
+    private func refreshRemoteFlags() {
         guard refreshTask == nil else { return }
         let loader = remoteFlagLoader
         refreshTask = Task { @MainActor [weak self] in
-            guard let values = await loader(), !Task.isCancelled else { return }
-            self?.applyRemoteFlagValues(values)
+            let values = await loader()
+            guard let self else { return }
+            self.refreshTask = nil
+            guard let values, !Task.isCancelled else { return }
+            self.applyRemoteFlagValues(values)
         }
     }
 
@@ -247,15 +260,14 @@ final class CmuxFeatureFlags {
     }
 
     nonisolated static func postHogControlPlaneRequest() -> URLRequest? {
-        guard let url = URL(string: "https://us.i.posthog.com/flags?v=2&config=true") else { return nil }
+        guard let url = URL(string: "https://cmux.com/api/client-config") else { return nil }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.timeoutInterval = 10
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONSerialization.data(withJSONObject: [
-            "api_key": "phc_opOVu7oFzR9wD3I6ZahFGOV2h3mqGpl5EHyQvmHciDP",
-            "distinct_id": "cmux-desktop-release-control",
-            "groups": [:],
+            "distinctId": "cmux-desktop-release-control",
+            "context": [:],
         ])
         return request
     }

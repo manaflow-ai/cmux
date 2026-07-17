@@ -82,21 +82,17 @@ extension SimulatorWorkerClientTests {
         await stop.value
         await control.waitUntilBlockedCallReturns()
         for _ in 0..<2_000 {
-            if await control.actions.count == 2 { break }
+            if await control.actions.count == 1 { break }
             await Task.yield()
         }
         #expect(await control.blockedCallReturned)
-        #expect(await control.actions == [
-            .terminateApplication(
-                deviceID: deviceIdentifier,
-                bundleIdentifier: bundleIdentifier
-            ),
-            .launchApplication(
-                deviceID: deviceIdentifier,
-                bundleIdentifier: bundleIdentifier,
-                configuration: SimulatorLaunchConfiguration(terminateRunningProcess: true)
-            ),
-        ])
+        let actions = await control.actions
+        guard case let .cleanupCameraApplication(deviceID, target, _) = actions.first else {
+            Issue.record("Expected one durable camera cleanup action")
+            return
+        }
+        #expect(deviceID == deviceIdentifier)
+        #expect(target == bundleIdentifier)
     }
 }
 

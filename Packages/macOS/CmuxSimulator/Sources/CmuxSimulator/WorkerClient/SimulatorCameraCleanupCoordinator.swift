@@ -12,6 +12,7 @@ actor SimulatorCameraCleanupCoordinator {
     private var tail: Task<Void, Never>?
     private var revision: UInt64 = 0
     private var ownerByTarget: [Target: UUID] = [:]
+    private let ownershipStore = SimulatorCrossProcessOwnershipStore()
 
     func claim(deviceIdentifier: String, bundleIdentifier: String) async -> UUID {
         while let pendingCleanup = tail {
@@ -19,7 +20,10 @@ actor SimulatorCameraCleanupCoordinator {
             await pendingCleanup.value
             if revision == observedRevision { break }
         }
-        let owner = UUID()
+        let owner = ownershipStore.claim(
+            namespace: "camera",
+            components: [deviceIdentifier, bundleIdentifier]
+        )
         ownerByTarget[Target(
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier
@@ -35,7 +39,11 @@ actor SimulatorCameraCleanupCoordinator {
         ownerByTarget[Target(
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier
-        )] == owner
+        )] == owner && ownershipStore.isCurrent(
+            owner,
+            namespace: "camera",
+            components: [deviceIdentifier, bundleIdentifier]
+        )
     }
 
     func enqueue(

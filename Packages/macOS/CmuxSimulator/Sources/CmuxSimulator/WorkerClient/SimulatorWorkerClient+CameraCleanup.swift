@@ -112,27 +112,10 @@ func cleanSimulatorCameraInjections(
                 bundleIdentifier: bundleIdentifier
               ) else { continue }
         do {
-            _ = try await simulatorControl.perform(.terminateApplication(
-                deviceID: deviceIdentifier,
-                bundleIdentifier: bundleIdentifier
-            ))
-        } catch is CancellationError {
-            return
-        } catch {}
-        guard !Task.isCancelled,
-              await permit?.allowsMutation() != false,
-              await cleanupCoordinator.isCurrent(
-                ownershipToken,
-                deviceIdentifier: deviceIdentifier,
-                bundleIdentifier: bundleIdentifier
-              ) else { continue }
-        do {
-            _ = try await simulatorControl.perform(.launchApplication(
+            _ = try await simulatorControl.perform(.cleanupCameraApplication(
                 deviceID: deviceIdentifier,
                 bundleIdentifier: bundleIdentifier,
-                configuration: SimulatorLaunchConfiguration(
-                    terminateRunningProcess: true
-                )
+                ownershipToken: ownershipToken
             ))
         } catch is CancellationError {
             return
