@@ -397,6 +397,7 @@ struct PendingSessionMutationState {
     routing: bool,
     cancellation_pending: Arc<AtomicBool>,
     settled: AtomicBool,
+    deferred_outcome: Mutex<Option<SessionMutationOutcome>>,
 }
 
 #[derive(Clone)]
@@ -409,6 +410,19 @@ impl PendingSessionMutation {
                 .0
                 .events
                 .send(AppEvent::SessionMutationSettled { outcome, routing: self.0.routing });
+        }
+    }
+
+    fn defer(&self, outcome: SessionMutationOutcome) {
+        let mut deferred = self.0.deferred_outcome.lock().unwrap();
+        debug_assert!(deferred.is_none(), "session mutation outcome deferred twice");
+        *deferred = Some(outcome);
+    }
+
+    fn publish_deferred(self) {
+        let outcome = self.0.deferred_outcome.lock().unwrap().take();
+        if let Some(outcome) = outcome {
+            self.settle(outcome);
         }
     }
 
@@ -678,6 +692,7 @@ impl OrderedSession {
             routing,
             cancellation_pending: self.cancellation_pending.clone(),
             settled: AtomicBool::new(false),
+            deferred_outcome: Mutex::new(None),
         }))
     }
 
@@ -741,23 +756,25 @@ impl OrderedSession {
         let remote = self.remote;
         let pending = self.pending_mutation();
         let superseded = pending.clone();
-        let enqueue_result = self.operations.enqueue_coalescing_mutation(
+        let settlement = pending.clone();
+        let enqueue_result = self.operations.enqueue_coalescing_mutation_with_settlement(
             "attach surface",
             ("attach surface", id),
             self.remote,
             move || superseded.supersede(),
+            move || settlement.publish_deferred(),
             move || {
                 let _claim = claim;
                 if exited_surfaces.lock().unwrap().contains(&id)
                     || (remote && session.remote_tree_is_stale())
                 {
-                    pending.settle(SessionMutationOutcome::Success { tree: None });
+                    pending.defer(SessionMutationOutcome::Success { tree: None });
                     return Ok(());
                 }
                 match session.try_surface_sized(id, size) {
                     Ok(Some(_)) => {
                         attach_failures.lock().unwrap().remove(&id);
-                        pending.settle(SessionMutationOutcome::Success { tree: None });
+                        pending.defer(SessionMutationOutcome::Success { tree: None });
                         Ok(())
                     }
                     Ok(None) => {
@@ -766,7 +783,7 @@ impl OrderedSession {
                             next_surface_sync_failure(failures.get(&id).copied(), false, false);
                         failures.insert(id, state);
                         drop(failures);
-                        pending.settle(SessionMutationOutcome::SurfaceSyncFailed {
+                        pending.defer(SessionMutationOutcome::SurfaceSyncFailed {
                             surface: id,
                             operation: "attach",
                             error: format!("surface {id} is unavailable"),
@@ -785,7 +802,7 @@ impl OrderedSession {
                         );
                         failures.insert(id, state);
                         drop(failures);
-                        pending.settle(SessionMutationOutcome::SurfaceSyncFailed {
+                        pending.defer(SessionMutationOutcome::SurfaceSyncFailed {
                             surface: id,
                             operation: "attach",
                             error: error.to_string(),
@@ -1005,49 +1022,59 @@ impl OrderedSession {
         let routing_token =
             routing.then(|| self.routing_mutation_started.fetch_add(1, Ordering::AcqRel) + 1);
         let routing_mutation_committed = self.routing_mutation_committed.clone();
-        self.operations.enqueue_session_mutation(label, self.remote, move || {
-            let completion = match operation(session.clone()) {
-                Ok(completion) => completion,
-                Err(error) => {
-                    if remote && is_remote_timeout(&error) {
-                        session.invalidate_remote_tree();
-                        pending.settle(SessionMutationOutcome::MutationTimedOut(error.to_string()));
-                    } else {
-                        pending.settle(SessionMutationOutcome::Failed(error.to_string()));
+        let settlement = pending.clone();
+        self.operations.enqueue_session_mutation_with_settlement(
+            label,
+            self.remote,
+            move || settlement.publish_deferred(),
+            move || {
+                let completion = match operation(session.clone()) {
+                    Ok(completion) => completion,
+                    Err(error) => {
+                        if remote && is_remote_timeout(&error) {
+                            session.invalidate_remote_tree();
+                            pending
+                                .defer(SessionMutationOutcome::MutationTimedOut(error.to_string()));
+                        } else {
+                            pending.defer(SessionMutationOutcome::Failed(error.to_string()));
+                        }
+                        return Err(error);
                     }
-                    return Err(error);
+                };
+                let mutation_generation =
+                    committed_mutation_generation.fetch_add(1, Ordering::AcqRel) + 1;
+                if let Some(routing_token) = routing_token {
+                    routing_mutation_committed.fetch_max(routing_token, Ordering::AcqRel);
                 }
-            };
-            let mutation_generation =
-                committed_mutation_generation.fetch_add(1, Ordering::AcqRel) + 1;
-            if let Some(routing_token) = routing_token {
-                routing_mutation_committed.fetch_max(routing_token, Ordering::AcqRel);
-            }
-            let completion =
-                completion.map(|action| SessionCompletion { mutation_generation, action });
-            session.invalidate_remote_tree();
-            if remote {
-                pending
-                    .settle(SessionMutationOutcome::CommittedTreeStale { error: None, completion });
-            } else {
-                match session.refresh_tree() {
-                    Ok(tree) => {
-                        let routing_generation = routing_mutation_committed.load(Ordering::Acquire);
-                        pending.settle(SessionMutationOutcome::AuthoritativeMutationSucceeded {
-                            tree,
-                            authoritative_generation: mutation_generation,
-                            routing_generation,
-                            completion,
-                        });
-                    }
-                    Err(error) => pending.settle(SessionMutationOutcome::CommittedTreeStale {
-                        error: Some(error.to_string()),
+                let completion =
+                    completion.map(|action| SessionCompletion { mutation_generation, action });
+                session.invalidate_remote_tree();
+                if remote {
+                    pending.defer(SessionMutationOutcome::CommittedTreeStale {
+                        error: None,
                         completion,
-                    }),
+                    });
+                } else {
+                    match session.refresh_tree() {
+                        Ok(tree) => {
+                            let routing_generation =
+                                routing_mutation_committed.load(Ordering::Acquire);
+                            pending.defer(SessionMutationOutcome::AuthoritativeMutationSucceeded {
+                                tree,
+                                authoritative_generation: mutation_generation,
+                                routing_generation,
+                                completion,
+                            });
+                        }
+                        Err(error) => pending.defer(SessionMutationOutcome::CommittedTreeStale {
+                            error: Some(error.to_string()),
+                            completion,
+                        }),
+                    }
                 }
-            }
-            Ok(())
-        });
+                Ok(())
+            },
+        );
     }
 
     fn enqueue_coalescing_session_mutation(
@@ -1061,23 +1088,25 @@ impl OrderedSession {
         let remote = self.remote;
         let committed_mutation_generation = self.committed_mutation_generation.clone();
         let superseded = pending.clone();
-        self.operations.enqueue_coalescing_mutation(
+        let settlement = pending.clone();
+        self.operations.enqueue_coalescing_mutation_with_settlement(
             label,
             key,
             remote,
             move || superseded.supersede(),
+            move || settlement.publish_deferred(),
             move || {
                 if let Err(error) = operation(session.clone()) {
                     if remote && is_remote_timeout(&error) {
                         session.invalidate_remote_tree();
-                        pending.settle(SessionMutationOutcome::MutationTimedOut(error.to_string()));
+                        pending.defer(SessionMutationOutcome::MutationTimedOut(error.to_string()));
                     } else {
-                        pending.settle(SessionMutationOutcome::Failed(error.to_string()));
+                        pending.defer(SessionMutationOutcome::Failed(error.to_string()));
                     }
                     return Err(error);
                 }
                 committed_mutation_generation.fetch_add(1, Ordering::AcqRel);
-                pending.settle(SessionMutationOutcome::Success { tree: None });
+                pending.defer(SessionMutationOutcome::Success { tree: None });
                 Ok(())
             },
         );
@@ -1097,26 +1126,27 @@ impl OrderedSession {
         let enqueue_failures = failures.clone();
         let committed_mutation_generation = self.committed_mutation_generation.clone();
         let superseded = pending.clone();
-        let enqueue_result = self.operations.enqueue_coalescing_mutation(
+        let settlement = pending.clone();
+        let enqueue_result = self.operations.enqueue_coalescing_mutation_with_settlement(
             "resize PTY surface",
             ("surface resize", surface_id),
             self.remote,
             move || superseded.supersede(),
+            move || settlement.publish_deferred(),
             move || {
                 let result = if reassert {
                     surface.reassert_size(cols, rows)
                 } else {
                     surface.resize(cols, rows)
                 };
-                // A settled event is the synchronization barrier for the UI.
-                // Release the in-flight claim before publishing completion so
-                // lifecycle recovery can queue the same geometry immediately.
+                // Release local ownership before the worker publishes its
+                // post-operation settlement barrier.
                 drop(claim);
                 match result {
                     Ok(_) => {
                         failures.lock().unwrap().remove(&surface_id);
                         committed_mutation_generation.fetch_add(1, Ordering::AcqRel);
-                        pending.settle(SessionMutationOutcome::Success { tree: None });
+                        pending.defer(SessionMutationOutcome::Success { tree: None });
                         Ok(())
                     }
                     Err(error) => {
@@ -1130,7 +1160,7 @@ impl OrderedSession {
                             SurfaceResizeFailure { desired: (cols, rows), state },
                         );
                         drop(failures);
-                        pending.settle(SessionMutationOutcome::SurfaceSyncFailed {
+                        pending.defer(SessionMutationOutcome::SurfaceSyncFailed {
                             surface: surface_id,
                             operation: "resize",
                             error: error.to_string(),
@@ -1244,16 +1274,18 @@ impl OrderedSession {
         let committed_mutation_generation = self.committed_mutation_generation.clone();
         let config_generation = self.config_generation.clone();
         let superseded = pending.clone();
-        self.operations.enqueue_coalescing_mutation(
+        let settlement = pending.clone();
+        self.operations.enqueue_coalescing_mutation_with_settlement(
             "apply config",
             ("apply config", 0),
             self.remote,
             move || superseded.supersede(),
+            move || settlement.publish_deferred(),
             move || {
                 session.apply_config(&config);
                 config_generation.fetch_add(1, Ordering::AcqRel);
                 committed_mutation_generation.fetch_add(1, Ordering::AcqRel);
-                pending.settle(SessionMutationOutcome::Success { tree: None });
+                pending.defer(SessionMutationOutcome::Success { tree: None });
                 Ok(())
             },
         );
@@ -1280,6 +1312,7 @@ impl OrderedSession {
         let events = self.events.clone();
         let pending = self.pending_mutation();
         let superseded = pending.clone();
+        let settlement = pending.clone();
         let committed_mutation_generation = self.committed_mutation_generation.clone();
         let operation = move || {
             let mut claim = claim;
@@ -1290,21 +1323,23 @@ impl OrderedSession {
             if settles_passive_claim && let Some(claim) = &mut claim {
                 claim.mark_applied();
             }
-            pending.settle(SessionMutationOutcome::Success { tree: None });
+            pending.defer(SessionMutationOutcome::Success { tree: None });
             Ok(())
         };
         if relaunch {
-            self.operations.enqueue_session_mutation(
+            self.operations.enqueue_session_mutation_with_settlement(
                 "relaunch sidebar plugin",
                 self.remote,
+                move || settlement.publish_deferred(),
                 operation,
             );
         } else {
-            self.operations.enqueue_coalescing_mutation(
+            self.operations.enqueue_coalescing_mutation_with_settlement(
                 "sync sidebar plugin",
                 ("sidebar plugin", 0),
                 self.remote,
                 move || superseded.supersede(),
+                move || settlement.publish_deferred(),
                 operation,
             );
         }
@@ -7586,6 +7621,7 @@ mod tests {
             routing: false,
             cancellation_pending: cancellation_pending.clone(),
             settled: AtomicBool::new(false),
+            deferred_outcome: Mutex::new(None),
         })));
 
         assert_eq!(pending_mutations.load(Ordering::Acquire), 0);
@@ -7606,6 +7642,7 @@ mod tests {
             routing: false,
             cancellation_pending: cancellation_pending.clone(),
             settled: AtomicBool::new(false),
+            deferred_outcome: Mutex::new(None),
         }));
 
         pending.clone().supersede();

@@ -51,6 +51,7 @@ pub struct PtyInputEvent {
     pub bytes: PtyInputBytes,
     pub kind: PtyInputKind,
     mutation: Option<Box<dyn FnOnce() -> anyhow::Result<()> + Send>>,
+    after_operation: Option<Box<dyn FnOnce() + Send>>,
     on_superseded: Option<Box<dyn FnOnce() + Send>>,
     label: &'static str,
     coalesce_key: Option<(&'static str, u64)>,
@@ -73,6 +74,7 @@ impl PtyInputEvent {
             bytes,
             kind,
             mutation: None,
+            after_operation: None,
             on_superseded: None,
             label: "PTY input",
             coalesce_key: None,
@@ -100,7 +102,7 @@ impl PtyInputEvent {
         remote: bool,
         operation: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
     ) -> Self {
-        Self::mutation_with_superseded(label, coalesce_key, remote, None, operation)
+        Self::mutation_with_superseded(label, coalesce_key, remote, None, None, operation)
     }
 
     fn mutation_with_superseded(
@@ -108,6 +110,7 @@ impl PtyInputEvent {
         coalesce_key: Option<(&'static str, u64)>,
         remote: bool,
         on_superseded: Option<Box<dyn FnOnce() + Send>>,
+        after_operation: Option<Box<dyn FnOnce() + Send>>,
         operation: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
     ) -> Self {
         Self {
@@ -116,6 +119,7 @@ impl PtyInputEvent {
             bytes: PtyInputBytes::new(),
             kind: PtyInputKind::Mutation,
             mutation: Some(Box::new(operation)),
+            after_operation,
             on_superseded,
             label,
             coalesce_key,
@@ -342,21 +346,40 @@ impl PtyInputSender {
         self.queue.changed.notify_all();
     }
 
+    #[cfg(test)]
     pub fn enqueue_session_mutation(
         &self,
         label: &'static str,
         remote: bool,
         operation: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
     ) {
-        let _ = self.enqueue_mutation_with_key(label, None, remote, None, operation);
+        let _ = self.enqueue_mutation_with_key(label, None, remote, None, None, operation);
     }
 
-    pub fn enqueue_coalescing_mutation(
+    pub fn enqueue_session_mutation_with_settlement(
+        &self,
+        label: &'static str,
+        remote: bool,
+        after_operation: impl FnOnce() + Send + 'static,
+        operation: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
+    ) {
+        let _ = self.enqueue_mutation_with_key(
+            label,
+            None,
+            remote,
+            None,
+            Some(Box::new(after_operation)),
+            operation,
+        );
+    }
+
+    pub fn enqueue_coalescing_mutation_with_settlement(
         &self,
         label: &'static str,
         key: (&'static str, u64),
         remote: bool,
         on_superseded: impl FnOnce() + Send + 'static,
+        after_operation: impl FnOnce() + Send + 'static,
         operation: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
     ) -> PtyInputEnqueueResult {
         self.enqueue_mutation_with_key(
@@ -364,6 +387,7 @@ impl PtyInputSender {
             Some(key),
             remote,
             Some(Box::new(on_superseded)),
+            Some(Box::new(after_operation)),
             operation,
         )
     }
@@ -374,6 +398,7 @@ impl PtyInputSender {
         key: Option<(&'static str, u64)>,
         remote: bool,
         on_superseded: Option<Box<dyn FnOnce() + Send>>,
+        after_operation: Option<Box<dyn FnOnce() + Send>>,
         operation: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
     ) -> PtyInputEnqueueResult {
         let result = self.enqueue(PtyInputEvent::mutation_with_superseded(
@@ -381,6 +406,7 @@ impl PtyInputSender {
             key,
             remote,
             on_superseded,
+            after_operation,
             operation,
         ));
         if result != PtyInputEnqueueResult::Accepted {
@@ -587,6 +613,7 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
         if remote && event.kind == PtyInputKind::Release {
             event.remote_release_attempts = event.remote_release_attempts.saturating_add(1);
         }
+        let after_operation = event.after_operation.take();
         let result = if let Some(operation) = event.mutation.take() {
             operation()
         } else {
@@ -684,6 +711,11 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
         }
         for failure in canceled {
             on_failure(failure);
+        }
+        // Completion is a barrier: publish only after timeout pruning,
+        // in-flight ownership, and failure delivery have all settled.
+        if let Some(after_operation) = after_operation {
+            after_operation();
         }
     }
 }
@@ -952,6 +984,7 @@ mod tests {
                 Some(Box::new(move || {
                     replaced.store(true, std::sync::atomic::Ordering::Release);
                 })),
+                None,
                 || Ok(()),
             ),
             8,
@@ -985,6 +1018,7 @@ mod tests {
             Some(Box::new(move || {
                 replaced.store(true, std::sync::atomic::Ordering::Release);
             })),
+            None,
             || Ok(()),
         );
         previous.bytes = PtyInputBytes::from_slice(&[1]);
