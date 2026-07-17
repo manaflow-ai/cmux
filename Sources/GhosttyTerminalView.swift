@@ -12477,6 +12477,8 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 )
                 coordinator.lastBoundHostId = ObjectIdentifier(host)
                 coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
+                hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
+                hostedView.setActive(coordinator.desiredIsActive)
                 // The dying owner's dismantle cleared the shared hosted view's
                 // handlers, and this survivor skipped its own configuration
                 // when it lost the earlier claim. Restore the owner-owned
