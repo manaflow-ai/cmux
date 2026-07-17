@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppKitSupportUI
 import SwiftUI
 
 /// Owns the native child panel for one workspace floating Dock.
@@ -7,6 +8,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
     let dock: WorkspaceFloatingDock
     private weak var parentWindow: NSWindow?
     private let onCloseRequest: (UUID) -> Void
+    private let glassEffect = WindowGlassEffect()
     private var isApplyingModelFrame = false
 
     init(
@@ -20,11 +22,16 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
 
         let panel = NSPanel(
             contentRect: Self.screenFrame(relativeFrame: dock.frame, parentWindow: parentWindow),
-            styleMask: [.titled, .closable, .resizable, .miniaturizable],
+            styleMask: [.titled, .closable, .resizable, .miniaturizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         panel.title = dock.title
+        panel.titleVisibility = .hidden
+        panel.titlebarAppearsTransparent = true
+        panel.standardWindowButton(.closeButton)?.isHidden = true
+        panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        panel.standardWindowButton(.zoomButton)?.isHidden = true
         panel.identifier = NSUserInterfaceItemIdentifier("cmux.workspace.float.\(dock.id.uuidString)")
         panel.isReleasedWhenClosed = false
         panel.isFloatingPanel = false
@@ -32,12 +39,30 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         panel.level = .normal
         panel.collectionBehavior = [.fullScreenAuxiliary]
         panel.minSize = NSSize(width: 320, height: 220)
-        panel.contentView = UserSizedWindowHostingView(
-            rootView: WorkspaceFloatingDockContentView(dock: dock),
+        panel.contentMinSize = NSSize(width: 320, height: 220)
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.isMovable = true
+        panel.isMovableByWindowBackground = false
+        panel.contentView = WorkspaceFloatingDockHostingView(
+            rootView: WorkspaceFloatingDockContentView(
+                dock: dock,
+                windowActions: WorkspaceFloatingDockWindowActions(
+                    close: { onCloseRequest(dock.id) },
+                    minimize: { [weak panel] in panel?.miniaturize(nil) },
+                    zoom: { [weak panel] in panel?.zoom(nil) }
+                )
+            ),
             minimumContentSize: NSSize(width: 320, height: 220)
         )
         super.init(window: panel)
         panel.delegate = self
+        glassEffect.apply(
+            to: panel,
+            tintColor: NSColor.windowBackgroundColor.withAlphaComponent(0.16),
+            style: .regular
+        )
     }
 
     required init?(coder: NSCoder) {
@@ -51,12 +76,15 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
             if panel.parent !== parentWindow {
                 parentWindow.addChildWindow(panel, ordered: .above)
             }
-            applyModelFrame()
             panel.orderFront(nil)
         }
+        applyModelFrameIfNeeded()
         dock.isPresented = true
         dock.store.setVisibleInUI(true)
         if focus {
+            if panel.isMiniaturized {
+                panel.deminiaturize(nil)
+            }
             panel.makeKeyAndOrderFront(nil)
             _ = dock.store.focusFirstControl()
         }
@@ -73,6 +101,9 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         dock.store.setVisibleInUI(false)
         if let window, let parent = window.parent {
             parent.removeChildWindow(window)
+        }
+        if let window {
+            glassEffect.remove(from: window)
         }
         window?.orderOut(nil)
         window?.delegate = nil
@@ -91,6 +122,10 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         captureModelFrame()
     }
 
+    func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
+        NSSize(width: max(320, frameSize.width), height: max(220, frameSize.height))
+    }
+
     func windowDidBecomeKey(_ notification: Notification) {
         dock.ownsInputFocus = true
     }
@@ -104,6 +139,13 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         isApplyingModelFrame = true
         panel.setFrame(Self.screenFrame(relativeFrame: dock.frame, parentWindow: parentWindow), display: false)
         isApplyingModelFrame = false
+    }
+
+    private func applyModelFrameIfNeeded() {
+        guard let panel = window, let parentWindow else { return }
+        let target = Self.screenFrame(relativeFrame: dock.frame, parentWindow: parentWindow)
+        guard panel.frame != target else { return }
+        applyModelFrame()
     }
 
     private func captureModelFrame() {
@@ -123,5 +165,13 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
             width: relativeFrame.width,
             height: relativeFrame.height
         )
+    }
+}
+
+/// Floating Dock controls should work on the first click even when another
+/// cmux window is currently key, matching native titlebar control behavior.
+private final class WorkspaceFloatingDockHostingView<Content: View>: UserSizedWindowHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
     }
 }

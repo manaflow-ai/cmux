@@ -19,17 +19,21 @@ struct DockPanelView: View {
     /// exclusive (the main pane dims its ring when this is true).
     var rightSidebarOwnsInputFocus: Bool = false
     var onKeyboardFocusIntent: (() -> Void)? = nil
+    var usesTransparentBackground = false
 
     @State private var appearanceConfig = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "dock.initial")
     @State private var visibilityHostId = UUID()
 
     private var appearance: PanelAppearance {
-        PanelAppearance.fromConfig(appearanceConfig)
+        if usesTransparentBackground {
+            return PanelAppearance.fromConfig(appearanceConfig, usesTransparentWindow: true)
+        }
+        return PanelAppearance.fromConfig(appearanceConfig)
     }
 
     var body: some View {
         content
-        .background(Color(nsColor: appearance.backgroundColor))
+        .background(Color(nsColor: usesTransparentBackground ? appearance.contentBackgroundColor : appearance.backgroundColor))
         .background(
             DockKeyboardFocusBridge(store: store)
                 .frame(width: 1, height: 1)

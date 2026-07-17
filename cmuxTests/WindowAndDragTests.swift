@@ -2941,6 +2941,68 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
 
 @MainActor
 final class FilePreviewPanelTextSavingTests: XCTestCase {
+    func testWorkspaceFloatingDockUsesCustomTransparentGlassChrome() throws {
+        _ = NSApplication.shared
+        let url = try temporaryTextFile(contents: "", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let parent = NSWindow(
+            contentRect: CGRect(x: 100, y: 100, width: 900, height: 700),
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        let dock = WorkspaceFloatingDock(
+            id: UUID(),
+            workspaceId: UUID(),
+            title: "Custom Chrome",
+            frame: CGRect(x: 40, y: 40, width: 520, height: 380),
+            isPresented: true,
+            noteFilePath: url.path,
+            baseDirectoryProvider: { nil },
+            remoteBrowserSettingsProvider: { .local }
+        )
+        defer { dock.close() }
+
+        let controller = WorkspaceFloatingDockWindowController(
+            dock: dock,
+            parentWindow: parent,
+            onCloseRequest: { _ in }
+        )
+        defer { controller.teardown() }
+        let panel = try XCTUnwrap(controller.window)
+
+        XCTAssertTrue(panel.styleMask.contains(.fullSizeContentView))
+        XCTAssertEqual(panel.titleVisibility, .hidden)
+        XCTAssertTrue(panel.titlebarAppearsTransparent)
+        XCTAssertTrue(panel.standardWindowButton(.closeButton)?.isHidden == true)
+        XCTAssertTrue(panel.standardWindowButton(.miniaturizeButton)?.isHidden == true)
+        XCTAssertTrue(panel.standardWindowButton(.zoomButton)?.isHidden == true)
+        XCTAssertFalse(panel.isOpaque)
+        XCTAssertEqual(panel.backgroundColor.alphaComponent, 0, accuracy: 0.001)
+        XCTAssertEqual(panel.minSize, NSSize(width: 320, height: 220))
+        XCTAssertEqual(panel.contentMinSize, NSSize(width: 320, height: 220))
+        XCTAssertEqual(
+            controller.windowWillResize(panel, to: NSSize(width: 80, height: 40)),
+            NSSize(width: 320, height: 220)
+        )
+
+        controller.show(focus: false)
+        dock.frame = CGRect(x: 75, y: 85, width: 610, height: 410)
+        controller.show(focus: false)
+        XCTAssertEqual(panel.frame, CGRect(x: 175, y: 185, width: 610, height: 410))
+
+        let glass = WindowGlassEffect()
+        let glassIsInstalled = Self.viewTree(
+            rootedAt: panel.contentView?.superview,
+            contains: glass.rootViewIdentifier
+        ) || Self.viewTree(
+            rootedAt: panel.contentView?.superview,
+            contains: glass.backgroundViewIdentifier
+        )
+        XCTAssertTrue(glassIsInstalled)
+    }
+
     func testWorkspaceFloatingDockSeedsNativeNoteSurface() throws {
         let url = try temporaryTextFile(contents: "", encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
@@ -2992,6 +3054,15 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertEqual(panel.textContent, "agent-visible note")
         XCTAssertEqual(textView.string, "agent-visible note")
         XCTAssertFalse(panel.isDirty)
+    }
+
+    private static func viewTree(
+        rootedAt root: NSView?,
+        contains identifier: NSUserInterfaceItemIdentifier
+    ) -> Bool {
+        guard let root else { return false }
+        if root.identifier == identifier { return true }
+        return root.subviews.contains { Self.viewTree(rootedAt: $0, contains: identifier) }
     }
 
     func testNativePreviewSessionsDetachAndManageViewsAcrossRecreation() throws {
