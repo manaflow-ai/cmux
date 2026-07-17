@@ -236,7 +236,7 @@ extension SimulatorWebInspectorService {
             subscribedApplicationIdentifiers.formUnion(identifiers)
             pendingListingIdentifiers = identifiers
             for identifier in identifiers { requestListing(applicationIdentifier: identifier) }
-            if identifiers.isEmpty { finishRefresh() }
+            if identifiers.isEmpty { finishRefresh(authoritative: true) }
         case "_rpc_applicationConnected:":
             guard let identifier = argument["WIRApplicationIdentifierKey"] as? String,
                   catalog.inspectableApplicationIdentifiers.contains(identifier) else { return }
@@ -247,11 +247,11 @@ extension SimulatorWebInspectorService {
             guard let identifier = argument["WIRApplicationIdentifierKey"] as? String else { return }
             subscribedApplicationIdentifiers.remove(identifier)
             pendingListingIdentifiers.remove(identifier)
-            if pendingListingIdentifiers.isEmpty { finishRefresh() }
+            if pendingListingIdentifiers.isEmpty { finishRefresh(authoritative: true) }
         case "_rpc_applicationSentListing:":
             guard let identifier = argument["WIRApplicationIdentifierKey"] as? String else { return }
             pendingListingIdentifiers.remove(identifier)
-            if pendingListingIdentifiers.isEmpty { finishRefresh() }
+            if pendingListingIdentifiers.isEmpty { finishRefresh(authoritative: true) }
         default:
             break
         }

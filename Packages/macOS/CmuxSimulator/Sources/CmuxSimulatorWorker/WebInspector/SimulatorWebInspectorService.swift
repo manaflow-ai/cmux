@@ -27,6 +27,7 @@ final class SimulatorWebInspectorService {
     var pendingListingIdentifiers: Set<String> = []
     var refreshContinuation: RefreshContinuation?
     var refreshTimeoutTask: Task<Void, Never>?
+    var lastRefreshWasAuthoritative = false
     var session: Session?
     var sessionLease: SimulatorMutationLease?
     var nextInternalRequestIdentifier: Int64 = -9_000_000_000_000_000
@@ -62,6 +63,7 @@ final class SimulatorWebInspectorService {
         ))
         subscribedApplicationIdentifiers.removeAll()
         pendingListingIdentifiers.removeAll()
+        lastRefreshWasAuthoritative = false
 
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -74,7 +76,7 @@ final class SimulatorWebInspectorService {
                         return
                     }
                     guard !Task.isCancelled else { return }
-                    self.finishRefresh()
+                    self.finishRefresh(authoritative: false)
                 }
                 do {
                     try sendRPC(selector: "_rpc_reportIdentifier:")
@@ -105,6 +107,10 @@ final class SimulatorWebInspectorService {
         } catch {
             lease.release()
             throw error
+        }
+        guard lastRefreshWasAuthoritative else {
+            lease.release()
+            throw SimulatorWebInspectorError.timedOut("target occupancy refresh")
         }
         guard let currentTarget = refreshedTargets.first(where: { $0.id == targetIdentifier }) else {
             lease.release()
@@ -308,8 +314,9 @@ final class SimulatorWebInspectorService {
         }
     }
 
-    func finishRefresh() {
+    func finishRefresh(authoritative: Bool) {
         guard let continuation = refreshContinuation else { return }
+        lastRefreshWasAuthoritative = authoritative
         refreshContinuation = nil
         refreshTimeoutTask?.cancel()
         refreshTimeoutTask = nil
@@ -321,6 +328,7 @@ final class SimulatorWebInspectorService {
         refreshContinuation = nil
         refreshTimeoutTask?.cancel()
         refreshTimeoutTask = nil
+        lastRefreshWasAuthoritative = false
         continuation?.resume(throwing: error)
     }
 
