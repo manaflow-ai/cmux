@@ -18,7 +18,8 @@ struct CmuxAlertContent: Equatable, Sendable {
     init(flattenedText: String, separatingScrollableDetails details: String) {
         self.flattenedText = flattenedText
 
-        guard !details.isEmpty, let range = flattenedText.range(of: details) else {
+        guard !details.isEmpty,
+              let range = flattenedText.range(of: details, options: .backwards) else {
             informativeText = ""
             scrollableDetails = flattenedText
             return

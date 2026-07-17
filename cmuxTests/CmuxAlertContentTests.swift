@@ -60,4 +60,19 @@ struct CmuxAlertContentTests {
         #expect(alert.informativeText == flattenedText)
         #expect(alert.accessoryView == nil)
     }
+
+    @Test func repeatedDetailsTextSeparatesTrailingOccurrence() {
+        let details = "bash"
+        let summary = "Working directory: /home/user/bash"
+        let flattenedText = "\(summary)\n\n\(details)"
+
+        let content = CmuxAlertContent(
+            flattenedText: flattenedText,
+            separatingScrollableDetails: details
+        )
+
+        #expect(content.informativeText == summary)
+        #expect(content.scrollableDetails == details)
+        #expect(content.flattenedText == flattenedText)
+    }
 }
