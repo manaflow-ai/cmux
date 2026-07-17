@@ -19,6 +19,7 @@ extension MobileWorkspacePreview {
                 MobileTerminalPreview(remote: terminal)
             }
         )
+        isDiffReviewEligible = remote.isRemoteWorkspace != true && remote.isRemoteTmuxMirror != true
     }
 }
 

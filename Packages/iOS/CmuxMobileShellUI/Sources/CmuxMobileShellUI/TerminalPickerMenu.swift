@@ -83,6 +83,16 @@ struct TerminalPickerMenu: View, Equatable {
 
         #if canImport(UIKit)
         Section {
+            if value.canReviewChanges {
+                Button(action: actions.openDiffReview) {
+                    Label(
+                        L10n.string("mobile.diff.reviewChanges", defaultValue: "Review Changes"),
+                        systemImage: "doc.text.magnifyingglass"
+                    )
+                }
+                .accessibilityIdentifier("MobileReviewChangesMenuItem")
+            }
+
             if !value.hasActiveBrowser && !value.isChatMode {
                 Button(action: actions.openTextSheet) {
                     Label(

@@ -218,6 +218,8 @@ extension TerminalController {
             "title": workspace.title,
             "current_directory": v2OrNull(workspace.presentedCurrentDirectory),
             "is_selected": isSelected,
+            "is_remote_workspace": workspace.isRemoteWorkspace,
+            "is_remote_tmux_mirror": workspace.isRemoteTmuxMirror,
             "is_pinned": workspace.isPinned,
             // Group membership so the phone can fold contiguous same-group
             // workspaces under their group header. nil for ungrouped workspaces.

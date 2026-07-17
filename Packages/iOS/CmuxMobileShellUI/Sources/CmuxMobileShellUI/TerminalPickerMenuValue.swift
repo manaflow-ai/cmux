@@ -6,6 +6,7 @@ struct TerminalPickerMenuValue: Equatable {
     let selectedID: MobileTerminalPreview.ID?
     let selectedName: String?
     let canCreateWorkspace: Bool
+    let canReviewChanges: Bool
     let hasActiveBrowser: Bool
     let isChatMode: Bool
 
@@ -14,6 +15,7 @@ struct TerminalPickerMenuValue: Equatable {
         snapshotRows: [TerminalPickerMenuRow],
         selectedID: MobileTerminalPreview.ID?,
         canCreateWorkspace: Bool,
+        canReviewChanges: Bool,
         hasActiveBrowser: Bool,
         isChatMode: Bool
     ) {
@@ -24,6 +26,7 @@ struct TerminalPickerMenuValue: Equatable {
         self.selectedID = selection?.id
         selectedName = selection?.name
         self.canCreateWorkspace = canCreateWorkspace
+        self.canReviewChanges = canReviewChanges
         self.hasActiveBrowser = hasActiveBrowser
         self.isChatMode = isChatMode
     }

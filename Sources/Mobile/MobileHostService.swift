@@ -1664,7 +1664,7 @@ actor MobileHostConnection {
         self.idleTimeoutNanoseconds = idleTimeoutNanoseconds
         self.authorizeRequest = authorizeRequest
         self.onAuthorizedRequest = onAuthorizedRequest
-        self.handleRequest = handleRequest
+        self.handleRequest = MobileWorkspaceDiffRequestCoordinator.makeHandler(handleRequest)
         self.onClose = onClose
     }
 
@@ -1687,7 +1687,7 @@ actor MobileHostConnection {
         self.idleTimeoutNanoseconds = idleTimeoutNanoseconds
         self.authorizeRequest = authorizeRequest
         self.onAuthorizedRequest = onAuthorizedRequest
-        self.handleRequest = handleRequest
+        self.handleRequest = MobileWorkspaceDiffRequestCoordinator.makeHandler(handleRequest)
         self.onClose = onClose
     }
 

@@ -36,6 +36,13 @@ extension MobileHostService {
         if containsIgnoredAliasParameters(request.params) {
             return scopedTicketError
         }
+        if let error = diffTicketAuthorizationDecision(
+            authorization: authorization,
+            method: request.method,
+            workspaceSelection: workspaceSelection.value
+        ) {
+            return error
+        }
 
         switch request.method {
         case "mobile.workspace.list", "workspace.list":
@@ -111,7 +118,7 @@ extension MobileHostService {
         return nil
     }
 
-    private static func ticketWorkspaceAuthorizationError(authorization: MobileAttachTicketAuthorization, workspaceSelection: String?) -> MobileHostRPCError? {
+    static func ticketWorkspaceAuthorizationError(authorization: MobileAttachTicketAuthorization, workspaceSelection: String?) -> MobileHostRPCError? {
         if let workspaceSelection, authorization.createdWorkspaceIDs.contains(workspaceSelection) { return nil }
         let ticket = authorization.ticket
         let ticketWorkspaceID = ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)

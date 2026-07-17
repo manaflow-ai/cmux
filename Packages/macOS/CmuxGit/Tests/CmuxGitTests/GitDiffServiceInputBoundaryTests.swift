@@ -1,0 +1,437 @@
+import Foundation
+import Testing
+
+@testable import CmuxGit
+
+@Suite struct GitDiffServiceInputBoundaryTests {
+    @Test func unmergedFileIsExcludedWhileOrdinaryChangesRemainDiffable() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let conflict = repo.appendingPathComponent("Conflict.txt")
+        let visible = repo.appendingPathComponent("Visible.txt")
+        try Data("base\n".utf8).write(to: conflict)
+        try Data("base\n".utf8).write(to: visible)
+        try runTestGit(in: repo, ["add", "--", "Conflict.txt", "Visible.txt"])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add files"])
+        try runTestGit(in: repo, ["checkout", "--quiet", "-b", "other"])
+        try Data("other\n".utf8).write(to: conflict)
+        try runTestGit(in: repo, ["commit", "--all", "--quiet", "-m", "other change"])
+        try runTestGit(in: repo, ["checkout", "--quiet", "-"])
+        try Data("current\n".utf8).write(to: conflict)
+        try runTestGit(in: repo, ["commit", "--all", "--quiet", "-m", "current change"])
+        try runTestGit(in: repo, ["merge", "--quiet", "other"], expecting: 1)
+        try Data("changed\n".utf8).write(to: visible)
+
+        let service = GitDiffService(
+            processDeadlineSeconds: 120,
+            operationDeadlineSeconds: 120
+        )
+        let changed = try #require(service.changedFiles(repoRoot: repo.path))
+        #expect(changed.files.map(\.path) == ["Visible.txt"])
+        let summary = try #require(changed.files.first { $0.path == "Visible.txt" })
+        let diff = try #require(service.fileDiff(
+            repoRoot: repo.path,
+            path: summary.path,
+            status: summary.status,
+            additions: summary.additions,
+            deletions: summary.deletions,
+            snapshotToken: summary.snapshotToken
+        ))
+        #expect(diff.unifiedDiff.contains("+changed"))
+    }
+
+    @Test func trackedTabPathRemainsVisibleAndDiffable() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let path = "tab\tname.txt"
+        let fileURL = repo.appendingPathComponent(path)
+        try Data("original\n".utf8).write(to: fileURL)
+        try runTestGit(in: repo, ["add", "--", path])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add tab path"])
+        try Data("changed\n".utf8).write(to: fileURL)
+
+        let service = GitDiffService()
+        let changed = try #require(service.changedFiles(repoRoot: repo.path))
+        let visible = try #require(changed.files.first { $0.path == path })
+        let diff = try #require(
+            service.fileDiff(
+                repoRoot: repo.path,
+                path: visible.path,
+                status: visible.status,
+                additions: visible.additions,
+                deletions: visible.deletions,
+                snapshotToken: visible.snapshotToken
+            )
+        )
+
+        #expect(changed.files.map(\.path) == [path])
+        #expect(diff.unifiedDiff.contains("+changed"))
+    }
+
+    @Test func trackedDirectoryShapedFileDiffRequestIsRejected() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let directory = repo.appendingPathComponent("Sources")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let tracked = directory.appendingPathComponent("Tracked.swift")
+        try Data("original\n".utf8).write(to: tracked)
+        try runTestGit(in: repo, ["add", "--", "Sources/Tracked.swift"])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add tracked child"])
+        try Data("changed\n".utf8).write(to: tracked)
+
+        let service = GitDiffService()
+
+        #expect(service.fileDiff(repoRoot: repo.path, path: "Sources") == nil)
+        #expect(service.fileDiff(repoRoot: repo.path, path: ".") == nil)
+    }
+
+    @Test func ambientShellStartupEnvironmentIsScrubbedBeforeProcessLaunch() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let checkingGit = repo.appendingPathComponent("checking-git.sh")
+        try Data(
+            "#!/bin/sh\nif [ -n \"$BASH_ENV$ENV\" ]; then exit 91; fi\nexec /usr/bin/git \"$@\"\n".utf8
+        ).write(to: checkingGit)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755], ofItemAtPath: checkingGit.path
+        )
+        try Data("x\n".utf8).write(to: repo.appendingPathComponent("visible.txt"))
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["BASH_ENV"] = "/path/that/does/not/exist"
+        environment["ENV"] = "/path/that/does/not/exist"
+        environment["SHELLOPTS"] = "checkwinsize"
+        environment["BASHOPTS"] = "checkwinsize"
+        let service = GitDiffService(gitExecutableURL: checkingGit, environment: environment)
+
+        let changed = try #require(service.changedFiles(repoRoot: repo.path))
+        #expect(changed.files.map(\.path) == ["checking-git.sh", "visible.txt"])
+    }
+
+    @Test func renamedFileDiffIncludesSourceAndDestination() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        try Data("unchanged content\n".utf8).write(to: repo.appendingPathComponent("Old.swift"))
+        try runTestGit(in: repo, ["add", "--", "Old.swift"])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add old path"])
+        try runTestGit(in: repo, ["mv", "--", "Old.swift", "New.swift"])
+
+        let service = GitDiffService()
+        let diff = try #require(
+            service.fileDiff(repoRoot: repo.path, path: "New.swift", oldPath: "Old.swift")
+        )
+
+        #expect(diff.unifiedDiff.contains("rename from Old.swift"))
+        #expect(diff.unifiedDiff.contains("rename to New.swift"))
+        #expect(!diff.unifiedDiff.contains("new file mode"))
+    }
+
+    @Test func nestedRenameEndpointRemainsReviewableWithSnapshotToken() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let source = repo.appendingPathComponent("foo")
+        try Data("same content\n".utf8).write(to: source)
+        try runTestGit(in: repo, ["add", "--", "foo"])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add source"])
+        try FileManager.default.removeItem(at: source)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try Data("same content\n".utf8).write(to: source.appendingPathComponent("bar"))
+        try Data("unrelated\n".utf8).write(to: source.appendingPathComponent("other"))
+        try runTestGit(in: repo, ["add", "-A", "--", "foo"])
+
+        let service = GitDiffService()
+        let changed = try #require(service.changedFiles(repoRoot: repo.path))
+        let renamed = try #require(changed.files.first { summary in
+            summary.path == "foo/bar" && summary.oldPath == "foo" && summary.status == .renamed
+        })
+        let result = service.fileDiffResult(
+            repoRoot: repo.path,
+            path: renamed.path,
+            oldPath: renamed.oldPath,
+            status: renamed.status,
+            additions: renamed.additions,
+            deletions: renamed.deletions,
+            snapshotToken: renamed.snapshotToken
+        )
+
+        guard case .success(let diff) = result else {
+            Issue.record("Nested rename endpoint was excluded from its own diff: \(result)")
+            return
+        }
+        #expect(diff.unifiedDiff.contains("rename from foo"))
+        #expect(diff.unifiedDiff.contains("rename to foo/bar"))
+        #expect(!diff.unifiedDiff.contains("foo/other"))
+    }
+
+    @Test func staleRenameSourceCannotReturnMultipleFileSections() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let oldFile = repo.appendingPathComponent("Old.swift")
+        try Data("original\n".utf8).write(to: oldFile)
+        try runTestGit(in: repo, ["add", "--", "Old.swift"])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add old path"])
+        try runTestGit(in: repo, ["mv", "--", "Old.swift", "New.swift"])
+        try Data("unrelated current edit\n".utf8).write(to: oldFile)
+        try runTestGit(in: repo, ["add", "--", "Old.swift"])
+
+        let service = GitDiffService()
+
+        #expect(service.fileDiff(repoRoot: repo.path, path: "New.swift", oldPath: "Old.swift") == nil)
+    }
+
+    @Test func renameSourceCannotExpandToARepositoryDirectory() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let file = repo.appendingPathComponent("Tracked.swift")
+        try Data("original\n".utf8).write(to: file)
+        try runTestGit(in: repo, ["add", "--", "Tracked.swift"])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add tracked file"])
+        try Data("changed\n".utf8).write(to: file)
+
+        let service = GitDiffService()
+
+        #expect(service.fileDiff(repoRoot: repo.path, path: "Tracked.swift", oldPath: ".") == nil)
+    }
+
+    @Test func deletedBaselineDirectoryCannotExpandToDescendants() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let directory = repo.appendingPathComponent("Deleted")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data("one\n".utf8).write(to: directory.appendingPathComponent("One.txt"))
+        try Data("two\n".utf8).write(to: directory.appendingPathComponent("Two.txt"))
+        try runTestGit(in: repo, ["add", "--", "Deleted"])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add directory"])
+        try FileManager.default.removeItem(at: directory)
+
+        let service = GitDiffService()
+
+        #expect(service.fileDiff(repoRoot: repo.path, path: "Deleted") == nil)
+    }
+
+    @Test func exactFileReplacingBaselineDirectoryDiffsWithoutDescendants() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let directory = repo.appendingPathComponent("Replaced")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data("old child\n".utf8).write(to: directory.appendingPathComponent("Child.txt"))
+        try runTestGit(in: repo, ["add", "--", "Replaced/Child.txt"])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add directory"])
+        try FileManager.default.removeItem(at: directory)
+        try Data("replacement file\n".utf8).write(to: directory)
+        try runTestGit(in: repo, ["add", "-A", "--", "Replaced"])
+
+        let diff = try #require(GitDiffService().fileDiff(repoRoot: repo.path, path: "Replaced"))
+
+        #expect(diff.unifiedDiff.contains("+replacement file"))
+        #expect(!diff.unifiedDiff.contains("old child"))
+        #expect(!diff.unifiedDiff.contains("Child.txt"))
+    }
+
+    @Test func baselineFileReplacedByDirectoryDiffsWithoutDescendants() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let replaced = repo.appendingPathComponent("node")
+        try Data("old file\n".utf8).write(to: replaced)
+        try runTestGit(in: repo, ["add", "--", "node"])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add file"])
+        try FileManager.default.removeItem(at: replaced)
+        try FileManager.default.createDirectory(at: replaced, withIntermediateDirectories: true)
+        try Data("new child\n".utf8).write(to: replaced.appendingPathComponent("child.txt"))
+        try runTestGit(in: repo, ["add", "-A", "--", "node"])
+
+        let diff = try #require(GitDiffService().fileDiff(repoRoot: repo.path, path: "node"))
+
+        #expect(diff.unifiedDiff.contains("-old file"))
+        #expect(!diff.unifiedDiff.contains("new child"))
+        #expect(!diff.unifiedDiff.contains("child.txt"))
+    }
+
+    @Test func untrackedFileReplacingBaselineDirectoryDiffsWithoutDescendants() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let directory = repo.appendingPathComponent("Replaced")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data("old child\n".utf8).write(to: directory.appendingPathComponent("Child.txt"))
+        try runTestGit(in: repo, ["add", "--", "Replaced/Child.txt"])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add directory"])
+        try FileManager.default.removeItem(at: directory)
+        try Data("replacement file\n".utf8).write(to: directory)
+
+        let diff = try #require(GitDiffService().fileDiff(repoRoot: repo.path, path: "Replaced"))
+
+        #expect(diff.unifiedDiff.contains("+replacement file"))
+        #expect(!diff.unifiedDiff.contains("old child"))
+        #expect(!diff.unifiedDiff.contains("Child.txt"))
+    }
+
+    @Test func nonUTF8TextDiffUsesReplacementCharacters() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let file = repo.appendingPathComponent("Latin1.txt")
+        try Data([0x63, 0x61, 0x66, 0xE9, 0x0A]).write(to: file)
+        try runTestGit(in: repo, ["add", "--", "Latin1.txt"])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add latin1 text"])
+        try Data([0x63, 0x61, 0x66, 0xE8, 0x0A]).write(to: file)
+
+        let service = GitDiffService()
+        let diff = try #require(service.fileDiff(repoRoot: repo.path, path: "Latin1.txt"))
+
+        #expect(diff.unifiedDiff.contains("�"))
+    }
+
+    @Test func symlinkToDirectoryRemainsOneDiffableFile() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        try FileManager.default.createDirectory(
+            at: repo.appendingPathComponent("TargetA"),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: repo.appendingPathComponent("TargetB"),
+            withIntermediateDirectories: true
+        )
+        let link = repo.appendingPathComponent("Current")
+        try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "TargetA")
+        try runTestGit(in: repo, ["add", "--", "Current"])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add directory symlink"])
+        try FileManager.default.removeItem(at: link)
+        try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "TargetB")
+
+        let service = GitDiffService()
+        let diff = try #require(service.fileDiff(repoRoot: repo.path, path: "Current"))
+
+        #expect(diff.unifiedDiff.contains("-TargetA"))
+        #expect(diff.unifiedDiff.contains("+TargetB"))
+    }
+
+    @Test func deletedPathWithUntrackedReplacementPreservesBothDiffs() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let file = repo.appendingPathComponent("replaced.txt")
+        try Data("original\n".utf8).write(to: file)
+        try runTestGit(in: repo, ["add", "--", "replaced.txt"])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add original"])
+        try runTestGit(in: repo, ["rm", "--cached", "--quiet", "--", "replaced.txt"])
+        try Data("replacement\n".utf8).write(to: file)
+
+        let service = GitDiffService()
+        let status = try #require(service.changedFiles(repoRoot: repo.path))
+        let summary = try #require(status.files.first { $0.path == "replaced.txt" })
+        let diff = try #require(service.fileDiff(
+            repoRoot: repo.path,
+            path: "replaced.txt",
+            status: summary.status
+        ))
+
+        #expect(summary.status == .modified)
+        #expect(summary.oldPath == nil)
+        #expect(summary.additions == nil)
+        #expect(summary.deletions == nil)
+        #expect(diff.unifiedDiff.contains("-original"))
+        #expect(diff.unifiedDiff.contains("+replacement"))
+        #expect(diff.unifiedDiff.components(separatedBy: "diff --git ").count == 3)
+    }
+
+    @Test func emptyUntrackedFileReturnsAHeaderOnlyDiff() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        try Data().write(to: repo.appendingPathComponent(".gitkeep"))
+        let service = GitDiffService()
+        let changed = try #require(service.changedFiles(repoRoot: repo.path))
+        let summary = try #require(changed.files.first { $0.path == ".gitkeep" })
+
+        let diff = try #require(service.fileDiff(
+            repoRoot: repo.path,
+            path: summary.path,
+            status: summary.status
+        ))
+
+        #expect(summary.status == .untracked)
+        #expect(diff.unifiedDiff.contains("new file mode 100644"))
+        #expect(!diff.unifiedDiff.contains("@@"))
+        #expect(!diff.truncated)
+    }
+
+    @Test func deletedPathWithEmptyUntrackedReplacementRemainsReviewable() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let file = repo.appendingPathComponent("emptied.txt")
+        try Data("original\n".utf8).write(to: file)
+        try runTestGit(in: repo, ["add", "--", "emptied.txt"])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add original"])
+        try runTestGit(in: repo, ["rm", "--cached", "--", "emptied.txt"])
+        try Data().write(to: file)
+        let service = GitDiffService()
+        let changed = try #require(service.changedFiles(repoRoot: repo.path))
+        let summary = try #require(changed.files.first { $0.path == "emptied.txt" })
+
+        let diff = try #require(service.fileDiff(
+            repoRoot: repo.path,
+            path: summary.path,
+            status: summary.status
+        ))
+
+        #expect(summary.status == .modified)
+        #expect(diff.unifiedDiff.contains("-original"))
+        #expect(diff.unifiedDiff.contains("new file mode 100644"))
+        #expect(diff.unifiedDiff.components(separatedBy: "diff --git ").count == 3)
+        #expect(!diff.truncated)
+    }
+
+    @Test func staleTrackedStatusCannotReturnAReclassifiedDiff() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let tracked = repo.appendingPathComponent("tracked.txt")
+        try Data("original\n".utf8).write(to: tracked)
+        try runTestGit(in: repo, ["add", "--", "tracked.txt"])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add tracked"])
+        try Data("modified\n".utf8).write(to: tracked)
+        let service = GitDiffService()
+
+        #expect(service.fileDiff(repoRoot: repo.path, path: "tracked.txt", status: .modified) != nil)
+        try FileManager.default.removeItem(at: tracked)
+        #expect(service.fileDiff(repoRoot: repo.path, path: "tracked.txt", status: .modified) == nil)
+        #expect(service.fileDiff(repoRoot: repo.path, path: "tracked.txt", status: .deleted) != nil)
+        try Data("restored\n".utf8).write(to: tracked)
+        #expect(service.fileDiff(repoRoot: repo.path, path: "tracked.txt", status: .deleted) == nil)
+        #expect(service.fileDiff(repoRoot: repo.path, path: "tracked.txt", status: .modified) != nil)
+
+        let added = repo.appendingPathComponent("added.txt")
+        try Data("added\n".utf8).write(to: added)
+        try runTestGit(in: repo, ["add", "--", "added.txt"])
+        #expect(service.fileDiff(repoRoot: repo.path, path: "added.txt", status: .added) != nil)
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "commit added"])
+        try Data("changed after commit\n".utf8).write(to: added)
+        #expect(service.fileDiff(repoRoot: repo.path, path: "added.txt", status: .added) == nil)
+        #expect(service.fileDiff(repoRoot: repo.path, path: "added.txt", status: .modified) != nil)
+    }
+
+    private func makeTempRepo() throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-git-diff-boundary-tests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        for arguments in [
+            ["init", "--quiet"],
+            ["config", "user.email", "tests@cmux.dev"],
+            ["config", "user.name", "cmux tests"],
+            ["commit", "--allow-empty", "--quiet", "-m", "init"],
+        ] {
+            try runTestGit(in: root, arguments)
+        }
+        return root
+    }
+
+    private func runTestGit(in root: URL, _ arguments: [String], expecting expectedStatus: Int32 = 0) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = arguments
+        process.currentDirectoryURL = root
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        try #require(process.terminationStatus == expectedStatus)
+    }
+
+}
