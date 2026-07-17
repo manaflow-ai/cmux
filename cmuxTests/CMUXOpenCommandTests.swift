@@ -985,6 +985,7 @@ final class CMUXOpenCommandTests: XCTestCase {
                 "diff", "--last-turn",
                 "--agent", "claude",
                 "--session", "claude-session-123",
+                "--cwd", rootURL.path,
             ],
             currentDirectoryURL: rootURL,
             readPatchSidecar: false
