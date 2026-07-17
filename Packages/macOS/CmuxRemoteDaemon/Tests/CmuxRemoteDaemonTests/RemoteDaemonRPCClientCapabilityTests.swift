@@ -6,7 +6,8 @@ import CmuxCore
 struct RemoteDaemonRPCClientCapabilityTests {
     private func configuration(
         preserveAfterTerminalExit: Bool = false,
-        persistentDaemonSlot: String? = nil
+        persistentDaemonSlot: String? = nil,
+        skipDaemonBootstrap: Bool = false
     ) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "user@example-host",
@@ -20,7 +21,8 @@ struct RemoteDaemonRPCClientCapabilityTests {
             localSocketPath: nil,
             terminalStartupCommand: nil,
             preserveAfterTerminalExit: preserveAfterTerminalExit,
-            persistentDaemonSlot: persistentDaemonSlot
+            persistentDaemonSlot: persistentDaemonSlot,
+            skipDaemonBootstrap: skipDaemonBootstrap
         )
     }
 
@@ -33,14 +35,17 @@ struct RemoteDaemonRPCClientCapabilityTests {
         #expect(RemoteDaemonRPCClient.requiredPTYWriteNotificationCapability == "pty.write.notification")
         #expect(RemoteDaemonRPCClient.requiredPTYResizeNotificationCapability == "pty.resize.notification")
         #expect(RemoteDaemonRPCClient.optionalPTYInputSeqAckCapability == "pty.input.seq_ack")
+        #expect(RemoteDaemonRPCClient.requiredFileReadCapability == "file.read")
+        #expect(RemoteDaemonRPCClient.requiredFSStatCapability == "fs.stat")
+        #expect(RemoteDaemonRPCClient.maximumRemoteFileReadBytes == 1_048_576)
         #expect(RemoteDaemonRPCClient.ptyInputSeqGapErrorCode == "pty_input_seq_gap")
     }
 
-    @Test("a base configuration only requires proxy streaming")
+    @Test("a bootstrapped configuration requires proxy streaming and file access")
     func baseConfiguration() {
         #expect(
             RemoteDaemonRPCClient.requiredCapabilities(for: configuration())
-                == ["proxy.stream.push"]
+                == ["proxy.stream.push", "file.read", "fs.stat"]
         )
     }
 
@@ -51,6 +56,8 @@ struct RemoteDaemonRPCClientCapabilityTests {
                 for: configuration(preserveAfterTerminalExit: true)
             ) == [
                 "proxy.stream.push",
+                "file.read",
+                "fs.stat",
                 "pty.session",
                 "pty.session.token",
                 "pty.write.notification",
@@ -69,12 +76,23 @@ struct RemoteDaemonRPCClientCapabilityTests {
                 )
             ) == [
                 "proxy.stream.push",
+                "file.read",
+                "fs.stat",
                 "pty.session",
                 "pty.session.token",
                 "pty.write.notification",
                 "pty.resize.notification",
                 "pty.session.persistent_daemon",
             ]
+        )
+    }
+
+    @Test("a baked daemon remains compatible until its image carries file RPCs")
+    func bakedDaemonDoesNotRequireFileAccess() {
+        #expect(
+            RemoteDaemonRPCClient.requiredCapabilities(
+                for: configuration(skipDaemonBootstrap: true)
+            ) == ["proxy.stream.push"]
         )
     }
 

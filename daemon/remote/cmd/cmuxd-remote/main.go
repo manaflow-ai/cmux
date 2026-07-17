@@ -126,7 +126,10 @@ type sessionState struct {
 	lastKnownRows int
 }
 
-const maxRPCFrameBytes = 4 * 1024 * 1024
+const (
+	maxRPCFrameBytes      = 4 * 1024 * 1024
+	maxRemoteFileReadSize = 1024 * 1024
+)
 
 func main() {
 	if shouldRunCLIForInvocation(os.Args[0], os.Args[1:]) {
@@ -1448,6 +1451,8 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 					"pty.resize.notification",
 					"pty.input.seq_ack",
 					"cli.bridge",
+					"file.read",
+					"fs.stat",
 				},
 			},
 		}
@@ -1459,6 +1464,10 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 				"pong": true,
 			},
 		}
+	case "fs.stat":
+		return s.handleFSStat(req)
+	case "file.read":
+		return s.handleFileRead(req)
 	case "proxy.open":
 		return s.handleProxyOpen(req)
 	case "proxy.close":
@@ -1502,6 +1511,141 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 				Message: fmt.Sprintf("unknown method %q", req.Method),
 			},
 		}
+	}
+}
+
+func remoteFilePath(req rpcRequest) (string, *rpcResponse) {
+	path, _ := req.Params["path"].(string)
+	if strings.TrimSpace(path) == "" || !filepath.IsAbs(path) {
+		response := rpcResponse{
+			ID: req.ID,
+			Error: &rpcError{
+				Code:    "invalid_params",
+				Message: "path must be an absolute path",
+			},
+		}
+		return "", &response
+	}
+	return filepath.Clean(path), nil
+}
+
+func (s *rpcServer) handleFSStat(req rpcRequest) rpcResponse {
+	path, invalid := remoteFilePath(req)
+	if invalid != nil {
+		return *invalid
+	}
+	info, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return rpcResponse{
+			ID:     req.ID,
+			OK:     true,
+			Result: map[string]any{"exists": false},
+		}
+	}
+	if err != nil {
+		return rpcResponse{
+			ID: req.ID,
+			Error: &rpcError{
+				Code:    "fs_stat_failed",
+				Message: fmt.Sprintf("could not stat %q: %v", path, err),
+			},
+		}
+	}
+	fileType := "other"
+	if info.Mode().IsRegular() {
+		fileType = "file"
+	} else if info.IsDir() {
+		fileType = "directory"
+	}
+	return rpcResponse{
+		ID: req.ID,
+		OK: true,
+		Result: map[string]any{
+			"exists": true,
+			"type":   fileType,
+			"size":   info.Size(),
+		},
+	}
+}
+
+func (s *rpcServer) handleFileRead(req rpcRequest) rpcResponse {
+	path, invalid := remoteFilePath(req)
+	if invalid != nil {
+		return *invalid
+	}
+	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if errors.Is(err, os.ErrNotExist) {
+		return rpcResponse{
+			ID: req.ID,
+			Error: &rpcError{
+				Code:    "file_not_found",
+				Message: fmt.Sprintf("file not found: %q", path),
+			},
+		}
+	}
+	if err != nil {
+		return rpcResponse{
+			ID: req.ID,
+			Error: &rpcError{
+				Code:    "file_read_failed",
+				Message: fmt.Sprintf("could not open %q: %v", path, err),
+			},
+		}
+	}
+	defer file.Close()
+
+	info, err := file.Stat()
+	if err != nil {
+		return rpcResponse{
+			ID: req.ID,
+			Error: &rpcError{
+				Code:    "file_read_failed",
+				Message: fmt.Sprintf("could not stat %q: %v", path, err),
+			},
+		}
+	}
+	if !info.Mode().IsRegular() {
+		return rpcResponse{
+			ID: req.ID,
+			Error: &rpcError{
+				Code:    "file_not_regular",
+				Message: fmt.Sprintf("path is not a regular file: %q", path),
+			},
+		}
+	}
+	if info.Size() > maxRemoteFileReadSize {
+		return remoteFileTooLargeResponse(req.ID, path)
+	}
+	data, err := io.ReadAll(io.LimitReader(file, maxRemoteFileReadSize+1))
+	if err != nil {
+		return rpcResponse{
+			ID: req.ID,
+			Error: &rpcError{
+				Code:    "file_read_failed",
+				Message: fmt.Sprintf("could not read %q: %v", path, err),
+			},
+		}
+	}
+	if len(data) > maxRemoteFileReadSize {
+		return remoteFileTooLargeResponse(req.ID, path)
+	}
+	return rpcResponse{
+		ID: req.ID,
+		OK: true,
+		Result: map[string]any{
+			"data_base64": base64.StdEncoding.EncodeToString(data),
+			"size":        len(data),
+		},
+	}
+}
+
+func remoteFileTooLargeResponse(id any, path string) rpcResponse {
+	return rpcResponse{
+		ID: id,
+		Error: &rpcError{
+			Code:    "file_too_large",
+			Message: fmt.Sprintf("file exceeds %d byte limit: %q", maxRemoteFileReadSize, path),
+		},
 	}
 }
 

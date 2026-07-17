@@ -96,7 +96,9 @@ struct WorkspaceRemoteConfigurationValueTests {
         persistentDaemonSlot: String? = nil,
         managedCloudVMID: String? = nil,
         skipDaemonBootstrap: Bool = false,
-        ownerWorkspaceID: UUID? = nil
+        ownerWorkspaceID: UUID? = nil,
+        localProxyPort: Int? = nil,
+        daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint? = nil
     ) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             transport: transport,
@@ -104,7 +106,7 @@ struct WorkspaceRemoteConfigurationValueTests {
             port: port,
             identityFile: identityFile,
             sshOptions: sshOptions,
-            localProxyPort: nil,
+            localProxyPort: localProxyPort,
             relayPort: relayPort,
             relayID: nil,
             relayToken: nil,
@@ -112,6 +114,7 @@ struct WorkspaceRemoteConfigurationValueTests {
             ownerWorkspaceID: ownerWorkspaceID,
             managedCloudVMID: managedCloudVMID,
             terminalStartupCommand: nil,
+            daemonWebSocketEndpoint: daemonWebSocketEndpoint,
             preserveAfterTerminalExit: preserveAfterTerminalExit,
             persistentDaemonSlot: persistentDaemonSlot,
             skipDaemonBootstrap: skipDaemonBootstrap
@@ -170,6 +173,137 @@ struct WorkspaceRemoteConfigurationValueTests {
 
         let otherHost = makeConfiguration(destination: "user@other")
         #expect(base.proxyBrokerTransportKey != otherHost.proxyBrokerTransportKey)
+    }
+
+    @Test("durable trust key separates remote identities and ignores managed tunnel instances")
+    func durableTransportTrustKey() {
+        let firstRoute = makeConfiguration(
+            identityFile: "/keys/first",
+            sshOptions: ["ProxyJump=bastion-a"],
+            ownerWorkspaceID: UUID(),
+            localProxyPort: 41001
+        )
+        let sameRouteNewTunnel = makeConfiguration(
+            identityFile: "/keys/first",
+            sshOptions: ["ProxyJump=bastion-a"],
+            ownerWorkspaceID: UUID(),
+            localProxyPort: 41002
+        )
+        let secondRoute = makeConfiguration(
+            identityFile: "/keys/second",
+            sshOptions: ["ProxyJump=bastion-b"]
+        )
+
+        #expect(firstRoute.durableTransportTrustKey == sameRouteNewTunnel.durableTransportTrustKey)
+        #expect(firstRoute.durableTransportTrustKey != secondRoute.durableTransportTrustKey)
+
+        let firstBrokerSession = WorkspaceRemoteWebSocketDaemonEndpoint(
+            url: "wss://tenant:password-a@broker.example/session-a",
+            headers: [:],
+            token: "token-a",
+            sessionId: "session-a",
+            expiresAtUnix: 100
+        )
+        let refreshedBrokerSession = WorkspaceRemoteWebSocketDaemonEndpoint(
+            url: "WSS://tenant:password-b@BROKER.EXAMPLE:443/session-b",
+            headers: [:],
+            token: "token-b",
+            sessionId: "session-b",
+            expiresAtUnix: 200
+        )
+        let otherBrokerSession = WorkspaceRemoteWebSocketDaemonEndpoint(
+            url: "wss://tenant@other-broker.example/session-c",
+            headers: [:],
+            token: "token-c",
+            sessionId: "session-c",
+            expiresAtUnix: 300
+        )
+        let otherAccountSession = WorkspaceRemoteWebSocketDaemonEndpoint(
+            url: "wss://other-tenant@broker.example/session-d",
+            headers: [:],
+            token: "token-d",
+            sessionId: "session-d",
+            expiresAtUnix: 400
+        )
+        let plainSSH = makeConfiguration()
+        let sshWithUnusedWebSocketEndpoint = makeConfiguration(
+            daemonWebSocketEndpoint: firstBrokerSession
+        )
+
+        #expect(plainSSH.durableTransportTrustKey == sshWithUnusedWebSocketEndpoint.durableTransportTrustKey)
+        let firstWebSocket = makeConfiguration(
+            transport: .websocket,
+            destination: "cloud-vm",
+            managedCloudVMID: "vm-1",
+            ownerWorkspaceID: UUID(),
+            daemonWebSocketEndpoint: firstBrokerSession
+        )
+        let refreshedWebSocket = makeConfiguration(
+            transport: .websocket,
+            destination: "cloud-vm",
+            managedCloudVMID: "vm-1",
+            ownerWorkspaceID: UUID(),
+            daemonWebSocketEndpoint: refreshedBrokerSession
+        )
+        let otherBrokerWebSocket = makeConfiguration(
+            transport: .websocket,
+            destination: "cloud-vm",
+            managedCloudVMID: "vm-1",
+            ownerWorkspaceID: UUID(),
+            daemonWebSocketEndpoint: otherBrokerSession
+        )
+        let otherAccountWebSocket = makeConfiguration(
+            transport: .websocket,
+            destination: "cloud-vm",
+            managedCloudVMID: "vm-1",
+            ownerWorkspaceID: UUID(),
+            daemonWebSocketEndpoint: otherAccountSession
+        )
+
+        #expect(firstWebSocket.durableTransportTrustKey == refreshedWebSocket.durableTransportTrustKey)
+        #expect(firstWebSocket.durableTransportTrustKey != otherBrokerWebSocket.durableTransportTrustKey)
+        #expect(firstWebSocket.durableTransportTrustKey != otherAccountWebSocket.durableTransportTrustKey)
+
+        let firstUnmanagedWebSocket = makeConfiguration(
+            transport: .websocket,
+            destination: "cloud-vm",
+            daemonWebSocketEndpoint: firstBrokerSession
+        )
+        let refreshedUnmanagedWebSocket = makeConfiguration(
+            transport: .websocket,
+            destination: "cloud-vm",
+            daemonWebSocketEndpoint: refreshedBrokerSession
+        )
+
+        #expect(
+            firstUnmanagedWebSocket.durableTransportTrustKey
+                != refreshedUnmanagedWebSocket.durableTransportTrustKey
+        )
+
+        let firstBlankSession = makeConfiguration(
+            transport: .websocket,
+            destination: "cloud-vm",
+            daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint(
+                url: "wss://broker.example/projects/first/rpc",
+                headers: [:],
+                token: "token-e",
+                sessionId: "   ",
+                expiresAtUnix: 500
+            )
+        )
+        let secondBlankSession = makeConfiguration(
+            transport: .websocket,
+            destination: "cloud-vm",
+            daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint(
+                url: "wss://broker.example/projects/second/rpc",
+                headers: [:],
+                token: "token-f",
+                sessionId: "",
+                expiresAtUnix: 600
+            )
+        )
+
+        #expect(firstBlankSession.durableTransportTrustKey != secondBlankSession.durableTransportTrustKey)
     }
 
     @Test("hasSamePersistentPTYIdentity requires preserve on both sides and a matching slot")

@@ -4,7 +4,7 @@ Dock is the cmux right sidebar rendered as a full panel container. It uses the *
 
 Dock is useful for project dashboards, git views, logs, queues, local services, test watchers, dev servers, custom TUIs, and reference web pages. Feed can be added as one optional terminal with `cmux feed tui --opentui`, but Dock is not limited to Feed.
 
-Every cmux window has its own independent Dock. Opening a new window seeds that window's Dock fresh from your Dock config (exactly like a fresh app launch), multiple windows can show their Docks side by side, and closing a window closes its Dock terminals and browsers with it.
+Every cmux window has its own independent Dock. The window resolves its config from the selected workspace, multiple windows can show their Docks side by side, and closing a window closes its Dock terminals and browsers with it. Switching workspaces refreshes the config source without transferring Dock ownership away from the window.
 
 Each terminal command starts inside the terminal's non-interactive login shell. That keeps the user's normal PATH and toolchain setup without running prompt code before the TUI starts. When the command exits, Dock drops into an interactive login shell in the same section so the user can inspect, rerun, or exit.
 
@@ -103,9 +103,25 @@ If neither file exists, Dock opens empty and offers a prompt to create a starter
 
 Relative `cwd` values resolve from the config base. For `.cmux/dock.json`, that base is the project directory containing `.cmux`. For the global config, that base is the home directory.
 
+## Remote SSH Workspaces
+
+For a remote SSH workspace, cmux searches the remote filesystem upward from the trusted current directory reported by the selected remote terminal. The nearest remote `.cmux/dock.json` takes precedence over the Mac-local `~/.config/cmux/dock.json` fallback. Config discovery and reads use the workspace's existing `cmuxd-remote` connection; cmux does not test a remote path with the Mac's `FileManager` and does not launch a second `ssh cat` process.
+
+Terminal controls from a remote project config run as persistent PTYs on that remote workspace. Their relative `cwd` and `env` values are applied on the remote host, and the command runs through the remote user's login shell. They never fall through to a local Mac shell. Browser controls still render in the local cmux browser, but use the selected workspace's remote proxy and browser data-store routing.
+
+The source determines execution semantics:
+
+- A terminal control from a remote project `.cmux/dock.json` runs remotely.
+- A terminal control from a local project config or the Mac-local global config runs locally.
+- A terminal created manually with **New Terminal** is local; remote execution inheritance applies to config-seeded controls.
+
+Remote project configs require a daemon that advertises the `file.read` and `fs.stat` capabilities. Normal SSH workspaces bootstrap or upgrade `cmuxd-remote` as needed. A pre-baked remote image that does not advertise those capabilities cannot load a remote project Dock config; cmux reports a Dock config load error rather than silently ignoring the file or running its paths locally.
+
+**Open Dock Config** opens Mac-local configs only. For a remote project config, edit `.cmux/dock.json` on the remote host; cmux reports that limitation instead of opening or creating an unrelated local file.
+
 ## Trust
 
-Project Dock configs can start commands. The first time cmux sees a project Dock config, it shows a trust gate before launching controls. Changing the config changes the trust fingerprint and asks again.
+Project Dock configs can start commands. The first time cmux sees a project Dock config, it shows a trust gate before launching controls. Changing the config changes the trust fingerprint and asks again. Remote trust identities include the remote transport target, so the same path and config contents on a different host require separate approval.
 
 Global Dock config at `~/.config/cmux/dock.json` is treated as personal config and starts without a project trust gate.
 

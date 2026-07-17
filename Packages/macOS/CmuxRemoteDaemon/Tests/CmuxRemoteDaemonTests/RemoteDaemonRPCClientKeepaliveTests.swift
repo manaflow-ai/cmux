@@ -47,7 +47,7 @@ struct RemoteDaemonRPCClientKeepaliveTests {
           line="$1"
           id=$(printf '%s\\n' "$line" | sed -n 's/.*"id":\\([0-9][0-9]*\\).*/\\1/p')
           if [ -z "$id" ]; then id=1; fi
-          printf '{"id":%s,"ok":true,"result":{"capabilities":["proxy.stream.push"],"name":"fake","version":"t","remote_path":"/fake"}}\\n' "$id"
+          printf '{"id":%s,"ok":true,"result":{"capabilities":["proxy.stream.push","file.read","fs.stat"],"name":"fake","version":"t","remote_path":"/fake"}}\\n' "$id"
         }
         if IFS= read -r line; then
           respond "$line"

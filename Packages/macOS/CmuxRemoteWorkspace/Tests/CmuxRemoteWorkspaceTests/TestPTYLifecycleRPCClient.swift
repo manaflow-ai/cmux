@@ -10,14 +10,18 @@ final class TestPTYLifecycleRPCClient: RemoteDaemonTunnelRPCClient, @unchecked S
     private let attachRelease = DispatchSemaphore(value: 0)
     private let attachReturned = DispatchSemaphore(value: 0)
     private let closeStarted = DispatchSemaphore(value: 0)
+    private let fileStatStarted = DispatchSemaphore(value: 0)
+    private let fileStatRelease = DispatchSemaphore(value: 0)
     private var _closedSessionIDs: [String] = []
     private var _closeError: (any Error)?
+    private var _fileStatTimeout: TimeInterval?
 
     init(delaysAttach: Bool = false) {
         self.delaysAttach = delaysAttach
     }
 
     var closedSessionIDs: [String] { lock.withLock { _closedSessionIDs } }
+    var fileStatTimeout: TimeInterval? { lock.withLock { _fileStatTimeout } }
 
     func failClose(with error: any Error) { lock.withLock { _closeError = error } }
 
@@ -37,6 +41,14 @@ final class TestPTYLifecycleRPCClient: RemoteDaemonTunnelRPCClient, @unchecked S
         closeStarted.wait(timeout: timeout)
     }
 
+    func waitForFileStatStart(timeout: DispatchTime) -> DispatchTimeoutResult {
+        fileStatStarted.wait(timeout: timeout)
+    }
+
+    func releaseFileStat() {
+        fileStatRelease.signal()
+    }
+
     func listPTY() throws -> [[String: Any]] { [] }
 
     func stop() {}
@@ -54,6 +66,13 @@ final class TestPTYLifecycleRPCClient: RemoteDaemonTunnelRPCClient, @unchecked S
     ) throws {}
 
     func closeStream(streamID: String) {}
+
+    func statFile(path: String, timeout: TimeInterval) throws -> RemoteDaemonFileStat {
+        lock.withLock { _fileStatTimeout = timeout }
+        fileStatStarted.signal()
+        fileStatRelease.wait()
+        return .missing
+    }
 
     func closePTY(sessionID: String, timeout: TimeInterval) throws {
         closeStarted.signal()

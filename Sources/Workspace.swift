@@ -2030,15 +2030,11 @@ final class Workspace: Identifiable, ObservableObject {
         let store = DockSplitStore(
             workspaceId: id,
             baseDirectoryProvider: { [weak self] in self?.currentDirectory },
+            configurationContextProvider: { [weak self] in
+                self?.workspaceDockConfigurationContext()
+            },
             remoteBrowserSettingsProvider: { [weak self] in
-                guard let self else { return .local }
-                return DockRemoteBrowserSettings(
-                    proxyEndpoint: self.remoteProxyEndpoint,
-                    bypassRemoteProxy: false,
-                    isRemoteWorkspace: self.isRemoteWorkspace,
-                    remoteWebsiteDataStoreIdentifier: self.isRemoteWorkspace ? self.id : nil,
-                    remoteStatus: self.browserRemoteWorkspaceStatusSnapshot()
-                )
+                self?.windowDockRemoteBrowserSettings() ?? .local
             }
         )
         _dockSplit = store
@@ -3826,7 +3822,7 @@ final class Workspace: Identifiable, ObservableObject {
         browserPanel.onMediaActivityChanged = nil
     }
 
-    private func browserRemoteWorkspaceStatusSnapshot() -> BrowserRemoteWorkspaceStatus? {
+    func browserRemoteWorkspaceStatusSnapshot() -> BrowserRemoteWorkspaceStatus? {
         guard let target = remoteDisplayTarget else { return nil }
         return BrowserRemoteWorkspaceStatus(
             target: target,
@@ -5867,17 +5863,11 @@ final class Workspace: Identifiable, ObservableObject {
         requireExisting: Bool = true
     ) -> String {
         guard let remoteConfiguration,
-              remoteConfiguration.preserveAfterTerminalExit,
-              let foregroundAuthToken = remoteConfiguration.foregroundAuthToken else {
+              let foregroundAuth = SSHPTYAttachStartupCommandBuilder.foregroundAuth(
+                  for: remoteConfiguration
+              ) else {
             return Self.sshPTYAttachStartupCommand(sessionID: sessionID, requireExisting: requireExisting)
         }
-        let foregroundAuth = SSHPTYAttachStartupCommandBuilder.ForegroundAuth(
-            destination: remoteConfiguration.destination,
-            port: remoteConfiguration.port,
-            identityFile: remoteConfiguration.identityFile,
-            sshOptions: remoteConfiguration.sshOptions,
-            token: foregroundAuthToken
-        )
         return SSHPTYAttachStartupCommandBuilder.command(
             sessionID: sessionID,
             foregroundAuth: foregroundAuth,
@@ -5913,6 +5903,7 @@ final class Workspace: Identifiable, ObservableObject {
                 name: .workspaceRemoteConnectionPresentationDidChange,
                 object: self
             )
+            self.postWindowDockWorkspaceSnapshotDidChange()
         }
     }
 
@@ -6383,6 +6374,7 @@ final class Workspace: Identifiable, ObservableObject {
         remoteConnectionDetail = detail
         if state == .connected { _ = reattachPersistentRemotePTYPanels() }
         applyBrowserRemoteWorkspaceStatusToPanels()
+        postRemoteConnectionPresentationDidChange()
 
         if suppressProxyOnlySidebarError {
             clearProxyOnlyRemoteSidebarArtifacts()
@@ -6472,6 +6464,7 @@ final class Workspace: Identifiable, ObservableObject {
     func applyRemoteDaemonStatusUpdate(_ status: WorkspaceRemoteDaemonStatus, target: String) {
         remoteDaemonStatus = status
         applyBrowserRemoteWorkspaceStatusToPanels()
+        postWindowDockWorkspaceSnapshotDidChange()
         guard status.state == .error else {
             remoteLastDaemonErrorFingerprint = nil
             return
@@ -6494,12 +6487,14 @@ final class Workspace: Identifiable, ObservableObject {
         }
         _dockSplit?.applyRemoteProxyEndpointUpdate(endpoint)
         applyBrowserRemoteWorkspaceStatusToPanels()
+        postWindowDockWorkspaceSnapshotDidChange()
     }
 
     func applyRemoteHeartbeatUpdate(count: Int, lastSeenAt: Date?) {
         remoteHeartbeatCount = max(0, count)
         remoteLastHeartbeatAt = lastSeenAt
         applyBrowserRemoteWorkspaceStatusToPanels()
+        postWindowDockWorkspaceSnapshotDidChange()
     }
 
     func applyRemoteDetectedSurfacePortsSnapshot(

@@ -218,6 +218,40 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             .joined(separator: "\u{1e}")
     }
 
+    /// Stable, non-secret transport identity for authorizing remote-sourced configuration.
+    ///
+    /// Unlike ``proxyBrokerTransportKey``, this deliberately excludes tunnel-instance
+    /// details such as the owner workspace, local proxy port, and rotating WebSocket
+    /// URL path. Broker authority remains part of the security boundary; unmanaged
+    /// WebSocket remotes also retain their non-secret session id as a fail-closed
+    /// fallback when no durable managed-VM identity exists.
+    public var durableTransportTrustKey: String {
+        let normalizedTransport = transport.rawValue
+        let normalizedBootstrapMode = skipDaemonBootstrap ? "vm-baked" : "bootstrap"
+        let normalizedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedPort = port.map(String.init) ?? ""
+        let normalizedIdentity = Self.normalizedIdentityPath(identityFile) ?? ""
+        let normalizedOptions = Self.durableSSHOptions(sshOptions).joined(separator: "\u{1f}")
+        let normalizedPersistentDaemonSlot = persistentDaemonSlot ?? ""
+        let normalizedManagedCloudVMID = managedCloudVMID ?? ""
+        var components = [
+            normalizedTransport,
+            normalizedBootstrapMode,
+            normalizedDestination,
+            normalizedPort,
+            normalizedIdentity,
+            normalizedOptions,
+            normalizedPersistentDaemonSlot,
+            normalizedManagedCloudVMID,
+        ]
+        if transport == .websocket, let daemonWebSocketEndpoint {
+            components.append(daemonWebSocketEndpoint.durableTrustKeyComponent(
+                includesSessionFallback: managedCloudVMID == nil
+            ))
+        }
+        return components.joined(separator: "\u{1e}")
+    }
+
     private static func proxyBrokerSSHOptions(_ options: [String]) -> [String] {
         durableSSHOptions(options)
     }

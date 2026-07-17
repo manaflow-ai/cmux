@@ -120,6 +120,7 @@ extension Workspace {
         )
         activeRemoteSessionControllerID = controllerID
         remoteSessionController = controller
+        postWindowDockWorkspaceSnapshotDidChange()
         controller.updateRemotePortScanningEnabled(Self.remotePortScanningEnabledFromSettings())
         syncRemotePortScanTTYs()
         syncRemoteRelayIDAliasesToController()

@@ -82,7 +82,7 @@ struct RemotePTYBridgeTransportTerminationTests {
         #!/bin/sh
         if ! IFS= read -r hello; then exit 1; fi
         hello_id=$(printf '%s\n' "$hello" | sed -n 's/.*"id":\\([0-9][0-9]*\\).*/\\1/p')
-        printf '{"id":%s,"ok":true,"result":{"capabilities":["proxy.stream.push","pty.session","pty.session.token","pty.write.notification","pty.resize.notification"],"name":"fake","version":"test","remote_path":"/fake"}}\n' "$hello_id"
+        printf '{"id":%s,"ok":true,"result":{"capabilities":["proxy.stream.push","file.read","fs.stat","pty.session","pty.session.token","pty.write.notification","pty.resize.notification"],"name":"fake","version":"test","remote_path":"/fake"}}\n' "$hello_id"
         if ! IFS= read -r attach; then exit 1; fi
         attach_id=$(printf '%s\n' "$attach" | sed -n 's/.*"id":\\([0-9][0-9]*\\).*/\\1/p')
         printf '{"id":%s,"ok":true,"result":{"attachment_id":"surface","attachment_token":"server-token"}}\n' "$attach_id"
