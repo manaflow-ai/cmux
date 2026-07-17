@@ -286,6 +286,55 @@ final class SidebarWorkspaceTableViewImpl: NSTableView {
         "same-type same-arity overloads with different labels are not conflated",
     )
 
+    cross_extension_lifecycle = {
+        "SidebarWorkspaceTableViewImpl.swift": """
+final class SidebarWorkspaceTableViewImpl: NSTableView {
+    override func layout() {
+        super.layout()
+        self.refresh(safely: true)
+    }
+}
+""",
+        "SidebarWorkspaceTableViewImpl+Refresh.swift": """
+extension SidebarWorkspaceTableViewImpl {
+    func refresh(safely: Bool) {
+        tableView.reloadData()
+    }
+    func refresh(force: Bool) {}
+}
+""",
+    }
+    cross_extension_violations = guard.check_appkit_sources(
+        cross_extension_lifecycle,
+        require_all_files=False,
+    )
+    failures += expect(
+        any(
+            item.startswith("SidebarWorkspaceTableViewImpl.swift.layout ")
+            and "layout callback via refresh" in item
+            for item in cross_extension_violations
+        ),
+        "layout callbacks trace same-type helpers across extension files with callback attribution",
+    )
+
+    cross_extension_overload = dict(cross_extension_lifecycle)
+    cross_extension_overload["SidebarWorkspaceTableViewImpl+Refresh.swift"] = """
+extension SidebarWorkspaceTableViewImpl {
+    func refresh(safely: Bool) {}
+    func refresh(force: Bool) {
+        tableView.reloadData()
+    }
+}
+"""
+    cross_extension_overload_violations = guard.check_appkit_sources(
+        cross_extension_overload,
+        require_all_files=False,
+    )
+    failures += expect(
+        not any("layout callback" in item for item in cross_extension_overload_violations),
+        "cross-extension same-arity overload labels are not conflated",
+    )
+
     defaulted_helper_lifecycle = """
 final class SidebarWorkspaceTableViewImpl: NSTableView {
     override func layout() {
