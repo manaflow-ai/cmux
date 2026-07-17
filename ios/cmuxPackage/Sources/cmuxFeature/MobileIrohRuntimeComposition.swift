@@ -12,6 +12,42 @@ nonisolated private let mobileIrohLog = Logger(
     category: "iroh-runtime"
 )
 
+/// Resolves connection waiters only when the latest lifecycle revision settles.
+@MainActor
+final class MobileIrohConnectionReadinessSignal {
+    private var pendingRevision: UInt64?
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    var isPending: Bool { pendingRevision != nil }
+
+    func begin(revision: UInt64) {
+        pendingRevision = revision
+    }
+
+    @discardableResult
+    func complete(revision: UInt64) -> Bool {
+        guard pendingRevision == revision else { return false }
+        pendingRevision = nil
+        let continuations = waiters
+        waiters.removeAll()
+        for continuation in continuations {
+            continuation.resume()
+        }
+        return true
+    }
+
+    func wait() async {
+        guard isPending else { return }
+        await withCheckedContinuation { continuation in
+            guard isPending else {
+                continuation.resume()
+                return
+            }
+            waiters.append(continuation)
+        }
+    }
+}
+
 /// Process-owned iOS composition for account-scoped Iroh networking.
 @MainActor
 public final class MobileIrohRuntimeComposition:
@@ -87,6 +123,7 @@ public final class MobileIrohRuntimeComposition:
     private weak var auth: AuthCoordinator?
     private var authObservationTask: Task<Void, Never>?
     private var transitionTask: Task<Void, Never>?
+    private let connectionReadiness = MobileIrohConnectionReadinessSignal()
     private var sceneTransitionTask: Task<Void, Never>?
     private var runtime: CmxIrohClientRuntime?
     private var relayPolicyService: CmxIrohRelayPolicyService?
@@ -323,15 +360,8 @@ public final class MobileIrohRuntimeComposition:
     /// bounded pairing attempt. Transport creation calls the same entrypoint,
     /// so readiness policy cannot drift between automatic and interactive use.
     public func prepareForConnection() async {
-        while true {
-            await reconcileLiveAuthIfNeeded()
-            let revision = lifecycleRevision
-            let transition = transitionTask
-            await transition?.value
-            guard revision == lifecycleRevision,
-                  transitionTask == nil else { continue }
-            break
-        }
+        await reconcileLiveAuthIfNeeded()
+        await connectionReadiness.wait()
         await sceneTransitionTask?.value
     }
 
@@ -391,8 +421,7 @@ public final class MobileIrohRuntimeComposition:
         lane: CmxIrohLane,
         priority: Int32
     ) async throws -> CmxIrohBidirectionalStream {
-        await reconcileLiveAuthIfNeeded()
-        await transitionTask?.value
+        await prepareForConnection()
         guard let runtime else { throw CmxIrohClientRuntimeError.inactive }
         return try await runtime.openBidirectionalLane(
             for: request,
@@ -425,8 +454,7 @@ public final class MobileIrohRuntimeComposition:
     public func serverEventByteStream(
         for request: CmxByteTransportRequest
     ) async throws -> CmxIndependentEventByteStream {
-        await reconcileLiveAuthIfNeeded()
-        await transitionTask?.value
+        await prepareForConnection()
         guard let runtime else { throw CmxIrohClientRuntimeError.inactive }
         return try await runtime.serverEventByteStream(for: request)
     }
@@ -486,6 +514,7 @@ public final class MobileIrohRuntimeComposition:
 
         signOutObservedAuthClear = false
         signOutAuthRevisionAtPreparation = auth?.signOutRevision
+        connectionReadiness.begin(revision: lifecycleRevision &+ 1)
         let operation = Task { @MainActor [weak self] in
             guard let self else {
                 return CmxIrohClientSignOutPreparation(
@@ -529,6 +558,7 @@ public final class MobileIrohRuntimeComposition:
             ?? lastKnownBindingAccountID
         observedAuthState = MobileIrohAuthState(accountID: nil)
         lifecycleRevision &+= 1
+        let revision = lifecycleRevision
         let previous = transitionTask
         transitionTask = nil
         previous?.cancel()
@@ -562,6 +592,7 @@ public final class MobileIrohRuntimeComposition:
             }
             signOutPhase = .quarantined(preparation)
         }
+        connectionReadiness.complete(revision: revision)
         return preparation
     }
 
@@ -696,14 +727,13 @@ public final class MobileIrohRuntimeComposition:
         guard authStateRequiresReconcile(state) else { return }
         let previousObservedAccountID = observedAccountID
         observedAuthState = state
-        let transition = scheduleReconcile(
+        _ = scheduleReconcile(
             targetAccountID: accountID,
             eraseAccountState: accountID == nil
                 || (previousObservedAccountID != nil
                     && previousObservedAccountID != accountID)
                 || (activeAccountID != nil && activeAccountID != accountID)
         )
-        await transition.value
     }
 
     private func authStateRequiresReconcile(_ state: MobileIrohAuthState) -> Bool {
@@ -926,6 +956,7 @@ public final class MobileIrohRuntimeComposition:
     ) -> Task<Void, Never> {
         lifecycleRevision &+= 1
         let revision = lifecycleRevision
+        connectionReadiness.begin(revision: revision)
         let previous = transitionTask
         previous?.cancel()
         let task = Task { @MainActor [weak self] in
@@ -941,6 +972,7 @@ public final class MobileIrohRuntimeComposition:
             )
             if revision == self.lifecycleRevision {
                 self.transitionTask = nil
+                self.connectionReadiness.complete(revision: revision)
             }
         }
         transitionTask = task
