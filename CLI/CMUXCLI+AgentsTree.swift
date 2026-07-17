@@ -284,7 +284,12 @@ extension CMUXCLI {
 
         func append(_ node: AgentSessionGraphNode, prefix: String, depth: Int) {
             guard depth <= maximumDepth, visited.insert(node.nodeId).inserted else { return }
-            let authority = node.restoreAuthority ? " restore-owner" : " child"
+            let authority: String
+            if node.identitySource == "terminal_process" {
+                authority = " process"
+            } else {
+                authority = node.restoreAuthority ? " restore-owner" : " child"
+            }
             let modes = node.activity.modes.map(\.rawValue).joined(separator: ",")
             let activity = modes.isEmpty ? "" : " [\(modes)]"
             let identity = node.sessionId ?? "pid \(node.pid.map(String.init) ?? "unknown")"
