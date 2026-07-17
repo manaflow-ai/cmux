@@ -9,11 +9,13 @@ permissions:
 
 jobs:
   dispatch:
+    name: Dispatch notification run
     if: >-
       github.event_name == 'deployment_status' &&
       github.event.deployment_status.state == 'success' &&
       github.event.deployment.environment == 'Production – cmux'
     permissions:
+      # Required to start the secret-bearing workflow_dispatch run.
       actions: write
       contents: read
     runs-on: ubuntu-latest
@@ -22,9 +24,13 @@ jobs:
       - name: Dispatch authenticated submission
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run indexnow.yml --repo "$GITHUB_REPOSITORY" --ref main
+        run: >-
+          gh workflow run indexnow.yml
+          --repo "$GITHUB_REPOSITORY"
+          --ref "${{ github.event.repository.default_branch }}"
 
   notify:
+    name: Notify IndexNow
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 2
