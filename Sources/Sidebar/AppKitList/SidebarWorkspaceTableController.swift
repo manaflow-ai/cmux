@@ -158,6 +158,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         }
         synchronizeAppKitDropIndicator(actions: actions)
         recomputeHoveredRow()
+        enforceHoverOnVisibleCells()
         updateDropTargets()
     }
 
@@ -375,6 +376,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             scheduleWidthRemeasure()
         }
         recomputeHoveredRow()
+        enforceHoverOnVisibleCells()
         updateDropTargets()
     }
 
@@ -427,6 +429,29 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let idSet = Set(ids)
         let indexes = IndexSet(rows.indices.filter { idSet.contains(rows[$0].id) })
         reconfigureVisibleRows(indexes)
+    }
+
+    /// Authoritative pass over visible cells so hover-revealed chrome (close
+    /// button, header plus) cannot strand: per-transition repaints resolve
+    /// ids against a rows array that can mutate in the same tick (content
+    /// churn scrolling rows under a parked pointer), and a missed repaint
+    /// left multiple rows showing hover chrome at once.
+    private func enforceHoverOnVisibleCells() {
+        guard let table = containerView?.tableView else { return }
+        let visible = table.rows(in: table.visibleRect)
+        for row in visible.lowerBound..<(visible.lowerBound + visible.length)
+        where rows.indices.contains(row) {
+            let rowId = rows[row].id
+            let hovering = hoveredRowId == rowId && contextMenuRowId != rowId
+            switch table.view(atColumn: 0, row: row, makeIfNecessary: false) {
+            case let cell as SidebarGroupHeaderTableCellView:
+                cell.enforcePointerHovering(hovering)
+            case let cell as SidebarWorkspaceRowTableCellView:
+                cell.enforcePointerHovering(hovering)
+            default:
+                break
+            }
+        }
     }
 
     private func reconfigureVisibleRows(_ indexes: IndexSet) {
