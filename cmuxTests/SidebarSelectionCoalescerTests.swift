@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import cmux_DEV
 
@@ -44,7 +45,7 @@ final class SidebarTestManualClock: Clock, @unchecked Sendable {
             return deadline <= _now
         }()
         if readyNow { return }
-        try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
             lock.lock()
             if deadline <= _now {
                 lock.unlock()
