@@ -95,6 +95,8 @@ extension CMUXCLI {
         var workspace: String?
         var window: String?
         var surface: String?
+        var targetSurface: String?
+        var targetExpectedURL: String?
         var focus: String?
         var noFocus = false
         var title: String?
@@ -881,6 +883,7 @@ extension CMUXCLI {
         var windowHandle: String?
         var workspaceHandle: String?
         var surfaceHandle: String?
+        var targetSurfaceHandle: String?
         defer { client?.close() }
 
         func connectedClient() throws -> SocketClient {
@@ -904,6 +907,17 @@ extension CMUXCLI {
             workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: activeClient, windowHandle: windowHandle)
             let surfaceRaw = parsedArgs.surface ?? (parsedArgs.window == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
             surfaceHandle = try normalizeSurfaceHandle(surfaceRaw, client: activeClient, workspaceHandle: workspaceHandle, windowHandle: windowHandle)
+            if let targetSurface = parsedArgs.targetSurface {
+                guard let normalized = try normalizeSurfaceHandle(
+                    targetSurface,
+                    client: activeClient,
+                    workspaceHandle: workspaceHandle,
+                    windowHandle: windowHandle
+                ) else {
+                    throw CLIError(message: "Target browser surface not found: \(targetSurface)")
+                }
+                targetSurfaceHandle = normalized
+            }
             didResolveTarget = true
         }
 
@@ -973,9 +987,17 @@ extension CMUXCLI {
         }
         if let windowHandle { params["window_id"] = windowHandle }
         if let workspaceHandle { params["workspace_id"] = workspaceHandle }
-        if let surfaceHandle { params["surface_id"] = surfaceHandle }
-
-        let payload = try activeClient.sendV2(method: "browser.open_split", params: params)
+        let payload: [String: Any]
+        if let targetSurfaceHandle {
+            params["surface_id"] = targetSurfaceHandle
+            if let targetExpectedURL = parsedArgs.targetExpectedURL {
+                params["expected_url"] = targetExpectedURL
+            }
+            payload = try activeClient.sendV2(method: "browser.navigate", params: params)
+        } else {
+            if let surfaceHandle { params["surface_id"] = surfaceHandle }
+            payload = try activeClient.sendV2(method: "browser.open_split", params: params)
+        }
         let completedViewer: DiffViewerWriteResult
         do {
             completedViewer = try completeDeferredDiffViewer(viewer)
@@ -1259,6 +1281,14 @@ extension CMUXCLI {
                     parsed.surface = try openOptionValue(commandArgs, index: index, name: arg)
                     index += 2
                     continue
+                case "--target-surface":
+                    parsed.targetSurface = try openOptionValue(commandArgs, index: index, name: arg)
+                    index += 2
+                    continue
+                case "--target-expected-url":
+                    parsed.targetExpectedURL = try openOptionValue(commandArgs, index: index, name: arg)
+                    index += 2
+                    continue
                 case "--session", "--agent-session":
                     parsed.sessionId = try openOptionValue(commandArgs, index: index, name: arg)
                     index += 2
@@ -1327,13 +1357,17 @@ extension CMUXCLI {
                     continue
                 default:
                     if arg.hasPrefix("-"), arg != "-" {
-                        throw CLIError(message: "diff: unknown flag '\(arg)'. Usage: cmux diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--agent <codex|claude|opencode>] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--session <id>] [--cwd <path>] [--base <ref>] [--focus true|false] [--no-focus] [--title <text>] [--layout split|unified] [--font-size <points>]")
+                        throw CLIError(message: "diff: unknown flag '\(arg)'. Usage: cmux diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--agent <codex|claude|opencode>] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--target-surface <id|ref|index>] [--window <id|ref|index>] [--session <id>] [--cwd <path>] [--base <ref>] [--focus true|false] [--no-focus] [--title <text>] [--layout split|unified] [--font-size <points>]")
                     }
                 }
             }
 
             parsed.inputs.append(arg)
             index += 1
+        }
+
+        if parsed.targetExpectedURL != nil, parsed.targetSurface == nil {
+            throw CLIError(message: "--target-expected-url requires --target-surface")
         }
 
         return parsed
@@ -7013,6 +7047,8 @@ extension CMUXCLI {
           --agent <name>               Agent provider: codex, claude, opencode
           --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
           --surface <id|ref|index>     Source surface to split from (default: $CMUX_SURFACE_ID)
+          --target-surface <id|ref|index>
+                                       Populate an existing browser surface instead of opening a split
           --session <id>               Agent session for --last-turn
           --window <id|ref|index>      Target window
           --cwd, --repo <path>          Git repository or worktree path for git sources

@@ -599,6 +599,43 @@ final class BrowserPanelFileSystemAccessBridgeTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelInitialNavigationTests: XCTestCase {
+    func testDiffViewerImmediatePresentationUsesFutureRightSplitFrameAndHandsOff() throws {
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 1_000, height: 700))
+        let sourceView = NSView(frame: NSRect(x: 240, y: 0, width: 760, height: 644))
+        contentView.addSubview(sourceView)
+        let window = NSWindow(
+            contentRect: contentView.bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = contentView
+        defer { window.close() }
+
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        XCTAssertTrue(panel.presentDiffViewerLoadingImmediately(relativeTo: sourceView))
+        let immediateHost = try XCTUnwrap(panel.diffViewerImmediatePresentationHost)
+        XCTAssertEqual(immediateHost.frame, NSRect(x: 620.5, y: 0, width: 379.5, height: 644))
+        XCTAssertTrue(panel.webView.window === window)
+        let loadingOverlay = try XCTUnwrap(panel.diffViewerLoadingOverlay)
+        XCTAssertTrue(loadingOverlay.superview === panel.webView.cmuxBrowserViewportPresentationView)
+
+        let portalDestination = NSView(frame: immediateHost.bounds)
+        XCTAssertTrue(panel.claimPortalHost(
+            hostId: ObjectIdentifier(portalDestination),
+            paneId: PaneID(),
+            inWindow: true,
+            bounds: portalDestination.bounds,
+            reason: "test.diffViewerHandoff"
+        ))
+        XCTAssertNil(panel.diffViewerImmediatePresentationHost)
+        XCTAssertNil(immediateHost.superview)
+        XCTAssertTrue(loadingOverlay.superview === panel.webView.cmuxBrowserViewportPresentationView)
+        panel.closeDiffViewerLoadingOverlay()
+        XCTAssertNil(panel.diffViewerLoadingOverlay)
+    }
+
     func testInitialURLCanBePreservedWithoutRenderingWebView() throws {
         let url = try XCTUnwrap(URL(string: "https://example.com/custom-layout"))
         let panel = BrowserPanel(

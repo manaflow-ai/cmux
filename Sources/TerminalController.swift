@@ -6581,47 +6581,29 @@ class TerminalController {
                 return
             }
 
-            let sourcePaneUUID = ws.paneId(forPanelId: sourceSurfaceId)?.id
             let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
             let omnibarVisible = v2Bool(params, "show_omnibar") ?? true
             let transparentBackground = v2Bool(params, "transparent_background") ?? false
             let bypassRemoteProxy = v2Bool(params, "bypass_remote_proxy") ?? v2IsDiffViewerURL(url)
 
-            var createdSplit = true
-            var placementStrategy = "split_right"
-            let createdPanel: BrowserPanel?
-            if let targetPane = ws.preferredRightSideTargetPane(fromPanelId: sourceSurfaceId) {
-                createdPanel = ws.newBrowserSurface(
-                    inPane: targetPane,
-                    url: url,
-                    focus: focus,
-                    selectWhenNotFocused: true,
-                    creationPolicy: .automationPreload,
-                    omnibarVisible: omnibarVisible,
-                    transparentBackground: transparentBackground,
-                    bypassRemoteProxy: bypassRemoteProxy
-                )
-                createdSplit = false
-                placementStrategy = "reuse_right_sibling"
-            } else {
-                createdPanel = ws.newBrowserSplit(
-                    from: sourceSurfaceId,
-                    orientation: .horizontal,
-                    url: url,
-                    focus: focus,
-                    creationPolicy: .automationPreload,
-                    omnibarVisible: omnibarVisible,
-                    transparentBackground: transparentBackground,
-                    bypassRemoteProxy: bypassRemoteProxy
-                )
-            }
-
-            guard let browserPanelId = createdPanel?.id else {
+            guard let placement = ws.openBrowserOnRight(
+                from: sourceSurfaceId,
+                url: url,
+                focus: focus,
+                creationPolicy: .automationPreload,
+                omnibarVisible: omnibarVisible,
+                transparentBackground: transparentBackground,
+                bypassRemoteProxy: bypassRemoteProxy
+            ) else {
                 result = .err(code: "internal_error", message: "Failed to create browser", data: nil)
                 return
             }
 
-            let targetPaneUUID = ws.paneId(forPanelId: browserPanelId)?.id
+            let createdPanel = placement.panel
+            let browserPanelId = createdPanel.id
+            let sourcePaneUUID = placement.sourcePaneID?.id
+            let targetPaneUUID = placement.targetPaneID?.id
+            let placementStrategy = placement.createdSplit ? "split_right" : "reuse_right_sibling"
             let windowId = v2ResolveWindowId(tabManager: tabManager)
             result = .ok([
                 "window_id": v2OrNull(windowId?.uuidString),
@@ -6638,9 +6620,9 @@ class TerminalController {
                 "source_pane_ref": v2Ref(kind: .pane, uuid: sourcePaneUUID),
                 "target_pane_id": v2OrNull(targetPaneUUID?.uuidString),
                 "target_pane_ref": v2Ref(kind: .pane, uuid: targetPaneUUID),
-                "created_split": createdSplit,
+                "created_split": placement.createdSplit,
                 "placement_strategy": placementStrategy,
-                "show_omnibar": createdPanel?.isOmnibarVisible ?? omnibarVisible,
+                "show_omnibar": createdPanel.isOmnibarVisible,
                 "transparent_background": transparentBackground,
                 "bypass_remote_proxy": bypassRemoteProxy
             ])
@@ -6660,7 +6642,15 @@ class TerminalController {
         }
         var basePayload: [String: Any]?
         var resolutionError: V2CallResult?
+        var shouldRewarmDiffLoadingPage = false
         v2MainSync {
+            if let parsedURL = URL(string: url) {
+                if let registrationError = v2AuthorizeDiffViewerNavigation(params: params, url: parsedURL) {
+                    resolutionError = registrationError
+                    return
+                }
+                shouldRewarmDiffLoadingPage = v2IsDiffViewerURL(parsedURL)
+            }
             let resolvedContext = v2ResolveBrowserPanelContext(params: params, tabManager: tabManager)
             if let error = resolvedContext.error {
                 resolutionError = error
@@ -6686,6 +6676,12 @@ class TerminalController {
         }
         guard var payload = basePayload else {
             return .err(code: "not_found", message: "Surface not found or not a browser", data: ["surface_id": surfaceId.uuidString])
+        }
+        if shouldRewarmDiffLoadingPage {
+            Task { @MainActor in
+                await Task.yield()
+                DiffViewerLoadingPage.prewarm()
+            }
         }
         // Run the optional --snapshot-after walk on the worker thread (not inside
         // v2MainSync) so a slow accessibility-tree snapshot on a fresh surface

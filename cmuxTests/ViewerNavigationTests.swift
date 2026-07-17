@@ -106,6 +106,38 @@ struct ViewerNavigationTests {
     }
 
     @Test
+    func deferredDiffViewerNavigationReusesRegisteredSessionWithoutRegistrationMetadata() throws {
+        let token = UUID().uuidString.lowercased()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-deferred-viewer-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let html = root.appendingPathComponent("completed.html", isDirectory: false)
+        try "<html></html>".write(to: html, atomically: true, encoding: .utf8)
+        try CmuxDiffViewerURLSchemeHandler.shared.register(
+            token: token,
+            files: [.init(requestPath: "/completed.html", fileURL: html, mimeType: "text/html")]
+        )
+
+        let completedURL = try #require(URL(string: "cmux-diff-viewer://\(token)/completed.html"))
+        #expect(TerminalController.shared.v2AuthorizeDiffViewerNavigation(
+            params: [:],
+            url: completedURL
+        ) == nil)
+    }
+
+    @Test
+    func deferredDiffViewerNavigationRejectsUnregisteredSessionWithoutMetadata() throws {
+        let token = UUID().uuidString.lowercased()
+        let url = try #require(URL(string: "cmux-diff-viewer://\(token)/completed.html"))
+
+        #expect(TerminalController.shared.v2AuthorizeDiffViewerNavigation(
+            params: [:],
+            url: url
+        ) != nil)
+    }
+
+    @Test
     func sidecarProcessPoolCancelsQueuedWorkWithoutLeakingPermit() async throws {
         let pool = DiffSidecarProcessPool(limit: 1)
         let counter = SidecarPoolTestCounter()

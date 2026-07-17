@@ -1280,6 +1280,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // closedPanelHistoryEntry.
         if !isRunningUnderXCTest {
             SharedLiveAgentIndex.shared.scheduleRefreshIfStale()
+            Task { @MainActor in
+                await Task.yield()
+                DiffViewerLoadingPage.prewarm()
+            }
         }
 
         claimAuthCallbackURLSchemes()
@@ -6016,8 +6020,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return activeCommandPaletteWindow()
     }
 
-    /// Opens the diff viewer for the focused workspace of `tabManager` by spawning the
-    /// bundled `cmux diff` CLI. This is the single shared diff-open path: both the
+    /// Opens a prewarmed loading surface for the focused workspace, then spawns the
+    /// bundled `cmux diff` CLI to populate it. This is the single shared diff-open path: both the
     /// command-palette entries and the Open Diff Viewer keyboard shortcut funnel through
     /// here so neither duplicates diff-open logic. Returns `false` (caller beeps) when
     /// there is no focused workspace or the bundled CLI is missing.
@@ -6043,6 +6047,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 #endif
         guard let workspace = tabManager?.selectedWorkspace,
+              let sourceSurfaceId = workspace.focusedPanelId,
               let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
               FileManager.default.isExecutableFile(atPath: cliURL.path) else {
             return false
@@ -6052,35 +6057,73 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         let fallbackCwd = workspace.resolvedWorkingDirectory()
             ?? FileManager.default.homeDirectoryForCurrentUser.path
+        let launchContext: (cwd: String, useLastTurnSource: Bool, sessionId: String?, agentProvider: String?)
         if preferAgentContext,
-           let surfaceId = workspace.focusedPanelId,
-           let snapshot = SharedLiveAgentIndex.shared.snapshot(workspaceId: workspace.id, panelId: surfaceId),
+           let snapshot = SharedLiveAgentIndex.shared.snapshot(workspaceId: workspace.id, panelId: sourceSurfaceId),
            let sessionId = Self.normalizedOpenDiffViewerSessionId(snapshot.sessionId),
            let agentProvider = snapshot.kind.diffTrajectoryProvider,
            let cwd = Self.normalizedOpenDiffViewerPath(
                 snapshot.workingDirectory ?? snapshot.launchCommand?.workingDirectory
            ) {
-            return launchDiffViewerProcess(
-                cliURL: cliURL,
-                socketPath: socketPath,
-                cwd: cwd,
-                workspaceId: workspace.id,
-                surfaceId: surfaceId,
-                useLastTurnSource: true,
-                sessionId: sessionId,
-                agentProvider: agentProvider
+            launchContext = (cwd, true, sessionId, agentProvider)
+        } else {
+            let agentDiffContext = preferAgentContext ? focusedAgentWorkingDirectoryContext(for: workspace) : nil
+            launchContext = (
+                agentDiffContext?.cwd ?? fallbackCwd,
+                false,
+                agentDiffContext?.sessionId,
+                nil
             )
         }
-        let agentDiffContext = preferAgentContext ? focusedAgentWorkingDirectoryContext(for: workspace) : nil
-        return launchDiffViewerProcess(
+
+        let loadingURL = DiffViewerLoadingPage.url
+        let sourcePresentationView: NSView? = {
+            if let terminal = workspace.panels[sourceSurfaceId] as? TerminalPanel {
+                return terminal.hostedView
+            }
+            if let browser = workspace.panels[sourceSurfaceId] as? BrowserPanel {
+                return browser.webView.cmuxBrowserViewportPresentationView
+            }
+            return nil
+        }()
+        let attachStartedAt = CFAbsoluteTimeGetCurrent()
+        guard let placement = workspace.openBrowserOnRight(
+            from: sourceSurfaceId,
+            url: loadingURL,
+            focus: true,
+            creationPolicy: .automationPreload,
+            omnibarVisible: false,
+            transparentBackground: true,
+            bypassRemoteProxy: true
+        ) else {
+            return false
+        }
+        let presentedImmediately = sourcePresentationView.map {
+            placement.panel.presentDiffViewerLoadingImmediately(relativeTo: $0)
+        } ?? false
+#if DEBUG
+        let attachMilliseconds = (CFAbsoluteTimeGetCurrent() - attachStartedAt) * 1_000
+        cmuxDebugLog(
+            "diffViewer.placeholder.attached elapsedMs=\(String(format: "%.1f", attachMilliseconds)) " +
+            "surface=\(placement.panel.id.uuidString.prefix(5)) immediate=\(presentedImmediately ? 1 : 0)"
+        )
+#endif
+        let launched = launchDiffViewerProcess(
             cliURL: cliURL,
             socketPath: socketPath,
-            cwd: agentDiffContext?.cwd ?? fallbackCwd,
+            cwd: launchContext.cwd,
             workspaceId: workspace.id,
-            surfaceId: workspace.focusedPanelId,
-            useLastTurnSource: false,
-            sessionId: agentDiffContext?.sessionId
+            surfaceId: sourceSurfaceId,
+            useLastTurnSource: launchContext.useLastTurnSource,
+            sessionId: launchContext.sessionId,
+            agentProvider: launchContext.agentProvider,
+            targetSurfaceId: placement.panel.id,
+            targetExpectedURL: loadingURL.absoluteString
         )
+        if !launched {
+            _ = workspace.closePanel(placement.panel.id, force: true)
+        }
+        return launched
     }
 
     private func focusedAgentWorkingDirectoryContext(for workspace: Workspace) -> (cwd: String, sessionId: String?)? {
@@ -6119,7 +6162,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         useLastTurnSource: Bool,
         sessionId: String?,
         agentProvider: String? = nil,
-        focus: Bool = true
+        focus: Bool = true,
+        targetSurfaceId: UUID? = nil,
+        targetExpectedURL: String? = nil
     ) -> Bool {
         let process = Process()
         process.executableURL = cliURL
@@ -6139,6 +6184,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         if useLastTurnSource, let agentProvider {
             arguments.append(contentsOf: ["--agent", agentProvider])
+        }
+        if let targetSurfaceId {
+            arguments.append(contentsOf: ["--target-surface", targetSurfaceId.uuidString])
+        }
+        if let targetExpectedURL {
+            arguments.append(contentsOf: ["--target-expected-url", targetExpectedURL])
         }
         process.arguments = arguments
         var environment = ProcessInfo.processInfo.environment

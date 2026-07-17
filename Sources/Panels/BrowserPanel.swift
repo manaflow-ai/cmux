@@ -2793,6 +2793,8 @@ final class BrowserPanel: Panel, ObservableObject {
     }
     private var shouldPreloadInitialNavigationInBackground: Bool
     private var backgroundPreloadWindow: NSWindow?
+    var diffViewerImmediatePresentationHost: NSView?
+    var diffViewerLoadingOverlay: NSView?
     private let visualAutomationCaptureGate = BrowserScreenshotCaptureGate()
     let automationWatchdog = BrowserAutomationWatchdog()
     let automationDocumentReadiness = BrowserAutomationDocumentReadiness()
@@ -3388,6 +3390,13 @@ final class BrowserPanel: Panel, ObservableObject {
         bounds: CGRect,
         reason: String
     ) -> Bool {
+        // The real portal is ready to adopt the presentation view. Retire the
+        // temporary diff-loading host before portal synchronization reparents it.
+        if inWindow,
+           Self.portalHostArea(for: bounds) > Self.portalHostAreaThreshold,
+           diffViewerImmediatePresentationHost != nil {
+            closeDiffViewerImmediatePresentationHost()
+        }
         let next = PortalHostLease(
             hostId: hostId,
             paneId: paneId.id,
@@ -3735,6 +3744,9 @@ final class BrowserPanel: Panel, ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 (webView as? CmuxWebView)?.diffViewerNavigationDidCommit(navigation)
+                if webView.url != DiffViewerLoadingPage.url {
+                    self.closeDiffViewerLoadingOverlay()
+                }
                 self.isMainFrameProvisionalNavigationActive = false
                 self.automationDocumentReadiness.didCommit(instanceID: boundWebViewInstanceID)
                 // An about:blank placeholder leaves the restore-stall detector armed.
@@ -3773,6 +3785,7 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate.didFailNavigation = { [weak self] failedWebView, failedURL, failedNavigation in
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(failedWebView, instanceID: boundWebViewInstanceID) else { return }
+                self.closeDiffViewerLoadingOverlay()
                 self.isMainFrameProvisionalNavigationActive = false
                 if let url = URL(string: failedURL) {
                     self.currentURL = Self.remoteProxyDisplayURL(for: url) ?? url
@@ -5308,6 +5321,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func close() {
         cancelHiddenWebViewDiscard()
+        closeDiffViewerImmediatePresentationHost()
+        closeDiffViewerLoadingOverlay()
         isClosingWebViewLifecycle = true
         automationDocumentReadiness.invalidate()
         automationWatchdog.invalidate()

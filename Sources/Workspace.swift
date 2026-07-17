@@ -1934,6 +1934,13 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
 @MainActor
 final class Workspace: Identifiable, ObservableObject {
+    struct BrowserRightPlacement {
+        let panel: BrowserPanel
+        let sourcePaneID: PaneID?
+        let targetPaneID: PaneID?
+        let createdSplit: Bool
+    }
+
     enum BrowserPanelCreationPolicy {
         case userInitiated
         case automationPreload
@@ -7898,6 +7905,56 @@ final class Workspace: Identifiable, ObservableObject {
         browserPanel.setRemoteWorkspaceStatus(browserRemoteWorkspaceStatusSnapshot())
 
         return browserPanel
+    }
+
+    /// Places a browser using the shared automation policy: reuse the preferred
+    /// right-side pane when one exists, otherwise create a horizontal split.
+    @discardableResult
+    func openBrowserOnRight(
+        from sourceSurfaceID: UUID,
+        url: URL?,
+        focus: Bool,
+        creationPolicy: BrowserPanelCreationPolicy,
+        omnibarVisible: Bool,
+        transparentBackground: Bool,
+        bypassRemoteProxy: Bool
+    ) -> BrowserRightPlacement? {
+        guard panels[sourceSurfaceID] != nil else { return nil }
+        let sourcePaneID = paneId(forPanelId: sourceSurfaceID)
+        let panel: BrowserPanel?
+        let createdSplit: Bool
+        if let targetPane = preferredRightSideTargetPane(fromPanelId: sourceSurfaceID) {
+            panel = newBrowserSurface(
+                inPane: targetPane,
+                url: url,
+                focus: focus,
+                selectWhenNotFocused: true,
+                creationPolicy: creationPolicy,
+                omnibarVisible: omnibarVisible,
+                transparentBackground: transparentBackground,
+                bypassRemoteProxy: bypassRemoteProxy
+            )
+            createdSplit = false
+        } else {
+            panel = newBrowserSplit(
+                from: sourceSurfaceID,
+                orientation: .horizontal,
+                url: url,
+                focus: focus,
+                creationPolicy: creationPolicy,
+                omnibarVisible: omnibarVisible,
+                transparentBackground: transparentBackground,
+                bypassRemoteProxy: bypassRemoteProxy
+            )
+            createdSplit = true
+        }
+        guard let panel else { return nil }
+        return BrowserRightPlacement(
+            panel: panel,
+            sourcePaneID: sourcePaneID,
+            targetPaneID: paneId(forPanelId: panel.id),
+            createdSplit: createdSplit
+        )
     }
 
     /// Create a new browser surface in the specified pane.
