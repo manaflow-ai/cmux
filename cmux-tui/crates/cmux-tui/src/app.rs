@@ -1103,12 +1103,15 @@ impl OrderedSession {
             self.remote,
             move || superseded.supersede(),
             move || {
-                let _claim = claim;
                 let result = if reassert {
                     surface.reassert_size(cols, rows)
                 } else {
                     surface.resize(cols, rows)
                 };
+                // A settled event is the synchronization barrier for the UI.
+                // Release the in-flight claim before publishing completion so
+                // lifecycle recovery can queue the same geometry immediately.
+                drop(claim);
                 match result {
                     Ok(_) => {
                         failures.lock().unwrap().remove(&surface_id);
