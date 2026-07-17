@@ -201,6 +201,8 @@ struct InFlightInput {
 struct SharedQueue {
     state: Mutex<QueueState>,
     changed: Condvar,
+    #[cfg(test)]
+    after_operation_before_cleanup: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
 pub struct PtyInputDispatcher {
@@ -284,6 +286,11 @@ impl PtyInputDispatcher {
 }
 
 impl PtyInputSender {
+    #[cfg(test)]
+    pub fn set_after_operation_before_cleanup(&self, hook: Option<Arc<dyn Fn() + Send + Sync>>) {
+        *self.queue.after_operation_before_cleanup.lock().unwrap() = hook;
+    }
+
     pub fn enqueue(&self, event: PtyInputEvent) -> PtyInputEnqueueResult {
         self.enqueue_with_reservation(event).0
     }
@@ -585,6 +592,12 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
         } else {
             event.surface.write_bytes(&event.bytes)
         };
+        #[cfg(test)]
+        let before_cleanup = queue.after_operation_before_cleanup.lock().unwrap().clone();
+        #[cfg(test)]
+        if let Some(before_cleanup) = before_cleanup {
+            before_cleanup();
+        }
         let remote_transport_failed =
             remote && result.as_ref().err().is_some_and(is_remote_transport_failure);
         let remote_timed_out = remote && result.as_ref().err().is_some_and(is_remote_timeout);

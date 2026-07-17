@@ -8950,6 +8950,62 @@ mod tests {
     }
 
     #[test]
+    fn queued_mutation_settlement_waits_for_worker_cleanup() {
+        let mux = Mux::new("mutation-settlement-barrier-test", SurfaceOptions::default());
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
+        app.session.remote = true;
+        let pause_first = Arc::new(AtomicBool::new(true));
+        let (reached_tx, reached_rx) = std::sync::mpsc::sync_channel(1);
+        let release = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+        let hook_release = release.clone();
+        app.session.operations.set_after_operation_before_cleanup(Some(Arc::new(move || {
+            if pause_first.swap(false, Ordering::SeqCst) {
+                reached_tx.send(()).unwrap();
+                let (lock, ready) = &*hook_release;
+                let mut released = lock.lock().unwrap();
+                while !*released {
+                    released = ready.wait(released).unwrap();
+                }
+            }
+        })));
+
+        app.session.enqueue_coalescing_session_mutation(
+            "resize PTY surface",
+            ("surface resize", 7),
+            |_| Err(crate::session::test_remote_timeout_error()),
+        );
+        reached_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(events.try_recv().is_err(), "settlement escaped before worker cleanup");
+        let (lock, ready) = &*release;
+        *lock.lock().unwrap() = true;
+        ready.notify_all();
+
+        let timed_out = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            timed_out,
+            AppEvent::SessionMutationSettled {
+                outcome: super::SessionMutationOutcome::MutationTimedOut(_),
+                ..
+            }
+        ));
+        app.handle(timed_out).unwrap();
+
+        app.session.enqueue_coalescing_session_mutation(
+            "resize PTY surface",
+            ("surface resize", 7),
+            |_| Ok(()),
+        );
+        let recovered = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            recovered,
+            AppEvent::SessionMutationSettled {
+                outcome: super::SessionMutationOutcome::Success { .. },
+                ..
+            }
+        ));
+    }
+
+    #[test]
     fn browser_completion_waits_for_its_authoritative_identity_generation() {
         let mux = Mux::new("browser-completion-generation-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
