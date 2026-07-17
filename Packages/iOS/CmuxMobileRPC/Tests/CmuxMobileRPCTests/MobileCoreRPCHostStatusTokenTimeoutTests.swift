@@ -93,4 +93,115 @@ import Testing
         #expect(await tokenStarted.isSet())
         #expect(try await transport.sentRequests().isEmpty)
     }
+
+    @Test func hostStatusReusesTokenThatJustAuthorizedWorkspaceList() async throws {
+        let statusTokenProviderStarted = AsyncFlag()
+        let transport = ImmediateResponseRecordingTransport()
+        let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59131)
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: ImmediateResponseRecordingTransportFactory(transport: transport),
+            stackAccessTokenProvider: { "workspace-token" },
+            stackAccessTokenForStatusProvider: {
+                await statusTokenProviderStarted.set()
+                try? await Task.sleep(nanoseconds: 60 * 1_000_000_000)
+                return nil
+            },
+            rpcRequestTimeoutNanoseconds: 100_000_000
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-main",
+            terminalID: "terminal-main",
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(60),
+            authToken: "ticket-secret"
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+
+        _ = try await client.sendRequest(
+            MobileCoreRPCClient.requestData(
+                method: "workspace.list",
+                params: ["workspace_id": "workspace-main"],
+                id: "workspace"
+            )
+        )
+        _ = try await client.sendRequest(
+            MobileCoreRPCClient.requestData(
+                method: "mobile.host.status",
+                id: "status"
+            )
+        )
+
+        let sent = try await transport.sentRequests()
+        #expect(sent.map(\.method) == ["workspace.list", "mobile.host.status"])
+        #expect(sent.map(\.stackAccessToken) == ["workspace-token", "workspace-token"])
+        #expect(!(await statusTokenProviderStarted.isSet()))
+    }
+}
+
+private actor ImmediateResponseRecordingTransport: CmxByteTransport {
+    private var sentPayloads: [Data] = []
+    private var queuedResponses: [Data] = []
+    private var receiveWaiters: [CheckedContinuation<Data?, Never>] = []
+    private var isClosed = false
+
+    func connect() async throws {}
+
+    func receive() async throws -> Data? {
+        guard !isClosed else { return nil }
+        if !queuedResponses.isEmpty {
+            return queuedResponses.removeFirst()
+        }
+        return await withCheckedContinuation { continuation in
+            receiveWaiters.append(continuation)
+        }
+    }
+
+    func send(_ data: Data) async throws {
+        var buffer = data
+        let payloads = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
+        sentPayloads.append(contentsOf: payloads)
+        for payload in payloads {
+            let request = try recordedRPCRequest(from: payload)
+            let response = try JSONSerialization.data(withJSONObject: [
+                "id": request.id ?? "",
+                "ok": true,
+                "result": ["status": "ok"],
+            ])
+            let frame = try MobileSyncFrameCodec.encodeFrame(response)
+            if let waiter = receiveWaiters.first {
+                receiveWaiters.removeFirst()
+                waiter.resume(returning: frame)
+            } else {
+                queuedResponses.append(frame)
+            }
+        }
+    }
+
+    func close() async {
+        isClosed = true
+        let waiters = receiveWaiters
+        receiveWaiters = []
+        for waiter in waiters {
+            waiter.resume(returning: nil)
+        }
+    }
+
+    func sentRequests() throws -> [RecordedRPCRequest] {
+        try sentPayloads.map(recordedRPCRequest(from:))
+    }
+}
+
+private struct ImmediateResponseRecordingTransportFactory: CmxByteTransportFactory {
+    let transport: ImmediateResponseRecordingTransport
+
+    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
+        transport
+    }
 }
