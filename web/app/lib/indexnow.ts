@@ -22,8 +22,8 @@ export function recentlyModifiedUrls(
   const newestModification = Math.max(
     ...modifiedEntries.map((entry) => entry.modified),
   );
-  // Sitemap dates describe content, not deployment time. Anchor the overlap to
-  // the newest eligible entry so a delayed deployment cannot age the release out.
+  // This selection runs once after each production deployment. Sitemap dates
+  // describe content, so anchoring to the newest entry preserves delayed releases.
   const earliest = newestModification - lookbackHours * 60 * 60 * 1000;
 
   return modifiedEntries

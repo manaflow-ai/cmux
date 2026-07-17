@@ -4,9 +4,12 @@ import sitemap from "../../../sitemap";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(request: Request): Promise<Response> {
-  const cronSecret = process.env.CRON_SECRET?.trim();
-  if (!cronSecret || request.headers.get("authorization") !== `Bearer ${cronSecret}`) {
+export async function POST(request: Request): Promise<Response> {
+  const triggerSecret = process.env.INDEXNOW_TRIGGER_SECRET?.trim();
+  if (
+    !triggerSecret ||
+    request.headers.get("authorization") !== `Bearer ${triggerSecret}`
+  ) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
 

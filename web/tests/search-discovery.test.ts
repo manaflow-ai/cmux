@@ -9,6 +9,7 @@ import {
   submitIndexNowUrls,
 } from "../app/lib/indexnow";
 import { buildLocalizedBlogRssFeed } from "../app/lib/localized-blog-feed";
+import { POST as submitIndexNowDeployment } from "../app/api/cron/indexnow/route";
 
 describe("search discovery", () => {
   test("publishes a valid RSS channel with canonical blog URLs", () => {
@@ -102,5 +103,24 @@ describe("search discovery", () => {
     expect(indexNowPayload([]).keyLocation).toBe(
       `https://cmux.com/${indexNowKey}.txt`,
     );
+  });
+
+  test("rejects deployment triggers without the dedicated secret", async () => {
+    const originalSecret = process.env.INDEXNOW_TRIGGER_SECRET;
+    delete process.env.INDEXNOW_TRIGGER_SECRET;
+
+    try {
+      const response = await submitIndexNowDeployment(
+        new Request("https://cmux.com/api/cron/indexnow", { method: "POST" }),
+      );
+
+      expect(response.status).toBe(401);
+    } finally {
+      if (originalSecret === undefined) {
+        delete process.env.INDEXNOW_TRIGGER_SECRET;
+      } else {
+        process.env.INDEXNOW_TRIGGER_SECRET = originalSecret;
+      }
+    }
   });
 });

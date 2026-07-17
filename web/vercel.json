@@ -11,10 +11,6 @@
   ],
   "crons": [
     {
-      "path": "/api/cron/indexnow",
-      "schedule": "17 13 * * *"
-    },
-    {
       "path": "/api/cron/vm-reconcile",
       "schedule": "7,17,27,37,47,57 * * * *"
     },
