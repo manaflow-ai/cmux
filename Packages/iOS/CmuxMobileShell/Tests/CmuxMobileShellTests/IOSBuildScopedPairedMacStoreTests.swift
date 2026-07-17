@@ -26,6 +26,17 @@ import Testing
         try CmxAttachRoute(id: "manual", kind: .tailscale, endpoint: .hostPort(host: host, port: 22))
     }
 
+    private func irohRoute(_ endpointID: Character) throws -> CmxAttachRoute {
+        try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(
+                identity: CmxIrohPeerIdentity(endpointID: String(repeating: endpointID, count: 64)),
+                pathHints: []
+            )
+        )
+    }
+
     @Test func scopesRowsByIOSBuildTag() async throws {
         let (inner, directory) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -105,6 +116,50 @@ import Testing
         let rows = try await feature.loadAll(stackUserID: "user-1", teamID: "team-a")
         #expect(rows.map(\.macDeviceID) == ["teamless"])
         #expect(rows.first?.teamID == nil)
+    }
+
+    @Test func authenticatedTaggedRowSupersedesMatchingLegacyPeerOnly() async throws {
+        let (inner, directory) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let feature = IOSBuildScopedPairedMacStore(
+            inner: inner,
+            scope: try #require(MobileIOSBuildScope("feature"))
+        )
+
+        try await feature.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Current",
+            routes: [try irohRoute("a")],
+            instanceTag: "feature",
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date(timeIntervalSince1970: 30)
+        )
+        try await feature.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Other app instance",
+            routes: [try irohRoute("b")],
+            instanceTag: "other",
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 20)
+        )
+        try await feature.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Legacy alias",
+            routes: [try irohRoute("a")],
+            instanceTag: nil,
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 10)
+        )
+
+        let rows = try await feature.loadAll(stackUserID: "user-1", teamID: "team-a")
+
+        #expect(rows.map(\.instanceTag) == ["feature", "other"])
     }
 
     @Test func newerTeamlessSiblingTagDoesNotReplaceActiveSelectedTag() async throws {
