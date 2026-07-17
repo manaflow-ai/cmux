@@ -73,6 +73,13 @@ final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProvidin
 /// drop/replay state by surface id (the legacy inline
 /// `ghostty_surface_set_pty_tee_cb` + `MobileTerminalByteTee.shared` calls).
 final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
+    private let agentStateRuntime: AgentTerminalStateRuntime
+
+    @MainActor
+    init(agentStateRuntime: AgentTerminalStateRuntime) {
+        self.agentStateRuntime = agentStateRuntime
+    }
+
     /// Wraps the retained tee userdata; `release()` runs exactly where the
     /// surface released the legacy `Unmanaged` context.
     /// @unchecked Sendable: the Unmanaged box is exclusively owned by this
@@ -96,15 +103,22 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
         workspaceID: UUID,
         surfaceID: UUID
     ) -> any TerminalByteTeeLease {
+        let agentStateSignal = AgentTerminalDirtySignal()
         let teeContext = Unmanaged.passRetained(TerminalOutputTeeContext(
             workspaceID: workspaceID,
             surfaceID: surfaceID,
-            agentDefinitions: CmuxTaskManagerCodingAgentDefinition.builtIns
+            agentDefinitions: CmuxTaskManagerCodingAgentDefinition.builtIns,
+            agentStateSignal: agentStateSignal
         ))
         ghostty_surface_set_pty_tee_cb(
             surface,
             cmuxTerminalOutputTeeCallback,
             teeContext.toOpaque()
+        )
+        agentStateRuntime.install(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            signal: agentStateSignal
         )
         return Lease(context: teeContext)
     }
@@ -112,6 +126,7 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
     @MainActor
     func dropSurface(surfaceID: UUID) {
         MobileTerminalByteTee.shared.dropSurface(surfaceID: surfaceID)
+        agentStateRuntime.drop(surfaceID: surfaceID)
     }
 }
 

@@ -4473,7 +4473,10 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             updateBindingOnlyRestoredAgentResumeState(panelId: panelId, shellState: state)
         }
-        if state == .promptIdle { _ = clearStaleAgentPIDs(panelId: panelId, refreshPorts: true) }
+        if state == .promptIdle {
+            _ = clearStaleAgentPIDs(panelId: panelId, refreshPorts: true)
+            clearDetectedAgentLifecycle(panelId: panelId)
+        }
 #if DEBUG
         cmuxDebugLog(
             "surface.shellState workspace=\(id.uuidString.prefix(5)) " +

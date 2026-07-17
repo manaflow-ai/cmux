@@ -119,6 +119,10 @@
 		A9E050000000000000000002 /* AgentSessionWebRendererTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E050000000000000000001 /* AgentSessionWebRendererTests.swift */; };
 		A9E02000000000000000000D /* AgentSessionWebTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E01000000000000000000D /* AgentSessionWebTheme.swift */; };
 		A9F200000000000000000014 /* AgentSessionWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000014 /* AgentSessionWebView.swift */; };
+		FEA700020000000000000001 /* AgentTerminalClassificationWorker.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEA700020000000000000002 /* AgentTerminalClassificationWorker.swift */; };
+		FEA700010000000000000001 /* AgentTerminalProcessInspector.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEA700010000000000000002 /* AgentTerminalProcessInspector.swift */; };
+		FEA700040000000000000001 /* AgentTerminalStateRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEA700040000000000000002 /* AgentTerminalStateRuntime.swift */; };
+		FEA700030000000000000001 /* AgentTerminalStateSurfaceObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEA700030000000000000002 /* AgentTerminalStateSurfaceObserver.swift */; };
 		REE0CA0000000000000000F2 /* AIAccountCredentialSources.swift in Sources */ = {isa = PBXBuildFile; fileRef = REE0CA0000000000000000F1 /* AIAccountCredentialSources.swift */; };
 		REE0CA0000000000000000E2 /* AIAccountsClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = REE0CA0000000000000000E1 /* AIAccountsClient.swift */; };
 		A115C0DE0000000000000002 /* AllShortcutsPopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = A115C0DE0000000000000001 /* AllShortcutsPopover.swift */; };
@@ -1927,6 +1931,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D7632B13A1B2C3D4E5F60718 /* WKWebView+CmuxPrintOperation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7632B14A1B2C3D4E5F60718 /* WKWebView+CmuxPrintOperation.swift */; };
 		C0DE43000000000000000007 /* Workspace+AgentChat.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE43000000000000000008 /* Workspace+AgentChat.swift */; };
 		A6AC73020000000000000001 /* Workspace+AgentLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC73020000000000000002 /* Workspace+AgentLifecycle.swift */; };
+		FEA700050000000000000001 /* Workspace+AgentTerminalStateDetection.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEA700050000000000000002 /* Workspace+AgentTerminalStateDetection.swift */; };
 		CA52B0150000000000000000 /* Workspace+CanvasLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0150000000000000000 /* Workspace+CanvasLayout.swift */; };
 		C54860020000000000000001 /* Workspace+CmuxNavigationDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54860020000000000000002 /* Workspace+CmuxNavigationDescriptor.swift */; };
 		A5FB120D /* Workspace+CustomLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB120E /* Workspace+CustomLayout.swift */; };
@@ -2221,6 +2226,10 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A9E050000000000000000001 /* AgentSessionWebRendererTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionWebRendererTests.swift; sourceTree = "<group>"; };
 		A9E01000000000000000000D /* AgentSessionWebTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionWebTheme.swift; sourceTree = "<group>"; };
 		A9F100000000000000000014 /* AgentSessionWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionWebView.swift; sourceTree = "<group>"; };
+		FEA700020000000000000002 /* AgentTerminalClassificationWorker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTerminalClassificationWorker.swift; sourceTree = "<group>"; };
+		FEA700010000000000000002 /* AgentTerminalProcessInspector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTerminalProcessInspector.swift; sourceTree = "<group>"; };
+		FEA700040000000000000002 /* AgentTerminalStateRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTerminalStateRuntime.swift; sourceTree = "<group>"; };
+		FEA700030000000000000002 /* AgentTerminalStateSurfaceObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTerminalStateSurfaceObserver.swift; sourceTree = "<group>"; };
 		REE0CA0000000000000000F1 /* AIAccountCredentialSources.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AIAccountCredentialSources.swift; sourceTree = "<group>"; };
 		REE0CA0000000000000000E1 /* AIAccountsClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AIAccountsClient.swift; sourceTree = "<group>"; };
 		A115C0DE0000000000000001 /* AllShortcutsPopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AllShortcutsPopover.swift; sourceTree = "<group>"; };
@@ -3947,6 +3956,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D7632B14A1B2C3D4E5F60718 /* WKWebView+CmuxPrintOperation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/WKWebView+CmuxPrintOperation.swift"; sourceTree = "<group>"; };
 		C0DE43000000000000000008 /* Workspace+AgentChat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+AgentChat.swift"; sourceTree = "<group>"; };
 		A6AC73020000000000000002 /* Workspace+AgentLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+AgentLifecycle.swift"; sourceTree = "<group>"; };
+		FEA700050000000000000002 /* Workspace+AgentTerminalStateDetection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+AgentTerminalStateDetection.swift"; sourceTree = "<group>"; };
 		CA52C0150000000000000000 /* Workspace+CanvasLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CanvasLayout.swift"; sourceTree = "<group>"; };
 		C54860020000000000000002 /* Workspace+CmuxNavigationDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CmuxNavigationDescriptor.swift"; sourceTree = "<group>"; };
 		A5FB120E /* Workspace+CustomLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CustomLayout.swift"; sourceTree = "<group>"; };
@@ -4717,6 +4727,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				791102020000000000000001 /* RemoteDisconnectPreparationService.swift */,
 				C0DE43000000000000000008 /* Workspace+AgentChat.swift */,
 				C3744E040000000000000001 /* AgentPIDProcessIdentity.swift */,
+				FEA700010000000000000002 /* AgentTerminalProcessInspector.swift */,
+				FEA700020000000000000002 /* AgentTerminalClassificationWorker.swift */,
+				FEA700030000000000000002 /* AgentTerminalStateSurfaceObserver.swift */,
+				FEA700040000000000000002 /* AgentTerminalStateRuntime.swift */,
 				6799A0026799A0026799A002 /* WorkspaceSidebarAgentRuntimeObservationModel.swift */,
 				4AF464BD9CEDF14931D55126 /* Workspace+Todos.swift */,
 				97A8F8FE70450C596AE80D94 /* Workspace+TodoNotifications.swift */,
@@ -4745,6 +4759,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */,
 				C3744E100000000000000002 /* Workspace+SidebarStatusVisibility.swift */,
 				A6AC73020000000000000002 /* Workspace+AgentLifecycle.swift */,
+				FEA700050000000000000002 /* Workspace+AgentTerminalStateDetection.swift */,
 				9864510B84F2428BB83568CF /* RestoredAgentCompletedGeneration.swift */,
 				9864510A84F2428BB83568CF /* RestoredAgentLifecycleCoordinator.swift */,
 				42C2726A34F27E7A43B77368 /* Workspace+CustomSidebarPullRequests.swift */,
@@ -6770,6 +6785,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A9E02000000000000000000C /* AgentSessionWebRendererSession.swift in Sources */,
 				A9E02000000000000000000D /* AgentSessionWebTheme.swift in Sources */,
 				A9F200000000000000000014 /* AgentSessionWebView.swift in Sources */,
+				FEA700020000000000000001 /* AgentTerminalClassificationWorker.swift in Sources */,
+				FEA700010000000000000001 /* AgentTerminalProcessInspector.swift in Sources */,
+				FEA700040000000000000001 /* AgentTerminalStateRuntime.swift in Sources */,
+				FEA700030000000000000001 /* AgentTerminalStateSurfaceObserver.swift in Sources */,
 				REE0CA0000000000000000F2 /* AIAccountCredentialSources.swift in Sources */,
 				REE0CA0000000000000000E2 /* AIAccountsClient.swift in Sources */,
 				A115C0DE0000000000000002 /* AllShortcutsPopover.swift in Sources */,
@@ -7875,6 +7894,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D7632B13A1B2C3D4E5F60718 /* WKWebView+CmuxPrintOperation.swift in Sources */,
 				C0DE43000000000000000007 /* Workspace+AgentChat.swift in Sources */,
 				A6AC73020000000000000001 /* Workspace+AgentLifecycle.swift in Sources */,
+				FEA700050000000000000001 /* Workspace+AgentTerminalStateDetection.swift in Sources */,
 				CA52B0150000000000000000 /* Workspace+CanvasLayout.swift in Sources */,
 				C54860020000000000000001 /* Workspace+CmuxNavigationDescriptor.swift in Sources */,
 				A5FB120D /* Workspace+CustomLayout.swift in Sources */,
