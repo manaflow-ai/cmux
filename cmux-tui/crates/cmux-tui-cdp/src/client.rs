@@ -847,6 +847,40 @@ mod tests {
     }
 
     #[test]
+    fn rejected_screencast_frame_is_acknowledged() {
+        let (outbound_tx, outbound_rx) = channel();
+        let (event_tx, _event_rx) = std::sync::mpsc::sync_channel(1);
+        let inner = Arc::new(Inner {
+            outbound: outbound_tx,
+            pending: Mutex::new(HashMap::new()),
+            events: event_tx,
+            next_id: AtomicU64::new(1),
+            closed: AtomicBool::new(false),
+            timeout: Duration::from_secs(1),
+        });
+        handle_text(
+            &inner,
+            &json!({
+                "method": "Page.screencastFrame",
+                "sessionId": "session-1",
+                "params": {
+                    "data": "not base64",
+                    "sessionId": 77,
+                    "metadata": {"deviceWidth": 80, "deviceHeight": 24}
+                }
+            })
+            .to_string(),
+        );
+
+        let Outbound::Message(ack) = outbound_rx.try_recv().expect("rejected frame ack") else {
+            panic!("expected a CDP message");
+        };
+        let ack: Value = serde_json::from_str(&ack).unwrap();
+        assert_eq!(ack["method"], "Page.screencastFrameAck");
+        assert_eq!(ack["params"]["sessionId"], 77);
+    }
+
+    #[test]
     fn http_discovery_rejects_response_over_limit() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();

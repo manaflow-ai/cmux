@@ -66,6 +66,31 @@ test("attachSurface rejects oversized encoded data before decoding", async () =>
   await client.close();
 });
 
+test("shared attach rejects buffered overflow before its success response", async () => {
+  const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "identify") {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: { app: "cmux-tui", version: "0.1.2", protocol: 6, session: "main", pid: 1 },
+      });
+      return;
+    }
+    assert.equal(request.cmd, "attach-surface");
+    connection.emit({ event: "output", surface: 7, data: "YQ==" });
+    connection.emit({ event: "output", surface: 7, data: "Yg==" });
+    connection.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({
+    transport,
+    timeoutMs: 100,
+    maxBufferedEvents: 1,
+  } as ConstructorParameters<typeof CmuxClient>[0] & { maxBufferedEvents: number });
+
+  await assert.rejects(() => client.attachSurface(7), /stream event buffer overflow/);
+  await client.close();
+});
+
 type CmuxClientOptionsWithSecurityLimits = ConstructorParameters<typeof CmuxClient>[0] & {
   maxAttachEncodedChars: number;
 };

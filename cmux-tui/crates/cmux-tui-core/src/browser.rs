@@ -2338,6 +2338,37 @@ mod tests {
     }
 
     #[test]
+    fn title_event_burst_keeps_surface_route_live_and_delivers_latest() {
+        let (tx, rx) = mpsc::sync_channel(1);
+        let route = Arc::new(super::SurfaceRoute::new(tx));
+        let event = |index| {
+            cmux_tui_cdp::CdpEvent::TargetInfoChanged(cmux_tui_cdp::TargetInfo {
+                session_id: Some("session-1".to_string()),
+                target_id: "target-1".to_string(),
+                title: format!("title-{index}"),
+                url: "https://example.test".to_string(),
+            })
+        };
+
+        assert!(!route.deliver(event(0)));
+        for index in 1..=cmux_tui_cdp::CDP_EVENT_QUEUE_CAPACITY {
+            assert!(!route.deliver(event(index)));
+        }
+        assert!(!route.closed.load(Ordering::Acquire));
+
+        let mut latest = String::new();
+        while let Ok(received) = rx.recv_timeout(Duration::from_millis(200)) {
+            if let cmux_tui_cdp::CdpEvent::TargetInfoChanged(info) = received {
+                latest = info.title;
+                if latest == format!("title-{}", cmux_tui_cdp::CDP_EVENT_QUEUE_CAPACITY) {
+                    break;
+                }
+            }
+        }
+        assert_eq!(latest, format!("title-{}", cmux_tui_cdp::CDP_EVENT_QUEUE_CAPACITY));
+    }
+
+    #[test]
     fn external_runtime_does_not_query_or_override_user_agent() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
