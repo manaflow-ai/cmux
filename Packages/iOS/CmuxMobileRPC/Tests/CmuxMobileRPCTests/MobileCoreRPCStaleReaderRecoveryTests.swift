@@ -4,6 +4,23 @@ import Testing
 @testable import CmuxMobileRPC
 
 @Suite struct MobileCoreRPCStaleReaderRecoveryTests {
+    @Test func sequencedFactoryRejectsUnexpectedExtraTransportCreation() throws {
+        let factory = SequencedTransportFactory([
+            ControllableResponseTransport(closeEndsReceive: true),
+        ])
+        let route = try hostPortRoute(
+            kind: .debugLoopback,
+            host: "127.0.0.1",
+            port: 59136
+        )
+
+        _ = try factory.makeTransport(for: route)
+        #expect(throws: SequencedTransportFactoryError.exhausted) {
+            _ = try factory.makeTransport(for: route)
+        }
+        #expect(factory.createdTransportCount() == 1)
+    }
+
     @Test func staleReaderCannotAnswerReplacementSessionRequest() async throws {
         let stale = ControllableResponseTransport(closeEndsReceive: false)
         let replacement = ControllableResponseTransport(closeEndsReceive: true)

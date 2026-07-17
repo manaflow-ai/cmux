@@ -1,6 +1,10 @@
 import CMUXMobileCore
 import Foundation
 
+enum SequencedTransportFactoryError: Error, Equatable {
+    case exhausted
+}
+
 final class SequencedTransportFactory: @unchecked Sendable, CmxByteTransportFactory {
     private let lock = NSLock()
     private let transports: [any CmxByteTransport]
@@ -12,10 +16,13 @@ final class SequencedTransportFactory: @unchecked Sendable, CmxByteTransportFact
     }
 
     func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
-        lock.withLock {
-            let index = min(nextIndex, transports.count - 1)
+        try lock.withLock {
+            guard nextIndex < transports.count else {
+                throw SequencedTransportFactoryError.exhausted
+            }
+            let transport = transports[nextIndex]
             nextIndex += 1
-            return transports[index]
+            return transport
         }
     }
 

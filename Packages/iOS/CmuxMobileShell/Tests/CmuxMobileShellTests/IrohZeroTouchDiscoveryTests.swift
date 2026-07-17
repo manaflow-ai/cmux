@@ -7,6 +7,8 @@ import Testing
 @MainActor
 @Suite
 struct IrohZeroTouchDiscoveryTests {
+    private nonisolated static let fixedNow = Date(timeIntervalSince1970: 1_700_000_000)
+
     @Test
     func cleanInstallConnectsAndPersistsOnlyAuthenticatedMac() async throws {
         let fixture = try await makeFixture(
@@ -93,7 +95,7 @@ struct IrohZeroTouchDiscoveryTests {
             tag: "stable",
             platform: "mac",
             online: true,
-            lastSeenAt: Date().timeIntervalSince1970 * 1_000
+            lastSeenAt: Self.fixedNow.timeIntervalSince1970 * 1_000
         )), scope: scope)
 
         #expect(try await pollUntil {
@@ -161,7 +163,7 @@ struct IrohZeroTouchDiscoveryTests {
         let shell = MobileShellComposite(
             runtime: LivenessTestRuntime(
                 transportFactory: factory,
-                now: Date.init,
+                now: { Self.fixedNow },
                 supportedRouteKinds: [.iroh]
             ),
             isSignedIn: true,
@@ -199,7 +201,7 @@ struct IrohZeroTouchDiscoveryTests {
                 ),
                 priority: -10_000
             )],
-            lastSeenAt: Date()
+            lastSeenAt: Self.fixedNow
         )
     }
 }
