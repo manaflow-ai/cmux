@@ -6,10 +6,8 @@ import Foundation
 final class AgentTerminalStateRuntime {
     private let scheduler: AgentTerminalStateDetectionScheduler
     private let classificationWorker = AgentTerminalClassificationWorker()
+    private let surfaceTasks = AgentTerminalSurfaceTaskSequencer()
     private var observers: [UUID: AgentTerminalStateSurfaceObserver] = [:]
-    private var registrationTasks: [UUID: Task<Void, Never>] = [:]
-    private var teardownTasks: [UUID: Task<Void, Never>] = [:]
-    private var teardownTokens: [UUID: UUID] = [:]
     private var updateTask: Task<Void, Never>?
 
     init() {
@@ -18,8 +16,6 @@ final class AgentTerminalStateRuntime {
 
     deinit {
         updateTask?.cancel()
-        registrationTasks.values.forEach { $0.cancel() }
-        teardownTasks.values.forEach { $0.cancel() }
     }
 
     func install(workspaceID: UUID, surfaceID: UUID, signal: AgentTerminalDirtySignal) {
@@ -27,7 +23,7 @@ final class AgentTerminalStateRuntime {
         let observer = AgentTerminalStateSurfaceObserver(workspaceID: workspaceID, surfaceID: surfaceID)
         observers[surfaceID] = observer
         let worker = classificationWorker
-        registrationTasks[surfaceID] = Task {
+        surfaceTasks.install(surfaceID: surfaceID) { [scheduler] in
             await scheduler.start(surfaceID: surfaceID, signal: signal) { revision in
                 guard signal.currentRevision() == revision,
                       let snapshot = await observer.capture() else { return nil }
@@ -41,22 +37,11 @@ final class AgentTerminalStateRuntime {
 
     func drop(surfaceID: UUID) {
         let observer = observers.removeValue(forKey: surfaceID)
-        let registrationTask = registrationTasks.removeValue(forKey: surfaceID)
-        registrationTask?.cancel()
-        let teardownToken = UUID()
-        teardownTokens[surfaceID] = teardownToken
         let scheduler = scheduler
         let classificationWorker = classificationWorker
-        teardownTasks[surfaceID] = Task { [weak self] in
-            _ = await registrationTask?.value
+        surfaceTasks.drop(surfaceID: surfaceID) {
             await scheduler.stop(surfaceID: surfaceID)
             await classificationWorker.remove(surfaceID: surfaceID)
-            guard !Task.isCancelled else { return }
-            await MainActor.run { [weak self] in
-                guard self?.teardownTokens[surfaceID] == teardownToken else { return }
-                self?.teardownTasks.removeValue(forKey: surfaceID)
-                self?.teardownTokens.removeValue(forKey: surfaceID)
-            }
         }
         guard let observer, let workspace = AppDelegate.shared?.workspaceFor(tabId: observer.workspaceID) else { return }
         workspace.clearDetectedAgentLifecycle(panelId: surfaceID)

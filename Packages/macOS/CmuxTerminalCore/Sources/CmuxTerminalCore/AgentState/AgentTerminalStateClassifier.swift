@@ -55,7 +55,8 @@ public struct AgentTerminalStateClassifier: Sendable {
         let state: AgentTerminalSemanticState
         if profile.historyViewNeedles.contains(where: liveEvidence.contains) {
             state = snapshot.previousReliableState ?? .unknown
-        } else if Self.matchesAnyEvidenceGroup(profile.blockedEvidenceGroups, in: liveEvidence) {
+        } else if Self.matchesAnyEvidenceGroup(profile.blockedEvidenceGroups, in: liveEvidence)
+                    || Self.matchesAnyExactLine(profile.blockedExactLines, in: liveEvidence) {
             state = .blocked
         } else if Self.matchesAnyEvidenceGroup(profile.workingEvidenceGroups, in: liveEvidence) {
             state = .working
@@ -77,6 +78,14 @@ public struct AgentTerminalStateClassifier: Sendable {
         groups.contains { group in
             !group.isEmpty && group.allSatisfy { evidence.contains($0.lowercased()) }
         }
+    }
+
+    private static func matchesAnyExactLine(_ needles: [String], in evidence: String) -> Bool {
+        guard !needles.isEmpty else { return false }
+        let lines = evidence.split(whereSeparator: \Character.isNewline).map {
+            $0.trimmingCharacters(in: .whitespaces)
+        }
+        return needles.contains { needle in lines.contains(needle) }
     }
 
 }

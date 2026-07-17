@@ -23,6 +23,8 @@ public struct AgentTerminalFamilyProfile: Sendable, Equatable {
     public let workingEvidenceGroups: [[String]]
     /// Strict current-interaction evidence groups that require human input.
     public let blockedEvidenceGroups: [[String]]
+    /// High-confidence prompts that require human input when they occupy a rendered line.
+    public let blockedExactLines: [String]
     /// Agent-owned history/transcript fragments that suppress new classification.
     public let historyViewNeedles: [String]
 
@@ -38,6 +40,7 @@ public struct AgentTerminalFamilyProfile: Sendable, Equatable {
         idleNeedles: [String] = [],
         workingEvidenceGroups: [[String]] = [],
         blockedEvidenceGroups: [[String]] = [],
+        blockedExactLines: [String] = [],
         historyViewNeedles: [String] = []
     ) {
         self.id = id
@@ -50,6 +53,7 @@ public struct AgentTerminalFamilyProfile: Sendable, Equatable {
         self.idleNeedles = idleNeedles
         self.workingEvidenceGroups = workingEvidenceGroups
         self.blockedEvidenceGroups = blockedEvidenceGroups
+        self.blockedExactLines = blockedExactLines
         self.historyViewNeedles = historyViewNeedles
     }
 }

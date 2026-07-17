@@ -74,7 +74,8 @@ public struct AgentTerminalProfileCatalog: Sendable {
               let aliases = normalizedAliases(raw.hintAliases),
               let idle = normalizedNeedles(raw.idleNeedles),
               let working = normalizedEvidenceGroups(raw.workingEvidenceGroups),
-              let blocked = normalizedEvidenceGroups(raw.blockedEvidenceGroups),
+              let blocked = normalizedEvidenceGroups(raw.blockedEvidenceGroups, minimumCount: 2),
+              let blockedExactLines = normalizedNeedles(raw.blockedExactLines),
               let history = normalizedNeedles(raw.historyViewNeedles) else { return nil }
         return AgentTerminalFamilyProfile(
             id: id,
@@ -87,6 +88,7 @@ public struct AgentTerminalProfileCatalog: Sendable {
             idleNeedles: idle,
             workingEvidenceGroups: working,
             blockedEvidenceGroups: blocked,
+            blockedExactLines: blockedExactLines,
             historyViewNeedles: history
         )
     }
@@ -105,10 +107,10 @@ public struct AgentTerminalProfileCatalog: Sendable {
         return normalized.contains("") ? nil : normalized
     }
 
-    private static func normalizedEvidenceGroups(_ raw: [[String]]) -> [[String]]? {
+    private static func normalizedEvidenceGroups(_ raw: [[String]], minimumCount: Int = 1) -> [[String]]? {
         var result: [[String]] = []
         for group in raw {
-            guard !group.isEmpty, let normalized = normalizedNeedles(group) else { return nil }
+            guard group.count >= minimumCount, let normalized = normalizedNeedles(group) else { return nil }
             result.append(normalized)
         }
         return result
@@ -117,11 +119,16 @@ public struct AgentTerminalProfileCatalog: Sendable {
     private static let commonHistoryNeedles = ["conversation history", "transcript viewer", "session history"]
     private static let commonBlockedEvidenceGroups = [
         ["requires approval", "yes", "no"], ["approval required", "approve"],
-        ["waiting for approval"],
         ["would you like to run the following command", "yes", "no"],
         ["do you want to proceed", "yes", "no"],
-        ["enter your api key"], ["api key required"], ["authentication required"],
-        ["type /login to re-authenticate"], ["session may have expired", "/login"],
+        ["session may have expired", "/login"],
+    ]
+    private static let commonBlockedExactLines = [
+        "waiting for approval",
+        "enter your api key",
+        "api key required",
+        "authentication required",
+        "type /login to re-authenticate",
     ]
 
     private static let builtInProfiles: [AgentTerminalFamilyProfile] = [
@@ -177,6 +184,7 @@ public struct AgentTerminalProfileCatalog: Sendable {
             idleNeedles: idle,
             workingEvidenceGroups: working,
             blockedEvidenceGroups: commonBlockedEvidenceGroups + blocked,
+            blockedExactLines: commonBlockedExactLines,
             historyViewNeedles: commonHistoryNeedles
         )
     }
