@@ -40,10 +40,14 @@ extension MobileHostService {
         switch request.method {
         case "mobile.workspace.list", "workspace.list":
             return nil
-        case "workspace.create":
+        case "workspace.create", "mobile.workspace.launch_agent":
             guard request.params["group_id"] == nil || request.params["group_id"] is NSNull else {
                 return ticketMacScopedWorkspaceMutationAuthorizationError(authorization: authorization)
             }
+            return nil
+        case "mobile.agent.launch_options":
+            // Read-only launch metadata (installed agents + suggested
+            // directories), Mac-scoped like the workspace list.
             return nil
         case "workspace.move":
             return ticketMacScopedWorkspaceMutationAuthorizationError(

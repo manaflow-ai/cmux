@@ -373,6 +373,11 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             return false
         case "workspace.create":
             return false
+        case "mobile.workspace.launch_agent", "mobile.agent.launch_options":
+            // Launch metadata is Mac-scoped like the workspace list; the launch
+            // itself is a Mac-scoped create. Both ride the attach ticket so the
+            // host can reject workspace-scoped tickets.
+            return false
         case "workspace.action", "workspace.close":
             return !ticketCoverage.ticketCoversWorkspaceRequest(
                 ticket: ticket,

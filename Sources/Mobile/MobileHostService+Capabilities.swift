@@ -40,6 +40,10 @@ extension MobileHostService {
             // workspace.group.collapse/expand from mobile. iOS feature-detects
             // this to render collapsible groups only against a Mac that emits them.
             "workspace.groups.v1",
+            // mobile.agent.launch_options + mobile.workspace.launch_agent: the
+            // iOS composer that creates a workspace running a coding agent on a
+            // composed prompt.
+            "workspace.launch_agent.v1",
         ]
         #if DEBUG
         // Lets a dev Mac impersonate an older host while dogfooding the iOS update hint.

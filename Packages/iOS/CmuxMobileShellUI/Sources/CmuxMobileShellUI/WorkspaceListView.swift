@@ -35,6 +35,16 @@ struct WorkspaceListView: View {
     let createWorkspace: () -> Void
     var createWorkspaceInGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil
     var createWorkspaceGroup: (() -> Void)? = nil
+    /// Launch an agent workspace from a composed prompt. `nil` (old Mac,
+    /// unsupported) hides the compose bar and composer entry points.
+    var launchAgent: ((
+        _ prompt: String,
+        _ agentID: String?,
+        _ directoryPath: String?
+    ) async -> Result<Void, MobileWorkspaceMutationFailure>)? = nil
+    /// Fetch agent/directory options for the launch composer. Advisory; `nil`
+    /// results leave the composer on its defaults.
+    var fetchAgentLaunchOptions: (() async -> MobileAgentLaunchOptions?)? = nil
     var canCreateWorkspace = true
     /// Which Mac's workspaces the list is focused on. Owned by the shell so
     /// every create-workspace entrypoint shares the same selected-Mac gate.
@@ -125,6 +135,11 @@ struct WorkspaceListView: View {
     /// The workspace whose UIKit context-menu rename action is presenting the
     /// list-scoped SwiftUI rename sheet.
     @State var workspacePendingRenameID: MobileWorkspacePreview.ID?
+    /// Presents the full-screen agent-launch composer.
+    @State var isPresentingAgentLaunchComposer = false
+    /// The composer draft, owned at list scope so a dismissed composer keeps
+    /// the typed prompt for its next presentation.
+    @State var agentLaunchDraft = ""
     @State var optimisticFlatState = MobileWorkspaceOptimisticOrderReconciler()
     @State var optimisticGroupedState = MobileWorkspaceOptimisticOrderReconciler()
     /// In-flight move RPC count plus the tail of the send chain. Moves stay
@@ -234,6 +249,13 @@ struct WorkspaceListView: View {
         )
         #if os(iOS)
         let baseList = workspaceTable
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if showsAgentLaunchBar {
+                    AgentLaunchComposeBar {
+                        isPresentingAgentLaunchComposer = true
+                    }
+                }
+            }
         #else
         let baseList = List {
             switch connectionChrome {
@@ -348,6 +370,15 @@ struct WorkspaceListView: View {
             filter.pruneMachinesForFilterMenu(visibleMacSelection: selection)
         }
         #if os(iOS)
+        .fullScreenCover(isPresented: $isPresentingAgentLaunchComposer) {
+            if let launchAgent {
+                AgentLaunchComposerView(
+                    draft: $agentLaunchDraft,
+                    fetchOptions: fetchAgentLaunchOptions ?? { nil },
+                    launch: launchAgent
+                )
+            }
+        }
         .sheet(isPresented: $showingShortcutsSettings) {
             TerminalShortcutsSettingsView()
         }
@@ -523,6 +554,13 @@ struct WorkspaceListView: View {
         }
     }
     #endif
+
+    /// The bottom compose bar shows only when the connected Mac supports agent
+    /// launch, creation is currently allowed, and the user is not mid-search
+    /// (the keyboard-adjacent inset would crowd search results).
+    var showsAgentLaunchBar: Bool {
+        launchAgent != nil && canCreateWorkspaceForMacSelection && trimmedQuery.isEmpty
+    }
 
     var connectionChrome: WorkspaceListConnectionChrome {
         WorkspaceListConnectionChrome(

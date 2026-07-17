@@ -1336,7 +1336,7 @@ final class MobileHostService {
               let object = payload as? [String: Any] else { return }
 
         switch request.method {
-        case "workspace.create":
+        case "workspace.create", "mobile.workspace.launch_agent":
             ticketStore.recordCreatedResources(
                 authToken: attachToken,
                 workspaceID: object["created_workspace_id"] as? String,

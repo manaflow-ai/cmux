@@ -13826,6 +13826,10 @@ class TerminalController {
             result = v2MobileWorkspaceList(params: request.params)
         case "workspace.create":
             result = v2MobileWorkspaceCreate(params: request.params)
+        case "mobile.agent.launch_options":
+            result = v2MobileAgentLaunchOptions(params: request.params)
+        case "mobile.workspace.launch_agent":
+            result = v2MobileWorkspaceLaunchAgent(params: request.params)
         case "mobile.terminal.create", "terminal.create":
             result = v2MobileTerminalCreate(params: request.params)
         case "mobile.terminal.input", "terminal.input":

@@ -148,6 +148,68 @@ extension WorkspaceShellView {
         return { createWorkspaceGroupIfConnected() }
     }
 
+    /// Launch closures for the agent composer. The compact-stack variant arms
+    /// the same created-workspace push intent as plain create, so a successful
+    /// launch navigates straight into the new workspace's terminal.
+    var launchAgentInCompactStackClosure: ((String, String?, String?) async -> Result<Void, MobileWorkspaceMutationFailure>)? {
+        guard store.supportsAgentLaunch else { return nil }
+        return { prompt, agentID, directoryPath in
+            await launchAgentWorkspace(
+                prompt: prompt,
+                agentID: agentID,
+                directoryPath: directoryPath,
+                viaCompactStack: true
+            )
+        }
+    }
+
+    var launchAgentIfConnectedClosure: ((String, String?, String?) async -> Result<Void, MobileWorkspaceMutationFailure>)? {
+        guard store.supportsAgentLaunch else { return nil }
+        return { prompt, agentID, directoryPath in
+            await launchAgentWorkspace(
+                prompt: prompt,
+                agentID: agentID,
+                directoryPath: directoryPath,
+                viaCompactStack: false
+            )
+        }
+    }
+
+    var fetchAgentLaunchOptionsClosure: (() async -> MobileAgentLaunchOptions?)? {
+        guard store.supportsAgentLaunch else { return nil }
+        let store = store
+        return { await store.fetchAgentLaunchOptions() }
+    }
+
+    @MainActor
+    private func launchAgentWorkspace(
+        prompt: String,
+        agentID: String?,
+        directoryPath: String?,
+        viaCompactStack: Bool
+    ) async -> Result<Void, MobileWorkspaceMutationFailure> {
+        guard canCreateWorkspaceForMacSelection else {
+            return .failure(.busy(hostDisplayName: nil))
+        }
+        let existingWorkspaceIDs = Set(store.workspaces.map(\.id))
+        if viaCompactStack {
+            pendingCompactCreateNavigationWorkspaceIDs = existingWorkspaceIDs
+        }
+        let result = await store.launchAgentWorkspace(
+            prompt: prompt,
+            agentID: agentID,
+            workingDirectory: directoryPath
+        )
+        if viaCompactStack {
+            if case .failure = result {
+                pendingCompactCreateNavigationWorkspaceIDs = nil
+            } else {
+                clearPendingCompactCreateNavigationIfSettled(existingWorkspaceIDs: existingWorkspaceIDs)
+            }
+        }
+        return result
+    }
+
     func createWorkspaceInCompactStack() {
         createWorkspaceInCompactStack(inGroup: nil)
     }

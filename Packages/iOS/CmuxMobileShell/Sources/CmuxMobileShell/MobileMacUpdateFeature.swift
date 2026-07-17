@@ -25,4 +25,7 @@ public enum MobileMacUpdateFeature: String, CaseIterable, Sendable {
 
     /// Creating workspace groups.
     case workspaceGroupCreate
+
+    /// Composing a prompt and launching an agent workspace.
+    case agentLaunch
 }

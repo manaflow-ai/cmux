@@ -12,6 +12,15 @@ extension WorkspaceListView {
                 Label(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"), systemImage: "plus")
             }
             .accessibilityIdentifier("MobileNewWorkspaceMenuItem")
+            if launchAgent != nil {
+                Button {
+                    guard canCreateWorkspaceForMacSelection else { return }
+                    isPresentingAgentLaunchComposer = true
+                } label: {
+                    Label(L10n.string("mobile.agentLaunch.title", defaultValue: "New Agent Task"), systemImage: "sparkles")
+                }
+                .accessibilityIdentifier("MobileAgentLaunchMenuItem")
+            }
             if let createWorkspaceGroup {
                 Button {
                     guard canCreateWorkspaceForMacSelection else { return }

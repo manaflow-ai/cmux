@@ -19,6 +19,12 @@ extension TerminalController {
         let requestedInitialCommand = v2RawString(params, "initial_command")?.trimmingCharacters(in: .whitespacesAndNewlines)
         let initialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
 
+        // Typed at the fresh shell prompt (Ghostty initial_input), unlike
+        // initial_command which replaces the shell as the pty argv. Not
+        // trimmed: the trailing newline is what submits the typed line.
+        let requestedInitialInput = v2RawString(params, "initial_input")
+        let initialInput = (requestedInitialInput?.isEmpty == false) ? requestedInitialInput : nil
+
         let rawInitialEnv = v2StringMap(params, "initial_env") ?? [:]
         let initialEnv = rawInitialEnv.reduce(into: [String: String]()) { result, pair in
             let key = pair.key.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -133,6 +139,7 @@ extension TerminalController {
                 title: title,
                 workingDirectory: cwd,
                 initialTerminalCommand: layoutNode == nil ? initialCommand : nil,
+                initialTerminalInput: layoutNode == nil ? initialInput : nil,
                 initialTerminalEnvironment: layoutNode == nil ? initialEnv : [:],
                 workspaceEnvironment: workspaceEnv,
                 select: shouldFocus,
