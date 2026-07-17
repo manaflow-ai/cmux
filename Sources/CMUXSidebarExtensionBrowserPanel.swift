@@ -1,16 +1,18 @@
 @_spi(CmuxHostTransport) import CmuxSidebar
 import AppKit
 import CmuxFoundation
+import Observation
 import SwiftUI
 
 @MainActor
-final class CMUXSidebarExtensionBrowserPanel: NSObject, Panel, ObservableObject {
-    let id = UUID()
-    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
-    let panelType: PanelType = .extensionBrowser
-    let browserViewController: NSViewController
+@Observable
+final class CMUXSidebarExtensionBrowserPanel: NSObject, Panel {
+    @ObservationIgnored let id = UUID()
+    @ObservationIgnored let stableSurfaceIdentity = PanelStableSurfaceIdentity()
+    @ObservationIgnored let panelType: PanelType = .extensionBrowser
+    @ObservationIgnored let browserViewController: NSViewController
 
-    private let title: String
+    @ObservationIgnored private let title: String
 
     var displayTitle: String { title }
     var displayIcon: String? { "puzzlepiece.extension" }

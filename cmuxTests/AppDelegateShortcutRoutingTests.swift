@@ -3,6 +3,7 @@ import CmuxTerminal
 import AppKit
 import Carbon.HIToolbox
 import Combine
+import Observation
 import SwiftUI
 @testable import CmuxSettingsUI
 
@@ -10112,9 +10113,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let originalTextView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         originalTextView.string = "preserve this"
 
-        var objectWillChangeCount = 0
-        let cancellable = terminalPanel.objectWillChange.sink {
-            objectWillChangeCount += 1
+        var observationInvalidationCount = 0
+        withObservationTracking {
+            _ = terminalPanel.sessionTextBoxDraftSnapshot()
+        } onChange: {
+            observationInvalidationCount += 1
         }
 
         terminalPanel.preserveTextBoxContentForUnmount(from: originalTextView)
@@ -10122,11 +10125,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let draft = try XCTUnwrap(terminalPanel.sessionTextBoxDraftSnapshot())
         XCTAssertEqual(textBoxSessionDraftPartSummaries(draft.parts), [.text("preserve this")])
         XCTAssertEqual(
-            objectWillChangeCount,
+            observationInvalidationCount,
             0,
             "TextBox unmount preservation runs from NSViewRepresentable.dismantleNSView and must not publish during SwiftUI teardown"
         )
-        withExtendedLifetime(cancellable) {}
     }
 
     func testTerminalPanelCloseDisposesTextBoxAttachmentDrafts() throws {

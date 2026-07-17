@@ -243,8 +243,8 @@ private struct BrowserChromeStyle {
 
 /// View for rendering a browser panel with address bar
 struct BrowserPanelView: View {
-    @ObservedObject var panel: BrowserPanel
-    @ObservedObject private var browserProfileStore = BrowserProfileStore.shared
+    let panel: BrowserPanel
+    private let browserProfileStore = BrowserProfileStore.shared
     let paneId: PaneID
     let isFocused: Bool
     let isVisibleInUI: Bool
@@ -1103,7 +1103,7 @@ struct BrowserPanelView: View {
         .onReceive(NotificationCenter.default.publisher(for: .browserMoveOmnibarSelection)) { notification in
             handleMoveOmnibarSelection(notification)
         }
-        .onReceive(panel.historyStore.$entries) { _ in
+        .onChange(of: panel.historyStore.entries, initial: true) { _, _ in
             handleHistoryEntriesChange()
         }
         .onReceive(NotificationCenter.default.publisher(for: .browserDidBlurAddressBar)) { notification in

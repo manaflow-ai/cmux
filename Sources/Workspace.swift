@@ -3668,11 +3668,11 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func installBrowserPanelSubscription(_ browserPanel: BrowserPanel) {
         let browserTabState = Publishers.CombineLatest4(
-            browserPanel.$pageTitle.removeDuplicates(), browserPanel.$currentURL.removeDuplicates(),
-            browserPanel.$isLoading.removeDuplicates(), browserPanel.$faviconPNGData.removeDuplicates(by: { $0 == $1 })
+            browserPanel.pageTitlePublisher.removeDuplicates(), browserPanel.currentURLPublisher.removeDuplicates(),
+            browserPanel.isLoadingPublisher.removeDuplicates(), browserPanel.faviconPNGDataPublisher.removeDuplicates(by: { $0 == $1 })
         )
         let subscription = browserTabState
-        .combineLatest(browserPanel.$isMuted.removeDuplicates())
+        .combineLatest(browserPanel.isMutedPublisher.removeDuplicates())
         .receive(on: DispatchQueue.main)
         .sink { [weak self, weak browserPanel] output in
             let ((_, _, isLoading, favicon), isMuted) = output
@@ -3757,8 +3757,8 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func installMarkdownPanelSubscription(_ markdownPanel: MarkdownPanel) {
         let subscription = Publishers.CombineLatest(
-            markdownPanel.$displayTitle.removeDuplicates(),
-            markdownPanel.$isDirty.removeDuplicates()
+            markdownPanel.displayTitlePublisher.removeDuplicates(),
+            markdownPanel.isDirtyPublisher.removeDuplicates()
         )
             .receive(on: DispatchQueue.main)
             .sink { [weak self, weak markdownPanel] newTitle, isDirty in
@@ -3786,12 +3786,12 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func installFilePreviewPanelSubscription(_ filePreviewPanel: FilePreviewPanel) {
         let titleAndDirty = Publishers.CombineLatest(
-            filePreviewPanel.$displayTitle.removeDuplicates(),
-            filePreviewPanel.$isDirty.removeDuplicates()
+            filePreviewPanel.displayTitlePublisher.removeDuplicates(),
+            filePreviewPanel.isDirtyPublisher.removeDuplicates()
         )
         let subscription = Publishers.CombineLatest(
             titleAndDirty,
-            filePreviewPanel.$displayIcon.removeDuplicates()
+            filePreviewPanel.displayIconPublisher.removeDuplicates()
         )
         .receive(on: DispatchQueue.main)
         .sink { [weak self, weak filePreviewPanel] titleAndDirty, displayIcon in

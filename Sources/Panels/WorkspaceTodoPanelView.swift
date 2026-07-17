@@ -14,7 +14,7 @@ import SwiftUI
 /// opens the same `SidebarWorkspaceStatusPopover` through the shared
 /// NSPopover host, anchored in-pane.
 struct WorkspaceTodoPanelView: View {
-    @ObservedObject var panel: WorkspaceTodoPanel
+    let panel: WorkspaceTodoPanel
     let isFocused: Bool
     let onRequestPanelFocus: () -> Void
 

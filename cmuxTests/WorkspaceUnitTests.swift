@@ -6,6 +6,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
+import Observation
 import Bonsplit
 import CmuxPanes
 import CmuxSettings
@@ -3017,14 +3018,14 @@ final class WorkspaceWorkingDirectoryInheritanceSettingsTests: XCTestCase {
 
 @MainActor
 final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
+    @Observable
     private final class DetachedWorkspaceTestPanel: Panel {
-        let objectWillChange = ObservableObjectPublisher()
-        let id: UUID
-        let stableSurfaceIdentity = PanelStableSurfaceIdentity()
-        let panelType: PanelType = .terminal
-        let displayTitle = "Detached"
-        let displayIcon: String? = "terminal.fill"
-        let isDirty = false
+        @ObservationIgnored let id: UUID
+        @ObservationIgnored let stableSurfaceIdentity = PanelStableSurfaceIdentity()
+        @ObservationIgnored let panelType: PanelType = .terminal
+        @ObservationIgnored let displayTitle = "Detached"
+        @ObservationIgnored let displayIcon: String? = "terminal.fill"
+        @ObservationIgnored let isDirty = false
 
         init(id: UUID = UUID()) {
             self.id = id

@@ -10,7 +10,7 @@ import CmuxSettings
 
 /// View for rendering a terminal panel
 struct TerminalPanelView: View {
-    @ObservedObject var panel: TerminalPanel
+    @Bindable var panel: TerminalPanel
     @AppStorage(NotificationPaneRingSettings.enabledKey)
     private var notificationPaneRingEnabled = NotificationPaneRingSettings.defaultEnabled
     @AppStorage(TerminalTextBoxInputSettings.maxLinesKey)
@@ -276,7 +276,7 @@ private extension View {
 }
 
 private struct TerminalViewportGeometryReporter: ViewModifier {
-    @ObservedObject var panel: TerminalPanel
+    let panel: TerminalPanel
 
     func body(content: Content) -> some View {
         content.background {
