@@ -104,6 +104,9 @@ public struct ToastGalleryView: View {
         }
 
         await pause(2)
+        #if os(iOS)
+        await recordPassthroughProbe(pause: pause)
+        #endif
         toasts.present(.success("Workspace created"))
         await pause(5.5)
 
@@ -138,5 +141,53 @@ public struct ToastGalleryView: View {
         await pause(7.5)
         toasts.dismissAll()
     }
+
+    #if os(iOS)
+    /// Exercises the passthrough window's `hitTest` with real on-device
+    /// geometry and writes the verdicts to Documents/toast-probe.txt: with no
+    /// toast the overlay must return nil everywhere (UIKit then routes the
+    /// touch to the app's window below); with a toast visible, the card region
+    /// must resolve to a live view while the rest still falls through.
+    private func recordPassthroughProbe(pause: (Double) async -> Void) async {
+        var lines: [String] = []
+        defer {
+            let url = URL.documentsDirectory.appending(path: "toast-probe.txt")
+            try? lines.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
+        }
+        guard let overlay = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .flatMap(\.windows)
+            .first(where: { $0 is ToastPassthroughWindow }) else {
+            lines.append("FAIL overlay window not found")
+            return
+        }
+        let center = CGPoint(x: overlay.bounds.midX, y: overlay.bounds.midY)
+        let empty = overlay.hitTest(center, with: nil)
+        lines.append(empty == nil
+            ? "PASS empty overlay passes touches through (hitTest nil)"
+            : "FAIL empty overlay captured touch: \(type(of: empty!))")
+
+        toasts.present(.info("Passthrough probe", coalescingKey: "probe"))
+        await pause(0.8)
+        lines.append("presented=\(String(describing: toasts.presented?.toast.message)) safeTop=\(overlay.safeAreaInsets.top)")
+        var hitAny = false
+        for y in stride(from: 4, through: 120, by: 8) {
+            let point = CGPoint(x: overlay.bounds.midX, y: overlay.safeAreaInsets.top + CGFloat(y))
+            if let hit = overlay.hitTest(point, with: nil) {
+                hitAny = true
+                lines.append("hit y=+\(y): \(type(of: hit))")
+            }
+        }
+        lines.append(hitAny
+            ? "PASS toast region captures touch"
+            : "FAIL toast region did not hit-test at any scanned point")
+        let besideToast = overlay.hitTest(center, with: nil)
+        lines.append(besideToast == nil
+            ? "PASS area beside visible toast still passes through"
+            : "FAIL area beside toast captured: \(type(of: besideToast!))")
+        toasts.dismissAll()
+        await pause(0.8)
+    }
+    #endif
 }
 #endif

@@ -1,12 +1,16 @@
 import SwiftUI
 
-/// Extra chrome the platform host feeds the overlay (currently the keyboard
-/// overlap, so bottom toasts float above the keyboard even though the toast
-/// window never hosts it).
+/// Chrome shared between the platform host and the overlay: keyboard overlap
+/// flows in (so bottom toasts float above the keyboard even though the toast
+/// window never hosts it), and the visible card's window-space frame flows
+/// out (the passthrough window only captures touches inside it — SwiftUI
+/// draws the card without dedicated UIViews, so UIKit hit-testing alone
+/// cannot tell the card from empty space).
 @MainActor
 @Observable
 final class ToastHostChrome {
     var keyboardInset: CGFloat = 0
+    var interactiveRegion: CGRect?
 }
 
 /// The full-screen presentation surface for one ``ToastCenter``: places the
@@ -22,7 +26,7 @@ struct ToastOverlayRoot: View {
     var body: some View {
         ZStack {
             if let presented = center.presented {
-                ToastPresentationView(presented: presented, center: center)
+                ToastPresentationView(presented: presented, center: center, chrome: chrome)
                     .id(presented.toast.id)
                     .frame(maxWidth: 520)
                     .frame(
@@ -95,6 +99,7 @@ extension Toast.Style {
 private struct ToastPresentationView: View {
     let presented: ToastCenter.Presented
     let center: ToastCenter
+    let chrome: ToastHostChrome
 
     @State private var dragOffset: CGFloat = 0
     @State private var isDragging = false
@@ -123,7 +128,22 @@ private struct ToastPresentationView: View {
         .opacity(dragOpacity)
         .offset(y: dragOffset)
         .gesture(dragGesture)
+        // Publish the card's resting frame (window space) so the passthrough
+        // window captures touches here and nowhere else. Offset/scale during
+        // drag are render-level and deliberately don't move the region.
+        .onGeometryChange(for: CGRect.self) { proxy in
+            proxy.frame(in: .global)
+        } action: { frame in
+            chrome.interactiveRegion = frame
+        }
         .onAppear { hasAppeared = true }
+        .onDisappear {
+            // A departing toast must not wipe the region its successor just
+            // published; only the last card out turns off capture.
+            if center.presented == nil {
+                chrome.interactiveRegion = nil
+            }
+        }
     }
 
     /// 0 at rest → 1 once the card has travelled far enough to dismiss.

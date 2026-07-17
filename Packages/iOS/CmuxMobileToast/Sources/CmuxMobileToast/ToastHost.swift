@@ -93,6 +93,7 @@ final class ToastWindowCoordinator {
         // out here keeps the hosting view's own safe-area math deterministic.
         host.safeAreaRegions = .container
         let overlay = ToastPassthroughWindow(windowScene: scene)
+        overlay.interactiveRegion = { [weak chrome = chrome] in chrome?.interactiveRegion }
         overlay.windowLevel = .alert
         overlay.backgroundColor = .clear
         overlay.rootViewController = host
@@ -129,13 +130,21 @@ final class ToastWindowCoordinator {
     }
 }
 
-/// Full-screen window that swallows touches only on toast content; everything
-/// else falls through to the app's own windows.
-private final class ToastPassthroughWindow: UIWindow {
+/// Full-screen window that swallows touches only inside the visible card's
+/// published frame; everything else falls through to the app's own windows.
+///
+/// SwiftUI draws the card without dedicated UIViews, so `super.hitTest`
+/// returns the hosting view for card and empty space alike — the geometry
+/// gate is what distinguishes them.
+final class ToastPassthroughWindow: UIWindow {
+    /// The visible toast's window-space frame, `nil` when nothing is shown.
+    var interactiveRegion: (() -> CGRect?)?
+
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        guard let view = super.hitTest(point, with: event) else { return nil }
-        if view === self || view === rootViewController?.view { return nil }
-        return view
+        guard let region = interactiveRegion?(), region.contains(point) else {
+            return nil
+        }
+        return super.hitTest(point, with: event)
     }
 }
 
