@@ -814,6 +814,7 @@ impl WsEndpoint {
 mod tests {
     use std::io::Write;
     use std::net::TcpListener;
+    use std::sync::mpsc::sync_channel;
     use std::sync::{Arc, Barrier};
     use std::thread;
     use std::time::{Duration, Instant};
@@ -858,7 +859,7 @@ mod tests {
     #[test]
     fn rejected_screencast_frame_is_acknowledged() {
         let (outbound_tx, outbound_rx) = channel();
-        let (event_tx, _event_rx) = std::sync::mpsc::sync_channel(1);
+        let (event_tx, _event_rx) = sync_channel(1);
         let inner = Arc::new(Inner {
             outbound: outbound_tx,
             pending: Mutex::new(HashMap::new()),
@@ -1018,7 +1019,7 @@ mod tests {
             assert_eq!(responses, CALLS);
         });
 
-        let (event_tx, _event_rx) = std::sync::mpsc::sync_channel(64);
+        let (event_tx, _event_rx) = sync_channel(64);
         let client =
             CdpClient::connect(&format!("ws://{addr}/devtools/browser/fake"), event_tx).unwrap();
         let barrier = Arc::new(Barrier::new(CALLS));
@@ -1076,7 +1077,7 @@ mod tests {
             .unwrap();
             let _ = stop_rx.recv();
         });
-        let (event_tx, event_rx) = std::sync::mpsc::sync_channel(0);
+        let (event_tx, event_rx) = sync_channel(0);
         let client =
             CdpClient::connect(&format!("ws://{addr}/devtools/browser/fake"), event_tx).unwrap();
         let (result_tx, result_rx) = channel();
@@ -1090,5 +1091,56 @@ mod tests {
         drop(event_rx);
         call.join().unwrap();
         assert!(result.is_ok(), "undrained event sink blocked command response: {result:?}");
+    }
+
+    #[test]
+    fn critical_event_overflow_fails_connection_explicitly() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (stop_tx, stop_rx) = channel();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            let request = ws.read().unwrap();
+            let Message::Text(request) = request else { panic!("expected text request") };
+            let request: Value = serde_json::from_str(&request).unwrap();
+            ws.send(Message::Text(
+                json!({
+                    "method": "Page.javascriptDialogOpening",
+                    "sessionId": "session-1",
+                    "params": {"type": "alert", "message": "blocked"}
+                })
+                .to_string()
+                .into(),
+            ))
+            .unwrap();
+            ws.send(Message::Text(
+                json!({
+                    "id": request["id"],
+                    "result": {"userAgent": "Mozilla/5.0 Chrome/136.0 Safari/537.36"}
+                })
+                .to_string()
+                .into(),
+            ))
+            .unwrap();
+            let _ = stop_rx.recv();
+        });
+        let (event_tx, event_rx) = sync_channel(0);
+        let client =
+            CdpClient::connect(&format!("ws://{addr}/devtools/browser/fake"), event_tx).unwrap();
+        let (result_tx, result_rx) = channel();
+        let call = thread::spawn(move || {
+            result_tx.send(client.browser_version()).unwrap();
+        });
+
+        let result = result_rx.recv_timeout(Duration::from_millis(200));
+        stop_tx.send(()).unwrap();
+        server.join().unwrap();
+        drop(event_rx);
+        call.join().unwrap();
+        assert!(
+            matches!(result, Ok(Err(_))),
+            "critical event overflow was not surfaced: {result:?}"
+        );
     }
 }

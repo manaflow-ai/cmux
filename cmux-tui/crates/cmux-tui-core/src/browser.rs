@@ -2456,6 +2456,48 @@ mod tests {
     }
 
     #[test]
+    fn unregister_closes_and_wakes_surface_route() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (stop_tx, stop_rx) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            let request = read_ws_json(&mut ws);
+            assert_eq!(request["method"], "Target.setDiscoverTargets");
+            write_ws_json(&mut ws, json!({"id": request["id"], "result": {}}));
+            let _ = stop_rx.recv();
+        });
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::External,
+        )
+        .unwrap();
+        let route = runtime.register("target-1", "session-1");
+        let cleanup_route = route.clone();
+        let (done_tx, done_rx) = mpsc::channel();
+        let waiter = thread::spawn(move || {
+            let first = route.recv();
+            let second = route.recv();
+            done_tx.send((first, second)).unwrap();
+        });
+
+        runtime.unregister("target-1", "session-1");
+        let events = done_rx.recv_timeout(Duration::from_millis(200));
+        stop_tx.send(()).unwrap();
+        runtime.shutdown();
+        server.join().unwrap();
+        if events.is_err() {
+            cleanup_route.close("test cleanup".to_string());
+        }
+        waiter.join().unwrap();
+        let (first, second) = events.expect("unregister left surface route blocked");
+        assert!(matches!(first, Some(cmux_tui_cdp::CdpEvent::Closed(_))));
+        assert!(second.is_none());
+    }
+
+    #[test]
     fn external_runtime_does_not_query_or_override_user_agent() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
