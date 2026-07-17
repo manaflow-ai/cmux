@@ -2232,6 +2232,24 @@ struct ContentView: View {
         }
     }
 
+    /// Settle pass for a sidebar width that stopped moving: sanitize, persist,
+    /// resync portal-hosted surfaces (pure SwiftUI width changes emit no
+    /// portal callbacks of their own), and refresh the resizer cursor band.
+    /// Runs on programmatic width changes and once per drag end — never per
+    /// drag tick.
+    private func settleSidebarWidth() {
+        let sanitized = normalizedSidebarWidth(sidebarWidth)
+        if abs(sidebarWidth - sanitized) > 0.5 {
+            sidebarWidth = sanitized
+            return
+        }
+        if abs(sidebarState.persistedWidth - sanitized) > 0.5 {
+            sidebarState.persistedWidth = sanitized
+        }
+        schedulePortalGeometrySynchronize()
+        updateSidebarResizerBandState()
+    }
+
     private func refreshWindowChromeMetrics(for window: NSWindow) {
         // Keep native measurements around for minimal WindowGroup safe-area cancellation.
         // Standard mode uses cmux's visual chrome height for layout.
@@ -3088,21 +3106,22 @@ struct ContentView: View {
 
         // onReceive, not onChange: ContentView deliberately does not track
         // sidebar width in its body anymore (see sidebarLayout), so onChange
-        // would never fire. removeDuplicates preserves distinct-value
-        // semantics.
-        view = AnyView(view.onReceive(sidebarLayout.$width.removeDuplicates()) { _ in
-            let sanitized = normalizedSidebarWidth(sidebarWidth)
-            if abs(sidebarWidth - sanitized) > 0.5 {
-                sidebarWidth = sanitized
-                return
-            }
-            if abs(sidebarState.persistedWidth - sanitized) > 0.5 {
-                sidebarState.persistedWidth = sanitized
-            }
-            // Sidebar width changes are pure SwiftUI layout updates, so portal-hosted
-            // terminals and browsers need an explicit post-layout geometry resync.
-            schedulePortalGeometrySynchronize()
-            updateSidebarResizerBandState()
+        // would never fire. Delivery hops to the runloop (Combine otherwise
+        // runs this synchronously INSIDE each width write — measured as a
+        // 7.6ms/event write-phase regression during drags), and the settle
+        // work skips mid-drag entirely: the tracking loop plus portal anchor
+        // callbacks own live geometry, and the drag-end handler below runs
+        // the full settle once.
+        view = AnyView(view.onReceive(
+            sidebarLayout.$width.removeDuplicates().receive(on: RunLoop.main)
+        ) { _ in
+            guard !isResizerDragging else { return }
+            settleSidebarWidth()
+        })
+        view = AnyView(view.onReceive(
+            NotificationCenter.default.publisher(for: .cmuxInteractiveGeometryResizeDidEnd)
+        ) { _ in
+            settleSidebarWidth()
         })
 
         // Mirror of the `sidebarWidth` handler above for the RIGHT sidebar width.

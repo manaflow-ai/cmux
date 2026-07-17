@@ -410,7 +410,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         updateDropTargets()
     }
 
-    private let selectionCoalescer = SidebarSelectionCoalescer()
+    private let selectionCoalescer = SidebarSelectionCoalescer<ContinuousClock>()
     private var lastMeasuredWidth: CGFloat = 0
     private var widthRemeasureTask: Task<Void, Never>?
 
