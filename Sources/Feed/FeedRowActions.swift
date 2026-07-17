@@ -9,7 +9,7 @@ struct FeedRowActions {
     /// Types the user's reply into the agent's terminal surface and
     /// presses Return. Used by Stop-kind cards so the user can nudge
     /// Claude without switching focus to the terminal.
-    let sendText: @MainActor (String, String) -> Void
+    let sendText: @MainActor (String, String, @escaping @MainActor (Bool) -> Void) -> Void
 
     @MainActor
     final class TaskStore {
@@ -62,12 +62,14 @@ struct FeedRowActions {
                     _ = await FeedCoordinator.shared.focusIfPossible(workstreamId: workstreamId)
                 }
             },
-            sendText: { workstreamId, text in
+            sendText: { workstreamId, text, completion in
                 taskStore.run {
-                    await FeedCoordinator.shared.sendTextToWorkstream(
+                    let sent = await FeedCoordinator.shared.sendTextToWorkstream(
                         workstreamId: workstreamId,
                         text: text
                     )
+                    guard !Task.isCancelled else { return }
+                    completion(sent)
                 }
             }
         )

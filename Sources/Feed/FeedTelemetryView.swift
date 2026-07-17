@@ -13,12 +13,15 @@ struct StopActionArea: View {
     let onFocusRow: () -> Void
     let onActionRow: () -> Void
     let onBlurRow: () -> Void
-    let onSend: (String) -> Void
+    let onSend: (String, @escaping @MainActor (Bool) -> Void) -> Void
+
+    @State private var isSending = false
+    @State private var sendFailed = false
 
     private var trimmed: String {
         draft.reply.trimmingCharacters(in: .whitespacesAndNewlines)
     }
-    private var canSend: Bool { !trimmed.isEmpty }
+    private var canSend: Bool { !trimmed.isEmpty && !isSending }
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
     private var replyFont: NSFont { GlobalFontMagnification.systemFont(ofSize: 12) }
     private var replyBinding: Binding<String> {
@@ -71,6 +74,14 @@ struct StopActionArea: View {
                 onFocusRow()
                 requestReplyFocus()
             }
+            if sendFailed {
+                Text(String(
+                    localized: "feed.stop.sendFailed",
+                    defaultValue: "Couldn’t reach the original terminal. Your reply is still here."
+                ))
+                .cmuxFont(size: 10, weight: .medium)
+                .foregroundStyle(.red)
+            }
             FeedButton(
                 label: String(localized: "feed.stop.send", defaultValue: "Send to Claude"),
                 leadingIcon: "arrow.up.circle.fill",
@@ -92,8 +103,14 @@ struct StopActionArea: View {
 
     private func sendReply() {
         guard canSend else { return }
-        onSend(trimmed)
-        draft.reply = ""
+        let submittedReply = trimmed
+        isSending = true
+        sendFailed = false
+        onSend(submittedReply) { sent in
+            isSending = false
+            sendFailed = !sent
+            draft.finishSend(submittedReply: submittedReply, succeeded: sent)
+        }
     }
 }
 

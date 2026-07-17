@@ -9328,24 +9328,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Invoke the existing V2 commands so the Feed-layer focus request
         // goes through the same code path as a socket-initiated focus.
         // Serialize through JSON so we reuse the v2 command parser.
-        let controller = TerminalController.shared
-        let invoke: (String, [String: Any]) -> Void = { method, params in
-            let payload: [String: Any] = [
-                "id": UUID().uuidString,
-                "method": method,
-                "params": params
-            ]
-            guard let data = try? JSONSerialization.data(withJSONObject: payload),
-                  let line = String(data: data, encoding: .utf8)
-            else { return }
-            _ = controller.handleSocketLine(line)
+        guard invokeFeedSocketCommand(
+            "workspace.select",
+            params: ["workspace_id": workspaceId]
+        ), invokeFeedSocketCommand(
+            "surface.focus",
+            params: ["surface_id": surfaceId]
+        ) else {
+            return false
         }
-        invoke("workspace.select", ["workspace_id": workspaceId])
-        invoke("surface.focus", ["surface_id": surfaceId])
         // Flash the terminal's own focus ring (same visual as
         // cmd+shift+H / Flash Focused Panel) so the user's eye is
         // pulled to the terminal content the Feed jumped to.
-        invoke("surface.trigger_flash", ["surface_id": surfaceId])
+        _ = invokeFeedSocketCommand(
+            "surface.trigger_flash",
+            params: ["surface_id": surfaceId]
+        )
         return true
     }
 
@@ -9353,25 +9351,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func routeFeedText(surfaceId: String, text: String) -> Bool {
         guard !text.isEmpty else { return false }
 
-        let controller = TerminalController.shared
-        let invoke: (String, [String: Any]) -> Void = { method, params in
-            let payload: [String: Any] = [
-                "id": UUID().uuidString,
-                "method": method,
-                "params": params,
-            ]
-            guard let data = try? JSONSerialization.data(withJSONObject: payload),
-                  let line = String(data: data, encoding: .utf8)
-            else { return }
-            _ = controller.handleSocketLine(line)
-        }
         // Terminal-mode Return is CR. sendNamedKey "Return" also works
         // but one send_text is atomic, so append CR directly.
-        invoke("surface.send_text", [
+        return invokeFeedSocketCommand("surface.send_text", params: [
             "surface_id": surfaceId,
             "text": text + "\r",
         ])
-        return true
+    }
+
+    private func invokeFeedSocketCommand(
+        _ method: String,
+        params: [String: Any]
+    ) -> Bool {
+        let payload: [String: Any] = [
+            "id": UUID().uuidString,
+            "method": method,
+            "params": params,
+        ]
+        guard let requestData = try? JSONSerialization.data(withJSONObject: payload),
+              let requestLine = String(data: requestData, encoding: .utf8),
+              let responseData = TerminalController.shared.handleSocketLine(requestLine).data(using: .utf8),
+              let response = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any]
+        else {
+            return false
+        }
+        return response["ok"] as? Bool == true
     }
 
     @objc private func handleFeedFeatureFlagChange(_ notification: Notification) {

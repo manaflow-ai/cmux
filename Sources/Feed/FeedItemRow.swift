@@ -318,7 +318,9 @@ struct FeedItemRow: View, Equatable {
                 onFocusRow: onControlFocus,
                 onActionRow: onControlAction,
                 onBlurRow: onControlBlur,
-                onSend: { text in actions.sendText(snapshot.workstreamId, text) }
+                onSend: { text, completion in
+                    actions.sendText(snapshot.workstreamId, text, completion)
+                }
             )
         default:
             TelemetryActionArea(snapshot: snapshot)

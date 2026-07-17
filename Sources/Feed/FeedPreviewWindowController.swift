@@ -152,7 +152,10 @@ private enum FeedPreviewActions {
                 print("preview.exitPlan \(id) \(mode) feedback=\(feedback ?? "nil")")
             },
             jump: { ws in print("preview.jump \(ws)") },
-            sendText: { ws, text in print("preview.sendText \(ws) \(text)") }
+            sendText: { ws, text, completion in
+                print("preview.sendText \(ws) \(text)")
+                completion(true)
+            }
         )
     }
 }

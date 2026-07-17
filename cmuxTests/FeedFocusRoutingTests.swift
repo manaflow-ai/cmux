@@ -118,4 +118,18 @@ import Testing
 
         #expect(!appDelegate.routeFeedText(surfaceId: "not-a-surface-id", text: "retry this"))
     }
+
+    @Test func stopDraftClearsOnlyAfterMatchingSuccessfulDelivery() {
+        var failed = FeedStopDraft(reply: "retry this")
+        failed.finishSend(submittedReply: "retry this", succeeded: false)
+        #expect(failed.reply == "retry this")
+
+        var edited = FeedStopDraft(reply: "newer text")
+        edited.finishSend(submittedReply: "older text", succeeded: true)
+        #expect(edited.reply == "newer text")
+
+        var sent = FeedStopDraft(reply: "  delivered  ")
+        sent.finishSend(submittedReply: "delivered", succeeded: true)
+        #expect(sent.reply.isEmpty)
+    }
 }
