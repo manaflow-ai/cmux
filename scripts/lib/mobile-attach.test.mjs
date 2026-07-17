@@ -165,12 +165,24 @@ test("macOS and iOS reloads share the dev API backend override", () => {
 test("physical-device mint rejects a ticket with only plaintext Tailscale routes", async () => {
   const result = await mintAttachURL(
     "physical_device",
-    attachPayload("tailscale"),
-    20,
+    [attachPayload("tailscale"), attachPayload("tailscale")],
+    2,
   );
   assert.equal(result.status, 2);
   assert.equal(result.stdout, "");
-  assert.equal(result.callCount, 1);
+  assert.equal(result.callCount, 2);
+});
+
+test("physical-device mint waits for asynchronous Iroh publication", async () => {
+  const payload = attachPayload("iroh");
+  const result = await mintAttachURL(
+    "physical_device",
+    [attachPayload("tailscale"), payload],
+    2,
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, payload.attach_url);
+  assert.equal(result.callCount, 2);
 });
 
 test("physical-device mint accepts an encrypted Iroh route", async () => {
