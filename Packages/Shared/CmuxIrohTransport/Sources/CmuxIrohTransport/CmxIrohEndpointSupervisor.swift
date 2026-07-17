@@ -256,7 +256,12 @@ public actor CmxIrohEndpointSupervisor {
                 throw CmxIrohEndpointSupervisorError.superseded
             }
         }
+        let previousAddress = await endpoint.address()
+        guard lifecycleRevision == revision, snapshot.state == .active else {
+            throw CmxIrohEndpointSupervisorError.superseded
+        }
         try await endpoint.replaceRelays(relays)
+        let updatedAddress = await endpoint.address()
         guard lifecycleRevision == revision, snapshot.state == .active else {
             throw CmxIrohEndpointSupervisorError.superseded
         }
@@ -266,7 +271,9 @@ public actor CmxIrohEndpointSupervisor {
         // allowlist. That early event is filtered by the old profile and may be
         // the only native address callback. Republish after both endpoint and
         // supervisor configuration commit so owners re-read one coherent route.
-        publish(.networkChanged(runtimeGeneration: snapshot.runtimeGeneration))
+        if updatedAddress != previousAddress {
+            publish(.networkChanged(runtimeGeneration: snapshot.runtimeGeneration))
+        }
     }
 
     /// Installs a complete managed selection or custom relay override live.
@@ -319,12 +326,19 @@ public actor CmxIrohEndpointSupervisor {
                 throw CmxIrohEndpointSupervisorError.superseded
             }
         }
+        let previousAddress = await endpoint.address()
+        guard lifecycleRevision == revision, snapshot.state == .active else {
+            throw CmxIrohEndpointSupervisorError.superseded
+        }
         try await endpoint.replaceRelayProfile(profile)
+        let updatedAddress = await endpoint.address()
         guard lifecycleRevision == revision, snapshot.state == .active else {
             throw CmxIrohEndpointSupervisorError.superseded
         }
         configuration = candidateConfiguration
-        publish(.networkChanged(runtimeGeneration: snapshot.runtimeGeneration))
+        if updatedAddress != previousAddress {
+            publish(.networkChanged(runtimeGeneration: snapshot.runtimeGeneration))
+        }
     }
 
     private func observeHealth(
