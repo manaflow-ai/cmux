@@ -38,7 +38,7 @@ use tokio::io::{
     AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader,
 };
 use tokio::process::Command;
-use tokio::sync::{RwLock, Semaphore, mpsc};
+use tokio::sync::{Mutex as AsyncMutex, RwLock, Semaphore, mpsc, watch};
 use tokio::task::JoinSet;
 #[cfg(feature = "http-server")]
 use tokio_util::io::ReaderStream;
@@ -52,7 +52,8 @@ use crate::protocol::{
     DiffSource, NavigationResult, OpenSessionRequest, SessionOpened, SessionRequest, handshake,
 };
 use crate::trajectory::{
-    AgentTurnIdentity, ResolvedTurnPatch, TrajectoryError, TrajectoryRoots, resolve_last_turn_patch,
+    AgentTurnIdentity, ResolvedTurnPatch, TrajectoryCancellation, TrajectoryError, TrajectoryRoots,
+    resolve_last_turn_patch_cancellable,
 };
 #[cfg(feature = "http-server")]
 use crate::{HTTP_PROTOCOL_VERSION, health_response};
@@ -72,7 +73,11 @@ struct AppState {
     port: u16,
     manifests: Arc<RwLock<HashMap<String, CachedManifest>>>,
     child_processes: Arc<Semaphore>,
+    trajectory_scans: Arc<AsyncMutex<TrajectoryScans>>,
 }
+
+type TrajectoryScanResult = Result<ResolvedTurnPatch, TrajectoryError>;
+type TrajectoryScans = HashMap<AgentTurnIdentity, watch::Sender<Option<TrajectoryScanResult>>>;
 
 #[derive(Clone)]
 struct CachedManifest {
@@ -194,6 +199,7 @@ fn app_state(config: ServerConfig, port: u16) -> Result<AppState, String> {
         port,
         manifests: Arc::new(RwLock::new(HashMap::new())),
         child_processes: Arc::new(Semaphore::new(MAX_CONCURRENT_CHILD_PROCESSES)),
+        trajectory_scans: Arc::new(AsyncMutex::new(HashMap::new())),
     })
 }
 
@@ -204,6 +210,7 @@ fn app_state(config: ServerConfig, port: u16) -> AppState {
         port,
         manifests: Arc::new(RwLock::new(HashMap::new())),
         child_processes: Arc::new(Semaphore::new(MAX_CONCURRENT_CHILD_PROCESSES)),
+        trajectory_scans: Arc::new(AsyncMutex::new(HashMap::new())),
     }
 }
 
@@ -656,6 +663,63 @@ enum SessionOpenError {
     Failed,
 }
 
+async fn resolve_agent_turn_coalesced(
+    state: &AppState,
+    identity: AgentTurnIdentity,
+) -> Result<ResolvedTurnPatch, TrajectoryError> {
+    let (mut receiver, producer) = {
+        let mut scans = state.trajectory_scans.lock().await;
+        if let Some(sender) = scans.get(&identity) {
+            (sender.subscribe(), None)
+        } else {
+            let (sender, receiver) = watch::channel(None);
+            scans.insert(identity.clone(), sender.clone());
+            (receiver, Some(sender))
+        }
+    };
+
+    if let Some(sender) = producer {
+        let scans = Arc::clone(&state.trajectory_scans);
+        let child_processes = Arc::clone(&state.child_processes);
+        let map_identity = identity.clone();
+        tokio::spawn(async move {
+            let cancellation = TrajectoryCancellation::default();
+            let cancellation_monitor = cancellation.clone();
+            let closed_sender = sender.clone();
+            let monitor = tokio::spawn(async move {
+                closed_sender.closed().await;
+                cancellation_monitor.cancel();
+            });
+            let worker_identity = map_identity.clone();
+            let result = match child_processes.try_acquire_owned() {
+                Ok(permit) => tokio::task::spawn_blocking(move || {
+                    // Blocking tasks outlive an aborted async waiter, so the work
+                    // itself owns the permit until its transcript scan finishes.
+                    let _permit = permit;
+                    let roots = TrajectoryRoots::from_environment()?;
+                    resolve_last_turn_patch_cancellable(&worker_identity, &roots, &cancellation)
+                })
+                .await
+                .map_or(Err(TrajectoryError::Unavailable), |result| result),
+                Err(_) => Err(TrajectoryError::Unavailable),
+            };
+            monitor.abort();
+            sender.send_replace(Some(result));
+            scans.lock().await.remove(&map_identity);
+        });
+    }
+
+    loop {
+        if let Some(result) = { receiver.borrow().clone() } {
+            return result;
+        }
+        receiver
+            .changed()
+            .await
+            .map_err(|_| TrajectoryError::Unavailable)?;
+    }
+}
+
 #[allow(clippy::too_many_lines)]
 async fn open_session(
     state: &AppState,
@@ -699,25 +763,15 @@ async fn open_session(
     } = &params.source
     {
         let identity = AgentTurnIdentity::new(*provider, session_id.clone());
-        let permit = state
-            .child_processes
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| SessionOpenError::Failed)?;
         Some(
-            tokio::task::spawn_blocking(move || {
-                // Blocking tasks outlive an aborted async waiter, so the work
-                // itself owns the permit until its transcript scan finishes.
-                let _permit = permit;
-                let roots = TrajectoryRoots::from_environment()?;
-                resolve_last_turn_patch(&identity, &roots)
-            })
-            .await
-            .map_err(|_| SessionOpenError::Failed)?
-            .map_err(|error| match error {
-                TrajectoryError::Empty => SessionOpenError::Empty,
-                TrajectoryError::Unavailable | TrajectoryError::Invalid => SessionOpenError::Failed,
-            })?,
+            resolve_agent_turn_coalesced(state, identity)
+                .await
+                .map_err(|error| match error {
+                    TrajectoryError::Empty => SessionOpenError::Empty,
+                    TrajectoryError::Unavailable | TrajectoryError::Invalid => {
+                        SessionOpenError::Failed
+                    }
+                })?,
         )
     } else {
         None

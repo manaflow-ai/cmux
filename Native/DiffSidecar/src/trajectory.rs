@@ -3,6 +3,8 @@ use std::fmt::Write as _;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
@@ -16,10 +18,28 @@ const MAX_JSONL_LINE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_TRANSCRIPT_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_PATCH_BYTES: usize = 64 * 1024 * 1024;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct AgentTurnIdentity {
     pub provider: AgentProvider,
     pub session_id: String,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct TrajectoryCancellation(Arc<AtomicBool>);
+
+impl TrajectoryCancellation {
+    /// Requests cooperative cancellation of the active trajectory scan.
+    pub fn cancel(&self) {
+        self.0.store(true, Ordering::Release);
+    }
+
+    fn check(&self) -> Result<(), TrajectoryError> {
+        if self.0.load(Ordering::Acquire) {
+            Err(TrajectoryError::Unavailable)
+        } else {
+            Ok(())
+        }
+    }
 }
 
 impl AgentTurnIdentity {
@@ -141,11 +161,26 @@ pub fn resolve_last_turn_patch(
     identity: &AgentTurnIdentity,
     roots: &TrajectoryRoots,
 ) -> Result<ResolvedTurnPatch, TrajectoryError> {
+    resolve_last_turn_patch_cancellable(identity, roots, &TrajectoryCancellation::default())
+}
+
+/// Resolves the last recorded turn while observing cooperative cancellation.
+///
+/// # Errors
+///
+/// Returns [`TrajectoryError`] when the trajectory is unavailable, invalid,
+/// empty, or cancelled.
+pub fn resolve_last_turn_patch_cancellable(
+    identity: &AgentTurnIdentity,
+    roots: &TrajectoryRoots,
+    cancellation: &TrajectoryCancellation,
+) -> Result<ResolvedTurnPatch, TrajectoryError> {
+    cancellation.check()?;
     validate_session_id(&identity.session_id)?;
     match identity.provider {
-        AgentProvider::Codex => resolve_codex(identity, roots),
-        AgentProvider::Claude => resolve_claude(identity, roots),
-        AgentProvider::OpenCode => resolve_opencode(identity, roots),
+        AgentProvider::Codex => resolve_codex(identity, roots, cancellation),
+        AgentProvider::Claude => resolve_claude(identity, roots, cancellation),
+        AgentProvider::OpenCode => resolve_opencode(identity, roots, cancellation),
     }
 }
 
@@ -164,6 +199,7 @@ fn validate_session_id(session_id: &str) -> Result<(), TrajectoryError> {
 fn resolve_codex(
     identity: &AgentTurnIdentity,
     roots: &TrajectoryRoots,
+    cancellation: &TrajectoryCancellation,
 ) -> Result<ResolvedTurnPatch, TrajectoryError> {
     let hook = read_hook_record(roots, identity.provider, &identity.session_id);
     let (transcript, repo_root) = if let Some(record) =
@@ -188,13 +224,14 @@ fn resolve_codex(
         )
     };
     let repo_root = canonical_repository_root(&repo_root)?;
-    let patch = codex_last_turn_patch(&transcript, &repo_root)?;
+    let patch = codex_last_turn_patch(&transcript, &repo_root, cancellation)?;
     finish(repo_root, patch)
 }
 
 fn resolve_claude(
     identity: &AgentTurnIdentity,
     roots: &TrajectoryRoots,
+    cancellation: &TrajectoryCancellation,
 ) -> Result<ResolvedTurnPatch, TrajectoryError> {
     let hook = read_hook_record(roots, identity.provider, &identity.session_id);
     let (transcript, repo_root) = if let Some(record) =
@@ -212,18 +249,21 @@ fn resolve_claude(
     } else {
         let transcript = find_claude_transcript(roots, &identity.session_id)
             .ok_or(TrajectoryError::Unavailable)?;
-        let repo_root = claude_transcript_cwd(&transcript).ok_or(TrajectoryError::Unavailable)?;
+        let repo_root =
+            claude_transcript_cwd(&transcript, cancellation).ok_or(TrajectoryError::Unavailable)?;
         (transcript, repo_root)
     };
     let repo_root = canonical_repository_root(&repo_root)?;
-    let patch = claude_last_turn_patch(&transcript, &repo_root)?;
+    let patch = claude_last_turn_patch(&transcript, &repo_root, cancellation)?;
     finish(repo_root, patch)
 }
 
 fn resolve_opencode(
     identity: &AgentTurnIdentity,
     roots: &TrajectoryRoots,
+    cancellation: &TrajectoryCancellation,
 ) -> Result<ResolvedTurnPatch, TrajectoryError> {
+    cancellation.check()?;
     let connection = open_read_only_database(&roots.opencode_database())?;
     let repo: String = connection
         .query_row(
@@ -234,6 +274,8 @@ fn resolve_opencode(
         .optional()
         .map_err(|_| TrajectoryError::Invalid)?
         .ok_or(TrajectoryError::Unavailable)?;
+    let repo_root = canonical_repository_root(&expanded_path(&repo))?;
+    cancellation.check()?;
     let user_message: String = connection
         .query_row(
             "SELECT id FROM message \
@@ -263,9 +305,13 @@ fn resolve_opencode(
         .map_err(|_| TrajectoryError::Invalid)?;
     let mut patch = String::new();
     for row in rows {
-        append_patch_fragment(&mut patch, &row.map_err(|_| TrajectoryError::Invalid)?)?;
+        cancellation.check()?;
+        append_opencode_patch(
+            &mut patch,
+            &repo_root,
+            &row.map_err(|_| TrajectoryError::Invalid)?,
+        )?;
     }
-    let repo_root = canonical_repository_root(&expanded_path(&repo))?;
     finish(repo_root, patch)
 }
 
@@ -333,9 +379,12 @@ fn find_claude_transcript(roots: &TrajectoryRoots, session_id: &str) -> Option<P
     None
 }
 
-fn claude_transcript_cwd(transcript: &Path) -> Option<PathBuf> {
+fn claude_transcript_cwd(
+    transcript: &Path,
+    cancellation: &TrajectoryCancellation,
+) -> Option<PathBuf> {
     let mut cwd = None;
-    for_json_lines(transcript, |object| {
+    for_json_lines(transcript, cancellation, |object| {
         cwd = object.get("cwd").and_then(Value::as_str).map(expanded_path);
         Ok(cwd.is_some())
     })
@@ -343,10 +392,14 @@ fn claude_transcript_cwd(transcript: &Path) -> Option<PathBuf> {
     cwd
 }
 
-fn codex_last_turn_patch(transcript: &Path, repo_root: &Path) -> Result<String, TrajectoryError> {
+fn codex_last_turn_patch(
+    transcript: &Path,
+    repo_root: &Path,
+    cancellation: &TrajectoryCancellation,
+) -> Result<String, TrajectoryError> {
     let mut current_turn = None::<String>;
     let mut patch = String::new();
-    for_json_lines(transcript, |object| {
+    for_json_lines(transcript, cancellation, |object| {
         let Some(payload) = object
             .get("payload")
             .filter(|_| object.get("type").and_then(Value::as_str) == Some("event_msg"))
@@ -474,10 +527,14 @@ fn append_added_file(
     ensure_patch_limit(output)
 }
 
-fn claude_last_turn_patch(transcript: &Path, repo_root: &Path) -> Result<String, TrajectoryError> {
+fn claude_last_turn_patch(
+    transcript: &Path,
+    repo_root: &Path,
+    cancellation: &TrajectoryCancellation,
+) -> Result<String, TrajectoryError> {
     let mut current_prompt = None::<String>;
     let mut patch = String::new();
-    for_json_lines(transcript, |object| {
+    for_json_lines(transcript, cancellation, |object| {
         if object.get("type").and_then(Value::as_str) != Some("user") {
             return Ok(false);
         }
@@ -575,6 +632,7 @@ fn append_claude_result(
 
 fn for_json_lines(
     path: &Path,
+    cancellation: &TrajectoryCancellation,
     mut consume: impl FnMut(&Value) -> Result<bool, TrajectoryError>,
 ) -> Result<(), TrajectoryError> {
     let file = File::open(path).map_err(|_| TrajectoryError::Unavailable)?;
@@ -588,7 +646,8 @@ fn for_json_lines(
     }
     let mut reader = BufReader::new(file);
     let mut line = Vec::new();
-    while read_capped_json_line(&mut reader, &mut line)? {
+    while read_capped_json_line(&mut reader, &mut line, cancellation)? {
+        cancellation.check()?;
         if line.iter().all(u8::is_ascii_whitespace) {
             continue;
         }
@@ -604,9 +663,11 @@ fn for_json_lines(
 fn read_capped_json_line(
     reader: &mut impl BufRead,
     line: &mut Vec<u8>,
+    cancellation: &TrajectoryCancellation,
 ) -> Result<bool, TrajectoryError> {
     line.clear();
     loop {
+        cancellation.check()?;
         let (consumed, terminated) = {
             let available = reader.fill_buf().map_err(|_| TrajectoryError::Invalid)?;
             if available.is_empty() {
@@ -741,6 +802,146 @@ fn append_patch_fragment(output: &mut String, fragment: &str) -> Result<(), Traj
     output.push_str(fragment);
     output.push('\n');
     ensure_patch_limit(output)
+}
+
+fn append_opencode_patch(
+    output: &mut String,
+    repo_root: &Path,
+    fragment: &str,
+) -> Result<(), TrajectoryError> {
+    let mut saw_path = false;
+    let mut in_hunk = false;
+    for line in fragment.lines() {
+        if line.starts_with("diff --git ") {
+            // The ---/+++ pair below is authoritative and can be normalized
+            // without trying to split an ambiguously quoted diff --git line.
+            in_hunk = false;
+            continue;
+        }
+        if let Some(raw) = line.strip_prefix("Index: ") {
+            in_hunk = false;
+            let (path, suffix) = split_patch_header_value(raw)?;
+            let relative = normalized_opencode_path(repo_root, path, false)?;
+            writeln!(output, "Index: {}{suffix}", git_quote_path(&relative))
+                .map_err(|_| TrajectoryError::Invalid)?;
+            saw_path = true;
+            continue;
+        }
+        if line.starts_with("@@") {
+            in_hunk = true;
+        }
+        if !in_hunk
+            && let Some((marker, prefix, raw)) = line
+                .strip_prefix("--- ")
+                .map(|raw| ("---", "a/", raw))
+                .or_else(|| line.strip_prefix("+++ ").map(|raw| ("+++", "b/", raw)))
+        {
+            let (path, suffix) = split_patch_header_value(raw)?;
+            if path == "/dev/null" {
+                writeln!(output, "{marker} /dev/null{suffix}")
+                    .map_err(|_| TrajectoryError::Invalid)?;
+            } else {
+                let relative = normalized_opencode_path(repo_root, path, true)?;
+                writeln!(
+                    output,
+                    "{marker} {}{suffix}",
+                    git_prefixed_path(prefix, &relative)
+                )
+                .map_err(|_| TrajectoryError::Invalid)?;
+            }
+            saw_path = true;
+            continue;
+        }
+        writeln!(output, "{line}").map_err(|_| TrajectoryError::Invalid)?;
+    }
+    if !saw_path {
+        return Err(TrajectoryError::Invalid);
+    }
+    ensure_patch_limit(output)
+}
+
+fn split_patch_header_value(raw: &str) -> Result<(&str, &str), TrajectoryError> {
+    if !raw.starts_with('"') {
+        return Ok(raw
+            .split_once('\t')
+            .map_or((raw, ""), |(path, _)| (path, &raw[path.len()..])));
+    }
+    let mut escaped = false;
+    for (index, character) in raw.char_indices().skip(1) {
+        if escaped {
+            escaped = false;
+        } else if character == '\\' {
+            escaped = true;
+        } else if character == '"' {
+            let end = index + character.len_utf8();
+            return Ok((&raw[..end], &raw[end..]));
+        }
+    }
+    Err(TrajectoryError::Invalid)
+}
+
+fn normalized_opencode_path(
+    repo_root: &Path,
+    raw: &str,
+    strip_git_prefix: bool,
+) -> Result<String, TrajectoryError> {
+    let decoded = decode_git_quoted_path(raw)?;
+    let normalized = if strip_git_prefix && !Path::new(&decoded).is_absolute() {
+        decoded
+            .strip_prefix("a/")
+            .or_else(|| decoded.strip_prefix("b/"))
+            .unwrap_or(&decoded)
+            .to_owned()
+    } else {
+        decoded
+    };
+    relative_patch_path(repo_root, Path::new(&normalized))
+}
+
+fn decode_git_quoted_path(raw: &str) -> Result<String, TrajectoryError> {
+    if !raw.starts_with('"') {
+        return Ok(raw.to_owned());
+    }
+    if !raw.ends_with('"') || raw.len() < 2 {
+        return Err(TrajectoryError::Invalid);
+    }
+    let bytes = raw.as_bytes();
+    let mut decoded = Vec::with_capacity(raw.len() - 2);
+    let mut index = 1;
+    while index < bytes.len() - 1 {
+        if bytes[index] != b'\\' {
+            decoded.push(bytes[index]);
+            index += 1;
+            continue;
+        }
+        index += 1;
+        let escaped = *bytes.get(index).ok_or(TrajectoryError::Invalid)?;
+        match escaped {
+            b'n' => decoded.push(b'\n'),
+            b'r' => decoded.push(b'\r'),
+            b't' => decoded.push(b'\t'),
+            b'\\' | b'"' => decoded.push(escaped),
+            b'0'..=b'7' => {
+                let mut value = escaped - b'0';
+                let mut digits = 1;
+                while digits < 3
+                    && index + 1 < bytes.len() - 1
+                    && matches!(bytes[index + 1], b'0'..=b'7')
+                {
+                    index += 1;
+                    value = value
+                        .checked_mul(8)
+                        .and_then(|value| value.checked_add(bytes[index] - b'0'))
+                        .ok_or(TrajectoryError::Invalid)?;
+                    digits += 1;
+                }
+                decoded.push(value);
+            }
+            _ => return Err(TrajectoryError::Invalid),
+        }
+        index += 1;
+    }
+    String::from_utf8(decoded).map_err(|_| TrajectoryError::Invalid)
 }
 
 fn append_deleted_content(output: &mut String, content: &str) -> Result<(), TrajectoryError> {
