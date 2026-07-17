@@ -147,12 +147,15 @@ struct NotificationFeedHistoryTests {
         #expect(history.markRead(ids: [UUID()]) == 0)
         #expect(history.markRead(ids: [entry.id]) == 1)
         #expect(history.markRead(ids: [entry.id]) == 0)
+        history.markUnread(ids: [entry.id])
+        #expect(history.notifications.first?.isRead == false)
+        history.markUnread(ids: [entry.id])
 
-        #expect(history.revision == 2)
-        #expect(revisions == [1, 2])
+        #expect(history.revision == 3)
+        #expect(revisions == [1, 2, 3])
     }
 
-    @Test func listBootstrapsCurrentEntriesAndReadRPCsMutateHistoryAndActiveState() async throws {
+    @Test func listBootstrapsCurrentEntriesAndReadStateRPCsMutateHistoryAndActiveState() async throws {
         let store = TerminalNotificationStore.shared
         let workspaceID = UUID()
         let surfaceID = UUID()
@@ -214,6 +217,23 @@ struct NotificationFeedHistoryTests {
         #expect(markAllPayload["revision"] as? Int == 3)
         #expect(store.notificationFeedHistory.notifications.allSatisfy(\.isRead))
         #expect(store.notifications.allSatisfy(\.isRead))
+
+        store.remove(id: older.id)
+        #expect(store.notifications.contains(where: { $0.id == older.id }) == false)
+
+        let markUnreadResponse = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "feed-mark-unread",
+                method: "notification.feed.mark_unread",
+                params: ["notification_ids": [older.id.uuidString]],
+                auth: nil
+            )
+        )
+        let markUnreadPayload = try responsePayload(markUnreadResponse)
+        #expect(markUnreadPayload["marked"] as? Int == 1)
+        #expect(markUnreadPayload["revision"] as? Int == 4)
+        #expect(store.notificationFeedHistory.notifications.first(where: { $0.id == older.id })?.isRead == false)
+        #expect(store.notifications.contains(where: { $0.id == older.id }) == false)
     }
 
     @Test func rebindUpdatesRetargetableHistoricalDestinations() {

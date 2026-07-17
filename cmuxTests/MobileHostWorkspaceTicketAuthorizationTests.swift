@@ -329,6 +329,12 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
                 auth: nil
             ),
             MobileHostRPCRequest(
+                id: "feed-mark-unread",
+                method: "notification.feed.mark_unread",
+                params: ["notification_ids": [UUID().uuidString]],
+                auth: nil
+            ),
+            MobileHostRPCRequest(
                 id: "feed-mark-all",
                 method: "notification.feed.mark_all_read",
                 params: [:],

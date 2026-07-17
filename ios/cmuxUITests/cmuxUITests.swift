@@ -192,7 +192,7 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     func testNotificationTabPreservesSharedRootToolbar() async throws {
-        let server = try MobileSyncMockHostServer()
+        let server = try MobileSyncMockHostServer(includesNotificationFeed: true)
         let port = try await server.start()
         defer { server.stop() }
 
@@ -222,6 +222,10 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(computers.waitForExistence(timeout: 3))
         XCTAssertTrue(picker.waitForExistence(timeout: 3))
         XCTAssertTrue(app.staticTexts["All Computers"].exists)
+        let markAllRead = app.buttons["MobileNotificationFeedMarkAllRead"]
+        XCTAssertTrue(markAllRead.waitForExistence(timeout: 3))
+        XCTAssertLessThanOrEqual(markAllRead.frame.width, 60)
+        XCTAssertEqual(picker.frame.midX, app.frame.midX, accuracy: 2)
     }
 
     @MainActor
@@ -294,6 +298,15 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(notificationsTab.waitForExistence(timeout: 3))
         XCTAssertTrue(notificationsTab.isSelected)
         XCTAssertTrue(completedRow.waitForExistence(timeout: 3))
+
+        completedRow.press(forDuration: 1)
+        let markUnread = app.descendants(matching: .any)[
+            "MobileNotificationFeedMarkUnreadMenu-macbook-tests-passed"
+        ]
+        XCTAssertTrue(markUnread.waitForExistence(timeout: 3))
+        markUnread.tap()
+        XCTAssertTrue(completedRow.waitForExistence(timeout: 3))
+        XCTAssertTrue(try XCTUnwrap(completedRow.value as? String).contains("Unread"))
 
         completedRow.tap()
         XCTAssertTrue(workspaceDestination.waitForExistence(timeout: 3))
@@ -4287,6 +4300,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private let listener: NWListener
     private let queue = DispatchQueue(label: "dev.cmux.ios-ui-tests.mobile-sync-server")
     private let createdWorkspaceTerminalDelay: TimeInterval?
+    private let includesNotificationFeed: Bool
     private var readyContinuation: CheckedContinuation<UInt16, Error>?
     private var connections: [NWConnection] = []
     private var selectedWorkspaceID = "workspace-main"
@@ -4345,10 +4359,12 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     init(
         defaultTerminalLines: [String]? = nil,
         additionalMainTerminalCount: Int = 0,
-        createdWorkspaceTerminalDelay: TimeInterval? = nil
+        createdWorkspaceTerminalDelay: TimeInterval? = nil,
+        includesNotificationFeed: Bool = false
     ) throws {
         listener = try NWListener(using: .tcp, on: .any)
         self.createdWorkspaceTerminalDelay = createdWorkspaceTerminalDelay
+        self.includesNotificationFeed = includesNotificationFeed
         appendMainTerminals(count: additionalMainTerminalCount)
         // Optionally replace the selected terminal's content (used by the
         // color-band render test so the bands stream on attach without a flaky
@@ -4570,6 +4586,8 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             result = ["stream_id": params["stream_id"] as? String ?? "events"]
         case "mobile.host.status":
             result = mobileHostStatusResult()
+        case "notification.feed.list":
+            result = notificationFeedListResult()
         case "mobile.terminal.viewport", "terminal.viewport":
             result = [
                 "columns": params["viewport_columns"] as? Int ?? 80,
@@ -4591,23 +4609,51 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     }
 
     private func mobileHostStatusResult() -> [String: Any] {
-        [
+        var capabilities = [
+            "events.v1",
+            "notification.badge.v1",
+            "notification.dismiss.v1",
+            "notification.reconcile.v1",
+            "terminal.bytes.v1",
+            "terminal.render_grid.v1",
+            "terminal.replay.v1",
+            "terminal.viewport.v1",
+            "workspace.actions.v1",
+            "workspace.read_state.v1",
+            "workspace.close.v1",
+            "dogfood.v1",
+            "workspace.groups.v1",
+        ]
+        if includesNotificationFeed {
+            capabilities.append("notification.feed.v1")
+        }
+        return [
             "routes": [],
             "terminal_fidelity": "render_grid",
-            "capabilities": [
-                "events.v1",
-                "notification.badge.v1",
-                "notification.dismiss.v1",
-                "notification.reconcile.v1",
-                "terminal.bytes.v1",
-                "terminal.render_grid.v1",
-                "terminal.replay.v1",
-                "terminal.viewport.v1",
-                "workspace.actions.v1",
-                "workspace.read_state.v1",
-                "workspace.close.v1",
-                "dogfood.v1",
-                "workspace.groups.v1",
+            "capabilities": capabilities,
+        ]
+    }
+
+    private func notificationFeedListResult() -> [String: Any] {
+        guard includesNotificationFeed else {
+            return ["revision": 0, "notifications": []]
+        }
+        return [
+            "revision": 1,
+            "notifications": [
+                [
+                    "id": "notification-toolbar-layout",
+                    "workspace_id": "workspace-main",
+                    "surface_id": "terminal-build",
+                    "title": "Toolbar layout ready",
+                    "subtitle": "UI test",
+                    "body": "The bulk action remains available without moving the computer picker.",
+                    "created_at": Date().timeIntervalSince1970,
+                    "is_read": false,
+                    "retargets_to_live_surface_owner": false,
+                    "workspace_title": "cmux",
+                    "surface_title": "Build",
+                ] as [String: Any],
             ],
         ]
     }
