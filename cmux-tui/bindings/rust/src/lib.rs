@@ -138,6 +138,8 @@ pub enum Layout {
     Leaf { pane: u64 },
     #[serde(rename = "split")]
     Split { dir: String, ratio: f32, a: Box<Layout>, b: Box<Layout> },
+    #[serde(rename = "stack")]
+    Stack { panes: Vec<u64>, expanded: u64 },
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -406,6 +408,19 @@ impl CmuxClient {
         self.request("new-screen", params)
     }
 
+    pub fn new_pane(
+        &mut self,
+        pane: u64,
+        cols: Option<u16>,
+        rows: Option<u16>,
+    ) -> Result<SurfaceResult> {
+        let mut params = Map::new();
+        params.insert("pane".to_string(), Value::from(pane));
+        insert_opt(&mut params, "cols", cols);
+        insert_opt(&mut params, "rows", rows);
+        self.request("new-pane", params)
+    }
+
     pub fn split(
         &mut self,
         pane: u64,
@@ -559,7 +574,7 @@ impl CmuxClient {
             Some(protocol) => protocol,
             None => self.identify()?.protocol,
         };
-        if protocol > 7 || (protocol > 5 && !self.config.allow_protocol_v6_attach) {
+        if protocol > 8 || (protocol > 5 && !self.config.allow_protocol_v6_attach) {
             return Err(CmuxError::ProtocolVersion(format!(
                 "unsupported attach protocol {protocol}"
             )));
@@ -866,6 +881,20 @@ mod tests {
             serde_json::from_value(serde_json::json!({"accepted": true, "reservation_id": 41}))
                 .unwrap();
         assert_eq!(reserved.reservation_id, Some(41));
+    }
+
+    #[test]
+    fn stack_layout_decodes_protocol_v8_shape() {
+        let layout: Layout = serde_json::from_value(serde_json::json!({
+            "type": "stack",
+            "panes": [1, 2, 3],
+            "expanded": 2,
+        }))
+        .unwrap();
+        assert!(matches!(
+            layout,
+            Layout::Stack { panes, expanded } if panes == vec![1, 2, 3] && expanded == 2
+        ));
     }
 
     #[test]

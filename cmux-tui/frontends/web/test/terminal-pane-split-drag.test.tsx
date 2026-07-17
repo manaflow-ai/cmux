@@ -51,6 +51,7 @@ function terminalPaneProps(onSetRatio: (pane: number, dir: "right" | "down", rat
     onSplit: vi.fn(),
     onSetRatio,
     onSelectPane: vi.fn(),
+    onExpandPane: vi.fn(),
     onZoomPane: vi.fn(),
     onClosePane: vi.fn(),
     onCloseSurface: vi.fn(),
@@ -174,6 +175,10 @@ describe("TerminalPane stacks", () => {
     expect(stack?.querySelectorAll(":scope > .pane-leaf.collapsed")).toHaveLength(2);
     expect(stack?.querySelectorAll(":scope > .pane-leaf.expanded")).toHaveLength(1);
     expect(stack?.children[1]).toHaveClass("expanded");
+
+    fireEvent.pointerDown(stack!.children[0]!);
+    expect(props.onSelectPane).toHaveBeenCalledWith(1);
+    expect(props.onExpandPane).toHaveBeenCalledWith(1);
   });
 });
 

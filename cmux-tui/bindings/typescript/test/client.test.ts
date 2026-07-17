@@ -98,6 +98,29 @@ test("attachSurface decodes VT colors, output, and resized payloads", async () =
   await client.close();
 });
 
+test("attachSurface accepts protocol 8", async () => {
+  const main = new ScriptedTransport((request, transport) => {
+    transport.emit({
+      id: request.id,
+      ok: true,
+      data: { app: "cmux-tui", version: "0.1.2", protocol: 8, session: "main", pid: 1 },
+    });
+  });
+  const attach = new ScriptedTransport((request, transport) => {
+    assert.equal(request.cmd, "attach-surface");
+    transport.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({
+    transport: main,
+    streamTransportFactory: () => attach,
+    timeoutMs: 100,
+  });
+
+  const stream = await client.attachSurface(7);
+  stream.close();
+  await client.close();
+});
+
 test("surface overflow terminates only the matching shared attach stream", async () => {
   const transport = new ScriptedTransport((request, connection) => {
     if (request.cmd === "identify") {

@@ -81,6 +81,7 @@ export default function App() {
         onSplit={connection.mutations.split}
         onSetRatio={connection.mutations.setRatio}
         onSelectPane={connection.selectPane}
+        onExpandPane={connection.mutations.focusPane}
         onZoomPane={connection.mutations.zoomPane}
         onClosePane={connection.mutations.closePane}
         onCloseSurface={connection.mutations.closeSurface}

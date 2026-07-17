@@ -95,9 +95,14 @@ impl Node {
             Node::Split { a, b, .. } => {
                 a.split_leaf(target, dir, new_pane) || b.split_leaf(target, dir, new_pane)
             }
-            Node::Stack { panes, expanded } if panes.contains(&target) => {
-                panes.push(new_pane);
-                *expanded = new_pane;
+            Node::Stack { panes, .. } if panes.contains(&target) => {
+                let old = std::mem::replace(self, Node::Leaf(target));
+                *self = Node::Split {
+                    dir,
+                    ratio: 0.5,
+                    a: Box::new(old),
+                    b: Box::new(Node::Leaf(new_pane)),
+                };
                 true
             }
             Node::Stack { .. } => false,

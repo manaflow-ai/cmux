@@ -253,6 +253,13 @@ func (c *Client) NewScreen(ctx context.Context, opts NewScreenOptions) (SurfaceR
 	return result, c.request(ctx, "new-screen", commandMap(opts), &result)
 }
 
+func (c *Client) NewPane(ctx context.Context, pane uint64, opts NewPaneOptions) (SurfaceResult, error) {
+	params := commandMap(opts)
+	params["pane"] = pane
+	var result SurfaceResult
+	return result, c.request(ctx, "new-pane", params, &result)
+}
+
 func (c *Client) Split(ctx context.Context, pane uint64, dir string, opts SplitOptions) (SurfaceResult, error) {
 	params := commandMap(opts)
 	params["pane"] = pane
@@ -355,7 +362,7 @@ func (c *Client) AttachSurface(ctx context.Context, surface uint64) (*Stream, er
 		}
 		protocol = &info.Protocol
 	}
-	if *protocol > 7 || (*protocol > 5 && !c.allowProtocolV6Attach) {
+	if *protocol > 8 || (*protocol > 5 && !c.allowProtocolV6Attach) {
 		return nil, &protocolError{msg: fmt.Sprintf("unsupported attach protocol %d", *protocol)}
 	}
 	return c.openStream(ctx, map[string]any{"id": c.nextRequestID(), "cmd": "attach-surface", "surface": surface})

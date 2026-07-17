@@ -2695,6 +2695,30 @@ mod tests {
     }
 
     #[test]
+    fn directional_split_of_zellij_stack_preserves_requested_direction() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, None).unwrap();
+        let mut active = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        for _ in 1..13 {
+            let surface = mux.new_pane(active, None).unwrap();
+            active = mux.with_state(|state| state.pane_of(surface.id).unwrap());
+        }
+
+        let split = mux.split(active, SplitDir::Right, None).unwrap();
+        let split_pane = mux.with_state(|state| state.pane_of(split.id).unwrap());
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            assert!(matches!(
+                &screen.root,
+                Node::Split { dir: SplitDir::Right, a, b, .. }
+                    if matches!(a.as_ref(), Node::Stack { .. })
+                        && matches!(b.as_ref(), Node::Leaf(pane) if *pane == split_pane)
+            ));
+            assert!(screen.zellij_auto_layout.is_none());
+        });
+    }
+
+    #[test]
     fn structural_test_mux_can_create_many_surfaces_without_ptys() {
         let mux = test_mux();
         let first = mux.new_workspace(None, Some((120, 40))).unwrap();

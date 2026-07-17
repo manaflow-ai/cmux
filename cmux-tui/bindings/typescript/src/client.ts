@@ -69,6 +69,7 @@ export type NewTabOptions = CmuxRequestParams<"new-tab">;
 export type NewBrowserTabOptions = Omit<CmuxRequestParams<"new-browser-tab">, "url">;
 export type NewWorkspaceOptions = CmuxRequestParams<"new-workspace">;
 export type NewScreenOptions = CmuxRequestParams<"new-screen">;
+export type NewPaneOptions = Omit<CmuxRequestParams<"new-pane">, "pane">;
 export type SplitOptions = Omit<CmuxRequestParams<"split">, "pane" | "dir">;
 export type SelectOptions = CmuxRequestParams<"select-screen">;
 export type SelectTabOptions = CmuxRequestParams<"select-tab">;
@@ -354,6 +355,9 @@ export class CmuxClient {
   }
   newWorkspace(options: NewWorkspaceOptions = {}): Promise<SurfaceResult> { return this.request("new-workspace", options); }
   newScreen(options: NewScreenOptions = {}): Promise<SurfaceResult> { return this.request("new-screen", options); }
+  newPane(pane: Id, options: NewPaneOptions = {}): Promise<SurfaceResult> {
+    return this.request("new-pane", { pane, ...options });
+  }
   split(pane: Id, dir: SplitDirection, options: SplitOptions = {}): Promise<SurfaceResult> {
     return this.request("split", { pane, dir, ...options });
   }
@@ -405,7 +409,7 @@ export class CmuxClient {
 
   async attachSurface(surface: Id): Promise<CmuxStream<DecodedAttachEvent>> {
     const protocol = this.protocol ?? (await this.identify()).protocol;
-    if (protocol > 7 || (protocol > 5 && !this.allowProtocolV6Attach)) {
+    if (protocol > 8 || (protocol > 5 && !this.allowProtocolV6Attach)) {
       throw new CmuxProtocolError(`unsupported attach protocol ${protocol}`);
     }
     return this.openStream(

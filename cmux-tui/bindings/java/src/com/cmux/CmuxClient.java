@@ -153,6 +153,14 @@ public final class CmuxClient implements AutoCloseable {
         return new SurfaceResult(asLong(request("new-screen", params).get("surface")));
     }
 
+    public SurfaceResult newPane(long pane, Integer cols, Integer rows) throws CmuxException {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("pane", pane);
+        putIfNotNull(params, "cols", cols);
+        putIfNotNull(params, "rows", rows);
+        return new SurfaceResult(asLong(request("new-pane", params).get("surface")));
+    }
+
     public SurfaceResult split(long pane, String dir, Integer cols, Integer rows) throws CmuxException {
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("pane", pane);
@@ -290,7 +298,7 @@ public final class CmuxClient implements AutoCloseable {
 
     public CmuxStream attachSurface(long surface) throws CmuxException {
         int negotiated = protocol != null ? protocol : identify().protocol();
-        if (negotiated > 7 || (negotiated > 5 && !allowProtocolV6Attach)) {
+        if (negotiated > 8 || (negotiated > 5 && !allowProtocolV6Attach)) {
             throw new CmuxProtocolMismatchException("unsupported attach protocol " + negotiated);
         }
         Map<String, Object> params = new LinkedHashMap<>();

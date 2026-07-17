@@ -25,6 +25,7 @@ const requests = [
   { cmd: "new-browser-tab", url: "https://example.com" },
   { cmd: "new-workspace", name: "sdk" },
   { cmd: "new-screen", workspace: 1 },
+  { cmd: "new-pane", pane: 1 },
   { cmd: "split", pane: 1, dir: "right" },
   { cmd: "set-ratio", pane: 1, dir: "down", ratio: 0.5 },
   { cmd: "pane-neighbor", pane: 1, dir: "left" },

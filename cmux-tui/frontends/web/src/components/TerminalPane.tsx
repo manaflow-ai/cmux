@@ -22,6 +22,7 @@ interface TerminalPaneProps {
   onSplit(pane: Id, dir: "right" | "down"): void;
   onSetRatio(pane: Id, dir: "right" | "down", ratio: number): Promise<boolean>;
   onSelectPane(pane: Id): void;
+  onExpandPane(pane: Id): void;
   onZoomPane(pane: Id): void;
   onClosePane(pane: Id): void;
   onCloseSurface(surface: Id): void;
@@ -241,6 +242,11 @@ function LayoutStackNode({ node, screen, basis, ...actions }: LayoutStackNodePro
         <div
           className={`pane-leaf${pane === node.expanded ? " expanded" : " collapsed"}`}
           key={pane}
+          onPointerDown={() => {
+            if (pane === node.expanded) return;
+            actions.onSelectPane(pane);
+            actions.onExpandPane(pane);
+          }}
         >
           <PaneLeaf
             {...actions}
