@@ -2292,6 +2292,10 @@ struct ContentView: View {
         }
 
         sidebarSelectionState.selection = .tabs
+        if mode == .feed {
+            _ = AppDelegate.shared?.feedOpeningCoordinator.openPane(in: workspace)
+            return
+        }
         workspace.clearSplitZoom()
         _ = workspace.openOrFocusRightSidebarToolSurface(inPane: paneId, mode: mode, focus: true)
     }
@@ -10516,7 +10520,7 @@ struct VerticalTabsSidebar: View {
     }
 
     private func workspaceScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
-        // FLAG(sidebar-appkit-list-experiment): the AppKit NSTableView sidebar
+        // The feature-flagged AppKit NSTableView sidebar
         // is opt-in while it soaks; default stays on the SwiftUI list.
         Group {
             if CmuxFeatureFlags.shared.isAppKitSidebarListEnabled {

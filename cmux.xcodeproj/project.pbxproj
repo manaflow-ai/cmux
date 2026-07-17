@@ -787,18 +787,75 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		E50320010000000000000001 /* ExtensionWorktreeSpawnArgsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */; };
 		C0DEA7710000000000000007 /* FeatureFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA7710000000000000008 /* FeatureFlags.swift */; };
 		FEED0A00000000000000F007 /* feed-tui in Resources */ = {isa = PBXBuildFile; fileRef = FEED0A00000000000000F006 /* feed-tui */; };
+		FEE200000000000000000013 /* FeedActivitySnapshotGroups.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE100000000000000000013 /* FeedActivitySnapshotGroups.swift */; };
+		FEE200000000000000000012 /* FeedBlockingCallBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE100000000000000000012 /* FeedBlockingCallBridge.swift */; };
+		FEE200000000000000000002 /* FeedBlockingWaiterRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE100000000000000000002 /* FeedBlockingWaiterRegistry.swift */; };
+		F17B00000000000000000001 /* FeedButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A00000000000000000001 /* FeedButton.swift */; };
+		F17B00000000000000000030 /* FeedButtonKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A00000000000000000030 /* FeedButtonKind.swift */; };
+		F17B00000000000000000031 /* FeedButtonSize.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A00000000000000000031 /* FeedButtonSize.swift */; };
 		FEED0000000000000000F00D /* FeedButtonStyleDebugWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F00C /* FeedButtonStyleDebugWindowController.swift */; };
+		F17B00000000000000000002 /* FeedContextBlock.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A00000000000000000002 /* FeedContextBlock.swift */; };
+		FEE200000000000000000003 /* FeedCoordinator+Attention.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE100000000000000000003 /* FeedCoordinator+Attention.swift */; };
+		FEE200000000000000000004 /* FeedCoordinator+Notifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE100000000000000000004 /* FeedCoordinator+Notifications.swift */; };
+		FEE200000000000000000005 /* FeedCoordinator+Socket.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE100000000000000000005 /* FeedCoordinator+Socket.swift */; };
 		FEED0000000000000000F002 /* FeedCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F001 /* FeedCoordinator.swift */; };
+		FEE200000000000000000006 /* FeedCoordinatorState.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE100000000000000000006 /* FeedCoordinatorState.swift */; };
 		FEEDC0DEC0DEC0DEC0DE0001 /* FeedCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEEDC0DEC0DEC0DEC0DE0002 /* FeedCoordinatorTests.swift */; };
 		FEED49850000000000000001 /* FeedEventClassificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED49850000000000000002 /* FeedEventClassificationTests.swift */; };
 		FEEDC1A50000000000000001 /* FeedEventClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEEDC1A50000000000000002 /* FeedEventClassifier.swift */; };
 		FEEDC1A50000000000000003 /* FeedEventClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEEDC1A50000000000000002 /* FeedEventClassifier.swift */; };
+		F17B00000000000000000003 /* FeedExitPlanAllowedPromptsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A00000000000000000003 /* FeedExitPlanAllowedPromptsView.swift */; };
+		F17B00000000000000000004 /* FeedExitPlanPlanFileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A00000000000000000004 /* FeedExitPlanPlanFileView.swift */; };
+		FEE20000000000000000000F /* FeedExitPlanView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE10000000000000000000F /* FeedExitPlanView.swift */; };
+		F17B00000000000000000005 /* FeedFlowLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A00000000000000000005 /* FeedFlowLayout.swift */; };
+		F17B00000000000000000006 /* FeedFocusHostReference.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A00000000000000000006 /* FeedFocusHostReference.swift */; };
+		F17D00000000000000000001 /* FeedFocusRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17C00000000000000000001 /* FeedFocusRoutingTests.swift */; };
+		F17B00000000000000000007 /* FeedInlineNativeTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A00000000000000000007 /* FeedInlineNativeTextView.swift */; };
+		F17B00000000000000000008 /* FeedInlinePassthroughLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A00000000000000000008 /* FeedInlinePassthroughLabel.swift */; };
+		F17B00000000000000000009 /* FeedInlineTextEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A00000000000000000009 /* FeedInlineTextEditorView.swift */; };
+		F17B00000000000000000010 /* FeedInlineTextField.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A00000000000000000010 /* FeedInlineTextField.swift */; };
+		F17B00000000000000000032 /* FeedInlineTextFieldCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A00000000000000000032 /* FeedInlineTextFieldCoordinator.swift */; };
+		FEE20000000000000000000D /* FeedItemRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE10000000000000000000D /* FeedItemRow.swift */; };
+		FEE20000000000000000000C /* FeedItemSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE10000000000000000000C /* FeedItemSnapshot.swift */; };
+		FEE200000000000000000007 /* FeedJumpResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE100000000000000000007 /* FeedJumpResolver.swift */; };
+		F17B00000000000000000011 /* FeedJumpTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A00000000000000000011 /* FeedJumpTarget.swift */; };
+		FEE20000000000000000000B /* FeedKeyboardFocus.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE10000000000000000000B /* FeedKeyboardFocus.swift */; };
+		F17B00000000000000000012 /* FeedKeyboardFocusBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A00000000000000000012 /* FeedKeyboardFocusBridge.swift */; };
+		F17B00000000000000000033 /* FeedKeyboardFocusBridgeCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A00000000000000000033 /* FeedKeyboardFocusBridgeCoordinator.swift */; };
+		F17B00000000000000000013 /* FeedKeyboardFocusResponder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A00000000000000000013 /* FeedKeyboardFocusResponder.swift */; };
+		F17B00000000000000000014 /* FeedLabeledTextRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A00000000000000000014 /* FeedLabeledTextRow.swift */; };
+		FEE20000000000000000000A /* FeedListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE10000000000000000000A /* FeedListView.swift */; };
+		F17B00000000000000000015 /* FeedMarkdownInlineText.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A00000000000000000015 /* FeedMarkdownInlineText.swift */; };
+		FEE200000000000000000008 /* FeedNotificationPolicyContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE100000000000000000008 /* FeedNotificationPolicyContext.swift */; };
+		FEE200000000000000000015 /* FeedNotificationPolicySnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE100000000000000000015 /* FeedNotificationPolicySnapshot.swift */; };
+		FEE200000000000000000001 /* FeedOpeningCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE100000000000000000001 /* FeedOpeningCoordinator.swift */; };
 		FEED0000000000000000F005 /* FeedPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F004 /* FeedPanelView.swift */; };
 		FEED0000000000000000F011 /* FeedPanelViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F010 /* FeedPanelViewModel.swift */; };
+		F17B00000000000000000016 /* FeedPendingWaiter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A00000000000000000016 /* FeedPendingWaiter.swift */; };
 		FEED0000000000000000F013 /* FeedPermissionActionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F012 /* FeedPermissionActionPolicy.swift */; };
+		FEE20000000000000000000E /* FeedPermissionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE10000000000000000000E /* FeedPermissionView.swift */; };
+		F17B00000000000000000017 /* FeedPlacement.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A00000000000000000017 /* FeedPlacement.swift */; };
+		F17B00000000000000000034 /* FeedPlanBlock.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A00000000000000000034 /* FeedPlanBlock.swift */; };
+		F17B00000000000000000018 /* FeedPlanBodyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A00000000000000000018 /* FeedPlanBodyView.swift */; };
+		F17B00000000000000000035 /* FeedPlanNumberedItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A00000000000000000035 /* FeedPlanNumberedItem.swift */; };
+		FEE200000000000000000014 /* FeedPresentationSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE100000000000000000014 /* FeedPresentationSnapshot.swift */; };
+		FEE200000000000000000016 /* FeedPresentationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE100000000000000000016 /* FeedPresentationStore.swift */; };
 		FEED0000000000000000F00B /* FeedPreviewWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F00A /* FeedPreviewWindowController.swift */; };
+		FEE200000000000000000010 /* FeedQuestionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE100000000000000000010 /* FeedQuestionView.swift */; };
+		F17B00000000000000000019 /* FeedResolvedDivider.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A00000000000000000019 /* FeedResolvedDivider.swift */; };
+		F17B00000000000000000020 /* FeedRowActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A00000000000000000020 /* FeedRowActions.swift */; };
+		F17B00000000000000000021 /* FeedRowSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A00000000000000000021 /* FeedRowSurface.swift */; };
+		F17B00000000000000000029 /* FeedScopedKeyboardFocusResponder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A00000000000000000029 /* FeedScopedKeyboardFocusResponder.swift */; };
+		F17B00000000000000000022 /* FeedScrollContentMargins.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A00000000000000000022 /* FeedScrollContentMargins.swift */; };
+		F17B00000000000000000023 /* FeedScrollRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A00000000000000000023 /* FeedScrollRequest.swift */; };
 		FEED0000000000000000F009 /* FeedSidebarUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F008 /* FeedSidebarUITests.swift */; };
+		FEE200000000000000000009 /* FeedSocketEncoding.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE100000000000000000009 /* FeedSocketEncoding.swift */; };
+		F17B00000000000000000024 /* FeedStopDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A00000000000000000024 /* FeedStopDraft.swift */; };
+		F17B00000000000000000025 /* FeedTelemetryActionArea.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A00000000000000000025 /* FeedTelemetryActionArea.swift */; };
+		FEE200000000000000000011 /* FeedTelemetryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE100000000000000000011 /* FeedTelemetryView.swift */; };
 		FEED0000000000000000F00F /* FeedTextEditorDebugWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F00E /* FeedTextEditorDebugWindowController.swift */; };
+		F17B00000000000000000026 /* FeedTodoListBody.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A00000000000000000026 /* FeedTodoListBody.swift */; };
+		F17B00000000000000000027 /* FeedWrapHStack.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A00000000000000000027 /* FeedWrapHStack.swift */; };
 		D0B1001AA1B2C3D4E5F60001 /* FileDropHintBadgeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B1001BA1B2C3D4E5F60001 /* FileDropHintBadgeView.swift */; };
 		D0B10020A1B2C3D4E5F60001 /* FileDropOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10021A1B2C3D4E5F60001 /* FileDropOverlayView.swift */; };
 		D0B10022A1B2C3D4E5F60001 /* FileDropOverlayViewHitTesting.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10023A1B2C3D4E5F60001 /* FileDropOverlayViewHitTesting.swift */; };
@@ -1162,6 +1219,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		6313B6A0 /* PaneMemoryWarning.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6313B6A1 /* PaneMemoryWarning.swift */; };
 		E30760090000000000000002 /* PassthroughWindowOverlayContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30760090000000000000001 /* PassthroughWindowOverlayContainerView.swift */; };
 		A5001425 /* PDFPreviewChromeDebugWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001424 /* PDFPreviewChromeDebugWindowController.swift */; };
+		F17B00000000000000000028 /* PermissionInputPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A00000000000000000028 /* PermissionInputPreview.swift */; };
 		D1F0A00400000000000000D1 /* PhoneForwardingMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00400000000000000D2 /* PhoneForwardingMode.swift */; };
 		D1F0A00100000000000000A1 /* PhonePushClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00100000000000000A2 /* PhonePushClient.swift */; };
 		D1F0A00100000000000000A3 /* PhonePushPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00100000000000000A4 /* PhonePushPayload.swift */; };
@@ -2819,17 +2877,74 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionWorktreeSpawnArgsTests.swift; sourceTree = "<group>"; };
 		C0DEA7710000000000000008 /* FeatureFlags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureFlags.swift; sourceTree = "<group>"; };
 		FEED0A00000000000000F006 /* feed-tui */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; path = "feed-tui"; sourceTree = "<group>"; };
+		FEE100000000000000000013 /* FeedActivitySnapshotGroups.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedActivitySnapshotGroups.swift; sourceTree = "<group>"; };
+		FEE100000000000000000012 /* FeedBlockingCallBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedBlockingCallBridge.swift; sourceTree = "<group>"; };
+		FEE100000000000000000002 /* FeedBlockingWaiterRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedBlockingWaiterRegistry.swift; sourceTree = "<group>"; };
+		F17A00000000000000000001 /* FeedButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedButton.swift; sourceTree = "<group>"; };
+		F17A00000000000000000030 /* FeedButtonKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedButtonKind.swift; sourceTree = "<group>"; };
+		F17A00000000000000000031 /* FeedButtonSize.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedButtonSize.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F00C /* FeedButtonStyleDebugWindowController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedButtonStyleDebugWindowController.swift; sourceTree = "<group>"; };
+		F17A00000000000000000002 /* FeedContextBlock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedContextBlock.swift; sourceTree = "<group>"; };
+		FEE100000000000000000003 /* FeedCoordinator+Attention.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FeedCoordinator+Attention.swift"; sourceTree = "<group>"; };
+		FEE100000000000000000004 /* FeedCoordinator+Notifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FeedCoordinator+Notifications.swift"; sourceTree = "<group>"; };
+		FEE100000000000000000005 /* FeedCoordinator+Socket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FeedCoordinator+Socket.swift"; sourceTree = "<group>"; };
 		FEED0000000000000000F001 /* FeedCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedCoordinator.swift; sourceTree = "<group>"; };
+		FEE100000000000000000006 /* FeedCoordinatorState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedCoordinatorState.swift; sourceTree = "<group>"; };
 		FEEDC0DEC0DEC0DEC0DE0002 /* FeedCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedCoordinatorTests.swift; sourceTree = "<group>"; };
 		FEED49850000000000000002 /* FeedEventClassificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedEventClassificationTests.swift; sourceTree = "<group>"; };
 		FEEDC1A50000000000000002 /* FeedEventClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedEventClassifier.swift; sourceTree = "<group>"; };
+		F17A00000000000000000003 /* FeedExitPlanAllowedPromptsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedExitPlanAllowedPromptsView.swift; sourceTree = "<group>"; };
+		F17A00000000000000000004 /* FeedExitPlanPlanFileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedExitPlanPlanFileView.swift; sourceTree = "<group>"; };
+		FEE10000000000000000000F /* FeedExitPlanView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedExitPlanView.swift; sourceTree = "<group>"; };
+		F17A00000000000000000005 /* FeedFlowLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedFlowLayout.swift; sourceTree = "<group>"; };
+		F17A00000000000000000006 /* FeedFocusHostReference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedFocusHostReference.swift; sourceTree = "<group>"; };
+		F17C00000000000000000001 /* FeedFocusRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedFocusRoutingTests.swift; sourceTree = "<group>"; };
+		F17A00000000000000000007 /* FeedInlineNativeTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedInlineNativeTextView.swift; sourceTree = "<group>"; };
+		F17A00000000000000000008 /* FeedInlinePassthroughLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedInlinePassthroughLabel.swift; sourceTree = "<group>"; };
+		F17A00000000000000000009 /* FeedInlineTextEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedInlineTextEditorView.swift; sourceTree = "<group>"; };
+		F17A00000000000000000010 /* FeedInlineTextField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedInlineTextField.swift; sourceTree = "<group>"; };
+		F17A00000000000000000032 /* FeedInlineTextFieldCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedInlineTextFieldCoordinator.swift; sourceTree = "<group>"; };
+		FEE10000000000000000000D /* FeedItemRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedItemRow.swift; sourceTree = "<group>"; };
+		FEE10000000000000000000C /* FeedItemSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedItemSnapshot.swift; sourceTree = "<group>"; };
+		FEE100000000000000000007 /* FeedJumpResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedJumpResolver.swift; sourceTree = "<group>"; };
+		F17A00000000000000000011 /* FeedJumpTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedJumpTarget.swift; sourceTree = "<group>"; };
+		FEE10000000000000000000B /* FeedKeyboardFocus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedKeyboardFocus.swift; sourceTree = "<group>"; };
+		F17A00000000000000000012 /* FeedKeyboardFocusBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedKeyboardFocusBridge.swift; sourceTree = "<group>"; };
+		F17A00000000000000000033 /* FeedKeyboardFocusBridgeCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedKeyboardFocusBridgeCoordinator.swift; sourceTree = "<group>"; };
+		F17A00000000000000000013 /* FeedKeyboardFocusResponder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedKeyboardFocusResponder.swift; sourceTree = "<group>"; };
+		F17A00000000000000000014 /* FeedLabeledTextRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedLabeledTextRow.swift; sourceTree = "<group>"; };
+		FEE10000000000000000000A /* FeedListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedListView.swift; sourceTree = "<group>"; };
+		F17A00000000000000000015 /* FeedMarkdownInlineText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedMarkdownInlineText.swift; sourceTree = "<group>"; };
+		FEE100000000000000000008 /* FeedNotificationPolicyContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedNotificationPolicyContext.swift; sourceTree = "<group>"; };
+		FEE100000000000000000015 /* FeedNotificationPolicySnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedNotificationPolicySnapshot.swift; sourceTree = "<group>"; };
+		FEE100000000000000000001 /* FeedOpeningCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedOpeningCoordinator.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F004 /* FeedPanelView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedPanelView.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F010 /* FeedPanelViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedPanelViewModel.swift; sourceTree = "<group>"; };
+		F17A00000000000000000016 /* FeedPendingWaiter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedPendingWaiter.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F012 /* FeedPermissionActionPolicy.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedPermissionActionPolicy.swift; sourceTree = "<group>"; };
+		FEE10000000000000000000E /* FeedPermissionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedPermissionView.swift; sourceTree = "<group>"; };
+		F17A00000000000000000017 /* FeedPlacement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedPlacement.swift; sourceTree = "<group>"; };
+		F17A00000000000000000034 /* FeedPlanBlock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedPlanBlock.swift; sourceTree = "<group>"; };
+		F17A00000000000000000018 /* FeedPlanBodyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedPlanBodyView.swift; sourceTree = "<group>"; };
+		F17A00000000000000000035 /* FeedPlanNumberedItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedPlanNumberedItem.swift; sourceTree = "<group>"; };
+		FEE100000000000000000014 /* FeedPresentationSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedPresentationSnapshot.swift; sourceTree = "<group>"; };
+		FEE100000000000000000016 /* FeedPresentationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedPresentationStore.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F00A /* FeedPreviewWindowController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedPreviewWindowController.swift; sourceTree = "<group>"; };
+		FEE100000000000000000010 /* FeedQuestionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedQuestionView.swift; sourceTree = "<group>"; };
+		F17A00000000000000000019 /* FeedResolvedDivider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedResolvedDivider.swift; sourceTree = "<group>"; };
+		F17A00000000000000000020 /* FeedRowActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedRowActions.swift; sourceTree = "<group>"; };
+		F17A00000000000000000021 /* FeedRowSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedRowSurface.swift; sourceTree = "<group>"; };
+		F17A00000000000000000029 /* FeedScopedKeyboardFocusResponder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedScopedKeyboardFocusResponder.swift; sourceTree = "<group>"; };
+		F17A00000000000000000022 /* FeedScrollContentMargins.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedScrollContentMargins.swift; sourceTree = "<group>"; };
+		F17A00000000000000000023 /* FeedScrollRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedScrollRequest.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F008 /* FeedSidebarUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedSidebarUITests.swift; sourceTree = "<group>"; };
+		FEE100000000000000000009 /* FeedSocketEncoding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedSocketEncoding.swift; sourceTree = "<group>"; };
+		F17A00000000000000000024 /* FeedStopDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedStopDraft.swift; sourceTree = "<group>"; };
+		F17A00000000000000000025 /* FeedTelemetryActionArea.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedTelemetryActionArea.swift; sourceTree = "<group>"; };
+		FEE100000000000000000011 /* FeedTelemetryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedTelemetryView.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F00E /* FeedTextEditorDebugWindowController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedTextEditorDebugWindowController.swift; sourceTree = "<group>"; };
+		F17A00000000000000000026 /* FeedTodoListBody.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedTodoListBody.swift; sourceTree = "<group>"; };
+		F17A00000000000000000027 /* FeedWrapHStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedWrapHStack.swift; sourceTree = "<group>"; };
 		D0B1001BA1B2C3D4E5F60001 /* FileDropHintBadgeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDropHintBadgeView.swift; sourceTree = "<group>"; };
 		D0B10021A1B2C3D4E5F60001 /* FileDropOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDropOverlayView.swift; sourceTree = "<group>"; };
 		D0B10023A1B2C3D4E5F60001 /* FileDropOverlayViewHitTesting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDropOverlayViewHitTesting.swift; sourceTree = "<group>"; };
@@ -3190,6 +3305,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		6313B6A1 /* PaneMemoryWarning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneMemoryWarning.swift; sourceTree = "<group>"; };
 		E30760090000000000000001 /* PassthroughWindowOverlayContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PassthroughWindowOverlayContainerView.swift; sourceTree = "<group>"; };
 		A5001424 /* PDFPreviewChromeDebugWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PDFPreviewChromeDebugWindowController.swift; sourceTree = "<group>"; };
+		F17A00000000000000000028 /* PermissionInputPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionInputPreview.swift; sourceTree = "<group>"; };
 		D1F0A00400000000000000D2 /* PhoneForwardingMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneForwardingMode.swift; sourceTree = "<group>"; };
 		D1F0A00100000000000000A2 /* PhonePushClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhonePushClient.swift; sourceTree = "<group>"; };
 		D1F0A00100000000000000A4 /* PhonePushPayload.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhonePushPayload.swift; sourceTree = "<group>"; };
@@ -6063,6 +6179,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C9A57002C9A57002C9A57002 /* WorkspaceGroupTests.swift */,
 				C9A57402C9A57402C9A57402 /* WorkspaceGroupMoveToMenuStateTests.swift */,
 				FEED49850000000000000002 /* FeedEventClassificationTests.swift */,
+				F17C00000000000000000001 /* FeedFocusRoutingTests.swift */,
 				42D69572C8D276745E502B94 /* SessionIndexViewTests.swift */,
 				F1C3F1DBF6BF5D7223C4A30C /* SidebarMarkdownRendererTests.swift */,
 				14A7DC53B9CA33BE2A421711 /* WorkspacePullRequestSidebarTests.swift */,
@@ -6195,7 +6312,64 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			isa = PBXGroup;
 			children = (
 				FEED0000000000000000F001 /* FeedCoordinator.swift */,
+				FEE100000000000000000003 /* FeedCoordinator+Attention.swift */,
+				FEE100000000000000000004 /* FeedCoordinator+Notifications.swift */,
+				FEE100000000000000000005 /* FeedCoordinator+Socket.swift */,
+				FEE100000000000000000006 /* FeedCoordinatorState.swift */,
+				FEE100000000000000000002 /* FeedBlockingWaiterRegistry.swift */,
+				FEE100000000000000000012 /* FeedBlockingCallBridge.swift */,
+				FEE100000000000000000013 /* FeedActivitySnapshotGroups.swift */,
+				FEE100000000000000000014 /* FeedPresentationSnapshot.swift */,
+				FEE100000000000000000016 /* FeedPresentationStore.swift */,
+				F17A00000000000000000001 /* FeedButton.swift */,
+				F17A00000000000000000002 /* FeedContextBlock.swift */,
+				F17A00000000000000000003 /* FeedExitPlanAllowedPromptsView.swift */,
+				F17A00000000000000000004 /* FeedExitPlanPlanFileView.swift */,
+				F17A00000000000000000005 /* FeedFlowLayout.swift */,
+				F17A00000000000000000006 /* FeedFocusHostReference.swift */,
+				F17A00000000000000000007 /* FeedInlineNativeTextView.swift */,
+				F17A00000000000000000008 /* FeedInlinePassthroughLabel.swift */,
+				F17A00000000000000000009 /* FeedInlineTextEditorView.swift */,
+				F17A00000000000000000010 /* FeedInlineTextField.swift */,
+				F17A00000000000000000011 /* FeedJumpTarget.swift */,
+				F17A00000000000000000012 /* FeedKeyboardFocusBridge.swift */,
+				F17A00000000000000000013 /* FeedKeyboardFocusResponder.swift */,
+				F17A00000000000000000014 /* FeedLabeledTextRow.swift */,
+				F17A00000000000000000015 /* FeedMarkdownInlineText.swift */,
+				F17A00000000000000000016 /* FeedPendingWaiter.swift */,
+				F17A00000000000000000017 /* FeedPlacement.swift */,
+				F17A00000000000000000018 /* FeedPlanBodyView.swift */,
+				F17A00000000000000000019 /* FeedResolvedDivider.swift */,
+				F17A00000000000000000020 /* FeedRowActions.swift */,
+				F17A00000000000000000021 /* FeedRowSurface.swift */,
+				F17A00000000000000000022 /* FeedScrollContentMargins.swift */,
+				F17A00000000000000000023 /* FeedScrollRequest.swift */,
+				F17A00000000000000000024 /* FeedStopDraft.swift */,
+				F17A00000000000000000025 /* FeedTelemetryActionArea.swift */,
+				F17A00000000000000000026 /* FeedTodoListBody.swift */,
+				F17A00000000000000000027 /* FeedWrapHStack.swift */,
+				F17A00000000000000000028 /* PermissionInputPreview.swift */,
+				F17A00000000000000000029 /* FeedScopedKeyboardFocusResponder.swift */,
+				F17A00000000000000000030 /* FeedButtonKind.swift */,
+				F17A00000000000000000031 /* FeedButtonSize.swift */,
+				F17A00000000000000000032 /* FeedInlineTextFieldCoordinator.swift */,
+				F17A00000000000000000033 /* FeedKeyboardFocusBridgeCoordinator.swift */,
+				F17A00000000000000000034 /* FeedPlanBlock.swift */,
+				F17A00000000000000000035 /* FeedPlanNumberedItem.swift */,
+				FEE100000000000000000015 /* FeedNotificationPolicySnapshot.swift */,
+				FEE100000000000000000007 /* FeedJumpResolver.swift */,
+				FEE100000000000000000008 /* FeedNotificationPolicyContext.swift */,
+				FEE100000000000000000009 /* FeedSocketEncoding.swift */,
+				FEE100000000000000000001 /* FeedOpeningCoordinator.swift */,
 				FEED0000000000000000F004 /* FeedPanelView.swift */,
+				FEE10000000000000000000A /* FeedListView.swift */,
+				FEE10000000000000000000B /* FeedKeyboardFocus.swift */,
+				FEE10000000000000000000C /* FeedItemSnapshot.swift */,
+				FEE10000000000000000000D /* FeedItemRow.swift */,
+				FEE10000000000000000000E /* FeedPermissionView.swift */,
+				FEE10000000000000000000F /* FeedExitPlanView.swift */,
+				FEE100000000000000000010 /* FeedQuestionView.swift */,
+				FEE100000000000000000011 /* FeedTelemetryView.swift */,
 				FEED0000000000000000F012 /* FeedPermissionActionPolicy.swift */,
 				FEED0000000000000000F010 /* FeedPanelViewModel.swift */,
 				FEED0000000000000000F00A /* FeedPreviewWindowController.swift */,
@@ -7083,13 +7257,69 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				E4C001000000000000000001 /* ExtensionSidebarWorkspaceRowView.swift in Sources */,
 				E4C001000000000000000003 /* ExtensionWorktreePrototype.swift in Sources */,
 				C0DEA7710000000000000007 /* FeatureFlags.swift in Sources */,
+				FEE200000000000000000013 /* FeedActivitySnapshotGroups.swift in Sources */,
+				FEE200000000000000000012 /* FeedBlockingCallBridge.swift in Sources */,
+				FEE200000000000000000002 /* FeedBlockingWaiterRegistry.swift in Sources */,
+				F17B00000000000000000001 /* FeedButton.swift in Sources */,
+				F17B00000000000000000030 /* FeedButtonKind.swift in Sources */,
+				F17B00000000000000000031 /* FeedButtonSize.swift in Sources */,
 				FEED0000000000000000F00D /* FeedButtonStyleDebugWindowController.swift in Sources */,
+				F17B00000000000000000002 /* FeedContextBlock.swift in Sources */,
+				FEE200000000000000000003 /* FeedCoordinator+Attention.swift in Sources */,
+				FEE200000000000000000004 /* FeedCoordinator+Notifications.swift in Sources */,
+				FEE200000000000000000005 /* FeedCoordinator+Socket.swift in Sources */,
 				FEED0000000000000000F002 /* FeedCoordinator.swift in Sources */,
+				FEE200000000000000000006 /* FeedCoordinatorState.swift in Sources */,
+				F17B00000000000000000003 /* FeedExitPlanAllowedPromptsView.swift in Sources */,
+				F17B00000000000000000004 /* FeedExitPlanPlanFileView.swift in Sources */,
+				FEE20000000000000000000F /* FeedExitPlanView.swift in Sources */,
+				F17B00000000000000000005 /* FeedFlowLayout.swift in Sources */,
+				F17B00000000000000000006 /* FeedFocusHostReference.swift in Sources */,
+				F17B00000000000000000007 /* FeedInlineNativeTextView.swift in Sources */,
+				F17B00000000000000000008 /* FeedInlinePassthroughLabel.swift in Sources */,
+				F17B00000000000000000009 /* FeedInlineTextEditorView.swift in Sources */,
+				F17B00000000000000000010 /* FeedInlineTextField.swift in Sources */,
+				F17B00000000000000000032 /* FeedInlineTextFieldCoordinator.swift in Sources */,
+				FEE20000000000000000000D /* FeedItemRow.swift in Sources */,
+				FEE20000000000000000000C /* FeedItemSnapshot.swift in Sources */,
+				FEE200000000000000000007 /* FeedJumpResolver.swift in Sources */,
+				F17B00000000000000000011 /* FeedJumpTarget.swift in Sources */,
+				FEE20000000000000000000B /* FeedKeyboardFocus.swift in Sources */,
+				F17B00000000000000000012 /* FeedKeyboardFocusBridge.swift in Sources */,
+				F17B00000000000000000033 /* FeedKeyboardFocusBridgeCoordinator.swift in Sources */,
+				F17B00000000000000000013 /* FeedKeyboardFocusResponder.swift in Sources */,
+				F17B00000000000000000014 /* FeedLabeledTextRow.swift in Sources */,
+				FEE20000000000000000000A /* FeedListView.swift in Sources */,
+				F17B00000000000000000015 /* FeedMarkdownInlineText.swift in Sources */,
+				FEE200000000000000000008 /* FeedNotificationPolicyContext.swift in Sources */,
+				FEE200000000000000000015 /* FeedNotificationPolicySnapshot.swift in Sources */,
+				FEE200000000000000000001 /* FeedOpeningCoordinator.swift in Sources */,
 				FEED0000000000000000F005 /* FeedPanelView.swift in Sources */,
 				FEED0000000000000000F011 /* FeedPanelViewModel.swift in Sources */,
+				F17B00000000000000000016 /* FeedPendingWaiter.swift in Sources */,
 				FEED0000000000000000F013 /* FeedPermissionActionPolicy.swift in Sources */,
+				FEE20000000000000000000E /* FeedPermissionView.swift in Sources */,
+				F17B00000000000000000017 /* FeedPlacement.swift in Sources */,
+				F17B00000000000000000034 /* FeedPlanBlock.swift in Sources */,
+				F17B00000000000000000018 /* FeedPlanBodyView.swift in Sources */,
+				F17B00000000000000000035 /* FeedPlanNumberedItem.swift in Sources */,
+				FEE200000000000000000014 /* FeedPresentationSnapshot.swift in Sources */,
+				FEE200000000000000000016 /* FeedPresentationStore.swift in Sources */,
 				FEED0000000000000000F00B /* FeedPreviewWindowController.swift in Sources */,
+				FEE200000000000000000010 /* FeedQuestionView.swift in Sources */,
+				F17B00000000000000000019 /* FeedResolvedDivider.swift in Sources */,
+				F17B00000000000000000020 /* FeedRowActions.swift in Sources */,
+				F17B00000000000000000021 /* FeedRowSurface.swift in Sources */,
+				F17B00000000000000000029 /* FeedScopedKeyboardFocusResponder.swift in Sources */,
+				F17B00000000000000000022 /* FeedScrollContentMargins.swift in Sources */,
+				F17B00000000000000000023 /* FeedScrollRequest.swift in Sources */,
+				FEE200000000000000000009 /* FeedSocketEncoding.swift in Sources */,
+				F17B00000000000000000024 /* FeedStopDraft.swift in Sources */,
+				F17B00000000000000000025 /* FeedTelemetryActionArea.swift in Sources */,
+				FEE200000000000000000011 /* FeedTelemetryView.swift in Sources */,
 				FEED0000000000000000F00F /* FeedTextEditorDebugWindowController.swift in Sources */,
+				F17B00000000000000000026 /* FeedTodoListBody.swift in Sources */,
+				F17B00000000000000000027 /* FeedWrapHStack.swift in Sources */,
 				D0B1001AA1B2C3D4E5F60001 /* FileDropHintBadgeView.swift in Sources */,
 				D0B10020A1B2C3D4E5F60001 /* FileDropOverlayView.swift in Sources */,
 				D0B10022A1B2C3D4E5F60001 /* FileDropOverlayViewHitTesting.swift in Sources */,
@@ -7335,6 +7565,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				6313B6A0 /* PaneMemoryWarning.swift in Sources */,
 				E30760090000000000000002 /* PassthroughWindowOverlayContainerView.swift in Sources */,
 				A5001425 /* PDFPreviewChromeDebugWindowController.swift in Sources */,
+				F17B00000000000000000028 /* PermissionInputPreview.swift in Sources */,
 				D1F0A00400000000000000D1 /* PhoneForwardingMode.swift in Sources */,
 				D1F0A00100000000000000A1 /* PhonePushClient.swift in Sources */,
 				D1F0A00100000000000000A3 /* PhonePushPayload.swift in Sources */,
@@ -8300,6 +8531,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				FEEDC0DEC0DEC0DEC0DE0001 /* FeedCoordinatorTests.swift in Sources */,
 				FEED49850000000000000001 /* FeedEventClassificationTests.swift in Sources */,
 				FEEDC1A50000000000000003 /* FeedEventClassifier.swift in Sources */,
+				F17D00000000000000000001 /* FeedFocusRoutingTests.swift in Sources */,
 				D0B10018A1B2C3D4E5F60001 /* FileDropOverlayViewTests.swift in Sources */,
 				FE002110 /* FileExplorerDoubleClickActionTests.swift in Sources */,
 				FE002112 /* FileExplorerGitStatusProviderTests.swift in Sources */,

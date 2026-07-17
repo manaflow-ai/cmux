@@ -4,41 +4,33 @@ import Foundation
 import Observation
 import SwiftUI
 
-/// Bridges the `@Observable` WorkstreamStore to a Combine `@Published`
-/// snapshot so SwiftUI reliably re-renders the Feed panel on every
-/// mutation.
+/// Mirrors the process-wide Feed projection into one panel's observable state.
 @MainActor
-final class FeedPanelViewModel: ObservableObject {
-    @Published private(set) var items: [WorkstreamItem] = []
-    @Published private(set) var hasMorePersistedItems = false
-    @Published private(set) var isLoadingOlderItems = false
-    private var storeInstalledObserver: NSObjectProtocol?
+@Observable
+final class FeedPanelViewModel {
+    private(set) var items: [WorkstreamItem] = []
+    private(set) var presentation = FeedPresentationSnapshot.empty
+    private(set) var hasMorePersistedItems = false
+    private(set) var isLoadingOlderItems = false
 
-    init() {
-        storeInstalledObserver = NotificationCenter.default.addObserver(
-            forName: FeedCoordinator.storeInstalledNotification,
-            object: FeedCoordinator.shared,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.arm()
-            }
-        }
+    @ObservationIgnored private let presentationStore: FeedPresentationStore
+    @ObservationIgnored private var loadOlderTask: Task<Void, Never>?
+
+    init(coordinator: FeedCoordinator = .shared) {
+        self.presentationStore = coordinator.presentationStore
         arm()
     }
 
     deinit {
-        if let storeInstalledObserver {
-            NotificationCenter.default.removeObserver(storeInstalledObserver)
-        }
+        loadOlderTask?.cancel()
     }
 
     private func arm() {
-        guard let store = FeedCoordinator.shared.store else { return }
         withObservationTracking {
-            items = store.items
-            hasMorePersistedItems = store.hasMorePersistedItems
-            isLoadingOlderItems = store.isLoadingOlderItems
+            items = presentationStore.items
+            presentation = presentationStore.presentation
+            hasMorePersistedItems = presentationStore.hasMorePersistedItems
+            isLoadingOlderItems = presentationStore.isLoadingOlderItems
         } onChange: { [weak self] in
             Task { @MainActor in
                 self?.arm()
@@ -46,10 +38,12 @@ final class FeedPanelViewModel: ObservableObject {
         }
     }
 
-    nonisolated func loadOlderItems() {
-        Task { @MainActor [weak self] in
-            guard let self, !self.isLoadingOlderItems, self.hasMorePersistedItems else { return }
-            await FeedCoordinator.shared.store?.loadOlderItems()
+    func loadOlderItems() {
+        guard !isLoadingOlderItems,
+              hasMorePersistedItems else { return }
+        loadOlderTask?.cancel()
+        loadOlderTask = Task { @MainActor in
+            await presentationStore.loadOlderItems()
         }
     }
 }

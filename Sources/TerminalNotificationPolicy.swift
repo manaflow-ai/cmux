@@ -228,7 +228,12 @@ struct TerminalNotificationPolicyFailure: Error, Sendable, Hashable {
 enum TerminalNotificationPolicyEngine {
     private static let maxOutputBytes = 1_048_576
 
-    static func evaluate(
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    nonisolated static func evaluate(
         request: TerminalNotificationPolicyRequest,
         hooks: [CmuxResolvedNotificationHook]
     ) async -> Result<TerminalNotificationPolicyEnvelope, TerminalNotificationPolicyFailure> {
@@ -252,7 +257,12 @@ enum TerminalNotificationPolicyEngine {
         return await evaluate(envelope: initialEnvelope, hooks: hooks)
     }
 
-    static func evaluate(
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    nonisolated static func evaluate(
         envelope initialEnvelope: TerminalNotificationPolicyEnvelope,
         hooks: [CmuxResolvedNotificationHook]
     ) async -> Result<TerminalNotificationPolicyEnvelope, TerminalNotificationPolicyFailure> {

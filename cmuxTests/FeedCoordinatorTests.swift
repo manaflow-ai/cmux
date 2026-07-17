@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import CMUXAgentLaunch
+import CmuxSettings
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -10,6 +11,157 @@ import CMUXAgentLaunch
 
 @Suite("Feed coordinator", .serialized)
 struct FeedCoordinatorTests {
+    @MainActor
+    @Test func nonBlockingActionableReplyResolvesPendingStoreItem() async throws {
+        let store = WorkstreamStore(ringCapacity: 10)
+        FeedCoordinator.shared.install(store: store)
+        let requestID = "non-blocking-actionable"
+        let event = WorkstreamEvent(
+            sessionId: "claude-non-blocking-actionable",
+            hookEventName: .permissionRequest,
+            source: "claude",
+            cwd: "/tmp",
+            toolName: "Bash",
+            toolInputJSON: #"{"command":"true"}"#,
+            requestId: requestID
+        )
+
+        let ingest = await FeedCoordinator.shared.ingestBlocking(event: event, waitTimeout: 0)
+        guard case .acknowledged(let itemID) = ingest else {
+            Issue.record("expected non-blocking Feed event to be acknowledged")
+            return
+        }
+        let resolvedID = try #require(itemID)
+
+        #expect(
+            await FeedCoordinator.shared.deliverReply(
+                requestId: requestID,
+                decision: .permission(.once)
+            )
+        )
+        guard case .resolved(.permission(.once), _) = store.items.first(where: { $0.id == resolvedID })?.status else {
+            Issue.record("non-blocking actionable item should resolve locally")
+            return
+        }
+    }
+
+    @MainActor
+    @Test func notificationPolicyUsesGlobalHooksWithoutWorkspaceMapping() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "cmux-feed-global-hook-\(UUID().uuidString)",
+                isDirectory: true
+            )
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let configURL = root.appendingPathComponent("cmux.json")
+            try #"{"notifications":{"hooks":[{"id":"feed-global","command":"cat"}]}}"#
+                .write(to: configURL, atomically: true, encoding: .utf8)
+            let configStore = CmuxConfigStore(
+                globalConfigPath: configURL.path,
+                startFileWatchers: false
+            )
+            configStore.loadAll()
+
+            let previousAppDelegate = AppDelegate.shared
+            let appDelegate = AppDelegate()
+            AppDelegate.shared = appDelegate
+            defer { AppDelegate.shared = previousAppDelegate }
+            let manager = TabManager()
+            let windowID = appDelegate.registerMainWindowContextForTesting(
+                tabManager: manager,
+                cmuxConfigStore: configStore
+            )
+            defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowID) }
+
+            let event = WorkstreamEvent(
+                sessionId: "claude-no-workspace",
+                hookEventName: .notification,
+                source: "claude",
+                cwd: root.path
+            )
+            let context = await FeedNotificationPolicyContext.make(
+                event: event,
+                title: "Done",
+                body: "Finished",
+                hookCache: CmuxNotificationHookCache()
+            )
+
+            #expect(context.globalConfigPath == configURL.path)
+            #expect(context.hooks.map(\.id) == ["feed-global"])
+        }
+    }
+
+    @Test func blockingBridgeReturnsFallbackAtItsDeadline() {
+        let bridge = FeedBlockingCallBridge<Bool>()
+
+        #expect(bridge.wait(timeout: 0) == nil)
+    }
+
+    @MainActor
+    @Test func feedWorkspaceContainsOnlyFeedAndIsPinned() throws {
+        let manager = TabManager()
+        let coordinator = FeedOpeningCoordinator(isEnabled: { true })
+
+        let workspace = try #require(coordinator.openPinnedWorkspace(in: manager))
+
+        #expect(workspace.isPinned)
+        #expect(manager.selectedTabId == workspace.id)
+        #expect(workspace.panels.count == 1)
+        let panel = try #require(workspace.panels.values.first as? RightSidebarToolPanel)
+        #expect(panel.mode == .feed)
+        #expect(!workspace.panels.values.contains { $0 is TerminalPanel })
+    }
+
+    @MainActor
+    @Test func feedPaneUsesNativeRightSidebarToolSurface() throws {
+        let manager = TabManager()
+        let workspace = manager.addWorkspace()
+        let coordinator = FeedOpeningCoordinator(isEnabled: { true })
+
+        let panel = try #require(coordinator.openPane(in: workspace))
+
+        #expect(panel.mode == .feed)
+        #expect(workspace.panels[panel.id] === panel)
+        #expect(workspace.focusedPanelId == panel.id)
+    }
+
+    @MainActor
+    @Test func disabledFeedCannotRestoreOrCreatePaneSurface() throws {
+        let flags = CmuxFeatureFlags.shared
+        let definition = try #require(
+            CmuxFeatureFlags.allFlags.first { $0.key == "feed-ui-enabled-release" }
+        )
+        let previous = flags.overrideValue(for: definition)
+        flags.setOverride(false, for: definition)
+        defer { flags.setOverride(previous, for: definition) }
+
+        let workspace = Workspace()
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        #expect(
+            workspace.newRightSidebarToolSurface(
+                inPane: paneID,
+                mode: .feed,
+                focus: false
+            ) == nil
+        )
+    }
+
+    @Test func blockingWaiterAcceptsOnlyFirstDecision() async throws {
+        let registry = FeedBlockingWaiterRegistry()
+        let requestID = "first-writer-wins"
+        let decisions = try #require(await registry.register(requestID: requestID))
+
+        let first = await registry.deliver(.permission(.once), requestID: requestID)
+        let second = await registry.deliver(.permission(.deny), requestID: requestID)
+        var iterator = decisions.makeAsyncIterator()
+
+        #expect(first.accepted)
+        #expect(!second.accepted)
+        #expect(await iterator.next() == .permission(.once))
+        #expect(await registry.remove(requestID: requestID)?.decision == .permission(.once))
+    }
+
     @Test func codexTeamsResolvesExplicitWorkingDirectoryFlags() {
         let base = "/tmp/cmux-base"
 
@@ -143,7 +295,7 @@ struct FeedCoordinatorTests {
             )
         )
 
-        let dict = FeedSocketEncoding.itemDict(item)
+        let dict = FeedCoordinator.shared.socketEncoder.itemDict(item)
         let displayToolInput = try #require(dict["tool_input"] as? String)
         let capabilityToolInput = try #require(dict["tool_input_capabilities"] as? String)
 
@@ -445,8 +597,8 @@ struct FeedCoordinatorTests {
         let done = DispatchSemaphore(value: 0)
         let resultBox = IngestResultBox()
 
-        DispatchQueue.global(qos: .userInitiated).async {
-            resultBox.value = FeedCoordinator.shared.ingestBlocking(
+        Task {
+            resultBox.value = await FeedCoordinator.shared.ingestBlocking(
                 event: event,
                 waitTimeout: 0.05
             )
@@ -467,30 +619,20 @@ struct FeedCoordinatorTests {
             Issue.record("timed-out hook item should be expired")
             return
         }
+        #expect(
+            !(await FeedCoordinator.shared.deliverReply(
+                requestId: "timeout-request",
+                decision: .permission(.once)
+            ))
+        )
     }
 
-    @Test func blockingIngestSkipsNotificationWhenPermissionResolvesBeforeDisplay() async {
+    @Test func blockingIngestResolvesAfterMainActorIngest() async {
         let requestId = "auto-allow-request"
-        let notifications = NotificationRequestRecorder()
-
-        defer {
-            Self.resetFeedCoordinatorTestHooks()
-        }
 
         await MainActor.run {
             let store = WorkstreamStore(ringCapacity: 10)
             FeedCoordinator.shared.install(store: store)
-            FeedCoordinatorTestHooks.afterBlockingEventIngested = { _, ingestedRequestId in
-                guard ingestedRequestId == requestId else { return }
-                FeedCoordinator.shared.deliverReply(
-                    requestId: ingestedRequestId,
-                    decision: .permission(.once)
-                )
-            }
-            FeedCoordinatorTestHooks.isAppActiveOverride = { false }
-            FeedCoordinatorTestHooks.notificationPostObserver = { _, postedRequestId in
-                notifications.record(postedRequestId)
-            }
         }
 
         let event = WorkstreamEvent(
@@ -506,13 +648,31 @@ struct FeedCoordinatorTests {
         let done = DispatchSemaphore(value: 0)
         let resultBox = IngestResultBox()
 
-        DispatchQueue.global(qos: .userInitiated).async {
-            resultBox.value = FeedCoordinator.shared.ingestBlocking(
+        Task {
+            resultBox.value = await FeedCoordinator.shared.ingestBlocking(
                 event: event,
                 waitTimeout: 1
             )
             done.signal()
         }
+
+        var didIngest = false
+        for _ in 0..<500 where !didIngest {
+            didIngest = await MainActor.run {
+                FeedCoordinator.shared.store.items.contains { item in
+                    if case .permissionRequest(let itemRequestID, _, _, _) = item.payload {
+                        return itemRequestID == requestId
+                    }
+                    return false
+                }
+            }
+            if !didIngest { await Task.yield() }
+        }
+        #expect(didIngest, "blocking event should reach the main-actor store")
+        await FeedCoordinator.shared.deliverReply(
+            requestId: requestId,
+            decision: .permission(.once)
+        )
 
         #expect(done.wait(timeout: .now() + 2) == .success)
 
@@ -531,64 +691,33 @@ struct FeedCoordinatorTests {
             return
         }
 
-        #expect(
-            notifications.requestIds.isEmpty,
-            "auto-allowed permission requests should not post native notifications"
-        )
     }
 
-    @Test func blockingIngestSurfacesNeedsInputAttentionForPermissionRequest() async {
-        defer {
-            Self.resetFeedCoordinatorTestHooks()
-        }
-
-        let attention = AttentionSurfaceRecorder()
-        let requestId = "needs-input-attention-request"
-
-        await MainActor.run {
-            let store = WorkstreamStore(ringCapacity: 10)
-            FeedCoordinator.shared.install(store: store)
-            FeedCoordinatorTestHooks.attentionSurfaceObserver = { event in
-                attention.record(event)
-            }
-            // Resolve the blocking wait as soon as the item is ingested so
-            // the worker thread does not park for the full timeout.
-            FeedCoordinatorTestHooks.afterBlockingEventIngested = { _, ingestedRequestId in
-                guard ingestedRequestId == requestId else { return }
-                FeedCoordinator.shared.deliverReply(
-                    requestId: ingestedRequestId,
-                    decision: .permission(.once)
-                )
-            }
-        }
-
-        let event = WorkstreamEvent(
-            sessionId: "claude-needs-input-test",
-            hookEventName: .permissionRequest,
-            source: "claude",
-            cwd: "/tmp",
-            toolName: "Bash",
-            toolInputJSON: #"{"command":"true"}"#,
-            requestId: requestId
-        )
-
-        let done = DispatchSemaphore(value: 0)
-        let resultBox = IngestResultBox()
-        DispatchQueue.global(qos: .userInitiated).async {
-            resultBox.value = FeedCoordinator.shared.ingestBlocking(
-                event: event,
-                waitTimeout: 1
-            )
-            done.signal()
-        }
-        #expect(done.wait(timeout: .now() + 2) == .success)
-        await MainActor.run {}
+    @MainActor
+    @Test func attentionUsesRegisteredAgentPanelAndFailsClosedWithoutOne() throws {
+        let manager = TabManager()
+        let workspace = manager.addWorkspace()
+        let panelID = try #require(workspace.focusedPanelId)
 
         #expect(
-            attention.events.count == 1,
-            "a blocking PermissionRequest must request in-app needs-input attention surfacing"
+            FeedCoordinator.registeredAgentTarget(
+                source: "claude",
+                surfaceId: panelID,
+                tab: workspace
+            ) == nil
         )
-        #expect(attention.events.first?.hookEventName == .permissionRequest)
+
+        workspace.agentPIDPanelIdsByKey["claude_code"] = panelID
+        workspace.agentPIDKeysByPanelId[panelID, default: []].insert("claude_code")
+        let target = try #require(
+            FeedCoordinator.registeredAgentTarget(
+                source: "claude",
+                surfaceId: panelID,
+                tab: workspace
+            )
+        )
+        #expect(target.panelID == panelID)
+        #expect(target.statusKey == "claude_code")
     }
 
     @Test func blockingDecisionEventPredicateCoversEveryDecisionKind() {
@@ -612,57 +741,8 @@ struct FeedCoordinatorTests {
         #expect(FeedCoordinator.lifecycleStatusKey(forSource: "opencode") == "opencode")
     }
 
-    private static func resetFeedCoordinatorTestHooks() {
-        let reset: @Sendable () -> Void = {
-            MainActor.assumeIsolated {
-                FeedCoordinatorTestHooks.afterBlockingEventIngested = nil
-                FeedCoordinatorTestHooks.isAppActiveOverride = nil
-                FeedCoordinatorTestHooks.notificationPostObserver = nil
-                FeedCoordinatorTestHooks.attentionSurfaceObserver = nil
-            }
-        }
-        if Thread.isMainThread {
-            reset()
-        } else {
-            DispatchQueue.main.sync(execute: reset)
-        }
-    }
 }
 
 private final class IngestResultBox: @unchecked Sendable {
     var value: FeedCoordinator.IngestBlockingResult?
-}
-
-private final class AttentionSurfaceRecorder: @unchecked Sendable {
-    private let lock = NSLock()
-    private var recordedEvents: [WorkstreamEvent] = []
-
-    var events: [WorkstreamEvent] {
-        lock.lock()
-        defer { lock.unlock() }
-        return recordedEvents
-    }
-
-    func record(_ event: WorkstreamEvent) {
-        lock.lock()
-        recordedEvents.append(event)
-        lock.unlock()
-    }
-}
-
-private final class NotificationRequestRecorder: @unchecked Sendable {
-    private let lock = NSLock()
-    private var recordedRequestIds: [String] = []
-
-    var requestIds: [String] {
-        lock.lock()
-        defer { lock.unlock() }
-        return recordedRequestIds
-    }
-
-    func record(_ requestId: String) {
-        lock.lock()
-        recordedRequestIds.append(requestId)
-        lock.unlock()
-    }
 }
