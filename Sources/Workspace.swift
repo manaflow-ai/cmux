@@ -1472,7 +1472,8 @@ extension Workspace {
                 runtimeSpawnPolicy: .pacedSessionRestore,
                 remotePTYSessionID: restoredRemotePTYSessionID,
                 suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
-                restoredSurfaceId: reusableSurfaceId
+                restoredSurfaceId: reusableSurfaceId,
+                creationOrigin: .sessionRestore
             ) else {
                 if let replayFileURL { try? FileManager.default.removeItem(at: replayFileURL) }
                 return nil
@@ -1953,6 +1954,7 @@ final class Workspace: Identifiable, ObservableObject {
     )
 
     let id: UUID
+    let terminalClientComposition: TerminalClientComposition
     /// Restart-stable workspace identifier persisted for durable deep links.
     private(set) var stableId = UUID()
     private var forkAgentConversationInFlightPanelIds: Set<UUID> = []
@@ -2043,6 +2045,7 @@ final class Workspace: Identifiable, ObservableObject {
         if let existing = _dockSplit { return existing }
         let store = DockSplitStore(
             workspaceId: id,
+            terminalClientComposition: terminalClientComposition,
             baseDirectoryProvider: { [weak self] in self?.currentDirectory },
             remoteBrowserSettingsProvider: { [weak self] in
                 guard let self else { return .local }
@@ -2914,9 +2917,12 @@ final class Workspace: Identifiable, ObservableObject {
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
         initialDetachedSurface: DetachedSurfaceTransfer? = nil,
         sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>? = nil,
-        sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel? = nil
+        sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel? = nil,
+        terminalClientComposition: TerminalClientComposition? = nil
     ) {
+        let terminalClientComposition = terminalClientComposition ?? .embedded()
         self.id = UUID()
+        self.terminalClientComposition = terminalClientComposition
         self.sessionRestorePolicy = sessionRestorePolicy ?? Self.makeSessionRestorePolicyService()
         self.sidebarProcessTitleObservation = sidebarProcessTitleObservation ?? WorkspaceSidebarProcessTitleObservationModel()
         self.closeTabWarningDefaults = closeTabWarningDefaults
@@ -3036,17 +3042,20 @@ final class Workspace: Identifiable, ObservableObject {
             }
         } else {
             // Create initial terminal panel
-            let terminalPanel = TerminalPanel(
-                workspaceId: id,
-                context: GHOSTTY_SURFACE_CONTEXT_TAB,
-                configTemplate: resolvedConfigTemplate,
-                workingDirectory: hasWorkingDirectory ? trimmedWorkingDirectory : nil,
-                portOrdinal: portOrdinal,
-                initialCommand: initialTerminalCommand,
-                initialInput: initialTerminalInput,
-                initialEnvironmentOverrides: Self.startupEnvironment(
-                    workspaceEnvironment: sanitizedWorkspaceEnvironment,
-                    overlaying: initialTerminalEnvironment
+            let terminalPanel = terminalClientComposition.terminalPanelFactory.makeTerminalPanel(
+                TerminalPanelCreationRequest(
+                    origin: .workspaceInitial,
+                    workspaceId: id,
+                    context: GHOSTTY_SURFACE_CONTEXT_TAB,
+                    configTemplate: resolvedConfigTemplate,
+                    workingDirectory: hasWorkingDirectory ? trimmedWorkingDirectory : nil,
+                    portOrdinal: portOrdinal,
+                    initialCommand: initialTerminalCommand,
+                    initialInput: initialTerminalInput,
+                    initialEnvironmentOverrides: Self.startupEnvironment(
+                        workspaceEnvironment: sanitizedWorkspaceEnvironment,
+                        overlaying: initialTerminalEnvironment
+                    )
                 )
             )
             configureNewTerminalPanel(
@@ -7085,16 +7094,19 @@ final class Workspace: Identifiable, ObservableObject {
 #endif
 
         // Create the new terminal panel.
-        let newPanel = TerminalPanel(
-            id: newPanelID,
-            workspaceId: id,
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: inheritedConfig,
-            workingDirectory: splitWorkingDirectory,
-            portOrdinal: portOrdinal,
-            initialCommand: startupCommand,
-            tmuxStartCommand: tmuxStartCommand,
-            additionalEnvironment: effectiveStartupEnvironment
+        let newPanel = terminalClientComposition.terminalPanelFactory.makeTerminalPanel(
+            TerminalPanelCreationRequest(
+                origin: .workspaceSplit,
+                id: newPanelID,
+                workspaceId: id,
+                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                configTemplate: inheritedConfig,
+                workingDirectory: splitWorkingDirectory,
+                portOrdinal: portOrdinal,
+                initialCommand: startupCommand,
+                tmuxStartCommand: tmuxStartCommand,
+                additionalEnvironment: effectiveStartupEnvironment
+            )
         )
         configureNewTerminalPanel(
             newPanel,
@@ -7216,7 +7228,8 @@ final class Workspace: Identifiable, ObservableObject {
         restoredSurfaceId: UUID? = nil,
         inheritWorkingDirectoryFallback: Bool = false,
         workingDirectoryFallbackSourcePanelId: UUID? = nil,
-        allowTextBoxFocusDefault: Bool = true
+        allowTextBoxFocusDefault: Bool = true,
+        creationOrigin: TerminalPanelCreationRequest.Origin = .workspaceTab
     ) -> TerminalPanel? {
         return newTerminalSurfaceOutcome(
             inPane: paneId,
@@ -7234,7 +7247,8 @@ final class Workspace: Identifiable, ObservableObject {
             restoredSurfaceId: restoredSurfaceId,
             inheritWorkingDirectoryFallback: inheritWorkingDirectoryFallback,
             workingDirectoryFallbackSourcePanelId: workingDirectoryFallbackSourcePanelId,
-            allowTextBoxFocusDefault: allowTextBoxFocusDefault
+            allowTextBoxFocusDefault: allowTextBoxFocusDefault,
+            creationOrigin: creationOrigin
         ).panel
     }
 
@@ -7257,7 +7271,8 @@ final class Workspace: Identifiable, ObservableObject {
         restoredSurfaceId: UUID? = nil,
         inheritWorkingDirectoryFallback: Bool = false,
         workingDirectoryFallbackSourcePanelId: UUID? = nil,
-        allowTextBoxFocusDefault: Bool = true
+        allowTextBoxFocusDefault: Bool = true,
+        creationOrigin: TerminalPanelCreationRequest.Origin = .workspaceTab
     ) -> TerminalPanelCreationOutcome {
         // In a remote tmux mirror, a new tab means "create a tmux window"; never
         // create a local orphan the mirror can't reconcile. Dead mirrors are
@@ -7305,7 +7320,8 @@ final class Workspace: Identifiable, ObservableObject {
             restoredSurfaceId: restoredSurfaceId,
             inheritWorkingDirectoryFallback: inheritWorkingDirectoryFallback,
             workingDirectoryFallbackSourcePanelId: workingDirectoryFallbackSourcePanelId,
-            allowTextBoxFocusDefault: allowTextBoxFocusDefault
+            allowTextBoxFocusDefault: allowTextBoxFocusDefault,
+            creationOrigin: creationOrigin
         ) else { return .failed }
         return .created(panel)
     }
@@ -7326,7 +7342,8 @@ final class Workspace: Identifiable, ObservableObject {
         restoredSurfaceId: UUID?,
         inheritWorkingDirectoryFallback: Bool,
         workingDirectoryFallbackSourcePanelId: UUID?,
-        allowTextBoxFocusDefault: Bool
+        allowTextBoxFocusDefault: Bool,
+        creationOrigin: TerminalPanelCreationRequest.Origin
     ) -> TerminalPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
@@ -7373,18 +7390,21 @@ final class Workspace: Identifiable, ObservableObject {
         // surface id (the panel/surface id IS the ghostty surface id, a
         // Swift-side UUID), so a session's terminal binding survives relaunch
         // and restore. The caller only passes an id it has verified is free.
-        let newPanel = TerminalPanel(
-            id: newPanelID,
-            workspaceId: id,
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: inheritedConfig,
-            workingDirectory: requestedWorkingDirectory,
-            portOrdinal: portOrdinal,
-            initialCommand: startupCommand,
-            tmuxStartCommand: tmuxStartCommand,
-            initialInput: initialInput,
-            additionalEnvironment: effectiveStartupEnvironment,
-            runtimeSpawnPolicy: runtimeSpawnPolicy
+        let newPanel = terminalClientComposition.terminalPanelFactory.makeTerminalPanel(
+            TerminalPanelCreationRequest(
+                origin: creationOrigin,
+                id: newPanelID,
+                workspaceId: id,
+                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                configTemplate: inheritedConfig,
+                workingDirectory: requestedWorkingDirectory,
+                portOrdinal: portOrdinal,
+                initialCommand: startupCommand,
+                tmuxStartCommand: tmuxStartCommand,
+                initialInput: initialInput,
+                additionalEnvironment: effectiveStartupEnvironment,
+                runtimeSpawnPolicy: runtimeSpawnPolicy
+            )
         )
         configureNewTerminalPanel(
             newPanel,
@@ -7458,14 +7478,15 @@ final class Workspace: Identifiable, ObservableObject {
     /// inside a single tab, so the pane gets the full native cmux pane chrome —
     /// background, focus overlay, dividers).
     func makeRemoteTmuxPanePanel(onInput: @escaping @Sendable (Data) -> Void) -> TerminalPanel {
-        let surface = TerminalSurface(
-            tabId: id,
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            manualIO: true,
-            manualInputHandler: onInput
+        let panel = terminalClientComposition.terminalPanelFactory.makeTerminalPanel(
+            TerminalPanelCreationRequest(
+                origin: .remoteTmuxMirror,
+                workspaceId: id,
+                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                manualIO: true,
+                manualInputHandler: onInput
+            )
         )
-        let panel = TerminalPanel(workspaceId: id, surface: surface)
         configureNewTerminalPanel(panel)
         return panel
     }
@@ -7495,15 +7516,18 @@ final class Workspace: Identifiable, ObservableObject {
             else { return nil }
 
             let title = customTitle ?? String(localized: "remoteTmux.tab.pane", defaultValue: "tmux pane")
-            let surface = TerminalSurface(
-                tabId: id,
-                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-                configTemplate: nil,
-                manualIO: true,
-                manualInputHandler: onInput
+            let newPanel = terminalClientComposition.terminalPanelFactory.makeTerminalPanel(
+                TerminalPanelCreationRequest(
+                    origin: .remoteTmuxMirror,
+                    workspaceId: id,
+                    context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                    manualIO: true,
+                    manualInputHandler: onInput
+                )
             )
-            if let onResize { surface.onManualSizeApplied = { onResize($0.columns, $0.rows) } }
-            let newPanel = TerminalPanel(workspaceId: id, surface: surface)
+            if let onResize {
+                newPanel.surface.onManualSizeApplied = { onResize($0.columns, $0.rows) }
+            }
             configureNewTerminalPanel(
                 newPanel,
                 allowTextBoxFocusDefault: focus && allowTextBoxFocusDefault
@@ -7618,16 +7642,19 @@ final class Workspace: Identifiable, ObservableObject {
 
         var inheritedConfig = inheritedTerminalConfig(inPane: paneId) ?? CmuxSurfaceConfigTemplate()
         inheritedConfig.waitAfterCommand = true
-        let replacementPanel = TerminalPanel(
-            id: pair.key,
-            workspaceId: id,
-            context: GHOSTTY_SURFACE_CONTEXT_TAB,
-            configTemplate: inheritedConfig,
-            workingDirectory: currentDirectory,
-            portOrdinal: portOrdinal,
-            initialCommand: trimmedCommand,
-            tmuxStartCommand: trimmedCommand,
-            additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:])
+        let replacementPanel = terminalClientComposition.terminalPanelFactory.makeTerminalPanel(
+            TerminalPanelCreationRequest(
+                origin: .cloudVMReplacement,
+                id: pair.key,
+                workspaceId: id,
+                context: GHOSTTY_SURFACE_CONTEXT_TAB,
+                configTemplate: inheritedConfig,
+                workingDirectory: currentDirectory,
+                portOrdinal: portOrdinal,
+                initialCommand: trimmedCommand,
+                tmuxStartCommand: trimmedCommand,
+                additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:])
+            )
         )
         // Cloud VM loading swaps replace the panel object but keep the logical tab identity.
         replacementPanel.adoptStableSurfaceId(loadingPanel.stableSurfaceId)
@@ -7747,18 +7774,21 @@ final class Workspace: Identifiable, ObservableObject {
         oldPanel.removeOwnedSessionScrollbackReplayArtifact()
         oldPanel.surface.teardownSurface()
 
-        let replacementPanel = TerminalPanel(
-            id: panelId,
-            workspaceId: id,
-            context: launchContext,
-            configTemplate: inheritedConfig,
-            workingDirectory: requestedWorkingDirectory,
-            portOrdinal: portOrdinal,
-            initialCommand: trimmedCommand,
-            tmuxStartCommand: replacementTmuxStartCommand,
-            initialEnvironmentOverrides: initialEnvironmentOverrides,
-            additionalEnvironment: additionalEnvironment,
-            focusPlacement: focusPlacement
+        let replacementPanel = terminalClientComposition.terminalPanelFactory.makeTerminalPanel(
+            TerminalPanelCreationRequest(
+                origin: .workspaceRespawn,
+                id: panelId,
+                workspaceId: id,
+                context: launchContext,
+                configTemplate: inheritedConfig,
+                workingDirectory: requestedWorkingDirectory,
+                portOrdinal: portOrdinal,
+                initialCommand: trimmedCommand,
+                tmuxStartCommand: replacementTmuxStartCommand,
+                initialEnvironmentOverrides: initialEnvironmentOverrides,
+                additionalEnvironment: additionalEnvironment,
+                focusPlacement: focusPlacement
+            )
         )
         replacementPanel.adoptOwnedSessionScrollbackReplayArtifact(effectiveReplayFileURL)
         // Respawn replaces the panel object but keeps the logical tab identity.
@@ -9837,13 +9867,16 @@ final class Workspace: Identifiable, ObservableObject {
             config.waitAfterCommand = true
             replacementConfig = config
         }
-        let newPanel = TerminalPanel(
-            workspaceId: id,
-            context: GHOSTTY_SURFACE_CONTEXT_TAB,
-            configTemplate: replacementConfig,
-            portOrdinal: portOrdinal,
-            initialCommand: replacementInitialCommand,
-            additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:])
+        let newPanel = terminalClientComposition.terminalPanelFactory.makeTerminalPanel(
+            TerminalPanelCreationRequest(
+                origin: .workspaceReplacement,
+                workspaceId: id,
+                context: GHOSTTY_SURFACE_CONTEXT_TAB,
+                configTemplate: replacementConfig,
+                portOrdinal: portOrdinal,
+                initialCommand: replacementInitialCommand,
+                additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:])
+            )
         )
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
@@ -10952,15 +10985,18 @@ final class Workspace: Identifiable, ObservableObject {
             inheritedConfig = template
         }
 
-        let newPanel = TerminalPanel(
-            workspaceId: id,
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: inheritedConfig,
-            workingDirectory: workingDirectory,
-            portOrdinal: portOrdinal,
-            initialCommand: startupCommand,
-            initialInput: initialInput,
-            additionalEnvironment: effectiveStartupEnvironment
+        let newPanel = terminalClientComposition.terminalPanelFactory.makeTerminalPanel(
+            TerminalPanelCreationRequest(
+                origin: .workspaceSplit,
+                workspaceId: id,
+                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                configTemplate: inheritedConfig,
+                workingDirectory: workingDirectory,
+                portOrdinal: portOrdinal,
+                initialCommand: startupCommand,
+                initialInput: initialInput,
+                additionalEnvironment: effectiveStartupEnvironment
+            )
         )
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
@@ -12407,12 +12443,15 @@ extension Workspace: BonsplitDelegate {
                     // empty pane during drag-to-split of a single-tab pane.
                     let inheritedConfig = inheritedTerminalConfig(inPane: originalPane)
 
-                    let replacementPanel = TerminalPanel(
-                        workspaceId: id,
-                        context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-                        configTemplate: inheritedConfig,
-                        portOrdinal: portOrdinal,
-                        additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:])
+                    let replacementPanel = terminalClientComposition.terminalPanelFactory.makeTerminalPanel(
+                        TerminalPanelCreationRequest(
+                            origin: .workspaceSplitRepair,
+                            workspaceId: id,
+                            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                            configTemplate: inheritedConfig,
+                            portOrdinal: portOrdinal,
+                            additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:])
+                        )
                     )
                     configureNewTerminalPanel(replacementPanel)
                     panels[replacementPanel.id] = replacementPanel
@@ -12476,12 +12515,15 @@ extension Workspace: BonsplitDelegate {
             inPane: originalPane
         )
 
-        let newPanel = TerminalPanel(
-            workspaceId: id,
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: inheritedConfig,
-            portOrdinal: portOrdinal,
-            additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:])
+        let newPanel = terminalClientComposition.terminalPanelFactory.makeTerminalPanel(
+            TerminalPanelCreationRequest(
+                origin: .workspaceSplitRepair,
+                workspaceId: id,
+                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                configTemplate: inheritedConfig,
+                portOrdinal: portOrdinal,
+                additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:])
+            )
         )
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel

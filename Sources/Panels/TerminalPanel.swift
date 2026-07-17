@@ -201,27 +201,69 @@ final class TerminalPanel: Panel, ObservableObject {
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate
     ) {
-        let surface = TerminalSurface(
-            id: id,
-            tabId: workspaceId,
-            context: context,
-            configTemplate: configTemplate,
-            workingDirectory: workingDirectory,
-            portOrdinal: portOrdinal,
-            initialCommand: initialCommand,
-            tmuxStartCommand: tmuxStartCommand,
-            initialInput: initialInput,
-            initialEnvironmentOverrides: initialEnvironmentOverrides,
-            additionalEnvironment: additionalEnvironment,
-            focusPlacement: focusPlacement, runtimeSpawnPolicy: runtimeSpawnPolicy,
-            preparePaneHost: { Self.prepareNotificationScrollReplay(for: $0, environment: additionalEnvironment) }
+        self.init(
+            request: TerminalPanelCreationRequest(
+                origin: .legacyDirect,
+                id: id,
+                workspaceId: workspaceId,
+                context: context,
+                configTemplate: configTemplate,
+                workingDirectory: workingDirectory,
+                portOrdinal: portOrdinal,
+                initialCommand: initialCommand,
+                tmuxStartCommand: tmuxStartCommand,
+                initialInput: initialInput,
+                initialEnvironmentOverrides: initialEnvironmentOverrides,
+                additionalEnvironment: additionalEnvironment,
+                focusPlacement: focusPlacement,
+                runtimeSpawnPolicy: runtimeSpawnPolicy
+            ),
+            dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies
         )
-        self.init(workspaceId: workspaceId, surface: surface)
-        if Self.startsAtOwnedPrompt(
-            configTemplate: configTemplate,
-            initialCommand: initialCommand,
-            tmuxStartCommand: tmuxStartCommand,
-            initialInput: initialInput
+    }
+
+    convenience init(
+        request: TerminalPanelCreationRequest,
+        dependencies: TerminalSurfaceRuntimeDependencies
+    ) {
+        let preparePaneHost: @Sendable @MainActor (any TerminalSurfacePaneHosting) -> Void
+        if request.manualIO {
+            // Preserve the old remote-tmux path, which constructed TerminalSurface
+            // directly and therefore used its no-op pane preparation default.
+            preparePaneHost = { _ in }
+        } else {
+            preparePaneHost = {
+                Self.prepareNotificationScrollReplay(
+                    for: $0,
+                    environment: request.additionalEnvironment
+                )
+            }
+        }
+        let surface = TerminalSurface(
+            id: request.id,
+            tabId: request.workspaceId,
+            context: request.context,
+            configTemplate: request.configTemplate,
+            workingDirectory: request.workingDirectory,
+            portOrdinal: request.portOrdinal,
+            initialCommand: request.initialCommand,
+            tmuxStartCommand: request.tmuxStartCommand,
+            initialInput: request.initialInput,
+            initialEnvironmentOverrides: request.initialEnvironmentOverrides,
+            additionalEnvironment: request.additionalEnvironment,
+            focusPlacement: request.focusPlacement,
+            manualIO: request.manualIO,
+            manualInputHandler: request.manualInputHandler,
+            runtimeSpawnPolicy: request.runtimeSpawnPolicy,
+            preparePaneHost: preparePaneHost,
+            dependencies: dependencies
+        )
+        self.init(workspaceId: request.workspaceId, surface: surface)
+        if !request.manualIO && Self.startsAtOwnedPrompt(
+            configTemplate: request.configTemplate,
+            initialCommand: request.initialCommand,
+            tmuxStartCommand: request.tmuxStartCommand,
+            initialInput: request.initialInput
         ) {
             updateShellActivityState(.promptIdle)
         }
