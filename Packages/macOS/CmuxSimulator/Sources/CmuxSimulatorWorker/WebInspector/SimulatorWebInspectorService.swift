@@ -28,6 +28,7 @@ final class SimulatorWebInspectorService {
     var refreshContinuation: RefreshContinuation?
     var refreshTimeoutTask: Task<Void, Never>?
     var lastRefreshWasAuthoritative = false
+    var refreshCensusPending = false
     var session: Session?
     var sessionLease: SimulatorMutationLease?
     var nextInternalRequestIdentifier: Int64 = -9_000_000_000_000_000
@@ -64,6 +65,7 @@ final class SimulatorWebInspectorService {
         subscribedApplicationIdentifiers.removeAll()
         pendingListingIdentifiers.removeAll()
         lastRefreshWasAuthoritative = false
+        refreshCensusPending = true
 
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -317,6 +319,7 @@ final class SimulatorWebInspectorService {
     func finishRefresh(authoritative: Bool) {
         guard let continuation = refreshContinuation else { return }
         lastRefreshWasAuthoritative = authoritative
+        refreshCensusPending = false
         refreshContinuation = nil
         refreshTimeoutTask?.cancel()
         refreshTimeoutTask = nil
@@ -329,6 +332,7 @@ final class SimulatorWebInspectorService {
         refreshTimeoutTask?.cancel()
         refreshTimeoutTask = nil
         lastRefreshWasAuthoritative = false
+        refreshCensusPending = false
         continuation?.resume(throwing: error)
     }
 

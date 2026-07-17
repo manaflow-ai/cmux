@@ -49,12 +49,19 @@ extension SimulatorPaneCoordinator {
 
     /// Releases the current target and propagates the correlated worker failure.
     public func releaseWebInspectorResult() async throws -> Bool {
+        var highlightFailure: Error?
         if webInspectorIsHighlighted {
-            _ = try await perform(.setWebInspectorHighlight(enabled: false))
+            do {
+                _ = try await perform(.setWebInspectorHighlight(enabled: false))
+            } catch {
+                highlightFailure = error
+            }
+            webInspectorIsHighlighted = false
         }
         guard case .webInspectorSession(.detached) = try await perform(.releaseWebInspector) else {
             return false
         }
+        if let highlightFailure { throw highlightFailure }
         return true
     }
 
