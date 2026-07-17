@@ -58,13 +58,17 @@ import Testing
     }
 
     @Test(arguments: [
-        (FileChangeKind.added, "plus.circle.fill"),
-        (.untracked, "plus.circle"),
-        (.modified, "pencil.circle.fill"),
-        (.deleted, "minus.circle.fill"),
-        (.renamed, "arrow.right.circle.fill"),
+        (FileChangeKind.added, FileChangeBadge.Role.new),
+        (.untracked, .new),
+        (.deleted, .deleted),
     ])
-    func statusMapsToExpectedGlyph(kind: FileChangeKind, symbol: String) {
-        #expect(kind.symbolName == symbol)
+    func exceptionalKindsCarryBadges(kind: FileChangeKind, role: FileChangeBadge.Role) {
+        #expect(kind.badge?.role == role)
+        #expect(kind.badge?.text.isEmpty == false)
+    }
+
+    @Test(arguments: [FileChangeKind.modified, .renamed, .unknown])
+    func ordinaryKindsStayUnbadged(kind: FileChangeKind) {
+        #expect(kind.badge == nil)
     }
 }

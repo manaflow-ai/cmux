@@ -20,12 +20,8 @@ public struct ChangesTheme {
     public let gutterSeparator: Color
     /// Status color for added and untracked files.
     public let addedStatus: Color
-    /// Status color for modified files.
-    public let modifiedStatus: Color
     /// Status color for deleted files.
     public let deletedStatus: Color
-    /// Status color for renamed files.
-    public let renamedStatus: Color
     /// Vertical padding for one diff row.
     public let rowVerticalPadding: CGFloat
     /// Spacing between rendered diff hunks.
@@ -58,23 +54,9 @@ public struct ChangesTheme {
         gutterText = Color.secondary.opacity(0.72)
         gutterSeparator = Color.secondary.opacity(0.22)
         addedStatus = Color(red: 46 / 255, green: 160 / 255, blue: 67 / 255)
-        modifiedStatus = Color.orange
         deletedStatus = Color(red: 248 / 255, green: 81 / 255, blue: 73 / 255)
-        renamedStatus = Color(red: 47 / 255, green: 129 / 255, blue: 247 / 255)
         rowVerticalPadding = 2
         hunkSpacing = 8
         groupedCornerRadius = 10
-    }
-
-    /// Returns the semantic tint for a file status.
-    /// - Parameter kind: File status to resolve.
-    /// - Returns: Status tint used by list glyphs.
-    public func statusColor(for kind: FileChangeKind) -> Color {
-        switch kind {
-        case .added, .untracked: addedStatus
-        case .modified, .unknown: modifiedStatus
-        case .deleted: deletedStatus
-        case .renamed: renamedStatus
-        }
     }
 }

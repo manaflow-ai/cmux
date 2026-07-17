@@ -1,6 +1,8 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "changes.badge.deleted": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Deleted" } }, "ja": { "stringUnit": { "state": "translated", "value": "削除" } } } },
+    "changes.badge.new": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "New" } }, "ja": { "stringUnit": { "state": "translated", "value": "新規" } } } },
     "changes.binary.badge": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "BIN" } }, "ja": { "stringUnit": { "state": "translated", "value": "バイナリ" } } } },
     "changes.binary.title": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Binary file not shown" } }, "ja": { "stringUnit": { "state": "translated", "value": "バイナリファイルは表示できません" } } } },
     "changes.copy.hunk": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Copy Hunk" } }, "ja": { "stringUnit": { "state": "translated", "value": "ハンクをコピー" } } } },
