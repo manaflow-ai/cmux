@@ -123,6 +123,45 @@ struct DockConfigSourceResolutionTests {
         #expect(resolution.controls.map(\.id) == ["nested"])
     }
 
+    @Test("local project config discovery follows a regular-file symlink")
+    func localProjectConfigSymlinkResolves() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-dock-config-symlink-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let project = root.appendingPathComponent("project", isDirectory: true)
+        let configDirectory = project.appendingPathComponent(".cmux", isDirectory: true)
+        let target = root.appendingPathComponent("shared-dock.json", isDirectory: false)
+        let config = configDirectory.appendingPathComponent("dock.json", isDirectory: false)
+        try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+        try Data(#"{"controls":[{"id":"logs","command":"tail -f app.log"}]}"#.utf8).write(to: target)
+        try FileManager.default.createSymbolicLink(at: config, withDestinationURL: target)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let source = DockProjectConfigSource(
+            origin: .local,
+            fileSystem: LocalDockConfigFileSystem(),
+            rootDirectory: DockConfigPath(project.path)!,
+            boundaryDirectory: DockConfigPath(root.path)!,
+            executionContext: .local
+        )
+        let resolution = try await DockConfigResolver().resolve(context: DockConfigurationContext(
+            identity: DockConfigurationContext.Identity(
+                projectOrigin: .local,
+                rootDirectory: project.path,
+                availabilityRevision: "local",
+                executionWorkspaceID: nil,
+                includesGlobalFallback: false
+            ),
+            projectSource: source,
+            includesGlobalFallback: false,
+            emptyBaseDirectory: project.path
+        ))
+
+        #expect(resolution.sourcePath == config.path)
+        #expect(resolution.controls.map(\.id) == ["logs"])
+    }
+
     @Test("config resolution applies one bounded operation deadline")
     func configResolutionHonorsOperationDeadline() async {
         let root = "/srv/repo/apps/web/src"
