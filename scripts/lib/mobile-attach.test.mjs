@@ -41,6 +41,46 @@ function resolveDevAPIBaseURL(fallback, override = "") {
   ]);
 }
 
+function extractShellFunction(source, name) {
+  const start = source.indexOf(`${name}() {`);
+  assert.notEqual(start, -1, `missing shell function ${name}`);
+  const end = source.indexOf("\n}", start);
+  assert.notEqual(end, -1, `unterminated shell function ${name}`);
+  return source.slice(start, end + 2);
+}
+
+function resolveIOSAPIBaseURL(target, extraEnv = {}) {
+  const source = fs.readFileSync(path.join(repoRoot, "ios/scripts/reload.sh"), "utf8");
+  const resolver = extractShellFunction(source, "cmux_ios_resolve_api_base_url");
+  return run(
+    "bash",
+    ["-c", `${resolver}; cmux_ios_resolve_api_base_url "$1"`, "ios-origin-test", target],
+    {
+      CMUX_IOS_API_BASE_URL: "",
+      CMUX_DEV_API_BASE_URL: "",
+      CMUX_VM_API_BASE_URL: "",
+      CMUX_PORT: "",
+      PROD_AUTH: "0",
+      ...extraEnv,
+    },
+  );
+}
+
+function resolveIOSIrohBrokerBaseURL(extraEnv = {}) {
+  const source = fs.readFileSync(path.join(repoRoot, "ios/scripts/reload.sh"), "utf8");
+  const resolver = extractShellFunction(source, "cmux_ios_resolve_iroh_broker_base_url");
+  return run(
+    "bash",
+    ["-c", `${resolver}; cmux_ios_resolve_iroh_broker_base_url`, "ios-origin-test"],
+    {
+      CMUX_IOS_IROH_BROKER_BASE_URL: "",
+      CMUX_IROH_BROKER_BASE_URL: "",
+      PROD_AUTH: "0",
+      ...extraEnv,
+    },
+  );
+}
+
 async function mintAttachURL(target, payload, maxAttempts = 1) {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-mobile-attach-test-"));
   const scriptsDir = path.join(tempRoot, "scripts");
@@ -226,18 +266,82 @@ test("macOS and iOS reloads share the dev API backend override", () => {
 
   assert.match(macReload, /CMUX_DEV_API_BASE_URL_VALUE=.*cmux_attach_resolve_dev_api_base_url/);
   assert.match(macReload, /CMUX_API_BASE_URL="\$CMUX_DEV_API_BASE_URL_VALUE"/);
-  assert.match(iosReload, /CMUX_IOS_API_BASE_URL_VALUE=.*CMUX_DEV_API_BASE_URL/);
+  assert.match(iosReload, /explicit_base_url=.*CMUX_DEV_API_BASE_URL/);
 });
 
-test("tagged reloads share a dedicated Iroh broker without moving local APIs", () => {
+test("iOS Simulator defaults to its tagged localhost API", () => {
+  const result = resolveIOSAPIBaseURL("simulator", { CMUX_PORT: "4123" });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, "http://localhost:4123");
+});
+
+test("iOS physical-device Debug builds default both services to staging", () => {
+  const api = resolveIOSAPIBaseURL("physical_device", { CMUX_PORT: "4123" });
+  const broker = resolveIOSIrohBrokerBaseURL();
+
+  assert.equal(api.status, 0, api.stderr);
+  assert.equal(api.stdout, "https://cmux-staging.vercel.app");
+  assert.equal(broker.status, 0, broker.stderr);
+  assert.equal(broker.stdout, "https://cmux-staging.vercel.app");
+});
+
+test("iOS service origin overrides win for every Debug target", () => {
+  for (const target of ["simulator", "physical_device"]) {
+    const api = resolveIOSAPIBaseURL(target, {
+      CMUX_IOS_API_BASE_URL: "https://api.dev.example",
+      CMUX_DEV_API_BASE_URL: "https://ignored.example",
+      CMUX_PORT: "4123",
+    });
+    assert.equal(api.status, 0, api.stderr);
+    assert.equal(api.stdout, "https://api.dev.example");
+  }
+
+  const broker = resolveIOSIrohBrokerBaseURL({
+    CMUX_IOS_IROH_BROKER_BASE_URL: "https://relay.dev.example",
+    CMUX_IROH_BROKER_BASE_URL: "https://ignored.example",
+  });
+  assert.equal(broker.status, 0, broker.stderr);
+  assert.equal(broker.stdout, "https://relay.dev.example");
+});
+
+test("iOS production-auth builds keep production service origins", () => {
+  for (const target of ["simulator", "physical_device"]) {
+    const api = resolveIOSAPIBaseURL(target, { PROD_AUTH: "1", CMUX_PORT: "4123" });
+    assert.equal(api.status, 0, api.stderr);
+    assert.equal(api.stdout, "https://cmux.com");
+  }
+
+  const broker = resolveIOSIrohBrokerBaseURL({ PROD_AUTH: "1" });
+  assert.equal(broker.status, 0, broker.stderr);
+  assert.equal(broker.stdout, "https://cmux.com");
+});
+
+test("tagged reloads share a dedicated Iroh broker", () => {
   const macReload = fs.readFileSync(path.join(repoRoot, "scripts/reload.sh"), "utf8");
   const iosReload = fs.readFileSync(path.join(repoRoot, "ios/scripts/reload.sh"), "utf8");
 
   assert.match(macReload, /CMUX_IROH_BROKER_BASE_URL_VALUE=.*cmux-staging\.vercel\.app/);
   assert.match(macReload, /CMUX_IROH_BROKER_BASE_URL="\$CMUX_IROH_BROKER_BASE_URL_VALUE"/);
-  assert.match(iosReload, /CMUX_IOS_IROH_BROKER_BASE_URL_VALUE=.*cmux-staging\.vercel\.app/);
+  assert.match(iosReload, /CMUX_IOS_IROH_BROKER_BASE_URL_VALUE=.*cmux_ios_resolve_iroh_broker_base_url/);
   assert.match(iosReload, /CMUX_IROH_BROKER_BASE_URL="\$CMUX_IOS_IROH_BROKER_BASE_URL_VALUE"/);
-  assert.match(iosReload, /PROD_AUTH[\s\S]{0,500}CMUX_IOS_IROH_BROKER_BASE_URL_VALUE="https:\/\/cmux\.com"/);
+});
+
+test("cloud physical-device archives bake staging origins with override escape hatches", () => {
+  const workflow = fs.readFileSync(
+    path.join(repoRoot, ".github/workflows/reload-build.yml"),
+    "utf8",
+  );
+
+  assert.match(
+    workflow,
+    /api_base_url="\$\{CMUX_IOS_API_BASE_URL:-\$\{CMUX_DEV_API_BASE_URL:-https:\/\/cmux-staging\.vercel\.app\}\}"/,
+  );
+  assert.match(
+    workflow,
+    /iroh_broker_base_url="\$\{CMUX_IOS_IROH_BROKER_BASE_URL:-\$\{CMUX_IROH_BROKER_BASE_URL:-https:\/\/cmux-staging\.vercel\.app\}\}"/,
+  );
+  assert.match(workflow, /CMUX_API_BASE_URL="\$api_base_url"/);
+  assert.match(workflow, /CMUX_IROH_BROKER_BASE_URL="\$iroh_broker_base_url"/);
 });
 
 test("physical-device mint rejects a ticket with only plaintext Tailscale routes", async () => {
