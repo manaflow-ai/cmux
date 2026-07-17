@@ -461,8 +461,13 @@ impl BrowserRuntime {
     }
 
     fn register(&self, target_id: &str, session_id: &str) -> Arc<SurfaceRoute> {
-        let mut routes = self.routes.lock().unwrap();
         let route = Arc::new(SurfaceRoute::new());
+        let mut routes = self.routes.lock().unwrap();
+        if self.closed.load(Ordering::Acquire) {
+            drop(routes);
+            route.close("browser runtime closed".to_string());
+            return route;
+        }
         routes.by_session.insert(session_id.to_string(), route.clone());
         routes.by_target.insert(target_id.to_string(), route.clone());
         route
@@ -494,7 +499,7 @@ impl BrowserRuntime {
     }
 
     pub fn shutdown(&self) {
-        self.closed.store(true, Ordering::Release);
+        close_browser_runtime(self, "browser runtime shut down".to_string());
         let _ = self.client.flush_outbound(Duration::from_secs(1));
         if let Some(chrome) = &self.chrome {
             chrome.kill();
@@ -773,11 +778,9 @@ fn start_router(runtime: Weak<BrowserRuntime>, events: Receiver<CdpEvent>) -> an
 }
 
 fn close_browser_runtime(runtime: &BrowserRuntime, reason: String) {
-    if runtime.closed.swap(true, Ordering::AcqRel) {
-        return;
-    }
     let senders = {
         let mut routes = runtime.routes.lock().unwrap();
+        runtime.closed.store(true, Ordering::Release);
         let senders = routes.by_session.values().cloned().collect::<Vec<_>>();
         routes.by_session.clear();
         routes.by_target.clear();
@@ -2588,6 +2591,45 @@ mod tests {
         let (first, second) = events.expect("unregister left surface route blocked");
         assert!(matches!(first, Some(cmux_tui_cdp::CdpEvent::Closed(_))));
         assert!(second.is_none());
+    }
+
+    #[test]
+    fn shutdown_closes_and_wakes_surface_route_before_cdp_disconnect() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (stop_tx, stop_rx) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            let request = read_ws_json(&mut ws);
+            assert_eq!(request["method"], "Target.setDiscoverTargets");
+            write_ws_json(&mut ws, json!({"id": request["id"], "result": {}}));
+            let _ = stop_rx.recv();
+        });
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::External,
+        )
+        .unwrap();
+        let route = runtime.register("target-1", "session-1");
+        let (done_tx, done_rx) = mpsc::channel();
+        let waiter = thread::spawn(move || {
+            let first = route.recv();
+            let second = route.recv();
+            done_tx.send((first, second)).unwrap();
+        });
+
+        runtime.shutdown();
+        let (first, second) = done_rx
+            .recv_timeout(Duration::from_millis(200))
+            .expect("shutdown left surface route blocked");
+        assert!(matches!(first, Some(cmux_tui_cdp::CdpEvent::Closed(_))));
+        assert!(second.is_none());
+
+        stop_tx.send(()).unwrap();
+        server.join().unwrap();
+        waiter.join().unwrap();
     }
 
     #[test]
