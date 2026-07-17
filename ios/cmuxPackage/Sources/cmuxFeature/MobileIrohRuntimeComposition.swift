@@ -98,7 +98,8 @@ public final class MobileIrohRuntimeComposition:
     private var relayPolicyRefreshTask: Task<Void, Never>?
     private var selectedPathObservationTask: Task<Void, Never>?
     private var irohSettingsContinuations: [UUID: AsyncStream<CmxIrohSettingsSnapshot>.Continuation] = [:]
-    private var observedAccountID: String?
+    private var observedAuthState: MobileIrohAuthState?
+    private var observedAccountID: String? { observedAuthState?.accountID }
     private var activeAccountID: String?
     private var lastKnownBindingAccountID: String?
     private var lastKnownBindingTag: String?
@@ -293,10 +294,6 @@ public final class MobileIrohRuntimeComposition:
             await self?.startNetworkPathObservation()
             await auth.awaitBootstrapped()
             guard !Task.isCancelled, let self else { return }
-            let initial = MobileIrohAuthState(
-                accountID: auth.isAuthenticated ? auth.currentUser?.id : nil
-            )
-            await self.applyAuthState(initial)
             let states = self.authObserver.states(for: auth)
             for await state in states {
                 guard !Task.isCancelled else { return }
@@ -311,8 +308,15 @@ public final class MobileIrohRuntimeComposition:
     /// bounded pairing attempt. Transport creation calls the same entrypoint,
     /// so readiness policy cannot drift between automatic and interactive use.
     public func prepareForConnection() async {
-        await reconcileLiveAuthIfNeeded()
-        await transitionTask?.value
+        while true {
+            await reconcileLiveAuthIfNeeded()
+            let revision = lifecycleRevision
+            let transition = transitionTask
+            await transition?.value
+            guard revision == lifecycleRevision,
+                  transitionTask == nil else { continue }
+            break
+        }
         await sceneTransitionTask?.value
     }
 
@@ -326,7 +330,8 @@ public final class MobileIrohRuntimeComposition:
         let runtimeID = ObjectIdentifier(runtime)
         var generation = await runtime.liveDiscoverySnapshotGeneration()
         guard self.runtime === runtime else { return [] }
-        if consumedDiscoveryRuntimeID != runtimeID
+        if generation > 0,
+           consumedDiscoveryRuntimeID != runtimeID
             || generation > consumedDiscoveryGeneration {
             consumedDiscoveryRuntimeID = runtimeID
             consumedDiscoveryGeneration = generation
@@ -501,7 +506,7 @@ public final class MobileIrohRuntimeComposition:
         let fallbackAccountID = activeAccountID
             ?? observedAccountID
             ?? lastKnownBindingAccountID
-        observedAccountID = nil
+        observedAuthState = MobileIrohAuthState(accountID: nil)
         lifecycleRevision &+= 1
         let previous = transitionTask
         transitionTask = nil
@@ -625,8 +630,9 @@ public final class MobileIrohRuntimeComposition:
         guard await prepareForAuthReconcile(accountID: state.accountID) else {
             return
         }
+        guard authStateRequiresReconcile(state) else { return }
         let previousObservedAccountID = observedAccountID
-        observedAccountID = state.accountID
+        observedAuthState = state
         let transition = scheduleReconcile(
             targetAccountID: state.accountID,
             eraseAccountState: state.accountID == nil
@@ -640,10 +646,13 @@ public final class MobileIrohRuntimeComposition:
     private func finishSignOutPhase() {
         guard signOutPhase.allowsLifecycle else { return }
         guard let auth else { return }
-        let accountID = auth.isAuthenticated ? auth.currentUser?.id : nil
-        guard accountID != observedAccountID else { return }
+        let state = MobileIrohAuthState(
+            accountID: auth.isAuthenticated ? auth.currentUser?.id : nil
+        )
+        guard authStateRequiresReconcile(state) else { return }
+        let accountID = state.accountID
         let previousObservedAccountID = observedAccountID
-        observedAccountID = accountID
+        observedAuthState = state
         _ = scheduleReconcile(
             targetAccountID: accountID,
             eraseAccountState: accountID == nil
@@ -656,15 +665,16 @@ public final class MobileIrohRuntimeComposition:
     private func reconcileLiveAuthIfNeeded() async {
         guard let auth else { return }
         await auth.awaitBootstrapped()
-        let accountID = auth.isAuthenticated ? auth.currentUser?.id : nil
+        let state = MobileIrohAuthState(
+            accountID: auth.isAuthenticated ? auth.currentUser?.id : nil
+        )
+        let accountID = state.accountID
         guard await prepareForAuthReconcile(accountID: accountID) else {
             return
         }
-        guard accountID != observedAccountID || runtime == nil && accountID != nil else {
-            return
-        }
+        guard authStateRequiresReconcile(state) else { return }
         let previousObservedAccountID = observedAccountID
-        observedAccountID = accountID
+        observedAuthState = state
         let transition = scheduleReconcile(
             targetAccountID: accountID,
             eraseAccountState: accountID == nil
@@ -673,6 +683,12 @@ public final class MobileIrohRuntimeComposition:
                 || (activeAccountID != nil && activeAccountID != accountID)
         )
         await transition.value
+    }
+
+    private func authStateRequiresReconcile(_ state: MobileIrohAuthState) -> Bool {
+        guard observedAuthState == state else { return true }
+        guard state.accountID != nil else { return false }
+        return runtime == nil && transitionTask == nil
     }
 
     private func prepareForAuthReconcile(accountID: String?) async -> Bool {
@@ -1144,7 +1160,7 @@ public final class MobileIrohRuntimeComposition:
                 guard await self?.allowsPersistence(
                     accountID: accountID,
                     revision: revision
-                ) == true else { return }
+                ) == true else { return false }
                 let binding = registration.binding
                 try? await credentialRepository.saveBinding(
                     CmxIrohBrokerBindingMetadata(binding: binding),
@@ -1153,14 +1169,20 @@ public final class MobileIrohRuntimeComposition:
                 guard await self?.allowsPersistence(
                     accountID: accountID,
                     revision: revision
-                ) == true else { return }
-                await routeCatalog.replace(with: discovery, scope: revision)
-                await MainActor.run {
+                ) == true,
+                await routeCatalog.replace(
+                    with: discovery,
+                    scope: revision
+                ) else { return false }
+                return await MainActor.run {
                     guard let self,
-                          revision == self.lifecycleRevision else { return }
+                          revision == self.lifecycleRevision,
+                          self.signOutPhase.allowsLifecycle,
+                          self.observedAccountID == accountID else { return false }
                     self.lastKnownBindingID = binding.bindingID
                     self.lastKnownBindingAccountID = accountID
                     self.lastKnownBindingTag = self.tag
+                    return true
                 }
             },
             handleCachedBindings: { [weak self] bindings, _ in

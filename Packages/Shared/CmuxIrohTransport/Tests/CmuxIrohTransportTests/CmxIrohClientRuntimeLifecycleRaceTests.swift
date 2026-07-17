@@ -18,7 +18,10 @@ extension CmxIrohClientRuntimeTests {
             configuration: fixture.configuration,
             pendingRevocations: fixture.pendingRevocations(),
             now: { fixture.now },
-            handleBinding: { _, _ in await gate.handleBinding() }
+            handleBinding: { _, _ in
+                await gate.handleBinding()
+                return true
+            }
         )
         let start = Task { try await runtime.start() }
         await gate.waitForCall(1)
@@ -51,7 +54,10 @@ extension CmxIrohClientRuntimeTests {
             configuration: fixture.configuration,
             pendingRevocations: fixture.pendingRevocations(),
             now: { fixture.now },
-            handleBinding: { _, _ in await gate.handleBinding() }
+            handleBinding: { _, _ in
+                await gate.handleBinding()
+                return true
+            }
         )
         try await runtime.start()
         #expect(await runtime.liveDiscoverySnapshotGeneration() == 1)

@@ -96,9 +96,9 @@ extension CmxIrohClientRuntime {
             )
             if let registration = policy.registration,
                let discovery = policy.discovery {
-                await handleBinding(registration, discovery)
+                let published = await handleBinding(registration, discovery)
                 try requireCurrent(revision)
-                liveDiscoveryGeneration &+= 1
+                if published { liveDiscoveryGeneration &+= 1 }
             } else if let lanRendezvous = policy.cachedLANRendezvous {
                 await handleCachedBindings(policy.cachedTargetBindings, lanRendezvous)
             }

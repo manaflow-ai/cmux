@@ -21,7 +21,10 @@ struct CmxIrohClientRuntimeTests {
             configuration: fixture.configuration,
             pendingRevocations: fixture.pendingRevocations(),
             now: { fixture.now },
-            handleBinding: { _, _ in await recorder.recordBinding() },
+            handleBinding: { _, _ in
+                await recorder.recordBinding()
+                return true
+            },
             handleRelayCredential: { _, _ in await recorder.recordRelay() }
         )
 
@@ -62,7 +65,10 @@ struct CmxIrohClientRuntimeTests {
             configuration: fixture.configuration,
             pendingRevocations: fixture.pendingRevocations(),
             now: { fixture.now },
-            handleBinding: { _, _ in await recorder.recordBinding() }
+            handleBinding: { _, _ in
+                await recorder.recordBinding()
+                return true
+            }
         )
         try await runtime.start()
 
@@ -89,7 +95,10 @@ struct CmxIrohClientRuntimeTests {
             configuration: fixture.configuration,
             pendingRevocations: fixture.pendingRevocations(),
             now: { fixture.now },
-            handleBinding: { _, _ in await recorder.recordBinding() }
+            handleBinding: { _, _ in
+                await recorder.recordBinding()
+                return true
+            }
         )
         try await runtime.start()
         await broker.setRegistrationError(CmxIrohTrustBrokerClientError.connectivity)
@@ -97,6 +106,31 @@ struct CmxIrohClientRuntimeTests {
         #expect(!(await runtime.refreshLiveDiscovery()))
         #expect(await runtime.snapshot().state == .active)
         #expect(await recorder.observedBindingCount() == 1)
+        await runtime.stop()
+    }
+
+    @Test
+    func rejectedCatalogPublicationCannotAdvanceLiveDiscoveryGeneration() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [
+                TestIrohEndpoint(identity: fixture.endpointID),
+            ]),
+            broker: TestIrohClientBroker(
+                binding: fixture.binding,
+                discovery: fixture.discovery,
+                relay: fixture.relayResponse()
+            ),
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { fixture.now },
+            handleBinding: { _, _ in false }
+        )
+
+        try await runtime.start()
+        #expect(await runtime.liveDiscoverySnapshotGeneration() == 0)
+        #expect(!(await runtime.refreshLiveDiscovery()))
+        #expect(await runtime.liveDiscoverySnapshotGeneration() == 0)
         await runtime.stop()
     }
 

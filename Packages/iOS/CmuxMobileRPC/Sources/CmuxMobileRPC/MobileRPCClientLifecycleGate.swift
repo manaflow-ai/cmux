@@ -12,13 +12,24 @@ final class MobileRPCClientLifecycleGate: @unchecked Sendable {
     private var retired = false
     private var revision: UInt64 = 0
 
-    func makeTransport<T>(_ make: () throws -> T) throws -> T {
-        try lock.withLock {
+    func makeTransport(
+        _ make: () throws -> any CmxByteTransport
+    ) throws -> any CmxByteTransport {
+        let admission = try lock.withLock {
             guard !retired else {
                 throw MobileShellConnectionError.connectionClosed
             }
-            return try make()
+            return revision
         }
+        let transport = try make()
+        let accepted = lock.withLock {
+            !retired && revision == admission
+        }
+        guard accepted else {
+            Self.dispose(transport)
+            throw MobileShellConnectionError.connectionClosed
+        }
+        return transport
     }
 
     func beginIndependentEventAdmission() throws -> IndependentEventAdmission {
@@ -61,5 +72,11 @@ final class MobileRPCClientLifecycleGate: @unchecked Sendable {
         }
         drain.cancel()
         _ = await drain.result
+    }
+
+    private static func dispose(_ transport: any CmxByteTransport) {
+        Task.detached {
+            await transport.close()
+        }
     }
 }

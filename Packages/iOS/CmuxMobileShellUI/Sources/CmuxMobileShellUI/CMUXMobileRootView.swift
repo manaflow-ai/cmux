@@ -147,12 +147,11 @@ struct CMUXMobileRootView: View {
             pushCoordinator.workspacesDidChange()
         }
         #endif
-        .onChange(of: authManager.selectedTeamID) { _, _ in
-            // The user switched Stack teams (from the nav drawer). Lazily re-scope
-            // the team-bound state (presence, registry, paired-Mac backup,
-            // aggregation) to the new team without dropping the live terminal. The
-            // drawer only writes `selectedTeamID`; this is the single observation
-            // point, so every entrypoint that changes the team flows through here.
+        .onChange(of: authManager.resolvedTeamID) { _, _ in
+            // The effective team can change because the user selected one or
+            // because launch-time team loading resolved the cached account's
+            // default. Re-scope both transitions so a reconnect that began with
+            // no team is superseded by exactly one current-team attempt.
             store.currentTeamDidChange()
         }
         .onChange(of: scenePhase) { _, phase in

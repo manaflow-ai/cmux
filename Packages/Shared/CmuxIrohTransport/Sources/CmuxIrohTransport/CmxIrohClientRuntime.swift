@@ -7,7 +7,7 @@ public actor CmxIrohClientRuntime {
     public typealias BindingHandler = @Sendable (
         _ registration: CmxIrohRegistrationResponse,
         _ discovery: CmxIrohDiscoveryResponse
-    ) async -> Void
+    ) async -> Bool
 
     /// Runs when connectivity-only startup restores signed, already-known Mac tuples.
     public typealias CachedBindingsHandler = @Sendable (
@@ -129,7 +129,7 @@ public actor CmxIrohClientRuntime {
         },
         lanFallback: LANFallbackProvider? = nil,
         now: @escaping @Sendable () -> Date = { Date() },
-        handleBinding: @escaping BindingHandler = { _, _ in },
+        handleBinding: @escaping BindingHandler = { _, _ in true },
         handleCachedBindings: @escaping CachedBindingsHandler = { _, _ in },
         handleRelayCredential: @escaping RelayCredentialHandler = { _, _ in },
         handleLocalDeactivation: @escaping LocalDeactivationHandler = {},
@@ -296,9 +296,9 @@ public actor CmxIrohClientRuntime {
             )
             if let registration = policy.registration,
                let discovery = policy.discovery {
-                await handleBinding(registration, discovery)
+                let published = await handleBinding(registration, discovery)
                 try requireCurrent(revision)
-                liveDiscoveryGeneration &+= 1
+                if published { liveDiscoveryGeneration &+= 1 }
             } else if let lanRendezvous = policy.cachedLANRendezvous {
                 await handleCachedBindings(policy.cachedTargetBindings, lanRendezvous)
             }

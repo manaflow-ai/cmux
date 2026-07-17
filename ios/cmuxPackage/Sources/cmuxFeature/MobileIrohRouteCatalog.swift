@@ -33,15 +33,17 @@ public actor MobileIrohRouteCatalog {
     /// contain no private path hints. The registry decorator may later attach a
     /// locally known Tailscale address as a fallback, while dial-time discovery
     /// supplies current authenticated public paths.
+    @discardableResult
     func replace(
         with discovery: CmxIrohDiscoveryResponse,
         scope: UInt64
-    ) {
-        guard activeScope == scope else { return }
+    ) -> Bool {
+        guard activeScope == scope else { return false }
         routesByMacDeviceID = Self.makeRoutesByMacDeviceID(
             from: discovery.bindings
         )
         liveMacs = Self.makeLiveMacs(from: discovery.bindings)
+        return true
     }
 
     /// Replaces routes from device-only, cryptographically reverified cache rows.
