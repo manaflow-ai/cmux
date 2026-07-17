@@ -465,7 +465,7 @@ private final class DemandControlledSubscriber<Input>: Subscriber {
 // Deterministic Combine scheduler for coalesceLatest tests: `now` only moves
 // via advance(by:), and scheduled actions run only when runScheduledActions()
 // is called, so overdue-timer interleavings are exact instead of wall-clock.
-private final class VirtualCoalesceScheduler: Scheduler {
+final class VirtualCoalesceScheduler: Scheduler {
     typealias SchedulerTimeType = RunLoop.SchedulerTimeType
     typealias SchedulerOptions = Never
 

@@ -271,7 +271,7 @@ extension VerticalTabsSidebar {
             isPinned: snapshot.isPinned,
             environment: environment,
             equivalenceValue: snapshot
-        ) { isPointerHovering, contextMenuActions in
+        ) { isPointerHovering, contextMenuActions, _ in
             AnyView(
                 environment.apply(
                     to: sidebarWorkspaceGroupRow(

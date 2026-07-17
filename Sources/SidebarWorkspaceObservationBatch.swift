@@ -17,11 +17,20 @@ final class SidebarWorkspaceObservationBatch {
         from publishers: [AnyPublisher<UUID, Never>],
         for interval: RunLoop.SchedulerTimeType.Stride
     ) -> AnyPublisher<Set<UUID>, Never> {
+        mergedChanges(from: publishers, for: interval, scheduler: RunLoop.main)
+    }
+
+    /// Coalesces on an injected scheduler so callers can control the delivery clock.
+    static func mergedChanges<Context: Scheduler>(
+        from publishers: [AnyPublisher<UUID, Never>],
+        for interval: Context.SchedulerTimeType.Stride,
+        scheduler: Context
+    ) -> AnyPublisher<Set<UUID>, Never> {
         let batch = SidebarWorkspaceObservationBatch()
         return Publishers.MergeMany(publishers)
-            .receive(on: RunLoop.main)
+            .receive(on: scheduler)
             .handleEvents(receiveOutput: { batch.insert($0) })
-            .coalesceLatest(for: interval, scheduler: RunLoop.main)
+            .coalesceLatest(for: interval, scheduler: scheduler)
             .map { _ in batch.take() }
             .filter { !$0.isEmpty }
             .eraseToAnyPublisher()

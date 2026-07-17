@@ -23,9 +23,11 @@ extension SidebarLazyLayoutScaleTests {
         let noisyWorkspaceId = UUID()
         let quietWorkspaceId = UUID()
         let subscriber = SidebarObservationBatchDemandSubscriber()
+        let scheduler = VirtualCoalesceScheduler()
         SidebarWorkspaceObservationBatch.mergedChanges(
             from: [source.eraseToAnyPublisher()],
-            for: .milliseconds(20)
+            for: .milliseconds(20),
+            scheduler: scheduler
         )
         .subscribe(subscriber)
         defer { subscriber.cancel() }
@@ -36,9 +38,6 @@ extension SidebarLazyLayoutScaleTests {
         source.send(noisyWorkspaceId)
         source.send(noisyWorkspaceId)
         source.send(quietWorkspaceId)
-        for _ in 0..<10 {
-            Self.turnMainRunLoopOnce(layingOut: nil)
-        }
 
         #expect(subscriber.receivedBatches.isEmpty)
         subscriber.request(.unlimited)
@@ -50,13 +49,10 @@ extension SidebarLazyLayoutScaleTests {
         )
 
         let deliveriesBeforeChurn = subscriber.receivedBatches.count
-        let churnDeadline = ProcessInfo.processInfo.systemUptime + 0.3
-        while ProcessInfo.processInfo.systemUptime < churnDeadline {
+        for _ in 0..<3 {
             source.send(noisyWorkspaceId)
-            Self.turnMainRunLoopOnce(layingOut: nil)
-        }
-        for _ in 0..<5 {
-            Self.turnMainRunLoopOnce(layingOut: nil)
+            scheduler.advance(by: 0.02)
+            scheduler.runScheduledActions()
         }
 
         #expect(

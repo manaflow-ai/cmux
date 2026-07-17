@@ -12509,6 +12509,12 @@ struct VerticalTabsSidebar: View {
         let workspace: @MainActor () -> Workspace? = {
             tabManager.tabs.first { $0.id == tabId }
         }
+        let currentWorkspaces: @MainActor ([UUID]) -> [Workspace] = { workspaceIds in
+            let workspaceById = Dictionary(
+                uniqueKeysWithValues: tabManager.tabs.lazy.map { ($0.id, $0) }
+            )
+            return workspaceIds.compactMap { workspaceById[$0] }
+        }
         let checklistActions = SidebarWorkspaceChecklistActions(
             setItemState: { itemId, state in
                 guard let tab = workspace() else { return }
@@ -12665,31 +12671,26 @@ struct VerticalTabsSidebar: View {
                 }
             },
             reconnectTargets: { workspaceIds in
-                for workspaceId in workspaceIds {
-                    tabManager.tabs.first { $0.id == workspaceId }?
-                        .reconnectRemoteConnection()
+                for workspace in currentWorkspaces(workspaceIds) {
+                    workspace.reconnectRemoteConnection()
                 }
             },
             disconnectTargets: { workspaceIds in
-                for workspaceId in workspaceIds {
-                    tabManager.tabs.first { $0.id == workspaceId }?
-                        .disconnectRemoteConnection(clearConfiguration: false)
+                for workspace in currentWorkspaces(workspaceIds) {
+                    workspace.disconnectRemoteConnection(clearConfiguration: false)
                 }
             },
             applyColor: { hex, workspaceIds in
                 tabManager.applyWorkspaceColor(hex, toWorkspaceIds: workspaceIds)
             },
             applyTodoStatus: { status, workspaceIds in
-                let workspaces = workspaceIds.compactMap { workspaceId in
-                    tabManager.tabs.first { $0.id == workspaceId }
-                }
-                WorkspaceTodoActions.applyStatusOverride(status, to: workspaces)
+                WorkspaceTodoActions.applyStatusOverride(
+                    status,
+                    to: currentWorkspaces(workspaceIds)
+                )
             },
             hideTodoStatus: { workspaceIds in
-                let workspaces = workspaceIds.compactMap { workspaceId in
-                    tabManager.tabs.first { $0.id == workspaceId }
-                }
-                WorkspaceTodoActions.hideStatus(for: workspaces)
+                WorkspaceTodoActions.hideStatus(for: currentWorkspaces(workspaceIds))
             },
             requestChecklistAdd: {
                 WorkspaceTodoActions.requestChecklistAddField(workspaceId: tabId)

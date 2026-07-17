@@ -196,75 +196,176 @@ def extract_function_body(source, name):
     )
 
 
-def extract_all_function_bodies(source, name):
-    """Every body for `name` in the file, so a second type declaring the same
-    lifecycle callback cannot hide behind the first."""
-    bodies = []
-    offset = 0
-    pattern = re.compile(r"\bfunc\s+" + re.escape(name) + r"\s*\(")
-    while True:
-        match = pattern.search(source, offset)
-        if not match:
-            return bodies
+def closing_brace_offset(source, opening):
+    depth = 0
+    for index in range(opening, len(source)):
+        if source[index] == "{":
+            depth += 1
+        elif source[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return index + 1
+    return None
+
+
+def closing_parenthesis_offset(source, opening):
+    depth = 0
+    for index in range(opening, len(source)):
+        if source[index] == "(":
+            depth += 1
+        elif source[index] == ")":
+            depth -= 1
+            if depth == 0:
+                return index + 1
+    return None
+
+
+def top_level_arguments(source, opening):
+    """Split a neutralized Swift parameter/call list at top-level commas."""
+    end = closing_parenthesis_offset(source, opening)
+    if end is None:
+        return None
+    contents = source[opening + 1:end - 1]
+    if not contents.strip():
+        return []
+    counts = {"(": 0, "[": 0, "{": 0}
+    closers = {")": "(", "]": "[", "}": "{"}
+    angle_depth = 0
+    result = []
+    start = 0
+    for index, character in enumerate(contents):
+        if character in counts:
+            counts[character] += 1
+        elif character in closers and counts[closers[character]] > 0:
+            counts[closers[character]] -= 1
+        elif character == "<" and not any(counts.values()):
+            # Swift generic arguments are adjacent to their base (`Foo<Bar>`).
+            # Requiring adjacency plus a later close avoids treating ordinary
+            # spaced comparisons such as `a < b && c > d` as generic nesting.
+            has_adjacent_base = index > 0 and not contents[index - 1].isspace()
+            has_adjacent_argument = index + 1 < len(contents) and not contents[index + 1].isspace()
+            if has_adjacent_base and has_adjacent_argument and ">" in contents[index + 1:]:
+                angle_depth += 1
+        elif character == ">" and angle_depth > 0 and not any(counts.values()):
+            angle_depth -= 1
+        elif character == "," and not any(counts.values()) and angle_depth == 0:
+            result.append(contents[start:index])
+            start = index + 1
+    result.append(contents[start:])
+    return result
+
+
+def declaration_signature(source, opening):
+    arguments = top_level_arguments(source, opening)
+    if arguments is None:
+        return None
+    labels = []
+    defaults = []
+    variadic_index = None
+    for argument in arguments:
+        prefix = argument.split(":", 1)[0]
+        tokens = re.findall(r"[A-Za-z_]\w*|_", prefix)
+        if not tokens:
+            return None
+        labels.append(tokens[-2] if len(tokens) > 1 else tokens[-1])
+        defaults.append(bool(re.search(r"(?<![<>=!])=(?!=)", argument)))
+        if "..." in argument:
+            variadic_index = len(labels) - 1
+    return tuple(labels), tuple(defaults), variadic_index
+
+
+def call_external_labels(source, opening):
+    arguments = top_level_arguments(source, opening)
+    if arguments is None:
+        return None
+    labels = []
+    for argument in arguments:
+        match = re.match(r"\s*([A-Za-z_]\w*)\s*:", argument)
+        labels.append(match.group(1) if match else "_")
+    return tuple(labels)
+
+
+def extract_type_scoped_function_bodies(source):
+    """Return method bodies by Swift type, merging same-type extensions."""
+    scopes = []
+    type_pattern = re.compile(
+        r"\b(?:struct|class|final\s+class|enum|actor|extension)\s+([A-Za-z_]\w*)\b"
+    )
+    for match in type_pattern.finditer(source):
         opening = source.find("{", match.end())
         if opening < 0:
-            return bodies
-        depth = 0
-        end = None
-        for index in range(opening, len(source)):
-            if source[index] == "{":
-                depth += 1
-            elif source[index] == "}":
-                depth -= 1
-                if depth == 0:
-                    end = index + 1
-                    break
-        if end is None:
-            return bodies
-        bodies.append(source[opening:end])
-        offset = end
+            continue
+        end = closing_brace_offset(source, opening)
+        if end is not None:
+            scopes.append((match.group(1), opening, end))
 
-
-def extract_function_bodies_by_name(source):
-    """Return every declared function body keyed by its local method name."""
     bodies = {}
-    offset = 0
-    pattern = re.compile(r"\bfunc\s+([A-Za-z_]\w*)\s*\(")
-    while True:
-        match = pattern.search(source, offset)
-        if not match:
-            return bodies
-        opening = source.find("{", match.end())
+    function_pattern = re.compile(r"\bfunc\s+([A-Za-z_]\w*)\s*\(")
+    for match in function_pattern.finditer(source):
+        parameter_opening = match.end() - 1
+        signature = declaration_signature(source, parameter_opening)
+        parameter_end = closing_parenthesis_offset(source, parameter_opening)
+        if signature is None or parameter_end is None:
+            continue
+        opening = source.find("{", parameter_end)
         if opening < 0:
-            return bodies
-        depth = 0
-        end = None
-        for index in range(opening, len(source)):
-            if source[index] == "{":
-                depth += 1
-            elif source[index] == "}":
-                depth -= 1
-                if depth == 0:
-                    end = index + 1
-                    break
+            continue
+        end = closing_brace_offset(source, opening)
         if end is None:
-            return bodies
-        bodies.setdefault(match.group(1), []).append(source[opening:end])
-        offset = end
+            continue
+        owners = [scope for scope in scopes if scope[1] < match.start() < scope[2]]
+        if not owners:
+            continue
+        owner = min(owners, key=lambda scope: scope[2] - scope[1])[0]
+        key = (match.group(1), *signature)
+        bodies.setdefault(owner, {}).setdefault(key, []).append(
+            source[opening:end]
+        )
+    return bodies
 
 
 def called_local_functions(body, local_names):
-    """Find same-file helper calls while ignoring their declarations."""
+    """Find bare/self helper calls, excluding calls on other receivers."""
     result = set()
-    for match in re.finditer(r"\b([A-Za-z_]\w*)\s*\(", body):
+    pattern = re.compile(
+        r"(?<![\w.])(?:self\s*\.\s*)?([A-Za-z_]\w*)\s*\("
+    )
+    for match in pattern.finditer(body):
         name = match.group(1)
-        if name not in local_names:
-            continue
+        labels = call_external_labels(body, match.end() - 1)
         prefix = body[max(0, match.start() - 12):match.start()]
         if re.search(r"\bfunc\s*$", prefix):
             continue
-        result.add(name)
+        for key in local_names:
+            if key[0] == name and call_matches_declaration(labels, key[1], key[2], key[3]):
+                result.add(key)
     return result
+
+
+def call_matches_declaration(call_labels, declaration_labels, defaults, variadic_index):
+    """Match Swift calls while allowing omitted defaults and variadic values."""
+    if call_labels is None:
+        return False
+    call_index = 0
+    declaration_index = 0
+    while call_index < len(call_labels) and declaration_index < len(declaration_labels):
+        if variadic_index == declaration_index:
+            if any(label != declaration_labels[declaration_index] for label in call_labels[call_index:]):
+                return False
+            return True
+        if call_labels[call_index] == declaration_labels[declaration_index]:
+            call_index += 1
+            declaration_index += 1
+        elif defaults[declaration_index]:
+            declaration_index += 1
+        else:
+            return False
+    if call_index < len(call_labels):
+        return False
+    return all(
+        defaults[index] or variadic_index == index
+        for index in range(declaration_index, len(declaration_labels))
+    )
 
 
 def mutation_path(body, function_bodies, visited=None):
@@ -272,14 +373,14 @@ def mutation_path(body, function_bodies, visited=None):
     visited = set() if visited is None else visited
     if any(pattern.search(body) for pattern in TABLE_MUTATION_PATTERNS):
         return []
-    for name in sorted(called_local_functions(body, set(function_bodies))):
-        if name in visited:
+    for key in sorted(called_local_functions(body, set(function_bodies)), key=repr):
+        if key in visited:
             continue
-        next_visited = visited | {name}
-        for helper_body in function_bodies[name]:
+        next_visited = visited | {key}
+        for helper_body in function_bodies[key]:
             path = mutation_path(helper_body, function_bodies, next_visited)
             if path is not None:
-                return [name] + path
+                return [key[0]] + path
     return None
 
 
@@ -383,30 +484,34 @@ def check_appkit_sources(sources_by_name, require_all_files=True):
 
     for filename, source in sources_by_name.items():
         clean = neutralize_swift(source)
-        function_bodies = extract_function_bodies_by_name(clean)
-        for callback in LAYOUT_CALLBACKS:
-            for body in extract_all_function_bodies(clean, callback):
-                path = mutation_path(body, function_bodies, visited={callback})
-                if path is not None:
-                    via = " via " + " -> ".join(path) if path else ""
-                    violations.append(
-                        f"{filename}.{callback} mutates/reconfigures the table "
-                        f"from a layout callback{via}"
-                    )
-        staging_callbacks = ()
-        if filename == "SidebarWorkspaceTableView.swift":
-            staging_callbacks = ("updateNSView",)
-        elif filename == "SidebarWorkspaceTableController.swift":
-            staging_callbacks = ("apply", "viewportDidChange")
-        for callback in staging_callbacks:
-            for body in extract_all_function_bodies(clean, callback):
-                path = mutation_path(body, function_bodies, visited={callback})
-                if path is not None:
-                    via = " via " + " -> ".join(path) if path else ""
-                    violations.append(
-                        f"{filename}.{callback} performs a table mutation before its "
-                        f"callback returns{via}"
-                    )
+        for function_bodies in extract_type_scoped_function_bodies(clean).values():
+            for callback in LAYOUT_CALLBACKS:
+                callback_keys = [key for key in function_bodies if key[0] == callback]
+                for callback_key in callback_keys:
+                    for body in function_bodies[callback_key]:
+                        path = mutation_path(body, function_bodies, visited={callback_key})
+                        if path is not None:
+                            via = " via " + " -> ".join(path) if path else ""
+                            violations.append(
+                                f"{filename}.{callback} mutates/reconfigures the table "
+                                f"from a layout callback{via}"
+                            )
+            staging_callbacks = ()
+            if filename == "SidebarWorkspaceTableView.swift":
+                staging_callbacks = ("updateNSView",)
+            elif filename == "SidebarWorkspaceTableController.swift":
+                staging_callbacks = ("apply", "viewportDidChange")
+            for callback in staging_callbacks:
+                callback_keys = [key for key in function_bodies if key[0] == callback]
+                for callback_key in callback_keys:
+                    for body in function_bodies[callback_key]:
+                        path = mutation_path(body, function_bodies, visited={callback_key})
+                        if path is not None:
+                            via = " via " + " -> ".join(path) if path else ""
+                            violations.append(
+                                f"{filename}.{callback} performs a table mutation before its "
+                                f"callback returns{via}"
+                            )
         for pattern, label in (
             (r"\bObservableObject\b", "ObservableObject"),
             (r"@Published\b", "@Published"),

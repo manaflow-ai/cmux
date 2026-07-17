@@ -1,6 +1,11 @@
 import Foundation
 
 /// Coalesces representable and viewport inputs until their callbacks return.
+///
+/// AppKit exposes no completion signal for `updateNSView` or bounds-change
+/// delivery. A main-run-loop turn is the deterministic callback boundary: it
+/// prevents table mutation from reentering the active SwiftUI/AppKit layout
+/// transaction without relying on elapsed time.
 @MainActor
 final class SidebarWorkspaceTableMutationScheduler {
     private var pendingApply: SidebarWorkspaceTableApplyInput?

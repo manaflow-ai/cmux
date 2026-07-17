@@ -104,6 +104,9 @@ final class SidebarWorkspaceTableRowHeightOwner {
         generation &+= 1
         let scheduledGeneration = generation
         self.scheduledGeneration = scheduledGeneration
+        // Intrinsic-size invalidation arrives from inside AppKit layout, which
+        // has no completion callback. Reconcile on the next event turn so
+        // noteHeightOfRows cannot reenter that same layout transaction.
         RunLoop.main.perform(inModes: [.common]) { [weak self] in
             MainActor.assumeIsolated {
                 guard let self,

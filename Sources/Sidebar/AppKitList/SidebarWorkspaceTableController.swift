@@ -126,20 +126,19 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         configureDropViews(in: containerView, actions: actions)
 
         let previousRows = rows
-        let hasStructuralChanges = previousRows.map(\.id) != nextRows.map(\.id)
-        let contentChanges = IndexSet(nextRows.indices.filter { index in
-            previousRows.indices.contains(index)
-                && !previousRows[index].hasEquivalentContent(to: nextRows[index])
-        })
+        let hasStructuralChanges = !previousRows.elementsEqual(nextRows) { $0.id == $1.id }
         rows = nextRows
         rowIndexById = Dictionary(
-            uniqueKeysWithValues: nextRows.enumerated().map { ($1.id, $0) }
+            uniqueKeysWithValues: nextRows.enumerated().lazy.map { ($1.id, $0) }
         )
         rowHeightOwner.apply(rows: nextRows, hasStructuralChanges: hasStructuralChanges)
 
         if hasStructuralChanges {
             containerView.tableView.reloadData()
         } else {
+            let contentChanges = IndexSet(nextRows.indices.lazy.filter { index in
+                !previousRows[index].hasEquivalentContent(to: nextRows[index])
+            })
             reconfigureVisibleRows(contentChanges)
         }
 

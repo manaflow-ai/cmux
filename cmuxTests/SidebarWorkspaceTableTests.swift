@@ -2,6 +2,7 @@ import AppKit
 import Bonsplit
 import CmuxFoundation
 import Combine
+import Observation
 import SwiftUI
 import Testing
 
@@ -449,13 +450,14 @@ struct SidebarWorkspaceTableTests {
     }
 
     @MainActor
-    private final class ExpandingTestRowModel: ObservableObject {
-        @Published var isExpanded = false
+    @Observable
+    private final class ExpandingTestRowModel {
+        var isExpanded = false
     }
 
     @MainActor
     private struct ExpandingTestRow: View {
-        @ObservedObject var model: ExpandingTestRowModel
+        let model: ExpandingTestRowModel
 
         var body: some View {
             VStack(spacing: 0) {

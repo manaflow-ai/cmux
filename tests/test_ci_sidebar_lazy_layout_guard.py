@@ -203,7 +203,7 @@ final class SidebarWorkspaceTableViewImpl: NSTableView {
 final class SidebarWorkspaceTableViewImpl: NSTableView {
     override func layout() {
         super.layout()
-        refreshVisibleGeometry()
+        self.refreshVisibleGeometry()
     }
     private func refreshVisibleGeometry() {
         commitVisibleGeometry()
@@ -223,6 +223,109 @@ final class SidebarWorkspaceTableViewImpl: NSTableView {
             for item in hidden_violations
         ),
         "table mutation hidden behind recursive local helpers fails",
+    )
+
+    receiver_scoped_lifecycle = """
+final class SidebarWorkspaceTableViewImpl: NSTableView {
+    let model = SidebarWorkspaceTableModel()
+    override func layout() {
+        super.layout()
+        model.refresh()
+    }
+}
+final class SidebarWorkspaceTableModel {
+    func refresh() {}
+}
+final class UnrelatedTableOwner {
+    func refresh() {
+        tableView.reloadData()
+    }
+}
+"""
+    receiver_scoped_violations = guard.check_appkit_sources({
+        "SidebarWorkspaceTableViewImpl.swift": receiver_scoped_lifecycle,
+    }, require_all_files=False)
+    failures += expect(
+        not any("layout callback" in item for item in receiver_scoped_violations),
+        "other-receiver and unrelated same-name helpers do not create a false mutation path",
+    )
+
+    overloaded_lifecycle = """
+final class SidebarWorkspaceTableViewImpl: NSTableView {
+    override func layout() {
+        super.layout()
+        self.refresh(safely: true)
+    }
+    private func refresh(safely: Bool) {}
+    private func refresh(force: Bool) {
+        tableView.reloadData()
+    }
+}
+"""
+    overloaded_violations = guard.check_appkit_sources({
+        "SidebarWorkspaceTableViewImpl.swift": overloaded_lifecycle,
+    }, require_all_files=False)
+    failures += expect(
+        not any("layout callback" in item for item in overloaded_violations),
+        "same-type same-arity overloads with different labels are not conflated",
+    )
+
+    defaulted_helper_lifecycle = """
+final class SidebarWorkspaceTableViewImpl: NSTableView {
+    override func layout() {
+        super.layout()
+        refresh()
+    }
+    private func refresh(_ force: Bool = true) {
+        tableView.reloadData()
+    }
+}
+"""
+    defaulted_helper_violations = guard.check_appkit_sources({
+        "SidebarWorkspaceTableViewImpl.swift": defaulted_helper_lifecycle,
+    }, require_all_files=False)
+    failures += expect(
+        any("layout callback via refresh" in item for item in defaulted_helper_violations),
+        "a helper reached through an omitted default argument still fails",
+    )
+
+    variadic_helper_lifecycle = """
+final class SidebarWorkspaceTableViewImpl: NSTableView {
+    override func layout() {
+        super.layout()
+        refresh()
+    }
+    private func refresh(_ force: Bool...) {
+        tableView.reloadData()
+    }
+}
+"""
+    variadic_helper_violations = guard.check_appkit_sources({
+        "SidebarWorkspaceTableViewImpl.swift": variadic_helper_lifecycle,
+    }, require_all_files=False)
+    failures += expect(
+        any("layout callback via refresh" in item for item in variadic_helper_violations),
+        "a zero-value variadic helper call still fails",
+    )
+
+    fixed_and_variadic_overloads = """
+final class SidebarWorkspaceTableViewImpl: NSTableView {
+    override func layout() {
+        super.layout()
+        refresh(true)
+    }
+    private func refresh(_ force: Bool) {}
+    private func refresh(_ force: Bool...) {
+        tableView.reloadData()
+    }
+}
+"""
+    mixed_overload_violations = guard.check_appkit_sources({
+        "SidebarWorkspaceTableViewImpl.swift": fixed_and_variadic_overloads,
+    }, require_all_files=False)
+    failures += expect(
+        any("layout callback via refresh" in item for item in mixed_overload_violations),
+        "fixed and variadic overload keys remain sortable and conservatively traced",
     )
 
     bad_staging_boundary = """
