@@ -47,7 +47,8 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
 
             self.assertEqual(completed.returncode, 124, completed.stdout)
             self.assertLess(time.monotonic() - started, 5)
-            self.assertIn("timed out after 1s", completed.stdout)
+            self.assertEqual(completed.stdout.count("timed out after 1s"), 2)
+            self.assertIn("retrying HangingSuite once", completed.stdout)
 
 
 if __name__ == "__main__":
