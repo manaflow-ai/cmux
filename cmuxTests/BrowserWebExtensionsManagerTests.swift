@@ -1617,6 +1617,37 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
+    @Test func userFacingAndDiagnosticLoadFailuresDoNotExposeRawErrorDetails() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let broken = root.appendingPathComponent("private-package-name", isDirectory: true)
+        try FileManager.default.createDirectory(at: broken, withIntermediateDirectories: true)
+        try Data("not json".utf8).write(to: broken.appendingPathComponent("manifest.json"))
+        let manager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent()
+        )
+        try await manager.approveInstalledCandidate(broken)
+
+        await manager.loadExtensions()
+
+        let failure = try #require(manager.presentationSnapshot().failures.first)
+        #expect(failure.message == String(
+            localized: "browser.extensions.load.failed",
+            defaultValue: "The extension could not be loaded."
+        ))
+        let payload = manager.diagnosticPayload()
+        let loadErrors = try #require(payload["load_errors"] as? [[String: Any]])
+        let loadError = try #require(loadErrors.first)
+        #expect(loadError["message"] == nil)
+        let error = try #require(loadError["error"] as? [String: Any])
+        #expect(error["domain"] is String)
+        #expect(error["code"] is Int)
+        #expect(error["message"] == nil)
+        #expect(error["user_info"] == nil)
+    }
+
+    @available(macOS 15.4, *)
     @Test func invalidApprovedPackageDoesNotBlockHealthyExtensions() async throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
