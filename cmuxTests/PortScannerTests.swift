@@ -451,19 +451,24 @@ struct ProcessTerminationGateTests {
     func prelaunchTerminationRequestIsDeferredUntilLaunch() {
         var gate = ProcessTerminationGate()
 
-        #expect(gate.requestTermination() == false)
-        #expect(gate.markLaunched())
+        let shouldTerminateBeforeLaunch = gate.requestTermination()
+        #expect(shouldTerminateBeforeLaunch == false)
+        let shouldTerminateAfterLaunch = gate.markLaunched()
+        #expect(shouldTerminateAfterLaunch)
         gate.markFinished()
-        #expect(gate.requestTermination() == false)
+        let shouldTerminateAfterFinish = gate.requestTermination()
+        #expect(shouldTerminateAfterFinish == false)
     }
 
     @Test("A finished prelaunch process ignores deferred termination")
     func finishedPrelaunchProcessIgnoresDeferredTermination() {
         var gate = ProcessTerminationGate()
 
-        #expect(gate.requestTermination() == false)
+        let shouldTerminateBeforeLaunch = gate.requestTermination()
+        #expect(shouldTerminateBeforeLaunch == false)
         gate.markFinished()
-        #expect(gate.markLaunched() == false)
+        let shouldTerminateAfterFinish = gate.markLaunched()
+        #expect(shouldTerminateAfterFinish == false)
     }
 }
 
