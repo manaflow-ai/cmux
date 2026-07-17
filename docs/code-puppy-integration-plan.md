@@ -191,12 +191,15 @@ AgentHookDef(
 ),
 ```
 
-The `.nested` writer emits exactly what Code Puppy's registry expects:
-`{ "SessionStart": [ { "hooks": [ {"type":"command","command":"cmux hooks
-code-puppy session-start","timeout":5000} ] } ], ... }`. Code Puppy's registry
-defaults an absent `matcher` to `"*"`, so PreToolUse/PostToolUse Feed bridges
-work without a matcher. Wire the name into `cmux hooks setup` and the
-supported-agents help text (`CLI/cmux.swift` ~line 15289).
+The `.nested` writer emits Code Puppy's expected shape, with a `matcher` on
+every hook group (set via `nestedGroupMatcher: "*"`):
+`{ "SessionStart": [ { "matcher": "*", "hooks": [ {"type":"command","command":"cmux
+hooks code-puppy session-start","timeout":5000} ] } ], ... }`. Code Puppy's
+hook-config *validator* requires `matcher` on every group (its loader would
+default an absent one to `"*"`, but validation rejects a missing field), so cmux
+writes it explicitly for all events including the PreToolUse/PostToolUse Feed
+bridges. Wire the name into `cmux hooks setup` and the supported-agents help
+text (`CLI/cmux.swift` ~line 15289).
 
 **Resume (native, no changes to Code Puppy).** Register a Vault agent
 (`CmuxVaultAgentRegistration`) so cmux mints and reads the session id from argv:

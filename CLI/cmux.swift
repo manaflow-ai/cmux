@@ -28086,9 +28086,13 @@ struct CMUXCLI {
             case .nested(let timeoutMs):
                 var groups = result[event.agentEvent] as? [[String: Any]] ?? []
                 let timeout = nestedHookTimeout(timeoutMs, for: def)
-                groups.append([
+                var group: [String: Any] = [
                     "hooks": [["type": "command", "command": cmd, "timeout": timeout] as [String: Any]]
-                ] as [String: Any])
+                ]
+                if let matcher = def.nestedGroupMatcher {
+                    group["matcher"] = matcher
+                }
+                groups.append(group)
                 result[event.agentEvent] = groups
             case .antigravityJSON(let timeoutSeconds):
                 var entries = result[event.agentEvent] as? [[String: Any]] ?? []
@@ -28124,9 +28128,13 @@ struct CMUXCLI {
             case .nested:
                 var groups = result[agentEvent] as? [[String: Any]] ?? []
                 let timeout = nestedFeedHookTimeout(feedTimeoutMs, for: def)
-                groups.append([
+                var group: [String: Any] = [
                     "hooks": [["type": "command", "command": feedCmd, "timeout": timeout] as [String: Any]]
-                ] as [String: Any])
+                ]
+                if let matcher = def.nestedGroupMatcher {
+                    group["matcher"] = matcher
+                }
+                groups.append(group)
                 result[agentEvent] = groups
             case .antigravityJSON:
                 var entries = result[agentEvent] as? [[String: Any]] ?? []

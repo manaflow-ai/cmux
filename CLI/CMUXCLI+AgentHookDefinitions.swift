@@ -21,6 +21,12 @@ extension CMUXCLI {
         let format: HookFormat
         let events: [HookEvent]
         let aliases: Set<String>
+        /// When non-nil, each `.nested` hook group is written with this
+        /// `matcher` value. Code Puppy's hook-config validator requires a
+        /// `matcher` field on every group (its loader defaults an absent one to
+        /// "*", but validation rejects it outright). Claude Code / Codex / Gemini
+        /// / Copilot do not need it, so this stays nil for them.
+        let nestedGroupMatcher: String?
         let publishesStopNotification: Bool
         /// Whether this agent's `SessionEnd`/`session-end` hook fires once per
         /// conversation turn rather than at a true session teardown.
@@ -108,6 +114,7 @@ extension CMUXCLI {
              sessionStoreSuffix: String, disableEnvVar: String, hookMarker: String,
              format: HookFormat, events: [HookEvent],
              aliases: Set<String> = [],
+             nestedGroupMatcher: String? = nil,
              publishesStopNotification: Bool = true,
              sessionEndIsTurnBoundary: Bool = false,
              feedHookEvents: [String] = [],
@@ -124,6 +131,7 @@ extension CMUXCLI {
             self.hookMarker = hookMarker; self.format = format; self.events = events
             self.publishesStopNotification = publishesStopNotification
             self.sessionEndIsTurnBoundary = sessionEndIsTurnBoundary
+            self.nestedGroupMatcher = nestedGroupMatcher
             self.aliases = Set(aliases.compactMap { alias in
                 let normalized = alias.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                 return normalized.isEmpty ? nil : normalized
