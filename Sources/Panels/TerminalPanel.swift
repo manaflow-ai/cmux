@@ -176,7 +176,7 @@ final class TerminalPanel: Panel, ObservableObject {
         self.workspaceId = workspaceId
         self.surface = surface
         // Subscribe to surface's search state changes
-        surface.$searchState
+        surface.searchStatePublisher
             .sink { [weak self] state in
                 if self?.searchState !== state {
                     self?.searchState = state
