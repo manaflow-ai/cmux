@@ -1096,11 +1096,15 @@ mod tests {
         });
 
         let result = result_rx.recv_timeout(Duration::from_millis(200));
+        let retained_event = event_rx.recv_timeout(Duration::from_millis(200));
         stop_tx.send(()).unwrap();
         server.join().unwrap();
-        drop(event_rx);
         call.join().unwrap();
         assert!(result.is_ok(), "undrained event sink blocked command response: {result:?}");
+        assert!(
+            matches!(retained_event, Ok(CdpEvent::TargetInfoChanged(_))),
+            "final replaceable event was lost: {retained_event:?}"
+        );
     }
 
     #[test]
