@@ -19,11 +19,15 @@ struct MobilePairedMacPersistenceFailureTests {
         let inner = try MobilePairedMacStore(
             databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
         )
+        let defaultsSuite = "paired-mac-persistence-failure-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsSuite))
+        defaults.removePersistentDomain(forName: defaultsSuite)
         let shell = MobileShellComposite(
             isSignedIn: true,
             pairedMacStore: GatedUpsertStore(inner: inner, failUpsert: true),
             identityProvider: StaticIdentityProvider(userID: "user-1"),
-            teamIDProvider: { "team-a" }
+            teamIDProvider: { "team-a" },
+            pairingHintDefaults: defaults
         )
         let route = try CmxAttachRoute(
             id: "iroh-test",
