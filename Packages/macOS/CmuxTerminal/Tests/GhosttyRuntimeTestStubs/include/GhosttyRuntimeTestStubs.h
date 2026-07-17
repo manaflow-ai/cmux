@@ -17,6 +17,18 @@ typedef struct {
 
 bool ghostty_surface_clear_selection(void *surface);
 
+void *ghostty_config_new(void);
+void ghostty_config_free(void *config);
+void ghostty_config_load_string(
+    void *config,
+    const char *contents,
+    uintptr_t contents_len,
+    const char *path);
+bool ghostty_config_get(
+    void *config,
+    void *value,
+    const char *key,
+    uintptr_t key_len);
 void ghostty_config_diagnostics_count(void);
 void ghostty_config_get_diagnostic(void);
 void ghostty_string_free(ghostty_string_s string);
@@ -32,7 +44,6 @@ void ghostty_surface_mouse_pos(void);
 void ghostty_surface_mouse_scroll(void);
 bool ghostty_surface_needs_confirm_quit(void *surface);
 void ghostty_surface_new(void);
-void* ghostty_surface_new_with_scrollback_limit(void* app, const void* config, uintptr_t scrollback_limit_bytes);
 bool ghostty_surface_process_exited(void *surface);
 void ghostty_surface_process_output(void);
 void ghostty_surface_quicklook_font(void);
@@ -40,10 +51,11 @@ void ghostty_surface_read_screen_tail_vt(void);
 void ghostty_surface_read_text(void);
 void ghostty_surface_refresh(void);
 void ghostty_surface_render_grid_json(void);
+void ghostty_surface_render_grid_json_with_theme(void);
 void ghostty_surface_set_content_scale(void);
 void ghostty_surface_set_display_id(void);
 void ghostty_surface_set_focus(void);
-void ghostty_surface_set_occlusion(void *surface, bool visible);
+void ghostty_surface_set_occlusion(void);
 void ghostty_surface_set_renderer_realized(void);
 void ghostty_surface_set_size(void);
 void ghostty_surface_size(void);
@@ -53,8 +65,5 @@ ghostty_string_s ghostty_surface_tty_name(void *surface);
 
 void cmux_test_ghostty_runtime_stubs_reset(void);
 void cmux_test_ghostty_runtime_stubs_set_close_state(bool needs_confirm, uint64_t foreground_pid, const char* tty_name);
-uint64_t cmux_test_ghostty_surface_set_occlusion_call_count(void);
-bool cmux_test_ghostty_surface_last_occlusion_visible(void);
-uintptr_t cmux_test_ghostty_surface_last_scrollback_limit_bytes(void);
 
 #endif

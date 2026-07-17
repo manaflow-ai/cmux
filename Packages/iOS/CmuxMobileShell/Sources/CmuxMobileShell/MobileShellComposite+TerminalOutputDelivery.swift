@@ -54,6 +54,13 @@ extension MobileShellComposite {
               hasTerminalOutputSink(surfaceID: renderGrid.surfaceID) else {
             return
         }
+        // Theme revisions are ordered independently from terminal byte content.
+        // A delayed full frame may be stale for the VT replay while still carrying
+        // the newest theme revision, and subsequent deltas intentionally omit it.
+        let acceptedNewTheme = recordTerminalTheme(renderGrid)
+        if acceptedNewTheme {
+            _ = deliverTerminalTheme(renderGrid, surfaceID: renderGrid.surfaceID)
+        }
         // The stale floor is the delivered high-water mark, surviving a replay
         // barrier via the pre-barrier stash: a buffered frame from before the
         // barrier must not paint (and must not establish an outdated baseline)
@@ -160,6 +167,13 @@ extension MobileShellComposite {
             terminalOutputStreamTokensBySurfaceID[renderGrid.surfaceID] = UUID()
             terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: renderGrid.surfaceID)
             terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: renderGrid.surfaceID)
+            if acceptedNewTheme {
+                _ = deliverTerminalTheme(
+                    renderGrid,
+                    surfaceID: renderGrid.surfaceID,
+                    bypassReplayBarrier: true
+                )
+            }
         }
         guard deliverTerminalRenderGrid(
             renderGrid,
@@ -209,12 +223,40 @@ extension MobileShellComposite {
         surfaceID: String,
         bypassReplayBarrier: Bool = false
     ) -> Bool {
+        let hasCurrentThemeRevision = hasCurrentTerminalThemeRevision(frame)
+        recordTerminalTheme(frame)
+        let deliveryFrame: MobileTerminalRenderGridFrame
+        if hasCurrentThemeRevision {
+            deliveryFrame = frame
+        } else {
+            MobileDebugLog.anchormux(
+                "sync.render_grid_stale_theme surface=\(frame.surfaceID) revision=\(frame.terminalThemeRevision ?? 0)"
+            )
+            deliveryFrame = frame.replacingThemeColors(
+                with: terminalTheme(for: frame.surfaceID),
+                config: terminalConfigTheme(for: frame.surfaceID),
+                revision: terminalThemeState.revisionsBySurfaceID[frame.surfaceID]
+            )
+        }
         return deliverTerminalOutput(
             TerminalOutputDelivery(
-                renderGrid: frame,
-                replaceable: frame.isReplaceableViewportPatchForMobileDelivery,
-                viewportPolicy: frame.mobileViewportPolicy
+                renderGrid: deliveryFrame,
+                replaceable: deliveryFrame.isReplaceableViewportPatchForMobileDelivery,
+                viewportPolicy: deliveryFrame.mobileViewportPolicy
             ),
+            surfaceID: surfaceID,
+            bypassReplayBarrier: bypassReplayBarrier
+        )
+    }
+
+    @discardableResult
+    func deliverTerminalTheme(
+        _ frame: MobileTerminalRenderGridFrame,
+        surfaceID: String,
+        bypassReplayBarrier: Bool = false
+    ) -> Bool {
+        deliverTerminalOutput(
+            TerminalOutputDelivery(theme: frame),
             surfaceID: surfaceID,
             bypassReplayBarrier: bypassReplayBarrier
         )
@@ -290,7 +332,8 @@ extension MobileShellComposite {
                 MobileTerminalOutputChunk(
                     data: immediate.bytes,
                     streamToken: streamToken,
-                    viewportPolicy: immediate.viewportPolicy
+                    viewportPolicy: immediate.viewportPolicy,
+                    terminalConfigTheme: immediate.terminalConfigTheme
                 )
             )
         }
@@ -374,7 +417,8 @@ extension MobileShellComposite {
         continuation.yield(MobileTerminalOutputChunk(
             data: next.bytes,
             streamToken: streamToken,
-            viewportPolicy: next.viewportPolicy
+            viewportPolicy: next.viewportPolicy,
+            terminalConfigTheme: next.terminalConfigTheme
         ))
     }
 
@@ -470,4 +514,35 @@ extension MobileShellComposite {
         requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
     }
 
+}
+
+private extension MobileTerminalRenderGridFrame {
+    func replacingThemeColors(
+        with theme: TerminalTheme,
+        config: TerminalTheme,
+        revision: UInt64?
+    ) -> Self {
+        var frame = self
+        let reverseColors = frame.modes.last(where: { !$0.ansi && $0.code == 5 })?.on == true
+        let rawForeground = reverseColors ? theme.background : theme.foreground
+        let rawBackground = reverseColors ? theme.foreground : theme.background
+        frame.terminalForeground = rawForeground.caseInsensitiveCompare(config.foreground) == .orderedSame
+            ? nil
+            : rawForeground
+        frame.terminalBackground = rawBackground.caseInsensitiveCompare(config.background) == .orderedSame
+            ? nil
+            : rawBackground
+        let configuredCursor = switch config.cursorColorSemantic {
+        case .foreground: theme.foreground
+        case .background: theme.background
+        case nil: config.cursor
+        }
+        frame.terminalCursorColor = theme.cursor.caseInsensitiveCompare(configuredCursor) == .orderedSame
+            ? nil
+            : theme.cursor
+        frame.terminalTheme = theme
+        frame.terminalConfigTheme = config
+        frame.terminalThemeRevision = revision
+        return frame
+    }
 }

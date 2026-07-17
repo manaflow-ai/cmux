@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use ghostty_vt::{Callbacks, Cell, ColorSpec, Dirty, RenderState, Rgb, Terminal};
+use ghostty_vt::{Callbacks, Cell, ColorSpec, CursorShape, Dirty, RenderState, Rgb, Terminal};
 
 fn snapshot_cells(term: &mut Terminal) -> Vec<Vec<Cell>> {
     let mut rs = RenderState::new().unwrap();
@@ -86,19 +86,49 @@ fn default_colors_answer_osc_queries() {
     term.vt_write(b"\x1b]11;?\x07");
     assert!(pty_out.lock().unwrap().is_empty());
 
-    term.set_default_colors(None, Some(Rgb { r: 0x13, g: 0x14, b: 0x15 }));
+    term.set_default_colors(None, Some(Rgb { r: 0x13, g: 0x14, b: 0x15 }), None);
     term.vt_write(b"\x1b]11;?\x07");
     assert_eq!(&*pty_out.lock().unwrap(), b"\x1b]11;rgb:1313/1414/1515\x07");
 
     pty_out.lock().unwrap().clear();
-    term.set_default_colors(Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }), None);
+    term.set_default_colors(Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }), None, None);
     term.vt_write(b"\x1b]10;?\x07");
     assert_eq!(&*pty_out.lock().unwrap(), b"\x1b]10;rgb:0101/0202/0303\x07");
+
+    pty_out.lock().unwrap().clear();
+    term.set_default_colors(None, None, Some(Rgb { r: 0xc0, g: 0xc1, b: 0xb5 }));
+    term.vt_write(b"\x1b]12;?\x07");
+    assert_eq!(&*pty_out.lock().unwrap(), b"\x1b]12;rgb:c0c0/c1c1/b5b5\x07");
 
     pty_out.lock().unwrap().clear();
     term.vt_write(b"\x1b]11;rgb:20/40/60\x07");
     term.vt_write(b"\x1b]11;?\x07");
     assert_eq!(&*pty_out.lock().unwrap(), b"\x1b]11;rgb:2020/4040/6060\x07");
+}
+
+#[test]
+fn ghostty_config_colors_and_palette_defaults_use_engine_parsers() {
+    assert_eq!(ghostty_vt::parse_color("ForestGreen"), Some(Rgb { r: 0x22, g: 0x8b, b: 0x22 }));
+    assert_eq!(
+        ghostty_vt::parse_palette_entry("0xF = #123456"),
+        Some((15, Rgb { r: 0x12, g: 0x34, b: 0x56 }))
+    );
+    assert_eq!(ghostty_vt::parse_palette_entry("256=#ffffff"), None);
+
+    let mut term = Terminal::new(8, 2, 0, Callbacks::default()).unwrap();
+    let mut palette = [None; 256];
+    palette[1] = Some(Rgb { r: 0x44, g: 0x55, b: 0x66 });
+    term.set_default_palette(&palette);
+    term.vt_write(b"\x1b[31mR");
+
+    let mut state = RenderState::new().unwrap();
+    state.update(&mut term).unwrap();
+    assert_eq!(state.palette_color(1), Rgb { r: 0x44, g: 0x55, b: 0x66 });
+    assert!(!state.palette_overridden(1));
+    assert_eq!(
+        state.build_frame().unwrap().row_runs(0).unwrap()[0].fg,
+        Some(Rgb { r: 0x44, g: 0x55, b: 0x66 })
+    );
 }
 
 #[test]
@@ -110,6 +140,79 @@ fn alt_screen_and_modes() {
     assert!(!term.mouse_tracking());
     term.vt_write(b"\x1b[?1000h");
     assert!(term.mouse_tracking());
+}
+
+#[test]
+fn render_state_cursor_visual_tracks_defaults_and_decscusr() {
+    let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+    term.set_default_cursor(Some(CursorShape::Bar), Some(false));
+
+    let mut rs = RenderState::new().unwrap();
+    rs.update(&mut term).unwrap();
+    assert!(!term.cursor_overridden());
+    assert_eq!(rs.cursor_visual().unwrap(), (CursorShape::Bar, false));
+
+    term.vt_write(b"\x1b[3");
+    term.vt_write(b" q");
+    rs.update(&mut term).unwrap();
+    assert!(term.cursor_overridden());
+    assert_eq!(rs.cursor_visual().unwrap(), (CursorShape::Underline, true));
+
+    term.vt_write(b"\x1b[0 q");
+    rs.update(&mut term).unwrap();
+    assert!(!term.cursor_overridden());
+    assert_eq!(rs.cursor_visual().unwrap(), (CursorShape::Bar, false));
+}
+
+#[test]
+fn cursor_override_tracker_ignores_control_text() {
+    let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+    term.vt_write(b"\x1b]2;not-a-sequence \x1b[3 q\x07");
+    assert!(!term.cursor_overridden());
+
+    term.vt_write(b"\x1b[3q");
+    assert!(!term.cursor_overridden());
+
+    term.vt_write(b"\x1b[5 q");
+    assert!(term.cursor_overridden());
+    term.vt_write(b"\x1bc");
+    assert!(!term.cursor_overridden());
+}
+
+#[test]
+fn cursor_override_tracker_survives_utf8_text() {
+    // U+1F44D encodes as f0 9f 91 8d; the 0x9f byte is UTF-8 text in ground
+    // state, not a C1 OSC opener. A tracker that misreads it enters a control
+    // string it never leaves and misses every later DECSCUSR.
+    let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+    term.vt_write("👍".as_bytes());
+    term.vt_write(b"\x1b[5 q");
+    assert!(term.cursor_overridden());
+
+    // Same for 0x9d (e.g. in "\u{275d}" = e2 9d 9d), including inside a
+    // BEL-terminated OSC title that itself contains emoji.
+    let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+    term.vt_write("❝".as_bytes());
+    term.vt_write("\u{1b}]0;title 👍\u{7}".as_bytes());
+    term.vt_write(b"\x1b[3 q");
+    assert!(term.cursor_overridden());
+}
+
+#[test]
+fn vt_replay_restores_cursor_position_after_tabstops() {
+    // The formatter emits tabstop programming after its cursor restore;
+    // vt_replay re-asserts the true cursor last so a fresh mirror doesn't
+    // end parked on the final tabstop column (issue seen as a mid-line
+    // cursor beam in byte-mode frontends).
+    let mut source = Terminal::new(104, 39, 0, Callbacks::default()).unwrap();
+    source.vt_write(b"lawrence in ~ \xce\xbb ");
+    let (sx, sy) = source.cursor_position().unwrap();
+    assert_eq!((sx, sy), (16, 0));
+
+    let replay = source.vt_replay().unwrap();
+    let mut mirror = Terminal::new(104, 39, 0, Callbacks::default()).unwrap();
+    mirror.vt_write(&replay);
+    assert_eq!(mirror.cursor_position().unwrap(), (sx, sy), "mirror cursor diverged after replay");
 }
 
 #[test]

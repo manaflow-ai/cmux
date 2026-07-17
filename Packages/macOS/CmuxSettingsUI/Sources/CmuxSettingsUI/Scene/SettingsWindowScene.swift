@@ -464,20 +464,22 @@ public struct SettingsWindowRoot: View {
 
         BetaFeaturesSection(defaultsStore: defaultsStore, catalog: catalog)
             .id(anchorID(for: .betaFeatures))
-
         AutomationSection(
             defaultsStore: defaultsStore,
             jsonStore: jsonStore,
             secretStore: secretStore,
             catalog: catalog,
-            errorLog: runtime.errorLog
+            errorLog: runtime.errorLog,
+            hostActions: hostActions
         )
         .id(anchorID(for: .automation))
 
         BrowserSection(
             defaultsStore: defaultsStore,
+            jsonStore: jsonStore,
             catalog: catalog,
             hostActions: hostActions,
+            errorLog: runtime.errorLog,
             importAnchorID: anchorID(for: .browserImport)
         )
         .id(anchorID(for: .browser))
@@ -485,13 +487,13 @@ public struct SettingsWindowRoot: View {
         GlobalHotkeySection(
             defaultsStore: defaultsStore,
             jsonStore: jsonStore,
-            catalog: catalog,
-            errorLog: runtime.errorLog
+            catalog: catalog, errorLog: runtime.errorLog,
+            hostActions: hostActions
         )
         .id(anchorID(for: .globalHotkey))
 
         KeyboardShortcutsSection(
-            jsonStore: jsonStore,
+            jsonStore: jsonStore, userDefaultsStore: defaultsStore,
             catalog: catalog,
             errorLog: runtime.errorLog,
             hostActions: hostActions

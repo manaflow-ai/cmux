@@ -23,6 +23,7 @@ import CryptoKit
 import Darwin
 import Network
 import CoreText
+import WebKit
 
 #if DEBUG
 func debugWorkspaceDescriptionPreview(_ text: String?, limit: Int = 120) -> String {
@@ -38,10 +39,6 @@ func debugWorkspaceDescriptionPreview(_ text: String?, limit: Int = 120) -> Stri
     return "\(escaped.prefix(limit))..."
 }
 #endif
-
-private final class WorkspacePendingTerminalInputObserver: @unchecked Sendable {
-    var observer: NSObjectProtocol?
-}
 
 private struct SessionPaneRestoreEntry {
     let paneId: PaneID
@@ -1828,102 +1825,6 @@ extension Workspace {
 
 // MARK: - Config-driven terminal input delivery
 
-extension Workspace {
-
-    /// Delivers config-driven startup input (`Workspace+CustomLayout.swift`) once
-    /// the terminal surface is ready, or immediately when it already is.
-    func sendInputWhenReady(
-        _ text: String,
-        to panel: TerminalPanel,
-        reason: WorkspacePendingTerminalInputReason = .configurationCommand
-    ) {
-        if panel.surface.surface != nil {
-            panel.sendInput(text)
-            return
-        }
-
-        let timeout = reason.timeout
-        let panelId = panel.id
-        let registration = WorkspacePendingTerminalInputObserver()
-
-        registration.observer = NotificationCenter.default.addObserver(
-            forName: .terminalSurfaceDidBecomeReady,
-            object: panel.surface,
-            queue: .main
-        ) { [weak self, registration] _ in
-            Task { @MainActor [weak self, registration] in
-                guard
-                    let self,
-                    self.hasPendingTerminalInputObserver(registration, forPanelId: panelId)
-                else {
-                    return
-                }
-
-                self.removePendingTerminalInputObserver(registration, forPanelId: panelId)
-                if let panel = self.panels[panelId] as? TerminalPanel {
-                    panel.sendInput(text)
-                }
-            }
-        }
-        pendingTerminalInputObserversByPanelId[panelId, default: []].append(registration)
-        panel.surface.requestBackgroundSurfaceStartIfNeeded()
-
-        guard let timeout else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { [weak self, registration] in
-            Task { @MainActor [weak self, registration] in
-                guard
-                    let self,
-                    self.hasPendingTerminalInputObserver(registration, forPanelId: panelId)
-                else {
-                    return
-                }
-
-                self.removePendingTerminalInputObserver(registration, forPanelId: panelId)
-                #if DEBUG
-                NSLog("[CmuxConfig] surface not ready after 3s, dropping command (%d chars)", text.count)
-                #endif
-            }
-        }
-    }
-
-    private func hasPendingTerminalInputObserver(
-        _ registration: WorkspacePendingTerminalInputObserver,
-        forPanelId panelId: UUID
-    ) -> Bool {
-        pendingTerminalInputObserversByPanelId[panelId]?.contains {
-            $0 === registration
-        } == true
-    }
-
-    private func removePendingTerminalInputObserver(
-        _ registration: WorkspacePendingTerminalInputObserver,
-        forPanelId panelId: UUID
-    ) {
-        if let observer = registration.observer {
-            NotificationCenter.default.removeObserver(observer)
-            registration.observer = nil
-        }
-        pendingTerminalInputObserversByPanelId[panelId]?.removeAll {
-            $0 === registration
-        }
-        if pendingTerminalInputObserversByPanelId[panelId]?.isEmpty == true {
-            pendingTerminalInputObserversByPanelId.removeValue(forKey: panelId)
-        }
-    }
-
-    func removePendingTerminalInputObservers(forPanelId panelId: UUID) {
-        guard let observers = pendingTerminalInputObserversByPanelId.removeValue(forKey: panelId) else {
-            return
-        }
-        for registration in observers {
-            if let observer = registration.observer {
-                NotificationCenter.default.removeObserver(observer)
-                registration.observer = nil
-            }
-        }
-    }
-
-}
 
 
 /// Lifted to `CmuxBrowser.ClosedBrowserPanelRestoreSnapshot` (Workspace
@@ -1938,6 +1839,7 @@ final class Workspace: Identifiable, ObservableObject {
         case userInitiated
         case automationPreload
         case restoration
+        case extensionRequested
 
         var permitsCreationWhenBrowserDisabled: Bool {
             self == .restoration
@@ -1945,6 +1847,10 @@ final class Workspace: Identifiable, ObservableObject {
 
         var preloadsInitialNavigationInBackground: Bool {
             self == .automationPreload
+        }
+
+        var opensExternallyWhenBrowserDisabled: Bool {
+            self != .extensionRequested
         }
     }
 
@@ -2010,6 +1916,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published private(set) var surfaceTabBarDirectory: String?
     private(set) var preferredBrowserProfileID: UUID?
     let closeTabWarningDefaults, agentSessionAutoResumeDefaults: UserDefaults
+    let browserWebExtensionHost: (any BrowserWebExtensionHosting)?
 
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
     var portOrdinal: Int = 0
@@ -2039,7 +1946,8 @@ final class Workspace: Identifiable, ObservableObject {
                     remoteWebsiteDataStoreIdentifier: self.isRemoteWorkspace ? self.id : nil,
                     remoteStatus: self.browserRemoteWorkspaceStatusSnapshot()
                 )
-            }
+            },
+            browserWebExtensionHost: browserWebExtensionHost
         )
         _dockSplit = store
         return store
@@ -2225,9 +2133,9 @@ final class Workspace: Identifiable, ObservableObject {
             syncPanelDerivedWorkspaceUnread()
         }
     }
-    var restoredUnreadPanelIds: Set<UUID> {
-        Set(restoredUnreadPanelIndicators.keys)
-    }
+    var restoredUnreadPanelIds: Set<UUID> { Set(restoredUnreadPanelIndicators.keys) }
+
+    var hasAnyRestoredUnreadPanelIndicator: Bool { !restoredUnreadPanelIndicators.isEmpty }
     @Published private(set) var tmuxLayoutSnapshot: LayoutSnapshot?
     @Published private(set) var tmuxWorkspaceFlashPanelId: UUID?
     @Published private(set) var tmuxWorkspaceFlashReason: WorkspaceAttentionFlashReason?
@@ -2293,11 +2201,15 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var remoteLastHeartbeatAt: Date?
     @Published var listeningPorts: [Int] = []
     @Published private(set) var activeRemoteTerminalSessionCount: Int = 0
-    private var remoteSessionController: RemoteSessionCoordinator?
-    private enum RemoteForegroundAuthenticationPhase: Equatable {
+    var remoteSessionController: RemoteSessionCoordinator?
+    // Retains each detached controller until cleanup finishes or ownership transfers.
+    var remoteSessionCleanupControllers: [UUID: (controller: RemoteSessionCoordinator, configuration: WorkspaceRemoteConfiguration)] = [:]
+    var remoteSessionTransitionTask: Task<Void, Never>?
+    var remoteSessionTransitionID: UUID?
+    enum RemoteForegroundAuthenticationPhase: Equatable {
         case readyBeforeConfiguration(token: String), authenticating(token: String)
     }
-    private var remoteForegroundAuthenticationPhase: RemoteForegroundAuthenticationPhase?
+    var remoteForegroundAuthenticationPhase: RemoteForegroundAuthenticationPhase?
     var activeRemoteSessionControllerID: UUID?
     private var remoteLastErrorFingerprint: String?
     private var remoteLastDaemonErrorFingerprint: String?
@@ -2394,7 +2306,7 @@ final class Workspace: Identifiable, ObservableObject {
         get { restoredAgentLifecycle.invalidatedFingerprintsByPanelId }
         set { restoredAgentLifecycle.invalidatedFingerprintsByPanelId = newValue }
     }
-    private var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]
+    var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]
     private let sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>
 
     typealias SurfaceResumeStartupLaunch = WorkspaceSurfaceResumeStartupLaunch
@@ -2888,6 +2800,7 @@ final class Workspace: Identifiable, ObservableObject {
         initialBrowserTransparentBackground: Bool = false,
         workspaceEnvironment: [String: String] = [:],
         allowTextBoxFocusDefault: Bool = true,
+        browserWebExtensionHost: (any BrowserWebExtensionHosting)? = nil,
         closeTabWarningDefaults: UserDefaults = .standard,
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
         initialDetachedSurface: DetachedSurfaceTransfer? = nil,
@@ -2899,6 +2812,7 @@ final class Workspace: Identifiable, ObservableObject {
         self.sidebarProcessTitleObservation = sidebarProcessTitleObservation ?? WorkspaceSidebarProcessTitleObservationModel()
         self.closeTabWarningDefaults = closeTabWarningDefaults
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
+        self.browserWebExtensionHost = browserWebExtensionHost
         let sanitizedWorkspaceEnvironment = Self.sanitizedWorkspaceEnvironment(workspaceEnvironment)
         self.workspaceEnvironment = sanitizedWorkspaceEnvironment
         self.portOrdinal = portOrdinal
@@ -2916,8 +2830,7 @@ final class Workspace: Identifiable, ObservableObject {
         self.currentDirectory = initialDirectory
         self.surfaceTabBarDirectory = initialDirectory
 
-        // Panel models own restoration state, so hidden tabs need no parallel SwiftUI tree.
-        // Mounting only the selected tab keeps updates proportional to visible panes.
+        // Preserve terminal state and inherit tab-strip sizing without repeated config parsing.
         let initialSurfaceTabBarFontSize = GhosttyConfig.load(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).surfaceTabBarFontSize
         let appearance = Self.bonsplitAppearance(
             from: GhosttyApp.shared.defaultBackgroundColor,
@@ -2931,7 +2844,7 @@ final class Workspace: Identifiable, ObservableObject {
             allowTabReordering: true,
             allowCrossPaneTabMove: true,
             autoCloseEmptyPanes: true,
-            contentViewLifecycle: .recreateOnSwitch,
+            contentViewLifecycle: .keepAllAlive,
             newTabPosition: .current,
             appearance: appearance
         )
@@ -2971,7 +2884,8 @@ final class Workspace: Identifiable, ObservableObject {
                 profileID: resolvedNewBrowserProfileID(),
                 initialURL: initialBrowserURL,
                 omnibarVisible: initialBrowserOmnibarVisible,
-                transparentBackground: initialBrowserTransparentBackground
+                transparentBackground: initialBrowserTransparentBackground,
+                browserWebExtensionHost: browserWebExtensionHost
             )
             configureBrowserPanel(browserPanel)
             panels[browserPanel.id] = browserPanel
@@ -2995,8 +2909,12 @@ final class Workspace: Identifiable, ObservableObject {
             ) {
                 bindSurface(tabId, toPanelId: browserPanel.id)
                 initialTabId = tabId
+                installBrowserPanelSubscription(browserPanel)
+            } else {
+                panels.removeValue(forKey: browserPanel.id)
+                panelTitles.removeValue(forKey: browserPanel.id)
+                browserPanel.close()
             }
-            installBrowserPanelSubscription(browserPanel)
         } else if initialSurface == .cloudVMLoading {
             let loadingPanel = CloudVMLoadingPanel(workspaceId: id)
             panels[loadingPanel.id] = loadingPanel
@@ -3065,13 +2983,18 @@ final class Workspace: Identifiable, ObservableObject {
         }
         bonsplitController.tabContextForkConversationAvailabilityProvider = { [weak self] tabId, _ in
             guard let self,
-                  let panelId = self.panelIdFromSurfaceId(tabId) else { return false }
-            return self.forkAgentConversationContextMenuAvailability(forPanelId: panelId).isAvailable
-        }
-        bonsplitController.tabContextForkConversationOpenAvailabilityProvider = { [weak self] tabId, _ in
-            guard let self,
-                  let panelId = self.panelIdFromSurfaceId(tabId) else { return false }
-            return self.forkAgentConversationContextMenuOpenAvailability(forPanelId: panelId).isAvailable
+                  let panelId = self.panelIdFromSurfaceId(tabId) else { return .hidden }
+            switch self.forkAgentConversationContextMenuPresentationAvailability(forPanelId: panelId) {
+            case .available:
+                return .available
+            case .agentIndexRefreshing:
+                return .refreshing
+            case .notTerminalPanel,
+                 .noAgentSnapshot,
+                 .unsupported,
+                 .requiresProbe:
+                return .hidden
+            }
         }
         bonsplitController.tabContextForkConversationDefaultActionProvider = { _, _ in
             AgentConversationForkDefaultSettings.current().tabContextAction
@@ -3146,19 +3069,22 @@ final class Workspace: Identifiable, ObservableObject {
 
     private var sharedLiveAgentIndexObserver: NSObjectProtocol?
 
-    deinit {
+    isolated deinit {
         for registrations in pendingTerminalInputObserversByPanelId.values {
             for registration in registrations {
                 if let observer = registration.observer {
                     NotificationCenter.default.removeObserver(observer)
                 }
+                registration.timeoutTimer?.cancel()
             }
         }
         if let sharedLiveAgentIndexObserver {
             NotificationCenter.default.removeObserver(sharedLiveAgentIndexObserver)
         }
         activeRemoteSessionControllerID = nil
-        remoteSessionController?.stop()
+        remoteSessionTransitionTask?.cancel()
+        remoteSessionController?.stop(cleanupScope: .persistentSlot)
+        for owner in remoteSessionCleanupControllers.values { owner.controller.stop(cleanupScope: .persistentSlot) }
         PortScanner.shared.scheduleAgentWorkspaceUnregistration(workspaceId: id)
     }
 
@@ -3622,6 +3548,11 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func installBrowserPanelSubscription(_ browserPanel: BrowserPanel) {
+        browserPanel.registerWebExtensionIfNeeded()
+        browserPanel.browserWebExtensionHost?.noteWindowChanged(panelID: browserPanel.id)
+        if focusedPanelId == browserPanel.id {
+            browserPanel.noteWebExtensionActivated()
+        }
         let browserTabState = Publishers.CombineLatest4(
             browserPanel.$pageTitle.removeDuplicates(), browserPanel.$currentURL.removeDuplicates(),
             browserPanel.$isLoading.removeDuplicates(), browserPanel.$faviconPNGData.removeDuplicates(by: { $0 == $1 })
@@ -3634,6 +3565,7 @@ final class Workspace: Identifiable, ObservableObject {
             guard let self = self,
                   let browserPanel = browserPanel,
                   let tabId = self.surfaceIdFromPanelId(browserPanel.id) else { return }
+            browserPanel.browserWebExtensionHost?.noteTabMetadataChanged(panelID: browserPanel.id)
             self.publishBrowserOpenTabSuggestion(for: browserPanel)
             guard let existing = self.bonsplitController.tab(tabId) else { return }
             let nextTitle = browserPanel.displayTitle
@@ -3822,7 +3754,7 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
-    private func applyBrowserRemoteWorkspaceStatusToPanels() {
+    func applyBrowserRemoteWorkspaceStatusToPanels() {
         let snapshot = browserRemoteWorkspaceStatusSnapshot()
         for panel in panels.values { (panel as? BrowserPanel)?.setRemoteWorkspaceStatus(snapshot) }
         _dockSplit?.applyRemoteWorkspaceStatus(snapshot)
@@ -5303,9 +5235,12 @@ final class Workspace: Identifiable, ObservableObject {
         postRemoteConnectionPresentationDidChange()
 
         let previousController = remoteSessionController
+        let previousControllerID = activeRemoteSessionControllerID
         activeRemoteSessionControllerID = nil
         remoteSessionController = nil
-        previousController?.stop()
+        if let previousController, let previousControllerID, let previousConfiguration {
+            remoteSessionCleanupControllers[previousControllerID] = (previousController, previousConfiguration)
+        }
         applyRemoteProxyEndpointUpdate(nil)
         applyBrowserRemoteWorkspaceStatusToPanels()
         let foregroundAuthToken = Self.normalizedForegroundAuthToken(configuration.foregroundAuthToken)
@@ -5319,6 +5254,11 @@ final class Workspace: Identifiable, ObservableObject {
             remoteConnectionState = .connected
             applyBrowserRemoteWorkspaceStatusToPanels()
             postRemoteConnectionPresentationDidChange()
+            enqueueRemoteSessionTransition(
+                targetConfiguration: configuration,
+                shouldStartController: false,
+                finalCleanup: false
+            )
             return
         }
         guard shouldAutoConnect else {
@@ -5326,130 +5266,21 @@ final class Workspace: Identifiable, ObservableObject {
             remoteConnectionState = foregroundAuthToken == nil ? .disconnected : .connecting
             applyBrowserRemoteWorkspaceStatusToPanels()
             postRemoteConnectionPresentationDidChange()
+            enqueueRemoteSessionTransition(
+                targetConfiguration: configuration,
+                shouldStartController: false,
+                finalCleanup: false
+            )
             return
         }
         remoteConnectionState = .connecting
         applyBrowserRemoteWorkspaceStatusToPanels()
         postRemoteConnectionPresentationDidChange()
-        let controllerID = UUID()
-        var processRunner: any RemoteSessionProcessRunning = RemoteSessionProcessRunner()
-#if DEBUG
-        if let override = remoteSessionProcessRunnerOverrideForTesting {
-            processRunner = override
-        }
-#endif
-        let controller = RemoteSessionCoordinator(
-            host: WorkspaceRemoteSessionHostAdapter(workspace: self, controllerID: controllerID),
-            configuration: configuration,
-            proxyBroker: TerminalController.shared.remoteProxyBroker,
-            manifestRepository: RemoteDaemonManifestRepository(
-                homeDirectory: FileManager.default.homeDirectoryForCurrentUser
-            ),
-            processRunner: processRunner,
-            reachabilityProbe: RemoteHostReachabilityProbe(),
-            relayCommandRewriter: WorkspaceRemoteRelayCommandRewriter(),
-            buildInfo: WorkspaceRemoteSessionBuildInfo(),
-            daemonStrings: RemoteDaemonStrings.appLocalized,
-            strings: RemoteSessionStrings.appLocalized
+        enqueueRemoteSessionTransition(
+            targetConfiguration: configuration,
+            shouldStartController: true,
+            finalCleanup: false
         )
-        activeRemoteSessionControllerID = controllerID
-        remoteSessionController = controller
-        controller.updateRemotePortScanningEnabled(Self.remotePortScanningEnabledFromSettings())
-        syncRemotePortScanTTYs()
-        syncRemoteRelayIDAliasesToController()
-        controller.start()
-    }
-
-    @discardableResult
-    func reconnectRemoteConnection(surfaceId: UUID? = nil) -> Bool {
-        guard let configuration = remoteConfiguration else { return false }
-        var didRespawnTerminal = false
-        let reconnectingSurfaceId: UUID?
-        if let surfaceId {
-            guard panels[surfaceId] is TerminalPanel else { return false }
-            reconnectingSurfaceId = surfaceId
-        } else {
-            reconnectingSurfaceId = remoteReconnectTerminalSurfaceId(requestedSurfaceId: nil)
-        }
-        if configuration.preserveAfterTerminalExit {
-            let reattached = reattachPersistentRemotePTYPanels(requestedSurfaceId: surfaceId, restartEndedSessions: true)
-            didRespawnTerminal = surfaceId.map(reattached.contains) ?? !reattached.isEmpty
-        } else if let startupCommand = effectiveRemoteTerminalStartupCommand(from: configuration),
-           !startupCommand.isEmpty,
-           let reconnectingSurfaceId {
-            let shouldRespawnSurface =
-                isDefaultFreestyleSSHDRemoteWorkspace ||
-                surfaceId != nil ||
-                remoteDisconnectPlaceholderPanelIds.contains(reconnectingSurfaceId) ||
-                pendingRemoteTerminalChildExitSurfaceIds.contains(reconnectingSurfaceId) ||
-                !activeRemoteTerminalSurfaceIds.contains(reconnectingSurfaceId) ||
-                activeRemoteTerminalSurfaceIds.isEmpty ||
-                remoteConnectionState != .connected
-            if shouldRespawnSurface {
-                didRespawnTerminal = respawnTerminalSurface(
-                    panelId: reconnectingSurfaceId,
-                    command: startupCommand,
-                    tmuxStartCommand: startupCommand,
-                    waitAfterCommand: true
-                ) != nil
-            }
-            if didRespawnTerminal {
-                remoteDisconnectPlaceholderPanelIds.remove(reconnectingSurfaceId)
-                pendingRemoteTerminalChildExitSurfaceIds.remove(reconnectingSurfaceId)
-                pendingRemoteDisconnectReplacementsBySurfaceId.removeValue(forKey: reconnectingSurfaceId)
-            }
-            if didRespawnTerminal || !shouldRespawnSurface { trackRemoteTerminalSurface(reconnectingSurfaceId) }
-        }
-        if reconnectingSurfaceId != nil, remoteConnectionState == .connected { return didRespawnTerminal }
-        guard remoteConnectionState != .connecting, remoteConnectionState != .reconnecting else { return didRespawnTerminal }
-        configureRemoteConnection(configuration, autoConnect: true)
-        return didRespawnTerminal
-    }
-
-    @discardableResult
-    func reconnectCloudTerminalSurface(surfaceId: UUID) -> Bool {
-        guard isManagedCloudVMWorkspace,
-              isRemoteTerminalSurface(surfaceId) || remoteDisconnectPlaceholderPanelIds.contains(surfaceId) else {
-            return false
-        }
-        return reconnectRemoteConnection(surfaceId: surfaceId)
-    }
-
-    private func remoteReconnectTerminalSurfaceId(requestedSurfaceId: UUID?) -> UUID? {
-        if let requestedSurfaceId,
-           panels[requestedSurfaceId] is TerminalPanel {
-            return requestedSurfaceId
-        }
-        if let focusedPanelId,
-           panels[focusedPanelId] is TerminalPanel {
-            return focusedPanelId
-        }
-        let terminalPanelIds = panels.compactMap { panelId, panel in
-            panel is TerminalPanel ? panelId : nil
-        }
-        return terminalPanelIds.count == 1 ? terminalPanelIds.first : nil
-    }
-
-    private static func normalizedForegroundAuthToken(_ token: String?) -> String? {
-        guard let token else { return nil }
-        let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    func notifyRemoteForegroundAuthenticationReady(token: String? = nil) {
-        guard let foregroundAuthToken = Self.normalizedForegroundAuthToken(token) else {
-            return
-        }
-        guard let remoteConfiguration else {
-            remoteForegroundAuthenticationPhase = .readyBeforeConfiguration(token: foregroundAuthToken)
-            return
-        }
-        guard Self.normalizedForegroundAuthToken(remoteConfiguration.foregroundAuthToken) == foregroundAuthToken else {
-            return
-        }
-        guard remoteForegroundAuthenticationPhase == .authenticating(token: foregroundAuthToken) else { return }
-        remoteForegroundAuthenticationPhase = nil
-        configureRemoteConnection(remoteConfiguration, autoConnect: true)
     }
 
     func disconnectRemoteConnection(clearConfiguration: Bool = false, disconnectedDetail: String? = nil) {
@@ -5462,9 +5293,17 @@ final class Workspace: Identifiable, ObservableObject {
             && !skipControlMasterCleanupAfterDetachedRemoteTransfer
         let configurationForCleanup = shouldCleanupControlMaster ? remoteConfiguration : nil
         let previousController = remoteSessionController
+        let previousControllerID = activeRemoteSessionControllerID
+        if let previousController, let previousControllerID, let remoteConfiguration {
+            remoteSessionCleanupControllers[previousControllerID] = (previousController, remoteConfiguration)
+        }
         activeRemoteSessionControllerID = nil
         remoteSessionController = nil
-        previousController?.stop()
+        enqueueRemoteSessionTransition(
+            targetConfiguration: nil,
+            shouldStartController: false,
+            finalCleanup: clearConfiguration
+        )
         remoteForegroundAuthenticationPhase = nil
         remoteDisconnectPlaceholderPanelIds.formUnion(activeRemoteTerminalSurfaceIds)
         activeRemoteTerminalSurfaceIds.removeAll()
@@ -5710,7 +5549,7 @@ final class Workspace: Identifiable, ObservableObject {
         "tab_id_groups",
     ]
 
-    private func syncRemoteRelayIDAliasesToController() {
+    func syncRemoteRelayIDAliasesToController() {
         remoteSessionController?.updateRemoteRelayIDAliases(
             workspaceAliases: remoteRelayWorkspaceIDAliases,
             surfaceAliases: remoteRelaySurfaceIDAliases
@@ -5964,7 +5803,7 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
-    private var isDefaultFreestyleSSHDRemoteWorkspace: Bool {
+    var isDefaultFreestyleSSHDRemoteWorkspace: Bool {
         defaultFreestyleSSHDVMID(from: remoteConfiguration) != nil
     }
 
@@ -5985,7 +5824,7 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
-    private func postRemoteConnectionPresentationDidChange() {
+    func postRemoteConnectionPresentationDidChange() {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             NotificationCenter.default.post(
@@ -7927,7 +7766,8 @@ final class Workspace: Identifiable, ObservableObject {
             proxyEndpoint: remoteProxyEndpoint,
             bypassRemoteProxy: bypassRemoteProxy,
             isRemoteWorkspace: isRemoteWorkspace,
-            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil
+            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
+            browserWebExtensionHost: browserWebExtensionHost
         )
         configureBrowserPanel(browserPanel)
         panels[browserPanel.id] = browserPanel
@@ -7955,6 +7795,7 @@ final class Workspace: Identifiable, ObservableObject {
             removeSurfaceMapping(forSurfaceId: newTab.id)
             panels.removeValue(forKey: browserPanel.id)
             panelTitles.removeValue(forKey: browserPanel.id)
+            browserPanel.close()
             return nil
         }
         applyInitialSplitDividerPosition(initialDividerPosition, sourcePaneId: paneId, newPaneId: newPaneId)
@@ -8000,7 +7841,9 @@ final class Workspace: Identifiable, ObservableObject {
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
         omnibarVisible: Bool = true,
         transparentBackground: Bool = false,
-        bypassRemoteProxy: Bool = false
+        bypassRemoteProxy: Bool = false,
+        webViewConfiguration: WKWebViewConfiguration? = nil,
+        allowWebExtensionInitialNavigationConfiguration: Bool = true
     ) -> BrowserPanel? {
         // A remote tmux mirror workspace is a 1:1 view of a tmux session (which
         // has no browser concept). A local browser tab here would be an orphan
@@ -8009,7 +7852,8 @@ final class Workspace: Identifiable, ObservableObject {
         if isRemoteTmuxMirror { return nil }
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         guard browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
-            if let externalURL = url ?? initialRequest?.url {
+            if creationPolicy.opensExternallyWhenBrowserDisabled,
+               let externalURL = url ?? initialRequest?.url {
                 _ = NSWorkspace.shared.open(externalURL)
             }
             return nil
@@ -8036,7 +7880,10 @@ final class Workspace: Identifiable, ObservableObject {
             proxyEndpoint: remoteProxyEndpoint,
             bypassRemoteProxy: bypassRemoteProxy,
             isRemoteWorkspace: isRemoteWorkspace,
-            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil
+            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
+            browserWebExtensionHost: browserWebExtensionHost,
+            webViewConfiguration: webViewConfiguration,
+            allowWebExtensionInitialNavigationConfiguration: allowWebExtensionInitialNavigationConfiguration
         )
         configureBrowserPanel(browserPanel)
         panels[browserPanel.id] = browserPanel
@@ -8055,6 +7902,7 @@ final class Workspace: Identifiable, ObservableObject {
         ) else {
             panels.removeValue(forKey: browserPanel.id)
             panelTitles.removeValue(forKey: browserPanel.id)
+            browserPanel.close()
             return nil
         }
 
@@ -10255,7 +10103,7 @@ final class Workspace: Identifiable, ObservableObject {
     private func browserPortalReady(for browserPanel: BrowserPanel) -> Bool {
         browserPortalAnchorReady(for: browserPanel) &&
             browserPanel.webView.window != nil &&
-            browserPanel.webView.superview != nil &&
+            browserPanel.webView.cmuxBrowserViewportAttachmentSuperview != nil &&
             BrowserWindowPortalRegistry.isWebView(browserPanel.webView, boundTo: browserPanel.portalAnchorView)
     }
 
@@ -10679,7 +10527,7 @@ final class Workspace: Identifiable, ObservableObject {
                 anchorView.bounds.height > 1
             if !anchorReady ||
                 browserPanel.webView.window == nil ||
-                browserPanel.webView.superview == nil ||
+                browserPanel.webView.cmuxBrowserViewportAttachmentSuperview == nil ||
                 !BrowserWindowPortalRegistry.isWebView(browserPanel.webView, boundTo: anchorView) {
                 return true
             }
@@ -11144,35 +10992,10 @@ final class Workspace: Identifiable, ObservableObject {
         ])
     }
 
-    /// Synchronous availability check used by the tab right-click context menu to decide
-    /// whether to surface the Fork Conversation item for a given anchor tab. Restricted to
-    /// `.supportedWithoutProbe` so we never offer an item that may quietly fail; agents
-    /// requiring a probe (e.g. shell-launched OpenCode) stay reachable from the command
-    /// palette path that performs that probe first.
+    /// Synchronous availability check used by right-click entry points. Probe-required
+    /// sessions remain unavailable while their shared validation refresh is in flight.
     func canForkAgentConversationFromPanel(_ panelId: UUID) -> Bool {
-        forkAgentConversationContextMenuOpenAvailability(forPanelId: panelId).isAvailable
-    }
-
-    /// Snapshot used by the right-click fork path. Prefers restored snapshots, then asks
-    /// `SharedLiveAgentIndex` for a process-sensitive snapshot so live panel remaps do not
-    /// inherit the stale-tolerant cache used by close-history restore paths.
-    func forkableAgentSnapshot(forPanelId panelId: UUID) -> SessionRestorableAgentSnapshot? {
-        if let snapshot = restoredAgentSnapshotForContinuation(panelId: panelId) {
-            return snapshot
-        }
-        guard let snapshot = SharedLiveAgentIndex.shared.snapshotForForkAvailability(
-            workspaceId: id,
-            panelId: panelId
-        ) else {
-            return nil
-        }
-        if let observation = SharedLiveAgentIndex.shared.index?.entry(
-            workspaceId: id,
-            panelId: panelId
-        ) {
-            reconcileCompletedRestoredAgent(panelId: panelId, observation: observation)
-        }
-        return allowsAgentContinuation(forPanelId: panelId) ? snapshot : nil
+        forkAgentConversationContextMenuPresentationAvailability(forPanelId: panelId).isAvailable
     }
 
     /// Fork the panel's agent conversation into a brand-new sibling tab placed immediately
@@ -11324,6 +11147,17 @@ extension Workspace: PaneTreeHosting {
     /// Legacy `@Published panels` willSet: re-emits objectWillChange and the
     /// Combine bridge at the exact timing `@Published` used.
     func panelsWillChange(to newValue: [UUID: any Panel]) {
+        let addedUserOwnedPanel = newValue.contains { panelID, panel in
+            guard !(panel is BrowserPanel) else { return false }
+            guard let previousPanel = panels[panelID] else { return true }
+            return previousPanel !== panel
+        }
+        if addedUserOwnedPanel {
+            browserWebExtensionHost?.noteUserOwnedPanelAdded(
+                nativeWindow: owningTabManager?.window,
+                alongsidePanelIDs: newValue.compactMap { $0.value is BrowserPanel ? $0.key : nil }
+            )
+        }
         objectWillChange.send()
         setBrowserMediaActivity(
             currentBrowserMediaActivity(panels: newValue),
@@ -11533,6 +11367,10 @@ extension Workspace: BonsplitDelegate {
         guard let panel = panels[effectiveFocusedPanelId] else {
             return
         }
+        browserWebExtensionHost?.noteSelectionChanged(
+            selectedBrowserPanelID: (panel as? BrowserPanel)?.id,
+            nativeWindow: owningTabManager?.window
+        )
 
         if debugStressPreloadSelectionDepth > 0 {
             if let terminalPanel = panel as? TerminalPanel {
@@ -11572,9 +11410,11 @@ extension Workspace: BonsplitDelegate {
             p.unfocus()
         }
 
-        // Explicitly hide browser portals for deselected tabs in this pane. The WKWebView lives
-        // at the AppKit window level, so removing its SwiftUI host does not synchronously hide
-        // the portal layer during a tab-selection transition.
+        // Explicitly hide browser portals for deselected tabs in this pane.
+        // Bonsplit's keepAllAlive mode hides non-selected tabs via SwiftUI .opacity(0),
+        // but portal-hosted WKWebViews render at the window level in AppKit and are not
+        // affected by SwiftUI opacity. Without an explicit hide, the deselected browser's
+        // portal layer can remain visible above the newly selected tab.
         hideBrowserPortalsForDeselectedTabs(inPane: focusedPane, selectedTabId: selectedTabId)
         reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
 
@@ -12832,7 +12672,10 @@ extension Workspace: BonsplitDelegate {
         // would miss it. Bump `paneLayoutVersion` only when the ordered panel-id
         // sequence actually changed, so divider drags and selection-only events
         // (also routed here) do not fire `objectWillChange` app-wide.
-        surfaceList.registerGeometryChange()
+        let didChangeSurfaceOrder = surfaceList.registerGeometryChange()
+        if didChangeSurfaceOrder {
+            owningTabManager?.reconcileBrowserWebExtensionTabOrder()
+        }
         scheduleTerminalGeometryReconcile()
         if !isDetachingCloseTransaction {
             scheduleFocusReconcile()

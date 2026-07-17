@@ -28,6 +28,14 @@ import CmuxTerminal
 @main
 enum CmuxMain {
     static func main() {
+#if DEBUG
+        // Bonsplit's `dlog` and the app's `cmuxDebugLog` resolve the same
+        // debug log file. Route bonsplit through the shared writer so the
+        // file has exactly one serialized append path (single O_APPEND
+        // handle, monotonic #<seq> line prefixes); with two independent
+        // appenders, concurrent lines interleaved and landed out of order.
+        Bonsplit.DebugEventLog.setExternalSink { cmuxDebugLog($0) }
+#endif
         if CommandLine.arguments.contains(RenderWorkerClient.workerModeArgument) {
             runSidebarRenderWorker()
         }
@@ -186,7 +194,11 @@ struct cmuxApp: App {
         KeyboardShortcutSettings.settingsFileStore.applyDeferredManagedDefaultSideEffects()
         StartupBreadcrumbLog.append("app.init.keyboardShortcuts.sideEffectsApplied")
         StartupBreadcrumbLog.append("app.init.tabManager.begin")
-        _tabManager = StateObject(wrappedValue: TabManager())
+        let browserWebExtensionHost = Self.makeBrowserWebExtensionHostAtLaunch(
+            jsonStore: settingsRuntime.jsonStore,
+            catalog: settingsCatalog
+        )
+        _tabManager = StateObject(wrappedValue: TabManager(browserWebExtensionHost: browserWebExtensionHost))
         StartupBreadcrumbLog.append("app.init.tabManager.complete")
         // Migrate legacy and old-format socket mode values to the new enum.
         if let stored = defaults.string(forKey: SocketControlSettings.appStorageKey) {
@@ -220,9 +232,22 @@ struct cmuxApp: App {
             notificationStore: notificationStore,
             sidebarState: sidebarState,
             settingsRuntime: settingsRuntime,
-            auth: authComposition
+            auth: authComposition,
+            browserWebExtensionHost: browserWebExtensionHost
         )
         StartupBreadcrumbLog.append("app.init.delegate.configured")
+    }
+
+    /// Creates the app-wide web-extension host on supported OS versions.
+    private static func makeBrowserWebExtensionHostAtLaunch(
+        jsonStore: JSONConfigStore,
+        catalog: SettingCatalog
+    ) -> (any BrowserWebExtensionHosting)? {
+        guard #available(macOS 15.4, *) else { return nil }
+        let support = BrowserWebExtensionSupport()
+        support.configure(jsonStore: jsonStore, catalog: catalog)
+        StartupBreadcrumbLog.append("app.init.browserWebExtensions.configured")
+        return support
     }
 
     private static func terminateForMissingLaunchTag() -> Never {
@@ -916,6 +941,12 @@ struct cmuxApp: App {
             splitCommandButton(title: String(localized: "menu.view.previousSurface", defaultValue: "Previous Surface"), shortcut: menuShortcut(for: .prevSurface)) {
                 activeTabManager.selectPreviousSurface()
             }
+            splitCommandButton(title: String(localized: "shortcut.moveSurfaceLeft.label", defaultValue: "Move Surface Left"), shortcut: menuShortcut(for: .moveSurfaceLeft)) {
+                activeTabManager.selectedWorkspace?.moveSelectedSurface(by: -1)
+            }
+            splitCommandButton(title: String(localized: "shortcut.moveSurfaceRight.label", defaultValue: "Move Surface Right"), shortcut: menuShortcut(for: .moveSurfaceRight)) {
+                activeTabManager.selectedWorkspace?.moveSelectedSurface(by: 1)
+            }
 
             splitCommandButton(title: String(localized: "menu.view.back", defaultValue: "Back"), shortcut: menuShortcut(for: .browserBack)) {
                 activeTabManager.focusedBrowserPanel?.goBack()
@@ -986,6 +1017,12 @@ struct cmuxApp: App {
 
             splitCommandButton(title: String(localized: "menu.view.previousWorkspace", defaultValue: "Previous Workspace"), shortcut: menuShortcut(for: .prevSidebarTab)) {
                 activeTabManager.selectPreviousTab()
+            }
+            splitCommandButton(title: String(localized: "shortcut.moveWorkspaceUp.label", defaultValue: "Move Workspace Up"), shortcut: menuShortcut(for: .moveWorkspaceUp)) {
+                activeTabManager.moveSelectedWorkspace(by: -1)
+            }
+            splitCommandButton(title: String(localized: "shortcut.moveWorkspaceDown.label", defaultValue: "Move Workspace Down"), shortcut: menuShortcut(for: .moveWorkspaceDown)) {
+                activeTabManager.moveSelectedWorkspace(by: 1)
             }
 
             splitCommandButton(title: String(localized: "menu.view.renameWorkspace", defaultValue: "Rename Workspace…"), shortcut: menuShortcut(for: .renameWorkspace)) {
@@ -1103,29 +1140,15 @@ struct cmuxApp: App {
     }
 
     private func updateSocketController() {
-        let mode = SocketControlSettings.effectiveMode(userMode: currentSocketMode)
-        if mode != .off {
-            let socketPath = TerminalController.shared.activeSocketPath(
-                preferredPath: SocketControlSettings.socketPath()
-            )
-            TerminalController.shared.start(
-                tabManager: activeTabManager,
-                socketPath: socketPath,
-                accessMode: mode
-            )
-        } else {
-            TerminalController.shared.stop()
-        }
+        appDelegate.reconcileSocketListenerConfiguration(
+            source: "settings.automation.socketControlMode.appStorage"
+        )
     }
 
     private func bootstrapMainWindowScene() {
         appDelegate.scheduleInitialMainWindowBootstrap(debugSource: "swiftUIBootstrap")
         appDelegate.installReloadConfigurationMenuItemAction()
         applyAppearance()
-    }
-
-    private var currentSocketMode: SocketControlMode {
-        SocketControlSettings.migrateMode(socketControlMode)
     }
 
     func menuShortcut(for action: KeyboardShortcutSettings.Action) -> StoredShortcut {
@@ -1177,10 +1200,6 @@ struct cmuxApp: App {
         _ = tabManager.createBrowserSplit(direction: direction)
     }
 
-    private func selectedWorkspaceIndex(in manager: TabManager, workspaceId: UUID) -> Int? {
-        manager.tabs.firstIndex { $0.id == workspaceId }
-    }
-
     private func selectedWorkspaceWindowMoveTargets(in manager: TabManager) -> [AppDelegate.WindowMoveTarget] {
         let referenceWindowId = AppDelegate.shared?.windowId(for: manager)
         return AppDelegate.shared?.windowMoveTargets(referenceWindowId: referenceWindowId) ?? []
@@ -1195,15 +1214,6 @@ struct cmuxApp: App {
     private func clearSelectedWorkspaceCustomName(in manager: TabManager) {
         guard let workspace = manager.selectedWorkspace else { return }
         manager.clearCustomTitle(tabId: workspace.id)
-    }
-
-    private func moveSelectedWorkspace(in manager: TabManager, by delta: Int) {
-        guard let workspace = manager.selectedWorkspace,
-              let currentIndex = selectedWorkspaceIndex(in: manager, workspaceId: workspace.id) else { return }
-        let targetIndex = currentIndex + delta
-        guard targetIndex >= 0, targetIndex < manager.tabs.count else { return }
-        _ = manager.reorderWorkspace(tabId: workspace.id, toIndex: targetIndex)
-        manager.selectWorkspace(workspace)
     }
 
     private func moveSelectedWorkspaceToTop(in manager: TabManager) {
@@ -1301,12 +1311,12 @@ struct cmuxApp: App {
         Divider()
 
         Button(String(localized: "contextMenu.moveUp", defaultValue: "Move Up")) {
-            moveSelectedWorkspace(in: manager, by: -1)
+            manager.moveSelectedWorkspace(by: -1)
         }
         .disabled(workspaceIndex == nil || workspaceIndex == 0)
 
         Button(String(localized: "contextMenu.moveDown", defaultValue: "Move Down")) {
-            moveSelectedWorkspace(in: manager, by: 1)
+            manager.moveSelectedWorkspace(by: 1)
         }
         .disabled(workspaceIndex == nil || workspaceIndex == manager.tabs.count - 1)
 
@@ -1389,7 +1399,7 @@ struct cmuxApp: App {
 
     private func closePanelOrWindow() {
         let window = NSApp.keyWindow ?? NSApp.mainWindow
-        if let window, cmuxWindowShouldOwnCloseShortcut(window) { window.performClose(nil); return }
+        if let window, window.cmuxShouldOwnCloseShortcut { window.performClose(nil); return }
         if appDelegate.closeFocusedDockPanelForCommand(preferredWindow: window) { return }
         activeTabManager.closeCurrentPanelWithConfirmation()
     }
@@ -1441,48 +1451,6 @@ private struct MainWindowBootstrapView: View {
                 }
             })
     }
-}
-
-private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
-    "cmux.settings",
-    "cmux.about",
-    "cmux.licenses",
-    "cmux.browser-popup",
-    "cmux.browserProfilePopoverDebug",
-    "cmux.configEditor",
-    "cmux.defaultTerminalRegistrationError",
-    "cmux.feedButtonStyleDebug",
-    "cmux.feedPreview",
-    "cmux.feedTextEditorDebug",
-    "cmux.fileExplorerStyleDebug",
-    "cmux.folderDragIcon",
-    "cmux.pdfPreviewChromeDebug",
-    "cmux.proBadgeDebug",
-    "cmux.recentlyClosedHistory",
-    "cmux.splitButtonLayoutDebug",
-    "cmux.tabBarBackdropLab",
-    "cmux.taskManager",
-    "cmux.aboutTitlebarDebug",
-    "cmux.debugWindowControls",
-    "cmux.browserImportHintDebug",
-    "cmux.extensionSidebarInspector",
-    "cmux.sidebarDebug",
-    "cmux.menubarDebug",
-    "cmux.spinnerGallery",
-    "cmux.backgroundDebug",
-    "cmux.startupAppearanceDebug",
-    "cmux.bonsplitTabBarDebug",
-    "cmux.titlebarLayoutDebug",
-    "cmux.devWindowDisplay",
-    "cmux.mobilePairingWindow",
-]
-
-/// Returns whether the given window should handle the standard close shortcut
-/// as a standalone auxiliary window instead of routing it through workspace or
-/// panel-close behavior.
-func cmuxWindowShouldOwnCloseShortcut(_ window: NSWindow?) -> Bool {
-    guard let identifier = window?.identifier?.rawValue else { return false }
-    return cmuxAuxiliaryWindowIdentifiers.contains(identifier)
 }
 
 private enum DebugWindowConfigSnapshot {
@@ -2253,7 +2221,7 @@ private final class AcknowledgmentsWindowController: ReleasingWindowController {
             backing: .buffered,
             defer: false
         )
-        window.title = String(localized: "about.licenses.windowTitle", defaultValue: "Third-Party Licenses")
+        window.title = String(localized: "about.licenses", defaultValue: "Licenses")
         window.identifier = NSUserInterfaceItemIdentifier("cmux.licenses")
         window.center()
         window.contentView = NSHostingView(rootView: AcknowledgmentsView())
@@ -2271,13 +2239,7 @@ private final class AcknowledgmentsWindowController: ReleasingWindowController {
 }
 
 private struct AcknowledgmentsView: View {
-    private let content: String = {
-        if let url = Bundle.main.url(forResource: "THIRD_PARTY_LICENSES", withExtension: "md"),
-           let text = try? String(contentsOf: url) {
-            return text
-        }
-        return String(localized: "about.licenses.notFound", defaultValue: "Licenses file not found.")
-    }()
+    private let content = AboutLicenseContent(bundle: .main).load()
 
     var body: some View {
         ScrollView {

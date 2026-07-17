@@ -9,81 +9,6 @@ import AppKit
 
 let browserOmnibarTextFieldIdentifier = NSUserInterfaceItemIdentifier("cmux.browserOmnibarTextField")
 
-enum BrowserDevToolsIconOption: String, CaseIterable, Identifiable {
-    case wrenchAndScrewdriver = "wrench.and.screwdriver"
-    case wrenchAndScrewdriverFill = "wrench.and.screwdriver.fill"
-    case curlyBracesSquare = "curlybraces.square"
-    case curlyBraces = "curlybraces"
-    case terminalFill = "terminal.fill"
-    case terminal = "terminal"
-    case hammer = "hammer"
-    case hammerCircle = "hammer.circle"
-    case ladybug = "ladybug"
-    case ladybugFill = "ladybug.fill"
-    case scope = "scope"
-    case codeChevrons = "chevron.left.slash.chevron.right"
-    case gearshape = "gearshape"
-    case gearshapeFill = "gearshape.fill"
-    case globe = "globe"
-    case globeAmericas = "globe.americas.fill"
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .wrenchAndScrewdriver: return "Wrench + Screwdriver"
-        case .wrenchAndScrewdriverFill: return "Wrench + Screwdriver (Fill)"
-        case .curlyBracesSquare: return "Curly Braces"
-        case .curlyBraces: return "Curly Braces (Plain)"
-        case .terminalFill: return "Terminal (Fill)"
-        case .terminal: return "Terminal"
-        case .hammer: return "Hammer"
-        case .hammerCircle: return "Hammer Circle"
-        case .ladybug: return "Bug"
-        case .ladybugFill: return "Bug (Fill)"
-        case .scope: return "Scope"
-        case .codeChevrons: return "Code Chevrons"
-        case .gearshape: return "Gear"
-        case .gearshapeFill: return "Gear (Fill)"
-        case .globe: return "Globe"
-        case .globeAmericas: return "Globe Americas (Fill)"
-        }
-    }
-}
-
-enum BrowserDevToolsIconColorOption: String, CaseIterable, Identifiable {
-    case bonsplitInactive
-    case bonsplitActive
-    case accent
-    case tertiary
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .bonsplitInactive: return "Bonsplit Inactive (Terminal/Globe)"
-        case .bonsplitActive: return "Bonsplit Active (Terminal/Globe)"
-        case .accent: return "Accent"
-        case .tertiary: return "Tertiary"
-        }
-    }
-
-    var color: Color {
-        switch self {
-        case .bonsplitInactive:
-            // Matches Bonsplit tab icon tint for inactive tabs.
-            return Color(nsColor: .secondaryLabelColor)
-        case .bonsplitActive:
-            // Matches Bonsplit tab icon tint for active tabs.
-            return Color(nsColor: .labelColor)
-        case .accent:
-            return cmuxAccentColor()
-        case .tertiary:
-            return Color(nsColor: .tertiaryLabelColor)
-        }
-    }
-}
-
 enum BrowserDevToolsButtonDebugSettings {
     static let iconNameKey = "browserDevToolsIconName"
     static let iconColorKey = "browserDevToolsIconColor"
@@ -262,12 +187,8 @@ struct BrowserPanelView: View {
     /// through this rather than the former `BrowserInstalledBrowserDetector` static
     /// namespace.
     private let installedBrowserDetector = BrowserInstalledBrowserDetector()
-    // Omnibar editing stays view-local: focus loss reverts an uncommitted draft, while an
-    // ordinary-workspace unmount discards that view-local state. BrowserPanel retains the
-    // committed URL, navigation state, WKWebView, and owner-scoped focus suppression.
-    @State var omnibarState = OmnibarState()
-    @State var addressBarFocused: Bool = false
-    @State var addressBarFocusLeaseOwner = UUID()
+    @State private var omnibarState = OmnibarState()
+    @State private var addressBarFocused: Bool = false
     @AppStorage(BrowserSearchSettingsStore.searchEngineKey) private var searchEngineRaw = BrowserSearchSettingsStore.defaultSearchEngine.rawValue
     @AppStorage(BrowserSearchSettingsStore.customSearchEngineNameKey) private var customSearchEngineName = BrowserSearchSettingsStore.defaultCustomSearchEngineName
     @AppStorage(BrowserSearchSettingsStore.customSearchEngineURLTemplateKey) private var customSearchEngineURLTemplate = BrowserSearchSettingsStore.defaultCustomSearchEngineURLTemplate
@@ -316,7 +237,7 @@ struct BrowserPanelView: View {
     }
     @State private var isBrowserImportHintPopoverPresented = false
     @State private var focusModeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
-    @State var lastHandledAddressBarFocusRequestId: UUID?
+    @State private var lastHandledAddressBarFocusRequestId: UUID?
     @State private var omnibarSelectAllRequestId: UInt64 = 0
     @State private var pendingFocusGainedSelectionIntent: BrowserAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
     @State private var isBrowserProfileMenuPresented = false
@@ -525,7 +446,7 @@ struct BrowserPanelView: View {
         return manager.tabs.first(where: { $0.id == panel.workspaceId })
     }
 
-    var isCurrentPaneOwner: Bool {
+    private var isCurrentPaneOwner: Bool {
         // Dock (and other non-Workspace hosts) inject ownership explicitly, since
         // their panels are not registered in the main Workspace tree.
         if let paneOwnershipOverride {
@@ -684,7 +605,6 @@ struct BrowserPanelView: View {
         // already handled by the dedicated `.onChange` observers on `body`, so
         // re-running this per appear is harmless once the heavy/one-time work is
         // gated out.
-        panel.registerAddressBarViewPresentation(owner: addressBarFocusLeaseOwner)
         performInitialBrowserPanelSetupIfNeeded()
         startOmnibarSuggestionRefreshConsumer()
         refreshBrowserChromeStyle()
@@ -698,12 +618,6 @@ struct BrowserPanelView: View {
         syncURLFromPanel()
         // If the browser surface is focused but has no URL loaded yet, auto-focus the omnibar.
         autoFocusOmnibarIfBlank()
-        if addressBarFocused {
-            panel.acquireAddressBarViewFocusLease(
-                owner: addressBarFocusLeaseOwner,
-                reason: "view.onAppear"
-            )
-        }
         syncWebViewResponderPolicyWithViewState(reason: "onAppear")
         panel.historyStore.loadIfNeeded()
 #if DEBUG
@@ -741,11 +655,6 @@ struct BrowserPanelView: View {
     }
 
     private func handleBrowserPanelDisappear() {
-        panel.relinquishAddressBarViewFocusLease(
-            owner: addressBarFocusLeaseOwner,
-            reason: "view.onDisappear"
-        )
-        panel.unregisterAddressBarViewPresentation(owner: addressBarFocusLeaseOwner)
         stopOmnibarSuggestionRefreshConsumer()
         cancelPendingOmnibarSuggestionWork()
         focusModeShortcutHintMonitor.stop()
@@ -770,7 +679,7 @@ struct BrowserPanelView: View {
 #if DEBUG
             logBrowserFocusState(event: "addressBarFocus.webViewClickBlur")
 #endif
-            endAddressBarFocusForPanelWideExit(reason: "webView.clickIntent")
+            setAddressBarFocused(false, reason: "webView.clickIntent")
         }
         if !isFocused {
             onRequestPanelFocus()
@@ -850,7 +759,6 @@ struct BrowserPanelView: View {
         )
         if visibleInUI {
             panel.cancelPendingDeveloperToolsVisibilityLossCheck()
-            applyPendingAddressBarFocusRequestIfNeeded()
             return
         }
         // Pane/workspace churn can briefly mark the browser hidden before the
@@ -866,8 +774,7 @@ struct BrowserPanelView: View {
             detail: "next=\(focused ? 1 : 0)"
         )
 #endif
-        // Ensure this view doesn't retain focus after its panel stops being selected. Ordinary
-        // workspaces unmount it; hosts such as the Dock can keep the hidden view alive.
+        // Ensure this view doesn't retain focus while hidden (bonsplit keepAllAlive).
         if focused {
             applyPendingAddressBarFocusRequestIfNeeded()
             autoFocusOmnibarIfBlank()
@@ -901,10 +808,8 @@ struct BrowserPanelView: View {
         if focused {
             let selectionIntent = pendingFocusGainedSelectionIntent
             pendingFocusGainedSelectionIntent = .preserveFieldEditorSelection
-            panel.acquireAddressBarViewFocusLease(
-                owner: addressBarFocusLeaseOwner,
-                reason: "addressBarFocusChanged.focused"
-            )
+            panel.beginSuppressWebViewFocusForAddressBar()
+            NotificationCenter.default.post(name: .browserDidFocusAddressBar, object: panel.id)
             // Only request panel focus if this pane isn't currently focused. When already
             // focused (e.g. Cmd+L), forcing focus can steal first responder back to WebKit.
             if !isFocused {
@@ -921,10 +826,8 @@ struct BrowserPanelView: View {
             refreshInlineCompletion()
         } else {
             pendingFocusGainedSelectionIntent = .preserveFieldEditorSelection
-            panel.relinquishAddressBarViewFocusLease(
-                owner: addressBarFocusLeaseOwner,
-                reason: "addressBarFocusChanged.blurred"
-            )
+            panel.endSuppressWebViewFocusForAddressBar()
+            NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: panel.id)
             if suppressNextFocusLostRevert {
                 suppressNextFocusLostRevert = false
                 let effects = omnibarReduce(state: &omnibarState, event: .focusLostPreserveBuffer(currentURLString: urlString))
@@ -1077,9 +980,6 @@ struct BrowserPanelView: View {
         .onChange(of: panel.pendingAddressBarFocusRequestId) { _ in
             applyPendingAddressBarFocusRequestIfNeeded()
         }
-        .onChange(of: panel.currentAddressBarViewPresentationOwner) { _, _ in
-            applyPendingAddressBarFocusRequestIfNeeded()
-        }
         .onChange(of: panel.isOmnibarVisible) { _, isVisible in
             handleOmnibarVisibilityChange(isVisible)
         }
@@ -1128,6 +1028,7 @@ struct BrowserPanelView: View {
                 .accessibilityLabel("Browser omnibar")
 
             HStack(spacing: browserToolbarAccessorySpacing) {
+                webExtensionToolbarButtons
                 if shouldShowToolbarImportHintChip {
                     browserImportHintToolbarChip
                 }
@@ -1244,6 +1145,21 @@ struct BrowserPanelView: View {
                     onClear: { panel.clearRecentDownloads() }
                 )
             }
+
+        }
+    }
+
+    /// Extension action buttons live to the right of the omnibar (matching
+    /// Safari/Chrome) rather than in the navigation cluster on its left.
+    @ViewBuilder
+    private var webExtensionToolbarButtons: some View {
+        if #available(macOS 15.4, *), let support = panel.browserWebExtensionSupport {
+            BrowserWebExtensionToolbarButtons(
+                support: support,
+                panel: panel,
+                iconPointSize: chromeMetrics.navigationIconFontSize,
+                hitSize: addressBarButtonHitSize
+            )
         }
     }
 
@@ -1735,7 +1651,7 @@ struct BrowserPanelView: View {
 #if DEBUG
                         logBrowserFocusState(event: "webContent.tapBlur")
 #endif
-                        endAddressBarFocusForPanelWideExit(reason: "webContent.tapBlur")
+                        setAddressBarFocused(false, reason: "webContent.tapBlur")
                     }
                 })
             } else {
@@ -1745,7 +1661,7 @@ struct BrowserPanelView: View {
                     .onTapGesture {
                         onRequestPanelFocus()
                         if addressBarFocused {
-                            endAddressBarFocusForPanelWideExit(reason: "placeholderContent.tapBlur")
+                            setAddressBarFocused(false, reason: "placeholderContent.tapBlur")
                         }
                     }
                     .overlay(alignment: .topLeading) {
@@ -1865,17 +1781,7 @@ struct BrowserPanelView: View {
         canHandleOmnibarSelectionNavigation() && hasActionableOmnibarSuggestions
     }
 
-    /// Navigation, suggestion commits, content clicks, and Escape all end the
-    /// address-bar interaction for the panel, not just for one overlapping view
-    /// lifetime. The model broadcasts the blur so every mounted presentation
-    /// drops its local focus state before WebKit responder policy is reevaluated.
-    private func endAddressBarFocusForPanelWideExit(reason: String) {
-        panel.endAddressBarFocusForWebViewHandoff(reason: reason)
-        syncWebViewResponderPolicyWithViewState(reason: "\(reason).preHandoff")
-        setAddressBarFocused(false, reason: reason)
-    }
-
-    func setAddressBarFocused(
+    private func setAddressBarFocused(
         _ focused: Bool,
         reason: String,
         focusGainedSelectionIntent: BrowserAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
@@ -1950,7 +1856,7 @@ struct BrowserPanelView: View {
         return String(describing: type(of: responder))
     }
 
-    func logBrowserFocusState(event: String, detail: String = "") {
+    private func logBrowserFocusState(event: String, detail: String = "") {
         let window = browserFocusWindow()
         let firstResponder = window?.firstResponder
         let firstResponderType = browserFocusResponderDescription(firstResponder)
@@ -1977,7 +1883,7 @@ struct BrowserPanelView: View {
         applyOmnibarEffects(effects)
     }
 
-    func isCommandPaletteVisibleForPanelWindow() -> Bool {
+    private func isCommandPaletteVisibleForPanelWindow() -> Bool {
         guard let app = AppDelegate.shared else { return false }
 
         if let window = panel.webView.window, app.isCommandPaletteVisible(for: window) {
@@ -2023,6 +1929,90 @@ struct BrowserPanelView: View {
         return false
     }
 
+    private func applyPendingAddressBarFocusRequestIfNeeded() {
+        guard let requestId = panel.pendingAddressBarFocusRequestId else {
+            return
+        }
+        guard panel.panelType == .browser else {
+            lastHandledAddressBarFocusRequestId = requestId
+            panel.acknowledgeAddressBarFocusRequest(requestId)
+#if DEBUG
+            logBrowserFocusState(
+                event: "addressBarFocus.request.apply.skip",
+                detail: "reason=chrome_hidden request=\(requestId.uuidString.prefix(8))"
+            )
+#endif
+            return
+        }
+        guard !isCommandPaletteVisibleForPanelWindow() else {
+#if DEBUG
+            logBrowserFocusState(
+                event: "addressBarFocus.request.apply.skip",
+                detail: "reason=command_palette_visible request=\(requestId.uuidString.prefix(8))"
+            )
+#endif
+            return
+        }
+        guard lastHandledAddressBarFocusRequestId != requestId else {
+#if DEBUG
+            logBrowserFocusState(
+                event: "addressBarFocus.request.apply.skip",
+                detail: "reason=already_handled request=\(requestId.uuidString.prefix(8))"
+            )
+#endif
+            return
+        }
+        lastHandledAddressBarFocusRequestId = requestId
+        let selectionIntent = panel.pendingAddressBarFocusSelectionIntent
+        panel.beginSuppressWebViewFocusForAddressBar()
+#if DEBUG
+        logBrowserFocusState(
+            event: "addressBarFocus.request.apply",
+            detail: "request=\(requestId.uuidString.prefix(8)) selection=\(String(describing: selectionIntent))"
+        )
+#endif
+
+        if addressBarFocused {
+            // Re-run explicit selection behavior only for requests that own it
+            // (Cmd+L), without replacing a caret from focus restoration.
+            let effects = omnibarReduce(
+                state: &omnibarState,
+                event: .focusReasserted(
+                    shouldSelectAll: browserOmnibarShouldSelectAllOnFocusReassertion(
+                        selectionIntent: selectionIntent
+                    )
+                )
+            )
+            applyOmnibarEffects(effects)
+            refreshInlineCompletion()
+#if DEBUG
+            logBrowserFocusState(
+                event: "addressBarFocus.request.apply",
+                detail: "request=\(requestId.uuidString.prefix(8)) mode=refresh"
+            )
+#endif
+        } else {
+            setAddressBarFocused(
+                true,
+                reason: "request.apply",
+                focusGainedSelectionIntent: selectionIntent
+            )
+#if DEBUG
+            logBrowserFocusState(
+                event: "addressBarFocus.request.apply",
+                detail: "request=\(requestId.uuidString.prefix(8)) mode=set_focused"
+            )
+#endif
+        }
+
+        panel.acknowledgeAddressBarFocusRequest(requestId)
+#if DEBUG
+        logBrowserFocusState(
+            event: "addressBarFocus.request.ack",
+            detail: "request=\(requestId.uuidString.prefix(8))"
+        )
+#endif
+    }
 
     private var emptyBrowserStateCardOverlay: some View {
         VStack {
@@ -2335,10 +2325,10 @@ struct BrowserPanelView: View {
                 let effects = omnibarReduce(state: &omnibarState, event: .bufferChanged(text))
                 applyOmnibarEffects(effects)
             }
+            panel.navigateSmart(text)
             hideSuggestions()
             suppressNextFocusLostRevert = true
-            endAddressBarFocusForPanelWideExit(reason: "omnibar.submit.navigate")
-            panel.navigateSmart(text)
+            setAddressBarFocused(false, reason: "omnibar.submit.navigate")
         }
     }
 
@@ -2352,16 +2342,16 @@ struct BrowserPanelView: View {
         // Treat this as a commit, not a user edit: don't refetch suggestions while we're navigating away.
         omnibarState.buffer = suggestion.completion
         omnibarState.isUserEditing = false
-        hideSuggestions()
-        inlineCompletion = nil
-        suppressNextFocusLostRevert = true
-        endAddressBarFocusForPanelWideExit(reason: "suggestion.commit")
         switch suggestion.kind {
         case .switchToTab(let tabId, let panelId, _, _):
             AppDelegate.shared?.tabManager?.focusTab(tabId, surfaceId: panelId)
         default:
             panel.navigateSmart(suggestion.completion)
         }
+        hideSuggestions()
+        inlineCompletion = nil
+        suppressNextFocusLostRevert = true
+        setAddressBarFocused(false, reason: "suggestion.commit")
     }
 
     private func handleOmnibarEscape() {
@@ -2504,7 +2494,7 @@ struct BrowserPanelView: View {
         _ = browserProfileStore.renameProfile(id: profile.id, to: input.stringValue)
     }
 
-    func refreshInlineCompletion() {
+    private func refreshInlineCompletion() {
         inlineCompletion = omnibarInlineCompletionForDisplay(
             typedText: omnibarState.buffer,
             suggestions: omnibarState.suggestions,
@@ -2709,7 +2699,7 @@ struct BrowserPanelView: View {
         return values.isEmpty ? nil : values
     }
 
-    func applyOmnibarEffects(_ effects: OmnibarEffects) {
+    private func applyOmnibarEffects(_ effects: OmnibarEffects) {
         if effects.shouldCancelPendingSuggestionRefresh {
             cancelPendingOmnibarSuggestionWork()
         }
@@ -2724,7 +2714,11 @@ struct BrowserPanelView: View {
         }
         if effects.shouldBlurToWebView {
             hideSuggestions()
-            endAddressBarFocusForPanelWideExit(reason: "effects.blurToWebView")
+            // This transition is stateful: drop omnibar focus suppression before
+            // attempting responder handoff so WKWebView can actually become first responder.
+            panel.endSuppressWebViewFocusForAddressBar()
+            syncWebViewResponderPolicyWithViewState(reason: "effects.blurToWebView.preHandoff")
+            setAddressBarFocused(false, reason: "effects.blurToWebView")
             DispatchQueue.main.async {
                 guard let window = panel.webView.window,
                       !panel.webView.isHiddenOrHasHiddenAncestor else { return }
@@ -5744,8 +5738,13 @@ struct WebViewRepresentable: NSViewRepresentable {
             }
 
             localInlineSlotView.displayIfNeeded()
+            // Flush only this panel's subtree. A whole-window displayIfNeeded
+            // here would also draw sibling Metal terminal panes — and this
+            // method runs from updateNSView/viewDidMoveToWindow, inside the
+            // layout pass, where a synchronous terminal draw can wedge the
+            // main thread against the still-open window transaction. WebKit
+            // subtree flushes carry no such wait.
             displayIfNeeded()
-            window?.displayIfNeeded()
         }
 
         func prepareForWindowPortalHosting() {
@@ -5773,19 +5772,20 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 
         func pinHostedWebView(_ webView: WKWebView, in container: NSView) {
-            guard webView.superview === container || webView.isDescendant(of: container) else { return }
+            let presentationView = webView.cmuxBrowserViewportPresentationView
+            guard presentationView.superview === container ||
+                    presentationView.isDescendant(of: container) else { return }
 
             let hasCompanionWKSubviews = container.browserPortalHasVisibleWebKitCompanionSubview(for: webView)
             let needsPlainWebViewFrameReset =
-                webView.superview === container &&
+                presentationView.superview === container &&
                 !hasCompanionWKSubviews &&
-                Self.frameDiffersFromBounds(webView.frame, bounds: container.bounds)
+                !webView.cmuxBrowserViewportLayoutMatches(container.bounds)
             let needsFrameHosting =
                 hostedWebView !== webView ||
                 !hostedWebViewConstraints.isEmpty ||
                 needsPlainWebViewFrameReset ||
-                !webView.translatesAutoresizingMaskIntoConstraints ||
-                webView.autoresizingMask != [.width, .height]
+                !presentationView.translatesAutoresizingMaskIntoConstraints
             guard needsFrameHosting else {
                 needsLayout = true
                 layoutSubtreeIfNeeded()
@@ -5799,20 +5799,14 @@ struct WebViewRepresentable: NSViewRepresentable {
             // WebKit's attached inspector does not reliably dock into a constraint-managed
             // WKWebView hierarchy on macOS. Host the moved webview with autoresizing and
             // preserve WebKit-managed split frames when docked DevTools siblings exist.
-            webView.translatesAutoresizingMaskIntoConstraints = true
-            webView.autoresizingMask = [.width, .height]
-            if webView.superview === container && !hasCompanionWKSubviews {
-                webView.frame = container.bounds
+            if presentationView.superview === container && !hasCompanionWKSubviews {
+                webView.cmuxApplyBrowserViewportLayout(in: container.bounds)
+            } else {
+                presentationView.translatesAutoresizingMaskIntoConstraints = true
+                presentationView.autoresizingMask = [.width, .height]
             }
             needsLayout = true
             layoutSubtreeIfNeeded()
-        }
-
-        private static func frameDiffersFromBounds(_ frame: NSRect, bounds: NSRect, epsilon: CGFloat = 0.5) -> Bool {
-            abs(frame.minX - bounds.minX) > epsilon ||
-                abs(frame.minY - bounds.minY) > epsilon ||
-                abs(frame.width - bounds.width) > epsilon ||
-                abs(frame.height - bounds.height) > epsilon
         }
 
         private func ensureHostedInspectorSideDockContainerView() -> HostedInspectorSideDockContainerView {
@@ -6953,7 +6947,8 @@ struct WebViewRepresentable: NSViewRepresentable {
     }
 
     private static func localInlineTransferRoot(for webView: WKWebView) -> NSView? {
-        var current = webView.superview
+        let presentationView = webView.cmuxBrowserViewportPresentationView
+        var current = presentationView.superview
         var last: NSView?
         while let view = current {
             if view is WindowBrowserSlotView {
@@ -6965,7 +6960,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             last = view
             current = view.superview
         }
-        return last ?? webView.superview
+        return last ?? presentationView.superview
     }
 
     private static func directTransferChild(of container: NSView, containing descendant: NSView) -> NSView? {
@@ -7002,7 +6997,6 @@ struct WebViewRepresentable: NSViewRepresentable {
         } else {
             append(primaryWebView)
         }
-
         let inspectorFrontendWebView = primaryWebView.cmuxInspectorFrontendWebView()
         for view in sourceSuperview.subviews {
             if view === primaryWebView { continue }
@@ -7151,7 +7145,7 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         let shouldPreserveExistingExternalLocalHost =
             host.window == nil &&
-            webView.superview != nil &&
+            webView.cmuxBrowserViewportAttachmentSuperview != nil &&
             !host.containsManagedLocalInlineContent(webView)
         if shouldPreserveExistingExternalLocalHost {
             // Split zoom can instantiate a replacement local host before it joins a window.
@@ -7204,7 +7198,11 @@ struct WebViewRepresentable: NSViewRepresentable {
                     reason: "attachLocalHost"
                 )
             } else {
-                slotView.addSubview(webView, positioned: .above, relativeTo: nil)
+                slotView.addSubview(
+                    webView.cmuxBrowserViewportPresentationView,
+                    positioned: .above,
+                    relativeTo: nil
+                )
             }
         }
 
@@ -7479,7 +7477,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             let portalEntryMissing = !BrowserWindowPortalRegistry.isWebView(webView, boundTo: portalAnchorView)
             let shouldBindNow =
                 coordinator.lastPortalHostId != hostId ||
-                webView.superview == nil ||
+                webView.cmuxBrowserViewportAttachmentSuperview == nil ||
                 portalEntryMissing ||
                 previousVisible != shouldAttachWebView ||
                 previousZPriority != portalZPriority

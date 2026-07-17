@@ -121,10 +121,7 @@ struct DisconnectedWorkspaceShellView: View {
         ) {
             Button(L10n.string("mobile.common.ok", defaultValue: "OK"), role: .cancel) {}
         } message: {
-            Text(L10n.string(
-                "mobile.disconnected.connectFailedMessage",
-                defaultValue: "Make sure the computer is awake and online, then try again."
-            ))
+            Text(connectFailedMessage)
         }
         #endif
     }
@@ -157,11 +154,11 @@ struct DisconnectedWorkspaceShellView: View {
                     MacComputerRow(
                         computer: computer,
                         requestRemove: { computerPendingRemovalID = $0 },
-                        isConfirmingRemove: removalConfirmationBinding(for: computer.deviceId),
+                        isConfirmingRemove: removalConfirmationBinding(for: computer.id),
                         confirmRemove: { _ in confirmComputerRemoval() },
                         style: .reconnect,
-                        connect: { connect(to: $0, named: computer.title) },
-                        isConnecting: connectingMacID == computer.deviceId
+                        connect: { _ in connect(to: computer) },
+                        isConnecting: connectingMacID == computer.id
                     )
                 }
             } header: {
@@ -238,16 +235,19 @@ struct DisconnectedWorkspaceShellView: View {
     /// switch (e.g. from the Settings sheet's host picker) supersedes this one;
     /// in that case the newer attempt is still in flight or has already
     /// connected, and alerting "couldn't connect" would be wrong — skip it.
-    private func connect(to macDeviceID: String, named name: String) {
+    private func connect(to computer: MacComputerSnapshot) {
         guard connectingMacID == nil, let store else { return }
-        connectingMacID = macDeviceID
+        connectingMacID = computer.id
         Task {
-            let connected = await store.switchToMac(macDeviceID: macDeviceID)
+            let connected = await store.switchToMac(
+                macDeviceID: computer.deviceId,
+                instanceTag: computer.instanceTag
+            )
             connectingMacID = nil
             if !connected,
                store.connectionState != .connected,
                !store.isMacSwitchInFlight {
-                connectFailedComputerName = name
+                connectFailedComputerName = computer.title
             }
         }
     }
@@ -259,6 +259,21 @@ struct DisconnectedWorkspaceShellView: View {
                 defaultValue: "Couldn't connect to %@"
             ),
             connectFailedComputerName ?? ""
+        )
+    }
+
+    /// The reconnect attempt owns the store's latest classified failure. Show
+    /// it with its guidance, falling back only when no specific reason exists.
+    private var connectFailedMessage: String {
+        if let failure = MobileDisconnectedFailureCopy(
+            error: store?.connectionError,
+            guidance: store?.connectionErrorGuidance
+        ).combined {
+            return failure
+        }
+        return L10n.string(
+            "mobile.disconnected.connectFailedMessage",
+            defaultValue: "Make sure the computer is awake and online, then try again."
         )
     }
 
@@ -276,12 +291,16 @@ struct DisconnectedWorkspaceShellView: View {
     }
 
     private func confirmComputerRemoval() {
-        guard let deviceID = computerPendingRemovalID else {
+        guard let pairingID = computerPendingRemovalID,
+              let computer = savedComputers.first(where: { $0.id == pairingID }) else {
             return
         }
         computerPendingRemovalID = nil
         Task {
-            await store?.forgetMac(macDeviceID: deviceID)
+            await store?.forgetMac(
+                macDeviceID: computer.deviceId,
+                instanceTag: computer.instanceTag
+            )
             await store?.loadPairedMacs()
         }
     }

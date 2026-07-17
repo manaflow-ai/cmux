@@ -1,5 +1,6 @@
 import Testing
 import AppKit
+import CmuxSidebar
 import CmuxUpdater
 import SwiftUI
 
@@ -27,19 +28,28 @@ import SwiftUI
 /// source shapes; this is the mechanism-independent backstop.
 @Suite(.serialized)
 final class SidebarLazyLayoutScaleTests {
-    private static let workspaceCount = 300
+    static let workspaceCount = 300
     /// Generous ceiling for "how many rows may be realized for one viewport".
     /// A 640pt window shows ~20 rows; LazyVStack prefetch and a second layout
     /// pass can multiply that, but a virtualization defeat realizes all 300.
     private static let realizedRowCeiling = 150
 
+    final class InjectableMouseLocationWindow: NSWindow {
+        var injectedMouseLocation = NSPoint.zero
+
+        override var mouseLocationOutsideOfEventStream: NSPoint {
+            injectedMouseLocation
+        }
+    }
+
     // Plain class (not @MainActor) so the probe's nonisolated `() -> Void`
     // closures can mutate it; bodies only run on the main thread. Same shape
     // as MinimalModeBodyProbeCounts in WorkspaceContentViewVisibilityTests.
-    private final class RowBodyCounter {
+    final class RowBodyCounter {
         var workspaceRowBodies = 0
         var groupHeaderBodies = 0
         var workspaceSnapshotBuilds = 0
+        var workspaceRowInputProjections = 0
         // Snapshot builds bracketed by workspaceRowBody/workspaceRowBodyEnd,
         // i.e. synchronous work inside a single TabItemView.body evaluation.
         // Builds outside the bracket (onAppear refresh, observation publishers)
@@ -51,6 +61,7 @@ final class SidebarLazyLayoutScaleTests {
             workspaceRowBodies = 0
             groupHeaderBodies = 0
             workspaceSnapshotBuilds = 0
+            workspaceRowInputProjections = 0
             insideWorkspaceRowBody = false
             snapshotBuildsInCurrentRowBody = 0
             maxSnapshotBuildsInOneRowBody = 0
@@ -58,11 +69,11 @@ final class SidebarLazyLayoutScaleTests {
     }
 
     @MainActor
-    private struct Harness {
+    struct Harness {
         let tabManager: TabManager
         let unread: SidebarUnreadModel
         let counter: RowBodyCounter
-        let window: NSWindow
+        let window: InjectableMouseLocationWindow
         let defaultsSuiteName: String
 
         func tearDown() {
@@ -74,7 +85,7 @@ final class SidebarLazyLayoutScaleTests {
     }
 
     @MainActor
-    private static func mountSidebar(workspaceCount: Int) async throws -> Harness {
+    static func mountSidebar(workspaceCount: Int) async throws -> Harness {
         _ = NSApplication.shared
 
         // Hermetic defaults: VerticalTabsSidebar picks between the workspace
@@ -114,7 +125,7 @@ final class SidebarLazyLayoutScaleTests {
         }
 
         // Group the first workspaces (top of the list, inside the viewport) so
-        // group-header rows — assembled by sidebarWorkspaceGroupHeader(...) in
+        // group-header rows — assembled by sidebarWorkspaceGroupRow(...) in
         // VerticalTabsSidebar+WorkspaceGroups.swift, a historical regression
         // site (#4385) — are exercised by the same realization bounds.
         let groupCandidates = Array(tabManager.tabs.prefix(20).map(\.id))
@@ -172,12 +183,15 @@ final class SidebarLazyLayoutScaleTests {
                         counter.maxSnapshotBuildsInOneRowBody,
                         counter.snapshotBuildsInCurrentRowBody
                     )
+                },
+                workspaceRowInputProjection: {
+                    counter.workspaceRowInputProjections += 1
                 }
             )
         )
         .defaultAppStorage(defaults)
 
-        let window = NSWindow(
+        let window = InjectableMouseLocationWindow(
             contentRect: NSRect(x: 0, y: 0, width: 280, height: 640),
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
@@ -205,7 +219,7 @@ final class SidebarLazyLayoutScaleTests {
     /// own autorelease pool so drained main-queue work cannot pile objects
     /// into the enclosing job's pool.
     @MainActor
-    private static func turnMainRunLoopOnce(layingOut window: NSWindow?) {
+    static func turnMainRunLoopOnce(layingOut window: NSWindow?) {
         autoreleasepool {
             window?.contentView?.layoutSubtreeIfNeeded()
             _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
@@ -213,25 +227,13 @@ final class SidebarLazyLayoutScaleTests {
     }
 
     @MainActor
-    private static func drainMainRunLoop(for window: NSWindow, iterations: Int = 25) async {
+    static func drainMainRunLoop(for window: NSWindow, iterations: Int = 25) async {
         for _ in 0..<iterations {
             Self.turnMainRunLoopOnce(layingOut: window)
             await Task.yield()
         }
     }
 
-    @MainActor
-    private static func hoverReconcilerViews(in rootView: NSView) -> [SidebarWorkspaceRowHoverReconcilerView] {
-        var result: [SidebarWorkspaceRowHoverReconcilerView] = []
-        var pendingViews = [rootView]
-        while let view = pendingViews.popLast() {
-            if let reconciler = view as? SidebarWorkspaceRowHoverReconcilerView {
-                result.append(reconciler)
-            }
-            pendingViews.append(contentsOf: view.subviews)
-        }
-        return result
-    }
 
     /// Mounting the sidebar with 300 workspaces must realize only the rows a
     /// single viewport needs. Realizing all of them is the #5323/#6210 defeat:
@@ -270,23 +272,20 @@ final class SidebarLazyLayoutScaleTests {
             headerRealized < Self.realizedRowCeiling,
             """
             \(headerRealized) group-header bodies evaluated for 5 groups in one viewport. \
-            The group-header row wrapper (sidebarWorkspaceGroupHeader) is defeating \
+            The group-header row wrapper (sidebarWorkspaceGroupRow) is defeating \
             virtualization or re-evaluating without bound — the #4385 regression site.
             """
         )
     }
 
-    /// One TabItemView.body evaluation must build the workspace snapshot at
-    /// most once. The snapshot is a full per-workspace projection (bonsplit
-    /// tree walk, git branch summaries, PR rows); until `onAppear` seeds
-    /// `workspaceSnapshotStorage`, every `workspaceSnapshot` access in the
-    /// first body evaluation used to rebuild it from scratch, so each row a
-    /// scroll mounts paid the walk several times over. Builds outside body
-    /// evaluations (onAppear refresh, observation publishers) are legitimate
-    /// and excluded by the probe bracket.
+    /// TabItemView.body must never build a workspace snapshot. The parent owns
+    /// the full per-workspace projection (bonsplit tree walk, git summaries,
+    /// PR rows) and passes the resulting value across the LazyVStack boundary.
+    /// Building it while a row is being realized would read the live workspace
+    /// graph from inside SwiftUI layout and recreate the #6707 reentry path.
     @Test
     @MainActor
-    func testRowBodyEvaluationBuildsWorkspaceSnapshotAtMostOnce() async throws {
+    func testRowBodyEvaluationNeverBuildsWorkspaceSnapshot() async throws {
         let harness = try await Self.mountSidebar(workspaceCount: Self.workspaceCount)
         defer { harness.tearDown() }
 
@@ -298,12 +297,74 @@ final class SidebarLazyLayoutScaleTests {
         )
         let worstBody = harness.counter.maxSnapshotBuildsInOneRowBody
         #expect(
-            worstBody <= 1,
+            worstBody == 0,
             """
             A single TabItemView.body evaluation built the workspace snapshot \(worstBody) \
-            times. The snapshot fallback in the `workspaceSnapshot` getter must memoize \
-            within a body evaluation; N accesses before onAppear seeds storage must not \
-            mean N bonsplit tree walks per mounted row.
+            times. Workspace snapshots must be built by VerticalTabsSidebar before the \
+            LazyVStack realization closure and passed to rows as immutable values.
+            """
+        )
+    }
+
+    /// A simultaneous workspace-publisher burst must cross the parent snapshot
+    /// boundary once per batch. Re-projecting all 300 row inputs once per
+    /// emitting workspace is O(N²) main-actor work even though LazyVStack only
+    /// realizes the viewport rows.
+    @Test
+    @MainActor
+    func testWorkspacePublisherBatchProjectsParentListLinearly() async throws {
+        let harness = try await Self.mountSidebar(workspaceCount: Self.workspaceCount)
+        defer { harness.tearDown() }
+
+        await Self.drainMainRunLoop(for: harness.window)
+
+        // The default sidebar intentionally accepts the initial value from
+        // both workspace publisher families. Wait for those known initial
+        // projections before isolating the operation count for this burst.
+        // Initial mount builds fallback + owner snapshots, then each of the
+        // two keyed publisher families delivers its accepted initial value.
+        let initialObservationBuildFloor = Self.workspaceCount * 4
+        let initialDeadline = ProcessInfo.processInfo.systemUptime + 3
+        while harness.counter.workspaceSnapshotBuilds < initialObservationBuildFloor,
+              ProcessInfo.processInfo.systemUptime < initialDeadline {
+            Self.turnMainRunLoopOnce(layingOut: harness.window)
+            await Task.yield()
+        }
+        #expect(
+            harness.counter.workspaceSnapshotBuilds >= initialObservationBuildFloor,
+            "Initial keyed workspace publisher values did not reach the snapshot owner."
+        )
+
+        harness.counter.reset()
+        let targets = Array(harness.tabManager.tabs.suffix(80))
+        for (index, workspace) in targets.enumerated() {
+            workspace.statusEntries["issue-6707.batch"] = SidebarStatusEntry(
+                key: "issue-6707.batch",
+                value: "batch update \(index)",
+                icon: "bolt.fill"
+            )
+        }
+
+        let refreshDeadline = ProcessInfo.processInfo.systemUptime + 3
+        while harness.counter.workspaceSnapshotBuilds < targets.count,
+              ProcessInfo.processInfo.systemUptime < refreshDeadline {
+            Self.turnMainRunLoopOnce(layingOut: harness.window)
+            await Task.yield()
+        }
+        #expect(
+            harness.counter.workspaceSnapshotBuilds >= targets.count,
+            "The \(targets.count)-workspace publisher batch did not reach the snapshot owner."
+        )
+        await Self.drainMainRunLoop(for: harness.window)
+
+        let projections = harness.counter.workspaceRowInputProjections
+        #expect(projections > 0, "The parent row-input projection probe did not run.")
+        #expect(
+            projections <= Self.workspaceCount * 4,
+            """
+            \(projections) parent row-input projections ran for one \(targets.count)-workspace \
+            event batch at \(Self.workspaceCount) workspaces. The batch must cause O(N) parent \
+            projection work, not O(N²) work from one parent invalidation per emitter.
             """
         )
     }
@@ -366,49 +427,6 @@ final class SidebarLazyLayoutScaleTests {
         )
     }
 
-    /// AppKit may invoke `updateTrackingAreas` repeatedly while SwiftUI is
-    /// reconciling a lazy row's platform children. A burst must collapse to a
-    /// bounded asynchronous delivery and then settle; calling row bindings on
-    /// this stack is the #8004 AttributeGraph/NSHostingView livelock.
-    @Test
-    @MainActor
-    func testTrackingAreaStormStaysBoundedAndConverges() async throws {
-        let harness = try await Self.mountSidebar(workspaceCount: Self.workspaceCount)
-        defer { harness.tearDown() }
-
-        await Self.drainMainRunLoop(for: harness.window)
-        let rootView = try #require(harness.window.contentView)
-        let reconcilers = Self.hoverReconcilerViews(in: rootView)
-        #expect(!reconcilers.isEmpty, "The mounted viewport has no hover reconcilers; the stress path is not covered.")
-
-        harness.counter.reset()
-        for _ in 0..<100 {
-            for reconciler in reconcilers {
-                reconciler.updateTrackingAreas()
-            }
-        }
-        await Self.drainMainRunLoop(for: harness.window)
-
-        let stormEvals = harness.counter.workspaceRowBodies + harness.counter.groupHeaderBodies
-        #expect(
-            stormEvals < reconcilers.count * 4,
-            """
-            \(stormEvals) row bodies evaluated after 100 tracking-area passes across \
-            \(reconcilers.count) visible rows. AppKit lifecycle events must be coalesced before they update SwiftUI.
-            """
-        )
-
-        harness.counter.reset()
-        await Self.drainMainRunLoop(for: harness.window, iterations: 30)
-        let quietEvals = harness.counter.workspaceRowBodies + harness.counter.groupHeaderBodies
-        #expect(
-            quietEvals < 20,
-            """
-            \(quietEvals) row bodies evaluated after the tracking-area burst ended. The sidebar failed to converge \
-            and is still feeding SwiftUI state changes back into AppKit layout.
-            """
-        )
-    }
 
     /// Harness self-test: prove the drain loop + body counter actually detect
     /// a layout feedback loop. This fixture reproduces the historical

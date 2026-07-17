@@ -977,71 +977,6 @@ func browserLoadRequest(_ request: URLRequest, in webView: WKWebView) -> WKNavig
     return webView.load(browserPreparedNavigationRequest(request))
 }
 
-private let browserEmbeddedNavigationSchemes: Set<String> = [
-    "about",
-    "applewebdata",
-    "blob",
-    "cmux-diff-viewer",
-    "data",
-    "file",
-    "http",
-    "https",
-    "javascript",
-]
-
-func browserShouldOpenURLExternally(_ url: URL) -> Bool {
-    guard let scheme = url.scheme?.lowercased(), !scheme.isEmpty else { return false }
-    return !browserEmbeddedNavigationSchemes.contains(scheme)
-}
-
-enum BrowserExternalNavigationAction: Equatable {
-    case browserFallback(URL)
-    case promptToOpenApp(URL)
-}
-
-enum BrowserExternalNavigationHandlingResult: Equatable {
-    case notHandled
-    case browserFallback
-    case externalPrompt
-}
-
-func browserShouldRouteExternalNavigation(_ url: URL) -> Bool {
-    return browserExternalNavigationAction(for: url) != nil
-}
-
-func browserIntentFallbackURL(for url: URL) -> URL? {
-    guard url.scheme?.lowercased() == "intent" else { return nil }
-    guard let intentMarker = url.absoluteString.range(of: "#Intent;") else { return nil }
-
-    let fallbackPrefix = "S.browser_fallback_url="
-    let intentBody = url.absoluteString[intentMarker.upperBound...]
-    for component in intentBody.split(separator: ";", omittingEmptySubsequences: false) {
-        if component == "end" { break }
-        guard component.hasPrefix(fallbackPrefix) else { continue }
-
-        let rawFallbackURL = String(component.dropFirst(fallbackPrefix.count))
-        guard !rawFallbackURL.isEmpty else { return nil }
-
-        let decodedFallbackURL = rawFallbackURL.removingPercentEncoding ?? rawFallbackURL
-        guard let fallbackURL = URL(string: decodedFallbackURL),
-              let fallbackScheme = fallbackURL.scheme?.lowercased(),
-              fallbackScheme == "http" || fallbackScheme == "https" else {
-            return nil
-        }
-        return fallbackURL
-    }
-
-    return nil
-}
-
-func browserExternalNavigationAction(for url: URL) -> BrowserExternalNavigationAction? {
-    if let fallbackURL = browserIntentFallbackURL(for: url) {
-        return .browserFallback(fallbackURL)
-    }
-    guard browserShouldOpenURLExternally(url) else { return nil }
-    return .promptToOpenApp(url)
-}
-
 private func browserCopyExternalNavigationURL(_ url: URL) {
     NSPasteboard.general.clearContents()
     NSPasteboard.general.setString(url.absoluteString, forType: .string)
@@ -1161,7 +1096,7 @@ func browserHandleExternalNavigation(
     presentAlert: @escaping BrowserAlertPresenter = browserPresentAlert,
     onTerminalExternalNavigation: @escaping () -> Void = {}
 ) -> BrowserExternalNavigationHandlingResult {
-    guard let action = browserExternalNavigationAction(for: url) else { return .notHandled }
+    guard let action = url.browserExternalNavigationAction else { return .notHandled }
 
     switch action {
     case let .browserFallback(fallbackURL):
@@ -1207,7 +1142,8 @@ enum BrowserUserAgentSettings {
     // Force a Safari UA. Some WebKit builds return a minimal UA without Version/Safari tokens,
     // and some installs may have legacy Chrome UA overrides. Both can cause Google to serve
     // fallback/old UIs or trigger bot checks.
-    static let safariUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.2 Safari/605.1.15"
+    static let safariApplicationNameForUserAgent = "Version/26.2 Safari/605.1.15"
+    static let safariUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) \(safariApplicationNameForUserAgent)"
 }
 
 func normalizedBrowserHistoryNamespace(bundleIdentifier: String) -> String {
@@ -1841,15 +1777,6 @@ enum BrowserInsecureHTTPNavigationResolution {
     }
 }
 
-enum BrowserWebViewLifecycleState: String {
-    case newTab = "new_tab"
-    case deferredURL = "deferred_url"
-    case liveVisible = "live_visible"
-    case liveHidden = "live_hidden"
-    case discarded
-    case closing
-}
-
 final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     static let scheme = "cmux-diff-viewer"
     static let shared = CmuxDiffViewerURLSchemeHandler()
@@ -1865,6 +1792,25 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         let token: String
         let filesByPath: [String: RegisteredFile]
         let createdAt: Date
+        let lease: SessionLease
+    }
+
+    private final class SessionLease {
+        let fileDescriptor: Int32
+
+        init(root: URL, token: String) throws {
+            let path = root.appendingPathComponent(".session-lease-\(token).lock").path
+            fileDescriptor = Darwin.open(path, O_CREAT | O_RDWR, mode_t(0o600))
+            guard fileDescriptor >= 0, flock(fileDescriptor, LOCK_SH | LOCK_NB) == 0 else {
+                if fileDescriptor >= 0 { Darwin.close(fileDescriptor) }
+                throw POSIXError(.EWOULDBLOCK)
+            }
+        }
+
+        deinit {
+            _ = flock(fileDescriptor, LOCK_UN)
+            Darwin.close(fileDescriptor)
+        }
     }
 
     private final class SchemeTaskState: @unchecked Sendable {
@@ -1938,9 +1884,10 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             )
         }
 
+        let lease = try SessionLease(root: trustedRootURL, token: token)
         lock.lock()
         pruneExpiredSessionsLocked(now: now)
-        sessions[token] = Session(token: token, filesByPath: byPath, createdAt: now)
+        sessions[token] = Session(token: token, filesByPath: byPath, createdAt: now, lease: lease)
         lock.unlock()
     }
 
@@ -2478,13 +2425,13 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
                     urlSchemeTask.didReceive(response)
                 }) else { return }
 
-                let handle = try FileHandle(forReadingFrom: file.fileURL)
+                let reader = try DiffViewerAssetReader(fileURL: file.fileURL)
                 defer {
-                    try? handle.close()
+                    try? reader.close()
                 }
 
                 while self.isSchemeTaskActive(taskID) {
-                    let data = try handle.read(upToCount: 64 * 1024) ?? Data()
+                    let data = try reader.read(upToCount: 64 * 1024)
                     if data.isEmpty {
                         break
                     }
@@ -2587,7 +2534,6 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             "X-Content-Type-Options": "nosniff",
             "Cross-Origin-Resource-Policy": "same-origin"
         ]
-        if file.fileURL.lastPathComponent.hasSuffix(".deflate") { headers["Content-Encoding"] = "deflate" }
         if file.mimeType == "text/html" {
             headers["Content-Security-Policy"] = [
                 "default-src 'none'",
@@ -2738,7 +2684,17 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// The underlying web view
     private(set) var webView: WKWebView
-    private var websiteDataStore: WKWebsiteDataStore
+    let viewportHostView = BrowserViewportHostView(frame: .zero)
+    let viewportModel = BrowserViewportModel()
+    var browserViewportHostRestorationTask: Task<Void, Never>?
+    var browserViewportHostRestorationPending = false
+    var websiteDataStore: WKWebsiteDataStore
+    var browserAutomationUserScripts: [WKUserScript] = []
+    var browserAutomationInitScriptCount = 0
+    var browserAutomationStyleScriptCount = 0
+    let browserWebExtensionHost: (any BrowserWebExtensionHosting)?
+    private(set) var webExtensionPageContextIdentifier: ObjectIdentifier?
+    var isRegisteredForWebExtensions = false
     var webViewDidRequestClose: (() -> Void)?
 
     /// Monotonic identity for the current WKWebView instance.
@@ -2760,12 +2716,7 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Prevent forcing web-view focus when another UI path requested omnibar focus.
     /// Used to keep omnibar text-field focus from being immediately stolen by panel focus.
     private var suppressWebViewFocusUntil: Date?
-    /// Model-owned suppression requested before an address-bar view has accepted
-    /// focus. Mounted views hold separate owner-scoped leases so a disappearing
-    /// stale view cannot clear a replacement view's suppression, and an
-    /// acknowledged request cannot leave suppression latched without an owner.
-    var suppressWebViewFocusForAddressBarIntent: Bool = false
-    var addressBarViewFocusLeaseOwners: Set<UUID> = []
+    private var suppressWebViewFocusForAddressBar: Bool = false
     private let blankURLString = "about:blank"
 
     /// Owns the address-bar page-focus capture/restore subsystem.
@@ -2815,7 +2766,9 @@ final class BrowserPanel: Panel, ObservableObject {
     private var shouldPreloadInitialNavigationInBackground: Bool
     private var backgroundPreloadWindow: NSWindow?
     private let visualAutomationCaptureGate = BrowserScreenshotCaptureGate()
-    private var activeVisualAutomationCaptureCount: Int = 0
+    let automationWatchdog = BrowserAutomationWatchdog()
+    let automationDocumentReadiness = BrowserAutomationDocumentReadiness()
+    var activeVisualAutomationCaptureCount: Int = 0
     private struct PendingInteractiveBrowserPrompt {
         let present: (NSWindow, @escaping () -> Void) -> Void
         let cancel: () -> Void
@@ -2914,15 +2867,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// Sticky omnibar-focus intent. This survives view mount timing races and is
     /// cleared only after BrowserPanelView acknowledges handling it.
-    @Published var pendingAddressBarFocusRequestId: UUID?
-    var pendingAddressBarFocusSelectionIntent: BrowserAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
-
-    /// The newest mounted SwiftUI presentation for this model. Ordinary workspace
-    /// recreation can overlap outgoing and replacement views for the same panel
-    /// and pane, so pane identity alone cannot decide which view may consume a
-    /// durable focus request.
-    @Published var currentAddressBarViewPresentationOwner: UUID?
-    var addressBarViewPresentationOwners: [UUID] = []
+    @Published private(set) var pendingAddressBarFocusRequestId: UUID?
+    private(set) var pendingAddressBarFocusSelectionIntent: BrowserAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
 
     /// Per-surface browser chrome visibility. Diff and artifact viewers can hide
     /// the omnibar without changing the global browser default.
@@ -3014,7 +2960,6 @@ final class BrowserPanel: Panel, ObservableObject {
     private var loadingStartedAt: Date?
     private var loadingEndWorkItem: DispatchWorkItem?
     private var loadingGeneration: Int = 0
-
     private var faviconTask: Task<Void, Never>?
     private var faviconRefreshGeneration: Int = 0
     private var lastFaviconURLString: String?
@@ -3022,6 +2967,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private let maxPageZoom: CGFloat = 5.0
     private let pageZoomStep: CGFloat = 0.1
     private var insecureHTTPBypassHostOnce: String?
+    var activeInteractiveBrowserPromptIDs: Set<UUID> = []
     var insecureHTTPAlertFactory: () -> NSAlert
     var insecureHTTPAlertWindowProvider: () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow }
     // Persist user intent across WebKit detach/reattach churn (split/layout updates).
@@ -3104,6 +3050,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let request: URLRequest
         let recordTypedNavigation: Bool
         let preserveRestoredSessionHistory: Bool
+        let allowWebExtensionContext: Bool
     }
     private var pendingRemoteNavigation: PendingRemoteNavigation?
     private let bypassesRemoteWorkspaceProxy: Bool
@@ -3325,14 +3272,14 @@ final class BrowserPanel: Panel, ObservableObject {
         oldWebView.uiDelegate = nil
         if let oldCmuxWebView = oldWebView as? CmuxWebView { oldCmuxWebView.clearBrowserDownloadCallbacks() }
 
-        let replacement = Self.makeWebView(
+        let replacement = makeReplacementWebView(
             profileID: profileID,
             websiteDataStore: websiteDataStore
         )
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
         hasCommittedDocumentSinceWebViewReplacement = false; userStoppedLoadSinceWebViewReplacement = false
-        webView = replacement
+        webExtensionPageContextIdentifier = nil; webView = replacement
         hiddenWebViewDiscardManager.markDiscarded(reason: reason, now: now)
         currentURL = restoreURL
         shouldRenderWebView = false
@@ -3376,7 +3323,7 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Popups inherit this panel's exact WebKit storage context.
     var popupBrowserContext: BrowserPopupBrowserContext {
         BrowserPopupBrowserContext(
-            websiteDataStore: websiteDataStore
+            websiteDataStore: webView.configuration.websiteDataStore
         )
     }
 
@@ -3542,13 +3489,14 @@ final class BrowserPanel: Panel, ObservableObject {
     // identical configuration, making adoption a drop-in swap.
     static func makeWebView(
         profileID: UUID,
-        websiteDataStore: WKWebsiteDataStore? = nil
+        websiteDataStore: WKWebsiteDataStore? = nil,
+        browserWebExtensionHost: (any BrowserWebExtensionHosting)? = nil,
+        webViewConfiguration: WKWebViewConfiguration? = nil
     ) -> CmuxWebView {
-        let config = WKWebViewConfiguration()
-        configureWebViewConfiguration(
-            config,
-            websiteDataStore: websiteDataStore ?? BrowserProfileStore.shared.websiteDataStore(for: profileID)
-        )
+        let config = webViewConfiguration ?? WKWebViewConfiguration()
+        if webViewConfiguration == nil {
+            configureWebViewConfiguration(config, websiteDataStore: websiteDataStore ?? BrowserProfileStore.shared.websiteDataStore(for: profileID), browserWebExtensionHost: browserWebExtensionHost)
+        }
 
         let webView = CmuxWebView(frame: .zero, configuration: config)
         webView.allowsBackForwardNavigationGestures = true
@@ -3566,12 +3514,14 @@ final class BrowserPanel: Panel, ObservableObject {
 
     static func configureWebViewConfiguration(
         _ configuration: WKWebViewConfiguration,
-        websiteDataStore: WKWebsiteDataStore
+        websiteDataStore: WKWebsiteDataStore,
+        browserWebExtensionHost: (any BrowserWebExtensionHosting)? = nil
     ) {
         configuration.mediaTypesRequiringUserActionForPlayback = []
         // Ensure browser cookies/storage persist across navigations and launches.
         // This reduces repeated consent/bot-challenge flows on sites like Google.
         configuration.websiteDataStore = websiteDataStore
+        browserWebExtensionHost?.attach(to: configuration)
         if configuration.urlSchemeHandler(forURLScheme: CmuxDiffViewerURLSchemeHandler.scheme) == nil {
             configuration.setURLSchemeHandler(
                 CmuxDiffViewerURLSchemeHandler.shared,
@@ -3581,7 +3531,7 @@ final class BrowserPanel: Panel, ObservableObject {
         // Review-comment persistence + TextBox attach for diff viewer pages.
         // The handler itself rejects every frame that is not a registered diff
         // viewer session, so installing it on all browser webviews is safe.
-        DiffCommentsBridge.installIfNeeded(on: configuration.userContentController)
+        DiffSidecarBridge.installViewerBridges(on: configuration.userContentController)
 
         // Enable developer extras (DevTools)
         configuration.preferences.setValue(true, forKey: "developerExtrasEnabled")
@@ -3660,6 +3610,19 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func bindWebView(_ webView: CmuxWebView) {
+        browserViewportHostRestorationTask?.cancel()
+        browserViewportHostRestorationTask = nil
+        browserViewportHostRestorationPending = false
+        webView.browserViewportModel = viewportModel
+        viewportHostView.installWebView(webView)
+        webView.onBrowserViewportHierarchyChanged = { [weak self, weak webView] in
+            guard let self, let webView,
+                  self.webView === webView,
+                  self.browserViewportHostRestorationPending else {
+                return
+            }
+            self.scheduleBrowserViewportHostRestoration(reason: "webViewHierarchyChanged")
+        }
         DiffCommentsBridge.associate(panelId: id, workspaceId: workspaceId, with: webView)
         webView.onMouseBackButton = { [weak self] in
             self?.goBack()
@@ -3696,6 +3659,7 @@ final class BrowserPanel: Panel, ObservableObject {
             self?.openLinkInNewTab(url: url)
         }
         configureMoveTabToNewWorkspaceContextMenu(for: webView); configureNavigationDelegateCallbacks()
+        automationDocumentReadiness.bind(to: webViewInstanceID, hasCommittedDocument: webView.backForwardList.currentItem != nil)
         webView.cmuxDownloadDelegate = downloadDelegate
         webView.navigationDelegate = navigationDelegate
         webView.uiDelegate = uiDelegate
@@ -3706,7 +3670,6 @@ final class BrowserPanel: Panel, ObservableObject {
         webAuthnCoordinator.install(on: webView)
         applyMuteState(to: webView, reason: "bindWebView")
     }
-
     private func setupSSLTrustBypassMessageHandler(for webView: WKWebView) {
         let handler = BrowserSSLTrustBypassMessageHandler(
             canHandleToken: { [weak self] token in
@@ -3722,7 +3685,6 @@ final class BrowserPanel: Panel, ObservableObject {
         userContentController.removeScriptMessageHandler(forName: BrowserSSLTrustBypassMessageHandler.name)
         userContentController.add(handler, name: BrowserSSLTrustBypassMessageHandler.name)
     }
-
     private func configureNavigationDelegateCallbacks() {
         guard let navigationDelegate else { return }
         let boundWebViewInstanceID = webViewInstanceID
@@ -3750,6 +3712,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 (webView as? CmuxWebView)?.diffViewerNavigationDidCommit(navigation)
                 self.isMainFrameProvisionalNavigationActive = false
+                self.automationDocumentReadiness.didCommit(instanceID: boundWebViewInstanceID)
                 // An about:blank placeholder leaves the restore-stall detector armed.
                 if !Self.isAboutBlankURL(webView.url) {
                     self.hasCommittedDocumentSinceWebViewReplacement = true
@@ -3849,7 +3812,6 @@ final class BrowserPanel: Panel, ObservableObject {
         refreshBackgroundAppearance()
         GlobalSearchCoordinator.shared.captureBrowserPanel(self)
     }
-
     private func noteDiscardedWebViewRestoreNavigationTerminallyCancelled(restoreAttemptID: UUID?) {
         guard let restoreAttemptID, restoreAttemptID == currentDiscardRestoreAttemptID else { return }
         hasCommittedDocumentSinceWebViewReplacement = true
@@ -3951,7 +3913,9 @@ final class BrowserPanel: Panel, ObservableObject {
         proxyEndpoint: BrowserProxyEndpoint? = nil,
         bypassRemoteProxy: Bool = false,
         isRemoteWorkspace: Bool = false,
-        remoteWebsiteDataStoreIdentifier: UUID? = nil
+        remoteWebsiteDataStoreIdentifier: UUID? = nil,
+        browserWebExtensionHost: (any BrowserWebExtensionHosting)? = nil,
+        webViewConfiguration: WKWebViewConfiguration? = nil, allowWebExtensionInitialNavigationConfiguration: Bool = true
     ) {
         // Register fallback defaults and normalize legacy/out-of-range settings once
         // per process, before any setting is read below or by the SwiftUI view.
@@ -3973,25 +3937,34 @@ final class BrowserPanel: Panel, ObservableObject {
             ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? workspaceId)
             : BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
         self.websiteDataStore = websiteDataStore
+        self.browserWebExtensionHost = browserWebExtensionHost
+        let canUseInitialExtensionConfiguration = allowWebExtensionInitialNavigationConfiguration || webViewConfiguration != nil
+        let initialExtensionNavigationConfiguration = canUseInitialExtensionConfiguration ? (initialRequest?.url ?? initialURL).flatMap { browserWebExtensionHost?.webViewConfiguration(forNavigatingTo: $0) } : nil
+        let initialWebViewConfiguration = webViewConfiguration
+            ?? initialExtensionNavigationConfiguration?.webViewConfiguration
         let webView: CmuxWebView
         var adoptedPrewarmedWebView = false
-        if let prewarmed = Self.claimedPrewarmedWebView(
+        if initialWebViewConfiguration == nil, let prewarmed = Self.claimedPrewarmedWebView(
             isRemoteWorkspace: isRemoteWorkspace,
             initialRequest: initialRequest,
             renderInitialNavigation: renderInitialNavigation,
             initialURL: initialURL,
             profileID: resolvedProfileID,
-            websiteDataStore: websiteDataStore
+            websiteDataStore: websiteDataStore,
+            browserWebExtensionHost: browserWebExtensionHost
         ) {
             webView = prewarmed
             adoptedPrewarmedWebView = true
         } else {
             webView = Self.makeWebView(
                 profileID: resolvedProfileID,
-                websiteDataStore: websiteDataStore
+                websiteDataStore: websiteDataStore,
+                browserWebExtensionHost: browserWebExtensionHost,
+                webViewConfiguration: initialWebViewConfiguration
             )
         }
         self.webView = webView
+        webExtensionPageContextIdentifier = initialExtensionNavigationConfiguration?.contextIdentifier
         self.insecureHTTPAlertFactory = { NSAlert() }
         hiddenWebViewDiscardManager.delegate = self
         applyProxyConfigurationIfAvailable()
@@ -4014,6 +3987,8 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         navDelegate.shouldBlockInsecureHTTPNavigation = { [weak self] in self?.shouldBlockInsecureHTTPNavigation(to: $0) ?? false }
         navDelegate.shouldBlockInsecureHTTPSubframeDownload = { browserShouldBlockInsecureHTTPURL($0) }
+        navDelegate.shouldBlockWebExtensionNavigation = { [weak self] in self?.shouldBlockPageInitiatedWebExtensionNavigation(to: $0) ?? false }
+        navDelegate.shouldRouteWebExtensionNavigationInCurrentTab = { [weak self] in self?.shouldRoutePageInitiatedWebExtensionNavigationInCurrentTab(to: $0) ?? false }
         navDelegate.handleBlockedInsecureHTTPNavigation = { [weak self] request, intent in
             guard let self else { return }
             let restoreAttemptID = self.currentDiscardRestoreAttemptID
@@ -4201,10 +4176,7 @@ final class BrowserPanel: Panel, ObservableObject {
                     recordTypedNavigation: false
                 )
             } else {
-                navigateWithoutInsecureHTTPPrompt(
-                    request: initialRequest,
-                    recordTypedNavigation: false
-                )
+                navigateWithoutInsecureHTTPPrompt(request: initialRequest, recordTypedNavigation: false, allowWebExtensionContext: initialExtensionNavigationConfiguration != nil)
             }
         } else if let url = initialURL {
             hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
@@ -4219,7 +4191,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 hasCommittedDocumentSinceWebViewReplacement = true
                 refreshBackgroundAppearance()
             } else {
-                navigate(to: url)
+                navigate(to: url, allowWebExtensionContext: initialExtensionNavigationConfiguration != nil)
             }
         }
     }
@@ -4227,20 +4199,21 @@ final class BrowserPanel: Panel, ObservableObject {
     @discardableResult
     private func ensureBackgroundPreloadHostIfNeeded(reason: String) -> Bool {
         if let preloadWindow = backgroundPreloadWindow {
+            let presentationView = webView.cmuxBrowserViewportPresentationView
             guard webView.window == nil,
-                  webView.superview == nil,
+                  presentationView.superview == nil,
                   let contentView = preloadWindow.contentView else {
                 return false
             }
-            webView.frame = contentView.bounds
-            webView.autoresizingMask = [.width, .height]
-            contentView.addSubview(webView)
+            contentView.addSubview(presentationView)
+            webView.cmuxApplyBrowserViewportLayout(in: contentView.bounds)
             webView.browserPortalNotifyHidden(reason: "backgroundPreload:\(reason)")
             return true
         }
 
+        let presentationView = webView.cmuxBrowserViewportPresentationView
         guard webView.window == nil else { return false }
-        guard webView.superview == nil else { return false }
+        guard presentationView.superview == nil else { return false }
 
         let frame = NSRect(x: -10_000, y: -10_000, width: 800, height: 600)
         let window = NSWindow(
@@ -4258,9 +4231,8 @@ final class BrowserPanel: Panel, ObservableObject {
         window.isExcludedFromWindowsMenu = true
 
         let contentView = NSView(frame: frame)
-        webView.frame = contentView.bounds
-        webView.autoresizingMask = [.width, .height]
-        contentView.addSubview(webView)
+        contentView.addSubview(presentationView)
+        webView.cmuxApplyBrowserViewportLayout(in: contentView.bounds)
         window.contentView = contentView
         backgroundPreloadWindow = window
         window.orderFrontRegardless()
@@ -4287,37 +4259,48 @@ final class BrowserPanel: Panel, ObservableObject {
     private func presentBrowserAlert(
         _ alert: NSAlert,
         in webView: WKWebView,
+        windowProvider: (() -> NSWindow?)? = nil,
         completion: @escaping (NSApplication.ModalResponse) -> Void,
         cancel: @escaping () -> Void
     ) {
-        if let window = browserInteractiveModalHostWindow(for: webView) {
-            alert.beginSheetModal(for: window, completionHandler: completion)
+        let promptID = UUID()
+        activeInteractiveBrowserPromptIDs.insert(promptID)
+        let trackedCompletion: (NSApplication.ModalResponse) -> Void = { [weak self] response in self?.activeInteractiveBrowserPromptIDs.remove(promptID); completion(response) }
+        let trackedCancel = { [weak self] in self?.activeInteractiveBrowserPromptIDs.remove(promptID); cancel() }
+        let shouldDeferPrompt = shouldDeferPromptUntilInteractiveHost(for: webView)
+        if windowProvider == nil, let window = browserInteractiveModalHostWindow(for: webView) {
+            alert.beginSheetModal(for: window, completionHandler: trackedCompletion)
             return
         }
-
-        guard shouldDeferPromptUntilInteractiveHost(for: webView) else {
-            browserPresentAlert(alert, in: webView, completion: completion, cancel: cancel)
+        if !shouldDeferPrompt, let windowProvider {
+            if let window = windowProvider() {
+                alert.beginSheetModal(for: window, completionHandler: trackedCompletion)
+            } else {
+                trackedCompletion(alert.runModal())
+            }
             return
         }
-
-        pendingInteractiveBrowserPrompts.append(
-            PendingInteractiveBrowserPrompt(
-                present: { sheetWindow, didFinish in
-                    alert.beginSheetModal(for: sheetWindow) { response in
-                        completion(response)
-                        didFinish()
-                    }
-                },
-                cancel: cancel
+        if shouldDeferPrompt {
+            pendingInteractiveBrowserPrompts.append(
+                PendingInteractiveBrowserPrompt(
+                    present: { sheetWindow, didFinish in
+                        alert.beginSheetModal(for: sheetWindow) { response in
+                            trackedCompletion(response)
+                            didFinish()
+                        }
+                    },
+                    cancel: trackedCancel
+                )
             )
-        )
-
 #if DEBUG
-        cmuxDebugLog(
-            "browser.prompt.queue panel=\(id.uuidString.prefix(5)) " +
-            "pending=\(pendingInteractiveBrowserPrompts.count)"
-        )
+            cmuxDebugLog(
+                "browser.prompt.queue panel=\(id.uuidString.prefix(5)) " +
+                "pending=\(pendingInteractiveBrowserPrompts.count)"
+            )
 #endif
+            return
+        }
+        browserPresentAlert(alert, in: webView, completion: trackedCompletion, cancel: trackedCancel)
     }
 
     private func drainPendingInteractiveBrowserPromptsIfPossible(reason: String) {
@@ -4568,6 +4551,7 @@ final class BrowserPanel: Panel, ObservableObject {
         remoteProxyEndpoint = bypassesRemoteWorkspaceProxy ? nil : proxyEndpoint
         remoteWorkspaceStatus = remoteStatus
         if needsStoreSwap {
+            clearBrowserAutomationUserScripts()
             replaceWebViewPreservingState(
                 from: webView,
                 websiteDataStore: targetStore,
@@ -4628,15 +4612,17 @@ final class BrowserPanel: Panel, ObservableObject {
             websiteDataStore = BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
         }
 
+        clearBrowserAutomationUserScripts()
         let replacement = Self.makeWebView(
             profileID: resolvedProfileID,
-            websiteDataStore: websiteDataStore
+            websiteDataStore: websiteDataStore,
+            browserWebExtensionHost: browserWebExtensionHost
         )
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
         hasCommittedDocumentSinceWebViewReplacement = false; userStoppedLoadSinceWebViewReplacement = false
         resetWebViewLifecycleMetadata(resetVisibility: false)
-        webView = replacement
+        webExtensionPageContextIdentifier = nil; webView = replacement
         currentURL = restoreURL
         shouldRenderWebView = wasRenderable
         refreshWebViewLifecycleState()
@@ -4939,6 +4925,9 @@ final class BrowserPanel: Panel, ObservableObject {
                 guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
                 let didChangeFullscreenBlocker = self.isElementFullscreenActive != isElementFullscreenActive
                 self.isElementFullscreenActive = isElementFullscreenActive
+                let didChangeViewportOwnership = self.reconcileAutomationViewportForElementFullscreen(
+                    isActive: isElementFullscreenActive
+                )
                 if didChangeFullscreenBlocker {
                     self.reevaluateHiddenWebViewDiscardScheduling(reason: "fullscreen_changed")
                 }
@@ -4946,6 +4935,9 @@ final class BrowserPanel: Panel, ObservableObject {
                     webView: webView,
                     reason: "fullscreenStateChanged"
                 )
+                if didChangeViewportOwnership, !isElementFullscreenActive {
+                    self.scheduleBrowserViewportHostRestoration(reason: "fullscreenExit")
+                }
 #if DEBUG
                 cmuxDebugLog(
                     "browser.fullscreen.state panel=\(self.id.uuidString.prefix(5)) " +
@@ -5078,8 +5070,7 @@ final class BrowserPanel: Panel, ObservableObject {
             waitForManualRecovery: true
         )
     }
-
-    private func replaceWebViewPreservingState(
+    func replaceWebViewPreservingState(
         from oldWebView: WKWebView,
         websiteDataStore: WKWebsiteDataStore,
         reason: String,
@@ -5137,7 +5128,7 @@ final class BrowserPanel: Panel, ObservableObject {
         oldWebView.uiDelegate = nil
         if let oldCmuxWebView = oldWebView as? CmuxWebView { oldCmuxWebView.clearBrowserDownloadCallbacks() }
 
-        let replacement = Self.makeWebView(
+        let replacement = makeReplacementWebView(
             profileID: profileID,
             websiteDataStore: websiteDataStore
         )
@@ -5145,7 +5136,7 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewInstanceID = UUID()
         hasCommittedDocumentSinceWebViewReplacement = false; userStoppedLoadSinceWebViewReplacement = false
         resetWebViewLifecycleMetadata(resetVisibility: false)
-        webView = replacement
+        webExtensionPageContextIdentifier = nil; webView = replacement
         shouldRenderWebView = wasRenderable
         refreshWebViewLifecycleState()
 
@@ -5303,8 +5294,11 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func close() {
+        unregisterWebExtensionIfNeeded()
         cancelHiddenWebViewDiscard()
         isClosingWebViewLifecycle = true
+        automationDocumentReadiness.invalidate()
+        automationWatchdog.invalidate()
         refreshWebViewLifecycleState()
         GlobalSearchCoordinator.shared.purgePanel(id: id)
         closeDeveloperToolsForTeardown()
@@ -5688,13 +5682,25 @@ final class BrowserPanel: Panel, ObservableObject {
     // MARK: - Navigation
 
     /// Navigate to a URL
-    func navigate(to url: URL, recordTypedNavigation: Bool = false) {
+    func navigate(
+        to url: URL, recordTypedNavigation: Bool = false,
+        preserveRestoredSessionHistory: Bool = false, allowWebExtensionContext: Bool = true
+    ) {
         let request = URLRequest(url: url)
         if shouldBlockInsecureHTTPNavigation(to: url) {
-            presentInsecureHTTPAlert(for: request, intent: .currentTab, recordTypedNavigation: recordTypedNavigation)
+            presentInsecureHTTPAlert(
+                for: request,
+                intent: .currentTab,
+                recordTypedNavigation: recordTypedNavigation,
+                preserveRestoredSessionHistory: preserveRestoredSessionHistory
+            )
             return
         }
-        navigateWithoutInsecureHTTPPrompt(request: request, recordTypedNavigation: recordTypedNavigation)
+        navigateWithoutInsecureHTTPPrompt(
+            request: request, recordTypedNavigation: recordTypedNavigation,
+            preserveRestoredSessionHistory: preserveRestoredSessionHistory,
+            allowWebExtensionContext: allowWebExtensionContext
+        )
     }
 
     func navigateWithoutInsecureHTTPPrompt(
@@ -5714,15 +5720,15 @@ final class BrowserPanel: Panel, ObservableObject {
     private func navigateWithoutInsecureHTTPPrompt(
         request: URLRequest,
         recordTypedNavigation: Bool,
-        preserveRestoredSessionHistory: Bool = false
+        preserveRestoredSessionHistory: Bool = false, allowWebExtensionContext: Bool = true
     ) {
-        guard let url = request.url else { return }
+        guard let url = request.url, !shouldBlockWebExtensionNavigation(to: url, allowWebExtensionContext: allowWebExtensionContext) else { return }
         cancelHiddenWebViewDiscard()
         if usesRemoteWorkspaceProxy, remoteProxyEndpoint == nil {
             pendingRemoteNavigation = PendingRemoteNavigation(
                 request: request,
                 recordTypedNavigation: recordTypedNavigation,
-                preserveRestoredSessionHistory: preserveRestoredSessionHistory
+                preserveRestoredSessionHistory: preserveRestoredSessionHistory, allowWebExtensionContext: allowWebExtensionContext
             )
             hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
             currentURL = Self.remoteProxyDisplayURL(for: url) ?? url
@@ -5735,7 +5741,7 @@ final class BrowserPanel: Panel, ObservableObject {
             request: request,
             originalURL: url,
             recordTypedNavigation: recordTypedNavigation,
-            preserveRestoredSessionHistory: preserveRestoredSessionHistory
+            preserveRestoredSessionHistory: preserveRestoredSessionHistory, allowWebExtensionContext: allowWebExtensionContext
         )
     }
 
@@ -5755,7 +5761,7 @@ final class BrowserPanel: Panel, ObservableObject {
             request: navigation.request,
             originalURL: originalURL,
             recordTypedNavigation: navigation.recordTypedNavigation,
-            preserveRestoredSessionHistory: navigation.preserveRestoredSessionHistory
+            preserveRestoredSessionHistory: navigation.preserveRestoredSessionHistory, allowWebExtensionContext: navigation.allowWebExtensionContext
         )
         pendingRemoteNavigation = nil
     }
@@ -5764,14 +5770,14 @@ final class BrowserPanel: Panel, ObservableObject {
         request: URLRequest,
         originalURL: URL,
         recordTypedNavigation: Bool,
-        preserveRestoredSessionHistory: Bool
+        preserveRestoredSessionHistory: Bool, allowWebExtensionContext: Bool
     ) {
         cancelHiddenWebViewDiscard()
         clearWebContentTerminationRecovery()
-        if !preserveRestoredSessionHistory {
-            abandonRestoredSessionHistoryIfNeeded()
-        }
         let effectiveRequest = remoteProxyPreparedRequest(from: request, logScope: "rewrite")
+        let didReplaceWebView = ensureWebExtensionNavigationConfiguration(
+            for: originalURL, allowWebExtensionContext: allowWebExtensionContext)
+        if !preserveRestoredSessionHistory && !didReplaceWebView { abandonRestoredSessionHistoryIfNeeded() }
         // Some installs can end up with a legacy Chrome UA override; keep this pinned.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
@@ -5793,6 +5799,92 @@ final class BrowserPanel: Panel, ObservableObject {
         } else if hiddenWebViewDiscardManager.isDiscardedForMemory {
             pendingDiscardRestoreNavigation = startedNavigation
         }
+    }
+
+    @discardableResult
+    func replaceWebViewForWebExtensionNavigation(
+        webViewConfiguration: WKWebViewConfiguration?, contextIdentifier: ObjectIdentifier?,
+        targetURL: URL? = nil
+    ) -> Bool {
+        if let contextIdentifier, contextIdentifier == webExtensionPageContextIdentifier { return false }
+
+        let oldWebView = webView
+        let history = sessionNavigationHistorySnapshot()
+        let previousCurrentURLString = Self.serializableSessionHistoryURLString(resolvedCurrentSessionHistoryURL())
+        let targetCurrentURLString = Self.serializableSessionHistoryURLString(targetURL) ?? previousCurrentURLString
+        var backHistoryURLStrings = history.backHistoryURLStrings
+        var forwardHistoryURLStrings = history.forwardHistoryURLStrings
+        if let previousCurrentURLString,
+           let targetCurrentURLString,
+           previousCurrentURLString != targetCurrentURLString {
+            backHistoryURLStrings.append(previousCurrentURLString)
+            forwardHistoryURLStrings.removeAll(keepingCapacity: false)
+        }
+        let desiredZoom = max(minPageZoom, min(maxPageZoom, oldWebView.pageZoom))
+        let reason = contextIdentifier == nil ? "webExtensionNavigation.leave" : "webExtensionNavigation.enter"
+        let restoreDeveloperTools = preferredDeveloperToolsVisible || isDeveloperToolsVisible()
+
+#if DEBUG
+        cmuxDebugLog(
+            "browser.webext.webviewSwap panel=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason)"
+        )
+#endif
+
+        prepareDeveloperToolsForWebViewReplacement(preserveVisibleIntent: restoreDeveloperTools)
+        detachWebViewObservers()
+        clearBrowserFocusMode(reason: reason)
+        faviconTask?.cancel()
+        faviconTask = nil
+        faviconRefreshGeneration &+= 1
+        loadingGeneration &+= 1
+        loadingEndWorkItem?.cancel()
+        loadingEndWorkItem = nil
+        isLoading = false
+        estimatedProgress = 0
+        cancelPendingInteractiveBrowserPrompts(reason: reason)
+        closeBackgroundPreloadHost(reason: reason)
+        BrowserWindowPortalRegistry.detach(webView: oldWebView)
+        webAuthnCoordinator.tearDown(from: oldWebView)
+        oldWebView.stopLoading()
+        isMainFrameProvisionalNavigationActive = false
+        oldWebView.navigationDelegate = nil
+        oldWebView.uiDelegate = nil
+        if let oldCmuxWebView = oldWebView as? CmuxWebView {
+            oldCmuxWebView.clearBrowserDownloadCallbacks()
+        }
+
+        let replacement = Self.makeWebView(
+            profileID: profileID,
+            websiteDataStore: websiteDataStore,
+            browserWebExtensionHost: browserWebExtensionHost,
+            webViewConfiguration: webViewConfiguration
+        )
+        replacement.pageZoom = desiredZoom
+        webViewInstanceID = UUID()
+        hasCommittedDocumentSinceWebViewReplacement = false
+        userStoppedLoadSinceWebViewReplacement = false
+        resetWebViewLifecycleMetadata(resetVisibility: false)
+        webView = replacement
+        webExtensionPageContextIdentifier = contextIdentifier
+        if let targetURL { currentURL = targetURL }
+        nativeCanGoBack = false
+        nativeCanGoForward = false
+        if !backHistoryURLStrings.isEmpty || !forwardHistoryURLStrings.isEmpty {
+            restoreSessionNavigationHistory(
+                backHistoryURLStrings: backHistoryURLStrings,
+                forwardHistoryURLStrings: forwardHistoryURLStrings,
+                currentURLString: targetCurrentURLString)
+        }
+        refreshWebViewLifecycleState()
+        bindWebView(replacement)
+        applyProxyConfigurationIfAvailable()
+        applyBrowserThemeModeIfNeeded()
+        refreshNavigationAvailability()
+        if restoreDeveloperTools {
+            requestDeveloperToolsRefreshAfterNextAttach(reason: reason)
+        }
+        return true
     }
 
     private func remoteProxyPreparedRequest(from request: URLRequest, logScope: String) -> URLRequest {
@@ -5884,7 +5976,7 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         switch intent {
         case .currentTab:
-            navigateWithoutInsecureHTTPPrompt(request: request, recordTypedNavigation: false)
+            navigateWithoutInsecureHTTPPrompt(request: request, recordTypedNavigation: false, allowWebExtensionContext: false)
         case .newTab:
             openLinkInNewTab(request: request)
         }
@@ -5894,11 +5986,11 @@ final class BrowserPanel: Panel, ObservableObject {
         for request: URLRequest,
         intent: BrowserInsecureHTTPNavigationIntent,
         recordTypedNavigation: Bool,
+        preserveRestoredSessionHistory: Bool = false,
         onResolution: @escaping (BrowserInsecureHTTPNavigationResolution) -> Void = { _ in }
     ) {
         guard let url = request.url else { return }
         guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return }
-
         let alert = insecureHTTPAlertFactory()
         alert.alertStyle = .warning
         alert.messageText = String(localized: "browser.error.insecure.title", defaultValue: "Connection isn\u{2019}t secure")
@@ -5918,21 +6010,12 @@ final class BrowserPanel: Panel, ObservableObject {
                 url: url,
                 intent: intent,
                 recordTypedNavigation: recordTypedNavigation,
+                preserveRestoredSessionHistory: preserveRestoredSessionHistory,
                 onResolution: onResolution
             )
         }
 
-        if shouldDeferPromptUntilInteractiveHost(for: webView) {
-            presentBrowserAlert(alert, in: webView, completion: handleResponse, cancel: {})
-            return
-        }
-
-        if let alertWindow = insecureHTTPAlertWindowProvider() {
-            alert.beginSheetModal(for: alertWindow, completionHandler: handleResponse)
-            return
-        }
-
-        handleResponse(alert.runModal())
+        presentBrowserAlert(alert, in: webView, windowProvider: insecureHTTPAlertWindowProvider, completion: handleResponse, cancel: { onResolution(.cancelled) })
     }
 
     func handleInsecureHTTPAlertResponse(
@@ -5942,7 +6025,9 @@ final class BrowserPanel: Panel, ObservableObject {
         request: URLRequest,
         url: URL,
         intent: BrowserInsecureHTTPNavigationIntent,
-        recordTypedNavigation: Bool, openExternalURL: (URL) -> Bool = { NSWorkspace.shared.open($0) },
+        recordTypedNavigation: Bool,
+        preserveRestoredSessionHistory: Bool = false,
+        openExternalURL: (URL) -> Bool = { NSWorkspace.shared.open($0) },
         onResolution: (BrowserInsecureHTTPNavigationResolution) -> Void
     ) {
         if browserShouldPersistInsecureHTTPAllowlistSelection(
@@ -5960,7 +6045,11 @@ final class BrowserPanel: Panel, ObservableObject {
             case .currentTab:
                 onResolution(.proceededInCurrentTab)
                 insecureHTTPBypassHostOnce = host
-                navigateWithoutInsecureHTTPPrompt(request: request, recordTypedNavigation: recordTypedNavigation)
+                navigateWithoutInsecureHTTPPrompt(
+                    request: request,
+                    recordTypedNavigation: recordTypedNavigation,
+                    preserveRestoredSessionHistory: preserveRestoredSessionHistory
+                )
             case .newTab:
                 onResolution(.proceededInNewTab)
                 openLinkInNewTab(request: request, bypassInsecureHTTPHostOnce: host)
@@ -6066,7 +6155,7 @@ extension BrowserPanel {
         preferredDeveloperToolsVisible ||
         hasRecoverableWebContentTermination ||
         pendingWebContentRecoveryURL != nil ||
-        webView.superview != nil
+        webView.cmuxBrowserViewportAttachmentSuperview != nil
     }
 
     func resetForWorkspaceContextChange(reason: String) {
@@ -6148,13 +6237,15 @@ extension BrowserPanel {
         oldWebView.uiDelegate = nil
         if let oldCmuxWebView = oldWebView as? CmuxWebView { oldCmuxWebView.clearBrowserDownloadCallbacks() }
 
+        clearBrowserAutomationUserScripts()
         let replacement = Self.makeWebView(
             profileID: profileID,
-            websiteDataStore: websiteDataStore
+            websiteDataStore: websiteDataStore,
+            browserWebExtensionHost: browserWebExtensionHost
         )
         webViewInstanceID = UUID()
         hasCommittedDocumentSinceWebViewReplacement = false; userStoppedLoadSinceWebViewReplacement = false
-        webView = replacement
+        webExtensionPageContextIdentifier = nil; webView = replacement
         shouldRenderWebView = false
         refreshWebViewLifecycleState()
         bindWebView(replacement)
@@ -6325,70 +6416,6 @@ extension BrowserPanel {
         )
     }
 
-    /// Opens a request in a sibling browser tab without dropping request metadata.
-    func openLinkInNewTab(request: URLRequest, bypassInsecureHTTPHostOnce: String? = nil) {
-        guard let seed = browserNewTabNavigationSeed(
-            from: request,
-            bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
-        ) else {
-            return
-        }
-#if DEBUG
-        cmuxDebugLog(
-            "browser.newTab.open.begin panel=\(id.uuidString.prefix(5)) " +
-            "workspace=\(workspaceId.uuidString.prefix(5)) url=\(browserNavigationDebugURL(seed.url)) bypass=\(seed.bypassInsecureHTTPHostOnce ?? "nil")"
-        )
-#endif
-        guard BrowserAvailabilitySettings.isEnabled() else {
-            _ = NSWorkspace.shared.open(seed.url)
-#if DEBUG
-            cmuxDebugLog("browser.newTab.open.external panel=\(id.uuidString.prefix(5)) reason=browser_disabled")
-#endif
-            return
-        }
-        if Workspace.openDockBrowserLinkInNewTabIfNeeded(panel: self, seed: seed) { return }
-        guard let app = AppDelegate.shared else {
-#if DEBUG
-            cmuxDebugLog("browser.newTab.open.abort panel=\(id.uuidString.prefix(5)) reason=missingAppDelegate")
-#endif
-            return
-        }
-        guard let workspace = app.workspaceContainingPanel(
-            panelId: id,
-            preferredWorkspaceId: workspaceId
-        )?.workspace else {
-#if DEBUG
-            cmuxDebugLog("browser.newTab.open.abort panel=\(id.uuidString.prefix(5)) reason=workspaceMissing")
-#endif
-            return
-        }
-        guard let paneId = workspace.paneId(forPanelId: id) else {
-#if DEBUG
-            cmuxDebugLog("browser.newTab.open.abort panel=\(id.uuidString.prefix(5)) reason=paneMissing")
-#endif
-            return
-        }
-        guard let _ = workspace.newBrowserSurface(
-            inPane: paneId,
-            url: seed.url,
-            initialRequest: seed.initialRequest,
-            focus: true,
-            preferredProfileID: profileID,
-            bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce
-        ) else {
-#if DEBUG
-            cmuxDebugLog("browser.newTab.open.abort panel=\(id.uuidString.prefix(5)) reason=newPanelFailed")
-#endif
-            return
-        }
-#if DEBUG
-        cmuxDebugLog(
-            "browser.newTab.open.done panel=\(id.uuidString.prefix(5)) " +
-            "workspace=\(workspace.id.uuidString.prefix(5)) pane=\(paneId.id.uuidString.prefix(5))"
-        )
-#endif
-    }
-
     var currentURLForTabDuplication: URL? {
         resolvedCurrentSessionHistoryURL()
             ?? Self.remoteProxyDisplayURL(for: webView.url)
@@ -6478,6 +6505,7 @@ extension BrowserPanel {
 
     func reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden() {
         guard !preferredDeveloperToolsVisible, !isDeveloperToolsVisible() else { return }
+        scheduleBrowserViewportHostRestoration(reason: "developerToolsHidden")
         reevaluateHiddenWebViewDiscardScheduling(reason: "developer_tools_visibility_changed")
     }
 
@@ -6498,6 +6526,7 @@ extension BrowserPanel {
             // (`consumeAttachedDeveloperToolsManualCloseIfNeeded`) refuses to
             // run and preserved visible intent can resurrect an inspector the
             // user explicitly closed.
+            resetAutomationViewportForAttachedBrowserInspector()
             setPreferredDeveloperToolsPresentation(.attached)
             developerToolsDetachedOpenGraceDeadline = nil
             if developerToolsLastAttachedHostAt == nil {
@@ -6847,7 +6876,8 @@ extension BrowserPanel {
         guard preferredDeveloperToolsVisible else { return false }
         guard preferredDeveloperToolsPresentation != .detached else { return false }
         guard !isDeveloperToolsTransitionInFlight else { return false }
-        guard webView.superview != nil, webView.window != nil else { return false }
+        guard webView.cmuxBrowserViewportAttachmentSuperview != nil,
+              webView.cmuxBrowserViewportAttachmentWindow != nil else { return false }
         guard let developerToolsLastAttachedHostAt else { return false }
         guard Date().timeIntervalSince(developerToolsLastAttachedHostAt) >= developerToolsAttachedManualCloseDetectionDelay else {
             return false
@@ -6982,23 +7012,35 @@ extension BrowserPanel {
                 forceDeveloperToolsRefreshOnNextAttach ||
                 developerToolsRestoreRetryWorkItem != nil ||
                 hasPendingDetachedDeveloperToolsWindowCloseResolution ||
-                webView.superview == nil ||
-                webView.window == nil
+                webView.cmuxBrowserViewportAttachmentSuperview == nil ||
+                webView.cmuxBrowserViewportAttachmentWindow == nil
             )
     }
 
     @discardableResult
     func zoomIn() -> Bool {
-        applyPageZoom(webView.pageZoom + pageZoomStep)
+        pageZoomMutationHandled(zoomInResult())
     }
 
     @discardableResult
     func zoomOut() -> Bool {
-        applyPageZoom(webView.pageZoom - pageZoomStep)
+        pageZoomMutationHandled(zoomOutResult())
     }
 
     @discardableResult
     func resetZoom() -> Bool {
+        pageZoomMutationHandled(resetZoomResult())
+    }
+
+    func zoomInResult() -> Result<Bool, BrowserAutomationViewportError> {
+        applyPageZoom(webView.pageZoom + pageZoomStep)
+    }
+
+    func zoomOutResult() -> Result<Bool, BrowserAutomationViewportError> {
+        applyPageZoom(webView.pageZoom - pageZoomStep)
+    }
+
+    func resetZoomResult() -> Result<Bool, BrowserAutomationViewportError> {
         applyPageZoom(1.0)
     }
 
@@ -7009,7 +7051,7 @@ extension BrowserPanel {
     @discardableResult
     func setPageZoomFactor(_ pageZoom: CGFloat) -> Bool {
         let clamped = max(minPageZoom, min(maxPageZoom, pageZoom))
-        return applyPageZoom(clamped)
+        return pageZoomMutationHandled(applyPageZoom(clamped))
     }
 
     /// Take a snapshot of the web view
@@ -7110,7 +7152,7 @@ extension BrowserPanel {
         }
 
         timeoutTimer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { _ in
-            finish(.failure(BrowserScreenshotError.emptySnapshot))
+            finish(.failure(BrowserScreenshotError.automationTimedOut))
         }
 
         BrowserScreenshotWebViewSnapshotter.prepareForVisualCapture(
@@ -7119,6 +7161,7 @@ extension BrowserPanel {
         ) { result in
             switch result {
             case .success:
+                guard !didFinish else { return }
                 operation(captureWebView, false, finish)
             case .failure(let error):
                 finish(.failure(error))
@@ -7129,7 +7172,7 @@ extension BrowserPanel {
     @discardableResult
     func ensureVisualAutomationRestoreHostIfNeeded(reason: String) -> Bool {
         guard shouldUseOffscreenRenderHostForVisualAutomation else { return false }
-        guard webView.superview == nil else { return false }
+        guard webView.cmuxBrowserViewportAttachmentSuperview == nil else { return false }
         return ensureBackgroundPreloadHostIfNeeded(reason: reason)
     }
 
@@ -7139,21 +7182,6 @@ extension BrowserPanel {
         guard !webView.isHiddenOrHasHiddenAncestor else { return true }
         guard webView.bounds.width > 1, webView.bounds.height > 1 else { return true }
         return false
-    }
-
-    private func visualAutomationViewportSize() -> NSSize {
-        let candidates = [
-            webView.bounds.size,
-            webView.frame.size,
-            webView.window?.contentView?.bounds.size ?? .zero,
-        ]
-        for candidate in candidates where candidate.width > 1 && candidate.height > 1 {
-            return NSSize(
-                width: min(max(candidate.width, 1), 4096),
-                height: min(max(candidate.height, 1), 4096)
-            )
-        }
-        return NSSize(width: 1280, height: 720)
     }
 
     /// Execute JavaScript
@@ -7172,7 +7200,6 @@ extension BrowserPanel {
         let shouldSelectAll = created && !recoveredNeedle.isEmpty
         pendingAddressBarFocusRequestId = nil
         pendingAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
-        endSuppressWebViewFocusForAddressBar()
         NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: id)
         let generation = beginSearchFocusRequest(reason: "startFind")
         postBrowserSearchFocusNotification(reason: "immediate", generation: generation, selectAll: shouldSelectAll)
@@ -7472,7 +7499,7 @@ extension BrowserPanel {
     }
 
     func shouldSuppressWebViewFocus() -> Bool {
-        if hasAddressBarFocusSuppression {
+        if suppressWebViewFocusForAddressBar {
             return true
         }
         if searchState != nil {
@@ -7484,6 +7511,28 @@ extension BrowserPanel {
         return false
     }
 
+    func beginSuppressWebViewFocusForAddressBar() {
+        let enteringAddressBar = !suppressWebViewFocusForAddressBar
+        if enteringAddressBar {
+#if DEBUG
+            cmuxDebugLog("browser.focus.addressBarSuppress.begin panel=\(id.uuidString.prefix(5))")
+#endif
+            invalidateAddressBarPageFocusRestoreAttempts()
+        }
+        suppressWebViewFocusForAddressBar = true
+        if enteringAddressBar {
+            captureAddressBarPageFocusIfNeeded()
+        }
+    }
+
+    func endSuppressWebViewFocusForAddressBar() {
+        if suppressWebViewFocusForAddressBar {
+#if DEBUG
+            cmuxDebugLog("browser.focus.addressBarSuppress.end panel=\(id.uuidString.prefix(5))")
+#endif
+        }
+        suppressWebViewFocusForAddressBar = false
+    }
 
     @discardableResult
     func requestAddressBarFocus(
@@ -7747,7 +7796,6 @@ extension BrowserPanel {
         }
         pendingAddressBarFocusRequestId = nil
         pendingAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
-        endAddressBarFocusIntentSuppression()
 #if DEBUG
         cmuxDebugLog(
             "browser.focus.addressBar.requestAck panel=\(id.uuidString.prefix(5)) " +
@@ -7756,7 +7804,7 @@ extension BrowserPanel {
 #endif
     }
 
-    func captureAddressBarPageFocusIfNeeded() {
+    private func captureAddressBarPageFocusIfNeeded() {
         omnibarPageFocusRepository.captureIfNeeded(panelDebugID: String(id.uuidString.prefix(5)))
     }
 
@@ -7908,8 +7956,8 @@ extension BrowserPanel {
         let preferred = preferredDeveloperToolsVisible ? 1 : 0
         let visible = isDeveloperToolsVisible() ? 1 : 0
         let inspector = webView.cmuxInspectorObject() == nil ? 0 : 1
-        let attached = webView.superview == nil ? 0 : 1
-        let inWindow = webView.window == nil ? 0 : 1
+        let attached = webView.cmuxBrowserViewportAttachmentSuperview == nil ? 0 : 1
+        let inWindow = webView.cmuxBrowserViewportAttachmentWindow == nil ? 0 : 1
         let forceRefresh = forceDeveloperToolsRefreshOnNextAttach ? 1 : 0
         let transitionTarget = developerToolsTransitionTargetVisible.map { $0 ? "1" : "0" } ?? "nil"
         let pendingTarget = pendingDeveloperToolsTransitionTargetVisible.map { $0 ? "1" : "0" } ?? "nil"
@@ -7934,14 +7982,37 @@ extension BrowserPanel {
 #endif
 
 private extension BrowserPanel {
-    @discardableResult
-    func applyPageZoom(_ candidate: CGFloat) -> Bool {
+    func applyPageZoom(_ candidate: CGFloat) -> Result<Bool, BrowserAutomationViewportError> {
         let clamped = max(minPageZoom, min(maxPageZoom, candidate))
         if abs(webView.pageZoom - clamped) < 0.0001 {
-            return false
+            return .success(false)
+        }
+        if let viewport = viewportModel.requestedViewport {
+            let limits = BrowserViewportRenderLimits.standard
+            if !limits.supports(
+                viewport: viewport,
+                pageZoom: Double(clamped)
+            ) {
+                return .failure(.renderGeometryTooLarge(
+                    requestedPageZoom: Double(clamped),
+                    maximumPageZoom: limits.maximumPageZoom(for: viewport)
+                ))
+            }
         }
         webView.pageZoom = clamped
-        return true
+        reapplyAutomationViewportAfterPageZoom()
+        return .success(true)
+    }
+
+    func pageZoomMutationHandled(
+        _ result: Result<Bool, BrowserAutomationViewportError>
+    ) -> Bool {
+        switch result {
+        case .success(let handled):
+            return handled
+        case .failure:
+            return false
+        }
     }
 
     static func responderChainContains(_ start: NSResponder?, target: NSResponder) -> Bool {
@@ -8416,7 +8487,7 @@ private class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
 #endif
         // External URL schemes → hand off to macOS, don't create a popup
         if let url = navigationAction.request.url,
-           browserShouldRouteExternalNavigation(url) {
+           url.browserShouldRouteExternalNavigation {
             browserHandleExternalNavigation(
                 url,
                 source: "uiDelegate",

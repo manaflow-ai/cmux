@@ -9,6 +9,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
         let finderDirectoryPath: String?
         let mediaActivity: BrowserMediaActivity
         let taskStatus: WorkspaceTaskStatus?
+        let todoStatusMenuModel: SidebarWorkspaceCompactStatusMenuModel?
         let hasManualTaskStatus: Bool
         let checklistItems: [WorkspaceChecklistItem]
         let checklistCompletedCount: Int
@@ -26,6 +27,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             finderDirectoryPath: finderDirectoryPath,
             mediaActivity: mediaActivity,
             taskStatus: taskStatus,
+            todoStatusMenuModel: todoStatusMenuModel,
             hasManualTaskStatus: hasManualTaskStatus,
             checklistItems: checklistItems,
             checklistCompletedCount: checklistCompletedCount,
@@ -71,6 +73,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             // submenu, Mark as Done, checkbox clicks), so the done-row dim and
             // checklist must reflect the change immediately, not on menu close.
             taskStatus: snapshot.taskStatus,
+            todoStatusMenuModel: snapshot.todoStatusMenuModel,
             hasManualTaskStatus: snapshot.hasManualTaskStatus,
             checklistItems: snapshot.checklistItems,
             checklistCompletedCount: snapshot.checklistCompletedCount,
@@ -112,71 +115,5 @@ struct SidebarWorkspaceSnapshotRefreshPolicy {
             pendingWorkspaceSnapshot: hasDeferredChanges ? next : nil,
             hasDeferredWorkspaceObservationInvalidation: hasDeferredChanges
         )
-    }
-}
-
-struct SidebarWorkspaceRowInteractionState: Equatable {
-    private(set) var isPointerHovering = false
-    private(set) var contextMenuVisible = false
-    private var contextMenuTrackingObserverInstalled = false
-    private var deferredPointerHoveringWhileContextMenu: Bool?
-
-    mutating func setPointerHovering(_ hovering: Bool) {
-        if contextMenuVisible {
-            if hovering || contextMenuTrackingObserverInstalled {
-                deferredPointerHoveringWhileContextMenu = hovering
-            }
-            isPointerHovering = false
-            return
-        }
-        if deferredPointerHoveringWhileContextMenu == nil, isPointerHovering == hovering {
-            return
-        }
-        deferredPointerHoveringWhileContextMenu = nil
-        isPointerHovering = hovering
-    }
-
-    mutating func contextMenuDidAppear() {
-        deferredPointerHoveringWhileContextMenu = isPointerHovering
-        contextMenuTrackingObserverInstalled = false
-        contextMenuVisible = true
-        isPointerHovering = false
-    }
-
-    mutating func contextMenuTrackingObserverDidInstall() {
-        guard contextMenuVisible else { return }
-        contextMenuTrackingObserverInstalled = true
-    }
-
-    mutating func contextMenuDidDisappear() {
-        contextMenuVisible = false
-        contextMenuTrackingObserverInstalled = false
-        applyDeferredPointerHovering()
-    }
-
-    @discardableResult
-    mutating func contextMenuTrackingDidEnd(pointerInsideRow: Bool) -> Bool {
-        guard contextMenuVisible else { return false }
-        deferredPointerHoveringWhileContextMenu = pointerInsideRow
-        contextMenuVisible = false
-        contextMenuTrackingObserverInstalled = false
-        applyDeferredPointerHovering()
-        return true
-    }
-
-    func shouldShowCloseButton(
-        canCloseWorkspace: Bool,
-        shortcutHintModeActive: Bool
-    ) -> Bool {
-        isPointerHovering
-            && !contextMenuVisible
-            && canCloseWorkspace
-            && !shortcutHintModeActive
-    }
-
-    private mutating func applyDeferredPointerHovering() {
-        guard let deferredHover = deferredPointerHoveringWhileContextMenu else { return }
-        self.deferredPointerHoveringWhileContextMenu = nil
-        isPointerHovering = deferredHover
     }
 }

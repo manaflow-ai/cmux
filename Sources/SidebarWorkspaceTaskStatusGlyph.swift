@@ -1,4 +1,5 @@
 import CmuxWorkspaces
+import Foundation
 import SwiftUI
 
 // MARK: - Status display names
@@ -115,20 +116,16 @@ enum SidebarWorkspaceManualTaskStatusIndicatorModel {
 /// sending every selection through the shared workspace todo action path.
 struct SidebarWorkspaceManualStatusIndicatorMenu: View {
     let status: WorkspaceTaskStatus
-    let tab: Tab
+    let model: SidebarWorkspaceCompactStatusMenuModel
+    let workspaceId: UUID
+    let applyTodoStatus: (WorkspaceTaskStatus?, [UUID]) -> Void
+    let hideTodoStatus: ([UUID]) -> Void
     let usesMonochrome: Bool
     let monochromeColor: Color
     let neutralColor: Color
     let fontScale: CGFloat
 
     @State private var isStatusPopoverPresented = false
-
-    private var menuModel: SidebarWorkspaceCompactStatusMenuModel {
-        SidebarWorkspaceCompactStatusMenuModel.resolve(
-            inferred: tab.inferredTaskStatus,
-            override: tab.todoState.statusOverride
-        )
-    }
 
     private var labelText: String {
         String(
@@ -159,8 +156,8 @@ struct SidebarWorkspaceManualStatusIndicatorMenu: View {
             SidebarWorkspaceTodoPopoverHost(
                 isPresented: $isStatusPopoverPresented,
                 model: SidebarWorkspaceStatusPopoverModel(
-                    inferred: menuModel.inferred,
-                    activeOverride: menuModel.activeOverride
+                    inferred: model.inferred,
+                    activeOverride: model.activeOverride
                 ),
                 minWidth: 200,
                 maxHeight: 400,
@@ -168,11 +165,11 @@ struct SidebarWorkspaceManualStatusIndicatorMenu: View {
             ) { model, close in
                 SidebarWorkspaceStatusPopover(
                     model: model,
-                    onSelectLane: { [tab] status in
-                        WorkspaceTodoActions.applyStatusOverride(status, to: [tab])
+                    onSelectLane: { status in
+                        applyTodoStatus(status, [workspaceId])
                     },
-                    onSelectNone: { [tab] in
-                        WorkspaceTodoActions.hideStatus(for: [tab])
+                    onSelectNone: {
+                        hideTodoStatus([workspaceId])
                     },
                     onClose: close
                 )

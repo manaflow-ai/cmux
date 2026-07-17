@@ -46,7 +46,7 @@ private final class TeardownLifetimeRecorder: @unchecked Sendable {
     }
 }
 
-private final class RecordingTerminalByteTeeLease: TerminalByteTeeLease, @unchecked Sendable {
+private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchecked Sendable {
     private let recorder: TeardownLifetimeRecorder
 
     init(recorder: TeardownLifetimeRecorder) {
@@ -110,7 +110,7 @@ private final class RecordingTerminalByteTeeLease: TerminalByteTeeLease, @unchec
     @Test func byteTeeCallbackOwnerIsReleasedOnlyAfterNativeFreeReturns() async {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
         let recorder = TeardownLifetimeRecorder()
-        let lease = RecordingTerminalByteTeeLease(recorder: recorder)
+        let lease = LifetimeRecordingByteTeeLease(recorder: recorder)
         let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         defer { surface.deallocate() }
 

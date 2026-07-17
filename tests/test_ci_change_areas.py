@@ -252,6 +252,7 @@ def linux_preflight_needs(
         "remote-daemon-tests": "success",
         "web-typecheck": "success",
         "react-apps-check": "success",
+        "diff-sidecar-check": "success",
         "web-db-migrations": "success",
         "agent-session-web-resources": "success",
     }
@@ -298,6 +299,7 @@ def run_detect_step_for_paths(
             "EVENT_NAME": "pull_request",
             "BASE_SHA": base_sha,
             "HEAD_SHA": head_sha,
+            "MERGE_SHA": head_sha,
             "GITHUB_OUTPUT": str(output_path),
         }
         result = subprocess.run(
@@ -329,6 +331,7 @@ def test_workflow_diff_failure_runs_all_areas() -> None:
             "EVENT_NAME": "pull_request",
             "BASE_SHA": "missing-base",
             "HEAD_SHA": "missing-head",
+            "MERGE_SHA": "missing-merge",
             "GITHUB_OUTPUT": str(output_path),
         }
         result = subprocess.run(
@@ -347,6 +350,90 @@ def test_workflow_diff_failure_runs_all_areas() -> None:
             "web=true",
             "go=true",
             "agent_session_web=true",
+        ]
+
+
+def test_workflow_routes_from_shallow_synthetic_merge() -> None:
+    script = detect_step_script()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        source = root / "source"
+        shallow = root / "shallow"
+        source.mkdir()
+        subprocess.run(["git", "init", "-q", "-b", "main"], cwd=source, check=True)
+        subprocess.run(["git", "config", "user.email", "ci@example.test"], cwd=source, check=True)
+        subprocess.run(["git", "config", "user.name", "CI Test"], cwd=source, check=True)
+
+        helper_copy = source / "scripts" / "ci" / "detect_ci_change_areas.py"
+        helper_copy.parent.mkdir(parents=True)
+        helper_copy.write_text(HELPER.read_text(encoding="utf-8"), encoding="utf-8")
+        (source / "common.txt").write_text("common\n", encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=source, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "common"], cwd=source, check=True)
+        subprocess.run(["git", "branch", "feature"], cwd=source, check=True)
+
+        (source / "base-only.txt").write_text("base\n", encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=source, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=source, check=True)
+        base_sha = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=source, text=True
+        ).strip()
+
+        subprocess.run(["git", "checkout", "-q", "feature"], cwd=source, check=True)
+        web_file = source / "web" / "app" / "page.tsx"
+        web_file.parent.mkdir(parents=True)
+        web_file.write_text("changed\n", encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=source, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "feature"], cwd=source, check=True)
+        head_sha = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=source, text=True
+        ).strip()
+
+        subprocess.run(["git", "checkout", "-q", "main"], cwd=source, check=True)
+        subprocess.run(
+            ["git", "merge", "-q", "--no-ff", "feature", "-m", "synthetic merge"],
+            cwd=source,
+            check=True,
+        )
+        merge_sha = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=source, text=True
+        ).strip()
+
+        subprocess.run(
+            ["git", "clone", "-q", "--depth", "2", source.resolve().as_uri(), str(shallow)],
+            check=True,
+        )
+        assert subprocess.run(
+            ["git", "merge-base", base_sha, head_sha],
+            cwd=shallow,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        ).returncode != 0
+
+        output_path = shallow / "github-output.txt"
+        result = subprocess.run(
+            ["bash", "-c", script],
+            cwd=shallow,
+            env={
+                **os.environ,
+                "EVENT_NAME": "pull_request",
+                "BASE_SHA": base_sha,
+                "HEAD_SHA": head_sha,
+                "MERGE_SHA": merge_sha,
+                "GITHUB_OUTPUT": str(output_path),
+            },
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+
+        assert "Could not compute PR diff" not in result.stderr
+        assert output_path.read_text(encoding="utf-8").splitlines() == [
+            "macos=false",
+            "web=true",
+            "go=false",
+            "agent_session_web=false",
         ]
 
 
@@ -479,6 +566,7 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
         "remote-daemon-tests",
         "web-typecheck",
         "react-apps-check",
+        "diff-sidecar-check",
         "web-db-migrations",
         "linux-preflight",
         "app-host-unit-tests",
@@ -541,6 +629,7 @@ def test_linux_preflight_blocks_macos_on_cheap_layer_failure() -> None:
     assert "      - remote-daemon-tests" in block
     assert "      - web-typecheck" in block
     assert "      - react-apps-check" in block
+    assert "      - diff-sidecar-check" in block
     assert "      - web-db-migrations" in block
     assert "      - agent-session-web-resources" in block
     assert "if: ${{ always() }}" in block

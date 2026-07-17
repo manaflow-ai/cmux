@@ -15,6 +15,7 @@
 		8B8A10042DF5000000A66F90 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 8B8A101B2DF5000000A66F90 /* Localizable.xcstrings */; };
 		8B8A10E02DF5000000A66F90 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 8B8A10E12DF5000000A66F90 /* PrivacyInfo.xcprivacy */; };
 		8B8A10052DF5000000A66F90 /* cmuxUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B8A101C2DF5000000A66F90 /* cmuxUITests.swift */; };
+		8B8A10252DF5000000A66F90 /* TerminalThemeParityUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B8A10262DF5000000A66F90 /* TerminalThemeParityUITests.swift */; };
 		8B8A10E22DF5000000A66F90 /* SnapshotHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B8A10E32DF5000000A66F90 /* SnapshotHelper.swift */; };
 		8B8A10E42DF5000000A66F90 /* SnapshotUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B8A10E52DF5000000A66F90 /* SnapshotUITests.swift */; };
 		8B41F6832DEDD23B001A66F9 /* cmuxFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 8B41F6822DEDD23B001A66F9 /* cmuxFeature */; };
@@ -52,6 +53,7 @@
 		8B8A101B2DF5000000A66F90 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		8B8A10E12DF5000000A66F90 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		8B8A101C2DF5000000A66F90 /* cmuxUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmuxUITests.swift; sourceTree = "<group>"; };
+		8B8A10262DF5000000A66F90 /* TerminalThemeParityUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalThemeParityUITests.swift; sourceTree = "<group>"; };
 		8B8A10E32DF5000000A66F90 /* SnapshotHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotHelper.swift; sourceTree = "<group>"; };
 		8B8A10E52DF5000000A66F90 /* SnapshotUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotUITests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -97,6 +99,7 @@
 			isa = PBXGroup;
 			children = (
 				8B8A101C2DF5000000A66F90 /* cmuxUITests.swift */,
+				8B8A10262DF5000000A66F90 /* TerminalThemeParityUITests.swift */,
 				8B8A10E52DF5000000A66F90 /* SnapshotUITests.swift */,
 				8B8A10E32DF5000000A66F90 /* SnapshotHelper.swift */,
 			);
@@ -275,6 +278,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				8B8A10052DF5000000A66F90 /* cmuxUITests.swift in Sources */,
+				8B8A10252DF5000000A66F90 /* TerminalThemeParityUITests.swift in Sources */,
 				8B8A10E42DF5000000A66F90 /* SnapshotUITests.swift in Sources */,
 				8B8A10E22DF5000000A66F90 /* SnapshotHelper.swift in Sources */,
 			);
@@ -421,7 +425,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CMUX_IROH_RELAY_POLICY_KEY_ID = "cmux-staging-relay-policy-2026-07";
 				CMUX_IROH_RELAY_POLICY_NEXT_KEY_ID = "cmux-staging-relay-policy-2026-08";
-				CMUX_IROH_RELAY_POLICY_NEXT_PUBLIC_KEY_BASE64 = "FjH3cq3+Inryr3x71PU4dL51CVIutUunw8FlkwHR3pU=";
+				CMUX_IROH_RELAY_POLICY_NEXT_PUBLIC_KEY_BASE64 = "KnOZ6gKmH05Mrfan2tXgwRygBKxcSUue4bp34udiQFA=";
 				CMUX_IROH_RELAY_POLICY_PUBLIC_KEY_BASE64 = "Otx9S0B4d/tlwIKYRf5evJaqhjCltFLPjMfXrLFd6lk=";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;

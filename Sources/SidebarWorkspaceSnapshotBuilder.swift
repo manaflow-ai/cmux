@@ -62,6 +62,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         // flag is off. Manual status draws a compact row indicator, while
         // automatic status still only drives the done-row dim.
         let taskStatus: WorkspaceTaskStatus?
+        let todoStatusMenuModel: SidebarWorkspaceCompactStatusMenuModel?
         let hasManualTaskStatus: Bool
         let checklistItems: [WorkspaceChecklistItem]
         let checklistCompletedCount: Int

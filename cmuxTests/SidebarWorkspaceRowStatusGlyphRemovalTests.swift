@@ -112,8 +112,9 @@ struct SidebarWorkspaceRowStatusGlyphRemovalTests {
         let snapshotSource = try Self.sourceText("Sources/SidebarWorkspaceSnapshotBuilder.swift")
         #expect(contentViewSource.contains("SidebarWorkspaceManualTaskStatusIndicatorModel.showsIndicator"))
         #expect(contentViewSource.contains("SidebarWorkspaceManualStatusIndicatorMenu"))
-        #expect(contentViewSource.contains("rowHasManualTaskStatus"))
-        #expect(contentViewSource.contains("tab.todoState.statusOverride"))
+        #expect(contentViewSource.contains("workspaceSnapshot.hasManualTaskStatus"))
+        #expect(contentViewSource.contains("workspaceSnapshot.todoStatusMenuModel"))
         #expect(snapshotSource.contains("hasManualTaskStatus"))
+        #expect(snapshotSource.contains("todoStatusMenuModel"))
     }
 }

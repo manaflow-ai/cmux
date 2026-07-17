@@ -182,7 +182,10 @@ class TabManager: ObservableObject {
     /// Stable identifier of the owning macOS window. Used only for opt-in title
     /// templates that expose a WM-matchable per-window token.
     var windowId: UUID?
-
+    /// Whether this manager's first native-window registration may consume the
+    /// one-time startup session snapshot.
+    let allowsStartupSessionRestore: Bool
+    var pendingBrowserWebExtensionActivePanelID: UUID?
     // Wave-4 sub-model (TabManager decomposition): the workspace list, the
     // sidebar group sections, and the selected-workspace id storage live in
     // WorkspacesModel (CmuxWorkspaces). TabManager stays the per-window
@@ -227,6 +230,7 @@ class TabManager: ObservableObject {
     private var isRestoringSessionSnapshot: Bool = false
     @Published private(set) var isWorkspaceCycleHot: Bool = false
     @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
+    @Published private(set) var mountedBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var debugPinnedWorkspaceLoadIds: Set<UUID> = []
 
     /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
@@ -242,6 +246,9 @@ class TabManager: ObservableObject {
     /// Legacy `@Published tabs` willSet: objectWillChange plus the Combine
     /// bridge fire before storage changes, matching @Published timing.
     func workspaceTabsWillChange(to newValue: [Workspace]) {
+        for workspace in newValue where workspacesById[workspace.id] == nil {
+            noteUserOwnedPanelsAdded(in: workspace)
+        }
         workspacesById = Dictionary(newValue.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         objectWillChange.send()
         tabsPublisher.send(newValue)
@@ -390,6 +397,7 @@ class TabManager: ObservableObject {
     /// Typed synchronous settings access (CmuxSettings).
     private let settings: any SettingsWriting
     private let settingsCatalog = SettingCatalog()
+    let browserWebExtensionHost: (any BrowserWebExtensionHosting)?
 
     @Published private(set) var focusHistoryRevision: UInt64 = 0 {
         didSet {
@@ -447,10 +455,6 @@ class TabManager: ObservableObject {
     // default) on purpose: the cap is per process, not per window, matching
     // the legacy shared limiter; tests inject their own instance.
     private static let sharedWorkspaceGitProbeLimiter = WorkspaceGitMetadataProbeLimiter(limit: 2)
-    // Default windows share one explicit CmuxGit coordination scope and one
-    // fallback clock. Tests can still inject isolated services/coordinators.
-    private static let sharedGitTrackedChangesSnapshotScope = GitTrackedChangesSnapshotScope()
-    private static let sharedWorkspaceGitFallbackCoordinator = WorkspaceGitFallbackCoordinator()
 
     // The sidebar git/PR subsystem (extracted to CmuxSidebarGit). TabManager
     // is the per-window composition point: it constructs the concrete
@@ -459,6 +463,10 @@ class TabManager: ObservableObject {
     // entry points.
     let sidebarGitMetadataService: any SidebarGitMetadataServing
     let pullRequestProbing: any PullRequestProbing
+    /// Process-scoped GitHub transport state. AppDelegate passes this same
+    /// value to every subsequently-created window so their pollers share one
+    /// session, ETag cache, backoff deadline, and request queue.
+    let pullRequestProbeService: PullRequestProbeService
 
     init(
         initialWorkspaceTitle: String? = nil,
@@ -466,19 +474,20 @@ class TabManager: ObservableObject {
         initialTerminalInput: String? = nil,
         autoWelcomeIfNeeded: Bool = true,
         commandRunner: any CommandRunning = CommandRunner(),
-        gitMetadataService: GitMetadataService? = nil,
+        gitMetadataService: GitMetadataService = GitMetadataService(),
+        pullRequestProbeService: PullRequestProbeService? = nil,
         workspaceGitMetadataReader: (any WorkspaceGitMetadataReading)? = nil,
         gitPollClock: any GitPollClock = SystemGitPollClock(),
         gitProbeLimiter: WorkspaceGitMetadataProbeLimiter? = nil,
-        gitFallbackCoordinator: WorkspaceGitFallbackCoordinator? = nil,
         panelTitleUpdateCoalescer: NotificationBurstCoalescer? = nil,
         settings: any SettingsWriting = UserDefaultsSettingsClient(defaults: .standard),
+        browserWebExtensionHost: (any BrowserWebExtensionHosting)? = nil,
+        allowsStartupSessionRestore: Bool = true,
         closeTabWarningDefaults: UserDefaults = .standard
     ) {
-        let gitMetadataService = gitMetadataService ?? GitMetadataService(
-            trackedChangesSnapshotScope: Self.sharedGitTrackedChangesSnapshotScope
-        )
         self.settings = settings
+        self.browserWebExtensionHost = browserWebExtensionHost
+        self.allowsStartupSessionRestore = allowsStartupSessionRestore
         self.panelTitleUpdateCoalescer = panelTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.closeTabWarningDefaults = closeTabWarningDefaults
         workspaceReordering = WorkspaceReorderCoordinator(model: workspaces)
@@ -499,10 +508,12 @@ class TabManager: ObservableObject {
 #else
         let sidebarGitDebugLog: @Sendable (String) -> Void = { _ in }
 #endif
-        let pullRequestProbeService = PullRequestProbeService(
-            commandRunner: commandRunner,
-            debugLog: sidebarGitDebugLog
-        )
+        let pullRequestProbeService = pullRequestProbeService
+            ?? PullRequestProbeService(
+                commandRunner: commandRunner,
+                debugLog: sidebarGitDebugLog
+            )
+        self.pullRequestProbeService = pullRequestProbeService
         let pullRequestPollService = PullRequestPollService(
             gitMetadataService: gitMetadataService,
             probeService: pullRequestProbeService,
@@ -516,8 +527,6 @@ class TabManager: ObservableObject {
             pullRequestProbing: pullRequestPollService,
             probeLimiter: gitProbeLimiter ?? Self.sharedWorkspaceGitProbeLimiter,
             clock: gitPollClock,
-            fallbackCoordinator: gitFallbackCoordinator
-                ?? Self.sharedWorkspaceGitFallbackCoordinator,
             debugLog: sidebarGitDebugLog
         )
         // Wire the host seam before the first workspace is added so the
@@ -550,7 +559,7 @@ class TabManager: ObservableObject {
                 guard let change = GhosttyTitleChange(notification: notification),
                       let workspace = workspacesById[change.tabId],
                       workspace.owningTabManager === self,
-                      let sourceSurface = (notification.object as? TerminalSurface) ?? workspace.terminalPanel(for: change.surfaceId)?.surface else { return }
+                      let sourceSurface = (notification.object as? TerminalSurface) ?? workspace.terminalPanel(for: change.surfaceId)?.surface, change.matches(sourceSurface: sourceSurface) else { return }
                 enqueuePanelTitleUpdate(change, sourceSurface: sourceSurface)
             }
         })
@@ -959,6 +968,7 @@ class TabManager: ObservableObject {
             initialBrowserTransparentBackground: initialBrowserTransparentBackground,
             workspaceEnvironment: workspaceEnvironment,
             allowTextBoxFocusDefault: allowTextBoxFocusDefault,
+            browserWebExtensionHost: browserWebExtensionHost,
             closeTabWarningDefaults: closeTabWarningDefaults
         )
     }
@@ -1255,6 +1265,21 @@ class TabManager: ObservableObject {
         var updated = pendingBackgroundWorkspaceLoadIds
         updated.remove(workspaceId)
         pendingBackgroundWorkspaceLoadIds = updated
+        releaseBackgroundWorkspaceMount(for: workspaceId)
+    }
+
+    func retainBackgroundWorkspaceMount(for workspaceId: UUID) {
+        guard shouldRetainBackgroundWorkspaceMount(for: workspaceId) else { return }
+        var updated = mountedBackgroundWorkspaceLoadIds
+        updated.insert(workspaceId)
+        mountedBackgroundWorkspaceLoadIds = updated
+    }
+
+    func releaseBackgroundWorkspaceMount(for workspaceId: UUID) {
+        guard mountedBackgroundWorkspaceLoadIds.contains(workspaceId) else { return }
+        var updated = mountedBackgroundWorkspaceLoadIds
+        updated.remove(workspaceId)
+        mountedBackgroundWorkspaceLoadIds = updated
     }
 
     func retainDebugWorkspaceLoads(for workspaceIds: Set<UUID>) {
@@ -1277,6 +1302,10 @@ class TabManager: ObservableObject {
         let pruned = pendingBackgroundWorkspaceLoadIds.intersection(existingIds)
         if pruned != pendingBackgroundWorkspaceLoadIds {
             pendingBackgroundWorkspaceLoadIds = pruned
+        }
+        let mounted = mountedBackgroundWorkspaceLoadIds.intersection(existingIds)
+        if mounted != mountedBackgroundWorkspaceLoadIds {
+            mountedBackgroundWorkspaceLoadIds = mounted
         }
         let retained = debugPinnedWorkspaceLoadIds.intersection(existingIds)
         if retained != debugPinnedWorkspaceLoadIds {
@@ -2081,7 +2110,6 @@ class TabManager: ObservableObject {
 
         return removed
     }
-
     /// Attach an existing workspace to this window.
     func attachWorkspace(_ workspace: Workspace, at index: Int? = nil, select: Bool = true) {
         workspace.owningTabManager = self
@@ -2091,6 +2119,11 @@ class TabManager: ObservableObject {
             return max(0, min(index, tabs.count))
         }()
         tabs.insert(workspace, at: insertIndex)
+        reconcileBrowserWebExtensionWindows(
+            in: workspace,
+            nativeWindow: window,
+            activateFocusedPanel: select
+        )
         // A workspace moved in from another window arrives ungrouped (detach
         // clears `groupId`) and may be pinned, so an arbitrary insert index can
         // split a destination group's contiguous run or drop a pinned workspace
@@ -2102,7 +2135,6 @@ class TabManager: ObservableObject {
             selectedTabId = workspace.id
         }
     }
-
     // Keep closeTab as convenience alias
     func closeTab(_ tab: Workspace) { closeWorkspace(tab) }
     func closeCurrentTabWithConfirmation() { closeCurrentWorkspaceWithConfirmation() }
@@ -2856,7 +2888,7 @@ class TabManager: ObservableObject {
     }
 
     func titleForTab(_ tabId: UUID) -> String? {
-        tabs.first(where: { $0.id == tabId })?.title
+        workspacesById[tabId]?.title
     }
 
     // MARK: - Panel/Surface ID Access
@@ -5968,6 +6000,7 @@ extension TabManager {
                 title: workspaceSnapshot.processTitle,
                 workingDirectory: workspaceSnapshot.currentDirectory,
                 portOrdinal: ordinal,
+                browserWebExtensionHost: browserWebExtensionHost,
                 closeTabWarningDefaults: closeTabWarningDefaults
             )
             workspace.owningTabManager = self
@@ -5981,7 +6014,12 @@ extension TabManager {
         if newTabs.isEmpty {
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
-            let fallback = Workspace(title: "Terminal 1", portOrdinal: ordinal, closeTabWarningDefaults: closeTabWarningDefaults)
+            let fallback = Workspace(
+                title: "Terminal 1",
+                portOrdinal: ordinal,
+                browserWebExtensionHost: browserWebExtensionHost,
+                closeTabWarningDefaults: closeTabWarningDefaults
+            )
             fallback.owningTabManager = self
             wireClosedBrowserTracking(for: fallback)
             newTabs.append(fallback)
@@ -6140,48 +6178,6 @@ extension TabManager: WorkspaceGroupHosting {}
 // Workspace satisfies the CmuxWorkspaces tab seam with its existing
 // id/groupId/isPinned storage.
 extension Workspace: WorkspaceTabRepresenting {}
-
-extension Notification.Name {
-    // The sidebar multi-selection sync events moved to CmuxSidebar as typed
-    // SidebarMultiSelectionShouldCollapseEvent / DidHideEvent (same names).
-    static let commandPaletteToggleRequested = Notification.Name("cmux.commandPaletteToggleRequested")
-    static let commandPaletteRequested = Notification.Name("cmux.commandPaletteRequested")
-    static let commandPaletteSwitcherRequested = Notification.Name("cmux.commandPaletteSwitcherRequested")
-    static let commandPaletteSubmitRequested = Notification.Name("cmux.commandPaletteSubmitRequested")
-    static let commandPaletteDismissRequested = Notification.Name("cmux.commandPaletteDismissRequested")
-    static let commandPaletteRenameTabRequested = Notification.Name("cmux.commandPaletteRenameTabRequested")
-    static let commandPaletteRenameWorkspaceRequested = Notification.Name("cmux.commandPaletteRenameWorkspaceRequested")
-    static let commandPaletteEditWorkspaceDescriptionRequested = Notification.Name("cmux.commandPaletteEditWorkspaceDescriptionRequested")
-    static let commandPaletteMoveSelection = Notification.Name("cmux.commandPaletteMoveSelection")
-    static let commandPaletteRenameInputInteractionRequested = Notification.Name("cmux.commandPaletteRenameInputInteractionRequested")
-    static let commandPaletteRenameInputDeleteBackwardRequested = Notification.Name("cmux.commandPaletteRenameInputDeleteBackwardRequested")
-    static let feedbackComposerRequested = Notification.Name("cmux.feedbackComposerRequested")
-    static let ghosttyDidSetTitle = Notification.Name("ghosttyDidSetTitle")
-    static let ghosttyDidFocusTab = Notification.Name("ghosttyDidFocusTab")
-    static let ghosttyDidFocusSurface = Notification.Name("ghosttyDidFocusSurface")
-    static let ghosttyDidBecomeFirstResponderSurface = Notification.Name("ghosttyDidBecomeFirstResponderSurface")
-    static let browserDidBecomeFirstResponderWebView = Notification.Name("browserDidBecomeFirstResponderWebView")
-    static let browserFocusAddressBar = Notification.Name("browserFocusAddressBar")
-    static let browserMoveOmnibarSelection = Notification.Name("browserMoveOmnibarSelection")
-    static let browserDidExitAddressBar = Notification.Name("browserDidExitAddressBar")
-    static let browserDidFocusAddressBar = Notification.Name("browserDidFocusAddressBar")
-    static let browserDidBlurAddressBar = Notification.Name("browserDidBlurAddressBar")
-    static let browserFocusModeStateDidChange = Notification.Name("cmux.browserFocusModeStateDidChange")
-    static let webViewDidReceiveClick = Notification.Name("webViewDidReceiveClick")
-    static let terminalPortalVisibilityDidChange = Notification.Name("cmux.terminalPortalVisibilityDidChange")
-    static let browserPortalRegistryDidChange = Notification.Name("cmux.browserPortalRegistryDidChange")
-    static let workspaceOrderDidChange = Notification.Name("cmux.workspaceOrderDidChange")
-    static let workspacePaneGeometryDidChange = Notification.Name("cmux.workspacePaneGeometryDidChange")
-    /// Posted when an existing workspace group's `name` changes (rename). The
-    /// imperatively-cached window-chrome surfaces (custom title bar in
-    /// `ContentView`, toolbar command label in `WindowToolbarController`) read
-    /// a grouped anchor's displayed name from `group.name` and refresh on this.
-    static let workspaceGroupNameDidChange = Notification.Name("cmux.workspaceGroupNameDidChange")
-    /// Posted after TabManager has applied a terminal title to workspace state.
-    static let workspaceTitleDidChange = Notification.Name("cmux.workspaceTitleDidChange")
-    static let workspaceCurrentDirectoryDidChange = Notification.Name("cmux.workspaceCurrentDirectoryDidChange")
-    static let tabManagerFocusHistoryRevisionDidChange = Notification.Name("cmux.tabManagerFocusHistoryRevisionDidChange")
-}
 
 enum BrowserFirstResponderNotificationUserInfoKey {
     static let pointerInitiated = "pointerInitiated"
