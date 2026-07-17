@@ -1937,15 +1937,11 @@ final class Workspace: Identifiable, ObservableObject {
         let store = DockSplitStore(
             workspaceId: id,
             baseDirectoryProvider: { [weak self] in self?.currentDirectory },
+            configurationContextProvider: { [weak self] in
+                self?.workspaceDockConfigurationContext()
+            },
             remoteBrowserSettingsProvider: { [weak self] in
-                guard let self else { return .local }
-                return DockRemoteBrowserSettings(
-                    proxyEndpoint: self.remoteProxyEndpoint,
-                    bypassRemoteProxy: false,
-                    isRemoteWorkspace: self.isRemoteWorkspace,
-                    remoteWebsiteDataStoreIdentifier: self.isRemoteWorkspace ? self.id : nil,
-                    remoteStatus: self.browserRemoteWorkspaceStatusSnapshot()
-                )
+                self?.windowDockRemoteBrowserSettings() ?? .local
             },
             browserWebExtensionHost: browserWebExtensionHost
         )
@@ -3744,7 +3740,7 @@ final class Workspace: Identifiable, ObservableObject {
         browserPanel.onMediaActivityChanged = nil
     }
 
-    private func browserRemoteWorkspaceStatusSnapshot() -> BrowserRemoteWorkspaceStatus? {
+    func browserRemoteWorkspaceStatusSnapshot() -> BrowserRemoteWorkspaceStatus? {
         guard let target = remoteDisplayTarget else { return nil }
         return BrowserRemoteWorkspaceStatus(
             target: target,
@@ -5785,17 +5781,11 @@ final class Workspace: Identifiable, ObservableObject {
         requireExisting: Bool = true
     ) -> String {
         guard let remoteConfiguration,
-              remoteConfiguration.preserveAfterTerminalExit,
-              let foregroundAuthToken = remoteConfiguration.foregroundAuthToken else {
+              let foregroundAuth = SSHPTYAttachStartupCommandBuilder.foregroundAuth(
+                  for: remoteConfiguration
+              ) else {
             return Self.sshPTYAttachStartupCommand(sessionID: sessionID, requireExisting: requireExisting)
         }
-        let foregroundAuth = SSHPTYAttachStartupCommandBuilder.ForegroundAuth(
-            destination: remoteConfiguration.destination,
-            port: remoteConfiguration.port,
-            identityFile: remoteConfiguration.identityFile,
-            sshOptions: remoteConfiguration.sshOptions,
-            token: foregroundAuthToken
-        )
         return SSHPTYAttachStartupCommandBuilder.command(
             sessionID: sessionID,
             foregroundAuth: foregroundAuth,

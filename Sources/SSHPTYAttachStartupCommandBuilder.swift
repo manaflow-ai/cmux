@@ -1,8 +1,9 @@
+import CmuxCore
 import Foundation
 import CmuxFoundation
 
 enum SSHPTYAttachStartupCommandBuilder {
-    struct ForegroundAuth {
+    struct ForegroundAuth: Hashable, Sendable {
         let destination: String
         let port: Int?
         let identityFile: String?
@@ -10,34 +11,67 @@ enum SSHPTYAttachStartupCommandBuilder {
         let token: String
     }
 
+    static func foregroundAuth(
+        for configuration: WorkspaceRemoteConfiguration
+    ) -> ForegroundAuth? {
+        guard configuration.preserveAfterTerminalExit,
+              let token = configuration.foregroundAuthToken else {
+            return nil
+        }
+        return ForegroundAuth(
+            destination: configuration.destination,
+            port: configuration.port,
+            identityFile: configuration.identityFile,
+            sshOptions: configuration.sshOptions,
+            token: token
+        )
+    }
+
     static func command(
         sessionID: String? = nil,
         foregroundAuth: ForegroundAuth? = nil,
         remoteCommand: String? = nil,
-        requireExisting: Bool = true
+        requireExisting: Bool = true,
+        workspaceID: UUID? = nil
     ) -> String {
         var lines = [
             "cmux_ssh_attach_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"",
             "if [ -z \"$cmux_ssh_attach_cli\" ] || [ ! -x \"$cmux_ssh_attach_cli\" ]; then cmux_ssh_attach_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
             "if [ -z \"$cmux_ssh_attach_cli\" ]; then printf '%s\\n' '[cmux] bundled CLI not found for SSH PTY attach.' >&2; exit 127; fi",
             "if [ -z \"${CMUX_SOCKET_PATH:-}\" ]; then printf '%s\\n' '[cmux] required configuration missing for SSH PTY attach.' >&2; exit 1; fi",
-            "if [ -z \"${CMUX_WORKSPACE_ID:-}\" ]; then printf '%s\\n' '[cmux] required workspace context missing for SSH PTY attach.' >&2; exit 1; fi",
         ]
+        let workspaceArgument: String
+        let workspacePayloadValue: String
+        let workspaceSessionComponent: String
+        if let workspaceID {
+            let normalizedWorkspaceID = workspaceID.uuidString.lowercased()
+            workspaceArgument = shellQuote(normalizedWorkspaceID)
+            workspacePayloadValue = normalizedWorkspaceID
+            workspaceSessionComponent = normalizedWorkspaceID
+        } else {
+            lines.append("if [ -z \"${CMUX_WORKSPACE_ID:-}\" ]; then printf '%s\\n' '[cmux] required workspace context missing for SSH PTY attach.' >&2; exit 1; fi")
+            workspaceArgument = "\"$CMUX_WORKSPACE_ID\""
+            workspacePayloadValue = "$CMUX_WORKSPACE_ID"
+            workspaceSessionComponent = "$CMUX_WORKSPACE_ID"
+        }
         if let sessionID = normalized(sessionID) {
             lines.append("cmux_ssh_attach_session_id=\(shellQuote(sessionID))")
         } else {
             lines += [
                 "if [ -z \"${CMUX_SURFACE_ID:-}\" ]; then printf '%s\\n' '[cmux] required terminal context missing for SSH PTY attach.' >&2; exit 1; fi",
-                "cmux_ssh_attach_session_id=\"ssh-$CMUX_WORKSPACE_ID-$CMUX_SURFACE_ID\"",
+                "cmux_ssh_attach_session_id=\"ssh-\(workspaceSessionComponent)-$CMUX_SURFACE_ID\"",
             ]
         }
         if let foregroundAuth {
-            lines += foregroundAuthLines(foregroundAuth)
+            lines += foregroundAuthLines(
+                foregroundAuth,
+                workspacePayloadValue: workspacePayloadValue
+            )
         }
         lines.append("cmux_ssh_attach_lifecycle_id=$(/usr/bin/uuidgen | /usr/bin/tr '[:upper:]' '[:lower:]') || exit 1")
         lines += [
             "cmux_ssh_attach_lifecycle_ended=0",
-            "cmux_ssh_attach_lifecycle_end() { if [ \"$cmux_ssh_attach_lifecycle_ended\" = 1 ]; then return; fi; cmux_ssh_attach_lifecycle_ended=1; \"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-session-end --lifecycle-only --workspace \"$CMUX_WORKSPACE_ID\" --surface \"${CMUX_SURFACE_ID:-}\" --session-id \"$cmux_ssh_attach_session_id\" --lifecycle-id \"$cmux_ssh_attach_lifecycle_id\" >/dev/null 2>&1 || true; }",
+            "cmux_ssh_attach_lifecycle_end() { if [ \"$cmux_ssh_attach_lifecycle_ended\" = 1 ]; then return; fi; cmux_ssh_attach_lifecycle_ended=1; \"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-session-end --lifecycle-only --workspace \(workspaceArgument) --surface \"${CMUX_SURFACE_ID:-}\" --session-id \"$cmux_ssh_attach_session_id\" --lifecycle-id \"$cmux_ssh_attach_lifecycle_id\" >/dev/null 2>&1 || true; }",
             "cmux_ssh_attach_signal_exit() { cmux_ssh_attach_signal_status=\"$1\"; trap - EXIT HUP INT TERM; cmux_ssh_attach_lifecycle_end; exit \"$cmux_ssh_attach_signal_status\"; }",
             "trap 'cmux_ssh_attach_lifecycle_end' EXIT",
             "trap 'cmux_ssh_attach_signal_exit 129' HUP",
@@ -48,7 +82,7 @@ enum SSHPTYAttachStartupCommandBuilder {
         let commandB64Flag = normalized(remoteCommand).map {
             " --command-b64 \(shellQuote(Data($0.utf8).base64EncodedString()))"
         } ?? ""
-        let attachCommand = "\"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-pty-attach --wait\(requireExistingFlag) --workspace \"$CMUX_WORKSPACE_ID\" --session-id \"$cmux_ssh_attach_session_id\" --lifecycle-id \"$cmux_ssh_attach_lifecycle_id\" --attachment-id \"${CMUX_SURFACE_ID:-}\"\(commandB64Flag)"
+        let attachCommand = "\"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-pty-attach --wait\(requireExistingFlag) --workspace \(workspaceArgument) --session-id \"$cmux_ssh_attach_session_id\" --lifecycle-id \"$cmux_ssh_attach_lifecycle_id\" --attachment-id \"${CMUX_SURFACE_ID:-}\"\(commandB64Flag)"
         lines += retryingAttachLines(command: attachCommand, reauthenticates: foregroundAuth != nil)
         return "/bin/sh -c \(shellQuote(lines.joined(separator: "\n")))"
     }
@@ -98,7 +132,10 @@ enum SSHPTYAttachStartupCommandBuilder {
         ]
     }
 
-    private static func foregroundAuthLines(_ auth: ForegroundAuth) -> [String] {
+    private static func foregroundAuthLines(
+        _ auth: ForegroundAuth,
+        workspacePayloadValue: String
+    ) -> [String] {
         let sshCommand = sshForegroundAuthCommand(auth)
         let quotedToken = shellQuote(auth.token)
         return [
@@ -107,7 +144,7 @@ enum SSHPTYAttachStartupCommandBuilder {
             "cmux_ssh_auth_status=$?",
             "  if [ \"$cmux_ssh_auth_status\" -ne 0 ]; then return \"$cmux_ssh_auth_status\"; fi",
             "cmux_ssh_auth_token=\(quotedToken)",
-            "cmux_ssh_auth_payload=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"foreground_auth_token\\\":\\\"$cmux_ssh_auth_token\\\"}\"",
+            "cmux_ssh_auth_payload=\"{\\\"workspace_id\\\":\\\"\(workspacePayloadValue)\\\",\\\"foreground_auth_token\\\":\\\"$cmux_ssh_auth_token\\\"}\"",
             "\"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" rpc workspace.remote.foreground_auth_ready \"$cmux_ssh_auth_payload\" >/dev/null 2>&1 || true",
             "unset cmux_ssh_auth_payload cmux_ssh_auth_status cmux_ssh_auth_token",
             "}",

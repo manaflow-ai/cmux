@@ -31,6 +31,7 @@ final class DockSplitStore: BonsplitDelegate {
     @ObservationIgnored let dockPortalReconcileState = DockPortalReconcileState()
 
     private let baseDirectoryProvider: () -> String?
+    private let configurationContextProvider: () -> DockConfigurationContext?
     private let remoteBrowserSettingsProvider: () -> DockRemoteBrowserSettings
     private let browserAvailabilityProvider: () -> Bool
     let browserWebExtensionHost: (any BrowserWebExtensionHosting)?
@@ -57,8 +58,9 @@ final class DockSplitStore: BonsplitDelegate {
     private var configurationLoadGeneration = 0
     private var configurationIdentityGeneration = 0
     private var configurationLoadRootDirectory: String?
+    private var configurationLoadContextIdentity: DockConfigurationContext.Identity?
     private var configurationSeedSuppressionGeneration: Int?
-    private var activeConfigURL: URL?
+    private var activeConfigLocation: DockConfigLocation?
     private var rootDirectoryOverride: String?
     private var resolvedBaseDirectory: String = FileManager.default.homeDirectoryForCurrentUser.path
     /// Last loaded resolved config identity.
@@ -89,6 +91,7 @@ final class DockSplitStore: BonsplitDelegate {
         workspaceId: UUID,
         scope: DockScope = .workspace,
         baseDirectoryProvider: @escaping () -> String?,
+        configurationContextProvider: @escaping () -> DockConfigurationContext? = { nil },
         remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings = { .local },
         browserAvailabilityProvider: @escaping () -> Bool = { BrowserAvailabilitySettings.isEnabled() },
         browserWebExtensionHost: (any BrowserWebExtensionHosting)? = nil
@@ -96,6 +99,7 @@ final class DockSplitStore: BonsplitDelegate {
         self.workspaceId = workspaceId
         self.scope = scope
         self.baseDirectoryProvider = baseDirectoryProvider
+        self.configurationContextProvider = configurationContextProvider
         self.remoteBrowserSettingsProvider = remoteBrowserSettingsProvider
         self.browserAvailabilityProvider = browserAvailabilityProvider
         self.browserWebExtensionHost = browserWebExtensionHost
@@ -195,19 +199,32 @@ final class DockSplitStore: BonsplitDelegate {
         rootDirectoryOverride = Self.normalizedBaseDirectory(directory)
     }
 
+    func configurationContextDidChange() {
+        guard hasLoadedConfiguration else { return }
+        reloadIfBaseDirectoryChanged()
+    }
+
     private func reloadIfBaseDirectoryChanged() {
         guard hasLoadedConfiguration else { return }
-        let rootDirectory = currentBaseDirectory()
-        if configurationLoadTask != nil, rootDirectory != configurationLoadRootDirectory { reload(); return }
+        let context = currentConfigurationContext()
+        if configurationLoadTask != nil,
+           context.identity != configurationLoadContextIdentity {
+            reload()
+            return
+        }
         guard configurationLoadTask == nil else { return }
         configurationIdentityGeneration += 1
         let generation = configurationIdentityGeneration
         configurationIdentityTask?.cancel()
-        let scope = scope
         configurationIdentityTask = Task.detached(priority: .utility) { [weak self] in
-            let current = Self.configIdentity(scope: scope, rootDirectory: rootDirectory)
-            guard !Task.isCancelled else { return }
-            await self?.applyConfigurationIdentity(current, generation: generation)
+            do {
+                let current = try await DockConfigResolver().identity(context: context)
+                guard !Task.isCancelled else { return }
+                await self?.applyConfigurationIdentity(current, generation: generation)
+            } catch {
+                guard !Task.isCancelled else { return }
+                await self?.applyConfigurationIdentityFailure(generation: generation)
+            }
         }
     }
 
@@ -487,7 +504,11 @@ final class DockSplitStore: BonsplitDelegate {
         }
     }
 
-    private func makePanel(for def: DockControlDefinition, baseDirectory: String) -> (any Panel)? {
+    private func makePanel(
+        for def: DockControlDefinition,
+        baseDirectory: String,
+        executionContext: DockExecutionContext
+    ) -> (any Panel)? {
         switch def.kind {
         case .terminal:
             let workingDirectory = Self.resolvedWorkingDirectory(def.cwd, baseDirectory: baseDirectory)
@@ -497,7 +518,8 @@ final class DockSplitStore: BonsplitDelegate {
                 workingDirectory: workingDirectory,
                 environment: def.env,
                 controlId: def.id,
-                controlTitle: def.title
+                controlTitle: def.title,
+                executionContext: executionContext
             )
         case .browser:
             guard browserAvailabilityProvider() else { return nil }
@@ -512,25 +534,49 @@ final class DockSplitStore: BonsplitDelegate {
         environment: [String: String],
         tmuxStartCommand: String? = nil,
         controlId: String?,
-        controlTitle: String?
+        controlTitle: String?,
+        executionContext: DockExecutionContext = .local
     ) -> TerminalPanel {
         var resolvedEnvironment = environment
         if let controlId { resolvedEnvironment["CMUX_DOCK_CONTROL_ID"] = controlId }
         if let controlTitle { resolvedEnvironment["CMUX_DOCK_CONTROL_TITLE"] = controlTitle }
 
         let initialCommand: String?
-        if let command, !command.isEmpty {
-            initialCommand = useLoginShellWrapper
-                ? Self.shellStartupScript(command: command, workingDirectory: workingDirectory)
-                : command
-        } else {
-            initialCommand = nil
+        let localWorkingDirectory: String
+        switch executionContext {
+        case .local:
+            localWorkingDirectory = workingDirectory
+            if let command, !command.isEmpty {
+                initialCommand = useLoginShellWrapper
+                    ? Self.shellStartupScript(command: command, workingDirectory: workingDirectory)
+                    : command
+            } else {
+                initialCommand = nil
+            }
+        case .remote(let remoteContext):
+            localWorkingDirectory = FileManager.default.homeDirectoryForCurrentUser.path
+            let remoteCommand = command.flatMap { command -> String? in
+                guard !command.isEmpty else { return nil }
+                return useLoginShellWrapper
+                    ? Self.remoteShellStartupScript(
+                        command: command,
+                        workingDirectory: workingDirectory,
+                        environment: resolvedEnvironment
+                    )
+                    : command
+            }
+            initialCommand = SSHPTYAttachStartupCommandBuilder.command(
+                foregroundAuth: remoteContext.foregroundAuth,
+                remoteCommand: remoteCommand,
+                requireExisting: false,
+                workspaceID: remoteContext.workspaceID
+            )
         }
 
         return TerminalPanel(
             workspaceId: workspaceId,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            workingDirectory: workingDirectory,
+            workingDirectory: localWorkingDirectory,
             initialCommand: initialCommand,
             tmuxStartCommand: tmuxStartCommand,
             initialEnvironmentOverrides: resolvedEnvironment,
@@ -655,6 +701,14 @@ final class DockSplitStore: BonsplitDelegate {
         return resolvedBaseDirectory
     }
 
+    private func currentConfigurationContext() -> DockConfigurationContext {
+        configurationContextProvider()
+            ?? DockConfigurationContext.legacy(
+                scope: scope,
+                rootDirectory: currentBaseDirectory()
+            )
+    }
+
     // MARK: - Config loading
 
     func reload() {
@@ -691,19 +745,22 @@ final class DockSplitStore: BonsplitDelegate {
         configurationIdentityGeneration += 1
         configurationLoadTask?.cancel()
         configurationIdentityTask?.cancel()
-        configurationLoadTask = nil; configurationIdentityTask = nil; configurationLoadRootDirectory = nil
+        configurationLoadTask = nil
+        configurationIdentityTask = nil
+        configurationLoadRootDirectory = nil
+        configurationLoadContextIdentity = nil
     }
 
     private func startConfigurationLoad(replacingPanels: Bool) {
         configurationLoadGeneration += 1
         let generation = configurationLoadGeneration
-        let rootDirectory = currentBaseDirectory()
-        configurationLoadRootDirectory = rootDirectory
+        let context = currentConfigurationContext()
+        configurationLoadRootDirectory = context.identity.rootDirectory
+        configurationLoadContextIdentity = context.identity
         configurationIdentityTask?.cancel()
         configurationLoadTask?.cancel()
-        let scope = scope
         configurationLoadTask = Task.detached(priority: .userInitiated) { [weak self] in
-            let result = Self.loadConfigurationSnapshot(scope: scope, rootDirectory: rootDirectory)
+            let result = await Self.loadConfigurationSnapshot(context: context)
             guard !Task.isCancelled else { return }
             await self?.applyConfigurationLoadResult(
                 result,
@@ -724,12 +781,23 @@ final class DockSplitStore: BonsplitDelegate {
         reload()
     }
 
-    private nonisolated static func loadConfigurationSnapshot(scope: DockScope, rootDirectory: String?) -> DockConfigurationLoadResult {
+    private func applyConfigurationIdentityFailure(generation: Int) {
+        guard generation == configurationIdentityGeneration else { return }
+        configurationIdentityTask = nil
+        reload()
+    }
+
+    private nonisolated static func loadConfigurationSnapshot(
+        context: DockConfigurationContext
+    ) async -> DockConfigurationLoadResult {
         do {
-            return .resolved(try resolve(scope: scope, rootDirectory: rootDirectory))
+            return .resolved(try await DockConfigResolver().resolve(context: context))
         } catch {
             return .failed(
-                identity: configIdentity(scope: scope, rootDirectory: rootDirectory),
+                identity: DockConfigIdentity(
+                    sourceLocation: nil,
+                    baseDirectory: context.emptyBaseDirectory
+                ),
                 message: configurationLoadErrorMessage(for: error)
             )
         }
@@ -741,15 +809,17 @@ final class DockSplitStore: BonsplitDelegate {
         replacingPanels: Bool
     ) {
         guard generation == configurationLoadGeneration else { return }
-        configurationLoadTask = nil; configurationLoadRootDirectory = nil
+        configurationLoadTask = nil
+        configurationLoadRootDirectory = nil
+        configurationLoadContextIdentity = nil
         errorMessage = nil
         trustRequest = nil
-        activeConfigURL = nil
+        activeConfigLocation = nil
 
         switch result {
         case .resolved(let resolution):
             lastLoadedConfigIdentity = Self.configIdentity(for: resolution)
-            activeConfigURL = resolution.sourceURL
+            activeConfigLocation = resolution.sourceLocation
             resolvedBaseDirectory = resolution.baseDirectory
             if let request = trustRequestIfNeeded(for: resolution) {
                 sourceLabel = String(localized: "dock.source.project", defaultValue: "Project Dock")
@@ -759,13 +829,17 @@ final class DockSplitStore: BonsplitDelegate {
             sourceLabel = Self.sourceLabel(for: resolution)
             let shouldSeed = configurationSeedSuppressionGeneration != generation && (replacingPanels || !hasAppliedConfigurationSeed)
             if shouldSeed {
-                seed(definitions: resolution.controls, baseDirectory: resolution.baseDirectory)
+                seed(
+                    definitions: resolution.controls,
+                    baseDirectory: resolution.baseDirectory,
+                    executionContext: resolution.executionContext
+                )
             }
             if configurationSeedSuppressionGeneration == generation { configurationSeedSuppressionGeneration = nil }
             hasAppliedConfigurationSeed = true
         case .failed(let identity, let message):
             lastLoadedConfigIdentity = identity
-            activeConfigURL = identity.sourcePath.map { URL(fileURLWithPath: $0, isDirectory: false) }
+            activeConfigLocation = nil
             resolvedBaseDirectory = identity.baseDirectory
             sourceLabel = String(localized: "dock.source.error", defaultValue: "Dock")
             errorMessage = message
@@ -784,11 +858,19 @@ final class DockSplitStore: BonsplitDelegate {
     /// initial divider is set from the requested-height ratios (a fractional
     /// Bonsplit tree cannot pin absolute point heights, but the proportions are
     /// preserved and remain user-resizable).
-    private func seed(definitions: [DockControlDefinition], baseDirectory: String) {
+    private func seed(
+        definitions: [DockControlDefinition],
+        baseDirectory: String,
+        executionContext: DockExecutionContext
+    ) {
         // Build panels first so divider math runs over the entries actually
         // created (e.g. browser entries are skipped when the browser is disabled).
         let created: [(definition: DockControlDefinition, panel: any Panel)] = definitions.compactMap { definition in
-            guard let panel = makePanel(for: definition, baseDirectory: baseDirectory) else { return nil }
+            guard let panel = makePanel(
+                for: definition,
+                baseDirectory: baseDirectory,
+                executionContext: executionContext
+            ) else { return nil }
             return (definition: definition, panel: panel)
         }
         guard !created.isEmpty else { return }
@@ -847,17 +929,17 @@ final class DockSplitStore: BonsplitDelegate {
     }
 
     private func trustRequestIfNeeded(for resolution: DockConfigResolution) -> DockTrustRequest? {
-        guard resolution.isProjectSource, let sourceURL = resolution.sourceURL else { return nil }
+        guard resolution.isProjectSource, let sourceLocation = resolution.sourceLocation else { return nil }
         let descriptor = Self.trustDescriptor(for: resolution)
         guard !CmuxActionTrust.shared.isTrusted(descriptor) else { return nil }
-        return DockTrustRequest(descriptor: descriptor, configPath: sourceURL.path)
+        return DockTrustRequest(descriptor: descriptor, configPath: sourceLocation.displayPath)
     }
 
     func openConfiguration() {
         let target: URL
         do {
-            if let activeConfigURL {
-                target = activeConfigURL
+            if let activeConfigLocation, let localURL = activeConfigLocation.localURL {
+                target = localURL
             } else {
                 target = try Self.preferredEditableConfigURL(scope: scope, rootDirectory: currentBaseDirectory())
             }

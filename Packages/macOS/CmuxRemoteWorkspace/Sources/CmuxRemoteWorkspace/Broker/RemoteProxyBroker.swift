@@ -1,6 +1,7 @@
 public import CmuxCore
+public import CmuxRemoteDaemon
 public import Dispatch
-internal import Foundation
+public import Foundation
 
 /// Shares one daemon proxy tunnel per remote transport across all subscribers.
 /// Each subscriber holds a ``RemoteProxyLease``; the entry restarts its tunnel
@@ -112,6 +113,38 @@ public final class RemoteProxyBroker: @unchecked Sendable {
     public func listPTY(configuration: WorkspaceRemoteConfiguration) throws -> [[String: Any]] {
         try withReadyTunnel(configuration: configuration) { tunnel in
             try tunnel.listPTY()
+        }
+    }
+
+    /// Returns metadata for one path through the ready tunnel.
+    ///
+    /// - Parameters:
+    ///   - configuration: Remote transport whose ready tunnel serves the path.
+    ///   - path: Absolute path on the remote host.
+    /// - Returns: The remote filesystem metadata snapshot.
+    /// - Throws: A tunnel-readiness, RPC, capability, or filesystem error.
+    public func statFile(
+        configuration: WorkspaceRemoteConfiguration,
+        path: String
+    ) throws -> RemoteDaemonFileStat {
+        try withReadyTunnel(configuration: configuration) { tunnel in
+            try tunnel.statFile(path: path)
+        }
+    }
+
+    /// Reads one bounded file through the ready tunnel.
+    ///
+    /// - Parameters:
+    ///   - configuration: Remote transport whose ready tunnel serves the path.
+    ///   - path: Absolute regular-file path on the remote host.
+    /// - Returns: The bounded remote file contents.
+    /// - Throws: A tunnel-readiness, RPC, capability, bounds, or filesystem error.
+    public func readFile(
+        configuration: WorkspaceRemoteConfiguration,
+        path: String
+    ) throws -> Data {
+        try withReadyTunnel(configuration: configuration) { tunnel in
+            try tunnel.readFile(path: path)
         }
     }
 

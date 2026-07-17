@@ -1,0 +1,103 @@
+import CmuxCore
+import Foundation
+
+extension Workspace {
+    func windowDockConfigurationContext() -> DockConfigurationContext {
+        dockConfigurationContext(includesGlobalFallback: true)
+    }
+
+    func workspaceDockConfigurationContext() -> DockConfigurationContext {
+        dockConfigurationContext(includesGlobalFallback: false)
+    }
+
+    private func dockConfigurationContext(
+        includesGlobalFallback: Bool
+    ) -> DockConfigurationContext {
+        let home = DockConfigPath(FileManager.default.homeDirectoryForCurrentUser.path)!
+        if usesRemoteDirectoryProvenance, let configuration = remoteConfiguration {
+            let root = trustedRemoteCurrentDirectory.flatMap(DockConfigPath.init)
+            let origin = DockConfigOrigin.remote(
+                identity: Self.remoteDockTrustIdentity(configuration),
+                displayTarget: configuration.displayTarget
+            )
+            let projectSource = root.map {
+                DockProjectConfigSource(
+                    origin: origin,
+                    fileSystem: RemoteDockConfigFileSystem(controller: remoteSessionController),
+                    rootDirectory: $0,
+                    boundaryDirectory: DockConfigPath("/")!,
+                    executionContext: .remote(DockRemoteExecutionContext(
+                        workspaceID: id,
+                        foregroundAuth: SSHPTYAttachStartupCommandBuilder.foregroundAuth(
+                            for: configuration
+                        )
+                    ))
+                )
+            }
+            return DockConfigurationContext(
+                identity: DockConfigurationContext.Identity(
+                    projectOrigin: projectSource?.origin,
+                    rootDirectory: root?.value,
+                    availabilityRevision: remoteDockAvailabilityRevision,
+                    includesGlobalFallback: includesGlobalFallback
+                ),
+                projectSource: projectSource,
+                includesGlobalFallback: includesGlobalFallback,
+                emptyBaseDirectory: root?.value ?? home.value
+            )
+        }
+
+        let root = DockConfigPath(currentDirectory)
+        let projectSource = root.map {
+            DockProjectConfigSource(
+                origin: .local,
+                fileSystem: LocalDockConfigFileSystem(),
+                rootDirectory: $0,
+                boundaryDirectory: home,
+                executionContext: .local
+            )
+        }
+        return DockConfigurationContext(
+            identity: DockConfigurationContext.Identity(
+                projectOrigin: projectSource?.origin,
+                rootDirectory: root?.value,
+                availabilityRevision: "local",
+                includesGlobalFallback: includesGlobalFallback
+            ),
+            projectSource: projectSource,
+            includesGlobalFallback: includesGlobalFallback,
+            emptyBaseDirectory: root?.value ?? home.value
+        )
+    }
+
+    func windowDockRemoteBrowserSettings() -> DockRemoteBrowserSettings {
+        DockRemoteBrowserSettings(
+            proxyEndpoint: remoteProxyEndpoint,
+            bypassRemoteProxy: false,
+            isRemoteWorkspace: isRemoteWorkspace,
+            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace ? id : nil,
+            remoteStatus: browserRemoteWorkspaceStatusSnapshot()
+        )
+    }
+
+    private var remoteDockAvailabilityRevision: String {
+        let capabilities = remoteDaemonStatus.capabilities.sorted().joined(separator: ",")
+        return [
+            remoteDaemonStatus.state.rawValue,
+            remoteDaemonStatus.version ?? "",
+            capabilities,
+            remoteSessionController == nil ? "controller-missing" : "controller-ready",
+        ].joined(separator: "|")
+    }
+
+    private static func remoteDockTrustIdentity(
+        _ configuration: WorkspaceRemoteConfiguration
+    ) -> String {
+        [
+            configuration.transport.rawValue,
+            configuration.destination.trimmingCharacters(in: .whitespacesAndNewlines),
+            configuration.port.map(String.init) ?? "",
+            configuration.managedCloudVMID ?? "",
+        ].joined(separator: "|")
+    }
+}

@@ -165,7 +165,7 @@ struct DockControlDefinitionDecodingTests {
 
     @Test("Project config identity follows the resolved dock file, not child cwd")
     @MainActor
-    func projectConfigIdentityUsesResolvedDockFile() throws {
+    func projectConfigIdentityUsesResolvedDockFile() async throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -180,8 +180,8 @@ struct DockControlDefinitionDecodingTests {
         try FileManager.default.createDirectory(at: firstChild, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: secondChild, withIntermediateDirectories: true)
 
-        let firstIdentity = DockSplitStore.configIdentity(rootDirectory: firstChild.path)
-        let secondIdentity = DockSplitStore.configIdentity(rootDirectory: secondChild.path)
+        let firstIdentity = try await DockSplitStore.configIdentity(rootDirectory: firstChild.path)
+        let secondIdentity = try await DockSplitStore.configIdentity(rootDirectory: secondChild.path)
 
         #expect(firstIdentity == secondIdentity)
         #expect(firstIdentity.sourcePath == dockConfig.standardizedFileURL.path)
@@ -190,7 +190,7 @@ struct DockControlDefinitionDecodingTests {
 
     @Test("No-config Dock identity changes do not require panel reload")
     @MainActor
-    func noConfigIdentityChangesDoNotRequirePanelReload() throws {
+    func noConfigIdentityChangesDoNotRequirePanelReload() async throws {
         let firstRoot = try makeTemporaryDirectory()
         let secondRoot = try makeTemporaryDirectory()
         defer {
@@ -198,8 +198,8 @@ struct DockControlDefinitionDecodingTests {
             try? FileManager.default.removeItem(at: secondRoot)
         }
 
-        let firstIdentity = DockSplitStore.configIdentity(rootDirectory: firstRoot.path)
-        let secondIdentity = DockSplitStore.configIdentity(rootDirectory: secondRoot.path)
+        let firstIdentity = try await DockSplitStore.configIdentity(rootDirectory: firstRoot.path)
+        let secondIdentity = try await DockSplitStore.configIdentity(rootDirectory: secondRoot.path)
 
         #expect(firstIdentity.sourcePath == nil)
         #expect(secondIdentity.sourcePath == nil)
