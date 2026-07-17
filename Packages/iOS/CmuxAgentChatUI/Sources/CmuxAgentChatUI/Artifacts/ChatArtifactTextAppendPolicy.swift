@@ -10,14 +10,18 @@ struct ChatArtifactTextAppendPolicy: Equatable, Sendable {
     private var state = DeferralState.idle
     private var pendingChunkCount = 0
 
+    // Only user-driven scrolling defers appends. Programmatic (pin-owned)
+    // scrolls must not: the pin exists to reveal new content, and a missed
+    // end-of-animation callback would otherwise strand every later chunk
+    // in the pending queue with the storage silently truncated.
     var isDeferring: Bool {
-        state != .idle
+        state == .tracking || state == .decelerating
     }
 
     mutating func enqueue(chunkCount: Int) -> Int {
         guard chunkCount > 0 else { return 0 }
         pendingChunkCount += chunkCount
-        return state == .idle ? drain() : 0
+        return isDeferring ? 0 : drain()
     }
 
     mutating func beginTracking() {

@@ -138,12 +138,14 @@ struct ChatArtifactTextBottomPinStateMachineTests {
 
         _ = pin.engage(target: .latest, boundary: preFlushBoundary)
         appendPolicy.beginProgrammaticAnimation()
-        #expect(appendPolicy.enqueue(chunkCount: 1) == 0)
+        // Appends apply immediately even while the pin's own scroll animates,
+        // so a missed end-of-animation callback can no longer truncate the
+        // storage below the file end.
+        #expect(appendPolicy.enqueue(chunkCount: 1) == 1)
         let didReachEOF = pin.markReachedEOF()
         #expect(didReachEOF)
 
-        let finalFlushCount = appendPolicy.endProgrammaticAnimation()
-        #expect(finalFlushCount == 1)
+        #expect(appendPolicy.endProgrammaticAnimation() == 0)
         #expect(pin.appendsFlushed(at: finalBoundary) == .none)
         #expect(
             pin.initialAnimationSettled(at: preFlushBoundary)
