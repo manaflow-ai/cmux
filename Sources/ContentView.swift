@@ -11749,7 +11749,11 @@ struct VerticalTabsSidebar: View, Equatable {
             snapshotProvider: { [snapshot = input.workspace] in snapshot }
         )
         let openInBrowser: @MainActor (URL, Bool) -> Void = { [weak tabManager, workspaceId = tab.id] url, preferBrowser in
+            // The external-open rules outrank the embedded-browser preference
+            // here just like on the SwiftUI sidebar path: rule-listed sites
+            // cannot work in the embedded web view at all.
             if preferBrowser,
+               !BrowserLinkOpenSettings.linkEscapesToSystemBrowser(url),
                let tabManager,
                tabManager.openBrowser(
                    inWorkspace: workspaceId,
