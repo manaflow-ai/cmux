@@ -44,7 +44,7 @@ struct SidebarWorkspaceRowModel: Equatable {
 
 /// Behavior bundle for the row view; excluded from model equality.
 @MainActor
-struct SidebarWorkspaceRowActions {
+struct SidebarAppKitRowActions {
     let commands: SidebarWorkspaceRowCommands
     let onOpenPullRequest: (URL) -> Void
     let onOpenPort: (Int) -> Void

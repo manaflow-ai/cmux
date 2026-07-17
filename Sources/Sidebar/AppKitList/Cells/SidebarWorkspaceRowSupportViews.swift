@@ -389,7 +389,7 @@ final class SidebarRowChecklistSection: NSView {
     private let addButton = SidebarRowLinkButton()
     private let addField = SidebarRowInlineRenameField()
     private var model: SidebarWorkspaceRowModel?
-    private var actions: SidebarWorkspaceRowActions?
+    private var actions: SidebarAppKitRowActions?
     private var showsExpandedList = false
     private var isAdding = false
     private var usesPopoverStyle = false
@@ -412,7 +412,7 @@ final class SidebarRowChecklistSection: NSView {
     func configure(
         model: SidebarWorkspaceRowModel,
         palette: SidebarRowPalette,
-        actions: SidebarWorkspaceRowActions
+        actions: SidebarAppKitRowActions
     ) {
         self.model = model
         self.actions = actions
@@ -692,10 +692,10 @@ extension SidebarWorkspaceRowTableCellView {
 @MainActor
 final class SidebarRowChecklistPopoverController: NSViewController {
     private let model: SidebarWorkspaceRowModel
-    private let actions: SidebarWorkspaceRowActions
+    private let actions: SidebarAppKitRowActions
     private var itemLines: [SidebarRowChecklistItemLine] = []
 
-    init(model: SidebarWorkspaceRowModel, actions: SidebarWorkspaceRowActions) {
+    init(model: SidebarWorkspaceRowModel, actions: SidebarAppKitRowActions) {
         self.model = model
         self.actions = actions
         super.init(nibName: nil, bundle: nil)

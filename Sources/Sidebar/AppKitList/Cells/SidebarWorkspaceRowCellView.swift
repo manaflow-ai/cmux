@@ -48,7 +48,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private let checklistSection = SidebarRowChecklistSection()
 
     private var model: SidebarWorkspaceRowModel?
-    private var actions: SidebarWorkspaceRowActions?
+    private var actions: SidebarAppKitRowActions?
     private var isPointerHovering = false
     private var contextMenuVisible = false
     private var contextMenuDidOpen: (() -> Void)?
@@ -157,7 +157,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
     func configure(
         model: SidebarWorkspaceRowModel,
-        actions: SidebarWorkspaceRowActions,
+        actions: SidebarAppKitRowActions,
         isPointerHovering: Bool,
         contextMenuDidOpen: @escaping () -> Void,
         contextMenuDidClose: @escaping () -> Void

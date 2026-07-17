@@ -25,7 +25,7 @@ struct SidebarWorkspaceTableRowConfiguration {
     let appKitGroupHeaderActions: SidebarGroupHeaderRowActions?
     /// Present when this row renders through the pure-AppKit workspace cell.
     let appKitWorkspaceRowModel: SidebarWorkspaceRowModel?
-    let appKitWorkspaceRowActions: SidebarWorkspaceRowActions?
+    let appKitWorkspaceRowActions: SidebarAppKitRowActions?
     /// Live workspace reference + fresh-model factory for the per-row churn
     /// pump (metadata/branch/PR updates repaint one cell, no container render).
     let appKitWorkspaceRowWorkspace: Workspace?
@@ -92,12 +92,12 @@ struct SidebarWorkspaceTableRowConfiguration {
 
     init(
         workspaceRowModel: SidebarWorkspaceRowModel,
-        actions: SidebarWorkspaceRowActions,
-        workspace: Workspace,
+        actions: SidebarAppKitRowActions,
         groupId: UUID?,
         isPinned: Bool,
         environment: SidebarWorkspaceTableEnvironmentSnapshot,
-        rebuild: @escaping @MainActor () -> SidebarWorkspaceRowModel
+        workspace: Workspace? = nil,
+        rebuild: (@MainActor () -> SidebarWorkspaceRowModel)? = nil
     ) {
         self.id = .workspace(workspaceRowModel.workspaceId)
         self.workspaceId = workspaceRowModel.workspaceId

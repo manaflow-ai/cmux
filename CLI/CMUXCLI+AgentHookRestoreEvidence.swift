@@ -102,6 +102,13 @@ extension CMUXCLI {
                agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: mappedLaunchCommand) {
                 return mappedLaunchCommand
             }
+            if let current = replaySafeCodexLaunchCommand(kind: kind, launchCommand: current) {
+                return current
+            }
+            if agentHookMappedSessionHasDurableTargetEvidence(kind: kind, mapped: mapped),
+               let mapped = replaySafeCodexLaunchCommand(kind: kind, launchCommand: mapped?.launchCommand) {
+                return mapped
+            }
             if let current,
                currentSource == "default",
                agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: current) {
@@ -174,6 +181,29 @@ extension CMUXCLI {
         normalizedHookValue(environment?["CODEX_HOME"]) == nil
             && (normalizedHookValue(environment?["ANTHROPIC_BASE_URL"]) != nil
                 || normalizedHookValue(environment?["CLAUDE_CONFIG_DIR"]) != nil)
+    }
+
+    /// A same-kind launch capture can inherit Claude account-selection environment from the
+    /// terminal without making its sanitized Codex flags unsafe to replay. Keep those flags while
+    /// dropping every identity-bearing part of the weak capture, so restore uses the current Codex
+    /// executable and hook cwd instead of an inherited executable, environment, or launch cwd.
+    private func replaySafeCodexLaunchCommand(
+        kind: String,
+        launchCommand: AgentHookLaunchCommandRecord?
+    ) -> AgentHookLaunchCommandRecord? {
+        guard kind == "codex",
+              var launchCommand,
+              normalizedHookValue(launchCommand.source)?.lowercased() == "environment",
+              normalizedHookValue(launchCommand.launcher)?.lowercased() == "codex",
+              !launchCommand.arguments.isEmpty,
+              codexLaunchEnvironmentIsWeak(launchCommand.environment) else {
+            return nil
+        }
+        launchCommand.executablePath = nil
+        launchCommand.arguments[0] = "codex"
+        launchCommand.workingDirectory = nil
+        launchCommand.environment = nil
+        return launchCommand
     }
 
     private func repairedCodexLaunchCommand(

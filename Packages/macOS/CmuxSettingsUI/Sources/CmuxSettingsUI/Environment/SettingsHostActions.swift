@@ -176,6 +176,17 @@ public protocol SettingsHostActions: AnyObject {
     /// catalog-backed setting.
     func resetAllSettingsSideEffects()
 
+    /// Lists Safari web extensions installed on this Mac (the same registry
+    /// Safari consults), for the Browser section's extensions list. The host
+    /// applies `browser.webExtensions` changes itself by observing the key.
+    func discoverBrowserWebExtensions() async -> [SettingsDiscoveredBrowserExtension]
+
+    /// Whether the host can load web extensions at all (requires macOS 15.4+).
+    func browserWebExtensionsSupported() -> Bool
+
+    /// A live map of configured extension IDs to host-side load failures.
+    func browserWebExtensionLoadErrorUpdates() -> AsyncStream<[String: String]>
+
     /// Invalidates host-owned shortcut caches after Settings persists a shortcut change.
     func notifyShortcutSettingsDidChange()
 
@@ -196,6 +207,20 @@ public extension SettingsHostActions {
 
     /// Default no-op for package previews and tests without host layout editing.
     func customizeWorkspaceLayouts() {}
+
+    /// Default: nothing discovered, for previews/tests with no live host.
+    func discoverBrowserWebExtensions() async -> [SettingsDiscoveredBrowserExtension] { [] }
+
+    /// Default: unsupported, for previews/tests with no live host.
+    func browserWebExtensionsSupported() -> Bool { false }
+
+    /// Default: no host-side extension failures.
+    func browserWebExtensionLoadErrorUpdates() -> AsyncStream<[String: String]> {
+        AsyncStream { continuation in
+            continuation.yield([:])
+            continuation.finish()
+        }
+    }
 
     /// Default no-op for package previews and tests without app-language ownership.
     func applyLanguageOverride(_ language: AppLanguage) {}
