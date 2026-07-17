@@ -225,6 +225,12 @@ struct WorkspaceRemoteConfigurationValueTests {
             sessionId: "session-d",
             expiresAtUnix: 400
         )
+        let plainSSH = makeConfiguration()
+        let sshWithUnusedWebSocketEndpoint = makeConfiguration(
+            daemonWebSocketEndpoint: firstBrokerSession
+        )
+
+        #expect(plainSSH.durableTransportTrustKey == sshWithUnusedWebSocketEndpoint.durableTransportTrustKey)
         let firstWebSocket = makeConfiguration(
             transport: .websocket,
             destination: "cloud-vm",
