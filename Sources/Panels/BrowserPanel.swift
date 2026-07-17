@@ -3422,6 +3422,11 @@ final class BrowserPanel: Panel, ObservableObject {
             }
 
             if current.hostId == hostId {
+                if pendingDistinctPortalHostReplacementPaneId == paneId.id,
+                   leasePolicy.isUsable(next) {
+                    pendingDistinctPortalHostReplacementPaneId = nil
+                    lockedPortalHost = PortalHostLock(hostId: hostId, paneId: paneId.id)
+                }
                 activePortalHostLease = next
                 return true
             }
