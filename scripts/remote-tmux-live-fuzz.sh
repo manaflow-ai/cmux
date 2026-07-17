@@ -55,10 +55,12 @@ FUZZ_SERVER_OWNED=0
 cleanup() {
   local status=$?
   trap - EXIT
-  if [ "$DRY" != 1 ] && [ -n "$WORKSPACE_REF" ]; then
+  # FUZZ_KEEP_STATE=1 leaves the workspace and remote server up so a failed
+  # run's final state can be probed live (rpc pane_surfaces etc.) postmortem.
+  if [ "$DRY" != 1 ] && [ -n "$WORKSPACE_REF" ] && [ "${FUZZ_KEEP_STATE:-0}" != 1 ]; then
     "$CLI" workspace close "$WORKSPACE_REF" >/dev/null 2>&1
   fi
-  if [ "$FUZZ_SERVER_OWNED" = 1 ]; then
+  if [ "$FUZZ_SERVER_OWNED" = 1 ] && [ "${FUZZ_KEEP_STATE:-0}" != 1 ]; then
     t kill-server >/dev/null 2>&1 || true
   fi
   cmux_fuzz_lock_release
@@ -252,16 +254,61 @@ check_screen_oracle() {
   # census: every window with an on-screen pane is the VISIBLE window, so tmux's
   # full pane list for it must be on screen. A missing pane is the app failing to
   # render a pane of the visible window, which is a defect, not less coverage.
+  # One workspace presents one tmux window at a time, so surfaces from two
+  # windows on screen at once is a hidden tab drawing over the selected one.
+  # The per-window census below cannot see this: each window individually
+  # matches tmux while both are visible.
+  on_screen_windows=$(printf '%s' "$PANE_SURFACES_JSON" | jq -r '
+    [.panes[]? | select(.on_screen == true) | .window_id] | unique | join(" ")
+  ' 2>/dev/null)
+  if [ "$(printf '%s\n' $on_screen_windows | grep -c .)" -gt 1 ]; then
+    note_fail "$iter" "overlay: surfaces from multiple windows on screen at once [$on_screen_windows]"
+  fi
   for window in $(printf '%s' "$PANE_SURFACES_JSON" | jq -r '
     [.panes[]? | select(.on_screen == true) | .window_id] | unique[]
   ' 2>/dev/null); do
-    tmux_panes=$(t list-panes -t "$window" -F '#{pane_id}' 2>/dev/null | sort) || continue
+    # A zoomed window presents only its active pane; tmux itself hides the
+    # rest, so the census for it is that one pane, not the full pane list.
+    zoom_flag=$(t display-message -p -t "$window" '#{window_zoomed_flag}' 2>/dev/null)
+    if [ -z "$zoom_flag" ]; then
+      # Without the zoom state the census cannot be judged; a display-message
+      # hiccup taking the unzoomed branch would report every hidden pane of a
+      # zoomed window as a defect. Skip this window this pass.
+      continue
+    fi
+    if [ "$zoom_flag" = 1 ]; then
+      tmux_panes=$(t list-panes -t "$window" -F '#{?pane_active,#{pane_id},}' 2>/dev/null | sed '/^$/d' | sort) || continue
+    else
+      tmux_panes=$(t list-panes -t "$window" -F '#{pane_id}' 2>/dev/null | sort) || continue
+    fi
     app_panes=$(printf '%s' "$PANE_SURFACES_JSON" | jq -r --arg w "$window" '
       .panes[]? | select(.window_id == $w and .on_screen == true) | .pane_id
     ' 2>/dev/null | sort)
     missing=$(comm -23 <(printf '%s\n' "$tmux_panes") <(printf '%s\n' "$app_panes") | tr '\n' ' ')
     if [ -n "${missing// /}" ]; then
-      note_fail "$iter" "visible $window: tmux panes [$missing] are not on screen in the app (coverage would silently drop them)"
+      # The app census came from the earlier pane_surfaces snapshot; a zoom
+      # toggle anywhere between that snapshot and here manufactures a
+      # mismatch out of two individually consistent states. Confirm against
+      # fresh state on BOTH sides before recording a defect: a stable zoom
+      # flag alone cannot clear a toggle that completed before its first
+      # read. Only a mismatch that survives the re-read is one.
+      zoom_recheck=$(t display-message -p -t "$window" '#{window_zoomed_flag}' 2>/dev/null)
+      if [ "$zoom_recheck" != "$zoom_flag" ]; then
+        continue
+      fi
+      refresh_pane_surfaces || continue
+      if [ "$zoom_recheck" = 1 ]; then
+        tmux_panes=$(t list-panes -t "$window" -F '#{?pane_active,#{pane_id},}' 2>/dev/null | sed '/^$/d' | sort) || continue
+      else
+        tmux_panes=$(t list-panes -t "$window" -F '#{pane_id}' 2>/dev/null | sort) || continue
+      fi
+      app_panes=$(printf '%s' "$PANE_SURFACES_JSON" | jq -r --arg w "$window" '
+        .panes[]? | select(.window_id == $w and .on_screen == true) | .pane_id
+      ' 2>/dev/null | sort)
+      missing=$(comm -23 <(printf '%s\n' "$tmux_panes") <(printf '%s\n' "$app_panes") | tr '\n' ' ')
+      if [ -n "${missing// /}" ]; then
+        note_fail "$iter" "visible $window: tmux panes [$missing] are not on screen in the app (coverage would silently drop them)"
+      fi
     fi
   done
   checked=0
@@ -446,7 +493,7 @@ check_iter() {
   done
   echo "  settle $((SECONDS - settle_start))s (iter $iter)"
   if [ "$settled" != 1 ]; then
-    note_fail "$iter" "settle exceeded ${budget}s budget (healthy baseline ~0.4s): $(printf '%s' "$settled_json" | tr -d '\n' | cut -c1-300)"
+    note_fail "$iter" "settle exceeded ${budget}s budget (healthy baseline ~0.4s): $(printf '%s' "$settled_json" | jq -c '{counters, windows}' 2>/dev/null || printf '%s' "$settled_json" | tr -d '\n' | cut -c1-300)"
   elif settlement_has_render_mismatch "$settled_json"; then
     # Mismatch WHILE settled: re-read twice before failing, so a probe that
     # raced the last frame of a transition cannot manufacture a defect.

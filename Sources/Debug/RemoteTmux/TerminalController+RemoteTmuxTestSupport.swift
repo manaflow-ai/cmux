@@ -474,10 +474,21 @@ extension TerminalController {
                         if abs(plannedContent.width - actual.width) > 1.5
                             || abs(plannedContent.height - actual.height) > 1.5 {
                             nativeGeometryReady = false
+                            // The portal positions this view from whichever pane HOST
+                            // holds the surface's lease; a view at the wrong size with a
+                            // correct plan usually means the lease is held by the wrong
+                            // pane. Name both sides so the mismatch says which.
+                            let lease = mirror.panelsByPaneId[leaf]?.surface.debugPortalHostLease()
+                            let leasePane = lease?.paneId.map { String($0.uuidString.prefix(5)) } ?? "none"
+                            let expectedPane = mirror.paneIdByPaneId[leaf].map {
+                                String($0.id.uuidString.prefix(5))
+                            } ?? "none"
                             mismatches.append(
                                 "%\(leaf) native-geometry"
                                     + " plan=\(Int(plannedContent.width))x\(Int(plannedContent.height))"
                                     + " view=\(Int(actual.width))x\(Int(actual.height))"
+                                    + " lease_pane=\(leasePane) expected_pane=\(expectedPane)"
+                                    + " lease_inWin=\(lease?.inWindow == true ? 1 : 0)"
                             )
                         }
                     } else {
