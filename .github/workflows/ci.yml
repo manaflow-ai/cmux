@@ -1807,7 +1807,7 @@ jobs:
         run: |
           set -euo pipefail
           cache_path="build-universal/CompilationCache.noindex"
-          max_cache_kib=$((3 * 1024 * 1024))
+          max_cache_kib=$((5 * 1024 * 1024))
           if [ -d "$cache_path" ]; then
             cache_kib=$(du -sk "$cache_path" | awk '{print $1}')
           else
@@ -1815,7 +1815,7 @@ jobs:
           fi
           echo "Xcode compilation cache size: ${cache_kib} KiB (limit: ${max_cache_kib} KiB)"
           if [ "$cache_kib" -gt "$max_cache_kib" ]; then
-            echo "Xcode compilation cache exceeds 3 GiB; skipping cache save"
+            echo "Xcode compilation cache exceeds 5 GiB; skipping cache save"
             rm -rf "$cache_path"
           fi
 
