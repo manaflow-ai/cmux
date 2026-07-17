@@ -12,8 +12,12 @@ extension SimulatorWebInspectorService {
         }
         guard let selector = message["__selector"] as? String else { return }
 
-        if catalog.apply(message, ownConnectionIdentifier: connectionIdentifier) {
-            handleCatalogChange(selector: selector, message: message)
+        let catalogChanged = catalog.apply(
+            message,
+            ownConnectionIdentifier: connectionIdentifier
+        )
+        handleCatalogChange(selector: selector, message: message)
+        if catalogChanged {
             scheduleTargetPublication()
             validateAttachedTarget()
         }

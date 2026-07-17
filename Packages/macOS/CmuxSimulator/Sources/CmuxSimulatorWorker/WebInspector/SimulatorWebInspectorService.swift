@@ -99,7 +99,14 @@ final class SimulatorWebInspectorService {
         if session != nil { try await releaseSession(emit: false) }
         let key = try mutationKey(deviceIdentifier: deviceIdentifier, target: target)
         let lease = try await mutationGate.acquireLocks([key])
-        guard let currentTarget = catalog.target(id: targetIdentifier) else {
+        let refreshedTargets: [SimulatorWebInspectorTarget]
+        do {
+            refreshedTargets = try await refreshTargets(deviceIdentifier: deviceIdentifier)
+        } catch {
+            lease.release()
+            throw error
+        }
+        guard let currentTarget = refreshedTargets.first(where: { $0.id == targetIdentifier }) else {
             lease.release()
             throw SimulatorWebInspectorError.targetNotFound
         }
