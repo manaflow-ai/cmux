@@ -11090,9 +11090,17 @@ struct VerticalTabsSidebar: View, Equatable {
         // is opt-in while it soaks; default stays on the SwiftUI list.
         Group {
             if CmuxFeatureFlags.shared.isAppKitSidebarListEnabled {
-                AnyView(appKitWorkspaceScrollArea(renderContext: renderContext))
+                AnyView(
+                    appKitWorkspaceScrollArea(renderContext: renderContext)
+                        // Push the flag value into the portal from its single
+                        // evaluation site (feature-flag lint one-file rule).
+                        .onAppear { WindowTerminalPortal.usesCoalescedAnchorFailsafe = true }
+                )
             } else {
-                AnyView(legacyWorkspaceScrollArea(renderContext: renderContext))
+                AnyView(
+                    legacyWorkspaceScrollArea(renderContext: renderContext)
+                        .onAppear { WindowTerminalPortal.usesCoalescedAnchorFailsafe = false }
+                )
             }
         }
     }
