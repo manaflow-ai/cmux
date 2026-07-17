@@ -15,7 +15,7 @@ struct AuthEnvironmentTests {
             environment: ["CMUX_VM_API_BASE_URL": "http://localhost:9450"],
             isDebugBuild: true
         )
-        #expect(defaultURL.absoluteString == "https://cmux-staging.vercel.app")
+        #expect(defaultURL?.absoluteString == "https://cmux-staging.vercel.app")
 
         let overrideURL = AuthEnvironment.resolvedIrohBrokerBaseURL(
             environment: [
@@ -24,13 +24,18 @@ struct AuthEnvironmentTests {
             ],
             isDebugBuild: true
         )
-        #expect(overrideURL.absoluteString == "https://broker.example.test/root/")
+        #expect(overrideURL?.absoluteString == "https://broker.example.test/root/")
 
         let releaseURL = AuthEnvironment.resolvedIrohBrokerBaseURL(
             environment: [:],
             isDebugBuild: false
         )
-        #expect(releaseURL.absoluteString == "https://cmux.com")
+        #expect(releaseURL?.absoluteString == "https://cmux.com")
+
+        #expect(AuthEnvironment.resolvedIrohBrokerBaseURL(
+            environment: ["CMUX_IROH_BROKER_BASE_URL": ":// malformed"],
+            isDebugBuild: true
+        ) == nil)
     }
 
     @Test("debug callback scheme uses sanitized tag")

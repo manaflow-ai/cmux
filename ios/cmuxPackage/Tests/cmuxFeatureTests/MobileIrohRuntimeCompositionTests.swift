@@ -27,6 +27,27 @@ struct MobileIrohRuntimeCompositionTests {
             apiBaseURL: "https://cmux.com",
             infoDictionary: ["CMUXIrohBrokerBaseURL": "  "]
         )?.absoluteString == "https://cmux.com")
+
+        #expect(MobileIrohRuntimeComposition.resolvedBrokerBaseURL(
+            apiBaseURL: "http://localhost:9450",
+            infoDictionary: ["CMUXDevTag": "lane-a"]
+        )?.absoluteString == "https://cmux-staging.vercel.app")
+        #expect(MobileIrohRuntimeComposition.resolvedBrokerBaseURL(
+            apiBaseURL: "http://localhost:9450",
+            infoDictionary: [
+                "CMUXDevTag": "lane-a",
+                "CMUXAuthEnvironment": "production",
+            ]
+        )?.absoluteString == "https://cmux.com")
+        #expect(MobileIrohRuntimeComposition.resolvedBrokerBaseURL(
+            apiBaseURL: "https://cmux.com",
+            infoDictionary: ["CMUXIrohBrokerBaseURL": ":// malformed"]
+        ) == nil)
+        #expect(MobileIrohRuntimeComposition.resolvedBrokerBaseURL(
+            apiBaseURL: "https://cmux.com",
+            infoDictionary: ["CMUXIrohBrokerBaseURL": "http://localhost:3000"],
+            allowsLoopback: false
+        ) == nil)
     }
 
     @Test
