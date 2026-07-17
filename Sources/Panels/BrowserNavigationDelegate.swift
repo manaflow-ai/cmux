@@ -307,6 +307,8 @@ import WebKit
 #if DEBUG
             cmuxDebugLog("browser.nav.decidePolicy.action kind=escapeToSystemBrowser url=\(browserNavigationDebugURL(url))")
 #endif
+            clearAttemptedRequest(discardPendingBypasses: true)
+            let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
             decisionHandler(.cancel)
             browserOpenExternalNavigationURL(
                 url,
@@ -314,6 +316,7 @@ import WebKit
                 webView: webView,
                 presentAlert: presentAlert
             )
+            reportTerminalCancellation()
             return
         }
 
