@@ -74,6 +74,23 @@
   // Colors stick to a selection for its lifetime (assigned at pick time);
   // removals must not recolor the surviving pills/outlines.
   let colorSequence = 0;
+  // The color the NEXT pick will take; hover/marquee targeting previews it so
+  // the target is already tinted like the pill and outline it will become.
+  const upcomingColor = () => selectionColor(colorSequence);
+  const colorChannels = (hex) => [
+    parseInt(hex.slice(1, 3), 16),
+    parseInt(hex.slice(3, 5), 16),
+    parseInt(hex.slice(5, 7), 16),
+  ];
+  const colorWithAlpha = (hex, alpha) => {
+    const [r, g, b] = colorChannels(hex);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  };
+  // Legible badge text on both dark (blue/purple) and bright (yellow) tints.
+  const contrastingTextColor = (hex) => {
+    const [r, g, b] = colorChannels(hex);
+    return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.62 ? "rgba(0, 0, 0, 0.88)" : "white";
+  };
 
   // Marquee region captures: page-anchored rects drawn by dragging.
   const regionReferences = [];
@@ -1139,7 +1156,13 @@
 
     const rect = element.getBoundingClientRect();
     // Cursor-style hover: a single accent veil + outline over the element
-    // bounds. The margin/border/padding boxes stay hidden.
+    // bounds, tinted with the color this pick would take. The
+    // margin/border/padding boxes stay hidden.
+    const tint = upcomingColor();
+    overlay.content.style.background = colorWithAlpha(tint, 0.13);
+    overlay.content.style.outline = `1.5px solid ${tint}`;
+    overlay.badge.style.background = tint;
+    overlay.badge.style.color = contrastingTextColor(tint);
     place(overlay.content, { x: rect.x, y: rect.y, width: rect.width, height: rect.height });
     positionHoverBadge(element, rect, selected);
   };
@@ -1460,6 +1483,10 @@
   const updateMarqueeBox = () => {
     createOverlay();
     if (!overlay) return;
+    const tint = upcomingColor();
+    overlay.marqueeBox.style.border = `1.5px dashed ${colorWithAlpha(tint, 0.85)}`;
+    overlay.marqueeBox.style.background = colorWithAlpha(tint, 0.07);
+    overlay.strokePath.setAttribute("stroke", tint);
     place(overlay.marqueeBox, marqueeBounds());
     overlay.strokePath.setAttribute(
       "points",
