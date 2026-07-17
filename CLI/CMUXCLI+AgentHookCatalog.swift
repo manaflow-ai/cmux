@@ -242,6 +242,7 @@ extension CMUXCLI {
                 .init(agentEvent: "SessionEnd",       cmuxSubcommand: "session-end"),
             ],
             aliases: ["pup"],
+            nestedGroupMatcher: "*",
             feedHookEvents: ["PreToolUse", "PostToolUse"]
         ),
         AgentHookDef(
