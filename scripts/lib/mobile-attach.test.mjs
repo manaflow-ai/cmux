@@ -221,6 +221,20 @@ test("mobile launch accepts an explicit no-attach override", () => {
   assert.doesNotMatch(result.stderr, /unknown arg/);
 });
 
+test("local iOS reload never hides a requested setup failure with a plain launch", () => {
+  const iosReload = fs.readFileSync(path.join(repoRoot, "ios/scripts/reload.sh"), "utf8");
+
+  assert.doesNotMatch(iosReload, /signed launch failed; launching plain/);
+  assert.match(
+    iosReload,
+    /elif ! auto_setup_launch simulator \"\$SIM_ID\"; then[\s\S]{0,240}return 1/,
+  );
+  assert.match(
+    iosReload,
+    /elif ! auto_setup_launch device \"\$selected_device_install_id\"; then[\s\S]{0,320}return 1/,
+  );
+});
+
 test("physical-device attach reports a missing tagged Mac before blaming Iroh", () => {
   const tag = `missing-mac-${process.pid}`;
   const result = run(
