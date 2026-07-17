@@ -5,7 +5,7 @@ import Foundation
 ///
 /// ## Why this exists
 ///
-/// `Workspace.applyTabSelectionNow` mutates a large amount of `@Published` selection
+/// `Workspace.applyTabSelectionNow` mutates a large amount of selection
 /// state and, historically, finished by posting `.ghosttyDidFocusSurface`
 /// *synchronously*. The Combine `.onReceive` subscriber in `ContentView` delivers
 /// that notification synchronously on the posting thread and reacts by calling back
@@ -19,7 +19,7 @@ import Foundation
 /// ## Contract
 ///
 /// - ``emit(_:)`` never delivers synchronously. It records the latest payload and
-///   schedules a single flush on the main queue, so all `@Published` mutations made
+///   schedules a single flush on the main queue, so all tracked mutations made
 ///   by the caller settle before any observer runs.
 /// - Multiple emits before a flush coalesce to the most recent payload.
 /// - If an observer synchronously emits again during delivery, that emit updates the

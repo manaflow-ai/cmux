@@ -109,7 +109,7 @@ private final class WorkspaceTodoPanelOpaqueBackgroundView: NSView {
 /// inferred-status recomputes) and its todo state (for override and checklist
 /// churn) directly.
 private struct WorkspaceTodoPaneContent: View {
-    @ObservedObject var workspace: Workspace
+    let workspace: Workspace
     let todoState: WorkspaceTodoState
     let paneTitle: String
     let isFocused: Bool

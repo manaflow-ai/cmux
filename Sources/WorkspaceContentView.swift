@@ -157,7 +157,7 @@ struct WorkspaceContentView: View {
         let forceInitialApply: Bool
     }
 
-    @ObservedObject var workspace: Workspace
+    let workspace: Workspace
     let isWorkspaceVisible: Bool
     let isWorkspaceInputActive: Bool
     /// True when the right sidebar (Dock / Files / Find) owns keyboard focus in
@@ -751,7 +751,7 @@ extension WorkspaceContentView {
 
 /// View shown for empty panes
 struct EmptyPanelView: View {
-    @ObservedObject var workspace: Workspace
+    let workspace: Workspace
     let paneId: PaneID
     private let keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
 

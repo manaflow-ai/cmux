@@ -50,11 +50,12 @@ struct WorkspaceSidebarObservationTests {
         )
 
         let generationBeforeRecord = workspace.sidebarAgentRuntimeObservation.changeGeneration
-        var workspaceWillChangeCount = 0
-        let objectWillChangeCancellable = workspace.objectWillChange.sink {
-            workspaceWillChangeCount += 1
+        let workspaceTitleChangeFlag = ObservationChangeFlag()
+        withObservationTracking {
+            _ = workspace.title
+        } onChange: {
+            workspaceTitleChangeFlag.mark()
         }
-        defer { objectWillChangeCancellable.cancel() }
 
         workspace.recordAgentPID(
             key: "codex.session-b",
@@ -72,8 +73,8 @@ struct WorkspaceSidebarObservationTests {
             "Agent PID ownership changes must notify the sidebar row runtime observation stream."
         )
         #expect(
-            workspaceWillChangeCount == 0,
-            "Agent PID ownership is sidebar presentation state and must not broadly invalidate Workspace observers."
+            workspaceTitleChangeFlag.fired == false,
+            "Agent PID ownership is sidebar presentation state and must not invalidate unrelated Workspace property observers."
         )
     }
 
@@ -172,7 +173,7 @@ struct WorkspaceSidebarObservationTests {
             .sink { received.append($0) }
         defer { cancellable.cancel() }
 
-        // First value models the @Published current-state replay: forwarded
+        // First value models the bridge publisher's current-state replay: forwarded
         // synchronously without opening a coalesce window.
         subject.send(1)
         #expect(received == [1])

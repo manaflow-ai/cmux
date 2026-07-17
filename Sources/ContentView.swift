@@ -751,15 +751,15 @@ private final class SelectedWorkspaceDirectoryObserver {
                     .eraseToAnyPublisher()
                 }
                 let directoryChangeRevision = workspace.currentDirectoryChangeRevisionPublisher()
-                return workspace.$currentDirectory
+                return workspace.currentDirectoryPublisher
                     .combineLatest(
-                        workspace.$remoteConfiguration,
-                        workspace.$remoteConnectionState,
-                        workspace.$remoteConnectionDetail
+                        workspace.remoteConfigurationPublisher,
+                        workspace.remoteConnectionStatePublisher,
+                        workspace.remoteConnectionDetailPublisher
                     )
                     .combineLatest(
-                        workspace.$remoteDaemonStatus,
-                        workspace.$activeRemoteTerminalSessionCount
+                        workspace.remoteDaemonStatusPublisher,
+                        workspace.activeRemoteTerminalSessionCountPublisher
                     )
                     .map { values in
                         let (

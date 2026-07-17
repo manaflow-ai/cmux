@@ -120,7 +120,7 @@ struct MobileWorkspaceListFidelityTests {
         #expect(afterOrder != ordered, "reorder should change the ordered sequence")
 
         // The reorder must wake the observer (bonsplit selection state is not
-        // @Published, so paneLayoutVersion is the only signal).
+        // observed, so paneLayoutVersion is the only signal).
         #expect(
             workspace.paneLayoutVersion > versionBefore,
             "a pure reorder must bump paneLayoutVersion so the observer re-evaluates"
@@ -179,7 +179,7 @@ struct MobileWorkspaceListFidelityTests {
     /// mobile summary hash so the observer re-emits `workspace.updated`. The phone
     /// nests members under their group header keyed by `group_id`, so a stale hash
     /// here would leave the mobile sidebar showing the workspace in the wrong
-    /// section. Guards the per-workspace `$groupId` subscription that drives it.
+    /// section. Guards the per-workspace `groupIdPublisher` subscription that drives it.
     @Test func movingWorkspaceBetweenGroupsChangesObserverHash() throws {
         let manager = TabManager()
         let member = try #require(manager.selectedWorkspace)

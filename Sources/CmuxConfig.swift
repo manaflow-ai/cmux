@@ -1872,7 +1872,7 @@ final class CmuxConfigStore {
             }
             .removeDuplicates(by: { $0.id == $1.id })
             .map { workspace -> AnyPublisher<String?, Never> in
-                workspace.$surfaceTabBarDirectory.eraseToAnyPublisher()
+                workspace.surfaceTabBarDirectoryPublisher.eraseToAnyPublisher()
             }
             .switchToLatest()
             .removeDuplicates()
