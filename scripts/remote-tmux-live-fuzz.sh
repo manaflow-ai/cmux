@@ -302,11 +302,17 @@ check_screen_oracle() {
       # fresh state on BOTH sides before recording a defect: a stable zoom
       # flag alone cannot clear a toggle that completed before its first
       # read. Only a mismatch that survives the re-read is one.
-      zoom_recheck=$(t display-message -p -t "$window" '#{window_zoomed_flag}' 2>/dev/null)
-      if [ "$zoom_recheck" != "$zoom_flag" ]; then
+      refresh_pane_surfaces || continue
+      window_still_on_screen=$(printf '%s' "$PANE_SURFACES_JSON" | jq -r --arg w "$window" '
+        any(.panes[]?; .window_id == $w and .on_screen == true)
+      ' 2>/dev/null)
+      if [ "$window_still_on_screen" != "true" ]; then
         continue
       fi
-      refresh_pane_surfaces || continue
+      zoom_recheck=$(t display-message -p -t "$window" '#{window_zoomed_flag}' 2>/dev/null)
+      if [ -z "$zoom_recheck" ]; then
+        continue
+      fi
       if [ "$zoom_recheck" = 1 ]; then
         tmux_panes=$(t list-panes -t "$window" -F '#{?pane_active,#{pane_id},}' 2>/dev/null | sed '/^$/d' | sort) || continue
       else

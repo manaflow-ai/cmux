@@ -12434,7 +12434,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 guard let host, let hostedView, let coordinator else { return }
                 guard coordinator.attachGeneration == generation else { return }
                 guard isCurrentPaneOwner() else { return }
-                guard hostedView.isVisibleInUI, coordinator.desiredIsVisibleInUI else { return }
+                guard coordinator.desiredIsVisibleInUI else { return }
                 guard host.window != nil else { return }
                 guard portalBindingStillLive() else { return }
                 guard terminalSurface.claimPortalHost(
@@ -12493,11 +12493,18 @@ struct GhosttyTerminalView: NSViewRepresentable {
                     )
                 }
                 coordinator.vacancyParkedSurface = terminalSurface
+                let parkedAttachGeneration = generation
+                let parkedRetry = coordinator.vacancyRetry
                 terminalSurface.parkPortalVacancyRetry(
                     hostId: ObjectIdentifier(host),
                     instanceSerial: host.instanceSerial
-                ) { [weak coordinator] in
-                    coordinator?.vacancyRetry?()
+                ) { [weak coordinator, weak terminalSurface] in
+                    guard let coordinator,
+                          let terminalSurface,
+                          coordinator.attachGeneration == parkedAttachGeneration,
+                          coordinator.vacancyParkedSurface === terminalSurface,
+                          let parkedRetry else { return }
+                    parkedRetry()
                 }
             } else {
                 coordinator.vacancyRetry = nil
