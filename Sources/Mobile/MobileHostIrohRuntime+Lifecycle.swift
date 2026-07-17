@@ -404,30 +404,10 @@ extension MobileHostIrohRuntime {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         bundleIdentifier: String? = Bundle.main.bundleIdentifier
     ) -> String {
-        if let raw = environment["CMUX_TAG"],
-           let normalized = safeTag(raw) {
-            return normalized
-        }
-        if bundleIdentifier == "com.cmuxterm.app.nightly" { return "nightly" }
-        #if DEBUG
-        return "dev"
-        #else
-        return "stable"
-        #endif
-    }
-
-    static func safeTag(_ raw: String) -> String? {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        let normalized = String(trimmed.prefix(64)).lowercased().map { character in
-            character.isASCII && (character.isLetter || character.isNumber)
-                ? character
-                : "-"
-        }
-        let value = String(normalized)
-            .split(separator: "-", omittingEmptySubsequences: true)
-            .joined(separator: "-")
-        return value.isEmpty ? nil : value
+        MobileHostIdentity.instanceTag(
+            environment: environment,
+            bundleIdentifier: bundleIdentifier
+        )
     }
 }
 
