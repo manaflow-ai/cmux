@@ -35,6 +35,13 @@ def test_npm_publishers_pin_the_oidc_capable_npm_version() -> None:
         assert "npm@^11.5.1" not in text
 
 
+def test_nightly_build_is_pinned_to_its_provenance_commit() -> None:
+    text = workflow("cmux-tui-nightly.yml")
+    assert "ref: ${{ github.sha }}" in text
+    assert 'if [[ "$head_sha" != "$GITHUB_SHA" ]]' in text
+    assert "checkout_ref: ${{ needs.version.outputs.head_sha }}" in text
+
+
 def test_release_cut_dispatches_top_level_publishers_at_the_tagged_main_commit() -> None:
     release_cut = workflow("cmux-tui-release-cut.yml")
     assert "ref: ${{ github.sha }}" in release_cut

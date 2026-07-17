@@ -33,7 +33,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          ref: main
+          ref: ${{ github.sha }}
           fetch-depth: 0
 
       - name: Derive nightly versions
@@ -57,6 +57,10 @@ jobs:
           npm_version="$next_stable-nightly.$stamp.$GITHUB_RUN_NUMBER"
           pypi_version="$next_stable.dev${stamp}${GITHUB_RUN_NUMBER}"
           head_sha="$(git rev-parse HEAD)"
+          if [[ "$head_sha" != "$GITHUB_SHA" ]]; then
+            echo "Nightly checkout $head_sha does not match workflow commit $GITHUB_SHA" >&2
+            exit 1
+          fi
           {
             echo "npm_version=$npm_version"
             echo "pypi_version=$pypi_version"

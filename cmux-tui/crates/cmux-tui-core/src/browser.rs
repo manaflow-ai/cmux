@@ -854,7 +854,7 @@ fn start_surface_thread(
                     }
                 }
                 CdpEvent::Closed(_) => {
-                    browser.mark_dead();
+                    browser.kill();
                     if let Some(mux) = mux.upgrade() {
                         mux.surface_exited(id);
                     }
@@ -1363,13 +1363,6 @@ impl BrowserSurface {
 
     fn close_taps(&self) {
         self.state.lock().unwrap().taps.clear();
-    }
-
-    fn mark_dead(&self) {
-        self.dead.store(true, Ordering::Release);
-        self.close_taps();
-        let _ = self.session.lock().unwrap().take();
-        self.close_command_sender();
     }
 
     fn mark_live(&self, session: BrowserSession) -> anyhow::Result<()> {
@@ -1964,8 +1957,9 @@ fn percent_encode_query(input: &str) -> String {
 mod tests {
     use super::{
         BROWSER_COMMAND_QUEUE_CAPACITY, BrowserCaptureOptions, BrowserCommand, BrowserFrame,
-        BrowserSource, BrowserStatus, capture_scale_for, new_surface, normalize_url,
-        runtime_endpoint, scaled_pixels, take_latest_worker_commands,
+        BrowserSession, BrowserSource, BrowserStatus, capture_scale_for, new_surface,
+        normalize_url, runtime_endpoint, scaled_pixels, start_surface_thread,
+        take_latest_worker_commands,
     };
     use crate::{Mux, MuxEvent, Surface, SurfaceOptions};
     use serde_json::{Value, json};
@@ -2630,6 +2624,51 @@ mod tests {
         stop_tx.send(()).unwrap();
         server.join().unwrap();
         waiter.join().unwrap();
+    }
+
+    #[test]
+    fn closed_surface_route_closes_its_cdp_target() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (closed_tx, closed_rx) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            let discover = read_ws_json(&mut ws);
+            assert_eq!(discover["method"], "Target.setDiscoverTargets");
+            write_ws_json(&mut ws, json!({"id": discover["id"], "result": {}}));
+            let close = read_ws_json(&mut ws);
+            assert_eq!(close["method"], "Target.closeTarget");
+            assert_eq!(close["params"]["targetId"], "target-1");
+            write_ws_json(&mut ws, json!({"id": close["id"], "result": {"success": true}}));
+            closed_tx.send(()).unwrap();
+        });
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::External,
+        )
+        .unwrap();
+        let surface = test_surface();
+        let browser = surface.as_browser().unwrap();
+        let route = runtime.register("target-1", "session-1");
+        *browser.session.lock().unwrap() = Some(BrowserSession {
+            runtime: runtime.clone(),
+            target_id: "target-1".to_string(),
+            session_id: "session-1".to_string(),
+        });
+        start_surface_thread(surface.clone(), route.clone(), Weak::new(), Arc::downgrade(&runtime))
+            .unwrap();
+
+        route.close("CDP surface event queue overflow".to_string());
+        closed_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("closed surface route did not close its CDP target");
+        assert!(browser.is_dead());
+        assert!(browser.session.lock().unwrap().is_none());
+
+        runtime.shutdown();
+        server.join().unwrap();
     }
 
     #[test]
