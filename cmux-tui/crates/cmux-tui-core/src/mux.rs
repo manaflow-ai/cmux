@@ -635,10 +635,10 @@ impl Mux {
             }
             effective
         };
-        if let Some((cols, rows)) = effective {
-            if self.resize_surface(id, cols, rows).is_ok() {
-                self.record_client_size(cols, rows);
-            }
+        if let Some((cols, rows)) = effective
+            && self.resize_surface(id, cols, rows).is_ok()
+        {
+            self.record_client_size(cols, rows);
         }
     }
 
