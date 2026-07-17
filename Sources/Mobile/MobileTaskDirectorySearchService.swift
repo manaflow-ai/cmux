@@ -137,7 +137,10 @@ actor MobileTaskDirectorySearchService {
             limit: maximumResults
         )
         guard !Task.isCancelled, revision == searchRevision else { return [] }
-        if !seededMatches.isEmpty { return seededMatches }
+        if Self.containsExactMatch(in: seededMatches, query: expandedQuery) {
+            return seededMatches
+        }
+        var fallbackMatches = seededMatches
 
         let roots = Self.searchRoots(homeDirectory: homeDirectory, seedPaths: seedPaths)
         let cachedPaths = cachedPaths(roots: roots, now: now)
@@ -149,7 +152,10 @@ actor MobileTaskDirectorySearchService {
                 revision: revision
             )
             guard !Task.isCancelled, revision == searchRevision else { return [] }
-            if !cachedMatches.isEmpty { return cachedMatches }
+            if Self.containsExactMatch(in: cachedMatches, query: expandedQuery) {
+                return cachedMatches
+            }
+            fallbackMatches.append(contentsOf: cachedMatches)
         } else {
             ensureIndexBuildStarted(roots: roots, builtAt: now)
         }
@@ -162,6 +168,13 @@ actor MobileTaskDirectorySearchService {
         )
         guard !Task.isCancelled, revision == searchRevision else { return [] }
         if !foregroundMatches.isEmpty { return foregroundMatches }
+        if !fallbackMatches.isEmpty {
+            var seenFallbacks = Set<Data>()
+            let uniqueFallbacks = fallbackMatches.filter {
+                seenFallbacks.insert(Data($0.utf8)).inserted
+            }
+            return Self.rank(paths: uniqueFallbacks, query: expandedQuery, limit: maximumResults)
+        }
         if cachedPaths != nil { return [] }
 
         let paths = try await indexedPaths(roots: roots, now: now)
@@ -371,6 +384,16 @@ actor MobileTaskDirectorySearchService {
 
     nonisolated static func rank(paths: [String], query: String, limit: Int) -> [String] {
         rank(searchablePaths: prepare(paths: paths), query: query, limit: limit)
+    }
+
+    private nonisolated static func containsExactMatch(in paths: [String], query: String) -> Bool {
+        let foldedQuery = fold(query)
+        let queryBasename = components(foldedQuery).last ?? foldedQuery
+        return paths.contains { path in
+            let foldedPath = fold(path)
+            return foldedPath == foldedQuery
+                || components(foldedPath).last == queryBasename
+        }
     }
 
     private nonisolated static func rank(
