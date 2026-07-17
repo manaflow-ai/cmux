@@ -149,6 +149,51 @@ import Testing
         #expect(!mac.routes.contains(routeA))
     }
 
+    @Test func scanningStableAndNightlyPairingCodesKeepsBothTaggedInstances() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pairedStore = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired.sqlite3")
+        )
+        let router = LivenessHostRouter()
+        let clock = TestClock()
+        let shell = makeShell(
+            store: pairedStore,
+            router: router,
+            userID: "user-1",
+            clock: clock
+        )
+
+        await router.setHostIdentity(
+            deviceID: "test-mac",
+            instanceTag: "default",
+            displayName: "Studio"
+        )
+        let stableConnected = await shell.connectPairingURL(
+            try attachURL(for: makeTicket(clock: clock))
+        )
+
+        await router.setHostIdentity(
+            deviceID: "test-mac",
+            instanceTag: "nightly",
+            displayName: "Studio"
+        )
+        let nightlyConnected = await shell.connectPairingURL(
+            try attachURL(for: makeTicket(clock: clock))
+        )
+
+        #expect(stableConnected)
+        #expect(nightlyConnected)
+        let records = try await pairedStore.loadAll(
+            stackUserID: "user-1",
+            teamID: "team-a"
+        )
+        #expect(records.count == 2)
+        #expect(Set(records.compactMap(\.instanceTag)) == Set(["default", "nightly"]))
+        #expect(records.first(where: { $0.instanceTag == "default" })?.isActive == false)
+        #expect(records.first(where: { $0.instanceTag == "nightly" })?.isActive == true)
+    }
+
     @Test func explicitRegistryBWithoutReportedTagCannotReplaceA() async throws {
         let directory = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

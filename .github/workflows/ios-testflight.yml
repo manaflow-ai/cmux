@@ -157,7 +157,9 @@ jobs:
                     lastUploadedSha = run.head_sha;
                     lastUploadedRunId = String(run.id);
                     const assignJob = jobs.data.jobs.find(
-                      (job) => job.name === 'Assign build to external TestFlight group'
+                      (job) =>
+                        job.name === 'Assign build to internal TestFlight group' ||
+                        job.name === 'Assign build to external TestFlight group'
                     );
                     // Older successful upload runs predate the external-assignment
                     // job and metadata artifact entirely. Those runs uploaded the
@@ -327,6 +329,9 @@ jobs:
       CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID: ${{ vars.IOS_TESTFLIGHT_EXTERNAL_GROUP_ID }}
       CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME: ${{ vars.IOS_TESTFLIGHT_EXTERNAL_GROUP_NAME }}
       CMUX_TESTFLIGHT_ASSIGN_EXTERNAL_GROUP: "0"
+      # Internal builds use separate bundle ID and display name (set here so provisioning profile step can use it)
+      IOS_BETA_BUNDLE_ID: dev.cmux.app.internal
+      IOS_BETA_DISPLAY_NAME: cmux INTERNAL
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -428,34 +433,51 @@ jobs:
       - name: Install beta provisioning profile
         env:
           IOS_BETA_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_BETA_PROVISIONING_PROFILE_BASE64 }}
+          IOS_BETA_PROVISIONING_PROFILE_INTERNAL_BASE64: ${{ secrets.IOS_BETA_PROVISIONING_PROFILE_INTERNAL_BASE64 }}
         run: |
           set -euo pipefail
-          if [ -z "${IOS_BETA_PROVISIONING_PROFILE_BASE64:-}" ]; then
-            echo "Missing IOS_BETA_PROVISIONING_PROFILE_BASE64 secret" >&2
+          # Determine which profile to use based on bundle ID
+          if [ "${IOS_BETA_BUNDLE_ID:-dev.cmux.app.beta}" = "dev.cmux.app.internal" ]; then
+            PROFILE_BASE64="${IOS_BETA_PROVISIONING_PROFILE_INTERNAL_BASE64}"
+            EXPECTED_APP_ID="7WLXT3NR37.dev.cmux.app.internal"
+            PROFILE_TYPE="internal"
+            SKIP_APS_ENVIRONMENT_CHECK=false
+          else
+            PROFILE_BASE64="${IOS_BETA_PROVISIONING_PROFILE_BASE64}"
+            EXPECTED_APP_ID="7WLXT3NR37.dev.cmux.app.beta"
+            PROFILE_TYPE="beta"
+            SKIP_APS_ENVIRONMENT_CHECK=false
+          fi
+
+          if [ -z "${PROFILE_BASE64:-}" ]; then
+            echo "Missing provisioning profile secret for $PROFILE_TYPE" >&2
             exit 1
           fi
 
-          TMP_PROFILE="$RUNNER_TEMP/cmux-beta.mobileprovision"
-          TMP_PLIST="$RUNNER_TEMP/cmux-beta-profile.plist"
-          printf '%s' "$IOS_BETA_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$TMP_PROFILE"
+          TMP_PROFILE="$RUNNER_TEMP/cmux-${PROFILE_TYPE}.mobileprovision"
+          TMP_PLIST="$RUNNER_TEMP/cmux-${PROFILE_TYPE}-profile.plist"
+          printf '%s' "$PROFILE_BASE64" | base64 --decode > "$TMP_PROFILE"
           security cms -D -i "$TMP_PROFILE" > "$TMP_PLIST"
 
           APP_ID="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:application-identifier" "$TMP_PLIST")"
-          if [ "$APP_ID" != "7WLXT3NR37.dev.cmux.app.beta" ]; then
-            echo "Beta provisioning profile targets unexpected app ID: $APP_ID" >&2
+          if [ "$APP_ID" != "$EXPECTED_APP_ID" ]; then
+            echo "$PROFILE_TYPE provisioning profile targets unexpected app ID: $APP_ID (expected $EXPECTED_APP_ID)" >&2
             exit 1
           fi
-          APS_ENVIRONMENT="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:aps-environment" "$TMP_PLIST")"
-          if [ "$APS_ENVIRONMENT" != "production" ]; then
-            echo "Beta provisioning profile aps-environment is '$APS_ENVIRONMENT', expected 'production'" >&2
-            exit 1
+          # Check aps-environment for every TestFlight provisioning profile.
+          if [ "${SKIP_APS_ENVIRONMENT_CHECK:-false}" != "true" ]; then
+            APS_ENVIRONMENT="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:aps-environment" "$TMP_PLIST" 2>/dev/null || echo "")"
+            if [ -z "$APS_ENVIRONMENT" ] || [ "$APS_ENVIRONMENT" != "production" ]; then
+              echo "$PROFILE_TYPE provisioning profile aps-environment is '$APS_ENVIRONMENT', expected 'production'" >&2
+              exit 1
+            fi
           fi
           PROFILE_NAME="$(/usr/libexec/PlistBuddy -c "Print :Name" "$TMP_PLIST")"
           PROFILE_UUID="$(/usr/libexec/PlistBuddy -c "Print :UUID" "$TMP_PLIST")"
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
           cp "$TMP_PROFILE" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
           echo "IOS_BETA_PROVISIONING_PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
-          echo "Installed beta provisioning profile: $PROFILE_NAME ($PROFILE_UUID)"
+          echo "Installed $PROFILE_TYPE provisioning profile: $PROFILE_NAME ($PROFILE_UUID)"
 
       - name: Archive, export, and upload to TestFlight
         id: upload
@@ -478,6 +500,11 @@ jobs:
           # Optional manual one-off override that reuses an older approved beta
           # marketing version so external testers can install it immediately.
           INPUT_MARKETING_VERSION_OVERRIDE: ${{ github.event.inputs.marketing_version_override }}
+          # Display name for scheduled internal builds (auto-synced to internal group).
+          IOS_BETA_DISPLAY_NAME: cmux INTERNAL
+          # Internal builds use separate bundle ID (dev.cmux.app.internal) so internal
+          # and external can coexist on same device.
+          IOS_BETA_BUNDLE_ID: dev.cmux.app.internal
         run: |
           set -euo pipefail
           if [ -n "${INPUT_MARKETING_VERSION_OVERRIDE:-}" ]; then
@@ -486,33 +513,27 @@ jobs:
             # fresh Beta App Review for that version. This path intentionally
             # skips changelog-driven notes because ios/CHANGELOG.md tracks the
             # current release line, not the reused older version.
+            # External overrides use external bundle ID and "cmux BETA" display name.
             if [ -n "${INPUT_BUILD_NUMBER:-}" ]; then
               echo "build_number is not supported together with marketing_version_override in the cloud override path" >&2
               exit 1
             fi
+            unset IOS_BETA_DISPLAY_NAME
+            unset IOS_BETA_BUNDLE_ID
             ./ios/scripts/cloud-testflight.sh \
               --external \
               --marketing-version "$INPUT_MARKETING_VERSION_OVERRIDE" \
               --skip-notes
           else
             # Reuse the checked-in CMUX_IOS_BETA_MARKETING_VERSION for scheduled betas.
-            # External TestFlight only requires Beta App Review once per marketing
-            # version, so staying on the approved version lets CI keep publishing
-            # main-tracking builds automatically while the next version remains
-            # pending.
-            # This unblocks external testers, who cannot install an unapproved
-            # higher-marketing-version build. Internal testers who already installed
-            # that pending higher version need a one-time TestFlight reinstall, or
-            # an intentional higher-version internal cut, because TestFlight does
-            # not offer lower marketing versions as updates.
-            # --external: publish the same main-tracking build to the external lane.
-            # The post-upload job assigns the build to the external group and, if a
-            # future intentional version bump is READY_FOR_BETA_SUBMISSION,
-            # auto-submits it for Beta App Review.
+            # Scheduled builds use:
+            # - "cmux INTERNAL" display name
+            # - dev.cmux.app.internal bundle ID (separate app, can coexist with external)
+            # - assigned to internal TestFlight group for dogfooding within the team
             # --notes-from-range: auto-generate audience-appropriate "What to
             # Test" notes from the commits since the previous beta (skipped if we
             # have no base SHA yet).
-            ARGS=(--lane beta --signing manual --external)
+            ARGS=(--lane beta --signing manual)
             if [ -n "${LAST_UPLOADED_SHA:-}" ]; then
               ARGS+=(--notes-from-range "$LAST_UPLOADED_SHA")
             fi
@@ -538,7 +559,7 @@ jobs:
           {
             echo "### iOS TestFlight upload"
             echo
-            echo "- lane: \`beta\` (bundle id \`dev.cmux.app.beta\`, external-eligible)"
+            echo "- lane: \`beta\` (bundle id \`dev.cmux.app.internal\`, internal TestFlight)"
             echo "- signing: manual (CI-imported iOS distribution cert + beta profile)"
             if [ -n "${INPUT_MARKETING_VERSION_OVERRIDE:-}" ]; then
               echo "- marketing version override: \`${INPUT_MARKETING_VERSION_OVERRIDE}\`"
@@ -546,7 +567,7 @@ jobs:
               echo "- marketing version: checked-in beta marketing version"
             fi
             echo "- build number (CFBundleVersion): \`${BUILD_NUMBER}\`"
-            echo "- audience: internal testers immediately, external testers automatically after external-group assignment; new beta marketing versions are auto-submitted for Apple Beta App Review"
+            echo "- audience: internal TestFlight group (cmux INTERNAL) on the dev.cmux.app.internal app; no beta review needed"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Persist uploaded build metadata
@@ -578,18 +599,26 @@ jobs:
         run: |
           security delete-keychain ios-testflight.keychain >/dev/null 2>&1 || true
 
-  assign-external-group:
-    name: Assign build to external TestFlight group
+  # NOTE: this lane uploads to dev.cmux.app.internal only, so there is no
+  # external-group assignment job here. The old assign-external-group job
+  # polled dev.cmux.app.beta for a build that now never arrives there and hung
+  # for its full 40-minute timeout on every run.
+  assign-internal-group:
+    name: Assign build to internal TestFlight group
     needs: [decide, upload]
-    if: always() && (needs.decide.outputs.should_build == 'true' || needs.decide.outputs.should_assign_only == 'true') && github.ref == 'refs/heads/main' && (needs.upload.result == 'success' || needs.decide.outputs.should_assign_only == 'true')
+    if: (needs.decide.outputs.should_build == 'true' || needs.decide.outputs.should_assign_only == 'true') && github.ref == 'refs/heads/main' && (needs.upload.result == 'success' || needs.decide.outputs.should_assign_only == 'true')
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 40
     env:
       ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
       ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
       ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
-      CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID: ${{ vars.IOS_TESTFLIGHT_EXTERNAL_GROUP_ID }}
-      CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME: ${{ vars.IOS_TESTFLIGHT_EXTERNAL_GROUP_NAME }}
+      # Pass ONLY the group id. asc_assign_internal_testflight_group.py reads
+      # both CMUX_TESTFLIGHT_INTERNAL_GROUP_ID and _NAME env vars as argparse
+      # defaults and hard-errors when both are set ("set only one of --group-id
+      # or --group-name"), which failed every internal assignment while both
+      # repo variables were wired in.
+      CMUX_TESTFLIGHT_INTERNAL_GROUP_ID: ${{ vars.IOS_TESTFLIGHT_INTERNAL_GROUP_ID }}
       GH_TOKEN: ${{ github.token }}
       SHOULD_BUILD: ${{ needs.decide.outputs.should_build }}
       SHOULD_ASSIGN_ONLY: ${{ needs.decide.outputs.should_assign_only }}
@@ -609,17 +638,17 @@ jobs:
           BUILD_NUMBER="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["build_number"])' "$RUNNER_TEMP/ios-testflight-build/ios-testflight-build.json")"
           echo "BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
 
-      - name: Assign uploaded build to the external beta group
+      - name: Assign uploaded build to the internal beta group
         id: assign
         run: |
           set -euo pipefail
           export CMUX_TESTFLIGHT_ASSIGN_STATE_OUT_FILE="$RUNNER_TEMP/ios-testflight-assign-state.txt"
           if [ -z "${BUILD_NUMBER:-}" ] || [ "$BUILD_NUMBER" = "unknown" ]; then
-            echo "missing uploaded build number for external TestFlight assignment" >&2
+            echo "missing uploaded build number for internal TestFlight assignment" >&2
             exit 1
           fi
-          python3 ./ios/scripts/asc_assign_external_testflight_group.py \
-            --bundle-id dev.cmux.app.beta \
+          python3 ./ios/scripts/asc_assign_internal_testflight_group.py \
+            --bundle-id dev.cmux.app.internal \
             --build-number "$BUILD_NUMBER"
           ASSIGNMENT_STATE="unknown"
           if [ -f "$CMUX_TESTFLIGHT_ASSIGN_STATE_OUT_FILE" ]; then
@@ -631,6 +660,9 @@ jobs:
         if: success()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ steps.assign.outputs.assignment_state == 'sibling_review_pending' && 'ios-testflight-assignment-state-pending' || 'ios-testflight-assignment-state-complete' }}
+          # The decide job's assign-only retry logic looks for this exact
+          # artifact name (internal groups have no beta-review "pending" state,
+          # so a successful run is always complete).
+          name: ios-testflight-assignment-state-complete
           path: ${{ runner.temp }}/ios-testflight-assign-state.txt
           retention-days: 30

@@ -12,19 +12,12 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `05a2956ac`. It merges fork `main` at
-`366c801e0` into the tokened renderer-presentation branch. The commit is
-reachable from `feat/ios-render-present-token-main`. Its universal ReleaseFast
-GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-05a2956accd1b5d13c6110329496c2e33aaf01c3-crashsubdir-cmux-crash-v1
-and pinned in `scripts/ghosttykit-checksums.txt`.
-
-The previous `366c801e0` pin advances `b4b6d69c8` with wrap-aware URL matching
-across semantic soft wraps. The commit is reachable from fork `main` through
-the merged
-https://github.com/manaflow-ai/ghostty/pull/118.
+Current cmux pinned fork head: `24284c3ba`. It merges fork `main` at
+`bb30526cd` into the tokened renderer-presentation branch. The commit is
+reachable from `feat/ios-render-present-token-main` through
+https://github.com/manaflow-ai/ghostty/pull/116.
 The corresponding universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-366c801e066c37695c2d9be4a6567662bd763ad0-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-24284c3ba4ebe79860d2b4e8d5d710fde2e1ebd3-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Tokened renderer presentation callbacks
@@ -32,7 +25,7 @@ and pinned in `scripts/ghosttykit-checksums.txt`.
 - Commits:
   - `d303f9c89` (add tokened render presentation callbacks)
   - `a9d462403` (preserve presentation tokens across render backends)
-  - `05a2956ac` (merge fork `main` at `366c801e0`)
+  - `24284c3ba` (merge fork `main` at `bb30526cd`)
 - Files:
   - `include/ghostty.h`
   - `src/Surface.zig`
@@ -54,6 +47,38 @@ and pinned in `scripts/ghosttykit-checksums.txt`.
     geometry changes emits no false presentation callback.
   - Conflict note: future renderer refactors must carry the token through every
     backend and invoke the callback only after the exact target assignment.
+
+The previous `bb30526cd` pin contains the merged theme, render-grid,
+wrap-aware URL, and authoritative sprite-font shaping changes.
+
+### Authoritative sprite-font shaping runs
+
+- Commits:
+  - `a6ca2cca0` (test: preserve sprite runs inside text)
+  - `20d11e519` (font/shaper: preserve authoritative sprite runs)
+  - `bb30526cd` (merge Ghostty PR #120 into fork `main`)
+- Files:
+  - `src/font/shaper/coretext.zig`
+  - `src/font/shaper/run.zig`
+- Summary:
+  - Keeps special sprite-font resolutions in their own shaping runs even when
+    a surrounding text font also contains the bidi-neutral codepoint.
+  - Uses one coalescing predicate for both visual run-boundary discovery and
+    logical run construction, so the two phases cannot disagree about whether
+    a special glyph belongs to the surrounding text font.
+  - Covers a box-drawing sprite between ordinary text runs. The test-only
+    commit absorbs the trailing border into the text run; the fix restores
+    separate sprite/text/sprite runs.
+  - Conflict note: future bidi or shaper changes must preserve special-font
+    resolver results as authoritative. Special fonts bypass CoreText and
+    HarfBuzz shaping and render their own glyphs.
+
+The previous documented pin `366c801e0` added wrap-aware URL matching across
+semantic soft wraps and is reachable from fork `main` through the merged
+https://github.com/manaflow-ai/ghostty/pull/118.
+The corresponding universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-366c801e066c37695c2d9be4a6567662bd763ad0-crashsubdir-cmux-crash-v1
+and pinned in `scripts/ghosttykit-checksums.txt`.
 
 The previous `b4b6d69c8` pin introduced an exact Ghostty CLI executable-path
 contract for embedded hosts. That commit is reachable from fork `main` through

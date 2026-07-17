@@ -29,19 +29,23 @@ public struct MobileTerminalOutputChunk: Sendable {
     public let sourceRenderGridFrame: MobileTerminalRenderGridFrame?
     /// Whether nonempty output must pass render-grid verification before display.
     public let requiresVerifiedReplay: Bool
+    /// Raw Ghostty defaults that must be installed before this chunk's VT replay.
+    public let terminalConfigTheme: TerminalTheme?
 
     public init(
         data: Data,
         streamToken: UUID,
         viewportPolicy: MobileTerminalOutputViewportPolicy? = nil,
         sourceRenderGridFrame: MobileTerminalRenderGridFrame? = nil,
-        requiresVerifiedReplay: Bool = false
+        requiresVerifiedReplay: Bool = false,
+        terminalConfigTheme: TerminalTheme? = nil
     ) {
         self.data = data
         self.streamToken = streamToken
         self.viewportPolicy = viewportPolicy
         self.sourceRenderGridFrame = sourceRenderGridFrame
         self.requiresVerifiedReplay = requiresVerifiedReplay
+        self.terminalConfigTheme = terminalConfigTheme
     }
 }
 

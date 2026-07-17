@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { NextRequest } from "next/server";
 import { createTranslator } from "use-intl/core";
 import { comparePages } from "../app/lib/compare-pages";
@@ -891,6 +891,40 @@ describe("SEO metadata helpers", () => {
 });
 
 describe("SEO middleware", () => {
+  let previousDocsChannel: string | undefined;
+
+  beforeEach(() => {
+    previousDocsChannel = process.env.CMUX_DOCS_CHANNEL;
+    process.env.CMUX_DOCS_CHANNEL = "release";
+  });
+
+  afterEach(() => {
+    if (previousDocsChannel === undefined) {
+      delete process.env.CMUX_DOCS_CHANNEL;
+    } else {
+      process.env.CMUX_DOCS_CHANNEL = previousDocsChannel;
+    }
+  });
+
+  test("leaves public docs paths unchanged for channel routing", () => {
+    delete process.env.CMUX_DOCS_CHANNEL;
+
+    for (const pathname of [
+      "/docs/base",
+      "/docs/nightly/base",
+      "/ja/docs/configuration",
+      "/ja/docs/nightly/configuration",
+    ]) {
+      const response = middleware(
+        requestFor(pathname, { "accept-language": "de" }),
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers.get("location")).toBeNull();
+      expect(response.headers.get("x-middleware-rewrite")).toBeNull();
+      expect(response.headers.get("x-middleware-next")).toBe("1");
+    }
+  });
+
   test("does not advertise unsupported locale variants globally", () => {
     const response = middleware(requestFor("/ja/docs/remote-tmux"));
 
@@ -1081,6 +1115,13 @@ describe("SEO middleware", () => {
       "https://cmux.com/docs/agent-integrations/oh-my-pi",
       "https://cmux.com/ja/docs/agent-integrations/oh-my-pi",
     ]);
+  });
+
+  test("excludes redirect-only and noindex docs routes from the sitemap", () => {
+    const urls = sitemap().map((entry) => entry.url);
+
+    expect(urls.some((url) => url.endsWith("/docs/base"))).toBe(false);
+    expect(urls.some((url) => url.endsWith("/docs/nightly/base"))).toBe(false);
   });
 
   test("canonicalizes English-only blog posts", () => {

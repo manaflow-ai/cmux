@@ -3,15 +3,36 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use serde_json::Value;
+
 use crate::browser::{self, BrowserBootstrap, BrowserRuntime};
+use crate::event_bus::{MuxEventBroadcaster, MuxEventReceiver};
 use crate::layout::{Rect, layout_screen};
 use crate::model::{Node, Pane, Screen, State, Workspace};
+use crate::pairing::PairingBroker;
 use crate::surface::{DefaultColors, Surface, SurfaceOptions};
-use crate::{PaneId, ScreenId, SplitDir, SurfaceId, WorkspaceId};
+use crate::{
+    PairingChallenge, PairingDecision, PairingError, PaneId, ScreenId, SplitDir, SurfaceId,
+    WorkspaceId,
+};
+
+pub type SurfaceResizeReporter = Arc<dyn Fn(SurfaceId, (u16, u16), Option<u64>) + Send + Sync>;
+
+#[derive(Debug, Default)]
+pub struct CellPixelUpdate {
+    pub resizes: Vec<(SurfaceId, (u16, u16), u64)>,
+    pub failures: Vec<CellPixelUpdateFailure>,
+}
+
+#[derive(Debug)]
+pub struct CellPixelUpdateFailure {
+    pub surface: SurfaceId,
+    pub error: String,
+}
 
 /// Events pushed to subscribed frontends.
 #[derive(Debug, Clone)]
@@ -23,11 +44,24 @@ pub enum MuxEvent {
         surface: SurfaceId,
         cols: u16,
         rows: u16,
+        reservation_id: Option<u64>,
+    },
+    /// An asynchronous browser resize failed after queue acceptance.
+    SurfaceResizeFailed {
+        surface: SurfaceId,
+        cols: u16,
+        rows: u16,
+        error: Arc<str>,
+        retry_after_ms: Option<u64>,
+        reservation_id: Option<u64>,
     },
     /// A surface's child exited. The mux has already reaped it from the
     /// tree (a tree-changed follows) by the time this arrives.
     SurfaceExited(SurfaceId),
-    TitleChanged(SurfaceId),
+    TitleChanged {
+        surface: SurfaceId,
+        title: Arc<str>,
+    },
     Bell(SurfaceId),
     Notification(NotificationEvent),
     Status(String),
@@ -44,6 +78,9 @@ pub enum MuxEvent {
     /// The workspace/screen/pane/tab tree changed (from any frontend or
     /// the control socket).
     TreeChanged,
+    /// One protocol-v7 lifecycle mutation. Coarse subscribers project this
+    /// back to the legacy `tree-changed` event.
+    TreeDelta(TreeDelta),
     /// A screen's pane geometry changed. Clients should re-fetch layout.
     LayoutChanged(ScreenId),
     /// A control connection attached its first surface.
@@ -61,8 +98,58 @@ pub enum MuxEvent {
     },
     /// A control connection ended.
     ClientDetached(u64),
+    /// An unauthenticated browser is waiting for a trusted TUI decision.
+    PairingRequested(PairingChallenge),
+    /// A pairing request was approved, denied, disconnected, or expired.
+    PairingResolved {
+        request: u64,
+    },
     /// Every workspace is gone.
     Empty,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TreeDeltaKind {
+    WorkspaceAdded,
+    WorkspaceClosed,
+    WorkspaceRenamed,
+    ScreenAdded,
+    ScreenClosed,
+    ScreenRenamed,
+    PaneAdded,
+    PaneClosed,
+    TabAdded,
+    TabClosed,
+    TabRenamed,
+}
+
+impl TreeDeltaKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::WorkspaceAdded => "workspace-added",
+            Self::WorkspaceClosed => "workspace-closed",
+            Self::WorkspaceRenamed => "workspace-renamed",
+            Self::ScreenAdded => "screen-added",
+            Self::ScreenClosed => "screen-closed",
+            Self::ScreenRenamed => "screen-renamed",
+            Self::PaneAdded => "pane-added",
+            Self::PaneClosed => "pane-closed",
+            Self::TabAdded => "tab-added",
+            Self::TabClosed => "tab-closed",
+            Self::TabRenamed => "tab-renamed",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TreeDelta {
+    pub kind: TreeDeltaKind,
+    pub workspace: WorkspaceId,
+    pub screen: Option<ScreenId>,
+    pub pane: Option<PaneId>,
+    pub surface: Option<SurfaceId>,
+    pub index: Option<usize>,
+    pub entity: Value,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -232,15 +319,23 @@ struct SidebarPluginRuntime {
     retry_at: Option<Instant>,
 }
 
+enum BrowserSurfaceAttach {
+    MissingPane,
+    Attached(Option<TreeDelta>),
+}
+
+type ClientSurfaceSizes = HashMap<SurfaceId, HashMap<u64, (u16, u16)>>;
+
 /// The multiplexer. Shared by frontends and the control socket server.
 pub struct Mux {
     state: Mutex<State>,
-    subscribers: Mutex<Vec<Sender<MuxEvent>>>,
+    subscribers: MuxEventBroadcaster,
     next_id: AtomicU64,
     next_notification_id: AtomicU64,
     next_active_at: AtomicU64,
     surface_options: Mutex<SurfaceOptions>,
     latest_client_size: Mutex<Option<(u16, u16)>>,
+    client_surface_sizes: Mutex<ClientSurfaceSizes>,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     cell_pixels: Mutex<(u16, u16)>,
     default_colors: Mutex<DefaultColors>,
@@ -248,6 +343,7 @@ pub struct Mux {
     agent_records: Mutex<HashMap<SurfaceId, AgentRecord>>,
     surface_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
     pub(crate) control_clients: crate::server::ClientRegistry,
+    pairing: PairingBroker,
     #[cfg(test)]
     test_surface_runtime: bool,
     pub session: String,
@@ -273,12 +369,13 @@ impl Mux {
                 panes: HashMap::new(),
                 surfaces: HashMap::new(),
             }),
-            subscribers: Mutex::new(Vec::new()),
+            subscribers: MuxEventBroadcaster::default(),
             next_id: AtomicU64::new(1),
             next_notification_id: AtomicU64::new(1),
             next_active_at: AtomicU64::new(1),
             surface_options: Mutex::new(surface_options),
             latest_client_size: Mutex::new(None),
+            client_surface_sizes: Mutex::new(HashMap::new()),
             browser_runtime: Mutex::new(None),
             cell_pixels: Mutex::new((8, 16)),
             default_colors: Mutex::new(DefaultColors::default()),
@@ -286,6 +383,7 @@ impl Mux {
             agent_records: Mutex::new(HashMap::new()),
             surface_notifications: Mutex::new(HashMap::new()),
             control_clients: crate::server::ClientRegistry::new(),
+            pairing: PairingBroker::new(),
             #[cfg(test)]
             test_surface_runtime,
             session,
@@ -312,15 +410,47 @@ impl Mux {
         self.next_notification_id.fetch_add(1, Ordering::Relaxed)
     }
 
-    pub fn subscribe(&self) -> Receiver<MuxEvent> {
-        let (tx, rx) = channel();
-        self.subscribers.lock().unwrap().push(tx);
-        rx
+    pub fn subscribe(&self) -> MuxEventReceiver {
+        self.subscribers.subscribe()
+    }
+
+    pub fn subscribe_attached_surface(&self, surface: SurfaceId) -> MuxEventReceiver {
+        self.subscribers.subscribe_attached_surface(surface)
     }
 
     pub fn emit(&self, event: MuxEvent) {
-        let mut subs = self.subscribers.lock().unwrap();
-        subs.retain(|tx| tx.send(event.clone()).is_ok());
+        self.subscribers.emit(event);
+    }
+
+    pub fn begin_pairing(
+        &self,
+        peer: std::net::IpAddr,
+    ) -> Result<(PairingChallenge, Receiver<PairingDecision>), PairingError> {
+        let result = self.pairing.begin(peer)?;
+        self.emit(MuxEvent::PairingRequested(result.0.clone()));
+        Ok(result)
+    }
+
+    pub fn respond_pairing(&self, id: u64, approve: bool) -> bool {
+        let responded = self.pairing.respond(id, approve);
+        if responded {
+            self.emit(MuxEvent::PairingResolved { request: id });
+        }
+        responded
+    }
+
+    pub fn cancel_pairing(&self, id: u64) {
+        if self.pairing.cancel(id) {
+            self.emit(MuxEvent::PairingResolved { request: id });
+        }
+    }
+
+    pub fn authenticate_pairing_credential(&self, credential: &str) -> bool {
+        self.pairing.authenticate(credential)
+    }
+
+    pub fn pending_pairings(&self) -> Vec<PairingChallenge> {
+        self.pairing.pending()
     }
 
     fn spawn_surface_with_command(
@@ -438,6 +568,101 @@ impl Mux {
         size
     }
 
+    /// Record one viewer's available grid and resize the shared surface to
+    /// the smallest rows and columns reported by all current viewers.
+    pub fn resize_surface_for_client(
+        &self,
+        id: SurfaceId,
+        client: u64,
+        cols: u16,
+        rows: u16,
+    ) -> anyhow::Result<bool> {
+        self.resize_surface_for_client_with_reservation(id, client, cols, rows)
+            .map(|(accepted, _)| accepted)
+    }
+
+    pub fn resize_surface_for_client_with_reservation(
+        &self,
+        id: SurfaceId,
+        client: u64,
+        cols: u16,
+        rows: u16,
+    ) -> anyhow::Result<(bool, Option<u64>)> {
+        let requested = (cols.max(1), rows.max(1));
+        let (effective, previous) = {
+            let mut sizes = self.client_surface_sizes.lock().unwrap();
+            let viewers = sizes.entry(id).or_default();
+            let previous = viewers.insert(client, requested);
+            let effective = viewers
+                .values()
+                .copied()
+                .fold(requested, |smallest, size| (smallest.0.min(size.0), smallest.1.min(size.1)));
+            (effective, previous)
+        };
+        match self.resize_surface_with_reservation(id, effective.0, effective.1) {
+            Ok(changed) => {
+                self.record_client_size(effective.0, effective.1);
+                Ok(changed)
+            }
+            Err(error) => {
+                let mut sizes = self.client_surface_sizes.lock().unwrap();
+                if let Some(viewers) = sizes.get_mut(&id) {
+                    if let Some(previous) = previous {
+                        viewers.insert(client, previous);
+                    } else {
+                        viewers.remove(&client);
+                    }
+                    if viewers.is_empty() {
+                        sizes.remove(&id);
+                    }
+                }
+                Err(error)
+            }
+        }
+    }
+
+    pub fn remove_surface_size_client(&self, id: SurfaceId, client: u64) {
+        let effective = {
+            let mut sizes = self.client_surface_sizes.lock().unwrap();
+            let Some(viewers) = sizes.get_mut(&id) else { return };
+            viewers.remove(&client);
+            let effective = viewers
+                .values()
+                .copied()
+                .reduce(|smallest, size| (smallest.0.min(size.0), smallest.1.min(size.1)));
+            if viewers.is_empty() {
+                sizes.remove(&id);
+            }
+            effective
+        };
+        if let Some((cols, rows)) = effective
+            && self.resize_surface(id, cols, rows).is_ok()
+        {
+            self.record_client_size(cols, rows);
+        }
+    }
+
+    pub fn remove_size_client(&self, client: u64) {
+        let surface_ids = self
+            .client_surface_sizes
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|(surface, viewers)| viewers.contains_key(&client).then_some(*surface))
+            .collect::<Vec<_>>();
+        for surface in surface_ids {
+            self.remove_surface_size_client(surface, client);
+        }
+    }
+
+    pub fn client_surface_size(&self, id: SurfaceId, client: u64) -> Option<(u16, u16)> {
+        self.client_surface_sizes
+            .lock()
+            .unwrap()
+            .get(&id)
+            .and_then(|viewers| viewers.get(&client).copied())
+    }
+
     fn browser_runtime(&self) -> anyhow::Result<Arc<BrowserRuntime>> {
         let mut runtime = self.browser_runtime.lock().unwrap();
         if let Some(existing) = runtime.as_ref().filter(|existing| !existing.is_closed()) {
@@ -471,7 +696,7 @@ impl Mux {
                         browser.mark_failed(err.to_string());
                     }
                     mux.emit(MuxEvent::Status(format!("browser failed: {err}")));
-                    mux.emit(MuxEvent::TitleChanged(id));
+                    mux.emit(MuxEvent::TitleChanged { surface: id, title: surface.title().into() });
                     mux.emit(MuxEvent::SurfaceOutput(id));
                 }
             },
@@ -590,14 +815,14 @@ impl Mux {
         record
     }
 
-    /// Drop the per-surface side tables (`agent_records`,
-    /// `surface_notifications`) for a surface that has left the tree.
+    /// Drop per-surface metadata for a surface that has left the tree.
     /// `SurfaceId` is monotonic, so without this every closed tab would
     /// leak an entry forever and `list-agents` would keep reporting dead
     /// surfaces as live agents.
     fn purge_surface_side_tables(&self, surface: SurfaceId) {
         self.agent_records.lock().unwrap().remove(&surface);
         self.surface_notifications.lock().unwrap().remove(&surface);
+        self.client_surface_sizes.lock().unwrap().remove(&surface);
     }
 
     pub fn list_agents(
@@ -718,19 +943,40 @@ impl Mux {
         }
     }
 
-    pub fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) {
+    pub fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) -> CellPixelUpdate {
+        self.set_cell_pixel_size_reporting(width_px, height_px, Arc::new(|_, _, _| {}))
+    }
+
+    pub fn set_cell_pixel_size_reporting(
+        &self,
+        width_px: u16,
+        height_px: u16,
+        report: SurfaceResizeReporter,
+    ) -> CellPixelUpdate {
         let next = (width_px.max(1), height_px.max(1));
-        {
-            let mut cell = self.cell_pixels.lock().unwrap();
-            if *cell == next {
-                return;
-            }
-            *cell = next;
-        }
+        // This is the desired global metric used for new browser surfaces.
+        // Existing surfaces still check their settled geometry on every call,
+        // so a rejected queue submission can be retried with the same value.
+        *self.cell_pixels.lock().unwrap() = next;
         let surfaces = self.state.lock().unwrap().surfaces.values().cloned().collect::<Vec<_>>();
+        let mut update = CellPixelUpdate::default();
         for surface in surfaces {
-            surface.set_cell_pixel_size(next.0, next.1);
+            let id = surface.id;
+            let size = surface.size();
+            let callback = report.clone();
+            match surface.set_cell_pixel_size_reporting(
+                next.0,
+                next.1,
+                Box::new(move |accepted| callback(id, size, accepted)),
+            ) {
+                Ok(Some(reservation_id)) => update.resizes.push((id, size, reservation_id)),
+                Ok(None) => {}
+                Err(error) => update
+                    .failures
+                    .push(CellPixelUpdateFailure { surface: id, error: error.to_string() }),
+            }
         }
+        update
     }
 
     pub fn default_colors(&self) -> DefaultColors {
@@ -752,9 +998,18 @@ impl Mux {
         }
     }
 
-    /// Resize a surface and broadcast the final clamped size when it
-    /// actually changes.
+    /// Resize a surface and broadcast the final clamped size when it actually
+    /// changes. Browser workers broadcast after their asynchronous CDP work.
     pub fn resize_surface(&self, id: SurfaceId, cols: u16, rows: u16) -> anyhow::Result<bool> {
+        self.resize_surface_with_reservation(id, cols, rows).map(|(accepted, _)| accepted)
+    }
+
+    pub fn resize_surface_with_reservation(
+        &self,
+        id: SurfaceId,
+        cols: u16,
+        rows: u16,
+    ) -> anyhow::Result<(bool, Option<u64>)> {
         let Some(surface) = self.surface(id) else {
             anyhow::bail!("unknown surface {id}");
         };
@@ -763,12 +1018,17 @@ impl Mux {
         // in this method and must not become the default for new surfaces.
         // Client interactions record explicitly at the protocol/TUI layers.
         let (cols, rows) = (cols.max(1), rows.max(1));
-        if !surface.resize(cols, rows) {
-            return Ok(false);
+        if surface.as_browser().is_some() {
+            let reservation_id =
+                surface.resize_reporting_acceptance(cols, rows, Box::new(|_| {}))?;
+            return Ok((reservation_id.is_some(), reservation_id));
+        }
+        if !surface.resize(cols, rows)? {
+            return Ok((false, None));
         }
         let (cols, rows) = surface.size();
-        self.emit(MuxEvent::SurfaceResized { surface: id, cols, rows });
-        Ok(true)
+        self.emit(MuxEvent::SurfaceResized { surface: id, cols, rows, reservation_id: None });
+        Ok((true, None))
     }
 
     /// Create a workspace with one screen holding one pane with one tab.
@@ -784,7 +1044,8 @@ impl Mux {
         let (pane_id, pane) = self.make_pane(surface.id);
         let screen_id = self.next_id();
         let ws_id = self.next_id();
-        {
+        let notifications = self.surface_notifications();
+        let delta = {
             let mut state = self.state.lock().unwrap();
             let name = name.unwrap_or_else(|| format!("{}", state.workspaces.len() + 1));
             state.panes.insert(pane_id, pane);
@@ -801,8 +1062,25 @@ impl Mux {
                 active_screen: 0,
             });
             state.active_workspace = state.workspaces.len() - 1;
-        }
-        self.emit(MuxEvent::TreeChanged);
+            let index = state.workspaces.len() - 1;
+            let entity = crate::server::tree_entity_json(
+                &state,
+                &notifications,
+                TreeDeltaKind::WorkspaceAdded,
+                ws_id,
+            )
+            .expect("new workspace is present in tree snapshot");
+            TreeDelta {
+                kind: TreeDeltaKind::WorkspaceAdded,
+                workspace: ws_id,
+                screen: None,
+                pane: None,
+                surface: None,
+                index: Some(index),
+                entity,
+            }
+        };
+        self.emit(MuxEvent::TreeDelta(delta));
         self.reap_if_dead(&surface);
         Ok(surface)
     }
@@ -824,7 +1102,8 @@ impl Mux {
             let (pane_id, pane) = self.make_pane(surface.id);
             let screen_id = self.next_id();
             let ws_id = self.next_id();
-            {
+            let notifications = self.surface_notifications();
+            let delta = {
                 let mut state = self.state.lock().unwrap();
                 let workspace_name =
                     name.unwrap_or_else(|| format!("{}", state.workspaces.len() + 1));
@@ -842,8 +1121,25 @@ impl Mux {
                     active_screen: 0,
                 });
                 state.active_workspace = state.workspaces.len() - 1;
-            }
-            self.emit(MuxEvent::TreeChanged);
+                let index = state.workspaces.len() - 1;
+                let entity = crate::server::tree_entity_json(
+                    &state,
+                    &notifications,
+                    TreeDeltaKind::WorkspaceAdded,
+                    ws_id,
+                )
+                .expect("new workspace is present in tree snapshot");
+                TreeDelta {
+                    kind: TreeDeltaKind::WorkspaceAdded,
+                    workspace: ws_id,
+                    screen: None,
+                    pane: None,
+                    surface: None,
+                    index: Some(index),
+                    entity,
+                }
+            };
+            self.emit(MuxEvent::TreeDelta(delta));
             self.reap_if_dead(&surface);
             return Ok(RunPlacement {
                 surface: surface.id,
@@ -875,7 +1171,8 @@ impl Mux {
             surface.set_name(Some(name));
         }
         let active_at = self.next_active_at();
-        let placement = {
+        let notifications = self.surface_notifications();
+        let (placement, delta) = {
             let mut state = self.state.lock().unwrap();
             let Some((wi, si)) = state.screen_of(target) else {
                 state.surfaces.remove(&surface.id);
@@ -890,14 +1187,32 @@ impl Mux {
             pane.tabs.push(surface.id);
             pane.active_tab = pane.tabs.len() - 1;
             pane.active_at = active_at;
-            RunPlacement {
+            let index = pane.tabs.len() - 1;
+            let placement = RunPlacement {
                 surface: surface.id,
                 pane: target,
                 screen: state.workspaces[wi].screens[si].id,
                 workspace: state.workspaces[wi].id,
-            }
+            };
+            let entity = crate::server::tree_entity_json(
+                &state,
+                &notifications,
+                TreeDeltaKind::TabAdded,
+                surface.id,
+            )
+            .expect("new tab is present in tree snapshot");
+            let delta = TreeDelta {
+                kind: TreeDeltaKind::TabAdded,
+                workspace: placement.workspace,
+                screen: Some(placement.screen),
+                pane: Some(target),
+                surface: Some(surface.id),
+                index: Some(index),
+                entity,
+            };
+            (placement, delta)
         };
-        self.emit(MuxEvent::TreeChanged);
+        self.emit(MuxEvent::TreeDelta(delta));
         self.reap_if_dead(&surface);
         Ok(placement)
     }
@@ -926,6 +1241,7 @@ impl Mux {
         let surface = self.spawn_surface(None, size)?;
         let (pane_id, pane) = self.make_pane(surface.id);
         let screen_id = self.next_id();
+        let notifications = self.surface_notifications();
         let attached = {
             let mut state = self.state.lock().unwrap();
             let active = state.active_workspace;
@@ -943,20 +1259,37 @@ impl Mux {
                         zoomed_pane: None,
                     });
                     ws.active_screen = ws.screens.len() - 1;
+                    let workspace = ws.id;
+                    let index = ws.screens.len() - 1;
                     state.panes.insert(pane_id, pane);
-                    true
+                    let entity = crate::server::tree_entity_json(
+                        &state,
+                        &notifications,
+                        TreeDeltaKind::ScreenAdded,
+                        screen_id,
+                    )
+                    .expect("new screen is present in tree snapshot");
+                    Some(TreeDelta {
+                        kind: TreeDeltaKind::ScreenAdded,
+                        workspace,
+                        screen: Some(screen_id),
+                        pane: None,
+                        surface: None,
+                        index: Some(index),
+                        entity,
+                    })
                 }
                 None => {
                     state.surfaces.remove(&surface.id);
-                    false
+                    None
                 }
             }
         };
-        if !attached {
+        let Some(delta) = attached else {
             surface.kill();
             anyhow::bail!("workspace disappeared while creating screen");
-        }
-        self.emit(MuxEvent::TreeChanged);
+        };
+        self.emit(MuxEvent::TreeDelta(delta));
         self.reap_if_dead(&surface);
         Ok(surface)
     }
@@ -990,6 +1323,7 @@ impl Mux {
         let cwd = cwd.or_else(|| self.pane_cwd(target));
         let surface = self.spawn_surface(cwd, size)?;
         let active_at = self.next_active_at();
+        let notifications = self.surface_notifications();
         let attached = {
             let mut state = self.state.lock().unwrap();
             match state.panes.get_mut(&target) {
@@ -997,20 +1331,39 @@ impl Mux {
                     pane.tabs.push(surface.id);
                     pane.active_tab = pane.tabs.len() - 1;
                     pane.active_at = active_at;
-                    true
+                    let index = pane.tabs.len() - 1;
+                    let (wi, si) = state.screen_of(target).expect("live pane belongs to a screen");
+                    let workspace = state.workspaces[wi].id;
+                    let screen = state.workspaces[wi].screens[si].id;
+                    let entity = crate::server::tree_entity_json(
+                        &state,
+                        &notifications,
+                        TreeDeltaKind::TabAdded,
+                        surface.id,
+                    )
+                    .expect("new tab is present in tree snapshot");
+                    Some(TreeDelta {
+                        kind: TreeDeltaKind::TabAdded,
+                        workspace,
+                        screen: Some(screen),
+                        pane: Some(target),
+                        surface: Some(surface.id),
+                        index: Some(index),
+                        entity,
+                    })
                 }
                 None => {
                     // Pane disappeared between validation and attach.
                     state.surfaces.remove(&surface.id);
-                    false
+                    None
                 }
             }
         };
-        if !attached {
+        let Some(delta) = attached else {
             surface.kill();
             anyhow::bail!("pane disappeared while creating tab");
-        }
-        self.emit(MuxEvent::TreeChanged);
+        };
+        self.emit(MuxEvent::TreeDelta(delta));
         self.reap_if_dead(&surface);
         Ok(surface)
     }
@@ -1041,7 +1394,8 @@ impl Mux {
             let (pane_id, pane) = self.make_pane(surface.id);
             let screen_id = self.next_id();
             let ws_id = self.next_id();
-            {
+            let notifications = self.surface_notifications();
+            let delta = {
                 let mut state = self.state.lock().unwrap();
                 let name = format!("{}", state.workspaces.len() + 1);
                 state.panes.insert(pane_id, pane);
@@ -1058,14 +1412,32 @@ impl Mux {
                     active_screen: 0,
                 });
                 state.active_workspace = state.workspaces.len() - 1;
-            }
-            self.emit(MuxEvent::TreeChanged);
+                let index = state.workspaces.len() - 1;
+                let entity = crate::server::tree_entity_json(
+                    &state,
+                    &notifications,
+                    TreeDeltaKind::WorkspaceAdded,
+                    ws_id,
+                )
+                .expect("new workspace is present in tree snapshot");
+                TreeDelta {
+                    kind: TreeDeltaKind::WorkspaceAdded,
+                    workspace: ws_id,
+                    screen: None,
+                    pane: None,
+                    surface: None,
+                    index: Some(index),
+                    entity,
+                }
+            };
+            self.emit(MuxEvent::TreeDelta(delta));
             self.reap_if_dead(&surface);
             return Ok(surface);
         };
 
         let surface = self.spawn_browser_surface(url, size);
         let active_at = self.next_active_at();
+        let notifications = self.surface_notifications();
         let attached = {
             let mut state = self.state.lock().unwrap();
             match state.panes.get_mut(&target) {
@@ -1073,19 +1445,38 @@ impl Mux {
                     pane.tabs.push(surface.id);
                     pane.active_tab = pane.tabs.len() - 1;
                     pane.active_at = active_at;
-                    true
+                    let index = pane.tabs.len() - 1;
+                    let (wi, si) = state.screen_of(target).expect("live pane belongs to a screen");
+                    let workspace = state.workspaces[wi].id;
+                    let screen = state.workspaces[wi].screens[si].id;
+                    let entity = crate::server::tree_entity_json(
+                        &state,
+                        &notifications,
+                        TreeDeltaKind::TabAdded,
+                        surface.id,
+                    )
+                    .expect("new browser tab is present in tree snapshot");
+                    Some(TreeDelta {
+                        kind: TreeDeltaKind::TabAdded,
+                        workspace,
+                        screen: Some(screen),
+                        pane: Some(target),
+                        surface: Some(surface.id),
+                        index: Some(index),
+                        entity,
+                    })
                 }
                 None => {
                     state.surfaces.remove(&surface.id);
-                    false
+                    None
                 }
             }
         };
-        if !attached {
+        let Some(delta) = attached else {
             surface.kill();
             anyhow::bail!("pane disappeared while creating browser tab");
-        }
-        self.emit(MuxEvent::TreeChanged);
+        };
+        self.emit(MuxEvent::TreeDelta(delta));
         self.reap_if_dead(&surface);
         Ok(surface)
     }
@@ -1112,10 +1503,11 @@ impl Mux {
         let surface =
             browser::new_surface(id, url.clone(), size, cell_pixels, &opts, Arc::downgrade(self));
         let active_at = self.next_active_at();
-        if !self.attach_browser_surface_to_pane_or_kill(pane_id, &surface, active_at) {
-            return false;
+        match self.attach_browser_surface_to_pane_or_kill(pane_id, &surface, active_at) {
+            BrowserSurfaceAttach::MissingPane => return false,
+            BrowserSurfaceAttach::Attached(Some(delta)) => self.emit(MuxEvent::TreeDelta(delta)),
+            BrowserSurfaceAttach::Attached(None) => self.emit(MuxEvent::TreeChanged),
         }
-        self.emit(MuxEvent::TreeChanged);
         self.start_browser_bootstrap(
             surface,
             BrowserBootstrap::ExistingTarget { target_id, url },
@@ -1129,7 +1521,8 @@ impl Mux {
         pane_id: PaneId,
         surface: &Arc<Surface>,
         active_at: u64,
-    ) -> bool {
+    ) -> BrowserSurfaceAttach {
+        let notifications = self.surface_notifications();
         let attached = {
             let mut state = self.state.lock().unwrap();
             match state.panes.get_mut(&pane_id) {
@@ -1138,12 +1531,32 @@ impl Mux {
                     pane.active_tab = pane.tabs.len() - 1;
                     pane.active_at = active_at;
                     state.surfaces.insert(surface.id, surface.clone());
-                    true
+                    let delta = (|| {
+                        let (wi, si) = state.screen_of(pane_id)?;
+                        let pane = state.panes.get(&pane_id)?;
+                        let index = pane.tabs.iter().position(|id| *id == surface.id)?;
+                        let entity = crate::server::tree_entity_json(
+                            &state,
+                            &notifications,
+                            TreeDeltaKind::TabAdded,
+                            surface.id,
+                        )?;
+                        Some(TreeDelta {
+                            kind: TreeDeltaKind::TabAdded,
+                            workspace: state.workspaces[wi].id,
+                            screen: Some(state.workspaces[wi].screens[si].id),
+                            pane: Some(pane_id),
+                            surface: Some(surface.id),
+                            index: Some(index),
+                            entity,
+                        })
+                    })();
+                    BrowserSurfaceAttach::Attached(delta)
                 }
-                None => false,
+                None => BrowserSurfaceAttach::MissingPane,
             }
         };
-        if !attached {
+        if matches!(attached, BrowserSurfaceAttach::MissingPane) {
             surface.kill();
         }
         attached
@@ -1174,6 +1587,9 @@ impl Mux {
         let active_at = self.next_active_at();
         let mut done = false;
         let mut changed_screen = None;
+        let mut changed_workspace = None;
+        let notifications = self.surface_notifications();
+        let mut delta = None;
         {
             let mut state = self.state.lock().unwrap();
             'outer: for ws in state.workspaces.iter_mut() {
@@ -1181,6 +1597,7 @@ impl Mux {
                     if screen.root.split_leaf(target, dir, pane_id) {
                         screen.active_pane = pane_id;
                         changed_screen = Some(screen.id);
+                        changed_workspace = Some(ws.id);
                         done = true;
                         break 'outer;
                     }
@@ -1197,6 +1614,22 @@ impl Mux {
                         active_at,
                     },
                 );
+                let entity = crate::server::tree_entity_json(
+                    &state,
+                    &notifications,
+                    TreeDeltaKind::PaneAdded,
+                    pane_id,
+                )
+                .expect("split pane is present in tree snapshot");
+                delta = Some(TreeDelta {
+                    kind: TreeDeltaKind::PaneAdded,
+                    workspace: changed_workspace.expect("split workspace captured"),
+                    screen: changed_screen,
+                    pane: Some(pane_id),
+                    surface: None,
+                    index: Some(screen_pane_index(&state, changed_screen.unwrap(), pane_id)),
+                    entity,
+                });
             } else {
                 state.surfaces.remove(&surface.id);
             }
@@ -1205,7 +1638,7 @@ impl Mux {
             surface.kill();
             anyhow::bail!("pane {target} not found");
         }
-        self.emit(MuxEvent::TreeChanged);
+        self.emit(MuxEvent::TreeDelta(delta.expect("successful split has a tree delta")));
         if let Some(screen) = changed_screen {
             self.emit(MuxEvent::LayoutChanged(screen));
         }
@@ -1216,19 +1649,26 @@ impl Mux {
     /// Close one tab. When it was the pane's last tab, the pane collapses
     /// out of its split tree (and emptied screens/workspaces are removed).
     pub fn close_surface(&self, target: SurfaceId) {
-        let (removed, changed_screens, empty) = {
+        let notifications = self.surface_notifications();
+        let (removed, changed_screens, empty, delta) = {
             let mut state = self.state.lock().unwrap();
             let changed_screen = surface_screen_id(&state, target);
+            let delta = close_surface_delta(&state, &notifications, target);
             (
                 remove_surface(&mut state, target),
                 changed_screen.into_iter().collect::<Vec<_>>(),
                 state.workspaces.is_empty(),
+                delta,
             )
         };
         if let Some(surface) = removed {
             self.purge_surface_side_tables(surface.id);
             surface.kill();
-            self.emit(MuxEvent::TreeChanged);
+            if let Some(delta) = delta {
+                self.emit(MuxEvent::TreeDelta(delta));
+            } else {
+                self.emit(MuxEvent::TreeChanged);
+            }
             for screen in changed_screens {
                 self.emit(MuxEvent::LayoutChanged(screen));
             }
@@ -1240,7 +1680,7 @@ impl Mux {
 
     /// Close every surface in `tabs` (helper for pane/screen/workspace
     /// close). Emits events outside the lock.
-    fn close_surfaces(&self, tabs: Vec<SurfaceId>) {
+    fn close_surfaces(&self, tabs: Vec<SurfaceId>, delta: TreeDelta) {
         let (removed, changed_screens, empty) = {
             let mut state = self.state.lock().unwrap();
             let changed_screens = unique_screen_ids(
@@ -1259,7 +1699,7 @@ impl Mux {
                 self.purge_surface_side_tables(surface.id);
                 surface.kill();
             }
-            self.emit(MuxEvent::TreeChanged);
+            self.emit(MuxEvent::TreeDelta(delta));
             for screen in changed_screens {
                 self.emit(MuxEvent::LayoutChanged(screen));
             }
@@ -1271,59 +1711,95 @@ impl Mux {
 
     /// Close a pane and every tab in it.
     pub fn close_pane(&self, target: PaneId) {
-        let tabs = {
+        let notifications = self.surface_notifications();
+        let (tabs, delta) = {
             let state = self.state.lock().unwrap();
             match state.panes.get(&target) {
-                Some(pane) => pane.tabs.clone(),
+                Some(pane) => (
+                    pane.tabs.clone(),
+                    close_pane_delta(&state, &notifications, target)
+                        .expect("live pane has a close delta"),
+                ),
                 None => return,
             }
         };
-        self.close_surfaces(tabs);
+        self.close_surfaces(tabs, delta);
     }
 
     /// Close a screen and every pane/tab in it.
     pub fn close_screen(&self, target: ScreenId) -> bool {
-        let tabs = {
+        let notifications = self.surface_notifications();
+        let (tabs, delta) = {
             let state = self.state.lock().unwrap();
             let Some(screen) =
                 state.workspaces.iter().flat_map(|ws| ws.screens.iter()).find(|s| s.id == target)
             else {
                 return false;
             };
-            screen_tabs(&state, screen)
+            (
+                screen_tabs(&state, screen),
+                close_screen_delta(&state, &notifications, target)
+                    .expect("live screen has a close delta"),
+            )
         };
-        self.close_surfaces(tabs);
+        self.close_surfaces(tabs, delta);
         true
     }
 
     /// Close a workspace and every screen/pane/tab in it.
     pub fn close_workspace(&self, target: WorkspaceId) -> bool {
-        let tabs = {
+        let notifications = self.surface_notifications();
+        let (tabs, delta) = {
             let state = self.state.lock().unwrap();
             let Some(ws) = state.workspaces.iter().find(|ws| ws.id == target) else {
                 return false;
             };
-            ws.screens.iter().flat_map(|screen| screen_tabs(&state, screen)).collect::<Vec<_>>()
+            (
+                ws.screens
+                    .iter()
+                    .flat_map(|screen| screen_tabs(&state, screen))
+                    .collect::<Vec<_>>(),
+                close_workspace_delta(&state, &notifications, target)
+                    .expect("live workspace has a close delta"),
+            )
         };
-        self.close_surfaces(tabs);
+        self.close_surfaces(tabs, delta);
         true
     }
 
     pub fn rename_workspace(&self, target: WorkspaceId, name: String) -> bool {
+        let notifications = self.surface_notifications();
         let renamed = {
             let mut state = self.state.lock().unwrap();
             match state.workspaces.iter_mut().find(|ws| ws.id == target) {
                 Some(ws) => {
                     ws.name = name;
-                    true
+                    let entity = crate::server::tree_entity_json(
+                        &state,
+                        &notifications,
+                        TreeDeltaKind::WorkspaceRenamed,
+                        target,
+                    )
+                    .expect("renamed workspace is present in tree snapshot");
+                    Some(TreeDelta {
+                        kind: TreeDeltaKind::WorkspaceRenamed,
+                        workspace: target,
+                        screen: None,
+                        pane: None,
+                        surface: None,
+                        index: None,
+                        entity,
+                    })
                 }
-                None => false,
+                None => None,
             }
         };
-        if renamed {
-            self.emit(MuxEvent::TreeChanged);
+        if let Some(delta) = renamed {
+            self.emit(MuxEvent::TreeDelta(delta));
+            true
+        } else {
+            false
         }
-        renamed
     }
 
     /// Set a pane's user-visible name. An empty name clears it (the pane
@@ -1348,35 +1824,69 @@ impl Mux {
     /// Set a tab's user-visible name. An empty name clears it (the tab
     /// falls back to its process title/number label).
     pub fn rename_surface(&self, target: SurfaceId, name: String) -> bool {
-        let surface = self.state.lock().unwrap().surfaces.get(&target).cloned();
-        let Some(surface) = surface else { return false };
-        surface.set_name((!name.is_empty()).then_some(name));
-        self.emit(MuxEvent::TreeChanged);
+        let notifications = self.surface_notifications();
+        let delta = {
+            let state = self.state.lock().unwrap();
+            let Some(surface) = state.surfaces.get(&target) else { return false };
+            surface.set_name((!name.is_empty()).then_some(name));
+            (|| {
+                let pane = state.pane_of(target)?;
+                let (wi, si) = state.screen_of(pane)?;
+                let entity = crate::server::tree_entity_json(
+                    &state,
+                    &notifications,
+                    TreeDeltaKind::TabRenamed,
+                    target,
+                )?;
+                Some(TreeDelta {
+                    kind: TreeDeltaKind::TabRenamed,
+                    workspace: state.workspaces[wi].id,
+                    screen: Some(state.workspaces[wi].screens[si].id),
+                    pane: Some(pane),
+                    surface: Some(target),
+                    index: None,
+                    entity,
+                })
+            })()
+        };
+        match delta {
+            Some(delta) => self.emit(MuxEvent::TreeDelta(delta)),
+            None => self.emit(MuxEvent::TreeChanged),
+        }
         true
     }
 
     /// Set a screen's user-visible name. An empty name clears it (the
     /// screen falls back to its number).
     pub fn rename_screen(&self, target: ScreenId, name: String) -> bool {
+        let notifications = self.surface_notifications();
         let renamed = {
             let mut state = self.state.lock().unwrap();
-            match state
-                .workspaces
-                .iter_mut()
-                .flat_map(|ws| ws.screens.iter_mut())
-                .find(|s| s.id == target)
-            {
-                Some(screen) => {
-                    screen.name = (!name.is_empty()).then_some(name);
-                    true
-                }
-                None => false,
+            let Some((wi, si)) = state.workspaces.iter().enumerate().find_map(|(wi, workspace)| {
+                workspace.screens.iter().position(|screen| screen.id == target).map(|si| (wi, si))
+            }) else {
+                return false;
+            };
+            state.workspaces[wi].screens[si].name = (!name.is_empty()).then_some(name);
+            let entity = crate::server::tree_entity_json(
+                &state,
+                &notifications,
+                TreeDeltaKind::ScreenRenamed,
+                target,
+            )
+            .expect("renamed screen is present in tree snapshot");
+            TreeDelta {
+                kind: TreeDeltaKind::ScreenRenamed,
+                workspace: state.workspaces[wi].id,
+                screen: Some(target),
+                pane: None,
+                surface: None,
+                index: None,
+                entity,
             }
         };
-        if renamed {
-            self.emit(MuxEvent::TreeChanged);
-        }
-        renamed
+        self.emit(MuxEvent::TreeDelta(renamed));
+        true
     }
 
     /// Reap a surface whose child exited before its tree insert completed.
@@ -1568,13 +2078,15 @@ impl Mux {
             anyhow::bail!("layout must contain at least one leaf");
         };
         let screen_id = self.next_id();
-        {
+        let notifications = self.surface_notifications();
+        let delta = {
             let mut state = self.state.lock().unwrap();
             for (pane_id, pane) in panes {
                 state.panes.insert(pane_id, pane);
             }
             let screen = Screen { id: screen_id, name, root, active_pane, zoomed_pane: None };
-            match workspace {
+            let mut created_workspace = None;
+            let workspace_id = match workspace {
                 Some(id) => {
                     let ws = state
                         .workspaces
@@ -1582,6 +2094,7 @@ impl Mux {
                         .find(|ws| ws.id == id)
                         .expect("workspace validated before spawning");
                     ws.screens.push(screen);
+                    id
                 }
                 None if state.workspaces.is_empty() => {
                     let ws_id = self.next_id();
@@ -1592,16 +2105,67 @@ impl Mux {
                         active_screen: 0,
                     });
                     state.active_workspace = 0;
+                    created_workspace = Some(ws_id);
+                    ws_id
                 }
                 None => {
                     let active = state.active_workspace;
                     let ws =
                         state.workspaces.get_mut(active).expect("active workspace index valid");
                     ws.screens.push(screen);
+                    ws.id
+                }
+            };
+            if let Some(workspace_id) = created_workspace {
+                let index = state
+                    .workspaces
+                    .iter()
+                    .position(|workspace| workspace.id == workspace_id)
+                    .expect("new workspace index");
+                let entity = crate::server::tree_entity_json(
+                    &state,
+                    &notifications,
+                    TreeDeltaKind::WorkspaceAdded,
+                    workspace_id,
+                )
+                .expect("applied workspace is present in tree snapshot");
+                TreeDelta {
+                    kind: TreeDeltaKind::WorkspaceAdded,
+                    workspace: workspace_id,
+                    screen: None,
+                    pane: None,
+                    surface: None,
+                    index: Some(index),
+                    entity,
+                }
+            } else {
+                let index = state
+                    .workspaces
+                    .iter()
+                    .find(|workspace| workspace.id == workspace_id)
+                    .and_then(|workspace| {
+                        workspace.screens.iter().position(|screen| screen.id == screen_id)
+                    })
+                    .expect("new screen index");
+                let entity = crate::server::tree_entity_json(
+                    &state,
+                    &notifications,
+                    TreeDeltaKind::ScreenAdded,
+                    screen_id,
+                )
+                .expect("applied screen is present in tree snapshot");
+                TreeDelta {
+                    kind: TreeDeltaKind::ScreenAdded,
+                    workspace: workspace_id,
+                    screen: Some(screen_id),
+                    pane: None,
+                    surface: None,
+                    index: Some(index),
+                    entity,
                 }
             }
-        }
-        self.emit(MuxEvent::TreeChanged);
+        };
+        self.emit(MuxEvent::TreeDelta(delta));
         self.emit(MuxEvent::LayoutChanged(screen_id));
         for surface in spawned {
             self.reap_if_dead(&surface);
@@ -1858,6 +2422,129 @@ fn surface_screen_id(state: &State, surface: SurfaceId) -> Option<ScreenId> {
     Some(state.workspaces[wi].screens[si].id)
 }
 
+fn screen_pane_index(state: &State, screen: ScreenId, pane: PaneId) -> usize {
+    state
+        .workspaces
+        .iter()
+        .flat_map(|workspace| workspace.screens.iter())
+        .find(|candidate| candidate.id == screen)
+        .map(|screen| {
+            let mut panes = Vec::new();
+            screen.root.pane_ids(&mut panes);
+            panes.iter().position(|candidate| *candidate == pane).unwrap_or(0)
+        })
+        .unwrap_or(0)
+}
+
+fn close_surface_delta(
+    state: &State,
+    notifications: &HashMap<SurfaceId, SurfaceNotification>,
+    surface: SurfaceId,
+) -> Option<TreeDelta> {
+    let pane_id = state.pane_of(surface)?;
+    let pane = state.panes.get(&pane_id)?;
+    let tab_index = pane.tabs.iter().position(|candidate| *candidate == surface)?;
+    let (wi, si) = state.screen_of(pane_id)?;
+    let workspace = &state.workspaces[wi];
+    let screen = &workspace.screens[si];
+    if pane.tabs.len() > 1 {
+        let entity = crate::server::tree_entity_json(
+            state,
+            notifications,
+            TreeDeltaKind::TabClosed,
+            surface,
+        )?;
+        return Some(TreeDelta {
+            kind: TreeDeltaKind::TabClosed,
+            workspace: workspace.id,
+            screen: Some(screen.id),
+            pane: Some(pane_id),
+            surface: Some(surface),
+            index: Some(tab_index),
+            entity,
+        });
+    }
+    close_pane_delta(state, notifications, pane_id)
+}
+
+fn close_pane_delta(
+    state: &State,
+    notifications: &HashMap<SurfaceId, SurfaceNotification>,
+    pane: PaneId,
+) -> Option<TreeDelta> {
+    let (wi, si) = state.screen_of(pane)?;
+    let workspace = &state.workspaces[wi];
+    let screen = &workspace.screens[si];
+    let mut panes = Vec::new();
+    screen.root.pane_ids(&mut panes);
+    if panes.len() > 1 {
+        let entity =
+            crate::server::tree_entity_json(state, notifications, TreeDeltaKind::PaneClosed, pane)?;
+        return Some(TreeDelta {
+            kind: TreeDeltaKind::PaneClosed,
+            workspace: workspace.id,
+            screen: Some(screen.id),
+            pane: Some(pane),
+            surface: None,
+            index: Some(panes.iter().position(|candidate| *candidate == pane)?),
+            entity,
+        });
+    }
+    close_screen_delta(state, notifications, screen.id)
+}
+
+fn close_screen_delta(
+    state: &State,
+    notifications: &HashMap<SurfaceId, SurfaceNotification>,
+    screen: ScreenId,
+) -> Option<TreeDelta> {
+    let (wi, si) = state.workspaces.iter().enumerate().find_map(|(wi, workspace)| {
+        workspace.screens.iter().position(|candidate| candidate.id == screen).map(|si| (wi, si))
+    })?;
+    let workspace = &state.workspaces[wi];
+    if workspace.screens.len() > 1 {
+        let entity = crate::server::tree_entity_json(
+            state,
+            notifications,
+            TreeDeltaKind::ScreenClosed,
+            screen,
+        )?;
+        return Some(TreeDelta {
+            kind: TreeDeltaKind::ScreenClosed,
+            workspace: workspace.id,
+            screen: Some(screen),
+            pane: None,
+            surface: None,
+            index: Some(si),
+            entity,
+        });
+    }
+    close_workspace_delta(state, notifications, workspace.id)
+}
+
+fn close_workspace_delta(
+    state: &State,
+    notifications: &HashMap<SurfaceId, SurfaceNotification>,
+    workspace: WorkspaceId,
+) -> Option<TreeDelta> {
+    let index = state.workspaces.iter().position(|candidate| candidate.id == workspace)?;
+    let entity = crate::server::tree_entity_json(
+        state,
+        notifications,
+        TreeDeltaKind::WorkspaceClosed,
+        workspace,
+    )?;
+    Some(TreeDelta {
+        kind: TreeDeltaKind::WorkspaceClosed,
+        workspace,
+        screen: None,
+        pane: None,
+        surface: None,
+        index: Some(index),
+        entity,
+    })
+}
+
 /// Remove one surface from the state: detach it from its
 /// pane, and collapse emptied panes/screens/workspaces. Returns whether
 /// anything was removed. Runs under the state lock.
@@ -2041,6 +2728,37 @@ mod tests {
     }
 
     #[test]
+    fn failed_viewer_resize_preserves_previous_report_and_creation_default() {
+        let mux = test_mux();
+        let missing_surface = 99_999;
+        mux.record_client_size(90, 30);
+        mux.client_surface_sizes
+            .lock()
+            .unwrap()
+            .entry(missing_surface)
+            .or_default()
+            .insert(7, (80, 25));
+
+        assert!(mux.resize_surface_for_client(missing_surface, 7, 120, 40).is_err());
+        assert_eq!(mux.client_surface_size(missing_surface, 7), Some((80, 25)));
+        assert_eq!(*mux.latest_client_size.lock().unwrap(), Some((90, 30)));
+    }
+
+    #[test]
+    fn removing_smallest_viewer_updates_unsized_creation_default() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+
+        mux.resize_surface_for_client(surface.id, 1, 120, 40).unwrap();
+        mux.resize_surface_for_client(surface.id, 2, 80, 50).unwrap();
+        assert_eq!(surface.size(), (80, 40));
+
+        mux.remove_surface_size_client(surface.id, 2);
+        assert_eq!(surface.size(), (120, 40));
+        assert_eq!(mux.new_workspace(None, None).unwrap().size(), (120, 40));
+    }
+
+    #[test]
     fn agent_reports_apply_hook_authority() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
@@ -2125,7 +2843,10 @@ mod tests {
         let browser = surface.as_browser().expect("browser surface");
         let done = browser.take_worker_done_for_test();
 
-        assert!(!mux.attach_browser_surface_to_pane_or_kill(123_456, &surface, 1));
+        assert!(matches!(
+            mux.attach_browser_surface_to_pane_or_kill(123_456, &surface, 1),
+            BrowserSurfaceAttach::MissingPane
+        ));
         assert!(browser.is_dead());
         done.recv_timeout(Duration::from_secs(1))
             .expect("browser worker exited after failed attach");

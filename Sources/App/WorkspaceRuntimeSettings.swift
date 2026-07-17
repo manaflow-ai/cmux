@@ -1,10 +1,8 @@
 import Darwin
 import Foundation
-
 enum WorkspaceTitlebarSettings {
     static let showTitlebarKey = "workspaceTitlebarVisible"
     static let defaultShowTitlebar = true
-
     static func isVisible(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: showTitlebarKey) == nil {
             return defaultShowTitlebar
@@ -14,7 +12,6 @@ enum WorkspaceTitlebarSettings {
 }
 enum WorkspacePresentationModeSettings {
     static let modeKey = "workspacePresentationMode"
-
     enum Mode: String {
         case standard
         case minimal

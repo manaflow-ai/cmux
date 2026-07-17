@@ -7,6 +7,8 @@ import type {
   NotificationLevel,
 } from "./common.js";
 import type { ClientTransport } from "./commands.js";
+import type { RenderDeltaEvent, RenderStateEvent } from "./render.js";
+import type { Pane, Screen, Tab, Workspace } from "./tree.js";
 
 export interface TreeChangedEvent { event: "tree-changed" }
 export interface LayoutChangedEvent { event: "layout-changed"; screen: Id }
@@ -20,9 +22,18 @@ export interface ScrollChangedEvent {
   at_bottom: boolean;
 }
 
-export interface SurfaceResizedEvent { event: "surface-resized"; surface: Id; cols: number; rows: number }
+export interface SurfaceResizedEvent { event: "surface-resized"; surface: Id; cols: number; rows: number; reservation_id?: number | null }
+export interface SurfaceResizeFailedEvent {
+  event: "surface-resize-failed";
+  surface: Id;
+  cols: number;
+  rows: number;
+  error: string;
+  retry_after_ms: number | null;
+  reservation_id?: number | null;
+}
 export interface SurfaceExitedEvent { event: "surface-exited"; surface: Id }
-export interface TitleChangedEvent { event: "title-changed"; surface: Id }
+export interface TitleChangedEvent { event: "title-changed"; surface: Id; title?: string }
 export interface BellEvent { event: "bell"; surface: Id }
 
 export interface NotificationEvent {
@@ -52,6 +63,100 @@ export interface ClientChangedEvent {
 export interface ClientDetachedEvent { event: "client-detached"; client: Id }
 export interface EmptyEvent { event: "empty" }
 
+export interface WorkspaceAddedEvent {
+  event: "workspace-added";
+  workspace: Id;
+  index: number;
+  entity: Workspace;
+}
+export interface WorkspaceClosedEvent {
+  event: "workspace-closed";
+  workspace: Id;
+  index: number;
+  entity: Workspace;
+}
+export interface WorkspaceRenamedEvent {
+  event: "workspace-renamed";
+  workspace: Id;
+  entity: Workspace;
+}
+export interface ScreenAddedEvent {
+  event: "screen-added";
+  workspace: Id;
+  screen: Id;
+  index: number;
+  entity: Screen;
+}
+export interface ScreenClosedEvent {
+  event: "screen-closed";
+  workspace: Id;
+  screen: Id;
+  index: number;
+  entity: Screen;
+}
+export interface ScreenRenamedEvent {
+  event: "screen-renamed";
+  workspace: Id;
+  screen: Id;
+  entity: Screen;
+}
+export interface PaneAddedEvent {
+  event: "pane-added";
+  workspace: Id;
+  screen: Id;
+  pane: Id;
+  index: number;
+  entity: Pane;
+}
+export interface PaneClosedEvent {
+  event: "pane-closed";
+  workspace: Id;
+  screen: Id;
+  pane: Id;
+  index: number;
+  entity: Pane;
+}
+export interface TabAddedEvent {
+  event: "tab-added";
+  workspace: Id;
+  screen: Id;
+  pane: Id;
+  surface: Id;
+  index: number;
+  entity: Tab;
+}
+export interface TabClosedEvent {
+  event: "tab-closed";
+  workspace: Id;
+  screen: Id;
+  pane: Id;
+  surface: Id;
+  index: number;
+  entity: Tab;
+}
+export interface TabRenamedEvent {
+  event: "tab-renamed";
+  workspace: Id;
+  screen: Id;
+  pane: Id;
+  surface: Id;
+  entity: Tab;
+}
+
+/** Protocol v7 tree lifecycle deltas. */
+export type TreeDeltaEvent =
+  | WorkspaceAddedEvent
+  | WorkspaceClosedEvent
+  | WorkspaceRenamedEvent
+  | ScreenAddedEvent
+  | ScreenClosedEvent
+  | ScreenRenamedEvent
+  | PaneAddedEvent
+  | PaneClosedEvent
+  | TabAddedEvent
+  | TabClosedEvent
+  | TabRenamedEvent;
+
 /** Effective special colors for an attached terminal surface. */
 export interface TerminalColors {
   fg: ColorHex | null;
@@ -79,21 +184,59 @@ export interface VtStateEvent {
 /** Live base64 PTY bytes after the attach snapshot. */
 export interface OutputEvent { event: "output"; surface: Id; data: Base64 }
 
-/** A protocol v6 replay that replaces the existing terminal mirror. */
-export interface ResizedEvent {
+interface ResizedEventBase {
   event: "resized";
   surface: Id;
   cols: number;
   rows: number;
-  data: Base64;
-  /** @deprecated Compatibility with early protocol-v6 drafts. Servers send `data`. */
-  replay?: Base64;
 }
+
+/** A replacement replay using the protocol-v7 field or protocol-v6 compatibility field. */
+export type ResizedEvent = ResizedEventBase & (
+  | { replay: Base64; data?: Base64 }
+  | { data: Base64; replay?: Base64 }
+);
 
 export interface DetachedEvent { event: "detached"; surface: Id }
 
+export interface OverflowEvent {
+  event: "overflow";
+  error: string;
+  scope?: "surface";
+  surface?: Id;
+}
+
 /** Updated effective special colors for this attach stream's surface. */
-export interface ColorsChangedEvent extends TerminalColors { event: "colors-changed" }
+export interface ColorsChangedEvent extends TerminalColors {
+  event: "colors-changed";
+  /** Protocol v7 adds the subject id; protocol v6 servers omit it. */
+  surface?: Id;
+}
+
+export interface BrowserFrame {
+  seq: number;
+  width: number;
+  height: number;
+  data: Base64;
+}
+
+export interface BrowserStateEvent {
+  event: "browser-state";
+  surface: Id;
+  cols: number;
+  rows: number;
+  url: string;
+  title: string;
+  status: string;
+  error: string | null;
+  frames_stalled: boolean;
+  frame?: BrowserFrame | null;
+}
+
+export interface BrowserFrameEvent extends BrowserFrame {
+  event: "frame";
+  surface: Id;
+}
 
 /** Proposed event retained for forward-compatible protocol v6 clients. */
 export interface AgentStateChangedEvent {
@@ -119,11 +262,13 @@ export interface UnknownEvent {
 
 /** All currently implemented subscribe event payloads. */
 export type KnownSubscribeEvent =
+  | TreeDeltaEvent
   | TreeChangedEvent
   | LayoutChangedEvent
   | SurfaceOutputEvent
   | ScrollChangedEvent
   | SurfaceResizedEvent
+  | SurfaceResizeFailedEvent
   | SurfaceExitedEvent
   | TitleChangedEvent
   | BellEvent
@@ -133,7 +278,8 @@ export type KnownSubscribeEvent =
   | ClientAttachedEvent
   | ClientChangedEvent
   | ClientDetachedEvent
-  | EmptyEvent;
+  | EmptyEvent
+  | OverflowEvent;
 
 /** Subscribe events, including unknown future event names. */
 export type SubscribeEvent = KnownSubscribeEvent | UnknownEvent;
@@ -144,8 +290,13 @@ export type KnownAttachEvent =
   | OutputEvent
   | ResizedEvent
   | ColorsChangedEvent
+  | BrowserStateEvent
+  | BrowserFrameEvent
+  | RenderStateEvent
+  | RenderDeltaEvent
   | ScrollChangedEvent
-  | DetachedEvent;
+  | DetachedEvent
+  | OverflowEvent;
 
 /** Wire-format attach events, including unknown future event names. */
 export type AttachEvent = KnownAttachEvent | UnknownEvent;
@@ -178,6 +329,19 @@ export type DecodedAttachEvent =
   | DecodedOutputEvent
   | DecodedResizedEvent
   | DecodedColorsChangedEvent
+  | BrowserStateEvent
+  | BrowserFrameEvent
   | ScrollChangedEvent
   | DetachedEvent
+  | OverflowEvent
   | UnknownEvent;
+
+/** Known events yielded by a protocol v7 render attachment. */
+export type KnownRenderAttachEvent =
+  | RenderStateEvent
+  | RenderDeltaEvent
+  | ScrollChangedEvent
+  | DetachedEvent;
+
+/** Render attachment events, including unknown future event names. */
+export type RenderAttachEvent = KnownRenderAttachEvent | UnknownEvent;
