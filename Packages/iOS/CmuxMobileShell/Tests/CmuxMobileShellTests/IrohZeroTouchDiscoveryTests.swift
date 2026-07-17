@@ -186,6 +186,42 @@ struct IrohZeroTouchDiscoveryTests {
         #expect(try await fixture.store.loadAll(stackUserID: "user-1", teamID: nil).isEmpty)
     }
 
+    @Test
+    func pairGrantRetryAfterCoalescesPresenceRecoveryStorm() async throws {
+        let live = try candidate(deviceID: "mac-a", endpointByte: "a")
+        let discovery = ScriptedIrohDiscovery(snapshots: [[live]])
+        let fixture = try await makeFixture(
+            discovery: discovery,
+            reportedDeviceID: "mac-a",
+            rateLimitedRouteIDs: ["iroh-mac-a"]
+        )
+        defer { fixture.cleanup() }
+
+        #expect(!(await fixture.shell.reconnectActiveMacIfAvailable(stackUserID: "user-1")))
+        #expect(discovery.callCount() == 1)
+        #expect(fixture.factory.attemptedRouteIDs() == ["iroh-mac-a"])
+        let scope = try #require(await fixture.shell.currentScopeSnapshot(userID: "user-1"))
+
+        for index in 0 ..< 5 {
+            let priorGeneration = fixture.shell.storedMacReconnectGenerationForTesting()
+            fixture.shell.applyPresenceUpdate(.online(PresenceInstance(
+                deviceId: "presence-\(index)",
+                tag: "stable",
+                platform: "mac",
+                online: true,
+                lastSeenAt: Self.fixedNow.timeIntervalSince1970 * 1_000
+            )), scope: scope)
+            await fixture.shell.pushedRouteSyncTask?.value
+            #expect(try await pollUntil {
+                fixture.shell.storedMacReconnectGenerationForTesting() > priorGeneration
+                    && !fixture.shell.isRecoveringConnection
+            })
+        }
+
+        #expect(discovery.callCount() == 1)
+        #expect(fixture.factory.attemptedRouteIDs() == ["iroh-mac-a"])
+    }
+
     private func makeFixture(
         candidates: [MobileDiscoveredIrohMac],
         reportedDeviceID: String,
@@ -201,7 +237,8 @@ struct IrohZeroTouchDiscoveryTests {
     private func makeFixture(
         discovery: any MobileIrohMacDiscovering,
         reportedDeviceID: String,
-        failingRouteIDs: Set<String> = []
+        failingRouteIDs: Set<String> = [],
+        rateLimitedRouteIDs: Set<String> = []
     ) async throws -> ZeroTouchFixture {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -217,7 +254,8 @@ struct IrohZeroTouchDiscoveryTests {
         )
         let factory = ZeroTouchRouteFactory(
             router: router,
-            failingRouteIDs: failingRouteIDs
+            failingRouteIDs: failingRouteIDs,
+            rateLimitedRouteIDs: rateLimitedRouteIDs
         )
         let shell = MobileShellComposite(
             runtime: LivenessTestRuntime(
@@ -325,18 +363,27 @@ private final class SuspendedIrohDiscovery: MobileIrohMacDiscovering {
 private final class ZeroTouchRouteFactory: CmxByteTransportFactory, @unchecked Sendable {
     private let router: LivenessHostRouter
     private let failingRouteIDs: Set<String>
+    private let rateLimitedRouteIDs: Set<String>
     private let lock = NSLock()
     private var attempts: [String] = []
 
-    init(router: LivenessHostRouter, failingRouteIDs: Set<String>) {
+    init(
+        router: LivenessHostRouter,
+        failingRouteIDs: Set<String>,
+        rateLimitedRouteIDs: Set<String>
+    ) {
         self.router = router
         self.failingRouteIDs = failingRouteIDs
+        self.rateLimitedRouteIDs = rateLimitedRouteIDs
     }
 
     func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
         lock.withLock { attempts.append(route.id) }
         if failingRouteIDs.contains(route.id) {
             throw ZeroTouchRouteError.unreachable
+        }
+        if rateLimitedRouteIDs.contains(route.id) {
+            throw ZeroTouchRouteError.rateLimited
         }
         return LivenessTransport(router: router)
     }
@@ -346,8 +393,13 @@ private final class ZeroTouchRouteFactory: CmxByteTransportFactory, @unchecked S
     }
 }
 
-private enum ZeroTouchRouteError: Error {
+private enum ZeroTouchRouteError: CmxRetryAfterProviding {
     case unreachable
+    case rateLimited
+
+    var retryAfterSeconds: Int? {
+        self == .rateLimited ? 120 : nil
+    }
 }
 
 @MainActor
