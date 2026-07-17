@@ -252,4 +252,15 @@ struct DockConfigFloatingDockTests {
 
         #expect(workspace.floatingDocks.count == 2)
     }
+
+    @Test("The config-only loader is not exposed as a routable Dock")
+    @MainActor
+    func configurationLoaderDoesNotRegisterForDockRouting() {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+
+        let store = workspace.floatingDockConfigurationStore()
+
+        #expect(!DockSplitStore.liveStores.contains(where: { $0 === store }))
+    }
 }
