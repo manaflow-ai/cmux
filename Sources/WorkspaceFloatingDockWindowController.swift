@@ -29,9 +29,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         panel.title = dock.title
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
-        panel.standardWindowButton(.closeButton)?.isHidden = true
-        panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
-        panel.standardWindowButton(.zoomButton)?.isHidden = true
+        Self.hideStandardWindowButtons(in: panel)
         panel.identifier = NSUserInterfaceItemIdentifier("cmux.workspace.float.\(dock.id.uuidString)")
         panel.isReleasedWhenClosed = false
         panel.isFloatingPanel = false
@@ -72,6 +70,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
     func show(focus: Bool) {
         guard let panel = window, let parentWindow else { return }
         panel.title = dock.title
+        Self.hideStandardWindowButtons(in: panel)
         if !panel.isVisible {
             if panel.parent !== parentWindow {
                 parentWindow.addChildWindow(panel, ordered: .above)
@@ -127,7 +126,16 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
+        if let panel = notification.object as? NSWindow {
+            Self.hideStandardWindowButtons(in: panel)
+        }
         dock.ownsInputFocus = true
+    }
+
+    func windowDidUpdate(_ notification: Notification) {
+        if let panel = notification.object as? NSWindow {
+            Self.hideStandardWindowButtons(in: panel)
+        }
     }
 
     func windowDidResignKey(_ notification: Notification) {
@@ -165,6 +173,15 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
             width: relativeFrame.width,
             height: relativeFrame.height
         )
+    }
+
+    private static func hideStandardWindowButtons(in panel: NSWindow) {
+        for buttonType in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            guard let button = panel.standardWindowButton(buttonType) else { continue }
+            button.isHidden = true
+            button.alphaValue = 0
+            button.isEnabled = false
+        }
     }
 }
 
