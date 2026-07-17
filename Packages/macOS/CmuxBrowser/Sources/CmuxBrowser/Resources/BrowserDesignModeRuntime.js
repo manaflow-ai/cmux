@@ -31,7 +31,6 @@
   const maxStyleValueCharacters = 512;
   const maxSnippetCharacters = 2400;
   const maxSnippetNodes = 512;
-  const maxSelectionReferences = 12;
   const maxSelectionRecoveryAttempts = 8;
   const mutationEmissionInterval = 100;
   const redactedValue = "<redacted>";
@@ -96,7 +95,6 @@
 
   // Marquee region captures: page-anchored rects drawn by dragging.
   const regionReferences = [];
-  const maxRegionReferences = 6;
   const marqueeThresholdPixels = 5;
   let pendingPointer = null;
   let marqueeActive = false;
@@ -1414,7 +1412,6 @@
       reference.baseline = validatedBaseline;
       reference.identity = identityFor(element);
     } else {
-      if (selectedReferences.length >= maxSelectionReferences) return snapshot();
       reference = {
         element,
         baseline: validatedBaseline,
@@ -1577,7 +1574,6 @@
     if (rect.width < 8 || rect.height < 8) return;
     // Draws stack like clicks: every capture becomes another prompt token
     // and existing element/region selections persist.
-    if (regionReferences.length >= maxRegionReferences) return;
     regionReferences.push({
       pageX: rect.x + (globalThis.scrollX || 0),
       pageY: rect.y + (globalThis.scrollY || 0),
