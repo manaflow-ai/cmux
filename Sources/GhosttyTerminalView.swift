@@ -12642,6 +12642,10 @@ struct GhosttyTerminalView: NSViewRepresentable {
             hostedView.setVisibleInUI(isVisibleInUI)
             hostedView.setActive(isActive)
         case .hideOnly:
+            TerminalWindowPortalRegistry.updateEntryVisibility(
+                for: hostedView,
+                visibleInUI: false
+            )
             hostedView.setVisibleInUI(false)
         case .deferred:
             // Preserve portal entry visibility while a stale host is still receiving SwiftUI updates.
