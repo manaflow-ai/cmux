@@ -77,7 +77,7 @@ public final class MobileIrohRuntimeComposition:
     private let brokerFactory: BrokerFactory
     private let deviceID: @Sendable () -> String
     private let tag: String
-    private let exactDiscoveryTagOnly: Bool
+    private let discoveryCompatibilityPolicy: MobileMacBuildCompatibilityPolicy?
     private let now: @Sendable () -> Date
     private let startNetworkPathObservation: @Sendable () async -> Void
     private let networkPathSnapshot: @Sendable () async throws -> CmxIrohNetworkPathSnapshot
@@ -121,7 +121,7 @@ public final class MobileIrohRuntimeComposition:
     public convenience init(
         apiBaseURL: String,
         reachability: any ReachabilityProviding,
-        exactDiscoveryTagOnly: Bool = false,
+        discoveryCompatibilityPolicy: MobileMacBuildCompatibilityPolicy? = nil,
         defaults: UserDefaults = .standard,
         infoDictionary: [String: Any]? = Bundle.main.infoDictionary,
         bundleIdentifier: String? = Bundle.main.bundleIdentifier
@@ -235,7 +235,7 @@ public final class MobileIrohRuntimeComposition:
                 infoDictionary: infoDictionary,
                 bundleIdentifier: bundleIdentifier
             ),
-            exactDiscoveryTagOnly: exactDiscoveryTagOnly,
+            discoveryCompatibilityPolicy: discoveryCompatibilityPolicy,
             now: { Date() },
             lanPeerDiscovery: lanPeerDiscovery,
             startNetworkPathObservation: {
@@ -266,7 +266,7 @@ public final class MobileIrohRuntimeComposition:
         brokerFactory: @escaping BrokerFactory,
         deviceID: @escaping @Sendable () -> String,
         tag: String,
-        exactDiscoveryTagOnly: Bool = false,
+        discoveryCompatibilityPolicy: MobileMacBuildCompatibilityPolicy? = nil,
         now: @escaping @Sendable () -> Date,
         routeCatalog: MobileIrohRouteCatalog = MobileIrohRouteCatalog(),
         lanPeerDiscovery: CmxIrohLANPeerDiscovery? = nil,
@@ -290,7 +290,7 @@ public final class MobileIrohRuntimeComposition:
         self.brokerFactory = brokerFactory
         self.deviceID = deviceID
         self.tag = tag
-        self.exactDiscoveryTagOnly = exactDiscoveryTagOnly
+        self.discoveryCompatibilityPolicy = discoveryCompatibilityPolicy
         self.now = now
         self.routeCatalog = routeCatalog
         self.lanPeerDiscovery = lanPeerDiscovery
@@ -352,7 +352,7 @@ public final class MobileIrohRuntimeComposition:
             consumedDiscoveryGeneration = generation
             return await routeCatalog.liveMacCandidates(
                 preferredTag: tag,
-                exactTagOnly: exactDiscoveryTagOnly
+                compatibleWith: discoveryCompatibilityPolicy
             )
         }
         guard await runtime.refreshLiveDiscovery() else {
@@ -366,7 +366,7 @@ public final class MobileIrohRuntimeComposition:
         consumedDiscoveryGeneration = generation
         return await routeCatalog.liveMacCandidates(
             preferredTag: tag,
-            exactTagOnly: exactDiscoveryTagOnly
+            compatibleWith: discoveryCompatibilityPolicy
         )
     }
 

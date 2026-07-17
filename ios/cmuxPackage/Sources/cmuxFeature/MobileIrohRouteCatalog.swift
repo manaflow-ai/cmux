@@ -158,10 +158,10 @@ public actor MobileIrohRouteCatalog {
     /// builds and then broker recency.
     public func liveMacCandidates(
         preferredTag: String,
-        exactTagOnly: Bool = false
+        compatibleWith policy: MobileMacBuildCompatibilityPolicy? = nil
     ) -> [MobileDiscoveredIrohMac] {
         liveMacs
-            .filter { !exactTagOnly || $0.instanceTag == preferredTag }
+            .filter { policy?.allows(instanceTag: $0.instanceTag) ?? true }
             .sorted { left, right in
                 let leftRank = Self.tagRank(left.instanceTag, preferred: preferredTag)
                 let rightRank = Self.tagRank(right.instanceTag, preferred: preferredTag)
@@ -352,19 +352,31 @@ public struct PersonalIrohDeviceRegistryDecorator: DeviceRegistryRefreshing {
         team: [RegistryDevice]
     ) -> [RegistryDevice] {
         var result = team
+        var deviceIndexes: [String: Int] = [:]
+        for (index, device) in result.enumerated() {
+            let key = device.deviceId.lowercased()
+            if deviceIndexes[key] == nil {
+                deviceIndexes[key] = index
+            }
+        }
         for personalDevice in personal {
-            guard let deviceIndex = result.firstIndex(where: {
-                $0.deviceId.lowercased() == personalDevice.deviceId.lowercased()
-            }) else {
+            let deviceKey = personalDevice.deviceId.lowercased()
+            guard let deviceIndex = deviceIndexes[deviceKey] else {
+                deviceIndexes[deviceKey] = result.endIndex
                 result.append(personalDevice)
                 continue
             }
+            var instanceIndexes: [String: Int] = [:]
+            for (index, instance) in result[deviceIndex].instances.enumerated() {
+                if instanceIndexes[instance.tag] == nil {
+                    instanceIndexes[instance.tag] = index
+                }
+            }
             for instance in personalDevice.instances {
-                if let instanceIndex = result[deviceIndex].instances.firstIndex(where: {
-                    $0.tag == instance.tag
-                }) {
+                if let instanceIndex = instanceIndexes[instance.tag] {
                     result[deviceIndex].instances[instanceIndex] = instance
                 } else {
+                    instanceIndexes[instance.tag] = result[deviceIndex].instances.endIndex
                     result[deviceIndex].instances.append(instance)
                 }
             }

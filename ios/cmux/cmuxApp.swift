@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileShell
 import CmuxMobileTransport
 import Foundation
 import SwiftUI
@@ -15,11 +16,13 @@ struct cmuxApp: App {
         let reachability = ReachabilityService()
         let auth = MobileAuthComposition(reachability: reachability)
         auth.start()
+        let buildCompatibilityPolicy = MobileMacBuildCompatibilityPolicy.current(
+            buildScope: MobileIOSBuildScope.current()
+        )
         let iroh = MobileIrohRuntimeComposition(
             apiBaseURL: auth.config.apiBaseURL,
             reachability: reachability,
-            exactDiscoveryTagOnly: auth.authEnvironment == .development
-                && MobileIOSBuildScope.current() != nil
+            discoveryCompatibilityPolicy: buildCompatibilityPolicy
         )
         iroh.configure(auth: auth.coordinator)
 
