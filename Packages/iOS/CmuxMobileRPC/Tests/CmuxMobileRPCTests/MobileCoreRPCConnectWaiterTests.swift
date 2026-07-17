@@ -4,6 +4,63 @@ import Testing
 @testable import CmuxMobileRPC
 
 @Suite(.serialized) struct MobileCoreRPCConnectWaiterTests {
+    @Test func successfulConnectNeverPublishesHalfInstalledWriterState() async throws {
+        let bookkeeping = SuccessfulConnectBookkeepingGate()
+        let transport = ReleasableConnectTransport()
+        let session = MobileCoreRPCSession(
+            makeTransport: { transport },
+            beforeSuccessfulConnectBookkeeping: {
+                await bookkeeping.suspend()
+            }
+        )
+        let first = try MobileCoreRPCClient.requestData(
+            method: "mobile.host.status",
+            params: [:],
+            id: "first-install-waiter"
+        )
+        let second = try MobileCoreRPCClient.requestData(
+            method: "mobile.host.status",
+            params: [:],
+            id: "second-install-waiter"
+        )
+        let deadline = DispatchTime.now().uptimeNanoseconds + 60 * 1_000_000_000
+
+        await transport.releaseConnect()
+        let firstTask = Task {
+            try await session.send(
+                payload: first,
+                requestID: "first-install-waiter",
+                deadlineUptimeNanoseconds: deadline
+            )
+        }
+        await bookkeeping.waitUntilSuspended()
+        let secondTask = Task {
+            try await session.send(
+                payload: second,
+                requestID: "second-install-waiter",
+                deadlineUptimeNanoseconds: deadline
+            )
+        }
+
+        do {
+            _ = try await secondTask.value
+            await bookkeeping.resume()
+            _ = try await firstTask.value
+        } catch {
+            await bookkeeping.resume()
+            firstTask.cancel()
+            _ = try? await firstTask.value
+            throw error
+        }
+
+        #expect(!(await transport.closed()))
+        #expect(try await Set(transport.sentRequests().compactMap(\.id)) == [
+            "first-install-waiter",
+            "second-install-waiter",
+        ])
+        await session.tearDown(error: .connectionClosed)
+    }
+
     @Test func connectTimeoutDoesNotCancelOtherWaiters() async throws {
         let transport = ReleasableConnectTransport()
         let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59130)
@@ -277,5 +334,36 @@ import Testing
             await Task.yield()
         }
         return await session.connectWaiterCountForTesting() >= count
+    }
+}
+
+private actor SuccessfulConnectBookkeepingGate {
+    private var suspended = false
+    private var resumed = false
+    private var suspensionWaiters: [CheckedContinuation<Void, Never>] = []
+    private var resumeContinuation: CheckedContinuation<Void, Never>?
+
+    func suspend() async {
+        suspended = true
+        let waiters = suspensionWaiters
+        suspensionWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+        guard !resumed else { return }
+        await withCheckedContinuation { continuation in
+            resumeContinuation = continuation
+        }
+    }
+
+    func waitUntilSuspended() async {
+        guard !suspended else { return }
+        await withCheckedContinuation { continuation in
+            suspensionWaiters.append(continuation)
+        }
+    }
+
+    func resume() {
+        resumed = true
+        resumeContinuation?.resume()
+        resumeContinuation = nil
     }
 }

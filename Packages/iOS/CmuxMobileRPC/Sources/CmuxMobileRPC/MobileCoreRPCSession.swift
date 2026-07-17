@@ -5,6 +5,7 @@ actor MobileCoreRPCSession {
     typealias TransportFactory = @Sendable () throws -> any CmxByteTransport
     typealias IndependentEventByteStreamFactory = @Sendable () async throws -> CmxIndependentEventByteStream
     typealias ConnectedCandidateHook = @Sendable (_ candidate: any CmxByteTransport) async -> Void
+    typealias SuccessfulConnectBookkeepingHook = @Sendable () async -> Void
     typealias PendingContinuation = CheckedContinuation<Result<Data, MobileShellConnectionError>, Never>
     typealias ConnectingTask = (id: UUID, lease: MobileRPCConnectAttemptLease?, task: Task<any CmxByteTransport, any Error>, waiters: Set<UUID>, completed: Bool)
     static let defaultAbandonedConnectCleanupTimeoutNanoseconds: UInt64 = 1_000_000_000
@@ -48,6 +49,7 @@ actor MobileCoreRPCSession {
     private let makeTransport: TransportFactory
     let makeIndependentEventByteStream: IndependentEventByteStreamFactory?
     private let didReceiveConnectedCandidate: ConnectedCandidateHook?
+    private let beforeSuccessfulConnectBookkeeping: SuccessfulConnectBookkeepingHook?
     private var transport: (any CmxByteTransport)?
     private var connectionTask: ConnectingTask?
     private var installedConnectionID: UUID?
@@ -81,7 +83,8 @@ actor MobileCoreRPCSession {
         lateAbandonedConnectCloseTimeoutNanoseconds: UInt64 = 5_000_000_000,
         makeTransport: @escaping TransportFactory,
         makeIndependentEventByteStream: IndependentEventByteStreamFactory? = nil,
-        didReceiveConnectedCandidate: ConnectedCandidateHook? = nil
+        didReceiveConnectedCandidate: ConnectedCandidateHook? = nil,
+        beforeSuccessfulConnectBookkeeping: SuccessfulConnectBookkeepingHook? = nil
     ) {
         self.connectAttemptKey = connectAttemptKey
         self.connectAttemptRegistry = connectAttemptRegistry
@@ -90,6 +93,7 @@ actor MobileCoreRPCSession {
         self.makeTransport = makeTransport
         self.makeIndependentEventByteStream = makeIndependentEventByteStream
         self.didReceiveConnectedCandidate = didReceiveConnectedCandidate
+        self.beforeSuccessfulConnectBookkeeping = beforeSuccessfulConnectBookkeeping
     }
 
     deinit {
@@ -336,6 +340,7 @@ actor MobileCoreRPCSession {
         connectionTask = nil
         installedConnectionID = connectionID
         transport = candidate
+        await beforeSuccessfulConnectBookkeeping?()
         await connectAttemptRegistry.recordSuccessfulConnect(lease: connectLease)
         readerTask = Task { [weak self] in
             await self?.readLoop(
