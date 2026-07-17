@@ -30,7 +30,8 @@ struct WorkspaceActionSaveDialogAccessoryTests {
                 ),
                 skippedPanelCount: 0
             ),
-            initialName: "Layout"
+            initialName: "Layout",
+            visibleFrame: NSRect(x: 0, y: 0, width: 1024, height: 500)
         )
 
         func scrollViews(in view: NSView) -> [NSScrollView] {
@@ -42,6 +43,12 @@ struct WorkspaceActionSaveDialogAccessoryTests {
 
         let disclosureScrollViews = scrollViews(in: accessory.view)
         #expect(disclosureScrollViews.count == 3)
+        #expect(
+            disclosureScrollViews.reduce(0) { $0 + $1.frame.height }
+                <= CmuxAlertScrollableDetailsView.maximumHeight(
+                    for: NSRect(x: 0, y: 0, width: 1024, height: 500)
+                )
+        )
         for scrollView in disclosureScrollViews {
             let textView = scrollView.documentView as? NSTextView
             #expect(textView != nil)

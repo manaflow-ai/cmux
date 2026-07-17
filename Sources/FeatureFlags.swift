@@ -46,6 +46,8 @@ final class CmuxFeatureFlags {
   #endif
   private static let agentChatUIDefault = false
   private static let sidebarWorkspaceAgentSpinnerDefault = false
+  private static let workspaceTodoControlsDefault = false
+  private static let appKitSidebarListDefault = false
   private static let feedUIDefault = true
 
   private static let overrideKeyPrefix = "cmux.flags.override."
@@ -132,6 +134,43 @@ final class CmuxFeatureFlags {
     defaultWhenUnavailable: CmuxFeatureFlags.sidebarWorkspaceAgentSpinnerDefault
   )
 
+  // FLAG(key: workspace-todo-controls-enabled-release, owner: lawrencecchen,
+  //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+  // Shows user-facing workspace todo controls that create checklist
+  // items or set completion/status lanes. Hidden until the local
+  // beta setting opts in or the PostHog flag is enabled.
+  private static let workspaceTodoControlsDefinition = CmuxFeatureFlagDefinition(
+    key: "workspace-todo-controls-enabled-release",
+    title: String(
+      localized: "featureFlags.workspaceTodoControls.title",
+      defaultValue: "Workspace todo controls"
+    ),
+    flagDescription: String(
+      localized: "featureFlags.workspaceTodoControls.description",
+      defaultValue: "Shows Add Checklist Item and workspace completion status controls."
+    ),
+    defaultWhenUnavailable: CmuxFeatureFlags.workspaceTodoControlsDefault
+  )
+
+  // FLAG(key: sidebar-appkit-list-experiment, owner: lawrencecchen,
+  //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+  // Renders the workspace sidebar with the AppKit NSTableView list
+  // (virtualized rows, measured-once heights) instead of the SwiftUI
+  // LazyVStack. Off by default while the rewrite soaks.
+  private static let appKitSidebarListDefinition = CmuxFeatureFlagDefinition(
+    key: "sidebar-appkit-list-experiment",
+    title: String(
+      localized: "featureFlags.appKitSidebarList.title",
+      defaultValue: "Lawrence Sidebar"
+    ),
+    flagDescription: String(
+      localized: "featureFlags.appKitSidebarList.description",
+      defaultValue:
+        "Renders the workspace sidebar with a native AppKit list and divider for smoother scrolling and resizing with many workspaces."
+    ),
+    defaultWhenUnavailable: CmuxFeatureFlags.appKitSidebarListDefault
+  )
+
   // FLAG(key: feed-ui-enabled-release, owner: lawrencecchen,
   //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
   // Shows Feed in the right sidebar, new-workspace menu, and command
@@ -154,6 +193,8 @@ final class CmuxFeatureFlags {
       cloudVMDefinition,
       agentChatDefinition,
       sidebarWorkspaceAgentSpinnerDefinition,
+      workspaceTodoControlsDefinition,
+      appKitSidebarListDefinition,
       feedDefinition,
     ]
   }()
@@ -176,6 +217,14 @@ final class CmuxFeatureFlags {
 
   var isSidebarWorkspaceAgentSpinnerEnabled: Bool {
     effectiveValue(for: Self.sidebarWorkspaceAgentSpinnerDefinition)
+  }
+
+  var isWorkspaceTodoControlsEnabled: Bool {
+    effectiveValue(for: Self.workspaceTodoControlsDefinition)
+  }
+
+  var isAppKitSidebarListEnabled: Bool {
+    effectiveValue(for: Self.appKitSidebarListDefinition)
   }
 
   var isFeedUIEnabled: Bool {

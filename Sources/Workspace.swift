@@ -23,7 +23,6 @@ import CryptoKit
 import Darwin
 import Network
 import CoreText
-import WebKit
 
 #if DEBUG
 func debugWorkspaceDescriptionPreview(_ text: String?, limit: Int = 120) -> String {
@@ -39,6 +38,10 @@ func debugWorkspaceDescriptionPreview(_ text: String?, limit: Int = 120) -> Stri
     return "\(escaped.prefix(limit))..."
 }
 #endif
+
+private final class WorkspacePendingTerminalInputObserver: @unchecked Sendable {
+    var observer: NSObjectProtocol?
+}
 
 private struct SessionPaneRestoreEntry {
     let paneId: PaneID
@@ -1826,6 +1829,102 @@ extension Workspace {
 
 // MARK: - Config-driven terminal input delivery
 
+extension Workspace {
+
+    /// Delivers config-driven startup input (`Workspace+CustomLayout.swift`) once
+    /// the terminal surface is ready, or immediately when it already is.
+    func sendInputWhenReady(
+        _ text: String,
+        to panel: TerminalPanel,
+        reason: WorkspacePendingTerminalInputReason = .configurationCommand
+    ) {
+        if panel.surface.surface != nil {
+            panel.sendInput(text)
+            return
+        }
+
+        let timeout = reason.timeout
+        let panelId = panel.id
+        let registration = WorkspacePendingTerminalInputObserver()
+
+        registration.observer = NotificationCenter.default.addObserver(
+            forName: .terminalSurfaceDidBecomeReady,
+            object: panel.surface,
+            queue: .main
+        ) { [weak self, registration] _ in
+            Task { @MainActor [weak self, registration] in
+                guard
+                    let self,
+                    self.hasPendingTerminalInputObserver(registration, forPanelId: panelId)
+                else {
+                    return
+                }
+
+                self.removePendingTerminalInputObserver(registration, forPanelId: panelId)
+                if let panel = self.panels[panelId] as? TerminalPanel {
+                    panel.sendInput(text)
+                }
+            }
+        }
+        pendingTerminalInputObserversByPanelId[panelId, default: []].append(registration)
+        panel.surface.requestBackgroundSurfaceStartIfNeeded()
+
+        guard let timeout else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { [weak self, registration] in
+            Task { @MainActor [weak self, registration] in
+                guard
+                    let self,
+                    self.hasPendingTerminalInputObserver(registration, forPanelId: panelId)
+                else {
+                    return
+                }
+
+                self.removePendingTerminalInputObserver(registration, forPanelId: panelId)
+                #if DEBUG
+                NSLog("[CmuxConfig] surface not ready after 3s, dropping command (%d chars)", text.count)
+                #endif
+            }
+        }
+    }
+
+    private func hasPendingTerminalInputObserver(
+        _ registration: WorkspacePendingTerminalInputObserver,
+        forPanelId panelId: UUID
+    ) -> Bool {
+        pendingTerminalInputObserversByPanelId[panelId]?.contains {
+            $0 === registration
+        } == true
+    }
+
+    private func removePendingTerminalInputObserver(
+        _ registration: WorkspacePendingTerminalInputObserver,
+        forPanelId panelId: UUID
+    ) {
+        if let observer = registration.observer {
+            NotificationCenter.default.removeObserver(observer)
+            registration.observer = nil
+        }
+        pendingTerminalInputObserversByPanelId[panelId]?.removeAll {
+            $0 === registration
+        }
+        if pendingTerminalInputObserversByPanelId[panelId]?.isEmpty == true {
+            pendingTerminalInputObserversByPanelId.removeValue(forKey: panelId)
+        }
+    }
+
+    func removePendingTerminalInputObservers(forPanelId panelId: UUID) {
+        guard let observers = pendingTerminalInputObserversByPanelId.removeValue(forKey: panelId) else {
+            return
+        }
+        for registration in observers {
+            if let observer = registration.observer {
+                NotificationCenter.default.removeObserver(observer)
+                registration.observer = nil
+            }
+        }
+    }
+
+}
 
 
 /// Lifted to `CmuxBrowser.ClosedBrowserPanelRestoreSnapshot` (Workspace
@@ -1840,7 +1939,6 @@ final class Workspace: Identifiable, ObservableObject {
         case userInitiated
         case automationPreload
         case restoration
-        case extensionRequested
 
         var permitsCreationWhenBrowserDisabled: Bool {
             self == .restoration
@@ -1848,10 +1946,6 @@ final class Workspace: Identifiable, ObservableObject {
 
         var preloadsInitialNavigationInBackground: Bool {
             self == .automationPreload
-        }
-
-        var opensExternallyWhenBrowserDisabled: Bool {
-            self != .extensionRequested
         }
     }
 
@@ -1917,7 +2011,6 @@ final class Workspace: Identifiable, ObservableObject {
     @Published private(set) var surfaceTabBarDirectory: String?
     private(set) var preferredBrowserProfileID: UUID?
     let closeTabWarningDefaults, agentSessionAutoResumeDefaults: UserDefaults
-    let browserWebExtensionHost: (any BrowserWebExtensionHosting)?
 
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
     var portOrdinal: Int = 0
@@ -1947,8 +2040,7 @@ final class Workspace: Identifiable, ObservableObject {
                     remoteWebsiteDataStoreIdentifier: self.isRemoteWorkspace ? self.id : nil,
                     remoteStatus: self.browserRemoteWorkspaceStatusSnapshot()
                 )
-            },
-            browserWebExtensionHost: browserWebExtensionHost
+            }
         )
         _dockSplit = store
         return store
@@ -2307,7 +2399,7 @@ final class Workspace: Identifiable, ObservableObject {
         get { restoredAgentLifecycle.invalidatedFingerprintsByPanelId }
         set { restoredAgentLifecycle.invalidatedFingerprintsByPanelId = newValue }
     }
-    var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]
+    private var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]
     private let sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>
 
     typealias SurfaceResumeStartupLaunch = WorkspaceSurfaceResumeStartupLaunch
@@ -2489,17 +2581,21 @@ final class Workspace: Identifiable, ObservableObject {
             localized: "surfaceResumeApproval.runPrompt.title",
             defaultValue: "Run Resume Command?"
         )
-        alert.informativeText = String(
+        let informativeText = String(
             format: String(
                 localized: "surfaceResumeApproval.runPrompt.message",
-                defaultValue: "cmux is restoring a terminal with this resume command:\n\n%@\n\nWorking directory: %@"
+                defaultValue: "cmux is restoring a terminal with this resume command:\n\nWorking directory: %@\n\n%@"
             ),
-            binding.command,
-            binding.cwd ?? String(localized: "surfaceResumeApproval.cwd.none", defaultValue: "None")
+            binding.cwd ?? String(localized: "surfaceResumeApproval.cwd.none", defaultValue: "None"),
+            binding.command
         )
         alert.addButton(withTitle: String(localized: "surfaceResumeApproval.runPrompt.run", defaultValue: "Run"))
         alert.addButton(withTitle: String(localized: "surfaceResumeApproval.runPrompt.skip", defaultValue: "Skip"))
-        return alert.runModal() == .alertFirstButtonReturn
+        let content = CmuxAlertContent(
+            flattenedText: informativeText,
+            separatingScrollableDetails: binding.command
+        )
+        return alert.runCmuxModal(content: content) == .alertFirstButtonReturn
     }
 
     // MARK: - Initialization
@@ -2801,7 +2897,6 @@ final class Workspace: Identifiable, ObservableObject {
         initialBrowserTransparentBackground: Bool = false,
         workspaceEnvironment: [String: String] = [:],
         allowTextBoxFocusDefault: Bool = true,
-        browserWebExtensionHost: (any BrowserWebExtensionHosting)? = nil,
         closeTabWarningDefaults: UserDefaults = .standard,
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
         initialDetachedSurface: DetachedSurfaceTransfer? = nil,
@@ -2813,7 +2908,6 @@ final class Workspace: Identifiable, ObservableObject {
         self.sidebarProcessTitleObservation = sidebarProcessTitleObservation ?? WorkspaceSidebarProcessTitleObservationModel()
         self.closeTabWarningDefaults = closeTabWarningDefaults
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
-        self.browserWebExtensionHost = browserWebExtensionHost
         let sanitizedWorkspaceEnvironment = Self.sanitizedWorkspaceEnvironment(workspaceEnvironment)
         self.workspaceEnvironment = sanitizedWorkspaceEnvironment
         self.portOrdinal = portOrdinal
@@ -2885,8 +2979,7 @@ final class Workspace: Identifiable, ObservableObject {
                 profileID: resolvedNewBrowserProfileID(),
                 initialURL: initialBrowserURL,
                 omnibarVisible: initialBrowserOmnibarVisible,
-                transparentBackground: initialBrowserTransparentBackground,
-                browserWebExtensionHost: browserWebExtensionHost
+                transparentBackground: initialBrowserTransparentBackground
             )
             configureBrowserPanel(browserPanel)
             panels[browserPanel.id] = browserPanel
@@ -2910,12 +3003,8 @@ final class Workspace: Identifiable, ObservableObject {
             ) {
                 bindSurface(tabId, toPanelId: browserPanel.id)
                 initialTabId = tabId
-                installBrowserPanelSubscription(browserPanel)
-            } else {
-                panels.removeValue(forKey: browserPanel.id)
-                panelTitles.removeValue(forKey: browserPanel.id)
-                browserPanel.close()
             }
+            installBrowserPanelSubscription(browserPanel)
         } else if initialSurface == .feed {
             let feedPanel = RightSidebarToolPanel(workspace: self, mode: .feed)
             panels[feedPanel.id] = feedPanel
@@ -3089,13 +3178,12 @@ final class Workspace: Identifiable, ObservableObject {
 
     private var sharedLiveAgentIndexObserver: NSObjectProtocol?
 
-    isolated deinit {
+    deinit {
         for registrations in pendingTerminalInputObserversByPanelId.values {
             for registration in registrations {
                 if let observer = registration.observer {
                     NotificationCenter.default.removeObserver(observer)
                 }
-                registration.timeoutTimer?.cancel()
             }
         }
         if let sharedLiveAgentIndexObserver {
@@ -3568,11 +3656,6 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func installBrowserPanelSubscription(_ browserPanel: BrowserPanel) {
-        browserPanel.registerWebExtensionIfNeeded()
-        browserPanel.browserWebExtensionHost?.noteWindowChanged(panelID: browserPanel.id)
-        if focusedPanelId == browserPanel.id {
-            browserPanel.noteWebExtensionActivated()
-        }
         let browserTabState = Publishers.CombineLatest4(
             browserPanel.$pageTitle.removeDuplicates(), browserPanel.$currentURL.removeDuplicates(),
             browserPanel.$isLoading.removeDuplicates(), browserPanel.$faviconPNGData.removeDuplicates(by: { $0 == $1 })
@@ -3585,7 +3668,6 @@ final class Workspace: Identifiable, ObservableObject {
             guard let self = self,
                   let browserPanel = browserPanel,
                   let tabId = self.surfaceIdFromPanelId(browserPanel.id) else { return }
-            browserPanel.browserWebExtensionHost?.noteTabMetadataChanged(panelID: browserPanel.id)
             self.publishBrowserOpenTabSuggestion(for: browserPanel)
             guard let existing = self.bonsplitController.tab(tabId) else { return }
             let nextTitle = browserPanel.displayTitle
@@ -7786,8 +7868,7 @@ final class Workspace: Identifiable, ObservableObject {
             proxyEndpoint: remoteProxyEndpoint,
             bypassRemoteProxy: bypassRemoteProxy,
             isRemoteWorkspace: isRemoteWorkspace,
-            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
-            browserWebExtensionHost: browserWebExtensionHost
+            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil
         )
         configureBrowserPanel(browserPanel)
         panels[browserPanel.id] = browserPanel
@@ -7815,7 +7896,6 @@ final class Workspace: Identifiable, ObservableObject {
             removeSurfaceMapping(forSurfaceId: newTab.id)
             panels.removeValue(forKey: browserPanel.id)
             panelTitles.removeValue(forKey: browserPanel.id)
-            browserPanel.close()
             return nil
         }
         applyInitialSplitDividerPosition(initialDividerPosition, sourcePaneId: paneId, newPaneId: newPaneId)
@@ -7861,9 +7941,7 @@ final class Workspace: Identifiable, ObservableObject {
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
         omnibarVisible: Bool = true,
         transparentBackground: Bool = false,
-        bypassRemoteProxy: Bool = false,
-        webViewConfiguration: WKWebViewConfiguration? = nil,
-        allowWebExtensionInitialNavigationConfiguration: Bool = true
+        bypassRemoteProxy: Bool = false
     ) -> BrowserPanel? {
         // A remote tmux mirror workspace is a 1:1 view of a tmux session (which
         // has no browser concept). A local browser tab here would be an orphan
@@ -7872,8 +7950,7 @@ final class Workspace: Identifiable, ObservableObject {
         if isRemoteTmuxMirror { return nil }
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         guard browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
-            if creationPolicy.opensExternallyWhenBrowserDisabled,
-               let externalURL = url ?? initialRequest?.url {
+            if let externalURL = url ?? initialRequest?.url {
                 _ = NSWorkspace.shared.open(externalURL)
             }
             return nil
@@ -7900,10 +7977,7 @@ final class Workspace: Identifiable, ObservableObject {
             proxyEndpoint: remoteProxyEndpoint,
             bypassRemoteProxy: bypassRemoteProxy,
             isRemoteWorkspace: isRemoteWorkspace,
-            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
-            browserWebExtensionHost: browserWebExtensionHost,
-            webViewConfiguration: webViewConfiguration,
-            allowWebExtensionInitialNavigationConfiguration: allowWebExtensionInitialNavigationConfiguration
+            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil
         )
         configureBrowserPanel(browserPanel)
         panels[browserPanel.id] = browserPanel
@@ -7922,7 +7996,6 @@ final class Workspace: Identifiable, ObservableObject {
         ) else {
             panels.removeValue(forKey: browserPanel.id)
             panelTitles.removeValue(forKey: browserPanel.id)
-            browserPanel.close()
             return nil
         }
 
@@ -10364,22 +10437,35 @@ final class Workspace: Identifiable, ObservableObject {
         }
         let renderedPaneIds = bonsplitController.zoomedPaneId.map { [$0] } ?? bonsplitController.allPaneIds
         var visiblePanelIds: Set<UUID> = []
+        let focusedPanelForFallback = focusedPanelId.flatMap { panelId in
+            panels[panelId] == nil ? nil : panelId
+        }
+        let focusedPanelPaneId = focusedPanelForFallback.flatMap { paneId(forPanelId: $0)?.id }
 
         for paneId in renderedPaneIds {
-            let selectedTab = bonsplitController.selectedTab(inPane: paneId) ?? bonsplitController.tabs(inPane: paneId).first
-            guard let selectedTab,
-                  let panelId = panelIdFromSurfaceId(selectedTab.id),
-                  panels[panelId] != nil else {
-                continue
+            let selectedPanelId = bonsplitController
+                .selectedTab(inPane: paneId)
+                .flatMap { panelIdFromSurfaceId($0.id) }
+                .flatMap { panels[$0] == nil ? nil : $0 }
+            let firstPanelId = bonsplitController
+                .tabs(inPane: paneId)
+                .compactMap { tab -> UUID? in
+                    guard let panelId = panelIdFromSurfaceId(tab.id),
+                          panels[panelId] != nil else {
+                        return nil
+                    }
+                    return panelId
+                }
+                .first
+            if let panelId = WorkspacePanelVisibilityPolicy.visiblePanelIdForRenderedPane(
+                paneId: paneId.id,
+                selectedPanelId: selectedPanelId,
+                firstPanelId: firstPanelId,
+                focusedPanelId: focusedPanelForFallback,
+                focusedPanelPaneId: focusedPanelPaneId
+            ) {
+                visiblePanelIds.insert(panelId)
             }
-            visiblePanelIds.insert(panelId)
-        }
-
-        if let focusedPanelId,
-           panels[focusedPanelId] != nil,
-           let focusedPaneId = paneId(forPanelId: focusedPanelId),
-           renderedPaneIds.contains(where: { $0.id == focusedPaneId.id }) {
-            visiblePanelIds.insert(focusedPanelId)
         }
 
         return visiblePanelIds
@@ -11154,17 +11240,6 @@ extension Workspace: PaneTreeHosting {
     /// Legacy `@Published panels` willSet: re-emits objectWillChange and the
     /// Combine bridge at the exact timing `@Published` used.
     func panelsWillChange(to newValue: [UUID: any Panel]) {
-        let addedUserOwnedPanel = newValue.contains { panelID, panel in
-            guard !(panel is BrowserPanel) else { return false }
-            guard let previousPanel = panels[panelID] else { return true }
-            return previousPanel !== panel
-        }
-        if addedUserOwnedPanel {
-            browserWebExtensionHost?.noteUserOwnedPanelAdded(
-                nativeWindow: owningTabManager?.window,
-                alongsidePanelIDs: newValue.compactMap { $0.value is BrowserPanel ? $0.key : nil }
-            )
-        }
         objectWillChange.send()
         setBrowserMediaActivity(
             currentBrowserMediaActivity(panels: newValue),
@@ -11253,8 +11328,11 @@ extension Workspace: BonsplitDelegate {
             cancelButton.keyEquivalent = "\u{1b}"
         }
 
+        let content = CmuxAlertContent(informativeText: message)
         // Prefer a sheet if we can find a window, otherwise fall back to modal.
-        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+        if let window = NSApp.cmuxMainWindowForModalPresentation(),
+           window.attachedSheet == nil {
+            content.apply(to: alert, presentingWindow: window)
             return await withCheckedContinuation { continuation in
                 alert.beginSheetModal(for: window) { response in
                     continuation.resume(returning: response == .alertFirstButtonReturn)
@@ -11262,6 +11340,7 @@ extension Workspace: BonsplitDelegate {
             }
         }
 
+        content.apply(to: alert, presentingWindow: nil)
         return alert.runModal() == .alertFirstButtonReturn
     }
 
@@ -11374,10 +11453,6 @@ extension Workspace: BonsplitDelegate {
         guard let panel = panels[effectiveFocusedPanelId] else {
             return
         }
-        browserWebExtensionHost?.noteSelectionChanged(
-            selectedBrowserPanelID: (panel as? BrowserPanel)?.id,
-            nativeWindow: owningTabManager?.window
-        )
 
         if debugStressPreloadSelectionDepth > 0 {
             if let terminalPanel = panel as? TerminalPanel {
@@ -11423,6 +11498,7 @@ extension Workspace: BonsplitDelegate {
         // affected by SwiftUI opacity. Without an explicit hide, the deselected browser's
         // portal layer can remain visible above the newly selected tab.
         hideBrowserPortalsForDeselectedTabs(inPane: focusedPane, selectedTabId: selectedTabId)
+        reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
 
         if let focusWindow = activationWindow(for: panel) {
             yieldForeignOwnedFocusIfNeeded(
@@ -12678,10 +12754,7 @@ extension Workspace: BonsplitDelegate {
         // would miss it. Bump `paneLayoutVersion` only when the ordered panel-id
         // sequence actually changed, so divider drags and selection-only events
         // (also routed here) do not fire `objectWillChange` app-wide.
-        let didChangeSurfaceOrder = surfaceList.registerGeometryChange()
-        if didChangeSurfaceOrder {
-            owningTabManager?.reconcileBrowserWebExtensionTabOrder()
-        }
+        surfaceList.registerGeometryChange()
         scheduleTerminalGeometryReconcile()
         if !isDetachingCloseTransaction {
             scheduleFocusReconcile()

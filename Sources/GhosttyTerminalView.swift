@@ -9113,13 +9113,22 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func logLayoutDuringActiveDrag(targetSize: CGSize) {
+        // Cheap app-owned gates first. The NSPasteboard(name: .drag) read
+        // below is a synchronous XPC round trip to the pasteboard daemon;
+        // unguarded it ran on every pane layout of every width commit during
+        // sidebar divider drags (5% of main-thread time in a Time Profiler
+        // capture) because divider drags also deliver drag mouse events.
+        let dropZoneActive = activeDropZone != nil || pendingDropZone != nil
+        let appOwnedDragActive =
+            AppDelegate.shared?.sidebarWorkspaceDragRegistry.currentWorkspaceId != nil
+        guard dropZoneActive || appOwnedDragActive else { return }
+
         let pasteboardTypes = NSPasteboard(name: .drag).types
         let hasTabDrag = pasteboardTypes?.contains(Self.tabTransferPasteboardType) == true
         let hasSidebarDrag = pasteboardTypes?.contains(Self.sidebarTabReorderPasteboardType) == true
         let eventType = NSApp.currentEvent?.type
         let hasActiveDrag =
-            activeDropZone != nil ||
-            pendingDropZone != nil ||
+            dropZoneActive ||
             ((hasTabDrag || hasSidebarDrag) && Self.isDragMouseEvent(eventType))
         guard hasActiveDrag else { return }
 

@@ -182,10 +182,7 @@ class TabManager: ObservableObject {
     /// Stable identifier of the owning macOS window. Used only for opt-in title
     /// templates that expose a WM-matchable per-window token.
     var windowId: UUID?
-    /// Whether this manager's first native-window registration may consume the
-    /// one-time startup session snapshot.
-    let allowsStartupSessionRestore: Bool
-    var pendingBrowserWebExtensionActivePanelID: UUID?
+
     // Wave-4 sub-model (TabManager decomposition): the workspace list, the
     // sidebar group sections, and the selected-workspace id storage live in
     // WorkspacesModel (CmuxWorkspaces). TabManager stays the per-window
@@ -246,9 +243,6 @@ class TabManager: ObservableObject {
     /// Legacy `@Published tabs` willSet: objectWillChange plus the Combine
     /// bridge fire before storage changes, matching @Published timing.
     func workspaceTabsWillChange(to newValue: [Workspace]) {
-        for workspace in newValue where workspacesById[workspace.id] == nil {
-            noteUserOwnedPanelsAdded(in: workspace)
-        }
         workspacesById = Dictionary(newValue.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         objectWillChange.send()
         tabsPublisher.send(newValue)
@@ -397,7 +391,6 @@ class TabManager: ObservableObject {
     /// Typed synchronous settings access (CmuxSettings).
     private let settings: any SettingsWriting
     private let settingsCatalog = SettingCatalog()
-    let browserWebExtensionHost: (any BrowserWebExtensionHosting)?
 
     @Published private(set) var focusHistoryRevision: UInt64 = 0 {
         didSet {
@@ -481,13 +474,9 @@ class TabManager: ObservableObject {
         gitProbeLimiter: WorkspaceGitMetadataProbeLimiter? = nil,
         panelTitleUpdateCoalescer: NotificationBurstCoalescer? = nil,
         settings: any SettingsWriting = UserDefaultsSettingsClient(defaults: .standard),
-        browserWebExtensionHost: (any BrowserWebExtensionHosting)? = nil,
-        allowsStartupSessionRestore: Bool = true,
         closeTabWarningDefaults: UserDefaults = .standard
     ) {
         self.settings = settings
-        self.browserWebExtensionHost = browserWebExtensionHost
-        self.allowsStartupSessionRestore = allowsStartupSessionRestore
         self.panelTitleUpdateCoalescer = panelTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.closeTabWarningDefaults = closeTabWarningDefaults
         workspaceReordering = WorkspaceReorderCoordinator(model: workspaces)
@@ -968,7 +957,6 @@ class TabManager: ObservableObject {
             initialBrowserTransparentBackground: initialBrowserTransparentBackground,
             workspaceEnvironment: workspaceEnvironment,
             allowTextBoxFocusDefault: allowTextBoxFocusDefault,
-            browserWebExtensionHost: browserWebExtensionHost,
             closeTabWarningDefaults: closeTabWarningDefaults
         )
     }
@@ -2112,6 +2100,7 @@ class TabManager: ObservableObject {
 
         return removed
     }
+
     /// Attach an existing workspace to this window.
     func attachWorkspace(_ workspace: Workspace, at index: Int? = nil, select: Bool = true) {
         workspace.owningTabManager = self
@@ -2121,11 +2110,6 @@ class TabManager: ObservableObject {
             return max(0, min(index, tabs.count))
         }()
         tabs.insert(workspace, at: insertIndex)
-        reconcileBrowserWebExtensionWindows(
-            in: workspace,
-            nativeWindow: window,
-            activateFocusedPanel: select
-        )
         // A workspace moved in from another window arrives ungrouped (detach
         // clears `groupId`) and may be pinned, so an arbitrary insert index can
         // split a destination group's contiguous run or drop a pinned workspace
@@ -2137,6 +2121,7 @@ class TabManager: ObservableObject {
             selectedTabId = workspace.id
         }
     }
+
     // Keep closeTab as convenience alias
     func closeTab(_ tab: Workspace) { closeWorkspace(tab) }
     func closeCurrentTabWithConfirmation() { closeCurrentWorkspaceWithConfirmation() }
@@ -2172,6 +2157,7 @@ class TabManager: ObservableObject {
             guard confirmClose(
                 title: prompt.title,
                 message: prompt.message,
+                scrollableDetails: prompt.details,
                 acceptCmdD: false
             ) else { return }
         }
@@ -2263,6 +2249,7 @@ class TabManager: ObservableObject {
             guard confirmClose(
                 title: plan.title,
                 message: plan.message,
+                scrollableDetails: plan.details,
                 acceptCmdD: plan.acceptCmdD
             ) else { return }
         }
@@ -2342,18 +2329,25 @@ class TabManager: ObservableObject {
         }
     }
 
-    func confirmClose(title: String, message: String, acceptCmdD: Bool) -> Bool {
+    func confirmClose(
+        title: String,
+        message: String,
+        scrollableDetails: String? = nil,
+        acceptCmdD: Bool
+    ) -> Bool {
         guard beginCloseConfirmationSession() else { return false }
         defer { endCloseConfirmationSession() }
 
+        let content = scrollableDetails.map {
+            CmuxAlertContent(flattenedText: message, separatingScrollableDetails: $0)
+        } ?? CmuxAlertContent(informativeText: message)
         if let confirmCloseHandler {
-            return confirmCloseHandler(title, message, acceptCmdD)
+            return confirmCloseHandler(title, content.flattenedText, acceptCmdD)
         }
         _ = acceptCmdD
 
         let alert = NSAlert()
         alert.messageText = title
-        alert.informativeText = message
         alert.alertStyle = .warning
         alert.addButton(withTitle: String(localized: "dialog.closeTab.close", defaultValue: "Close"))
         alert.addButton(withTitle: String(localized: "dialog.closeTab.cancel", defaultValue: "Cancel"))
@@ -2375,18 +2369,21 @@ class TabManager: ObservableObject {
         ])
         #endif
 
-        return runCloseConfirmationAlert(alert) == .alertFirstButtonReturn
+        return runCloseConfirmationAlert(alert, content: content) == .alertFirstButtonReturn
     }
 
-    private func runCloseConfirmationAlert(_ alert: NSAlert) -> NSApplication.ModalResponse {
+    private func runCloseConfirmationAlert(
+        _ alert: NSAlert,
+        content: CmuxAlertContent? = nil
+    ) -> NSApplication.ModalResponse {
         // Presentation (activate + sheet-on-main-window, else app-modal) is
-        // shared with every other cmux dialog via `runCmuxModalAlert`. This
+        // shared with every other cmux dialog via `NSAlert.runCmuxModal`. This
         // wrapper only adds the close-confirmation-specific UITest telemetry,
         // recorded from the presenter's actual path so the label can never
         // disagree with how the alert was really shown.
-        return runCmuxModalAlert(
-            alert,
-            presentingWindow: closeConfirmationPresentingWindow()
+        return alert.runCmuxModal(
+            presentingWindow: closeConfirmationPresentingWindow(),
+            content: content
         ) { presentation in
             #if DEBUG
             switch presentation {
@@ -2410,7 +2407,7 @@ class TabManager: ObservableObject {
     }
 
     private func closeConfirmationPresentingWindow() -> NSWindow? {
-        cmuxMainWindowForModalPresentation(preferring: window)
+        NSApp.cmuxMainWindowForModalPresentation(preferring: window)
     }
 
     private struct CloseOtherTabsInFocusedPanePlan {
@@ -2423,6 +2420,7 @@ class TabManager: ObservableObject {
         let workspaces: [Workspace]
         let title: String
         let message: String
+        let details: String
         let acceptCmdD: Bool
     }
 
@@ -2500,6 +2498,7 @@ class TabManager: ObservableObject {
             workspaces: workspaces,
             title: title,
             message: message,
+            details: titleLines,
             acceptCmdD: willCloseWindow
         )
     }
@@ -6002,7 +6001,6 @@ extension TabManager {
                 title: workspaceSnapshot.processTitle,
                 workingDirectory: workspaceSnapshot.currentDirectory,
                 portOrdinal: ordinal,
-                browserWebExtensionHost: browserWebExtensionHost,
                 closeTabWarningDefaults: closeTabWarningDefaults
             )
             workspace.owningTabManager = self
@@ -6016,12 +6014,7 @@ extension TabManager {
         if newTabs.isEmpty {
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
-            let fallback = Workspace(
-                title: "Terminal 1",
-                portOrdinal: ordinal,
-                browserWebExtensionHost: browserWebExtensionHost,
-                closeTabWarningDefaults: closeTabWarningDefaults
-            )
+            let fallback = Workspace(title: "Terminal 1", portOrdinal: ordinal, closeTabWarningDefaults: closeTabWarningDefaults)
             fallback.owningTabManager = self
             wireClosedBrowserTracking(for: fallback)
             newTabs.append(fallback)
@@ -6180,6 +6173,48 @@ extension TabManager: WorkspaceGroupHosting {}
 // Workspace satisfies the CmuxWorkspaces tab seam with its existing
 // id/groupId/isPinned storage.
 extension Workspace: WorkspaceTabRepresenting {}
+
+extension Notification.Name {
+    // The sidebar multi-selection sync events moved to CmuxSidebar as typed
+    // SidebarMultiSelectionShouldCollapseEvent / DidHideEvent (same names).
+    static let commandPaletteToggleRequested = Notification.Name("cmux.commandPaletteToggleRequested")
+    static let commandPaletteRequested = Notification.Name("cmux.commandPaletteRequested")
+    static let commandPaletteSwitcherRequested = Notification.Name("cmux.commandPaletteSwitcherRequested")
+    static let commandPaletteSubmitRequested = Notification.Name("cmux.commandPaletteSubmitRequested")
+    static let commandPaletteDismissRequested = Notification.Name("cmux.commandPaletteDismissRequested")
+    static let commandPaletteRenameTabRequested = Notification.Name("cmux.commandPaletteRenameTabRequested")
+    static let commandPaletteRenameWorkspaceRequested = Notification.Name("cmux.commandPaletteRenameWorkspaceRequested")
+    static let commandPaletteEditWorkspaceDescriptionRequested = Notification.Name("cmux.commandPaletteEditWorkspaceDescriptionRequested")
+    static let commandPaletteMoveSelection = Notification.Name("cmux.commandPaletteMoveSelection")
+    static let commandPaletteRenameInputInteractionRequested = Notification.Name("cmux.commandPaletteRenameInputInteractionRequested")
+    static let commandPaletteRenameInputDeleteBackwardRequested = Notification.Name("cmux.commandPaletteRenameInputDeleteBackwardRequested")
+    static let feedbackComposerRequested = Notification.Name("cmux.feedbackComposerRequested")
+    static let ghosttyDidSetTitle = Notification.Name("ghosttyDidSetTitle")
+    static let ghosttyDidFocusTab = Notification.Name("ghosttyDidFocusTab")
+    static let ghosttyDidFocusSurface = Notification.Name("ghosttyDidFocusSurface")
+    static let ghosttyDidBecomeFirstResponderSurface = Notification.Name("ghosttyDidBecomeFirstResponderSurface")
+    static let browserDidBecomeFirstResponderWebView = Notification.Name("browserDidBecomeFirstResponderWebView")
+    static let browserFocusAddressBar = Notification.Name("browserFocusAddressBar")
+    static let browserMoveOmnibarSelection = Notification.Name("browserMoveOmnibarSelection")
+    static let browserDidExitAddressBar = Notification.Name("browserDidExitAddressBar")
+    static let browserDidFocusAddressBar = Notification.Name("browserDidFocusAddressBar")
+    static let browserDidBlurAddressBar = Notification.Name("browserDidBlurAddressBar")
+    static let browserFocusModeStateDidChange = Notification.Name("cmux.browserFocusModeStateDidChange")
+    static let webViewDidReceiveClick = Notification.Name("webViewDidReceiveClick")
+    static let terminalPortalVisibilityDidChange = Notification.Name("cmux.terminalPortalVisibilityDidChange")
+    static let browserPortalRegistryDidChange = Notification.Name("cmux.browserPortalRegistryDidChange")
+    static let workspaceOrderDidChange = Notification.Name("cmux.workspaceOrderDidChange")
+    static let workspacePaneGeometryDidChange = Notification.Name("cmux.workspacePaneGeometryDidChange")
+    /// Posted when an existing workspace group's `name` changes (rename). The
+    /// imperatively-cached window-chrome surfaces (custom title bar in
+    /// `ContentView`, toolbar command label in `WindowToolbarController`) read
+    /// a grouped anchor's displayed name from `group.name` and refresh on this.
+    static let workspaceGroupNameDidChange = Notification.Name("cmux.workspaceGroupNameDidChange")
+    /// Posted after TabManager has applied a terminal title to workspace state.
+    static let workspaceTitleDidChange = Notification.Name("cmux.workspaceTitleDidChange")
+    static let workspaceCurrentDirectoryDidChange = Notification.Name("cmux.workspaceCurrentDirectoryDidChange")
+    static let tabManagerFocusHistoryRevisionDidChange = Notification.Name("cmux.tabManagerFocusHistoryRevisionDidChange")
+}
 
 enum BrowserFirstResponderNotificationUserInfoKey {
     static let pointerInitiated = "pointerInitiated"
