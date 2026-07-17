@@ -541,6 +541,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A5FB120B /* CmuxConfigExecutor+WorkspaceLaunch.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB120C /* CmuxConfigExecutor+WorkspaceLaunch.swift */; };
 		A5001652 /* CmuxConfigExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001653 /* CmuxConfigExecutor.swift */; };
 		C0DE80170000000000000005 /* CmuxConfigIssue.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE80170000000000000006 /* CmuxConfigIssue.swift */; };
+		C0DE80170000000000000009 /* CmuxConfigIssueKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE8017000000000000000A /* CmuxConfigIssueKind.swift */; };
 		E30750000000000000000006 /* CmuxConfigNamedColorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30750000000000000000005 /* CmuxConfigNamedColorTests.swift */; };
 		A5FB130C /* CmuxConfigNewWorkspaceDefaultLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB130D /* CmuxConfigNewWorkspaceDefaultLayoutTests.swift */; };
 		A5FB130A /* CmuxConfigNewWorkspaceMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB130B /* CmuxConfigNewWorkspaceMenuTests.swift */; };
@@ -2612,6 +2613,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A5FB120C /* CmuxConfigExecutor+WorkspaceLaunch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxConfigExecutor+WorkspaceLaunch.swift"; sourceTree = "<group>"; };
 		A5001653 /* CmuxConfigExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigExecutor.swift; sourceTree = "<group>"; };
 		C0DE80170000000000000006 /* CmuxConfigIssue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigIssue.swift; sourceTree = "<group>"; };
+		C0DE8017000000000000000A /* CmuxConfigIssueKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigIssueKind.swift; sourceTree = "<group>"; };
 		E30750000000000000000005 /* CmuxConfigNamedColorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigNamedColorTests.swift; sourceTree = "<group>"; };
 		A5FB130D /* CmuxConfigNewWorkspaceDefaultLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigNewWorkspaceDefaultLayoutTests.swift; sourceTree = "<group>"; };
 		A5FB130B /* CmuxConfigNewWorkspaceMenuTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigNewWorkspaceMenuTests.swift; sourceTree = "<group>"; };
@@ -5430,6 +5432,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5FB120E /* Workspace+CustomLayout.swift */,
 				C57B00030000000000000002 /* Workspace+CustomSidebarPane.swift */,
 				C0DE80170000000000000006 /* CmuxConfigIssue.swift */,
+				C0DE8017000000000000000A /* CmuxConfigIssueKind.swift */,
 				C0DE80170000000000000002 /* CmuxConfigProjectWorktreesDefinition.swift */,
 				C0DE80170000000000000008 /* CmuxConfigStore+ProjectWorktrees.swift */,
 				C0DEF0A10000000000000002 /* CmuxConfigUI.swift */,
@@ -6922,6 +6925,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5FB120B /* CmuxConfigExecutor+WorkspaceLaunch.swift in Sources */,
 				A5001652 /* CmuxConfigExecutor.swift in Sources */,
 				C0DE80170000000000000005 /* CmuxConfigIssue.swift in Sources */,
+				C0DE80170000000000000009 /* CmuxConfigIssueKind.swift in Sources */,
 				C0DE80170000000000000001 /* CmuxConfigProjectWorktreesDefinition.swift in Sources */,
 				C5D0DEC0CF00000000000A1 /* CmuxConfigStore+ConfigStoreReloading.swift in Sources */,
 				C0DE80170000000000000007 /* CmuxConfigStore+ProjectWorktrees.swift in Sources */,

@@ -2,12 +2,7 @@ import Foundation
 
 /// A configuration problem surfaced in logs and the Command Palette.
 struct CmuxConfigIssue: Identifiable, Equatable, Sendable {
-    enum Kind: String, Sendable {
-        case newWorkspaceActionNotFound
-        case newWorkspaceCommandNotFound
-        case newWorkspaceCommandRequiresWorkspace
-        case schemaError
-    }
+    typealias Kind = CmuxConfigIssueKind
 
     let kind: Kind
     let settingName: String

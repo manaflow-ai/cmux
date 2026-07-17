@@ -1667,8 +1667,8 @@ final class CmuxConfigStore: ObservableObject {
     @Published private(set) var newWorkspaceContextMenuItems: [CmuxResolvedConfigContextMenuItem] = []
     @Published private(set) var newWorkspaceContextMenuIsConfigured = false
     @Published private(set) var newWorkspaceMenuSectionOrder: CmuxNewWorkspaceMenuSectionOrder = .default
-    @Published private(set) var projectWorktreesCreateActionID: String?
-    @Published private(set) var projectWorktreesOpenActionID: String?
+    private(set) var projectWorktreesCreateActionID: String?
+    private(set) var projectWorktreesOpenActionID: String?
     @Published private(set) var agentChat: CmuxAgentChatConfiguration = .default
     /// Resolved per-cwd workspace group customization, keyed by the JSON cwd key.
     /// Use `resolveWorkspaceGroupConfig(forCwd:)` to find the best match for an
