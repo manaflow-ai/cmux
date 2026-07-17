@@ -531,25 +531,35 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
                 };
                 ack_screencast_frame(inner, target_session, ack_id);
                 let Some(frame) = screencast_frame(&params, target_session) else { return };
-                let _ = inner.events.try_send(CdpEvent::ScreencastFrame(frame));
+                dispatch_event(inner, CdpEvent::ScreencastFrame(frame), true);
             }
         }
         "Target.targetCreated" => {
             if let Some(created) = target_created(&params) {
-                let _ = inner.events.try_send(CdpEvent::TargetCreated(created));
+                dispatch_event(inner, CdpEvent::TargetCreated(created), false);
             }
         }
         "Target.targetInfoChanged" => {
             if let Some(info) = target_info(&params, session_id.as_deref()) {
-                let _ = inner.events.try_send(CdpEvent::TargetInfoChanged(info));
+                dispatch_event(inner, CdpEvent::TargetInfoChanged(info), true);
             }
         }
         _ => {
-            let _ = inner.events.try_send(CdpEvent::Other {
-                method: method.to_string(),
-                params,
-                session_id,
-            });
+            dispatch_event(
+                inner,
+                CdpEvent::Other { method: method.to_string(), params, session_id },
+                false,
+            );
+        }
+    }
+}
+
+fn dispatch_event(inner: &Arc<Inner>, event: CdpEvent, replaceable: bool) {
+    match inner.events.try_send(event) {
+        Ok(()) => {}
+        Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) if replaceable => {}
+        Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => {
+            close_inner(inner, "CDP event queue overflow");
         }
     }
 }

@@ -484,9 +484,15 @@ impl BrowserRuntime {
     }
 
     fn unregister(&self, target_id: &str, session_id: &str) {
-        let mut routes = self.routes.lock().unwrap();
-        routes.by_session.remove(session_id);
-        routes.by_target.remove(target_id);
+        let route = {
+            let mut routes = self.routes.lock().unwrap();
+            let by_session = routes.by_session.remove(session_id);
+            let by_target = routes.by_target.remove(target_id);
+            by_session.or(by_target)
+        };
+        if let Some(route) = route {
+            route.close("browser surface closed".to_string());
+        }
     }
 
     fn remove_route(&self, route: &Arc<SurfaceRoute>) {
