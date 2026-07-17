@@ -4,13 +4,15 @@ import Foundation
 public struct ComputerUseCatalogSection: SettingCatalogSection {
     /// Whether newly spawned terminals allow the agent wrappers to attach the local computer-use MCP server.
     ///
-    /// Off by default: computer use drives real apps and needs its own macOS
-    /// Accessibility / Screen Recording grants, so it must be opt-in. Until the
-    /// user enables it in Settings > Computer Use, agent launches carry no
-    /// computer-use tools and nothing can trigger a permission prompt.
+    /// On by default so an agent already has the computer-use tools the moment a
+    /// user asks it to drive the machine. This does not prompt for anything at
+    /// launch: the tools stay dormant until actually invoked, and the first
+    /// TCC-gated action relaunches the bundled "cmux Computer Use.app" helper via
+    /// LaunchServices, which is what raises the Accessibility / Screen Recording
+    /// prompt under its own identity — never the host app, never at startup.
     public let enabled = JSONKey<Bool>(
         id: "computerUse.enabled",
-        defaultValue: false
+        defaultValue: true
     )
 
     /// Whether the dedicated computer-use status item may appear in the menu bar.

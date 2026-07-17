@@ -955,11 +955,20 @@ cmux_computer_use_config() {
     # the driver itself further falls back to embedded-<pid> if this is empty.
     default_session="cmux-${CMUX_SURFACE_ID:-$$}"
     if [[ "$driver" == *"/cmux Computer Use.app/Contents/MacOS/"* ]]; then
-        # Standalone helper bundle: run non-embedded so the driver re-execs as its
-        # own TCC responsible process ("cmux Computer Use"), rather than inheriting
-        # the spawning agent's identity. Stdio is preserved across the re-exec.
-        printf '{"mcpServers":{"cmux-computer-use":{"command":"%s","args":["mcp","--no-daemon-relaunch"],"env":{"CUA_DRIVER_DISCLAIM":"1","CUA_DRIVER_DEFAULT_SESSION":"%s","CUA_DRIVER_RS_TELEMETRY_ENABLED":"false","CUA_DRIVER_RS_UPDATE_CHECK":"false","CUA_DRIVER_CURSOR_GRADIENT":"#12c7f5,#2d8cff,#6c5cff","CUA_DRIVER_CURSOR_BLOOM":"#2d8cff","CUA_DRIVER_CURSOR_LABEL":"cmux","CUA_DRIVER_STATE_DIR":"%s","NODE_OPTIONS":"","BUN_OPTIONS":""}}}}' \
+        # Standalone helper bundle: instead of running the mcp server in-process
+        # (whose TCC grants would attribute to the host cmux app), point the
+        # driver at the bundled "cmux Computer Use.app" so it relaunches THAT app
+        # via LaunchServices as the serve daemon and proxies MCP stdio to it over
+        # a cmux-owned socket. A LaunchServices-launched app is its own TCC
+        # responsible process, so the Accessibility / Screen Recording prompts
+        # name "cmux Computer Use" and granting or quitting affects only the helper.
+        local helper_app cua_socket
+        helper_app="${driver%/Contents/MacOS/*}"
+        cua_socket="${HOME}/Library/Application Support/cmux/computer-use/cua-daemon.sock"
+        printf '{"mcpServers":{"cmux-computer-use":{"command":"%s","args":["mcp","--socket","%s"],"env":{"CUA_DRIVER_DAEMON_APP":"%s","CUA_DRIVER_DEFAULT_SESSION":"%s","CUA_DRIVER_RS_TELEMETRY_ENABLED":"false","CUA_DRIVER_RS_UPDATE_CHECK":"false","CUA_DRIVER_CURSOR_GRADIENT":"#12c7f5,#2d8cff,#6c5cff","CUA_DRIVER_CURSOR_BLOOM":"#2d8cff","CUA_DRIVER_CURSOR_LABEL":"cmux","CUA_DRIVER_STATE_DIR":"%s","NODE_OPTIONS":"","BUN_OPTIONS":""}}}}' \
             "$(cmux_computer_use_json_escape "$driver")" \
+            "$(cmux_computer_use_json_escape "$cua_socket")" \
+            "$(cmux_computer_use_json_escape "$helper_app")" \
             "$(cmux_computer_use_json_escape "$default_session")" \
             "$(cmux_computer_use_json_escape "$state_dir")"
     else

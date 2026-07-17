@@ -264,10 +264,20 @@ cmux_codex_emit_computer_use_args() {
     # responsible process ("cmux Computer Use"); bare fallback binary -> embedded.
     local cua_args_c
     if [[ "$driver" == *"/cmux Computer Use.app/Contents/MacOS/"* ]]; then
-        # Non-embedded helper: ask the driver to disclaim responsibility on the
-        # in-process mcp path so macOS attributes its TCC grants to the
-        # "cmux Computer Use.app" bundle identity rather than to cmux.
-        cua_args_c=("-c" 'mcp_servers.cmux-computer-use.args=["mcp","--no-daemon-relaunch"]' "-c" 'mcp_servers.cmux-computer-use.env.CUA_DRIVER_DISCLAIM="1"')
+        # Non-embedded helper. Rather than run the mcp server in-process (whose
+        # TCC grants would attribute to the host cmux app), tell the driver to
+        # relaunch the bundled "cmux Computer Use.app" via LaunchServices as the
+        # serve daemon and proxy MCP stdio to it over a cmux-owned socket. A
+        # LaunchServices-launched app is its own TCC responsible process, so the
+        # Accessibility / Screen Recording prompts name "cmux Computer Use" and
+        # granting or quitting the helper affects only the helper — never cmux.
+        local helper_app cua_socket
+        helper_app="${driver%/Contents/MacOS/*}"
+        cua_socket="${HOME}/Library/Application Support/cmux/computer-use/cua-daemon.sock"
+        cua_args_c=(
+            "-c" "mcp_servers.cmux-computer-use.args=[\"mcp\",\"--socket\",\"$(cmux_computer_use_json_escape "$cua_socket")\"]"
+            "-c" "mcp_servers.cmux-computer-use.env.CUA_DRIVER_DAEMON_APP=\"$(cmux_computer_use_json_escape "$helper_app")\""
+        )
     else
         cua_args_c=("-c" 'mcp_servers.cmux-computer-use.args=["--embedded"]' "-c" 'mcp_servers.cmux-computer-use.env.CUA_DRIVER_EMBEDDED="1"')
     fi
