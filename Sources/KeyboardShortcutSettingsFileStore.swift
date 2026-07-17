@@ -575,8 +575,7 @@ final class CmuxSettingsFileStore {
         applyBooleanSettings(TerminalSettingsFileMapping.booleanSettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
         applyTerminalScrollSpeedSetting(from: section, assign: { snapshot.managedUserDefaults[$0] = .double($1) }, logInvalid: { logInvalid($0, sourcePath: sourcePath) })
         if let value = jsonDouble(section["sessionContentMaxWidth"]) {
-            if value >= SessionContentWidthSettings.minimumWidth,
-               value <= SessionContentWidthSettings.maximumWidth {
+            if value.isFinite, value >= SessionContentWidthSettings.minimumWidth {
                 snapshot.managedUserDefaults[SessionContentWidthSettings.maxWidthKey] = .double(
                     SessionContentWidthSettings().clampedMaximumWidth(value)
                 )

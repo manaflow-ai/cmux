@@ -10,7 +10,7 @@ For a local native frontend, connect to the Unix socket described in [`transport
 
 For a browser or remote-capable frontend, connect to the opt-in WebSocket listener. Send one complete JSON request per text frame and treat every received text frame as one complete response or event. Do not add newline framing. The TypeScript SDK exposes `WebSocketTransport` for browsers and compatible Node WebSocket implementations.
 
-If the WebSocket listener has a token, its first frame must be this transport preamble. It is not a command and has no acknowledgement:
+Every WebSocket authenticates before protocol commands. A static or previously issued credential uses this first-frame preamble, which is not a command and has no acknowledgement. Interactive clients may use the pairing exchange in [`transports.md`](transports.md#authentication-and-pairing) instead:
 
 ```json
 {"auth":{"token":"replace-with-a-secret"}}
@@ -85,7 +85,7 @@ Call [`list-agents`](commands.md#list-agents) for current agent records. Agent p
 
 ## End-To-End WebSocket Transcript
 
-Each line is one WebSocket text frame. `C>` is client-to-server and `S>` is server-to-client. The auth frame is present only when configured.
+Each line is one WebSocket text frame. `C>` is client-to-server and `S>` is server-to-client. This transcript uses a static or previously issued credential; an interactive client completes pairing first instead.
 
 ```text
 C> {"auth":{"token":"secret"}}
