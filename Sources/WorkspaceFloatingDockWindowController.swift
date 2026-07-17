@@ -4,6 +4,8 @@ import SwiftUI
 /// Owns the native child panel for one workspace floating Dock.
 @MainActor
 final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowDelegate {
+    static let windowIdentifier = "cmux.workspace.float"
+
     let dock: WorkspaceFloatingDock
     private weak var parentWindow: NSWindow?
     private let onCloseRequest: (UUID) -> Void
@@ -25,7 +27,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
             defer: false
         )
         panel.title = dock.title
-        panel.identifier = NSUserInterfaceItemIdentifier("cmux.workspace.float.\(dock.id.uuidString)")
+        panel.identifier = NSUserInterfaceItemIdentifier(Self.windowIdentifier)
         panel.isReleasedWhenClosed = false
         panel.isFloatingPanel = false
         panel.hidesOnDeactivate = false
