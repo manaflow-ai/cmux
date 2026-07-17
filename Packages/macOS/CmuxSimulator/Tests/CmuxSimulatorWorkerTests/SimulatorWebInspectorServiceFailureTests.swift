@@ -147,7 +147,7 @@ struct SimulatorWebInspectorServiceFailureTests {
         first.currentDeviceIdentifier = "DEVICE"
         second.currentDeviceIdentifier = "DEVICE"
         Self.seedTarget(into: first)
-        Self.seedTarget(into: second)
+        Self.seedTarget(into: second, isInUse: true)
 
         _ = try await first.attach(targetIdentifier: "APP|7")
         let secondAttach = Task { @MainActor in
@@ -166,7 +166,10 @@ struct SimulatorWebInspectorServiceFailureTests {
         SimulatorWebInspectorService(subprocessRunner: SimulatorSubprocessRunner())
     }
 
-    private static func seedTarget(into service: SimulatorWebInspectorService) {
+    private static func seedTarget(
+        into service: SimulatorWebInspectorService,
+        isInUse: Bool = false
+    ) {
         service.catalog.apply([
             "__selector": "_rpc_reportConnectedApplicationList:",
             "__argument": [
@@ -188,6 +191,7 @@ struct SimulatorWebInspectorServiceFailureTests {
                         "WIRTitleKey": "Fixture",
                         "WIRURLKey": "https://example.test",
                         "WIRTypeKey": "WIRTypeWebPage",
+                        "WIRConnectionIdentifierKey": isInUse ? "OTHER" : "",
                     ],
                 ],
             ],
@@ -205,7 +209,39 @@ private final class SuccessfulWebInspectorTransport: SimulatorWebInspectorTransp
     }
 
     func send(propertyList: [String: Any]) throws {
-        guard propertyList["__selector"] as? String == "_rpc_forwardSocketData:",
+        let selector = propertyList["__selector"] as? String
+        if selector == "_rpc_getConnectedApplications:" {
+            deliver([
+                "__selector": "_rpc_reportConnectedApplicationList:",
+                "__argument": [
+                    "WIRApplicationDictionaryKey": [
+                        "APP": [
+                            "WIRApplicationBundleIdentifierKey": "com.example.app",
+                            "WIRApplicationNameKey": "Example",
+                        ],
+                    ],
+                ],
+            ])
+            return
+        }
+        if selector == "_rpc_forwardGetListing:" {
+            deliver([
+                "__selector": "_rpc_applicationSentListing:",
+                "__argument": [
+                    "WIRApplicationIdentifierKey": "APP",
+                    "WIRListingKey": [
+                        "7": [
+                            "WIRPageIdentifierKey": 7,
+                            "WIRTitleKey": "Fixture",
+                            "WIRURLKey": "https://example.test",
+                            "WIRTypeKey": "WIRTypeWebPage",
+                        ],
+                    ],
+                ],
+            ])
+            return
+        }
+        guard selector == "_rpc_forwardSocketData:",
               let argument = propertyList["__argument"] as? [String: Any],
               let request = argument["WIRSocketDataKey"] as? Data,
               let object = try JSONSerialization.jsonObject(with: request) as? [String: Any],
@@ -215,7 +251,7 @@ private final class SuccessfulWebInspectorTransport: SimulatorWebInspectorTransp
             "id": identifier,
             "result": [:],
         ])
-        let body = try SimulatorWebInspectorPlistFrameCodec().encodeBody([
+        deliver([
             "__selector": "_rpc_applicationSentData:",
             "__argument": [
                 "WIRApplicationIdentifierKey": "APP",
@@ -224,6 +260,12 @@ private final class SuccessfulWebInspectorTransport: SimulatorWebInspectorTransp
                 "WIRMessageDataKey": response,
             ],
         ])
+    }
+
+    private func deliver(_ propertyList: [String: Any]) {
+        guard let service,
+              let body = try? SimulatorWebInspectorPlistFrameCodec().encodeBody(propertyList)
+        else { return }
         Task { @MainActor [weak service] in
             service?.receive(propertyListBody: body)
         }
