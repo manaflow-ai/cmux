@@ -35,15 +35,15 @@ struct BrowserExtensionsToolbarButton: View {
             await refreshSnapshot()
         }
         .onReceive(NotificationCenter.default.publisher(for: .browserWebExtensionActionDidChange)) { notification in
-            if let changedProfileID = notification.userInfo?[BrowserWebExtensionsManager.NotificationKey.profileID] as? UUID,
+            if let changedProfileID = notification.userInfo?[BrowserWebExtensionsPresentationSnapshot.NotificationKey.profileID] as? UUID,
                changedProfileID != profileID {
                 return
             }
-            if let changedPanelID = notification.userInfo?[BrowserWebExtensionsManager.NotificationKey.panelID] as? UUID,
+            if let changedPanelID = notification.userInfo?[BrowserWebExtensionsPresentationSnapshot.NotificationKey.panelID] as? UUID,
                changedPanelID != panelID {
                 return
             }
-            if let item = notification.userInfo?[BrowserWebExtensionsManager.NotificationKey.item]
+            if let item = notification.userInfo?[BrowserWebExtensionsPresentationSnapshot.NotificationKey.item]
                 as? BrowserWebExtensionsPresentationSnapshot.Item {
                 applyActionUpdate(item)
                 return

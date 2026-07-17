@@ -50,12 +50,6 @@ final class BrowserWebExtensionsManager: NSObject {
         case waiting(CheckedContinuation<Void, Never>)
     }
 
-    enum NotificationKey {
-        static let panelID = "panelID"
-        static let profileID = "profileID"
-        static let item = "item"
-    }
-
     /// Fixed controller identifier so extension storage (`browser.storage`,
     /// declarativeNetRequest state) persists across launches.
     private static let controllerIdentifier = UUID(uuidString: "3B7D2A9E-5C41-4F8A-B6D0-9E2C7A51F3D8")!
@@ -343,7 +337,7 @@ final class BrowserWebExtensionsManager: NSObject {
         NotificationCenter.default.post(
             name: .browserWebExtensionActionDidChange,
             object: context.uniqueIdentifier,
-            userInfo: [NotificationKey.profileID: profileID ?? NSNull()]
+            userInfo: [BrowserWebExtensionsPresentationSnapshot.NotificationKey.profileID: profileID ?? NSNull()]
         )
     }
 
@@ -873,9 +867,9 @@ final class BrowserWebExtensionsManager: NSObject {
                     name: .browserWebExtensionActionDidChange,
                     object: key.extensionIdentifier,
                     userInfo: [
-                        NotificationKey.panelID: key.panelID ?? NSNull(),
-                        NotificationKey.profileID: self.profileID ?? NSNull(),
-                        NotificationKey.item: item,
+                        BrowserWebExtensionsPresentationSnapshot.NotificationKey.panelID: key.panelID ?? NSNull(),
+                        BrowserWebExtensionsPresentationSnapshot.NotificationKey.profileID: self.profileID ?? NSNull(),
+                        BrowserWebExtensionsPresentationSnapshot.NotificationKey.item: item,
                     ]
                 )
             }

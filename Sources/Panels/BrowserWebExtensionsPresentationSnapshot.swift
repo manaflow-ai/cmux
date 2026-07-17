@@ -1,6 +1,12 @@
 import Foundation
 
 struct BrowserWebExtensionsPresentationSnapshot: Equatable, Sendable {
+    enum NotificationKey {
+        static let panelID = "panelID"
+        static let profileID = "profileID"
+        static let item = "item"
+    }
+
     enum State: Equatable, Sendable {
         case unsupported
         case loading
