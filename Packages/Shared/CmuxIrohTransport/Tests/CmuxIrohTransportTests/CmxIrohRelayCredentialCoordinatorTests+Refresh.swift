@@ -5,6 +5,84 @@ import Testing
 
 extension CmxIrohRelayCredentialCoordinatorTests {
     @Test
+    func foregroundCatchUpRefreshesCredentialAfterSuspensionPastDeadline() async throws {
+        let fixture = try RelayCoordinatorFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.identity)
+        let supervisor = try await fixture.activeSupervisor(endpoint: endpoint)
+        let clock = TestRelayClock(now: fixture.now)
+        let initialExpiry = fixture.now.addingTimeInterval(5 * 60)
+        let initialRefresh = initialExpiry.addingTimeInterval(-60)
+        let replacementExpiry = fixture.now.addingTimeInterval(15 * 60)
+        let replacementRefresh = replacementExpiry.addingTimeInterval(-60)
+        let broker = TestRelayTokenBroker(steps: [
+            .response(try fixture.response(
+                tokens: ["ghi234", "jkl567"],
+                refreshAfter: replacementRefresh,
+                expiresAt: replacementExpiry
+            )),
+        ])
+        let coordinator = CmxIrohRelayCredentialCoordinator(
+            supervisor: supervisor,
+            broker: broker,
+            managedRelayURLs: Set(fixture.relayURLs),
+            clock: clock,
+            jitter: { _, refreshAfter in refreshAfter },
+            retryJitter: { 0 }
+        )
+
+        try await coordinator.activate(
+            bindingID: fixture.bindingID,
+            endpointIdentity: fixture.identity,
+            bootstrap: try fixture.response(
+                tokens: ["abc234", "def567"],
+                refreshAfter: initialRefresh,
+                expiresAt: initialExpiry
+            )
+        )
+        clock.setNowWithoutResuming(initialExpiry.addingTimeInterval(1))
+
+        try await coordinator.refreshIfNeeded()
+
+        #expect(await broker.observedEndpointIDs() == [fixture.identity])
+        #expect(await endpoint.observedRelayUpdates().count == 2)
+        #expect(await endpoint.observedRelayUpdates().last?.map(\.token) == [
+            "ghi234",
+            "jkl567",
+        ])
+        #expect(await coordinator.credentialExpiresAt() == replacementExpiry)
+        #expect(try await supervisor.activeEndpoint().identity() == fixture.identity)
+        await coordinator.deactivate()
+    }
+
+    @Test
+    func foregroundCatchUpDoesNotMintBeforeRefreshDeadline() async throws {
+        let fixture = try RelayCoordinatorFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.identity)
+        let supervisor = try await fixture.activeSupervisor(endpoint: endpoint)
+        let broker = TestRelayTokenBroker(steps: [])
+        let coordinator = CmxIrohRelayCredentialCoordinator(
+            supervisor: supervisor,
+            broker: broker,
+            managedRelayURLs: Set(fixture.relayURLs),
+            clock: TestRelayClock(now: fixture.now),
+            jitter: { _, refreshAfter in refreshAfter },
+            retryJitter: { 0 }
+        )
+
+        try await coordinator.activate(
+            bindingID: fixture.bindingID,
+            endpointIdentity: fixture.identity,
+            bootstrap: try fixture.response()
+        )
+
+        try await coordinator.refreshIfNeeded()
+
+        #expect(await broker.observedEndpointIDs().isEmpty)
+        #expect(await endpoint.observedRelayUpdates().count == 1)
+        await coordinator.deactivate()
+    }
+
+    @Test
     func refreshFailureRetriesBeforeInstalledCredentialSafetyDeadline() async throws {
         let fixture = try RelayCoordinatorFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.identity)

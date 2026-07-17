@@ -16,6 +16,18 @@ import Testing
 @Suite
 struct MobileIrohRuntimeCompositionTests {
     @Test
+    @MainActor
+    func foregroundRevalidatesAuthBeforeConnectionReadinessCompletes() async throws {
+        let fixture = try await MobileIrohSignOutFixture.make()
+        let baseline = await fixture.authClient.observedCurrentUserCallCount()
+
+        fixture.composition.didBecomeActive()
+        await fixture.composition.prepareForConnection()
+
+        #expect(await fixture.authClient.observedCurrentUserCallCount() > baseline)
+    }
+
+    @Test
     func bakedIrohBrokerOriginDoesNotReplaceTheGeneralAPIOrigin() {
         #expect(MobileIrohRuntimeComposition.resolvedBrokerBaseURL(
             apiBaseURL: "http://localhost:9450",
@@ -1416,6 +1428,7 @@ private actor MobileIrohTestAuthClient: AuthClient {
     private var access: String? = "access"
     private var refresh: String? = "refresh"
     private var user: CMUXAuthUser
+    private var currentUserCallCount = 0
 
     init(user: CMUXAuthUser) { self.user = user }
 
@@ -1423,7 +1436,11 @@ private actor MobileIrohTestAuthClient: AuthClient {
     func accessToken() -> String? { access }
     func refreshToken() -> String? { refresh }
     func forceRefreshAccessToken() -> String? { access }
-    func currentUser(throwOnMissing _: Bool) -> CMUXAuthUser? { user }
+    func currentUser(throwOnMissing _: Bool) -> CMUXAuthUser? {
+        currentUserCallCount += 1
+        return user
+    }
+    func observedCurrentUserCallCount() -> Int { currentUserCallCount }
     func listTeams() -> [CMUXAuthTeam] { [] }
     func sendMagicLinkEmail(email _: String, callbackURL _: String) -> String { "nonce" }
     func signInWithMagicLink(code _: String) {

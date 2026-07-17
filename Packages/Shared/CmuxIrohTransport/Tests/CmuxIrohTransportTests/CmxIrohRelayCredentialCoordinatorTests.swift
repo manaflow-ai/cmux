@@ -382,6 +382,10 @@ final class TestRelayClock: CmxIrohRelayClock, @unchecked Sendable {
         }
     }
 
+    func setNowWithoutResuming(_ date: Date) {
+        lock.withLock { currentDate = date }
+    }
+
     func events() -> AsyncStream<Event> {
         eventStream
     }
