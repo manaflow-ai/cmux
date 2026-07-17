@@ -6,8 +6,6 @@ use std::sync::mpsc::{Receiver, Sender, SyncSender, TryRecvError, channel};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
-use base64::Engine;
-use base64::engine::general_purpose::STANDARD;
 use serde_json::{Value, json};
 use tungstenite::client::IntoClientRequest;
 use tungstenite::{Error as WsError, Message, WebSocket, client};
@@ -573,11 +571,9 @@ fn screencast_frame(params: &Value, session_id: &str) -> Option<ScreencastFrame>
     if supplied.len() > MAX_ENCODED_FRAME_BYTES {
         return None;
     }
-    let image = STANDARD.decode(supplied).ok()?;
-    if image.len() > MAX_DECODED_FRAME_BYTES {
+    if canonical_base64_decoded_len(supplied)? > MAX_DECODED_FRAME_BYTES {
         return None;
     }
-    let data_b64 = STANDARD.encode(image);
     let ack_id = params.get("sessionId")?.as_u64()?;
     let metadata = params.get("metadata").unwrap_or(&Value::Null);
     let css_width = metadata
@@ -592,11 +588,47 @@ fn screencast_frame(params: &Value, session_id: &str) -> Option<ScreencastFrame>
         .unwrap_or(0) as u32;
     Some(ScreencastFrame {
         session_id: session_id.to_string(),
-        data_b64,
+        data_b64: supplied.to_string(),
         css_width,
         css_height,
         ack_id,
     })
+}
+
+fn canonical_base64_decoded_len(input: &str) -> Option<usize> {
+    let bytes = input.as_bytes();
+    if !bytes.len().is_multiple_of(4) {
+        return None;
+    }
+    let padding = bytes.iter().rev().take_while(|byte| **byte == b'=').count();
+    if padding > 2 {
+        return None;
+    }
+    let data_len = bytes.len().checked_sub(padding)?;
+    if !bytes[..data_len].iter().all(|byte| base64_value(*byte).is_some()) {
+        return None;
+    }
+    if !bytes[data_len..].iter().all(|byte| *byte == b'=') {
+        return None;
+    }
+    if padding == 1 && base64_value(*bytes.get(data_len.checked_sub(1)?)?)? & 0b11 != 0 {
+        return None;
+    }
+    if padding == 2 && base64_value(*bytes.get(data_len.checked_sub(1)?)?)? & 0b1111 != 0 {
+        return None;
+    }
+    bytes.len().checked_div(4)?.checked_mul(3)?.checked_sub(padding)
+}
+
+fn base64_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'A'..=b'Z' => Some(byte - b'A'),
+        b'a'..=b'z' => Some(byte - b'a' + 26),
+        b'0'..=b'9' => Some(byte - b'0' + 52),
+        b'+' => Some(62),
+        b'/' => Some(63),
+        _ => None,
+    }
 }
 
 fn target_info(params: &Value, session_id: Option<&str>) -> Option<TargetInfo> {
@@ -793,7 +825,7 @@ mod tests {
     }
 
     #[test]
-    fn screencast_frame_canonicalizes_valid_base64() {
+    fn screencast_frame_preserves_valid_canonical_base64() {
         let params = json!({
             "data": "aGk=",
             "sessionId": 7,
@@ -801,6 +833,17 @@ mod tests {
         });
 
         assert_eq!(screencast_frame(&params, "session-1").unwrap().data_b64, "aGk=");
+    }
+
+    #[test]
+    fn screencast_frame_rejects_noncanonical_padding_bits() {
+        let params = json!({
+            "data": "aGl=",
+            "sessionId": 7,
+            "metadata": {"deviceWidth": 80, "deviceHeight": 24}
+        });
+
+        assert!(screencast_frame(&params, "session-1").is_none());
     }
 
     #[test]

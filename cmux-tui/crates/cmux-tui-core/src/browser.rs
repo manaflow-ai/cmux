@@ -224,8 +224,56 @@ pub struct BrowserRuntime {
 
 #[derive(Default)]
 struct Routes {
-    by_session: HashMap<String, SyncSender<CdpEvent>>,
-    by_target: HashMap<String, SyncSender<CdpEvent>>,
+    by_session: HashMap<String, Arc<SurfaceRoute>>,
+    by_target: HashMap<String, Arc<SurfaceRoute>>,
+}
+
+struct SurfaceRoute {
+    tx: SyncSender<CdpEvent>,
+    closed: AtomicBool,
+}
+
+impl SurfaceRoute {
+    fn new(tx: SyncSender<CdpEvent>) -> Self {
+        Self { tx, closed: AtomicBool::new(false) }
+    }
+
+    /// Returns true when the route must be removed from the runtime maps.
+    fn deliver(&self, event: CdpEvent) -> bool {
+        if self.closed.load(Ordering::Acquire) {
+            return true;
+        }
+        match self.tx.try_send(event) {
+            Ok(()) => false,
+            Err(TrySendError::Disconnected(_)) => true,
+            // Screencasts are latest-wins. Once the bounded surface queue is
+            // full, dropping a frame keeps the shared CDP reader responsive;
+            // a later frame will be delivered after the surface catches up.
+            Err(TrySendError::Full(CdpEvent::ScreencastFrame(_))) => false,
+            Err(TrySendError::Full(_)) => {
+                self.close("CDP surface event queue overflow".to_string());
+                true
+            }
+        }
+    }
+
+    fn close(&self, reason: String) {
+        if self.closed.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let event = CdpEvent::Closed(reason);
+        match self.tx.try_send(event) {
+            Ok(()) | Err(TrySendError::Disconnected(_)) => {}
+            Err(TrySendError::Full(event)) => {
+                let tx = self.tx.clone();
+                let _ = std::thread::Builder::new().name("browser-surface-overflow".into()).spawn(
+                    move || {
+                        let _ = tx.send(event);
+                    },
+                );
+            }
+        }
+    }
 }
 
 pub struct BrowserSurface {
@@ -364,14 +412,21 @@ impl BrowserRuntime {
 
     fn register(&self, target_id: &str, session_id: &str, tx: SyncSender<CdpEvent>) {
         let mut routes = self.routes.lock().unwrap();
-        routes.by_session.insert(session_id.to_string(), tx.clone());
-        routes.by_target.insert(target_id.to_string(), tx);
+        let route = Arc::new(SurfaceRoute::new(tx));
+        routes.by_session.insert(session_id.to_string(), route.clone());
+        routes.by_target.insert(target_id.to_string(), route);
     }
 
     fn unregister(&self, target_id: &str, session_id: &str) {
         let mut routes = self.routes.lock().unwrap();
         routes.by_session.remove(session_id);
         routes.by_target.remove(target_id);
+    }
+
+    fn remove_route(&self, route: &Arc<SurfaceRoute>) {
+        let mut routes = self.routes.lock().unwrap();
+        routes.by_session.retain(|_, candidate| !Arc::ptr_eq(candidate, route));
+        routes.by_target.retain(|_, candidate| !Arc::ptr_eq(candidate, route));
     }
 
     fn close_surface_detached(&self, target_id: &str, session_id: &str) {
@@ -608,34 +663,42 @@ fn start_router(runtime: Weak<BrowserRuntime>, events: Receiver<CdpEvent>) -> an
                     let tx = {
                         runtime.routes.lock().unwrap().by_session.get(&frame.session_id).cloned()
                     };
-                    if let Some(tx) = tx {
-                        let _ = tx.send(CdpEvent::ScreencastFrame(frame));
+                    if let Some(tx) = tx
+                        && tx.deliver(CdpEvent::ScreencastFrame(frame))
+                    {
+                        runtime.remove_route(&tx);
                     }
                 }
                 CdpEvent::TargetCreated(created) => {
                     let tx = created.opener_id.as_ref().and_then(|opener_id| {
                         runtime.routes.lock().unwrap().by_target.get(opener_id).cloned()
                     });
-                    if let Some(tx) = tx {
-                        let _ = tx.send(CdpEvent::TargetCreated(created));
+                    if let Some(tx) = tx
+                        && tx.deliver(CdpEvent::TargetCreated(created))
+                    {
+                        runtime.remove_route(&tx);
                     }
                 }
                 CdpEvent::TargetInfoChanged(info) => {
                     let tx =
                         { runtime.routes.lock().unwrap().by_target.get(&info.target_id).cloned() };
-                    if let Some(tx) = tx {
-                        let _ = tx.send(CdpEvent::TargetInfoChanged(info));
+                    if let Some(tx) = tx
+                        && tx.deliver(CdpEvent::TargetInfoChanged(info))
+                    {
+                        runtime.remove_route(&tx);
                     }
                 }
                 CdpEvent::Other { method, params, session_id: Some(session_id) } => {
                     let tx =
                         { runtime.routes.lock().unwrap().by_session.get(&session_id).cloned() };
-                    if let Some(tx) = tx {
-                        let _ = tx.send(CdpEvent::Other {
+                    if let Some(tx) = tx
+                        && tx.deliver(CdpEvent::Other {
                             method,
                             params,
                             session_id: Some(session_id),
-                        });
+                        })
+                    {
+                        runtime.remove_route(&tx);
                     }
                 }
                 CdpEvent::Closed(reason) => {
@@ -648,7 +711,7 @@ fn start_router(runtime: Weak<BrowserRuntime>, events: Receiver<CdpEvent>) -> an
                         senders
                     };
                     for tx in senders {
-                        let _ = tx.send(CdpEvent::Closed(reason.clone()));
+                        tx.close(reason.clone());
                     }
                     break;
                 }

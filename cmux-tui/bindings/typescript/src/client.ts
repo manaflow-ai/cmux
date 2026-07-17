@@ -276,7 +276,11 @@ export class CmuxStream<T extends { event: string }> implements AsyncIterable<T>
 
   async *[Symbol.asyncIterator](): AsyncIterator<T> {
     try {
-      while (!this.closed) yield await this.next();
+      while (true) {
+        if (this.terminalError) throw this.terminalError;
+        if (this.closed) return;
+        yield await this.next();
+      }
     } finally {
       this.close();
     }
