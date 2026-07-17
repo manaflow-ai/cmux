@@ -197,7 +197,7 @@ export function useRenderTerminal({ client, surface, active, onError }: RenderTe
       return cols >= 2 && rows >= 1 ? { cols, rows } : undefined;
     };
     const applyFit = () => {
-      if (cancelled || currentModel === null) return;
+      if (cancelled || stream === null || currentModel === null) return;
       const next = nextFitSize(reportedFit, proposedSize());
       if (next === null) return;
       reportedFit = next;
