@@ -2785,23 +2785,28 @@ fn handle_command(
         Command::ResizeSurface { surface, cols, rows } => {
             let (cols, rows) = clamp_terminal_size(cols, rows);
             let attached = mux.control_clients.record_size(client, surface, cols, rows)?;
-            let (accepted, reservation_id) = if attached.is_some() {
-                mux.resize_surface_for_client_with_reservation(surface, client, cols, rows)?
-            } else {
-                let result = mux.resize_surface_with_reservation(surface, cols, rows)?;
-                mux.record_client_size(cols, rows);
-                result
-            };
+            // Every live control connection participates through the same
+            // client-size reducer. An unattached one-shot resize is removed
+            // when its connection closes, so it cannot bypass visible viewers.
+            let (accepted, reservation_id) =
+                mux.resize_surface_for_client_with_reservation(surface, client, cols, rows)?;
             if let Some((true, name, kind)) = attached {
                 mux.emit(MuxEvent::ClientChanged { client, name, kind });
             }
             Ok(json!({"accepted": accepted, "reservation_id": reservation_id}))
         }
         Command::ReleaseSurfaceSize { surface } => {
-            if let Some((changed, name, kind)) = mux.control_clients.clear_size(client, surface)
-                && changed
-            {
+            let attached = mux.control_clients.clear_size(client, surface);
+            let had_report = mux.client_surface_size(surface, client).is_some();
+            if had_report {
                 mux.remove_surface_size_client(surface, client);
+            }
+            let attached_changed = attached.as_ref().is_some_and(|(changed, _, _)| *changed);
+            if attached_changed || (attached.is_none() && had_report) {
+                let (name, kind) = attached
+                    .map(|(_, name, kind)| (name, kind))
+                    .or_else(|| mux.control_clients.client_info(client))
+                    .unwrap_or((None, None));
                 mux.emit(MuxEvent::ClientChanged { client, name, kind });
             }
             Ok(json!({}))

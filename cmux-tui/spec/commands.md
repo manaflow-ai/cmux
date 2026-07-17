@@ -112,7 +112,7 @@ Size-aware creation commands are `apply-layout`, `new-tab`, `new-browser-tab`, `
 | neither supplied | Use the latest active client size, or the configured server default when no client reports remain |
 | only one supplied | Preserve protocol-v6 behavior: the incomplete pair is ignored; clients must always send both |
 
-`resize-surface` requires both fields and clamps each to `1..10000`, matching tmux's window bounds. Attached clients update their own persistent report. Unattached live control clients resize directly without joining the viewer set; a disconnected client id is rejected before this fallback.
+`resize-surface` requires both fields and clamps each to `1..10000`, matching tmux's window bounds. Every live control connection enters the same shared reducer. Attached clients retain the report until release; an unattached one-shot report is removed when its connection closes. A disconnected client id is rejected.
 
 `set-client-sizing` controls tmux-style `ignore-size` participation. A normal request supplies `client` and `enabled`. Supplying `exclusive:true` with an enabled client atomically includes only that client. Omitting `client` with `enabled:true` atomically includes all clients. Ignored clients keep reporting; if every attached client is ignored, all ignored reports participate as tmux's global fallback.
 
