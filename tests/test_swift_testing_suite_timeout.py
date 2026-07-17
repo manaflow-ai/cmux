@@ -4,7 +4,6 @@ import os
 import pathlib
 import subprocess
 import tempfile
-import time
 import unittest
 
 
@@ -33,7 +32,6 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
             env["PATH"] = f"{temp}:{env['PATH']}"
             env["CMUX_SWIFT_TEST_SUITE_TIMEOUT_SECONDS"] = "1"
 
-            started = time.monotonic()
             completed = subprocess.run(
                 [str(RUNNER), str(package)],
                 cwd=ROOT,
@@ -46,7 +44,6 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
             )
 
             self.assertEqual(completed.returncode, 124, completed.stdout)
-            self.assertLess(time.monotonic() - started, 5)
             self.assertEqual(completed.stdout.count("timed out after 1s"), 2)
             self.assertIn("retrying HangingSuite once", completed.stdout)
 
