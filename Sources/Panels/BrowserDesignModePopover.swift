@@ -286,7 +286,11 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             lastIdentities = []
             pendingRemovals.removeAll()
             controller.requestedChange = ""
-            reportHeight()
+            // Runs inside updateNSView; a synchronous @State write would be
+            // silently dropped by SwiftUI and the card would stay tall.
+            DispatchQueue.main.async { [weak self] in
+                self?.reportHeight()
+            }
         }
 
         /// Reconciles the storage with the selection stack incrementally so
@@ -494,11 +498,11 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             } else {
                 height = BrowserDesignModeTokenStyle.singleLineFieldHeight
             }
-            // The Escape reset runs inside updateNSView; publishing @State
-            // during a SwiftUI update pass is silently dropped, which left the
-            // card stuck at its multi-line height. Always defer a turn.
-            let onHeightChange = onHeightChange
-            DispatchQueue.main.async { onHeightChange(height) }
+            // Synchronous on purpose: typing-driven reports (textDidChange)
+            // must resize the card in the same event cycle or every wrap
+            // paints one frame with the new line clipped. Callers that run
+            // inside a SwiftUI update pass defer at their own call site.
+            onHeightChange(height)
         }
 
         private func attachmentIdentities(in storage: NSTextStorage?) -> [String] {
