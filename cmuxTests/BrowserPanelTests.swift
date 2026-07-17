@@ -642,6 +642,33 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
         XCTAssertTrue(loadingOverlay.superview === panel.webView.cmuxBrowserViewportPresentationView)
     }
 
+    func testDiffViewerImmediatePresentationUsesReusedTargetFrame() throws {
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 1_000, height: 700))
+        let targetView = NSView(frame: NSRect(x: 620, y: 0, width: 380, height: 644))
+        contentView.addSubview(targetView)
+        let window = NSWindow(
+            contentRect: contentView.bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = contentView
+        defer { window.close() }
+
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer {
+            panel.closeDiffViewerLoadingOverlay()
+            panel.closeDiffViewerImmediatePresentationHost()
+            panel.close()
+        }
+        XCTAssertTrue(panel.presentDiffViewerLoadingImmediately(
+            relativeTo: targetView,
+            placement: .existingTargetPane
+        ))
+        let immediateHost = try XCTUnwrap(panel.diffViewerImmediatePresentationHost)
+        XCTAssertEqual(immediateHost.frame, targetView.frame)
+    }
+
     func testDiffViewerPortalClaimRetiresImmediateHostButKeepsLoadingOverlay() {
         let panel = BrowserPanel(workspaceId: UUID())
         defer { panel.close() }

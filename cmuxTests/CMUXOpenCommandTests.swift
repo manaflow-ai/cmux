@@ -972,6 +972,34 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual((payload["repoOptions"] as? [[String: Any]])?.count, 0)
     }
 
+    func testDiffCommandSupportsAgentTurnOutsideGitRepository() throws {
+        let cliPath = try bundledCLIPath()
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let result = try runDiffCLIAndReadHTML(
+            cliPath: cliPath,
+            arguments: [
+                "diff", "--last-turn",
+                "--agent", "claude",
+                "--session", "claude-session-123",
+            ],
+            currentDirectoryURL: rootURL,
+            readPatchSidecar: false
+        )
+
+        let payload = try diffViewerPayload(from: result.html)
+        let sessionSource = try XCTUnwrap(payload["sessionSource"] as? [String: Any])
+        XCTAssertEqual(sessionSource["kind"] as? String, "agentTurn")
+        XCTAssertNil(payload["repoRoot"])
+        let sourceOptions = try XCTUnwrap(payload["sourceOptions"] as? [[String: Any]])
+        for option in sourceOptions where option["value"] as? String != "last-turn" {
+            XCTAssertEqual(option["disabled"] as? Bool, true)
+        }
+    }
+
     func testDiffCommandMapsOpenCodeCLINameToProtocolSpelling() throws {
         let cliPath = try bundledCLIPath()
         let rootURL = FileManager.default.temporaryDirectory
