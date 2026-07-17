@@ -22,6 +22,11 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     let session: MobileCoreRPCSession
     private let stackTokenGate: RPCStackTokenGate
     private let stackTokenForceRefreshGate: RPCStackTokenGate
+    /// One-shot token handoff from an authorized request to the immediately
+    /// following host-status identity check on this same connection. This
+    /// avoids a second auth-store read racing launch-time sign-in while keeping
+    /// the token scoped to one client instead of caching it across connections.
+    private let connectionStackToken = MobileCoreRPCConnectionStackToken()
 
     /// Create a client bound to one route + attach ticket.
     /// - Parameters:
@@ -297,7 +302,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 throw MobileShellConnectionError.insecureManualRoute
             }
             do {
-                auth["stack_access_token"] = try await stackAccessToken(deadline: deadline)
+                let token = try await stackAccessToken(deadline: deadline)
+                auth["stack_access_token"] = token
+                await connectionStackToken.remember(token)
             } catch let error as MobileShellConnectionError {
                 // The provider already classified the failure: a transient
                 // token-fetch failure (offline / refresh server hiccup, session
@@ -322,9 +329,16 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         if !requestNeedsAuth,
            isHostStatusRequest(request),
            allowsStackAuthFallback,
-           MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
-           let stackAccessToken = try await stackAccessTokenForStatus(deadline: deadline) {
-            auth["stack_access_token"] = stackAccessToken
+           MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) {
+            let stackAccessToken: String?
+            if let recentToken = await connectionStackToken.take() {
+                stackAccessToken = recentToken
+            } else {
+                stackAccessToken = try await stackAccessTokenForStatus(deadline: deadline)
+            }
+            if let stackAccessToken {
+                auth["stack_access_token"] = stackAccessToken
+            }
         }
         if !auth.isEmpty {
             request["auth"] = auth
@@ -438,6 +452,26 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         let hasConflict: Bool
     }
 
+}
+
+/// Transfers a Stack token across the connect seam inside one RPC client.
+///
+/// Pairing first proves account access with `workspace.list`, then asks
+/// `mobile.host.status` for the authenticated Mac identity. Reusing that exact
+/// token once makes the identity check independent of launch-time auth-store
+/// contention. Consuming the value prevents this from becoming a general token
+/// cache with its own expiry or account-switch lifecycle.
+private actor MobileCoreRPCConnectionStackToken {
+    private var value: String?
+
+    func remember(_ token: String) {
+        value = token
+    }
+
+    func take() -> String? {
+        defer { value = nil }
+        return value
+    }
 }
 
 private extension MobileCoreRPCClient {
