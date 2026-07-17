@@ -330,7 +330,6 @@ export function useCmuxClient() {
       runMutation((client) => client.swapPane({ pane, dir })),
     setRatio: (pane: Id, dir: "right" | "down", ratio: number) =>
       runMutation((client) => client.setRatio(pane, dir, ratio)),
-    focusPane: (pane: Id) => runMutation((client) => client.focusPane(pane)),
     detachClient: (clientId: Id) => runMutation(async (client) => {
       await client.detachClient(clientId);
       setState((current) => ({

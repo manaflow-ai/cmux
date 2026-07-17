@@ -18,11 +18,11 @@ Only after that preamble should the client send protocol requests. See [`transpo
 
 ## 2. Identify the Server
 
-Send [`identify`](commands.md#identify) immediately after connecting. Verify `data.app == "cmux-tui"` and `data.protocol == 7` before enabling protocol-v7 behavior. Preserve request `id` values and route every non-event response back to the pending request with that id.
+Send [`identify`](commands.md#identify) immediately after connecting. Verify `data.app == "cmux-tui"` and `data.protocol == 8` before enabling protocol-v8 behavior. Preserve request `id` values and route every non-event response back to the pending request with that id.
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":7,"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":8,"session":"main","pid":12345}}
 ```
 
 ## 3. Load and Track the Workspace Tree
@@ -67,7 +67,7 @@ Each line below is one WebSocket text frame. `C>` is client-to-server and `S>` i
 ```text
 C> {"auth":{"token":"secret"}}
 C> {"id":1,"cmd":"identify"}
-S> {"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":7,"session":"main","pid":12345}}
+S> {"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":8,"session":"main","pid":12345}}
 C> {"id":2,"cmd":"subscribe"}
 S> {"id":2,"ok":true,"data":{}}
 C> {"id":3,"cmd":"list-workspaces"}

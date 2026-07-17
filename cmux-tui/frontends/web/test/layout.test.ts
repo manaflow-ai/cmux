@@ -56,6 +56,7 @@ describe("layoutToViewModel", () => {
   it("preserves Zellij stack order and the expanded pane", () => {
     const layout: Layout = { type: "stack", panes: [1, 2, 3], expanded: 2 };
     expect(layoutToViewModel(layout)).toEqual({ type: "stack", panes: [1, 2, 3], expanded: 2 });
+    expect(layoutToViewModel(layout, null, 1)).toEqual({ type: "stack", panes: [1, 2, 3], expanded: 1 });
     expect(layoutToViewModel(layout, 3)).toEqual({ type: "pane", pane: 3 });
   });
 });
