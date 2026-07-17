@@ -41,6 +41,12 @@ struct DockConfigSourceResolutionTests {
         files: [String: Data],
         executionContext: DockExecutionContext = .local
     ) -> DockConfigurationContext {
+        let executionWorkspaceID: UUID?
+        if case .remote(let remoteContext) = executionContext {
+            executionWorkspaceID = remoteContext.workspaceID
+        } else {
+            executionWorkspaceID = nil
+        }
         let source = DockProjectConfigSource(
             origin: origin,
             fileSystem: FakeDockConfigFileSystem(directories: [root], files: files),
@@ -53,6 +59,7 @@ struct DockConfigSourceResolutionTests {
                 projectOrigin: origin,
                 rootDirectory: root,
                 availabilityRevision: "test",
+                executionWorkspaceID: executionWorkspaceID,
                 includesGlobalFallback: false
             ),
             projectSource: source,
@@ -119,6 +126,30 @@ struct DockConfigSourceResolutionTests {
 
         #expect(DockSplitStore.configIdentity(for: first) != DockSplitStore.configIdentity(for: second))
         #expect(DockSplitStore.trustDescriptor(for: first) != DockSplitStore.trustDescriptor(for: second))
+    }
+
+    @Test("remote execution identity distinguishes workspaces on the same host and path")
+    func remoteExecutionIdentityIncludesWorkspace() {
+        let first = context(
+            root: "/home/me/project",
+            origin: .remote(identity: "ssh|host-a|22", displayTarget: "host-a"),
+            files: [:],
+            executionContext: .remote(DockRemoteExecutionContext(
+                workspaceID: UUID(),
+                foregroundAuth: nil
+            ))
+        )
+        let second = context(
+            root: "/home/me/project",
+            origin: .remote(identity: "ssh|host-a|22", displayTarget: "host-a"),
+            files: [:],
+            executionContext: .remote(DockRemoteExecutionContext(
+                workspaceID: UUID(),
+                foregroundAuth: nil
+            ))
+        )
+
+        #expect(first.identity != second.identity)
     }
 
     @Test("POSIX traversal never escapes the filesystem root")

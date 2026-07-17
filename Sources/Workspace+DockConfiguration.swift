@@ -39,6 +39,7 @@ extension Workspace {
                     projectOrigin: projectSource?.origin,
                     rootDirectory: root?.value,
                     availabilityRevision: remoteDockAvailabilityRevision,
+                    executionWorkspaceID: id,
                     includesGlobalFallback: includesGlobalFallback
                 ),
                 projectSource: projectSource,
@@ -62,6 +63,7 @@ extension Workspace {
                 projectOrigin: projectSource?.origin,
                 rootDirectory: root?.value,
                 availabilityRevision: "local",
+                executionWorkspaceID: nil,
                 includesGlobalFallback: includesGlobalFallback
             ),
             projectSource: projectSource,
@@ -77,6 +79,15 @@ extension Workspace {
             isRemoteWorkspace: isRemoteWorkspace,
             remoteWebsiteDataStoreIdentifier: isRemoteWorkspace ? id : nil,
             remoteStatus: browserRemoteWorkspaceStatusSnapshot()
+        )
+    }
+
+    func windowDockWorkspaceSnapshot() -> WindowDockWorkspaceSnapshot {
+        let browserSettings = windowDockRemoteBrowserSettings()
+        return WindowDockWorkspaceSnapshot(
+            configurationIdentity: windowDockConfigurationContext().identity,
+            proxyEndpoint: browserSettings.proxyEndpoint,
+            remoteStatus: browserSettings.remoteStatus
         )
     }
 

@@ -5,6 +5,7 @@ struct DockConfigurationContext: Sendable {
         let projectOrigin: DockConfigOrigin?
         let rootDirectory: String?
         let availabilityRevision: String
+        let executionWorkspaceID: UUID?
         let includesGlobalFallback: Bool
     }
 
@@ -33,6 +34,7 @@ struct DockConfigurationContext: Sendable {
                 projectOrigin: projectSource?.origin,
                 rootDirectory: projectSource?.rootDirectory.value,
                 availabilityRevision: "local",
+                executionWorkspaceID: nil,
                 includesGlobalFallback: scope == .global
             ),
             projectSource: projectSource,

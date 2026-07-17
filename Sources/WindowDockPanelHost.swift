@@ -1,21 +1,36 @@
 import CmuxAppKitSupportUI
 import SwiftUI
 
-/// Observes the selected workspace while preserving the per-window Dock store.
-/// Workspace changes refresh config identity and remote browser routing without
-/// moving Dock ownership into the workspace lifecycle.
+/// Preserves the per-window Dock store while observing only its selected
+/// workspace's configuration and remote-browser snapshot.
 struct WindowDockPanelHost: View {
     let store: DockSplitStore
-    @ObservedObject var workspace: Workspace
+    let workspace: Workspace
     let isSidebarVisible: Bool
     let mode: RightSidebarMode
     let windowAppearance: WindowAppearanceSnapshot
     let rightSidebarOwnsInputFocus: Bool
+    @State private var observation: WindowDockWorkspaceObservation
+
+    init(
+        store: DockSplitStore,
+        workspace: Workspace,
+        isSidebarVisible: Bool,
+        mode: RightSidebarMode,
+        windowAppearance: WindowAppearanceSnapshot,
+        rightSidebarOwnsInputFocus: Bool
+    ) {
+        self.store = store
+        self.workspace = workspace
+        self.isSidebarVisible = isSidebarVisible
+        self.mode = mode
+        self.windowAppearance = windowAppearance
+        self.rightSidebarOwnsInputFocus = rightSidebarOwnsInputFocus
+        _observation = State(initialValue: WindowDockWorkspaceObservation(workspace: workspace))
+    }
 
     var body: some View {
-        let contextIdentity = workspace.windowDockConfigurationContext().identity
-        let proxyEndpoint = workspace.remoteProxyEndpoint
-        let remoteStatus = workspace.browserRemoteWorkspaceStatusSnapshot()
+        let snapshot = observation.snapshot
 
         DockPanelView(
             store: store,
@@ -26,17 +41,21 @@ struct WindowDockPanelHost: View {
             rightSidebarOwnsInputFocus: rightSidebarOwnsInputFocus
         )
         .onAppear {
+            observation.observe(workspace)
             store.configurationContextDidChange()
-            store.applyRemoteProxyEndpointUpdate(proxyEndpoint)
-            store.applyRemoteWorkspaceStatus(remoteStatus)
+            store.applyRemoteProxyEndpointUpdate(snapshot.proxyEndpoint)
+            store.applyRemoteWorkspaceStatus(snapshot.remoteStatus)
         }
-        .onChange(of: contextIdentity) { _, _ in
+        .onChange(of: workspace.id) { _, _ in
+            observation.observe(workspace)
+        }
+        .onChange(of: snapshot.configurationIdentity) { _, _ in
             store.configurationContextDidChange()
         }
-        .onChange(of: proxyEndpoint) { _, endpoint in
+        .onChange(of: snapshot.proxyEndpoint) { _, endpoint in
             store.applyRemoteProxyEndpointUpdate(endpoint)
         }
-        .onChange(of: remoteStatus) { _, status in
+        .onChange(of: snapshot.remoteStatus) { _, status in
             store.applyRemoteWorkspaceStatus(status)
         }
     }
