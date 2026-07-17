@@ -183,7 +183,7 @@ extension AppDelegate {
         if let outlineView = focusView as? FileExplorerNSOutlineView {
             return outlineView.handleOpenSelectionShortcut(event)
         }
-        if let resultsView = focusView as? FileExplorerSearchResultsTableView {
+        if let resultsView = focusView as? FileExplorerSearchOutlineView {
             return resultsView.handleOpenSelectionShortcut(event)
         }
         if let searchField = focusView as? FileExplorerSearchField {
@@ -219,7 +219,7 @@ extension AppDelegate {
 
     private func isFileExplorerShortcutFocusRoot(_ view: NSView) -> Bool {
         view is FileExplorerNSOutlineView ||
-            view is FileExplorerSearchResultsTableView ||
+            view is FileExplorerSearchOutlineView ||
             view is FileExplorerSearchField
     }
 
