@@ -2,6 +2,8 @@
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
 use std::collections::{HashMap, HashSet};
+#[cfg(test)]
+use std::sync::atomic::AtomicBool;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
@@ -333,6 +335,12 @@ enum BrowserSurfaceAttach {
 type ClientSurfaceSizes = HashMap<SurfaceId, HashMap<u64, (u16, u16)>>;
 
 #[derive(Default)]
+struct LatestClientSize {
+    size: Option<(u16, u16)>,
+    from_report: bool,
+}
+
+#[derive(Default)]
 struct ClientSizingState {
     surfaces: ClientSurfaceSizes,
     excluded_clients: HashSet<u64>,
@@ -383,7 +391,7 @@ pub struct Mux {
     next_notification_id: AtomicU64,
     next_active_at: AtomicU64,
     surface_options: Mutex<SurfaceOptions>,
-    latest_client_size: Mutex<Option<(u16, u16)>>,
+    latest_client_size: Mutex<LatestClientSize>,
     client_sizing: Mutex<ClientSizingState>,
     #[cfg(test)]
     client_resize_before_apply: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
@@ -425,7 +433,7 @@ impl Mux {
             next_notification_id: AtomicU64::new(1),
             next_active_at: AtomicU64::new(1),
             surface_options: Mutex::new(surface_options),
-            latest_client_size: Mutex::new(None),
+            latest_client_size: Mutex::new(LatestClientSize::default()),
             client_sizing: Mutex::new(ClientSizingState::default()),
             #[cfg(test)]
             client_resize_before_apply: Mutex::new(None),
@@ -606,10 +614,11 @@ impl Mux {
         let mut latest = self.latest_client_size.lock().unwrap();
         if let Some((cols, rows)) = requested {
             let size = clamp_terminal_size(cols, rows);
-            *latest = Some(size);
+            latest.size = Some(size);
+            latest.from_report = false;
             return size;
         }
-        latest.unwrap_or_else(|| clamp_terminal_size(default.0, default.1))
+        latest.size.unwrap_or_else(|| clamp_terminal_size(default.0, default.1))
     }
 
     /// Record a genuine client-chosen size (protocol resize-surface, sized
@@ -617,7 +626,9 @@ impl Mux {
     /// unsized surface creation.
     pub fn record_client_size(&self, cols: u16, rows: u16) -> (u16, u16) {
         let size = clamp_terminal_size(cols, rows);
-        *self.latest_client_size.lock().unwrap() = Some(size);
+        let mut latest = self.latest_client_size.lock().unwrap();
+        latest.size = Some(size);
+        latest.from_report = true;
         size
     }
 
@@ -724,7 +735,11 @@ impl Mux {
         if let Some((cols, rows)) = applied {
             self.record_client_size(cols, rows);
         } else if !has_reports {
-            *self.latest_client_size.lock().unwrap() = None;
+            let mut latest = self.latest_client_size.lock().unwrap();
+            if latest.from_report {
+                latest.size = None;
+                latest.from_report = false;
+            }
         }
     }
 
@@ -764,7 +779,11 @@ impl Mux {
         if let Some((cols, rows)) = applied {
             self.record_client_size(cols, rows);
         } else if !has_reports {
-            *self.latest_client_size.lock().unwrap() = None;
+            let mut latest = self.latest_client_size.lock().unwrap();
+            if latest.from_report {
+                latest.size = None;
+                latest.from_report = false;
+            }
         }
     }
 
@@ -3002,7 +3021,7 @@ mod tests {
 
         assert!(mux.resize_surface_for_client(missing_surface, 7, 120, 40).is_err());
         assert_eq!(mux.client_surface_size(missing_surface, 7), Some((80, 25)));
-        assert_eq!(*mux.latest_client_size.lock().unwrap(), Some((90, 30)));
+        assert_eq!(mux.latest_client_size.lock().unwrap().size, Some((90, 30)));
     }
 
     #[test]
@@ -3159,7 +3178,7 @@ mod tests {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
         let surface_id = surface.id;
-        let pause_first = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let pause_first = Arc::new(AtomicBool::new(true));
         let (reached_tx, reached_rx) = std::sync::mpsc::sync_channel(1);
         let release = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
         let hook_release = release.clone();
@@ -3209,7 +3228,7 @@ mod tests {
         mux.resize_surface_for_client(surface_id, 1, 80, 40).unwrap();
         mux.resize_surface_for_client(surface_id, 2, 120, 50).unwrap();
 
-        let pause_first = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let pause_first = Arc::new(AtomicBool::new(true));
         let (reached_tx, reached_rx) = std::sync::mpsc::sync_channel(1);
         let release = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
         let hook_release = release.clone();
