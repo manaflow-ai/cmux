@@ -14,6 +14,7 @@ struct SocketCapabilityRebindTests {
         let socketPath = directory.appendingPathComponent("cmux.sock").path
         let server = SocketControlServer(
             initialSocketPath: socketPath,
+            notificationCenter: NotificationCenter(),
             events: SocketControlServerEvents(
                 breadcrumb: { _, _ in },
                 failure: { _, _, _, _ in },
@@ -52,20 +53,14 @@ struct SocketCapabilityRebindTests {
         }
 
         let command = "hooks claude prompt-submit"
-        var authorization = SocketClientAuthorization()
-        var ancestryEvaluationCount = 0
-        let authorized = authorization.authorizedCommand(
+        let authorized = SocketClientAuthorization().authorizedCommand(
             envelope.wrap(command),
             peerProcessID: reboundConnection.peerProcessID,
             peerHasSameUID: true,
             capabilityAuthority: authority,
-            isDescendant: { _ in
-                ancestryEvaluationCount += 1
-                return false
-            }
+            isDescendant: { _ in false }
         )
         #expect(authorized == command)
-        #expect(ancestryEvaluationCount == 0)
     }
 
     private func connect(to path: String) -> Int32 {

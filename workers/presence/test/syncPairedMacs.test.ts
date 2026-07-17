@@ -20,6 +20,7 @@ import {
   PAIRED_MACS_COLLECTION,
   PAIRED_MACS_COLLECTION_TOMBSTONE_PREFIXES,
   parsePairedMacBackup,
+  sanitizePairedMacSyncFrame,
   type PairedMacBackupRecord,
 } from "../src/syncPairedMacs";
 import {
@@ -27,6 +28,7 @@ import {
   gcTombstones,
   listRecords,
   listTombstonedCollections,
+  upsertRecord,
   type SyncStorage,
 } from "../src/syncStorage";
 
@@ -86,6 +88,20 @@ describe("parsePairedMacBackup", () => {
     expect(parsed.ops[1]).toEqual({ kind: "delete", id: "gone" });
   });
 
+  it("keys tagged operations by physical Mac plus app-instance tag", () => {
+    const tagged = { ...record("mac-a", "10.0.0.1", 22), instanceTag: "nightly" };
+    const parsed = parsePairedMacBackup({
+      ops: [
+        { macDeviceID: "mac-a", instanceTag: "nightly", record: tagged },
+        { macDeviceID: "mac-a", instanceTag: "stable", deleted: true },
+      ],
+    });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.ops[0]).toMatchObject({ kind: "upsert", id: "mac-a\u001fnightly" });
+    expect(parsed.ops[1]).toEqual({ kind: "delete", id: "mac-a\u001fstable" });
+  });
+
   it("rejects a non-array ops, missing id, and bad timestamps", () => {
     expect(parsePairedMacBackup({ ops: "nope" }).ok).toBe(false);
     expect(parsePairedMacBackup({ ops: [{ record: record("x", "h", 1) }] }).ok).toBe(false);
@@ -131,6 +147,49 @@ describe("parsePairedMacBackup", () => {
         record: { ...record("mac-a", "10.0.0.1", 22), instanceTagWriteMode: "replace" },
       }],
     }).ok).toBe(false);
+  });
+
+  it("strips private Iroh hints from backup ingestion and keeps legacy routes", () => {
+    const legacy = record("x", "100.64.1.2", 49152).routes[0];
+    const parsed = parsePairedMacBackup({
+      ops: [{
+        macDeviceID: "x",
+        record: {
+          ...record("x", "100.64.1.2", 49152),
+          routes: [
+            legacy,
+            {
+              id: "iroh",
+              kind: "iroh",
+              priority: 1,
+              endpoint: {
+                type: "peer",
+                id: "a".repeat(64),
+                direct_addrs: ["192.168.1.20:49152"],
+                relay_hint: "legacy-private-relay-hint",
+                relay_url: "https://use4.relay.cmux.dev/",
+              },
+            },
+          ],
+        },
+      }],
+    });
+    if (!parsed.ok) throw new Error(parsed.error);
+    const op = parsed.ops[0];
+    if (op?.kind !== "upsert") throw new Error("expected an upsert op");
+    expect(op.record.routes).toEqual([
+      legacy,
+      {
+        id: "iroh",
+        kind: "iroh",
+        priority: 1,
+        endpoint: {
+          type: "peer",
+          id: "a".repeat(64),
+          relay_url: "https://use4.relay.cmux.dev/",
+        },
+      },
+    ]);
   });
 });
 
@@ -307,6 +366,78 @@ describe("applyBackupOps", () => {
     expect((await listBackupSnapshot(storage, "user-1")).records[0]).toEqual(incoming);
   });
 
+  it("sanitizes direct writes, deltas, and legacy stored backup responses", async () => {
+    const storage = new FakeStorage();
+    const unsafe = {
+      ...record("mac-a", "100.64.1.2", 49152),
+      routes: [
+        record("mac-a", "100.64.1.2", 49152).routes[0],
+        {
+          id: "iroh",
+          kind: "iroh",
+          endpoint: {
+            type: "peer",
+            id: "a".repeat(64),
+            direct_addrs: ["192.168.1.20:49152"],
+            relay_hint: "legacy-private-relay-hint",
+            relay_url: "https://use4.relay.cmux.dev/",
+          },
+        },
+      ],
+    };
+    const deltas = await applyBackupOps(
+      storage,
+      "user-1",
+      [{ kind: "upsert", id: "mac-a", record: unsafe }],
+      T0,
+    );
+    expect(JSON.stringify(deltas)).not.toContain("192.168.1.20");
+    expect(JSON.stringify(deltas)).not.toContain("legacy-private-relay-hint");
+    const stored = await listRecords<PairedMacBackupRecord>(storage, pairedMacsCollection("user-1"));
+    expect(JSON.stringify(stored)).not.toContain("192.168.1.20");
+
+    // Seed an unsafe pre-hardening record directly. Restore must scrub it even
+    // before the next client write migrates the stored payload.
+    await upsertRecord(
+      storage,
+      pairedMacsCollection("legacy-user"),
+      "mac-a",
+      unsafe,
+      T0,
+    );
+    const restored = await listBackupSnapshot(storage, "legacy-user");
+    expect(JSON.stringify(restored)).not.toContain("192.168.1.20");
+    expect(JSON.stringify(restored)).not.toContain("legacy-private-relay-hint");
+    expect(restored.records[0]?.routes).toEqual([
+      unsafe.routes[0],
+      {
+        id: "iroh",
+        kind: "iroh",
+        endpoint: {
+          type: "peer",
+          id: "a".repeat(64),
+          relay_url: "https://use4.relay.cmux.dev/",
+        },
+      },
+    ]);
+
+    const legacyFrame = sanitizePairedMacSyncFrame({
+      type: "sync.delta",
+      collection: pairedMacsCollection("legacy-user"),
+      rev: 1,
+      records: [{
+        id: "mac-a",
+        rev: 1,
+        updatedAt: T0,
+        deleted: false,
+        schemaVersion: 1,
+        payload: unsafe,
+      }],
+    });
+    expect(JSON.stringify(legacyFrame)).not.toContain("192.168.1.20");
+    expect(JSON.stringify(legacyFrame)).not.toContain("legacy-private-relay-hint");
+  });
+
   it("normalizes optional client scopes into separate per-user collections", async () => {
     const storage = new FakeStorage();
     await applyBackupOps(
@@ -376,6 +507,47 @@ describe("applyBackupOps", () => {
     expect(existingScopeUpdate.length).toBeGreaterThan(0);
     expect((await listBackupSnapshot(storage, "user-1", "ios:tag-0")).records.map((r) => r.macDeviceID)).toEqual([
       "mac-0",
+    ]);
+  });
+
+  it("supports forty concurrent current iOS development scopes", async () => {
+    const storage = new FakeStorage();
+    for (let i = 0; i < 40; i += 1) {
+      const deltas = await applyBackupOps(
+        storage,
+        "user-1",
+        [{ kind: "upsert", id: `mac-${i}`, record: record(`mac-${i}`, "10.0.0.1", 4000 + i) }],
+        T0 + i,
+        `ios:v2:tag-${i}`,
+      );
+      expect(deltas).toHaveLength(1);
+    }
+  });
+
+  it("recycles the oldest inactive current iOS development scope at capacity", async () => {
+    const storage = new FakeStorage();
+    for (let i = 0; i < MAX_PAIRED_MAC_CLIENT_SCOPES_PER_USER; i += 1) {
+      await applyBackupOps(
+        storage,
+        "user-1",
+        [{ kind: "upsert", id: `mac-${i}`, record: record(`mac-${i}`, "10.0.0.1", 5000 + i) }],
+        T0 + i,
+        `ios:v2:tag-${i}`,
+      );
+    }
+
+    const replacement = await applyBackupOps(
+      storage,
+      "user-1",
+      [{ kind: "upsert", id: "newest", record: record("newest", "10.0.0.2", 6000) }],
+      T0 + 24 * 60 * 60 * 1000 + MAX_PAIRED_MAC_CLIENT_SCOPES_PER_USER,
+      "ios:v2:newest",
+    );
+
+    expect(replacement).toHaveLength(1);
+    expect((await listBackupSnapshot(storage, "user-1", "ios:v2:tag-0")).records).toEqual([]);
+    expect((await listBackupSnapshot(storage, "user-1", "ios:v2:newest")).records.map((entry) => entry.macDeviceID)).toEqual([
+      "newest",
     ]);
   });
 
@@ -494,6 +666,33 @@ describe("applyBackupOps", () => {
     const live = await listLiveBackup(storage, "user-1");
     expect(live.filter((r) => r.isActive).map((r) => r.macDeviceID)).toEqual(["mac-b"]);
     expect(live.find((r) => r.macDeviceID === "mac-a")?.isActive).toBe(false);
+  });
+
+  it("stores and deletes two tagged instances on one physical Mac independently", async () => {
+    const storage = new FakeStorage();
+    const stable = { ...record("mac-a", "10.0.0.1", 22), instanceTag: "stable" };
+    const nightly = {
+      ...record("mac-a", "10.0.0.2", 22),
+      instanceTag: "nightly",
+      lastSeenAt: T0 + 1000,
+    };
+    await applyBackupOps(storage, "user-1", [
+      { kind: "upsert", id: "mac-a\u001fstable", record: stable },
+      { kind: "upsert", id: "mac-a\u001fnightly", record: nightly },
+    ], T0);
+
+    let snapshot = await listBackupSnapshot(storage, "user-1");
+    expect(snapshot.records.map((item) => item.instanceTag).sort()).toEqual(["nightly", "stable"]);
+
+    await applyBackupOps(
+      storage,
+      "user-1",
+      [{ kind: "delete", id: "mac-a\u001fstable" }],
+      T0 + 2000,
+    );
+    snapshot = await listBackupSnapshot(storage, "user-1");
+    expect(snapshot.records.map((item) => item.instanceTag)).toEqual(["nightly"]);
+    expect(snapshot.deletedMacDeviceIDs).toEqual(["mac-a\u001fstable"]);
   });
 
   it("a customization-only change syncs (not a same-shape no-op)", async () => {

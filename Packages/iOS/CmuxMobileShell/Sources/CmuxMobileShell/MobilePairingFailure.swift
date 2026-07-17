@@ -24,9 +24,8 @@ public enum MobilePairingFailureCategory: Equatable, Sendable {
     /// cellular). Caught by the reachability preflight before any connect, so it
     /// fails fast instead of waiting out the per-route timeouts.
     case offline
-    /// Could not route to the Mac's address. The dominant real cause is the
-    /// phone not being on the same Tailscale tailnet as the address the QR
-    /// embedded, so the tailnet IP is simply unroutable.
+    /// Could not route to a selected legacy host address. Iroh routes carry no
+    /// host here because their EndpointID is resolved by the transport layer.
     case hostUnreachable(host: String?, port: Int?)
     /// The address was reachable but nothing accepted the connection: cmux is not
     /// running on the Mac, or mobile pairing is off (it is off by default in
@@ -34,8 +33,7 @@ public enum MobilePairingFailureCategory: Equatable, Sendable {
     case listenerNotRunning(host: String?, port: Int?)
     /// iOS blocked the connection on Local Network privacy grounds.
     case localNetworkBlocked
-    /// DNS could not resolve the host (a `.ts.net` MagicDNS name with Tailscale
-    /// down on one side).
+    /// DNS could not resolve a saved private-network host.
     case dnsFailed(host: String?, port: Int?)
     /// The TCP connection came up but the host handshake did not respond in time.
     case handshakeTimedOut(host: String?, port: Int?)
@@ -78,6 +76,10 @@ public enum MobilePairingFailureCategory: Equatable, Sendable {
     /// The scanned/pasted code only points back at the Mac itself (loopback),
     /// which the phone can never dial.
     case loopbackRejected
+    /// A saved legacy route is still valid, but the Mac must publish an Iroh
+    /// route before this iOS version can reconnect securely. This is version
+    /// skew, not an account failure, so the saved pairing stays intact.
+    case macUpdateRequired
     /// The pairing code carried only an untrusted manual route that cannot carry
     /// the account credential.
     case unsupportedRoute
@@ -111,6 +113,7 @@ extension MobilePairingFailureCategory {
         case .invalidCode: return "invalid_code"
         case .unrecognizedVersion: return "unrecognized_version"
         case .loopbackRejected: return "loopback_rejected"
+        case .macUpdateRequired: return "mac_update_required"
         case .unsupportedRoute: return "unsupported_route"
         case .noSupportedRoute: return "no_supported_route"
         case .cancelled: return "cancelled"
@@ -143,7 +146,7 @@ extension MobilePairingFailureCategory {
         case let .hostUnreachable(host, port):
             return Self.hostPortMessage(
                 key: "mobile.pairing.hostUnreachableFormat",
-                defaultValue: "Can't reach %@:%d. Make sure your Mac is awake and on the same Tailscale network as this device.",
+                defaultValue: "Can't reach %@:%d. Make sure your Mac is awake and the private network or LAN for this saved route is active.",
                 fallbackKey: "mobile.pairing.runtimeUnavailable",
                 fallbackDefaultValue: "Could not connect to your computer.",
                 host: host,
@@ -165,7 +168,7 @@ extension MobilePairingFailureCategory {
                 return String(
                     format: L10n.string(
                         "mobile.pairing.dnsFailedFormat",
-                        defaultValue: "Couldn't resolve %@. Check that Tailscale is connected on both devices."
+                        defaultValue: "Couldn't resolve %@. Check the DNS or private network that provides this saved route."
                     ),
                     host
                 )
@@ -177,7 +180,7 @@ extension MobilePairingFailureCategory {
         case let .handshakeTimedOut(host, port):
             return Self.hostPortMessage(
                 key: "mobile.pairing.connectTimedOutFormat",
-                defaultValue: "No response from %@:%d. Your Mac may be asleep or off Tailscale. Make sure it's awake and on the same Tailscale network.",
+                defaultValue: "No response from %@:%d. Make sure the Mac is awake, cmux is running, and the private route is active.",
                 fallbackKey: "mobile.pairing.requestTimedOut",
                 fallbackDefaultValue: "The computer did not respond. Check the host and port, then try again.",
                 host: host,
@@ -247,7 +250,12 @@ extension MobilePairingFailureCategory {
         case .loopbackRejected:
             return L10n.string(
                 "mobile.pairing.loopbackRejected",
-                defaultValue: "This code points at the Mac itself (localhost), so your iPhone can't use it. Set up Tailscale on the Mac, then scan a fresh code."
+                defaultValue: "This code points at the Mac itself (localhost), so your iPhone can't use it. Update cmux on the Mac and scan its Iroh code."
+            )
+        case .macUpdateRequired:
+            return L10n.string(
+                "mobile.pairing.macUpdateRequired",
+                defaultValue: "Update cmux on this Mac to connect securely."
             )
         case .unsupportedRoute:
             return L10n.string(
@@ -264,7 +272,7 @@ extension MobilePairingFailureCategory {
         case let .unknown(host, port):
             return Self.hostPortMessage(
                 key: "mobile.pairing.connectionFailedFormat",
-                defaultValue: "Could not reach %@:%d. Check that the host is reachable over Tailscale or LAN and that the port is correct.",
+                defaultValue: "Could not reach %@:%d. Check that the saved private network or LAN route is active and that the port is correct.",
                 fallbackKey: "mobile.pairing.runtimeUnavailable",
                 fallbackDefaultValue: "Could not connect to your computer.",
                 host: host,
@@ -283,7 +291,7 @@ extension MobilePairingFailureCategory {
         case .hostUnreachable, .dnsFailed, .handshakeTimedOut:
             return L10n.string(
                 "mobile.pairing.guidance.reachability",
-                defaultValue: "Check that this phone and your Mac are on the same Wi-Fi or both running Tailscale, that the Mac is awake, and that cmux is open on it."
+                defaultValue: "Iroh reconnects automatically. For a saved private-network fallback, connect both devices to that network, wake the Mac, and open cmux."
             )
         case .listenerNotRunning, .connectionDropped:
             return L10n.string(
@@ -323,6 +331,11 @@ extension MobilePairingFailureCategory {
                 "mobile.pairing.guidance.updateApp",
                 defaultValue: "Update cmux from the App Store (or TestFlight), then scan again."
             )
+        case .macUpdateRequired:
+            return L10n.string(
+                "mobile.pairing.guidance.macUpdateRequired",
+                defaultValue: "Your saved computer will reconnect automatically after you update cmux on the Mac. You do not need to sign out or pair again."
+            )
         case .invalidCode, .loopbackRejected, .cancelled, .unknown:
             return nil
         }
@@ -360,6 +373,10 @@ extension MobilePairingFailureCategory {
                 return .unknown(host: host, port: port)
             case .receiveFailed, .sendFailed:
                 return .connectionDropped(host: host, port: port)
+            case .tailscaleAuthorizationUnavailable:
+                return .hostUnreachable(host: host, port: port)
+            case .authorizationIntentRequired, .unsupportedAuthorizationMode:
+                return .unsupportedRoute
             case .emptyHost, .invalidPort, .invalidMaximumReceiveLength,
                  .unsupportedRouteKind, .unsupportedEndpoint,
                  .receiveAlreadyInProgress, .sendAlreadyInProgress:

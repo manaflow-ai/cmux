@@ -257,7 +257,7 @@ enum SurfaceResumeApprovalPolicy: String, Codable, CaseIterable, Sendable {
     case auto
 }
 
-nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
+struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case name
         case kind
@@ -480,7 +480,7 @@ extension SurfaceResumeBindingSnapshot: WorkspaceSurfaceResumeBinding {
     }
 }
 
-nonisolated struct SurfaceResumeApprovalRecord: Codable, Equatable, Identifiable, Sendable {
+struct SurfaceResumeApprovalRecord: Codable, Equatable, Identifiable, Sendable {
     var version: Int
     var id: String
     var name: String?
@@ -1269,7 +1269,7 @@ enum SurfaceResumeApprovalStore {
 #endif
 }
 
-nonisolated enum TerminalStartupReturnShellScript {
+enum TerminalStartupReturnShellScript {
     private static let shellLine = #"_cmux_resume_shell="${SHELL:-/bin/zsh}""#
     private static let zshIntegrationReentryLines = [
         #"if [[ "${_cmux_resume_shell:t}" == "zsh" ]]; then"#,
