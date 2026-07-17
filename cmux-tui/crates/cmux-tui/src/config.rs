@@ -233,6 +233,9 @@ pub struct ChromeTheme {
     pub browser_message_fg: Color,
     pub scrollbar_thumb_fg: Color,
     pub scrollbar_thumb_active_fg: Color,
+    pub foreign_viewport_bg: Color,
+    pub foreign_viewport_boundary_fg: Color,
+    pub foreign_viewport_hint_fg: Color,
 }
 
 impl ChromeTheme {
@@ -285,6 +288,9 @@ impl ChromeTheme {
             browser_message_fg: Color::Indexed(244),
             scrollbar_thumb_fg: Color::Indexed(246),
             scrollbar_thumb_active_fg: Color::Indexed(252),
+            foreign_viewport_bg: Color::Indexed(235),
+            foreign_viewport_boundary_fg: Color::Indexed(240),
+            foreign_viewport_hint_fg: Color::Indexed(244),
         }
     }
 
@@ -337,6 +343,9 @@ impl ChromeTheme {
             browser_message_fg: Color::Indexed(242),
             scrollbar_thumb_fg: Color::Indexed(246),
             scrollbar_thumb_active_fg: Color::Indexed(240),
+            foreign_viewport_bg: Color::Indexed(250),
+            foreign_viewport_boundary_fg: Color::Indexed(246),
+            foreign_viewport_hint_fg: Color::Indexed(242),
         }
     }
 
