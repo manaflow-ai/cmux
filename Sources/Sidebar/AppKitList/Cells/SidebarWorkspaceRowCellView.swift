@@ -225,6 +225,13 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     }
 
     private func applyModel(_ model: SidebarWorkspaceRowModel) {
+        // Legacy parity: the SwiftUI sidebar never animates content or color
+        // changes; layer-backed subviews here otherwise pick up implicit
+        // 0.25s actions on backgroundColor/frame (rails and text visibly
+        // crossfaded during resizes and selection).
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
         let palette = palette(model)
         let snapshot = model.snapshot
         let settings = model.settings
@@ -733,7 +740,13 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     override func layout() {
         super.layout()
         guard let model else { return }
+        // No implicit actions during manual layout: sublayer frame moves
+        // otherwise animate when layout runs inside an animation context
+        // (legacy parity — geometry snaps, never interpolates).
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         _ = layoutContent(model: model, width: bounds.width, apply: true)
+        CATransaction.commit()
     }
 
     /// Places (or measures) every slot top-down; single source of truth for

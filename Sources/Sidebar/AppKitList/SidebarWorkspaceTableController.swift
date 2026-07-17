@@ -170,7 +170,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         } else {
             reconfigureVisibleRows(contentChanges)
             if !heightChanges.isEmpty {
-                containerView.tableView.noteHeightOfRows(withIndexesChanged: heightChanges)
+                noteHeightOfRowsWithoutAnimation(containerView.tableView, heightChanges)
             }
         }
 
@@ -216,7 +216,18 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 }
             }
         } else if let headerActions = rows[row].appKitGroupHeaderActions {
-            headerActions.onFocusAnchor()
+            // Group headers focus their anchor workspace: same fast path as
+            // workspace rows (burst coalescing; the press already painted the
+            // optimistic anchor-active treatment).
+            let modifiers = NSEvent.modifierFlags
+            if modifiers.contains(.command) || modifiers.contains(.shift) {
+                selectionCoalescer.cancel()
+                headerActions.onFocusAnchor()
+            } else {
+                selectionCoalescer.request {
+                    headerActions.onFocusAnchor()
+                }
+            }
         }
     }
 
@@ -325,11 +336,20 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// The authoritative apply reconciles right after.
     func previewSelection(row: Int, modifiers: NSEvent.ModifierFlags, hitView: NSView?) {
         guard rows.indices.contains(row),
-              rows[row].appKitWorkspaceRowModel != nil,
-              let table = containerView?.tableView,
-              let cell = table.view(atColumn: 0, row: row, makeIfNecessary: false)
-                as? SidebarWorkspaceRowTableCellView else { return }
-        if let hitView, cell.selectionPreviewShouldIgnore(hitView) { return }
+              let table = containerView?.tableView else { return }
+        let workspaceCell = table.view(atColumn: 0, row: row, makeIfNecessary: false)
+            as? SidebarWorkspaceRowTableCellView
+        let headerCell = table.view(atColumn: 0, row: row, makeIfNecessary: false)
+            as? SidebarGroupHeaderTableCellView
+        if rows[row].appKitWorkspaceRowModel != nil {
+            guard let workspaceCell else { return }
+            if let hitView, workspaceCell.selectionPreviewShouldIgnore(hitView) { return }
+        } else if rows[row].appKitGroupHeaderModel != nil {
+            guard let headerCell else { return }
+            if let hitView, headerCell.selectionPreviewShouldIgnore(hitView) { return }
+        } else {
+            return
+        }
         let extendsSelection = modifiers.contains(.command) || modifiers.contains(.shift)
         if !extendsSelection {
             let visibleRows = table.rows(in: table.visibleRect)
@@ -339,7 +359,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                     as? SidebarWorkspaceRowTableCellView)?.showOptimisticDeselection()
             }
         }
-        cell.showOptimisticSelectionHighlight()
+        workspaceCell?.showOptimisticSelectionHighlight()
+        headerCell?.showOptimisticAnchorActive()
     }
 
     func middleClick(row: Int) {
@@ -442,7 +463,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         lastMeasuredWidth = width
         pumpHeightOverrides.removeAll(keepingCapacity: true)
         if !changed.isEmpty {
-            containerView?.tableView.noteHeightOfRows(withIndexesChanged: changed)
+            if let table = containerView?.tableView { noteHeightOfRowsWithoutAnimation(table, changed) }
         }
     }
 
@@ -466,6 +487,18 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         guard contextMenuRowId == rowId else { return }
         contextMenuRowId = nil
         recomputeHoveredRow()
+    }
+
+    /// Legacy parity: the SwiftUI sidebar never animates row geometry (its
+    /// "no implicit animation on agent-mutable fields" rule), but
+    /// NSTableView animates noteHeightOfRows by default — rails and text
+    /// visibly interpolated after width resizes.
+    private func noteHeightOfRowsWithoutAnimation(_ table: NSTableView, _ indexes: IndexSet) {
+        NSAnimationContext.beginGrouping()
+        NSAnimationContext.current.duration = 0
+        NSAnimationContext.current.allowsImplicitAnimation = false
+        table.noteHeightOfRows(withIndexesChanged: indexes)
+        NSAnimationContext.endGrouping()
     }
 
     private func reconfigureRows(withIds ids: [SidebarWorkspaceRenderItemID]) {
@@ -556,7 +589,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let current = table.rect(ofRow: index).height
         guard abs(height - current) >= 0.5 else { return }
         pumpHeightOverrides[rowId] = height
-        table.noteHeightOfRows(withIndexesChanged: IndexSet(integer: index))
+        noteHeightOfRowsWithoutAnimation(table, IndexSet(integer: index))
     }
 
     private func configure(headerCell cell: SidebarGroupHeaderTableCellView, at row: Int) {
