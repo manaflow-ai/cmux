@@ -17,6 +17,7 @@ def test_stable_registry_publishers_are_main_only_and_tag_bound() -> None:
         assert 'if [[ "$GITHUB_REF" != "refs/heads/main" ]]' in text
         assert 'tag="cmux-tui-v$DISPATCH_VERSION"' in text
         assert 'git rev-parse "refs/tags/$tag^{commit}"' in text
+        assert 'if [[ "$release_sha" != "$GITHUB_SHA" ]]' in text
         assert "checkout_ref: ${{ needs.validate-version.outputs.release_sha }}" in text
         assert f"name: {environment}" in text
 

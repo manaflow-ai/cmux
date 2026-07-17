@@ -1016,12 +1016,23 @@ mod tests {
     }
 
     #[test]
+    fn json_queue_budget_charges_container_allocations() {
+        let value = Value::Array(vec![Value::Null; 128]);
+        assert!(
+            json_retained_bytes(&value) >= 128 * size_of::<Value>(),
+            "null container storage was not charged"
+        );
+    }
+
+    #[test]
     fn rejected_screencast_frame_is_acknowledged() {
         let (outbound_tx, outbound_rx) = channel();
+        let (event_output, _event_rx) = sync_channel(1);
         let inner = Arc::new(Inner {
             outbound: outbound_tx,
             pending: Mutex::new(HashMap::new()),
             events: Arc::new(EventQueue::new()),
+            event_output,
             next_id: AtomicU64::new(1),
             closed: AtomicBool::new(false),
             timeout: Duration::from_secs(1),
@@ -1239,8 +1250,9 @@ mod tests {
         let client =
             CdpClient::connect(&format!("ws://{addr}/devtools/browser/fake"), event_tx).unwrap();
         let (result_tx, result_rx) = channel();
+        let call_client = client.clone();
         let call = thread::spawn(move || {
-            result_tx.send(client.browser_version()).unwrap();
+            result_tx.send(call_client.browser_version()).unwrap();
         });
 
         let result = result_rx.recv_timeout(Duration::from_millis(200));
@@ -1291,8 +1303,9 @@ mod tests {
         let client =
             CdpClient::connect(&format!("ws://{addr}/devtools/browser/fake"), event_tx).unwrap();
         let (result_tx, result_rx) = channel();
+        let call_client = client.clone();
         let call = thread::spawn(move || {
-            result_tx.send(client.browser_version()).unwrap();
+            result_tx.send(call_client.browser_version()).unwrap();
         });
 
         let result = result_rx.recv_timeout(Duration::from_millis(200));

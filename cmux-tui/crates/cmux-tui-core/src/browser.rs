@@ -2477,6 +2477,29 @@ mod tests {
     }
 
     #[test]
+    fn final_frame_overflow_fails_route_instead_of_going_stale() {
+        let route = Arc::new(super::SurfaceRoute::new());
+        for index in 0..cmux_tui_cdp::CDP_EVENT_QUEUE_CAPACITY {
+            assert!(!route.deliver(cmux_tui_cdp::CdpEvent::Other {
+                method: format!("Test.event{index}"),
+                params: Value::Null,
+                session_id: Some("session-1".to_string()),
+            }));
+        }
+        let overflowed =
+            route.deliver(cmux_tui_cdp::CdpEvent::ScreencastFrame(cmux_tui_cdp::ScreencastFrame {
+                session_id: "session-1".to_string(),
+                data_b64: "frame-final".to_string(),
+                css_width: 80,
+                css_height: 24,
+                ack_id: 1,
+            }));
+
+        assert!(overflowed);
+        assert!(route.is_closed());
+    }
+
+    #[test]
     fn unregister_closes_and_wakes_surface_route() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
