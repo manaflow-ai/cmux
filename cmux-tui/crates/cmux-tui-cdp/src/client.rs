@@ -1,9 +1,10 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
+use std::mem::size_of;
 use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{Receiver, Sender, SyncSender, TryRecvError, TrySendError, channel};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::mpsc::{Receiver, Sender, SyncSender, TryRecvError, channel};
+use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
@@ -11,6 +12,8 @@ use tungstenite::client::IntoClientRequest;
 use tungstenite::{Error as WsError, Message, WebSocket, client};
 
 pub const CDP_EVENT_QUEUE_CAPACITY: usize = 64;
+const CDP_INGRESS_EVENT_CAPACITY: usize = 1024;
+const CDP_EVENT_QUEUE_MAX_BYTES: usize = 32 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScreencastFrame {
@@ -83,10 +86,150 @@ pub struct CdpClient {
 struct Inner {
     outbound: Sender<Outbound>,
     pending: Mutex<HashMap<u64, Sender<Result<Value, String>>>>,
-    events: SyncSender<CdpEvent>,
+    events: Arc<EventQueue>,
     next_id: AtomicU64,
     closed: AtomicBool,
     timeout: Duration,
+}
+
+struct EventQueue {
+    state: Mutex<EventQueueState>,
+    ready: Condvar,
+}
+
+#[derive(Default)]
+struct EventQueueState {
+    events: VecDeque<CdpEvent>,
+    retained_bytes: usize,
+    closed: bool,
+}
+
+impl EventQueue {
+    fn new() -> Self {
+        Self { state: Mutex::new(EventQueueState::default()), ready: Condvar::new() }
+    }
+
+    fn push(&self, event: CdpEvent) -> Result<(), ()> {
+        let mut state = self.state.lock().unwrap();
+        if state.closed {
+            return Err(());
+        }
+        let event_bytes = cdp_event_retained_bytes(&event);
+        if let Some(index) = state.events.iter().position(|queued| same_replaceable(queued, &event))
+        {
+            let previous_bytes = cdp_event_retained_bytes(&state.events[index]);
+            let retained_bytes = state
+                .retained_bytes
+                .checked_sub(previous_bytes)
+                .and_then(|bytes| bytes.checked_add(event_bytes))
+                .ok_or(())?;
+            if retained_bytes > CDP_EVENT_QUEUE_MAX_BYTES {
+                return Err(());
+            }
+            state.events[index] = event;
+            state.retained_bytes = retained_bytes;
+        } else {
+            let retained_bytes = state.retained_bytes.checked_add(event_bytes).ok_or(())?;
+            if state.events.len() >= CDP_INGRESS_EVENT_CAPACITY
+                || retained_bytes > CDP_EVENT_QUEUE_MAX_BYTES
+            {
+                return Err(());
+            }
+            state.events.push_back(event);
+            state.retained_bytes = retained_bytes;
+        }
+        self.ready.notify_one();
+        Ok(())
+    }
+
+    fn recv(&self) -> Option<CdpEvent> {
+        let mut state = self.state.lock().unwrap();
+        loop {
+            if let Some(event) = state.events.pop_front() {
+                state.retained_bytes =
+                    state.retained_bytes.saturating_sub(cdp_event_retained_bytes(&event));
+                return Some(event);
+            }
+            if state.closed {
+                return None;
+            }
+            state = self.ready.wait(state).unwrap();
+        }
+    }
+
+    fn close(&self, reason: &str) {
+        let mut state = self.state.lock().unwrap();
+        if state.closed {
+            return;
+        }
+        state.events.clear();
+        state.retained_bytes = reason.len();
+        state.events.push_back(CdpEvent::Closed(reason.to_string()));
+        state.closed = true;
+        self.ready.notify_one();
+    }
+}
+
+fn same_replaceable(queued: &CdpEvent, incoming: &CdpEvent) -> bool {
+    match (queued, incoming) {
+        (CdpEvent::ScreencastFrame(queued), CdpEvent::ScreencastFrame(incoming)) => {
+            queued.session_id == incoming.session_id
+        }
+        (CdpEvent::TargetInfoChanged(queued), CdpEvent::TargetInfoChanged(incoming)) => {
+            queued.target_id == incoming.target_id
+        }
+        _ => false,
+    }
+}
+
+fn cdp_event_retained_bytes(event: &CdpEvent) -> usize {
+    match event {
+        CdpEvent::ScreencastFrame(frame) => frame
+            .data_b64
+            .len()
+            .saturating_add(frame.session_id.len())
+            .saturating_add(size_of::<ScreencastFrame>()),
+        CdpEvent::TargetCreated(target) => target
+            .target_id
+            .len()
+            .saturating_add(target.opener_id.as_ref().map_or(0, String::len))
+            .saturating_add(target.target_type.len())
+            .saturating_add(target.title.len())
+            .saturating_add(target.url.len()),
+        CdpEvent::TargetInfoChanged(info) => info
+            .session_id
+            .as_ref()
+            .map_or(0, String::len)
+            .saturating_add(info.target_id.len())
+            .saturating_add(info.title.len())
+            .saturating_add(info.url.len()),
+        CdpEvent::Other { method, params, session_id } => method
+            .len()
+            .saturating_add(json_retained_bytes(params))
+            .saturating_add(session_id.as_ref().map_or(0, String::len)),
+        CdpEvent::Closed(reason) => reason.len(),
+    }
+}
+
+fn json_retained_bytes(value: &Value) -> usize {
+    match value {
+        Value::Null => 0,
+        Value::Bool(_) => size_of::<bool>(),
+        Value::Number(_) => size_of::<serde_json::Number>(),
+        Value::String(value) => value.len(),
+        Value::Array(values) => values
+            .iter()
+            .fold(0usize, |bytes, value| bytes.saturating_add(json_retained_bytes(value))),
+        Value::Object(values) => values.iter().fold(0usize, |bytes, (key, value)| {
+            bytes.saturating_add(key.len()).saturating_add(json_retained_bytes(value))
+        }),
+    }
+}
+
+impl Drop for Inner {
+    fn drop(&mut self) {
+        self.events.close("CDP client dropped");
+    }
 }
 
 enum Outbound {
@@ -113,17 +256,19 @@ impl CdpClient {
         ws.get_ref().set_read_timeout(Some(Duration::from_millis(20)))?;
         ws.get_ref().set_write_timeout(Some(Duration::from_secs(5)))?;
         let (outbound_tx, outbound_rx) = channel();
+        let event_queue = Arc::new(EventQueue::new());
         let client = CdpClient {
             inner: Arc::new(Inner {
                 outbound: outbound_tx,
                 pending: Mutex::new(HashMap::new()),
-                events,
+                events: event_queue.clone(),
                 next_id: AtomicU64::new(1),
                 closed: AtomicBool::new(false),
                 timeout: Duration::from_secs(30),
             }),
         };
         client.spawn_reader(ws, outbound_rx)?;
+        client.spawn_event_dispatcher(event_queue, events)?;
         Ok(client)
     }
 
@@ -135,6 +280,21 @@ impl CdpClient {
         let weak = Arc::downgrade(&self.inner);
         std::thread::Builder::new().name("cmux-tui-cdp-reader".into()).spawn(move || {
             reader_loop(&weak, ws, &outbound);
+        })?;
+        Ok(())
+    }
+
+    fn spawn_event_dispatcher(
+        &self,
+        events: Arc<EventQueue>,
+        output: SyncSender<CdpEvent>,
+    ) -> anyhow::Result<()> {
+        std::thread::Builder::new().name("cmux-tui-cdp-events".into()).spawn(move || {
+            while let Some(event) = events.recv() {
+                if output.send(event).is_err() {
+                    break;
+                }
+            }
         })?;
         Ok(())
     }
@@ -531,36 +691,31 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
                 };
                 ack_screencast_frame(inner, target_session, ack_id);
                 let Some(frame) = screencast_frame(&params, target_session) else { return };
-                dispatch_event(inner, CdpEvent::ScreencastFrame(frame), true);
+                dispatch_event(inner, CdpEvent::ScreencastFrame(frame));
             }
         }
         "Target.targetCreated" => {
             if let Some(created) = target_created(&params) {
-                dispatch_event(inner, CdpEvent::TargetCreated(created), false);
+                dispatch_event(inner, CdpEvent::TargetCreated(created));
             }
         }
         "Target.targetInfoChanged" => {
             if let Some(info) = target_info(&params, session_id.as_deref()) {
-                dispatch_event(inner, CdpEvent::TargetInfoChanged(info), true);
+                dispatch_event(inner, CdpEvent::TargetInfoChanged(info));
             }
         }
         _ => {
             dispatch_event(
                 inner,
                 CdpEvent::Other { method: method.to_string(), params, session_id },
-                false,
             );
         }
     }
 }
 
-fn dispatch_event(inner: &Arc<Inner>, event: CdpEvent, replaceable: bool) {
-    match inner.events.try_send(event) {
-        Ok(()) => {}
-        Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) if replaceable => {}
-        Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => {
-            close_inner(inner, "CDP event queue overflow");
-        }
+fn dispatch_event(inner: &Arc<Inner>, event: CdpEvent) {
+    if inner.events.push(event).is_err() {
+        close_inner(inner, "CDP event queue overflow");
     }
 }
 
@@ -672,13 +827,7 @@ fn close_inner(inner: &Arc<Inner>, why: &str) {
     for (_, tx) in inner.pending.lock().unwrap().drain() {
         let _ = tx.send(Err(why.to_string()));
     }
-    let closed = CdpEvent::Closed(why.to_string());
-    if let Err(TrySendError::Full(closed)) = inner.events.try_send(closed) {
-        let events = inner.events.clone();
-        let _ = std::thread::Builder::new().name("cmux-tui-cdp-close".into()).spawn(move || {
-            let _ = events.send(closed);
-        });
-    }
+    inner.events.close(why);
 }
 
 struct WsEndpoint {
@@ -869,11 +1018,10 @@ mod tests {
     #[test]
     fn rejected_screencast_frame_is_acknowledged() {
         let (outbound_tx, outbound_rx) = channel();
-        let (event_tx, _event_rx) = sync_channel(1);
         let inner = Arc::new(Inner {
             outbound: outbound_tx,
             pending: Mutex::new(HashMap::new()),
-            events: event_tx,
+            events: Arc::new(EventQueue::new()),
             next_id: AtomicU64::new(1),
             closed: AtomicBool::new(false),
             timeout: Duration::from_secs(1),
@@ -1108,7 +1256,7 @@ mod tests {
     }
 
     #[test]
-    fn critical_event_overflow_fails_connection_explicitly() {
+    fn saturated_event_sink_preserves_critical_event_and_response() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let (stop_tx, stop_rx) = channel();
@@ -1148,13 +1296,14 @@ mod tests {
         });
 
         let result = result_rx.recv_timeout(Duration::from_millis(200));
+        let retained_event = event_rx.recv_timeout(Duration::from_millis(200));
         stop_tx.send(()).unwrap();
         server.join().unwrap();
-        drop(event_rx);
         call.join().unwrap();
+        assert!(matches!(result, Ok(Ok(_))), "critical event blocked command progress: {result:?}");
         assert!(
-            matches!(result, Ok(Err(_))),
-            "critical event overflow was not surfaced: {result:?}"
+            matches!(retained_event, Ok(CdpEvent::Other { .. })),
+            "critical event was lost: {retained_event:?}"
         );
     }
 }

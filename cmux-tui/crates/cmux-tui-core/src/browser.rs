@@ -269,7 +269,6 @@ impl SurfaceRoute {
                 }) {
                     *queued = CdpEvent::TargetInfoChanged(info);
                 } else {
-                    make_surface_event_room(&mut state.events);
                     if state.events.len() >= CDP_EVENT_QUEUE_CAPACITY {
                         fail_surface_route(&mut state, "CDP surface event queue overflow");
                         self.ready.notify_one();
@@ -279,7 +278,6 @@ impl SurfaceRoute {
                 }
             }
             event => {
-                make_surface_event_room(&mut state.events);
                 if state.events.len() >= CDP_EVENT_QUEUE_CAPACITY {
                     fail_surface_route(&mut state, "CDP surface event queue overflow");
                     self.ready.notify_one();
@@ -322,17 +320,6 @@ impl SurfaceRoute {
     #[cfg(test)]
     fn try_recv(&self) -> Option<CdpEvent> {
         self.state.lock().unwrap().events.pop_front()
-    }
-}
-
-fn make_surface_event_room(events: &mut VecDeque<CdpEvent>) {
-    if events.len() < CDP_EVENT_QUEUE_CAPACITY {
-        return;
-    }
-    if let Some(index) = events.iter().position(|event| {
-        matches!(event, CdpEvent::ScreencastFrame(_) | CdpEvent::TargetInfoChanged(_))
-    }) {
-        events.remove(index);
     }
 }
 
