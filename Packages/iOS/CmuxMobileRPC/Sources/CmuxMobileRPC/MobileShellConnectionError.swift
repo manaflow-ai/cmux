@@ -1,3 +1,4 @@
+internal import CmuxMobileSupport
 public import Foundation
 
 /// Errors surfaced while connecting to or talking with a paired Mac over the
@@ -31,7 +32,10 @@ public enum MobileShellConnectionError: LocalizedError {
         case .connectionClosed:
             return "Mobile sync connection closed"
         case .requestTimedOut, .transportWriteTimedOut:
-            return "Mobile sync request timed out"
+            return L10n.string(
+                "mobile.connection.requestTimedOut",
+                defaultValue: "Mobile sync request timed out"
+            )
         case .insecureManualRoute:
             return "Manual host did not advertise a secure mobile sync route"
         case .attachTicketExpired:

@@ -5,12 +5,12 @@ import Testing
 
 @Suite(.serialized) struct MobileCoreRPCConnectWaiterTests {
     @Test func successfulConnectNeverPublishesHalfInstalledWriterState() async throws {
-        let bookkeeping = SuccessfulConnectBookkeepingGate()
+        let arrivals = ConnectedCandidateBarrier(expectedCount: 2)
         let transport = ReleasableConnectTransport()
         let session = MobileCoreRPCSession(
             makeTransport: { transport },
-            beforeSuccessfulConnectBookkeeping: {
-                await bookkeeping.suspend()
+            didReceiveConnectedCandidate: { _ in
+                await arrivals.arrive()
             }
         )
         let first = try MobileCoreRPCClient.requestData(
@@ -25,7 +25,6 @@ import Testing
         )
         let deadline = DispatchTime.now().uptimeNanoseconds + 60 * 1_000_000_000
 
-        await transport.releaseConnect()
         let firstTask = Task {
             try await session.send(
                 payload: first,
@@ -33,7 +32,7 @@ import Testing
                 deadlineUptimeNanoseconds: deadline
             )
         }
-        await bookkeeping.waitUntilSuspended()
+        #expect(await transport.waitUntilConnectStarted())
         let secondTask = Task {
             try await session.send(
                 payload: second,
@@ -41,13 +40,12 @@ import Testing
                 deadlineUptimeNanoseconds: deadline
             )
         }
+        await transport.releaseConnect()
 
         do {
             _ = try await secondTask.value
-            await bookkeeping.resume()
             _ = try await firstTask.value
         } catch {
-            await bookkeeping.resume()
             firstTask.cancel()
             _ = try? await firstTask.value
             throw error
@@ -185,10 +183,12 @@ import Testing
 
     @Test func cancelledPostConnectWaiterDoesNotCloseTransportForSurvivor() async throws {
         let cancellation = ConnectCancellationBox()
+        let arrivals = ConnectedCandidateBarrier(expectedCount: 2)
         let transport = ReleasableConnectTransport()
         let session = MobileCoreRPCSession(
             makeTransport: { transport },
             didReceiveConnectedCandidate: { _ in
+                await arrivals.arrive()
                 await cancellation.cancelWhenSet()
             }
         )
@@ -220,7 +220,6 @@ import Testing
         }
         await cancellation.set(cancelledTask)
         #expect(await transport.waitUntilConnectStarted())
-        #expect(await waitUntilConnectWaiters(session, count: 2))
 
         await transport.releaseConnect()
 
@@ -325,45 +324,27 @@ import Testing
         }
         return await transport.closed()
     }
-
-    private func waitUntilConnectWaiters(_ session: MobileCoreRPCSession, count: Int) async -> Bool {
-        for _ in 0..<100 {
-            if await session.connectWaiterCountForTesting() >= count {
-                return true
-            }
-            await Task.yield()
-        }
-        return await session.connectWaiterCountForTesting() >= count
-    }
 }
 
-private actor SuccessfulConnectBookkeepingGate {
-    private var suspended = false
-    private var resumed = false
-    private var suspensionWaiters: [CheckedContinuation<Void, Never>] = []
-    private var resumeContinuation: CheckedContinuation<Void, Never>?
+private actor ConnectedCandidateBarrier {
+    private let expectedCount: Int
+    private var arrivalCount = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
 
-    func suspend() async {
-        suspended = true
-        let waiters = suspensionWaiters
-        suspensionWaiters.removeAll()
-        for waiter in waiters { waiter.resume() }
-        guard !resumed else { return }
-        await withCheckedContinuation { continuation in
-            resumeContinuation = continuation
-        }
+    init(expectedCount: Int) {
+        self.expectedCount = expectedCount
     }
 
-    func waitUntilSuspended() async {
-        guard !suspended else { return }
-        await withCheckedContinuation { continuation in
-            suspensionWaiters.append(continuation)
+    func arrive() async {
+        arrivalCount += 1
+        guard arrivalCount < expectedCount else {
+            let pending = waiters
+            waiters.removeAll()
+            for waiter in pending { waiter.resume() }
+            return
         }
-    }
-
-    func resume() {
-        resumed = true
-        resumeContinuation?.resume()
-        resumeContinuation = nil
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
     }
 }

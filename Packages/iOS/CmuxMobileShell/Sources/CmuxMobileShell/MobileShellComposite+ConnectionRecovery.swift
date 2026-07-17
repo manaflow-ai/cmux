@@ -124,13 +124,15 @@ extension MobileShellComposite {
         guard pairedMacStore != nil else {
             guard connectionState == .connected else { return }
             // Preview/legacy clients can have a live RPC shell without durable
-            // pairing state. A liveness probe can still rebuild that listener,
-            // but a definitively ended stream cannot safely invent a redial
-            // route and must remain unavailable.
-            if case .liveness = trigger {
+            // pairing state. Liveness and network-path changes can rebuild that
+            // listener on the existing client, but a definitively ended stream
+            // cannot safely invent a redial route and must remain unavailable.
+            switch trigger {
+            case .liveness, .networkChange:
                 markMacConnectionReconnecting()
-                resyncTerminalOutput(reason: "liveness", restartEventStream: true)
-            } else {
+                resyncTerminalOutput(reason: trigger.description, restartEventStream: true)
+            case .manual, .presencePush, .foreground, .eventStreamEnded,
+                 .subscriptionStartFailed, .transportWriteTimedOut:
                 markMacConnectionUnavailableIfNoStore()
             }
             return
