@@ -17,6 +17,7 @@ struct CMUXMobileRootView: View {
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(\.dogfoodAttachPreparation) private var dogfoodAttachPreparation
     private let signOutHook: MobileSignOutHook
+    private let startupConnectionCoordinator: MobileStartupConnectionCoordinator
     #if os(iOS)
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
     /// The persisted first-run onboarding "seen" flag store. The one-time
@@ -30,7 +31,6 @@ struct CMUXMobileRootView: View {
     @State private var hasSeenOnboarding: Bool
     #endif
     @State private var pendingAttachURL: String?
-    @State private var didConsumeUITestAttachURL = false
     @State private var didAuthenticateWithAttachTicket = false
     @State private var isShowingAddDeviceSheet = false
     #if os(iOS)
@@ -48,17 +48,24 @@ struct CMUXMobileRootView: View {
     init(
         store: CMUXMobileShellStore,
         onboardingStore: MobileOnboardingStore,
-        signOutHook: MobileSignOutHook
+        signOutHook: MobileSignOutHook,
+        startupConnectionCoordinator: MobileStartupConnectionCoordinator
     ) {
         self.store = store
         self.onboardingStore = onboardingStore
         self.signOutHook = signOutHook
+        self.startupConnectionCoordinator = startupConnectionCoordinator
         _hasSeenOnboarding = State(initialValue: onboardingStore.hasSeenOnboarding)
     }
     #else
-    init(store: CMUXMobileShellStore, signOutHook: MobileSignOutHook) {
+    init(
+        store: CMUXMobileShellStore,
+        signOutHook: MobileSignOutHook,
+        startupConnectionCoordinator: MobileStartupConnectionCoordinator
+    ) {
         self.store = store
         self.signOutHook = signOutHook
+        self.startupConnectionCoordinator = startupConnectionCoordinator
     }
     #endif
 
@@ -176,6 +183,7 @@ struct CMUXMobileRootView: View {
         .onChange(of: isAuthenticated) { _, isAuthenticated in
             syncShellAuthentication(isAuthenticated)
             guard isAuthenticated else {
+                startupConnectionCoordinator.reset()
                 return
             }
             if consumePendingURLIfReady() {
@@ -385,9 +393,11 @@ struct CMUXMobileRootView: View {
                 attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
                 connectionState: store.connectionState
               ) else { return }
+        guard let startupAttempt = startupConnectionCoordinator.claimStoredReconnect() else { return }
         let stackUserID = authManager.currentUser?.id
         Task {
-            await store.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
+            _ = await store.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
+            startupConnectionCoordinator.finishStoredReconnect(startupAttempt)
         }
     }
 
@@ -476,6 +486,7 @@ struct CMUXMobileRootView: View {
             // front and only then runs its bounded best-effort server teardown
             // (push-token DELETE, Stack session revocation).
             didAuthenticateWithAttachTicket = false
+            startupConnectionCoordinator.reset()
             store.signOut()
             let serverTeardown = signOutHook.begin()
             await authManager.signOut(onSignedOut: serverTeardown)
@@ -497,16 +508,21 @@ struct CMUXMobileRootView: View {
         //     kept intact for the XCUITest harness.
         // No-op unless one of those env vars is set, so normal launches are
         // unaffected.
-        guard !didConsumeUITestAttachURL,
-              isAuthenticated,
+        guard isAuthenticated,
               let attachURL = UITestConfig.dogfoodAttachURL ?? UITestConfig.attachURL else {
             return false
         }
-        didConsumeUITestAttachURL = true
+        // The configured launch route owns startup even after it is consumed.
+        // Returning true for repeated lifecycle callbacks prevents a saved-Mac
+        // restore from silently racing or replacing that explicit route.
+        guard let startupAttempt = startupConnectionCoordinator.claimInjectedAttach() else {
+            return true
+        }
         Task {
             await dogfoodAttachPreparation.run {
                 await store.connectPairingURL(attachURL)
             }
+            startupConnectionCoordinator.finishInjectedAttach(startupAttempt)
         }
         return true
         #else

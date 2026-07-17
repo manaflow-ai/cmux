@@ -1642,6 +1642,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) async -> Bool {
         lastReconnectStackUserID = stackUserID
         startObservingNetworkPathChanges()
+        // Lifecycle/auth callbacks may request restoration after an explicit
+        // attach already established the foreground session. Treat the live
+        // client as authoritative instead of replacing it with another client
+        // for the same saved route.
+        guard !hasActiveMacConnection else {
+            isReconnectingStoredMac = false
+            didFinishStoredMacReconnectAttempt = true
+            return true
+        }
         // Claim this attempt's generation. Only the current generation may resolve
         // the restoring-gate flags, so an older superseded attempt can't clear the
         // gate (or clobber the hint) while a newer reconnect is still running.
@@ -1659,6 +1668,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             finishStoredMacReconnectAttempt(generation: generation)
             return false
         }
+        if let result = storedMacReconnectInterruptionResult(generation: generation) { return result }
         // Pull the authoritative per-user backup first so saved-Mac routes are
         // current before we dial: a Mac that relaunched on a new port republishes
         // to the backup, and LWW by lastSeenAt keeps any live local edit. Without
@@ -1668,7 +1678,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
            let refresher = pairedMacStore as? any PairedMacBackupRefreshing {
             await refresher.refreshFromBackup(stackUserID: scope.userID)
         }
+        if let result = storedMacReconnectInterruptionResult(generation: generation) { return result }
         guard await isScopeCurrent(scope) else { finishStoredMacReconnectAttempt(generation: generation); return false }
+        if let result = storedMacReconnectInterruptionResult(generation: generation) { return result }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         func storedReconnectRoutes(_ mac: MobilePairedMac) -> [CmxAttachRoute] {
             Self.storedReconnectRoutes(
@@ -1681,6 +1693,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let loadedMacs: [MobilePairedMac]
         do {
             loadedActiveMac = try await pairedMacStore.activeMac(stackUserID: scope.userID, teamID: scope.teamID)
+            if let result = storedMacReconnectInterruptionResult(generation: generation) { return result }
             loadedMacs = try await pairedMacStore.loadAll(stackUserID: scope.userID, teamID: scope.teamID)
         } catch {
             mobileShellLog.error("paired mac store read failed: \(String(describing: error), privacy: .public)")
@@ -1690,12 +1703,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             finishStoredMacReconnectAttempt(generation: generation)
             return false
         }
+        if let result = storedMacReconnectInterruptionResult(generation: generation) { return result }
         guard await isScopeCurrent(scope) else { finishStoredMacReconnectAttempt(generation: generation); return false }
+        if let result = storedMacReconnectInterruptionResult(generation: generation) { return result }
         let forgottenIDs = await forgottenMacDeviceIDs(scope: scope)
+        if let result = storedMacReconnectInterruptionResult(generation: generation) { return result }
         guard await isScopeCurrent(scope) else {
             finishStoredMacReconnectAttempt(generation: generation)
             return false
         }
+        if let result = storedMacReconnectInterruptionResult(generation: generation) { return result }
         let isForgotten: (MobilePairedMac) -> Bool = { mac in
             forgottenIDs.contains(mac.macDeviceID) || forgottenIDs.contains(mac.id)
         }

@@ -395,6 +395,18 @@ extension MobileShellComposite {
         didFinishStoredMacReconnectAttempt = true
     }
 
+    /// Returns the completed result when an async stored reconnect must stop.
+    /// A newer generation owns the work (`false`); an already-live foreground
+    /// client satisfies the request without another dial (`true`).
+    func storedMacReconnectInterruptionResult(generation: Int) -> Bool? {
+        guard generation == storedMacReconnectGeneration else { return false }
+        guard !hasActiveMacConnection else {
+            finishStoredMacReconnectAttempt(generation: generation)
+            return true
+        }
+        return nil
+    }
+
     /// Ordered host/port reconnect candidates for a Mac, preserving the single-route
     /// preference policy but keeping fallbacks available for the same Mac.
     ///
