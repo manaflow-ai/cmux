@@ -3022,6 +3022,33 @@ mod tests {
     }
 
     #[test]
+    fn detaching_last_participant_recalculates_ignored_surfaces() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, None).unwrap();
+        let second = mux.new_workspace(None, None).unwrap();
+
+        mux.resize_surface_for_client(first.id, 1, 120, 40).unwrap();
+        mux.resize_surface_for_client(second.id, 2, 80, 25).unwrap();
+        assert!(mux.set_client_size_participation(2, false));
+        mux.resize_surface_for_client(second.id, 2, 60, 20).unwrap();
+        assert_eq!(second.size(), (80, 25));
+
+        mux.remove_size_client(1);
+        assert_eq!(second.size(), (60, 20));
+    }
+
+    #[test]
+    fn client_sizes_clamp_to_tmux_window_bounds() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+
+        mux.resize_surface_for_client(surface.id, 1, 0, u16::MAX).unwrap();
+
+        assert_eq!(mux.client_surface_size(surface.id, 1), Some((1, 10_000)));
+        assert_eq!(surface.size(), (1, 10_000));
+    }
+
+    #[test]
     fn in_process_tui_is_listed_as_local_client_zero() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();

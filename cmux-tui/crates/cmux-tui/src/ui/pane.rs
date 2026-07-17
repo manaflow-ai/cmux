@@ -544,6 +544,16 @@ mod tests {
     }
 
     #[test]
+    fn client_button_shows_fallback_minimum_when_every_viewer_is_excluded() {
+        let mut clients = vec![client(1, 9, Some((120, 30))), client(2, 9, Some((80, 40)))];
+        for client in &mut clients {
+            client.size_participating = false;
+        }
+
+        assert_eq!(client_border_label(&clients, 9).as_deref(), Some(" 2 clients · 80×30 min "));
+    }
+
+    #[test]
     fn client_visible_on_another_tab_does_not_show_on_this_pane_border() {
         let clients = vec![client(1, 9, Some((120, 30))), client(2, 10, Some((80, 40)))];
         assert_eq!(client_border_label(&clients, 9), None);
