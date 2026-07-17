@@ -1449,20 +1449,34 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func markUnread(id: UUID) {
+        _ = markNotificationFeedUnread(ids: [id])
+    }
+
+    /// Marks chronological-feed records unread and mirrors matching active Mac
+    /// notifications without redelivering their system banners.
+    @discardableResult
+    func markNotificationFeedUnread(ids: Set<UUID>) -> Int {
+        let marked = notificationFeedHistory.markUnread(ids: ids)
+        guard !ids.isEmpty else { return marked }
         var updated = notifications
-        guard let index = updated.firstIndex(where: { $0.id == id }) else { return }
-        guard updated[index].isRead else { return }
-        let tabId = updated[index].tabId
-        updated[index].isRead = false
-        notifications = updated
-        notificationFeedHistory.markUnread(ids: [id])
+        var tabIDs = Set<UUID>()
+        for index in updated.indices where ids.contains(updated[index].id) && updated[index].isRead {
+            updated[index].isRead = false
+            tabIDs.insert(updated[index].tabId)
+        }
+        if !tabIDs.isEmpty {
+            notifications = updated
+        }
         // The notification itself now provides the workspace unread indicator. Clear any
         // existing manual or restored workspace unread state for the same tab so we don't
         // double-count it. (Mirrors what markLatestNotificationAsOldestUnread does for the
         // manual flag — restored hints are a one-time signal from a previous session and
         // should also defer to the concrete unread notification.)
-        setWorkspaceManualUnread(false, forTabId: tabId)
-        setWorkspaceRestoredUnread(false, forTabId: tabId)
+        for tabID in tabIDs {
+            setWorkspaceManualUnread(false, forTabId: tabID)
+            setWorkspaceRestoredUnread(false, forTabId: tabID)
+        }
+        return marked
     }
 
     func markRead(forTabId tabId: UUID) {

@@ -69,19 +69,34 @@ extension MobileShellComposite {
     /// Marks one notification read on its owning Mac and reconciles the local snapshot.
     /// - Parameter item: The immutable feed item selected by the user.
     public func markNotificationFeedItemRead(_ item: MobileNotificationFeedItem) async {
-        guard !item.isRead,
+        await setNotificationFeedItemReadState(item, isRead: true)
+    }
+
+    /// Marks one notification unread on its owning Mac and reconciles the local snapshot.
+    /// - Parameter item: The immutable feed item selected by the user.
+    public func markNotificationFeedItemUnread(_ item: MobileNotificationFeedItem) async {
+        await setNotificationFeedItemReadState(item, isRead: false)
+    }
+
+    private func setNotificationFeedItemReadState(
+        _ item: MobileNotificationFeedItem,
+        isRead: Bool
+    ) async {
+        guard item.isRead != isRead,
               let target = notificationFeedTarget(for: item.macDeviceID) else { return }
+        let method = isRead ? "notification.feed.mark_read" : "notification.feed.mark_unread"
         do {
             let request = try MobileCoreRPCClient.requestData(
-                method: "notification.feed.mark_read",
+                method: method,
                 params: ["notification_ids": [item.notificationID]]
             )
             let data = try await target.client.sendRequest(request)
             let response = try MobileNotificationFeedMutationResponse.decode(data)
             guard notificationFeedClient(for: item.macDeviceID) === target.client else { return }
-            applyNotificationFeedReadMutation(
+            applyNotificationFeedReadStateMutation(
                 macDeviceID: item.macDeviceID,
                 notificationIDs: [item.notificationID],
+                isRead: isRead,
                 revision: response.revision
             )
             _ = scheduleNotificationFeedRefresh(
@@ -91,7 +106,12 @@ extension MobileShellComposite {
             )
         } catch {
             notificationFeedLog.error(
-                "mark read failed mac=\(item.macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .private)"
+                """
+                read-state mutation failed \
+                method=\(method, privacy: .public) \
+                mac=\(item.macDeviceID, privacy: .public) \
+                error=\(String(describing: error), privacy: .private)
+                """
             )
         }
     }
@@ -406,9 +426,10 @@ extension MobileShellComposite {
             let response = try MobileNotificationFeedMutationResponse.decode(data)
             guard notificationFeedClient(for: target.macDeviceID) === target.client else { return }
             let ids = notificationFeedSnapshotsByMac[target.macDeviceID]?.items.map(\.notificationID) ?? []
-            applyNotificationFeedReadMutation(
+            applyNotificationFeedReadStateMutation(
                 macDeviceID: target.macDeviceID,
                 notificationIDs: ids,
+                isRead: true,
                 revision: response.revision
             )
             _ = scheduleNotificationFeedRefresh(
@@ -423,20 +444,21 @@ extension MobileShellComposite {
         }
     }
 
-    /// Applies confirmed read flags without claiming that a mutation response is a full snapshot.
+    /// Applies confirmed read-state flags without claiming that a mutation response is a full snapshot.
     ///
     /// A mutation revision can include notifications absent from the retained list, so callers
     /// must schedule a list refresh after this optimistic projection.
-    func applyNotificationFeedReadMutation(
+    func applyNotificationFeedReadStateMutation(
         macDeviceID: String,
         notificationIDs: [String],
+        isRead: Bool,
         revision: Int
     ) {
         guard var snapshot = notificationFeedSnapshotsByMac[macDeviceID],
               revision >= snapshot.revision else { return }
         let ids = Set(notificationIDs)
         snapshot.items = snapshot.items.map { item in
-            ids.contains(item.notificationID) ? item.updating(isRead: true) : item
+            ids.contains(item.notificationID) ? item.updating(isRead: isRead) : item
         }
         notificationFeedSnapshotsByMac[macDeviceID] = snapshot
         notificationFeedKnownRevisionsByMac[macDeviceID] = max(

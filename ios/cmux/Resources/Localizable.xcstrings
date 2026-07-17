@@ -2877,6 +2877,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "既読にする" } }
       }
     },
+    "mobile.notificationFeed.markUnread": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Mark as Unread" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "未読にする" } }
+      }
+    },
     "mobile.notificationFeed.offline.body": {
       "extractionState": "manual",
       "localizations": {

@@ -7,6 +7,7 @@ import Testing
     @Test(arguments: [
         "notification.feed.list",
         "notification.feed.mark_read",
+        "notification.feed.mark_unread",
         "notification.feed.mark_all_read",
     ])
     func feedRequestsUseAccountAuthorizationWithoutWorkspaceTicketScope(method: String) async throws {
@@ -31,7 +32,7 @@ import Testing
             ticket: ticket,
             allowsStackAuthFallback: true
         )
-        let params: [String: Any] = method == "notification.feed.mark_read"
+        let params: [String: Any] = ["notification.feed.mark_read", "notification.feed.mark_unread"].contains(method)
             ? ["notification_ids": ["notification"]]
             : [:]
         let request = try MobileCoreRPCClient.requestData(method: method, params: params)

@@ -471,7 +471,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             )
         case "mobile.events.subscribe", "mobile.events.unsubscribe":
             return false
-        case "notification.feed.list", "notification.feed.mark_read",
+        case "notification.feed.list", "notification.feed.mark_read", "notification.feed.mark_unread",
              "notification.feed.mark_all_read":
             // Feed authority is the authenticated account/peer connection, not
             // a workspace-selection ticket. Omit an irrelevant scoped attach

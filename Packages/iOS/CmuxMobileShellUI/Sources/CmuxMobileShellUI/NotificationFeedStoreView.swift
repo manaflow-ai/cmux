@@ -27,6 +27,9 @@ struct NotificationFeedStoreView: View {
             markRead: { item in
                 Task { await store.markNotificationFeedItemRead(item) }
             },
+            markUnread: { item in
+                Task { await store.markNotificationFeedItemUnread(item) }
+            },
             markAllRead: {
                 Task { await store.markNotificationFeedItemsRead(items) }
             },

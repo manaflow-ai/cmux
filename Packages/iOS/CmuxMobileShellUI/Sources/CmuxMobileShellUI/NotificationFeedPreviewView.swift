@@ -48,6 +48,9 @@ public struct NotificationFeedPreviewView: View {
             markRead: { item in
                 setRead(true, for: item.id)
             },
+            markUnread: { item in
+                setRead(false, for: item.id)
+            },
             markAllRead: {
                 items = items.map { $0.updating(isRead: true) }
             },

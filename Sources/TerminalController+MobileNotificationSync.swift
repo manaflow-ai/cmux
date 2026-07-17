@@ -19,23 +19,7 @@ extension TerminalController {
     /// Marks the supplied feed records read and mirrors matching active
     /// notifications through the desktop store's existing mutation path.
     func v2MobileNotificationFeedMarkRead(params: [String: Any]) -> V2CallResult {
-        let maxNotificationIDs = 2_000
-        guard let rawIDs = params["notification_ids"] as? [Any] else {
-            return .err(
-                code: "invalid_params",
-                message: "Missing or invalid notification_ids",
-                data: nil
-            )
-        }
-        var ids = Set<UUID>()
-        for value in rawIDs.prefix(maxNotificationIDs) {
-            guard let rawID = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  let id = UUID(uuidString: rawID) else {
-                continue
-            }
-            ids.insert(id)
-        }
-        guard !ids.isEmpty else {
+        guard let ids = mobileNotificationFeedIDs(params: params) else {
             return .err(
                 code: "invalid_params",
                 message: "Missing or invalid notification_ids",
@@ -44,6 +28,24 @@ extension TerminalController {
         }
         let store = TerminalNotificationStore.shared
         let marked = store.markNotificationFeedRead(ids: ids)
+        return .ok([
+            "marked": marked,
+            "revision": store.notificationFeedHistory.revision,
+        ])
+    }
+
+    /// Marks the supplied feed records unread and mirrors matching active
+    /// notifications without redelivering their system banners.
+    func v2MobileNotificationFeedMarkUnread(params: [String: Any]) -> V2CallResult {
+        guard let ids = mobileNotificationFeedIDs(params: params) else {
+            return .err(
+                code: "invalid_params",
+                message: "Missing or invalid notification_ids",
+                data: nil
+            )
+        }
+        let store = TerminalNotificationStore.shared
+        let marked = store.markNotificationFeedUnread(ids: ids)
         return .ok([
             "marked": marked,
             "revision": store.notificationFeedHistory.revision,
@@ -181,6 +183,18 @@ extension TerminalController {
             }
         }
         return payload
+    }
+
+    private func mobileNotificationFeedIDs(params: [String: Any]) -> Set<UUID>? {
+        let maxNotificationIDs = 2_000
+        guard let rawIDs = params["notification_ids"] as? [Any] else { return nil }
+        let ids = Set(rawIDs.prefix(maxNotificationIDs).compactMap { value -> UUID? in
+            guard let rawID = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+                return nil
+            }
+            return UUID(uuidString: rawID)
+        })
+        return ids.isEmpty ? nil : ids
     }
 
     /// The `workspace.action` sub-actions the mobile data plane may invoke.

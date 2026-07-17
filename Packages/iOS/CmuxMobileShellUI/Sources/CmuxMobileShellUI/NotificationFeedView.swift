@@ -7,6 +7,7 @@ import SwiftUI
 struct NotificationFeedActions {
     let open: @MainActor (MobileNotificationFeedItem) -> Void
     let markRead: @MainActor (MobileNotificationFeedItem) -> Void
+    let markUnread: @MainActor (MobileNotificationFeedItem) -> Void
     let markAllRead: @MainActor () -> Void
     let refresh: @MainActor @Sendable () async -> Void
 }
@@ -39,9 +40,15 @@ struct NotificationFeedView: View {
         .toolbar {
             if projection.sourceUnreadCount > 0 {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button(
-                        L10n.string("mobile.notificationFeed.markAllRead", defaultValue: "Mark All Read"),
-                        action: actions.markAllRead
+                    Button(action: actions.markAllRead) {
+                        Label(
+                            L10n.string("mobile.notificationFeed.markAllRead", defaultValue: "Mark All Read"),
+                            systemImage: "envelope.open"
+                        )
+                        .labelStyle(.iconOnly)
+                    }
+                    .accessibilityLabel(
+                        L10n.string("mobile.notificationFeed.markAllRead", defaultValue: "Mark All Read")
                     )
                     .accessibilityIdentifier("MobileNotificationFeedMarkAllRead")
                 }

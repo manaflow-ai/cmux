@@ -57,8 +57,8 @@ struct MobileShellNotificationFeedStateTests {
         #expect(store.notificationFeedStatus == .idle)
     }
 
-    @Test("Read mutations preserve the last complete snapshot revision")
-    func readMutationPreservesSnapshotRevision() throws {
+    @Test("Read-state mutations preserve the last complete snapshot revision")
+    func readStateMutationPreservesSnapshotRevision() throws {
         let store = MobileShellComposite()
         _ = store.applyNotificationFeedSnapshot(
             try response(revision: 2, id: "notification", createdAt: 100),
@@ -66,15 +66,27 @@ struct MobileShellNotificationFeedStateTests {
             displayName: "Mac"
         )
 
-        store.applyNotificationFeedReadMutation(
+        store.applyNotificationFeedReadStateMutation(
             macDeviceID: "mac",
             notificationIDs: ["notification"],
+            isRead: true,
             revision: 5
         )
 
         #expect(store.notificationFeedSnapshotsByMac["mac"]?.revision == 2)
         #expect(store.notificationFeedKnownRevisionsByMac["mac"] == 5)
         #expect(store.notificationFeedItems.first?.isRead == true)
+
+        store.applyNotificationFeedReadStateMutation(
+            macDeviceID: "mac",
+            notificationIDs: ["notification"],
+            isRead: false,
+            revision: 6
+        )
+
+        #expect(store.notificationFeedSnapshotsByMac["mac"]?.revision == 2)
+        #expect(store.notificationFeedKnownRevisionsByMac["mac"] == 6)
+        #expect(store.notificationFeedItems.first?.isRead == false)
     }
 
     @Test("Active ticket preserves the foreground feed before foreground identity settles")

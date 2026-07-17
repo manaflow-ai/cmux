@@ -35,6 +35,16 @@ struct NotificationFeedRow: View {
                     )
                 }
                 .accessibilityIdentifier("MobileNotificationFeedMarkReadMenu-\(accessibilitySuffix)")
+            } else {
+                Button {
+                    actions.markUnread(item)
+                } label: {
+                    Label(
+                        L10n.string("mobile.notificationFeed.markUnread", defaultValue: "Mark as Unread"),
+                        systemImage: "envelope.badge"
+                    )
+                }
+                .accessibilityIdentifier("MobileNotificationFeedMarkUnreadMenu-\(accessibilitySuffix)")
             }
         })
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
@@ -66,6 +76,10 @@ struct NotificationFeedRow: View {
             if !item.isRead {
                 Button(L10n.string("mobile.notificationFeed.markRead", defaultValue: "Mark as Read")) {
                     actions.markRead(item)
+                }
+            } else {
+                Button(L10n.string("mobile.notificationFeed.markUnread", defaultValue: "Mark as Unread")) {
+                    actions.markUnread(item)
                 }
             }
         }

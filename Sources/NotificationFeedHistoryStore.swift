@@ -129,13 +129,17 @@ final class NotificationFeedHistoryStore {
         return marked
     }
 
-    func markUnread(ids: Set<UUID>) {
-        guard !ids.isEmpty else { return }
+    @discardableResult
+    func markUnread(ids: Set<UUID>) -> Int {
+        guard !ids.isEmpty else { return 0 }
         var updated = notifications
+        var marked = 0
         for index in updated.indices where ids.contains(updated[index].id) && updated[index].isRead {
             updated[index].isRead = false
+            marked += 1
         }
         commit(updated)
+        return marked
     }
 
     func rebindSurface(
