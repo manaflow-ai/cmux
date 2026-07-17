@@ -4,22 +4,22 @@ import Foundation
 public struct SimulatorLocationOwnershipScope: Sendable {
     let registry: SimulatorLocationOwnershipRegistry
 
-    /// Creates an isolated scope, primarily for an independent service graph.
-    public init() {
+    /// Creates an isolated scope for an independent service graph.
+    public init(fileManager: FileManager = FileManager(), makeUUID: () -> UUID = UUID.init) {
         registry = SimulatorLocationOwnershipRegistry(store: SimulatorCrossProcessOwnershipStore(
-            directory: FileManager.default.temporaryDirectory.appendingPathComponent(
-                "com.cmux.simulator-location-tests-\(UUID().uuidString)",
+            directory: fileManager.temporaryDirectory.appendingPathComponent(
+                "com.cmux.simulator-location-\(makeUUID().uuidString)",
                 isDirectory: true
             )
         ))
     }
 
-    /// The app-wide scope used by default so multiple Simulator panes cannot
-    /// replay stale looping routes over newer location mutations.
-    public static let shared = SimulatorLocationOwnershipScope(sharedAcrossProcesses: ())
-
-    private init(sharedAcrossProcesses: Void) {
-        registry = SimulatorLocationOwnershipRegistry(store: SimulatorCrossProcessOwnershipStore())
+    /// Creates a scope backed by a caller-owned directory. App composition
+    /// roots pass one stable directory to every pane and worker service.
+    public init(directory: URL) {
+        registry = SimulatorLocationOwnershipRegistry(store: SimulatorCrossProcessOwnershipStore(
+            directory: directory
+        ))
     }
 }
 

@@ -48,7 +48,9 @@ extension TerminalController {
         receipt: ControlSimulatorOperationReceipt
     ) async {
         do {
-            await coordinator.start()
+            if !operation.isIdentityRead {
+                await coordinator.start()
+            }
             try Task.checkCancellation()
             if !operation.isAvailableWithoutStreaming {
                 try await coordinator.waitForSelectedDeviceStreaming()
@@ -503,9 +505,14 @@ extension TerminalController {
 }
 
 extension ControlSimulatorOperation {
+    var isIdentityRead: Bool {
+        if case .context = self { return true }
+        return false
+    }
+
     var isAvailableWithoutStreaming: Bool {
         switch self {
-        case .selectDevice, .recover, .eventLog, .tools:
+        case .context, .selectDevice, .recover, .eventLog, .tools:
             true
         default:
             false

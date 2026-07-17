@@ -22,6 +22,7 @@ import Bonsplit
 import WebKit
 import CmuxSidebar
 import CmuxWorkspaces
+import CmuxSimulator
 
 extension Notification.Name {
     static let socketListenerDidStart = Notification.Name("cmux.socketListenerDidStart")
@@ -135,6 +136,8 @@ class TerminalController {
     /// `WorkspaceRemoteSessionController`; ownership moves to the composition root with the
     /// planned `RemoteSessionCoordinator` wiring.
     nonisolated let remoteProxyBroker: any RemoteProxyBrokering
+    /// App-owned location mutation scope injected into every Simulator pane.
+    let simulatorLocationOwnershipScope: SimulatorLocationOwnershipScope
     // Stateless Sendable structs from CmuxControlSocket; injected at construction.
     // `transport` is internal so sibling-file extensions (CmuxEventStream) can write through it.
     nonisolated let transport: SocketTransport
@@ -364,6 +367,13 @@ class TerminalController {
         self.socketClientPreauthorizationLimiter = socketClientPreauthorizationLimiter
         self.transport = transport
         self.remoteProxyBroker = remoteProxyBroker
+        let simulatorOwnershipFileManager = FileManager()
+        self.simulatorLocationOwnershipScope = SimulatorLocationOwnershipScope(
+            directory: simulatorOwnershipFileManager.temporaryDirectory.appendingPathComponent(
+                "com.cmux.simulator-ownership",
+                isDirectory: true
+            )
+        )
         let serverEventTarget = ServerEventTarget()
         let socketServer = SocketControlServer(
             transport: transport,

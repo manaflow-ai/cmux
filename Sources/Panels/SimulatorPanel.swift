@@ -65,7 +65,9 @@ final class SimulatorPanel: Panel {
         preferredDeviceTypeIdentifier: String? = nil,
         requiresExplicitDeviceSelection: Bool = false,
         clientFactory: @escaping @MainActor () -> any SimulatorPaneClient = {
-            SimulatorWorkerClientFactory().makeClient()
+            SimulatorWorkerClientFactory(
+                locationOwnershipScope: TerminalController.shared.simulatorLocationOwnershipScope
+            ).makeClient()
         }
     ) {
         self.clientFactory = clientFactory

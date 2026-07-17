@@ -4,13 +4,18 @@ import Foundation
 public struct SimulatorWorkerClientFactory: Sendable {
     private static let cameraCleanupCoordinator = SimulatorCameraCleanupCoordinator()
     private let executableURL: URL
+    private let locationOwnershipScope: SimulatorLocationOwnershipScope
 
     /// Creates a factory, defaulting to the current app executable.
     /// - Parameter executableURL: Executable re-launched in isolated worker mode.
-    public init(executableURL: URL? = nil) {
+    public init(
+        executableURL: URL? = nil,
+        locationOwnershipScope: SimulatorLocationOwnershipScope = SimulatorLocationOwnershipScope()
+    ) {
         self.executableURL = executableURL
             ?? Bundle.main.executableURL
             ?? URL(fileURLWithPath: CommandLine.arguments[0])
+        self.locationOwnershipScope = locationOwnershipScope
     }
 
     /// Creates a client that re-executes the factory's host binary.
@@ -19,14 +24,16 @@ public struct SimulatorWorkerClientFactory: Sendable {
     ///   - simulatorControl: Injected public Simulator control service.
     public func makeClient(
         ackTimeout: Duration = .seconds(3),
-        simulatorControl: any SimulatorControlling = SimulatorControlService()
+        simulatorControl: (any SimulatorControlling)? = nil
     ) -> SimulatorWorkerClient {
         SimulatorWorkerClient(
             executableURL: executableURL,
             arguments: [SimulatorWorkerClient.workerModeArgument],
             environment: [:],
             ackTimeout: ackTimeout,
-            simulatorControl: simulatorControl,
+            simulatorControl: simulatorControl ?? SimulatorControlService(
+                locationOwnershipScope: locationOwnershipScope
+            ),
             launcher: SimulatorProcessWorkerLauncher(),
             sleeper: ContinuousSimulatorWorkerSleeper(),
             cameraCleanupCoordinator: Self.cameraCleanupCoordinator

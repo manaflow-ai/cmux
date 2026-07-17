@@ -7,14 +7,14 @@ struct SimulatorCrossProcessOwnershipStore: Sendable {
     private let directory: URL
 
     init(directory: URL? = nil) {
-        self.directory = directory ?? FileManager.default.temporaryDirectory
+        self.directory = directory ?? FileManager().temporaryDirectory
             .appendingPathComponent("com.cmux.simulator-ownership", isDirectory: true)
     }
 
     func claim(namespace: String, components: [String]) -> UUID {
         let token = UUID()
         do {
-            try FileManager.default.createDirectory(
+            try FileManager().createDirectory(
                 at: directory,
                 withIntermediateDirectories: true,
                 attributes: [.posixPermissions: 0o700]

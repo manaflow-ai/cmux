@@ -44,7 +44,7 @@ public actor SimulatorControlService: SimulatorControlling {
         currentDirectoryURL: URL = URL(fileURLWithPath: ".").standardizedFileURL,
         makeUUID: @escaping @Sendable () -> UUID = UUID.init,
         now: @escaping @Sendable () -> Date = Date.init,
-        locationOwnershipScope: SimulatorLocationOwnershipScope = .shared,
+        locationOwnershipScope: SimulatorLocationOwnershipScope = SimulatorLocationOwnershipScope(),
         routeSleep: @escaping @Sendable (Duration) async throws -> Void = {
             try await ContinuousClock().sleep(for: $0)
         }
