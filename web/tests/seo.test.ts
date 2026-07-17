@@ -1120,8 +1120,8 @@ describe("SEO middleware", () => {
   test("excludes redirect-only and noindex docs routes from the sitemap", () => {
     const urls = sitemap().map((entry) => entry.url);
 
-    expect(urls).not.toContain("https://cmux.com/docs/base");
-    expect(urls).not.toContain("https://cmux.com/docs/nightly/base");
+    expect(urls.some((url) => url.endsWith("/docs/base"))).toBe(false);
+    expect(urls.some((url) => url.endsWith("/docs/nightly/base"))).toBe(false);
   });
 
   test("canonicalizes English-only blog posts", () => {
