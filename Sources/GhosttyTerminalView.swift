@@ -321,7 +321,9 @@ extension GhosttyNSView {
             backingScaleFactor: window?.backingScaleFactor ?? 1
         )
         remoteLayer.frame = bounds
-        remoteLayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
+        // AppKit owns the geometry of a view's root backing layer. Giving that
+        // layer an autoresizing mask applies the view's size delta a second
+        // time and can collapse a terminal to one point during split resize.
         remoteLayer.masksToBounds = true
         remoteLayer.isOpaque = false
         layer = remoteLayer
