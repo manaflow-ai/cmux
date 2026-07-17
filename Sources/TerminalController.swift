@@ -5610,16 +5610,20 @@ class TerminalController {
         v2ApplyIMessageModeSideEffects(for: event)
         Task { @MainActor in self.agentChatTranscriptService?.noteHookEvent(event) }
 
-        let result = FeedCoordinator.shared.ingestBlocking(
-            event: event,
-            waitTimeout: waitTimeout
-        )
+        let bridge = FeedBlockingCallBridge<FeedCoordinator.IngestBlockingResult>()
+        Task {
+            bridge.finish(with: await FeedCoordinator.shared.ingestBlocking(
+                event: event,
+                waitTimeout: waitTimeout
+            ))
+        }
+        let result = bridge.wait()
         CmuxEventBus.shared.publishWorkstreamEvent(
             event,
             phase: "completed",
-            result: FeedSocketEncoding.payload(for: result)
+            result: FeedCoordinator.shared.socketEncoder.payload(for: result)
         )
-        return .ok(FeedSocketEncoding.payload(for: result))
+        return .ok(FeedCoordinator.shared.socketEncoder.payload(for: result))
     }
 
     private nonisolated func v2ApplyIMessageModeSideEffects(for event: WorkstreamEvent) {
@@ -5674,11 +5678,10 @@ class TerminalController {
                 data: nil
             )
         }
-        FeedCoordinator.shared.deliverReply(
+        return .ok(["delivered": v2DeliverFeedReply(
             requestId: requestId,
             decision: .permission(mode)
-        )
-        return .ok(["delivered": true])
+        )])
     }
 
     private nonisolated func v2FeedQuestionReply(params: [String: Any]) -> V2CallResult {
@@ -5696,11 +5699,10 @@ class TerminalController {
                 data: nil
             )
         }
-        FeedCoordinator.shared.deliverReply(
+        return .ok(["delivered": v2DeliverFeedReply(
             requestId: requestId,
             decision: .question(selections: selections)
-        )
-        return .ok(["delivered": true])
+        )])
     }
 
     private nonisolated func v2FeedExitPlanReply(params: [String: Any]) -> V2CallResult {
@@ -5721,11 +5723,24 @@ class TerminalController {
             )
         }
         let feedback = params["feedback"] as? String
-        FeedCoordinator.shared.deliverReply(
+        return .ok(["delivered": v2DeliverFeedReply(
             requestId: requestId,
             decision: .exitPlan(mode, feedback: feedback)
-        )
-        return .ok(["delivered": true])
+        )])
+    }
+
+    private nonisolated func v2DeliverFeedReply(
+        requestId: String,
+        decision: WorkstreamDecision
+    ) -> Bool {
+        let bridge = FeedBlockingCallBridge<Bool>()
+        Task {
+            bridge.finish(with: await FeedCoordinator.shared.deliverReply(
+                requestId: requestId,
+                decision: decision
+            ))
+        }
+        return bridge.wait()
     }
 
     // MARK: - V2 Browser Methods

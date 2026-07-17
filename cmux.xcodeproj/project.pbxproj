@@ -822,6 +822,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		E50320010000000000000001 /* ExtensionWorktreeSpawnArgsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */; };
 		C0DEA7710000000000000007 /* FeatureFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA7710000000000000008 /* FeatureFlags.swift */; };
 		FEED0A00000000000000F007 /* feed-tui in Resources */ = {isa = PBXBuildFile; fileRef = FEED0A00000000000000F006 /* feed-tui */; };
+		FEE200000000000000000013 /* FeedActivitySnapshotGroups.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE100000000000000000013 /* FeedActivitySnapshotGroups.swift */; };
+		FEE200000000000000000012 /* FeedBlockingCallBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE100000000000000000012 /* FeedBlockingCallBridge.swift */; };
 		FEE200000000000000000002 /* FeedBlockingWaiterRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE100000000000000000002 /* FeedBlockingWaiterRegistry.swift */; };
 		FEED0000000000000000F00D /* FeedButtonStyleDebugWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F00C /* FeedButtonStyleDebugWindowController.swift */; };
 		FEE200000000000000000003 /* FeedCoordinator+Attention.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE100000000000000000003 /* FeedCoordinator+Attention.swift */; };
@@ -840,11 +842,13 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		FEE20000000000000000000B /* FeedKeyboardFocus.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE10000000000000000000B /* FeedKeyboardFocus.swift */; };
 		FEE20000000000000000000A /* FeedListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE10000000000000000000A /* FeedListView.swift */; };
 		FEE200000000000000000008 /* FeedNotificationPolicyContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE100000000000000000008 /* FeedNotificationPolicyContext.swift */; };
+		FEE200000000000000000015 /* FeedNotificationPolicySnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE100000000000000000015 /* FeedNotificationPolicySnapshot.swift */; };
 		FEE200000000000000000001 /* FeedOpeningCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE100000000000000000001 /* FeedOpeningCoordinator.swift */; };
 		FEED0000000000000000F005 /* FeedPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F004 /* FeedPanelView.swift */; };
 		FEED0000000000000000F011 /* FeedPanelViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F010 /* FeedPanelViewModel.swift */; };
 		FEED0000000000000000F013 /* FeedPermissionActionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F012 /* FeedPermissionActionPolicy.swift */; };
 		FEE20000000000000000000E /* FeedPermissionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE10000000000000000000E /* FeedPermissionView.swift */; };
+		FEE200000000000000000014 /* FeedPresentationSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE100000000000000000014 /* FeedPresentationSnapshot.swift */; };
 		FEED0000000000000000F00B /* FeedPreviewWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F00A /* FeedPreviewWindowController.swift */; };
 		FEE200000000000000000010 /* FeedQuestionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE100000000000000000010 /* FeedQuestionView.swift */; };
 		FEED0000000000000000F009 /* FeedSidebarUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F008 /* FeedSidebarUITests.swift */; };
@@ -2878,6 +2882,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionWorktreeSpawnArgsTests.swift; sourceTree = "<group>"; };
 		C0DEA7710000000000000008 /* FeatureFlags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureFlags.swift; sourceTree = "<group>"; };
 		FEED0A00000000000000F006 /* feed-tui */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; path = "feed-tui"; sourceTree = "<group>"; };
+		FEE100000000000000000013 /* FeedActivitySnapshotGroups.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedActivitySnapshotGroups.swift; sourceTree = "<group>"; };
+		FEE100000000000000000012 /* FeedBlockingCallBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedBlockingCallBridge.swift; sourceTree = "<group>"; };
 		FEE100000000000000000002 /* FeedBlockingWaiterRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedBlockingWaiterRegistry.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F00C /* FeedButtonStyleDebugWindowController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedButtonStyleDebugWindowController.swift; sourceTree = "<group>"; };
 		FEE100000000000000000003 /* FeedCoordinator+Attention.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FeedCoordinator+Attention.swift"; sourceTree = "<group>"; };
@@ -2895,11 +2901,13 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		FEE10000000000000000000B /* FeedKeyboardFocus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedKeyboardFocus.swift; sourceTree = "<group>"; };
 		FEE10000000000000000000A /* FeedListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedListView.swift; sourceTree = "<group>"; };
 		FEE100000000000000000008 /* FeedNotificationPolicyContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedNotificationPolicyContext.swift; sourceTree = "<group>"; };
+		FEE100000000000000000015 /* FeedNotificationPolicySnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedNotificationPolicySnapshot.swift; sourceTree = "<group>"; };
 		FEE100000000000000000001 /* FeedOpeningCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedOpeningCoordinator.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F004 /* FeedPanelView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedPanelView.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F010 /* FeedPanelViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedPanelViewModel.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F012 /* FeedPermissionActionPolicy.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedPermissionActionPolicy.swift; sourceTree = "<group>"; };
 		FEE10000000000000000000E /* FeedPermissionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedPermissionView.swift; sourceTree = "<group>"; };
+		FEE100000000000000000014 /* FeedPresentationSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedPresentationSnapshot.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F00A /* FeedPreviewWindowController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedPreviewWindowController.swift; sourceTree = "<group>"; };
 		FEE100000000000000000010 /* FeedQuestionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedQuestionView.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F008 /* FeedSidebarUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedSidebarUITests.swift; sourceTree = "<group>"; };
@@ -6256,6 +6264,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				FEE100000000000000000005 /* FeedCoordinator+Socket.swift */,
 				FEE100000000000000000006 /* FeedCoordinatorState.swift */,
 				FEE100000000000000000002 /* FeedBlockingWaiterRegistry.swift */,
+				FEE100000000000000000012 /* FeedBlockingCallBridge.swift */,
+				FEE100000000000000000013 /* FeedActivitySnapshotGroups.swift */,
+				FEE100000000000000000014 /* FeedPresentationSnapshot.swift */,
+				FEE100000000000000000015 /* FeedNotificationPolicySnapshot.swift */,
 				FEE100000000000000000007 /* FeedJumpResolver.swift */,
 				FEE100000000000000000008 /* FeedNotificationPolicyContext.swift */,
 				FEE100000000000000000009 /* FeedSocketEncoding.swift */,
@@ -7179,6 +7191,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				E4C001000000000000000001 /* ExtensionSidebarWorkspaceRowView.swift in Sources */,
 				E4C001000000000000000003 /* ExtensionWorktreePrototype.swift in Sources */,
 				C0DEA7710000000000000007 /* FeatureFlags.swift in Sources */,
+				FEE200000000000000000013 /* FeedActivitySnapshotGroups.swift in Sources */,
+				FEE200000000000000000012 /* FeedBlockingCallBridge.swift in Sources */,
 				FEE200000000000000000002 /* FeedBlockingWaiterRegistry.swift in Sources */,
 				FEED0000000000000000F00D /* FeedButtonStyleDebugWindowController.swift in Sources */,
 				FEE200000000000000000003 /* FeedCoordinator+Attention.swift in Sources */,
@@ -7193,11 +7207,13 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				FEE20000000000000000000B /* FeedKeyboardFocus.swift in Sources */,
 				FEE20000000000000000000A /* FeedListView.swift in Sources */,
 				FEE200000000000000000008 /* FeedNotificationPolicyContext.swift in Sources */,
+				FEE200000000000000000015 /* FeedNotificationPolicySnapshot.swift in Sources */,
 				FEE200000000000000000001 /* FeedOpeningCoordinator.swift in Sources */,
 				FEED0000000000000000F005 /* FeedPanelView.swift in Sources */,
 				FEED0000000000000000F011 /* FeedPanelViewModel.swift in Sources */,
 				FEED0000000000000000F013 /* FeedPermissionActionPolicy.swift in Sources */,
 				FEE20000000000000000000E /* FeedPermissionView.swift in Sources */,
+				FEE200000000000000000014 /* FeedPresentationSnapshot.swift in Sources */,
 				FEED0000000000000000F00B /* FeedPreviewWindowController.swift in Sources */,
 				FEE200000000000000000010 /* FeedQuestionView.swift in Sources */,
 				FEE200000000000000000009 /* FeedSocketEncoding.swift in Sources */,

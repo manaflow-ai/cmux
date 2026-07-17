@@ -148,12 +148,28 @@ struct TelemetryActionArea: View {
 
 private struct TodoListBody: View {
     let todos: [WorkstreamTaskTodo]
+    private let done: [WorkstreamTaskTodo]
+    private let inProgress: [WorkstreamTaskTodo]
+    private let pending: [WorkstreamTaskTodo]
 
     @State private var expanded = false
 
-    private var done: [WorkstreamTaskTodo] { todos.filter { $0.state == .completed } }
-    private var inProgress: [WorkstreamTaskTodo] { todos.filter { $0.state == .inProgress } }
-    private var pending: [WorkstreamTaskTodo] { todos.filter { $0.state == .pending } }
+    init(todos: [WorkstreamTaskTodo]) {
+        self.todos = todos
+        var done: [WorkstreamTaskTodo] = []
+        var inProgress: [WorkstreamTaskTodo] = []
+        var pending: [WorkstreamTaskTodo] = []
+        for todo in todos {
+            switch todo.state {
+            case .completed: done.append(todo)
+            case .inProgress: inProgress.append(todo)
+            case .pending: pending.append(todo)
+            }
+        }
+        self.done = done
+        self.inProgress = inProgress
+        self.pending = pending
+    }
 
     private var visibleDone: [WorkstreamTaskTodo] {
         expanded ? done : Array(done.prefix(2))
@@ -177,10 +193,7 @@ private struct TodoListBody: View {
                     Button {
                         expanded.toggle()
                     } label: {
-                        Text(String(
-                            localized: "feed.todos.moreCompleted",
-                            defaultValue: "... +\(done.count - visibleDone.count) completed"
-                        ))
+                        Text(moreCompletedLabel(done.count - visibleDone.count))
                             .cmuxFont(size: 11)
                             .foregroundColor(.secondary.opacity(0.8))
                             .padding(.leading, 22)
@@ -204,15 +217,52 @@ private struct TodoListBody: View {
         let d = done.count, ip = inProgress.count, p = pending.count
         var parts: [String] = []
         if d > 0 {
-            parts.append(String(localized: "feed.todos.summary.done", defaultValue: "\(d) done"))
+            parts.append(doneLabel(d))
         }
         if ip > 0 {
-            parts.append(String(localized: "feed.todos.summary.inProgress", defaultValue: "\(ip) in progress"))
+            parts.append(inProgressLabel(ip))
         }
         if p > 0 {
-            parts.append(String(localized: "feed.todos.summary.open", defaultValue: "\(p) open"))
+            parts.append(openLabel(p))
         }
         return "(" + parts.joined(separator: ", ") + ")"
+    }
+
+    private func moreCompletedLabel(_ count: Int) -> String {
+        if count == 1 {
+            return String(localized: "feed.todos.moreCompleted.one", defaultValue: "... +1 completed")
+        }
+        return String(
+            localized: "feed.todos.moreCompleted.other",
+            defaultValue: "... +\(count) completed"
+        )
+    }
+
+    private func doneLabel(_ count: Int) -> String {
+        if count == 1 {
+            return String(localized: "feed.todos.summary.done.one", defaultValue: "1 done")
+        }
+        return String(localized: "feed.todos.summary.done.other", defaultValue: "\(count) done")
+    }
+
+    private func inProgressLabel(_ count: Int) -> String {
+        if count == 1 {
+            return String(
+                localized: "feed.todos.summary.inProgress.one",
+                defaultValue: "1 in progress"
+            )
+        }
+        return String(
+            localized: "feed.todos.summary.inProgress.other",
+            defaultValue: "\(count) in progress"
+        )
+    }
+
+    private func openLabel(_ count: Int) -> String {
+        if count == 1 {
+            return String(localized: "feed.todos.summary.open.one", defaultValue: "1 open")
+        }
+        return String(localized: "feed.todos.summary.open.other", defaultValue: "\(count) open")
     }
 
     @ViewBuilder

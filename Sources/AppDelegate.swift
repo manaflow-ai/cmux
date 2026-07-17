@@ -1328,18 +1328,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             name: .reactGrabDidCopySelection,
             object: nil
         )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleFeedRequestFocus(_:)),
-            name: .feedRequestFocus,
-            object: nil
-        )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleFeedRequestSendText(_:)),
-            name: .feedRequestSendText,
-            object: nil
-        )
 
 #if DEBUG
         // UI tests run on a shared VM user profile, so persisted shortcuts can drift and make
@@ -1415,6 +1403,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             StartupBreadcrumbLog.append("appDelegate.didFinish.posthog.complete")
         }
         if !isRunningUnderXCTest {
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(handleFeedFeatureFlagChange(_:)),
+                name: .cmuxFeatureFlagsDidChange,
+                object: CmuxFeatureFlags.shared
+            )
             CmuxFeatureFlags.shared.start()
         }
 
@@ -9329,11 +9323,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         pasteboard.setString(payload, forType: .string)
     }
 
-    @objc private func handleFeedRequestFocus(_ notification: Notification) {
-        guard let workspaceId = notification.userInfo?["workspaceId"] as? String,
-              let surfaceId = notification.userInfo?["surfaceId"] as? String
-        else { return }
-
+    @discardableResult
+    func routeFeedFocus(workspaceId: String, surfaceId: String) -> Bool {
         // Invoke the existing V2 commands so the Feed-layer focus request
         // goes through the same code path as a socket-initiated focus.
         // Serialize through JSON so we reuse the v2 command parser.
@@ -9355,13 +9346,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // cmd+shift+H / Flash Focused Panel) so the user's eye is
         // pulled to the terminal content the Feed jumped to.
         invoke("surface.trigger_flash", ["surface_id": surfaceId])
+        return true
     }
 
-    @objc private func handleFeedRequestSendText(_ notification: Notification) {
-        guard let surfaceId = notification.userInfo?["surfaceId"] as? String,
-              let text = notification.userInfo?["text"] as? String,
-              !text.isEmpty
-        else { return }
+    @discardableResult
+    func routeFeedText(surfaceId: String, text: String) -> Bool {
+        guard !text.isEmpty else { return false }
 
         let controller = TerminalController.shared
         let invoke: (String, [String: Any]) -> Void = { method, params in
@@ -9381,6 +9371,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "surface_id": surfaceId,
             "text": text + "\r",
         ])
+        return true
+    }
+
+    @objc private func handleFeedFeatureFlagChange(_ notification: Notification) {
+        _ = notification
+        guard !CmuxFeatureFlags.shared.isFeedUIEnabled else { return }
+        reconcileDisabledFeedSurfaces()
+    }
+
+    private func reconcileDisabledFeedSurfaces() {
+        var visitedManagers: Set<ObjectIdentifier> = []
+        for context in mainWindowContexts.values {
+            let manager = context.tabManager
+            guard visitedManagers.insert(ObjectIdentifier(manager)).inserted else { continue }
+            let feedOnlyWorkspaces = manager.tabs.filter { workspace in
+                !workspace.panels.isEmpty && workspace.panels.values.allSatisfy { panel in
+                    (panel as? RightSidebarToolPanel)?.mode == .feed
+                }
+            }
+            if manager.tabs.count == feedOnlyWorkspaces.count, !feedOnlyWorkspaces.isEmpty {
+                _ = manager.addWorkspace()
+            }
+            for workspace in feedOnlyWorkspaces {
+                manager.closeWorkspace(workspace, recordHistory: false)
+            }
+            for workspace in manager.tabs {
+                let feedPanelIDs = workspace.panels.compactMap { panelID, panel in
+                    (panel as? RightSidebarToolPanel)?.mode == .feed ? panelID : nil
+                }
+                for panelID in feedPanelIDs {
+                    _ = workspace.closePanel(panelID, force: true)
+                }
+            }
+        }
     }
 
     @objc private func handleReactGrabDidCopySelection(_ notification: Notification) {

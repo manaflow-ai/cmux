@@ -41,7 +41,7 @@ extension FeedCoordinator {
     /// same agent/panel don't clear each other's needs-input badge.
     struct AttentionTarget: Hashable, Sendable {
         let workspaceId: UUID
-        let panelId: UUID?
+        let panelId: UUID
         let statusKey: String
     }
 
@@ -81,13 +81,6 @@ extension FeedCoordinator {
     ) -> AttentionTarget? {
         guard Self.isBlockingDecisionEvent(event.hookEventName) else { return nil }
 
-        #if DEBUG
-        if let observer = FeedCoordinatorTestHooks.attentionSurfaceObserver {
-            observer(event)
-            return nil
-        }
-        #endif
-
         guard let resolved else {
             #if DEBUG
             cmuxDebugLog(
@@ -108,12 +101,17 @@ extension FeedCoordinator {
             return nil
         }
 
-        let panelId = Self.resolvePanelId(surfaceId: resolved.surfaceId, tab: tab) ?? tab.focusedPanelId
-        let statusKey = Self.lifecycleStatusKey(forSource: event.source)
+        guard let registered = Self.registeredAgentTarget(
+            source: event.source,
+            surfaceId: resolved.surfaceId,
+            tab: tab
+        ) else {
+            return nil
+        }
         let target = AttentionTarget(
             workspaceId: resolved.workspaceId,
-            panelId: panelId,
-            statusKey: statusKey
+            panelId: registered.panelID,
+            statusKey: registered.statusKey
         )
         let attentionState = pendingAttentionStates[target] ?? AttentionOverlayState(workspace: tab)
         attentionState.workspace = tab
@@ -121,9 +119,13 @@ extension FeedCoordinator {
         pendingAttentionStates[target] = attentionState
 
         // Needs-input lifecycle drives the sidebar badge + hibernation state.
-        tab.setAgentLifecycle(key: statusKey, panelId: panelId, lifecycle: .needsInput)
-        tab.statusEntries[statusKey] = SidebarStatusEntry(
-            key: statusKey,
+        tab.setAgentLifecycle(
+            key: registered.statusKey,
+            panelId: registered.panelID,
+            lifecycle: .needsInput
+        )
+        tab.statusEntries[registered.statusKey] = SidebarStatusEntry(
+            key: registered.statusKey,
             value: Self.needsInputStatusValue,
             icon: "bell.fill",
             color: "#4C8DFF",
@@ -161,9 +163,12 @@ extension FeedCoordinator {
 
         // Lifecycle is per-panel, so clearing this panel's needs-input is
         // safe even if another panel still needs input.
-        if let panelId = target.panelId,
-           tab.agentLifecycleStatesByPanelId[panelId]?[target.statusKey] == .needsInput {
-            tab.setAgentLifecycle(key: target.statusKey, panelId: panelId, lifecycle: .running)
+        if tab.agentLifecycleStatesByPanelId[target.panelId]?[target.statusKey] == .needsInput {
+            tab.setAgentLifecycle(
+                key: target.statusKey,
+                panelId: target.panelId,
+                lifecycle: .running
+            )
         }
 
         // The status entry is workspace-level (keyed only by statusKey), so it
@@ -187,12 +192,12 @@ extension FeedCoordinator {
     /// session store when the event omits a parseable id. The surface comes
     /// from the session store only when its workspace matches the resolved
     /// workspace, so a stale entry can't point the panel elsewhere.
-    static func resolveAttentionTarget(
+    func resolveAttentionTarget(
         event: WorkstreamEvent
     ) -> (workspaceId: UUID, surfaceId: UUID?)? {
         let sessionMatch: (workspaceId: UUID, surfaceId: UUID?)? = {
-            guard let parsed = FeedJumpResolver.parse(event.sessionId),
-                  let resolved = FeedJumpResolver.lookup(agent: parsed.agent, sessionId: parsed.sessionId),
+            guard let parsed = jumpResolver.parse(event.sessionId),
+                  let resolved = jumpResolver.lookup(agent: parsed.agent, sessionId: parsed.sessionId),
                   let workspaceId = UUID(uuidString: resolved.workspaceId)
             else { return nil }
             return (workspaceId, UUID(uuidString: resolved.surfaceId))
@@ -218,5 +223,28 @@ extension FeedCoordinator {
         guard let surfaceId else { return nil }
         if tab.panels[surfaceId] != nil { return surfaceId }
         return tab.panelIdFromSurfaceId(TabID(uuid: surfaceId))
+    }
+
+    /// Resolves lifecycle ownership only from agent runtime registrations.
+    /// A Feed event without a unique registered panel fails closed instead of
+    /// borrowing the workspace's currently focused panel.
+    @MainActor
+    static func registeredAgentTarget(
+        source: String,
+        surfaceId: UUID?,
+        tab: Workspace
+    ) -> (panelID: UUID, statusKey: String)? {
+        let statusKey = lifecycleStatusKey(forSource: source)
+        let registeredPanelIDs = Set(tab.agentPIDPanelIdsByKey.compactMap { key, panelID in
+            tab.agentStatusKey(forAgentPIDKey: key) == statusKey ? panelID : nil
+        })
+        if let surfacePanelID = resolvePanelId(surfaceId: surfaceId, tab: tab),
+           registeredPanelIDs.contains(surfacePanelID) {
+            return (surfacePanelID, statusKey)
+        }
+        guard registeredPanelIDs.count == 1, let panelID = registeredPanelIDs.first else {
+            return nil
+        }
+        return (panelID, statusKey)
     }
 }

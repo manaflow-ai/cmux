@@ -13,27 +13,16 @@ extension FeedCoordinator {
     /// queue, policy hooks, or notification center catches up.
     func postNotificationIfStillAwaiting(event: WorkstreamEvent, requestId: String) {
         Task { @MainActor [weak self] in
-            guard let self, self.isAwaitingDecision(requestId: requestId) else {
+            guard let self, await self.isAwaitingDecision(requestId: requestId) else {
                 return
             }
 
-            #if DEBUG
-            let isAppActive = FeedCoordinatorTestHooks.isAppActiveOverride?() ?? NSApp.isActive
-            #else
             let isAppActive = NSApp.isActive
-            #endif
 
             // Don't pester users while the app is already up front.
             if isAppActive {
                 return
             }
-
-            #if DEBUG
-            if let observer = FeedCoordinatorTestHooks.notificationPostObserver {
-                observer(event, requestId)
-                return
-            }
-            #endif
 
             let categoryId: String
             let title: String
@@ -43,7 +32,7 @@ extension FeedCoordinator {
                 categoryId = Self.permissionNotificationCategoryId(for: event)
                 title = String(
                     localized: "feed.notification.permission.title",
-                    defaultValue: "\(event.source.capitalized) permission"
+                    defaultValue: "Permission needed"
                 )
                 body = event.toolName.map {
                     String(
@@ -58,7 +47,7 @@ extension FeedCoordinator {
                 categoryId = "CMUXFeedExitPlan"
                 title = String(
                     localized: "feed.notification.exitPlan.title",
-                    defaultValue: "\(event.source.capitalized) plan ready"
+                    defaultValue: "Plan ready"
                 )
                 body = String(
                     localized: "feed.notification.exitPlan.body",
@@ -68,7 +57,7 @@ extension FeedCoordinator {
                 categoryId = "CMUXFeedQuestion"
                 title = String(
                     localized: "feed.notification.question.title",
-                    defaultValue: "\(event.source.capitalized) question"
+                    defaultValue: "Question"
                 )
                 body = String(
                     localized: "feed.notification.question.body",
@@ -78,13 +67,13 @@ extension FeedCoordinator {
                 return
             }
 
-            let policyContext = FeedNotificationPolicyContext.make(
+            let policyContext = await FeedNotificationPolicyContext.make(
                 event: event,
                 title: title,
                 body: body
             )
-            let deliverDefault = { [weak self] in
-                self?.deliverFeedNotificationIfStillAwaiting(
+            let deliverDefault = { @MainActor [weak self] in
+                await self?.deliverFeedNotificationIfStillAwaiting(
                     requestId: requestId,
                     event: event,
                     categoryId: categoryId,
@@ -96,7 +85,7 @@ extension FeedCoordinator {
             }
 
             guard !policyContext.hooks.isEmpty else {
-                deliverDefault()
+                await deliverDefault()
                 return
             }
 
@@ -104,9 +93,9 @@ extension FeedCoordinator {
                 policyContext.hooks,
                 globalConfigPath: policyContext.globalConfigPath
             )
-            guard self.isAwaitingDecision(requestId: requestId) else { return }
+            guard await self.isAwaitingDecision(requestId: requestId) else { return }
             guard !authorizedHooks.isEmpty else {
-                deliverDefault()
+                await deliverDefault()
                 return
             }
 
@@ -114,11 +103,11 @@ extension FeedCoordinator {
                 envelope: policyContext.envelope,
                 hooks: authorizedHooks
             )
-            guard self.isAwaitingDecision(requestId: requestId) else { return }
+            guard await self.isAwaitingDecision(requestId: requestId) else { return }
             switch result {
             case .success(let envelope):
                 let payload = envelope.notification
-                self.deliverFeedNotificationIfStillAwaiting(
+                await self.deliverFeedNotificationIfStillAwaiting(
                     requestId: requestId,
                     event: event,
                     categoryId: categoryId,
@@ -128,7 +117,7 @@ extension FeedCoordinator {
                     effects: envelope.effects
                 )
             case .failure(let failure):
-                deliverDefault()
+                await deliverDefault()
                 TerminalNotificationStore.shared.reportNotificationHookFailure(failure)
             }
         }
@@ -164,13 +153,13 @@ extension FeedCoordinator {
         subtitle: String,
         body: String,
         effects: TerminalNotificationPolicyEffects
-    ) {
-        guard isAwaitingDecision(requestId: requestId),
+    ) async {
+        guard await isAwaitingDecision(requestId: requestId),
               effects.desktop || effects.sound || effects.command
         else { return }
 
         if !effects.desktop {
-            runFallbackEffectsIfStillAwaiting(
+            await runFallbackEffectsIfStillAwaiting(
                 requestId: requestId,
                 title: title,
                 subtitle: subtitle,
@@ -201,10 +190,10 @@ extension FeedCoordinator {
         let center = UNUserNotificationCenter.current()
         center.getNotificationSettings { settings in
             Task { @MainActor [weak self] in
-                guard let self, self.isAwaitingDecision(requestId: requestId) else { return }
+                guard let self, await self.isAwaitingDecision(requestId: requestId) else { return }
                 switch settings.authorizationStatus {
                 case .authorized, .provisional:
-                    self.addNotificationIfStillAwaiting(
+                    await self.addNotificationIfStillAwaiting(
                         center: center,
                         request: request,
                         requestId: requestId,
@@ -218,9 +207,9 @@ extension FeedCoordinator {
                     } catch {
                         requestFailed = true
                     }
-                    guard self.isAwaitingDecision(requestId: requestId) else { return }
+                    guard await self.isAwaitingDecision(requestId: requestId) else { return }
                     if granted {
-                        self.addNotificationIfStillAwaiting(
+                        await self.addNotificationIfStillAwaiting(
                             center: center,
                             request: request,
                             requestId: requestId,
@@ -231,7 +220,7 @@ extension FeedCoordinator {
                         // the prompt just now: honor the fresh denial on this
                         // very notification. A request error is not a user
                         // decision, so the fallback stays audible (fail-open).
-                        self.runFallbackEffectsIfStillAwaiting(
+                        await self.runFallbackEffectsIfStillAwaiting(
                             requestId: requestId,
                             title: title,
                             subtitle: subtitle,
@@ -244,7 +233,7 @@ extension FeedCoordinator {
                         )
                     }
                 default:
-                    self.runFallbackEffectsIfStillAwaiting(
+                    await self.runFallbackEffectsIfStillAwaiting(
                         requestId: requestId,
                         title: title,
                         subtitle: subtitle,
@@ -268,8 +257,8 @@ extension FeedCoordinator {
         request: UNNotificationRequest,
         requestId: String,
         effects: TerminalNotificationPolicyEffects
-    ) {
-        guard isAwaitingDecision(requestId: requestId) else { return }
+    ) async {
+        guard await isAwaitingDecision(requestId: requestId) else { return }
         let title = request.content.title
         let subtitle = request.content.subtitle
         let body = request.content.body
@@ -277,12 +266,12 @@ extension FeedCoordinator {
             let didFail = error != nil
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                if !self.isAwaitingDecision(requestId: requestId) {
+                if !(await self.isAwaitingDecision(requestId: requestId)) {
                     self.cancelNotification(requestId: requestId)
                     return
                 }
                 if didFail {
-                    self.runFallbackEffectsIfStillAwaiting(
+                    await self.runFallbackEffectsIfStillAwaiting(
                         requestId: requestId,
                         title: title,
                         subtitle: subtitle,
@@ -311,8 +300,8 @@ extension FeedCoordinator {
         body: String,
         effects: TerminalNotificationPolicyEffects,
         runCommand: Bool
-    ) {
-        guard isAwaitingDecision(requestId: requestId) else { return }
+    ) async {
+        guard await isAwaitingDecision(requestId: requestId) else { return }
         NativeNotificationDeliveryHooks.runLocalFeedback(
             title: title,
             subtitle: subtitle,

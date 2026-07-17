@@ -1,15 +1,23 @@
 import Foundation
 
-/// Reads the per-agent hook session stores (`~/.cmuxterm/<agent>-hook-sessions.json`)
-/// to map a feed `workstream_id` back to a cmux `(workspaceId, surfaceId)` pair.
-/// The schema is the same one written by `cmux <agent>-hook session-start`.
-enum FeedJumpResolver {
-    struct Target: Equatable {
+/// Resolves Feed workstream identifiers through the per-agent hook-session
+/// stores written by `cmux <agent>-hook session-start`.
+final class FeedJumpResolver: @unchecked Sendable {
+    struct Target: Equatable, Sendable {
         let workspaceId: String
         let surfaceId: String
     }
 
-    static func parse(_ workstreamId: String) -> (agent: String, sessionId: String)? {
+    private let sessionsDirectory: URL
+
+    init(
+        sessionsDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".cmuxterm", isDirectory: true)
+    ) {
+        self.sessionsDirectory = sessionsDirectory
+    }
+
+    func parse(_ workstreamId: String) -> (agent: String, sessionId: String)? {
         guard let dash = workstreamId.firstIndex(of: "-") else { return nil }
         let agent = String(workstreamId[..<dash])
         let sessionId = String(workstreamId[workstreamId.index(after: dash)...])
@@ -17,10 +25,8 @@ enum FeedJumpResolver {
         return (agent, sessionId)
     }
 
-    static func lookup(agent: String, sessionId: String) -> Target? {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        let file = home
-            .appendingPathComponent(".cmuxterm", isDirectory: true)
+    func lookup(agent: String, sessionId: String) -> Target? {
+        let file = sessionsDirectory
             .appendingPathComponent("\(agent)-hook-sessions.json", isDirectory: false)
         guard let data = try? Data(contentsOf: file),
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -41,40 +47,19 @@ enum FeedJumpResolver {
         return Target(workspaceId: workspaceId, surfaceId: surfaceId)
     }
 
-    /// Dispatches a workspace-select + surface-focus intent. Posts
-    /// through the existing cmux notification pathway so we don't need
-    /// to bind directly to the TerminalController V2 handlers from the
-    /// Feed layer.
-    @MainActor
-    static func focus(workspaceId: String, surfaceId: String) {
-        NotificationCenter.default.post(
-            name: .feedRequestFocus,
-            object: nil,
-            userInfo: [
-                "workspaceId": workspaceId,
-                "surfaceId": surfaceId,
-            ]
-        )
+    func resolve(_ workstreamId: String) -> Target? {
+        guard let parsed = parse(workstreamId) else { return nil }
+        return lookup(agent: parsed.agent, sessionId: parsed.sessionId)
     }
 
-    /// Dispatches a surface.send_text intent for the agent's terminal.
-    /// The observer in AppDelegate translates it into the V2 socket
-    /// call so the Feed stays decoupled from TerminalController.
-    @MainActor
-    static func sendText(workspaceId: String, surfaceId: String, text: String) {
-        NotificationCenter.default.post(
-            name: .feedRequestSendText,
-            object: nil,
-            userInfo: [
-                "workspaceId": workspaceId,
-                "surfaceId": surfaceId,
-                "text": text,
-            ]
-        )
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    nonisolated func resolveOffMain(_ workstreamId: String) async -> Target? {
+        await Task.detached(priority: .userInitiated) { [self] in
+            resolve(workstreamId)
+        }.value
     }
-}
-
-extension Notification.Name {
-    static let feedRequestFocus = Notification.Name("cmux.feedRequestFocus")
-    static let feedRequestSendText = Notification.Name("cmux.feedRequestSendText")
 }

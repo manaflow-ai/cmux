@@ -240,9 +240,8 @@ final class FeedKeyboardFocusView: NSView {
 
     override func keyDown(with event: NSEvent) {
 #if DEBUG
-        let chars = event.charactersIgnoringModifiers ?? ""
         dlog(
-            "feed.focus.host keyDown key=\(event.keyCode) chars=\(chars) " +
+            "feed.focus.host keyDown key=\(event.keyCode) modifiers=\(event.modifierFlags.rawValue) " +
             "fr=\(feedDebugResponderSummary(window?.firstResponder))"
         )
 #endif

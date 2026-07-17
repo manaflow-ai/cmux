@@ -6,7 +6,7 @@ import SwiftUI
 
 struct FeedListView: View {
     let filter: FeedPanelView.Filter
-    let items: [WorkstreamItem]
+    let presentation: FeedPresentationSnapshot
     let placement: FeedPlacement
     let focusScopeID: UUID
     let onFocusHostChange: (FeedKeyboardFocusView?) -> Void
@@ -19,10 +19,13 @@ struct FeedListView: View {
     @State private var scrollRequestSequence = 0
     @State private var stopDrafts: [UUID: FeedStopDraft] = [:]
     @State private var focusHostRequest = 0
+    @State private var focusHostReference = FeedFocusHostReference()
 
     var body: some View {
-        let snapshots = visibleSnapshots(items)
-        let activityGroups = filter == .activity ? activitySnapshotGroups(snapshots) : nil
+        let snapshots = filter == .actionable
+            ? presentation.actionable
+            : presentation.activity.ordered
+        let activityGroups = filter == .activity ? presentation.activity : nil
         let focusSnapshots = activityGroups?.ordered ?? snapshots
         let rowActions = FeedRowActions.bound()
         ScrollViewReader { proxy in
@@ -46,7 +49,10 @@ struct FeedListView: View {
                     placement: placement,
                     focusScopeID: focusScopeID,
                     focusRequest: focusHostRequest,
-                    onHostChange: onFocusHostChange,
+                    onHostChange: { host in
+                        focusHostReference.host = host
+                        onFocusHostChange(host)
+                    },
                     onEscape: {
                         let window = activeFeedWindow()
                         if placement.usesRightSidebarFocusCoordinator,
@@ -92,7 +98,7 @@ struct FeedListView: View {
     @ViewBuilder
     private func contentBody(
         snapshots: [FeedItemSnapshot],
-        activityGroups: ActivitySnapshotGroups?,
+        activityGroups: FeedActivitySnapshotGroups?,
         actions: FeedRowActions
     ) -> some View {
         switch filter {
@@ -103,7 +109,7 @@ struct FeedListView: View {
             )
         case .activity:
             activityScrollSurface(
-                groups: activityGroups ?? activitySnapshotGroups(snapshots),
+                groups: activityGroups ?? FeedActivitySnapshotGroups(stable: [], history: []),
                 actions: actions,
                 showsLoadMore: hasMorePersistedItems
             )
@@ -131,7 +137,7 @@ struct FeedListView: View {
     }
 
     private func activityScrollSurface(
-        groups: ActivitySnapshotGroups,
+        groups: FeedActivitySnapshotGroups,
         actions: FeedRowActions,
         showsLoadMore: Bool
     ) -> some View {
@@ -178,27 +184,6 @@ struct FeedListView: View {
         .feedZeroScrollContentMargins()
         .environment(\.defaultMinListRowHeight, 0)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private struct ActivitySnapshotGroups {
-        let stable: [FeedItemSnapshot]
-        let history: [FeedItemSnapshot]
-        let ordered: [FeedItemSnapshot]
-    }
-
-    private func activitySnapshotGroups(_ snapshots: [FeedItemSnapshot]) -> ActivitySnapshotGroups {
-        var stable: [FeedItemSnapshot] = []
-        var history: [FeedItemSnapshot] = []
-        stable.reserveCapacity(snapshots.count)
-        history.reserveCapacity(snapshots.count)
-        for snapshot in snapshots {
-            if prefersStableSurface(snapshot) {
-                stable.append(snapshot)
-            } else {
-                history.append(snapshot)
-            }
-        }
-        return ActivitySnapshotGroups(stable: stable, history: history, ordered: stable + history)
     }
 
     private func rowSurface(
@@ -252,60 +237,6 @@ struct FeedListView: View {
         )
     }
 
-    /// Walks the full items list (not just the filtered visible set),
-    /// ordered by createdAt, and records the most recent user-prompt
-    /// text per workstreamId. Rows consult this dict to show a
-    /// "You: …" echo line at the top of their card.
-    private static func lastPromptByWorkstream(_ items: [WorkstreamItem]) -> [String: String] {
-        var out: [String: String] = [:]
-        for item in items {
-            if case .userPrompt(let text) = item.payload, !text.isEmpty {
-                out[item.workstreamId] = text
-            }
-        }
-        return out
-    }
-
-    private func filtered(_ items: [WorkstreamItem]) -> [WorkstreamItem] {
-        let base: [WorkstreamItem]
-        switch filter {
-        case .actionable:
-            base = items.filter { $0.kind.isActionable }
-        case .activity:
-            // Actionable kinds + todos + stop. Tool use, user prompts,
-            // assistant messages, session markers, and raw
-            // notifications are intentionally excluded — they're too
-            // noisy for a sidebar and already visible in the agent's
-            // terminal or the cmux notification system. Stop events
-            // render a "reply to Claude" textbox so the user can
-            // nudge Claude without switching focus to the terminal.
-            base = items.filter { item in
-                item.kind.isActionable
-                    || item.kind == .todos
-                    || item.kind == .stop
-            }
-        }
-        // Newest first. Status isn't a sort key — resolved items stay
-        // in the chronological slot where they arrived so the user's
-        // mental map of "this was the second request I got" doesn't
-        // get shuffled when they answer it.
-        return Array(base.reversed())
-    }
-
-    private func visibleSnapshots(_ items: [WorkstreamItem]) -> [FeedItemSnapshot] {
-        let lastPromptByWorkstream = Self.lastPromptByWorkstream(items)
-        return filtered(items).map { item in
-            FeedItemSnapshot(
-                item: item,
-                userPromptEcho: lastPromptByWorkstream[item.workstreamId]
-            )
-        }
-    }
-
-    private func prefersStableSurface(_ snapshot: FeedItemSnapshot) -> Bool {
-        snapshot.status.isPending || snapshot.kind == .stop
-    }
-
     private var shouldShowActivityHistoryLoader: Bool {
         filter == .activity && hasMorePersistedItems
     }
@@ -321,9 +252,15 @@ struct FeedListView: View {
         )
 #endif
         if focusFeed {
-            FeedInlineNativeTextView.blurActiveEditor()
+            FeedInlineNativeTextView.blurActiveEditor(in: window)
         }
-        let optimisticSnapshot = FeedFocusSnapshot(selectedItemId: id, isKeyboardActive: true)
+        let ownsKeyboardFocus = focusHostReference.host.flatMap { host in
+            host.window?.firstResponder.map(host.ownsKeyboardFocus(_:))
+        } ?? false
+        let optimisticSnapshot = FeedFocusSnapshot(
+            selectedItemId: id,
+            isKeyboardActive: focusFeed || ownsKeyboardFocus
+        )
         focusSnapshot = optimisticSnapshot
         if !placement.usesRightSidebarFocusCoordinator {
             if focusFeed {
@@ -452,7 +389,7 @@ struct FeedListView: View {
     }
 
     private func activeFeedWindow() -> NSWindow? {
-        NSApp.keyWindow ?? NSApp.mainWindow
+        focusHostReference.host?.window
     }
 
     private func syncFeedFocusSnapshot(window: NSWindow? = nil) {
@@ -492,6 +429,11 @@ struct FeedListView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+}
+
+@MainActor
+private final class FeedFocusHostReference {
+    weak var host: FeedKeyboardFocusView?
 }
 
 private struct FeedScrollRequest: Equatable {

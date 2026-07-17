@@ -430,29 +430,10 @@ struct QuestionActionArea: View {
     }
 
     private var isPlanAskUserQuestion: Bool {
-        guard source == .claude else { return false }
-        if let mode = context?.permissionMode {
-            return mode.caseInsensitiveCompare("plan") == .orderedSame
+        guard source == .claude, let mode = context?.permissionMode else {
+            return false
         }
-        return questionTextLooksLikePlanInterview
-    }
-
-    private var questionTextLooksLikePlanInterview: Bool {
-        let fragments: [String?] = questions.flatMap { q in
-            let questionFragments: [String?] = [q.header, q.prompt]
-            let optionFragments: [String?] = q.options.flatMap { option in
-                [option.label, option.description]
-            }
-            return questionFragments + optionFragments
-        }
-        let text = ([context?.lastUserMessage, context?.assistantPreamble] + fragments)
-            .compactMap { $0 }
-            .joined(separator: " ")
-            .lowercased()
-        return text.contains("plan mode")
-            || text.contains("make a plan")
-            || text.contains("plan-only")
-            || text.contains("plan immediately")
+        return mode.caseInsensitiveCompare("plan") == .orderedSame
     }
 
     private var submitCTA: some View {
@@ -505,7 +486,7 @@ final class FeedInlineNativeTextView: NSTextView, FeedKeyboardFocusResponder {
     var onSubmit: (() -> Void)?
     var feedFocusScopeID = UUID()
 
-    static func blurActiveEditor() {
+    static func blurActiveEditor(in hostWindow: NSWindow?) {
         guard let activeEditor else { return }
         guard let window = activeEditor.window else {
             if Self.activeEditor === activeEditor {
@@ -513,6 +494,7 @@ final class FeedInlineNativeTextView: NSTextView, FeedKeyboardFocusResponder {
             }
             return
         }
+        guard window === hostWindow else { return }
         guard window.firstResponder === activeEditor else {
             if Self.activeEditor === activeEditor {
                 Self.activeEditor = nil
@@ -762,6 +744,7 @@ struct FeedInlineTextField: NSViewRepresentable {
     let onBlur: () -> Void
     let onSubmit: (() -> Void)?
 
+    @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: FeedInlineTextField
         var isProgrammaticMutation = false
@@ -791,15 +774,12 @@ struct FeedInlineTextField: NSViewRepresentable {
                 window.makeFirstResponder(nil)
                 return
             }
-            Task { @MainActor [weak window] in
-                guard let window else { return }
-                if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
-                    mode: .feed,
-                    focusFirstItem: false,
-                    preferredWindow: window
-                ) != true {
-                    window.makeFirstResponder(nil)
-                }
+            if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+                mode: .feed,
+                focusFirstItem: false,
+                preferredWindow: window
+            ) != true {
+                window.makeFirstResponder(nil)
             }
         }
 

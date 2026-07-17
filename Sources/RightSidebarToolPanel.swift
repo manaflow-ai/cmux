@@ -15,6 +15,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     private weak var fileExplorerContainerView: FileExplorerContainerView?
     private weak var sessionIndexFocusAnchorView: RightSidebarToolFocusAnchorView?
     private weak var feedFocusAnchorView: FeedKeyboardFocusView?
+    private var pendingFeedFocus = false
     private var fileExplorerStoreStorage: FileExplorerStore?
     private var fileExplorerStateStorage: FileExplorerState?
     private var sessionIndexStoreStorage: SessionIndexStore?
@@ -77,6 +78,9 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
 
     fileprivate func attachFeedFocusAnchor(_ anchor: FeedKeyboardFocusView?) {
         feedFocusAnchorView = anchor
+        guard pendingFeedFocus, let anchor, isFocusedInWorkspace else { return }
+        pendingFeedFocus = false
+        _ = anchor.focusHostFromCoordinator()
     }
 
     func syncWorkspaceRoot(from workspace: Workspace) {
@@ -131,6 +135,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         fileExplorerContainerView = nil
         sessionIndexFocusAnchorView = nil
         feedFocusAnchorView = nil
+        pendingFeedFocus = false
         fileExplorerStoreStorage?.applyWorkspaceRoot(.none)
         sessionIndexStoreStorage?.setCurrentDirectoryIfChanged(nil)
         workspaceObservationCancellable = nil
@@ -147,7 +152,12 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
                   let window = anchor.window else { return }
             _ = window.makeFirstResponder(anchor)
         case .feed:
-            _ = feedFocusAnchorView?.focusHostFromCoordinator()
+            guard let feedFocusAnchorView else {
+                pendingFeedFocus = true
+                return
+            }
+            pendingFeedFocus = false
+            _ = feedFocusAnchorView.focusHostFromCoordinator()
         case .dock, .customSidebar:
             break
         }

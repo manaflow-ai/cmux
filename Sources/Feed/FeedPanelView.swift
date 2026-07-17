@@ -92,7 +92,7 @@ struct FeedPanelView: View {
             controlBar
             FeedListView(
                 filter: filter,
-                items: viewModel.items,
+                presentation: viewModel.presentation,
                 placement: placement,
                 focusScopeID: focusScopeID,
                 onFocusHostChange: onFocusHostChange,

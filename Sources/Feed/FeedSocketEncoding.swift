@@ -2,11 +2,12 @@ import CMUXAgentLaunch
 import Foundation
 
 /// JSON-shape helpers used by the V2 `feed.*` socket handlers.
-enum FeedSocketEncoding {
-    private static let primaryTextLimit = 8_000
-    private static let secondaryTextLimit = 2_000
+final class FeedSocketEncoder: @unchecked Sendable {
+    private let primaryTextLimit = 8_000
+    private let secondaryTextLimit = 2_000
+    private let dateFormatStyle = Date.ISO8601FormatStyle()
 
-    static func payload(for result: FeedCoordinator.IngestBlockingResult) -> [String: Any] {
+    func payload(for result: FeedCoordinator.IngestBlockingResult) -> [String: Any] {
         switch result {
         case .acknowledged(let itemId):
             var dict: [String: Any] = ["status": "acknowledged"]
@@ -26,7 +27,7 @@ enum FeedSocketEncoding {
         }
     }
 
-    static func decisionDict(_ decision: WorkstreamDecision) -> [String: Any] {
+    func decisionDict(_ decision: WorkstreamDecision) -> [String: Any] {
         switch decision {
         case .permission(let mode):
             return ["kind": "permission", "mode": mode.rawValue]
@@ -41,26 +42,26 @@ enum FeedSocketEncoding {
         }
     }
 
-    private static func limitedText(_ value: String, limit: Int) -> (text: String, truncated: Bool) {
+    private func limitedText(_ value: String, limit: Int) -> (text: String, truncated: Bool) {
         guard value.count > limit else { return (value, false) }
         let end = value.index(value.startIndex, offsetBy: max(limit - 3, 0))
         return (String(value[..<end]) + "...", true)
     }
 
-    private static func assignLimitedText(
+    private func assignLimitedText(
         _ value: String,
         key: String,
         to dict: inout [String: Any],
-        limit: Int = 8_000
+        limit: Int? = nil
     ) {
-        let limited = limitedText(value, limit: limit)
+        let limited = limitedText(value, limit: limit ?? primaryTextLimit)
         dict[key] = limited.text
         if limited.truncated {
             dict["\(key)_truncated"] = true
         }
     }
 
-    private static func questionDict(_ question: WorkstreamQuestionPrompt) -> [String: Any] {
+    private func questionDict(_ question: WorkstreamQuestionPrompt) -> [String: Any] {
         var dict: [String: Any] = [
             "id": question.id,
             "multi_select": question.multiSelect,
@@ -82,15 +83,17 @@ enum FeedSocketEncoding {
         return dict
     }
 
-    static func itemDict(_ item: WorkstreamItem) -> [String: Any] {
-        let isoFormatter = ISO8601DateFormatter()
+    func itemDict(_ item: WorkstreamItem) -> [String: Any] {
+        let formatDate: (Date) -> String = { [dateFormatStyle] date in
+            date.formatted(dateFormatStyle)
+        }
         var dict: [String: Any] = [
             "id": item.id.uuidString,
             "workstream_id": item.workstreamId,
             "source": item.source.rawValue,
             "kind": item.kind.rawValue,
-            "created_at": isoFormatter.string(from: item.createdAt),
-            "updated_at": isoFormatter.string(from: item.updatedAt),
+            "created_at": formatDate(item.createdAt),
+            "updated_at": formatDate(item.updatedAt),
         ]
         if let cwd = item.cwd { dict["cwd"] = cwd }
         if let title = item.title { dict["title"] = title }
@@ -100,20 +103,26 @@ enum FeedSocketEncoding {
         case .resolved(let decision, let at):
             dict["status"] = "resolved"
             dict["decision"] = decisionDict(decision)
-            dict["resolved_at"] = isoFormatter.string(from: at)
+            dict["resolved_at"] = formatDate(at)
         case .expired(let at):
             dict["status"] = "expired"
-            dict["resolved_at"] = isoFormatter.string(from: at)
+            dict["resolved_at"] = formatDate(at)
         case .telemetry:
             dict["status"] = "telemetry"
         }
-        switch item.payload {
+        let rawPayload = item.payload
+        switch rawPayload.redactedForPersistence() {
         case .permissionRequest(let requestId, let toolName, let toolInputJSON, let pattern):
             dict["request_id"] = requestId
             dict["tool_name"] = toolName
+            let rawToolInputJSON: String = if case .permissionRequest(_, _, let rawInput, _) = rawPayload {
+                rawInput
+            } else {
+                toolInputJSON
+            }
             if let capabilityJSON = FeedPermissionActionPolicy.codexCapabilityToolInputJSON(
                 source: item.source,
-                toolInputJSON: toolInputJSON
+                toolInputJSON: rawToolInputJSON
             ) {
                 dict["tool_input_capabilities"] = capabilityJSON
             }

@@ -11,6 +11,7 @@ struct FeedItemSnapshot: Equatable {
     let createdAt: Date
     let status: WorkstreamStatus
     let payload: WorkstreamPayload
+    let requestID: String?
     let context: WorkstreamContext?
     /// Most recent user-prompt text in the same workstream, attached
     /// by the list view so every card can show a "You: …" echo for
@@ -27,6 +28,14 @@ struct FeedItemSnapshot: Equatable {
         self.createdAt = item.createdAt
         self.status = item.status
         self.payload = item.payload
+        switch item.payload {
+        case .permissionRequest(let requestID, _, _, _),
+             .exitPlan(let requestID, _, _),
+             .question(let requestID, _):
+            self.requestID = requestID
+        default:
+            self.requestID = nil
+        }
         self.context = item.context
         self.userPromptEcho = userPromptEcho
     }
@@ -34,9 +43,9 @@ struct FeedItemSnapshot: Equatable {
 
 /// Closure bundle; binds to `FeedCoordinator` by default.
 struct FeedRowActions {
-    let approvePermission: (UUID, WorkstreamPermissionMode) -> Void
-    let replyQuestion: (UUID, [String]) -> Void
-    let approveExitPlan: (UUID, WorkstreamExitPlanMode, String?) -> Void
+    let approvePermission: (String, WorkstreamPermissionMode) -> Void
+    let replyQuestion: (String, [String]) -> Void
+    let approveExitPlan: (String, WorkstreamExitPlanMode, String?) -> Void
     let jump: (String) -> Void
     /// Types the user's reply into the agent's terminal surface and
     /// presses Return. Used by Stop-kind cards so the user can nudge
@@ -45,38 +54,38 @@ struct FeedRowActions {
 
     static func bound() -> FeedRowActions {
         FeedRowActions(
-            approvePermission: { itemId, mode in
-                Task { @MainActor in
-                    FeedCoordinator.shared.deliverReply(
-                        requestId: Self.requestId(for: itemId) ?? itemId.uuidString,
+            approvePermission: { requestID, mode in
+                Task {
+                    await FeedCoordinator.shared.deliverReply(
+                        requestId: requestID,
                         decision: .permission(mode)
                     )
                 }
             },
-            replyQuestion: { itemId, selections in
-                Task { @MainActor in
-                    FeedCoordinator.shared.deliverReply(
-                        requestId: Self.requestId(for: itemId) ?? itemId.uuidString,
+            replyQuestion: { requestID, selections in
+                Task {
+                    await FeedCoordinator.shared.deliverReply(
+                        requestId: requestID,
                         decision: .question(selections: selections)
                     )
                 }
             },
-            approveExitPlan: { itemId, mode, feedback in
-                Task { @MainActor in
-                    FeedCoordinator.shared.deliverReply(
-                        requestId: Self.requestId(for: itemId) ?? itemId.uuidString,
+            approveExitPlan: { requestID, mode, feedback in
+                Task {
+                    await FeedCoordinator.shared.deliverReply(
+                        requestId: requestID,
                         decision: .exitPlan(mode, feedback: feedback)
                     )
                 }
             },
             jump: { workstreamId in
-                Task { @MainActor in
-                    _ = FeedCoordinator.shared.focusIfPossible(workstreamId: workstreamId)
+                Task {
+                    _ = await FeedCoordinator.shared.focusIfPossible(workstreamId: workstreamId)
                 }
             },
             sendText: { workstreamId, text in
-                Task { @MainActor in
-                    FeedCoordinator.shared.sendTextToWorkstream(
+                Task {
+                    await FeedCoordinator.shared.sendTextToWorkstream(
                         workstreamId: workstreamId,
                         text: text
                     )
@@ -85,18 +94,6 @@ struct FeedRowActions {
         )
     }
 
-    @MainActor
-    private static func requestId(for itemId: UUID) -> String? {
-        guard let store = FeedCoordinator.shared.store else { return nil }
-        return store.items.first(where: { $0.id == itemId }).flatMap { item in
-            switch item.payload {
-            case .permissionRequest(let rid, _, _, _): return rid
-            case .exitPlan(let rid, _, _): return rid
-            case .question(let rid, _): return rid
-            default: return nil
-            }
-        }
-    }
 }
 
 // MARK: - Row (matches SessionIndexView row aesthetic)

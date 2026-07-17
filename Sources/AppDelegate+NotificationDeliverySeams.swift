@@ -30,10 +30,12 @@ final class NotificationDeliverySeamAdapter: NotificationFeedReplying, Notificat
 
 extension AppDelegate {
     func notificationDeliveryDeliverFeedReply(requestId: String, decision: NotificationFeedDecision) {
-        FeedCoordinator.shared.deliverReply(
-            requestId: requestId,
-            decision: Self.workstreamDecision(from: decision)
-        )
+        Task {
+            await FeedCoordinator.shared.deliverReply(
+                requestId: requestId,
+                decision: Self.workstreamDecision(from: decision)
+            )
+        }
     }
 
     func notificationDeliveryPermissionCapabilities(requestId: String) -> NotificationFeedPermissionCapabilities? {

@@ -204,10 +204,25 @@ struct FeedItemRow: View, Equatable {
 
     private func relativeTimeChip(_ date: Date) -> String {
         let interval = Date().timeIntervalSince(date)
-        if interval < 60 { return "<1m" }
-        if interval < 3600 { return "\(Int(interval / 60))m" }
-        if interval < 86_400 { return "\(Int(interval / 3600))h" }
-        return "\(Int(interval / 86_400))d"
+        if interval < 60 {
+            return String(localized: "feed.time.underMinute", defaultValue: "<1m")
+        }
+        if interval < 3600 {
+            let count = Int(interval / 60)
+            return count == 1
+                ? String(localized: "feed.time.minutes.one", defaultValue: "1m")
+                : String(localized: "feed.time.minutes.other", defaultValue: "\(count)m")
+        }
+        if interval < 86_400 {
+            let count = Int(interval / 3600)
+            return count == 1
+                ? String(localized: "feed.time.hours.one", defaultValue: "1h")
+                : String(localized: "feed.time.hours.other", defaultValue: "\(count)h")
+        }
+        let count = Int(interval / 86_400)
+        return count == 1
+            ? String(localized: "feed.time.days.one", defaultValue: "1d")
+            : String(localized: "feed.time.days.other", defaultValue: "\(count)d")
     }
 
     private var kindLabel: String {
@@ -257,7 +272,8 @@ struct FeedItemRow: View, Equatable {
                 status: snapshot.status,
                 onActionRow: onControlAction,
                 onApprove: { mode in
-                    actions.approvePermission(snapshot.id, mode)
+                    guard let requestID = snapshot.requestID else { return }
+                    actions.approvePermission(requestID, mode)
                 }
             )
         case .exitPlan(_, let plan, _):
@@ -270,7 +286,8 @@ struct FeedItemRow: View, Equatable {
                 onActionRow: onControlAction,
                 onBlurRow: onControlBlur,
                 onApprove: { mode, feedback in
-                    actions.approveExitPlan(snapshot.id, mode, feedback)
+                    guard let requestID = snapshot.requestID else { return }
+                    actions.approveExitPlan(requestID, mode, feedback)
                 }
             )
         case .question(_, let questions):
@@ -286,7 +303,8 @@ struct FeedItemRow: View, Equatable {
                 placement: placement,
                 focusScopeID: focusScopeID,
                 onReply: { selections in
-                    actions.replyQuestion(snapshot.id, selections)
+                    guard let requestID = snapshot.requestID else { return }
+                    actions.replyQuestion(requestID, selections)
                 }
             )
         case .stop:

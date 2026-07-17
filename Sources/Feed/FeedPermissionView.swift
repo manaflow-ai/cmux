@@ -261,6 +261,7 @@ struct FeedButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .disabled(dimmed)
         .onHover { hovering in
             handleHover(hovering)
         }

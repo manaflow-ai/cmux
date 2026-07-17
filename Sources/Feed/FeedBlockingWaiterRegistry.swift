@@ -1,58 +1,73 @@
-import Foundation
 import CMUXAgentLaunch
-import os
+import Foundation
 
-/// Owns the synchronous request/reply bridge required by the control socket.
+/// Actor-owned request/reply state for blocking Feed socket calls.
 ///
-/// The socket handler is synchronous and must return the eventual agent
-/// decision on the same worker thread. The semaphore parks only that worker;
-/// the unfair lock protects short compare-and-update operations and never
-/// guards ongoing Feed domain state.
-final class FeedBlockingWaiterRegistry: @unchecked Sendable {
+/// Each request receives one buffered decision stream. Delivery is
+/// first-writer-wins, and timeout removal finishes the stream so no suspended
+/// consumer or continuation outlives its socket request.
+actor FeedBlockingWaiterRegistry {
     struct PendingWaiter {
-        let semaphore: DispatchSemaphore
+        let continuation: AsyncStream<WorkstreamDecision>.Continuation
         var decision: WorkstreamDecision?
+        var itemID: UUID?
         var attentionTarget: FeedCoordinator.AttentionTarget?
     }
 
-    // Safety: every waiter-table access is serialized by this lock and every
-    // critical section is bounded to an in-memory dictionary mutation.
-    private let lock = OSAllocatedUnfairLock(initialState: [String: PendingWaiter]())
+    private var waiters: [String: PendingWaiter] = [:]
 
-    func register(requestID: String) -> DispatchSemaphore {
-        let semaphore = DispatchSemaphore(value: 0)
-        lock.withLock { waiters in
-            waiters[requestID] = PendingWaiter(semaphore: semaphore)
-        }
-        return semaphore
+    func register(requestID: String) -> AsyncStream<WorkstreamDecision>? {
+        guard waiters[requestID] == nil else { return nil }
+        let (stream, continuation) = AsyncStream<WorkstreamDecision>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        waiters[requestID] = PendingWaiter(
+            continuation: continuation,
+            decision: nil,
+            itemID: nil,
+            attentionTarget: nil
+        )
+        return stream
     }
 
-    func setAttentionTarget(_ target: FeedCoordinator.AttentionTarget, requestID: String) {
-        lock.withLock { waiters in
-            waiters[requestID]?.attentionTarget = target
+    /// Records the UI state created for a still-pending waiter. Returns false
+    /// when the request resolved or timed out while MainActor was ingesting it.
+    func recordIngest(
+        itemID: UUID?,
+        attentionTarget: FeedCoordinator.AttentionTarget?,
+        requestID: String
+    ) -> (registered: Bool, earlyDecision: WorkstreamDecision?) {
+        guard var waiter = waiters[requestID] else {
+            return (false, nil)
         }
+        waiter.itemID = itemID
+        waiter.attentionTarget = attentionTarget
+        waiters[requestID] = waiter
+        return (true, waiter.decision)
     }
 
-    func deliver(_ decision: WorkstreamDecision, requestID: String) -> FeedCoordinator.AttentionTarget? {
-        let delivery = lock.withLock { waiters -> (DispatchSemaphore, FeedCoordinator.AttentionTarget?)? in
-            guard var waiter = waiters[requestID] else { return nil }
-            waiter.decision = decision
-            waiters[requestID] = waiter
-            return (waiter.semaphore, waiter.attentionTarget)
+    func deliver(
+        _ decision: WorkstreamDecision,
+        requestID: String
+    ) -> (accepted: Bool, itemID: UUID?, attentionTarget: FeedCoordinator.AttentionTarget?) {
+        guard var waiter = waiters[requestID], waiter.decision == nil else {
+            return (false, nil, nil)
         }
-        delivery?.0.signal()
-        return delivery?.1
+        waiter.decision = decision
+        waiters[requestID] = waiter
+        waiter.continuation.yield(decision)
+        waiter.continuation.finish()
+        return (true, waiter.itemID, waiter.attentionTarget)
     }
 
     func remove(requestID: String) -> PendingWaiter? {
-        lock.withLock { waiters in
-            waiters.removeValue(forKey: requestID)
-        }
+        let waiter = waiters.removeValue(forKey: requestID)
+        waiter?.continuation.finish()
+        return waiter
     }
 
     func isAwaitingDecision(requestID: String) -> Bool {
-        lock.withLock { waiters in
-            waiters[requestID]?.decision == nil
-        }
+        guard let waiter = waiters[requestID] else { return false }
+        return waiter.decision == nil
     }
 }

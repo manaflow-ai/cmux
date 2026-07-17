@@ -9,6 +9,7 @@ import SwiftUI
 @Observable
 final class FeedPanelViewModel {
     private(set) var items: [WorkstreamItem] = []
+    private(set) var presentation = FeedPresentationSnapshot.empty
     private(set) var hasMorePersistedItems = false
     private(set) var isLoadingOlderItems = false
 
@@ -21,14 +22,14 @@ final class FeedPanelViewModel {
         notificationCenter: NotificationCenter = .default
     ) {
         self.coordinator = coordinator
-        arm()
         storeInstallTask = Task { @MainActor [weak self, weak coordinator] in
-            guard let coordinator else { return }
+            guard let self, let coordinator else { return }
+            self.arm()
             for await _ in notificationCenter.notifications(
                 named: FeedCoordinator.storeInstalledNotification,
                 object: coordinator
             ) {
-                guard !Task.isCancelled, let self else { return }
+                guard !Task.isCancelled else { return }
                 self.arm()
             }
         }
@@ -43,6 +44,7 @@ final class FeedPanelViewModel {
         guard let store = coordinator.store else { return }
         withObservationTracking {
             items = store.items
+            presentation = Self.makePresentation(items: store.items)
             hasMorePersistedItems = store.hasMorePersistedItems
             isLoadingOlderItems = store.isLoadingOlderItems
         } onChange: { [weak self] in
@@ -50,6 +52,47 @@ final class FeedPanelViewModel {
                 self?.arm()
             }
         }
+    }
+
+    private static func makePresentation(items: [WorkstreamItem]) -> FeedPresentationSnapshot {
+        var lastPromptByWorkstream: [String: String] = [:]
+        for item in items {
+            if case .userPrompt(let text) = item.payload, !text.isEmpty {
+                lastPromptByWorkstream[item.workstreamId] = text
+            }
+        }
+
+        var actionable: [FeedItemSnapshot] = []
+        var activityStable: [FeedItemSnapshot] = []
+        var activityHistory: [FeedItemSnapshot] = []
+        actionable.reserveCapacity(items.count)
+        activityStable.reserveCapacity(items.count)
+        activityHistory.reserveCapacity(items.count)
+
+        for item in items.reversed() {
+            let snapshot = FeedItemSnapshot(
+                item: item,
+                userPromptEcho: lastPromptByWorkstream[item.workstreamId]
+            )
+            if item.kind.isActionable {
+                actionable.append(snapshot)
+            }
+            guard item.kind.isActionable || item.kind == .todos || item.kind == .stop else {
+                continue
+            }
+            if snapshot.status.isPending || snapshot.kind == .stop {
+                activityStable.append(snapshot)
+            } else {
+                activityHistory.append(snapshot)
+            }
+        }
+        return FeedPresentationSnapshot(
+            actionable: actionable,
+            activity: FeedActivitySnapshotGroups(
+                stable: activityStable,
+                history: activityHistory
+            )
+        )
     }
 
     func loadOlderItems() {

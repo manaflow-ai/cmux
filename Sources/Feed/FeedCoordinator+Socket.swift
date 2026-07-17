@@ -4,68 +4,50 @@ import Foundation
 // MARK: - Socket-layer helpers
 
 extension FeedCoordinator {
-    /// Thread-safe snapshot of the store's items; hops to main to read
-    /// the observable state (only if called off-main).
+    /// Main-actor snapshot used by app and typed control contexts.
+    @MainActor
     func snapshot(pendingOnly: Bool) -> [WorkstreamItem] {
-        let body: @Sendable () -> [WorkstreamItem] = {
-            MainActor.assumeIsolated {
-                guard let store = FeedCoordinator.shared.store else { return [] }
-                return pendingOnly ? store.pending : store.items
-            }
-        }
-        if Thread.isMainThread {
-            return body()
-        }
-        return DispatchQueue.main.sync(execute: body)
+        guard let store else { return [] }
+        return pendingOnly ? store.pending : store.items
     }
 
-    /// Parses `workstreamId` in the form `<agent>-<sessionId>` and
-    /// looks up the matching hook-session entry in
-    /// `~/.cmuxterm/<agent>-hook-sessions.json` (written by
-    /// `cmux <agent>-hook session-start`). Returns `true` if a match
-    /// was found so the UI can gate the jump gesture.
+    /// Synchronous socket-only availability probe. Socket handlers execute on
+    /// their worker queue, so this path never performs file I/O on MainActor.
     ///
-    /// Actual focus (workspace.select + surface.focus) is scheduled via
-    /// `FeedJumpResolver.focusIfPossible` on the main actor.
     func resolvePossibleSurface(for workstreamId: String) -> Bool {
-        guard let parsed = FeedJumpResolver.parse(workstreamId) else {
-            return false
-        }
-        return FeedJumpResolver.lookup(agent: parsed.agent, sessionId: parsed.sessionId) != nil
+        jumpResolver.resolve(workstreamId) != nil
     }
 
     /// Fires a best-effort focus for the given `workstreamId`. Returns
     /// `true` if a target was found and the focus commands were
     /// dispatched. Runs on the main actor because the focus commands
     /// touch AppKit state.
-    @MainActor
-    func focusIfPossible(workstreamId: String) -> Bool {
-        guard let parsed = FeedJumpResolver.parse(workstreamId),
-              let target = FeedJumpResolver.lookup(
-                agent: parsed.agent, sessionId: parsed.sessionId
-              )
-        else { return false }
-        FeedJumpResolver.focus(workspaceId: target.workspaceId, surfaceId: target.surfaceId)
-        return true
+    func focusIfPossible(workstreamId: String) async -> Bool {
+        guard let target = await jumpResolver.resolveOffMain(workstreamId) else {
+            return false
+        }
+        return await MainActor.run {
+            AppDelegate.shared?.routeFeedFocus(
+                workspaceId: target.workspaceId,
+                surfaceId: target.surfaceId
+            ) ?? false
+        }
     }
 
     /// Resolves `workstreamId` to a `(workspace, surface)` pair and
     /// types the user's `text` into that surface, followed by Return.
     /// Used by Stop-kind cards so the user can reply to Claude from
     /// the Feed without switching focus to the terminal.
-    @MainActor
     @discardableResult
-    func sendTextToWorkstream(workstreamId: String, text: String) -> Bool {
-        guard let parsed = FeedJumpResolver.parse(workstreamId),
-              let target = FeedJumpResolver.lookup(
-                agent: parsed.agent, sessionId: parsed.sessionId
-              )
-        else { return false }
-        FeedJumpResolver.sendText(
-            workspaceId: target.workspaceId,
-            surfaceId: target.surfaceId,
-            text: text
-        )
-        return true
+    func sendTextToWorkstream(workstreamId: String, text: String) async -> Bool {
+        guard let target = await jumpResolver.resolveOffMain(workstreamId) else {
+            return false
+        }
+        return await MainActor.run {
+            AppDelegate.shared?.routeFeedText(
+                surfaceId: target.surfaceId,
+                text: text
+            ) ?? false
+        }
     }
 }

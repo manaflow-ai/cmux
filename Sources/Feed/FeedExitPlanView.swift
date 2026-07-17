@@ -366,7 +366,7 @@ private struct PlanBodyView: View {
                 continue
             }
             if line.hasSuffix(":") && line.count <= 40
-               && !line.contains(" ") == false && line.split(separator: " ").count <= 4
+               && line.split(separator: " ").count <= 4
             {
                 flushParagraph(); flushNumbered(); flushBulleted()
                 out.append(.heading(line))
