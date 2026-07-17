@@ -1,22 +1,36 @@
+import AppKit
 import CmuxSettings
 import CmuxWorkspaces
 import Foundation
+import UniformTypeIdentifiers
 
-/// The `sidebar.beta.workspaceTodos.enabled` feature gate and the shared UI
+/// The remote workspace todo controls feature gate and the shared UI
 /// entry points for mutating a workspace's todo state. Every UI surface
 /// (sidebar row, context menu, command palette, keyboard shortcut) funnels
-/// through ``WorkspaceTodoActions`` so the progressive-disclosure auto-enable
-/// and the backend caps/anti-rot apply identically everywhere; the socket
-/// handler in `TerminalController+ControlWorkspaceTodoContext.swift` calls
-/// ``WorkspaceTodoFeature/markUsed()`` on its own successful mutations.
+/// through ``WorkspaceTodoActions`` so gated status/add-item mutations and the
+/// backend caps/anti-rot apply identically everywhere.
 enum WorkspaceTodoFeature {
-    /// Synchronous read of the feature flag for on-demand paths. Reads only
-    /// the beta catalog section, not the whole `SettingCatalog`, so a
-    /// body-path access stays cheap (see issue #5970); reactive row reads go
-    /// through `SidebarTabItemSettingsSnapshot`.
-    /// The workspace-todos feature is always on (accessed via the row context
-    /// menu and status glyph); the Settings feature-flag toggle was removed.
-    static var isEnabled: Bool { true }
+    /// Synchronous read of the local beta opt-in plus remote-enabled feature
+    /// flag for status and add-item controls. Existing checklist items stay
+    /// visible/usable when this is off; only the controls that create items or
+    /// set workspace completion/status lanes are hidden.
+    @MainActor
+    static var isEnabled: Bool {
+        isEnabled(
+            defaults: .standard,
+            remoteEnabled: CmuxFeatureFlags.shared.isWorkspaceTodoControlsEnabled
+        )
+    }
+
+    static func isEnabled(defaults: UserDefaults, remoteEnabled: Bool) -> Bool {
+        remoteEnabled || localControlsOptIn(defaults: defaults)
+    }
+
+    static func localControlsOptIn(defaults: UserDefaults) -> Bool {
+        let key = BetaFeaturesCatalogSection().workspaceTodoControls
+        guard defaults.object(forKey: key.userDefaultsKey) != nil else { return key.defaultValue }
+        return defaults.bool(forKey: key.userDefaultsKey)
+    }
 
     /// The checklist presentation style (popover or inline), user-selectable.
     static var checklistStyle: WorkspaceTodoChecklistStyle {
@@ -41,6 +55,7 @@ enum WorkspaceTodoActions {
     /// Applies a manual status override (`nil` returns the status to
     /// automatic) to every target workspace.
     static func applyStatusOverride(_ status: WorkspaceTaskStatus?, to workspaces: [Workspace]) {
+        guard WorkspaceTodoFeature.isEnabled else { return }
         guard !workspaces.isEmpty else { return }
         for workspace in workspaces {
             if let status {
@@ -54,6 +69,7 @@ enum WorkspaceTodoActions {
 
     /// Opts each workspace out of the status feature (None).
     static func hideStatus(for workspaces: [Workspace]) {
+        guard WorkspaceTodoFeature.isEnabled else { return }
         guard !workspaces.isEmpty else { return }
         for workspace in workspaces {
             workspace.hideTaskStatus()
@@ -65,6 +81,7 @@ enum WorkspaceTodoActions {
     /// `Workspace.cycleTaskStatus`). Shared by the `cycleWorkspaceStatus`
     /// shortcut and the `workspace.status.cycle` socket verb / CLI.
     static func cycleStatus(for workspace: Workspace) {
+        guard WorkspaceTodoFeature.isEnabled else { return }
         workspace.cycleTaskStatus()
         WorkspaceTodoFeature.markUsed()
     }
@@ -72,6 +89,7 @@ enum WorkspaceTodoActions {
     /// Adds a user checklist item; returns whether the add succeeded.
     @discardableResult
     static func addChecklistItem(text: String, to workspace: Workspace) -> Bool {
+        guard WorkspaceTodoFeature.isEnabled else { return false }
         switch workspace.addChecklistItem(text: text, state: .pending, origin: .user) {
         case .success:
             WorkspaceTodoFeature.markUsed()
@@ -103,6 +121,35 @@ enum WorkspaceTodoActions {
         WorkspaceTodoFeature.markUsed()
     }
 
+    /// Adds one or more user-selected image files to a checklist item.
+    @discardableResult
+    static func addImageAttachments(to itemId: UUID, in workspace: Workspace) -> Bool {
+        let attachments = pickChecklistImageAttachments()
+        guard !attachments.isEmpty,
+              workspace.addChecklistAttachments(itemId: itemId, attachments: attachments) else {
+            return false
+        }
+        WorkspaceTodoFeature.markUsed()
+        return true
+    }
+
+    /// Removes one image attachment reference from a checklist item.
+    static func removeImageAttachment(itemId: UUID, attachmentId: UUID, from workspace: Workspace) {
+        guard workspace.removeChecklistAttachment(itemId: itemId, attachmentId: attachmentId) else { return }
+        WorkspaceTodoFeature.markUsed()
+    }
+
+    /// Opens a checklist item's image attachments in native Quick Look.
+    static func openImageAttachments(
+        _ attachments: [WorkspaceChecklistAttachment],
+        selectedAttachmentId: UUID?
+    ) {
+        WorkspaceChecklistAttachmentQuickLookController().present(
+            attachments: attachments,
+            selectedAttachmentId: selectedAttachmentId
+        )
+    }
+
     /// Moves one checklist item toward a new 0-based position (staying within
     /// its completion partition). Shared by the todo pane's drag reorder, the
     /// `workspace.todo.move` socket verb, and `cmux todo move`.
@@ -132,6 +179,7 @@ enum WorkspaceTodoActions {
     /// which have no direct handle on the row's transient UI state). Also
     /// enables the feature so the checklist UI is actually visible.
     static func requestChecklistAddField(workspaceId: UUID) {
+        guard WorkspaceTodoFeature.isEnabled else { return }
         WorkspaceTodoFeature.markUsed()
         NotificationCenter.default.post(
             name: .workspaceChecklistAddItemRequested,
@@ -141,6 +189,31 @@ enum WorkspaceTodoActions {
     }
 
     static let workspaceIdUserInfoKey = "workspaceId"
+}
+
+@MainActor
+private func pickChecklistImageAttachments() -> [WorkspaceChecklistAttachment] {
+    let panel = NSOpenPanel()
+    panel.title = String(localized: "sidebar.checklist.attachImages", defaultValue: "Attach Images…")
+    panel.prompt = String(localized: "sidebar.checklist.attachImages.confirm", defaultValue: "Attach")
+    panel.canChooseFiles = true
+    panel.canChooseDirectories = false
+    panel.allowsMultipleSelection = true
+    panel.allowedContentTypes = [.image]
+
+    guard panel.runModal() == .OK else { return [] }
+    return panel.urls.map(checklistImageAttachment(for:))
+}
+
+private func checklistImageAttachment(for url: URL) -> WorkspaceChecklistAttachment {
+    let resourceValues = try? url.resourceValues(forKeys: [.fileSizeKey, .contentTypeKey, .localizedNameKey])
+    let displayName = resourceValues?.localizedName ?? FileManager.default.displayName(atPath: url.path)
+    return WorkspaceChecklistAttachment(
+        displayName: displayName,
+        fileURL: url,
+        byteCount: resourceValues?.fileSize.map(Int64.init),
+        contentTypeIdentifier: resourceValues?.contentType?.identifier
+    )
 }
 
 extension Notification.Name {

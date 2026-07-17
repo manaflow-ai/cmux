@@ -24,8 +24,7 @@ extension BrowserPanel {
         renderInitialNavigation: Bool,
         initialURL: URL?,
         profileID: UUID,
-        websiteDataStore: WKWebsiteDataStore,
-        browserWebExtensionHost: (any BrowserWebExtensionHosting)?
+        websiteDataStore: WKWebsiteDataStore
     ) -> CmuxWebView? {
         guard !isRemoteWorkspace,
               initialRequest == nil,
@@ -36,8 +35,7 @@ extension BrowserPanel {
         return BrowserPrewarmedWebViewPool.shared.claim(
             url: initialURL,
             profileID: profileID,
-            websiteDataStore: websiteDataStore,
-            browserWebExtensionHost: browserWebExtensionHost
+            websiteDataStore: websiteDataStore
         )
     }
 }

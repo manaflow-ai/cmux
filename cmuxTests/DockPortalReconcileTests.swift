@@ -113,6 +113,7 @@ struct DockPortalReconcileTests {
         ))
         panel.surface.releasePortalHostIfOwned(
             hostId: ObjectIdentifier(dockHost),
+            instanceSerial: 20,
             reason: "test.dock.rollback"
         )
 

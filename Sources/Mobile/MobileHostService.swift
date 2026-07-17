@@ -1040,6 +1040,9 @@ final class MobileHostService {
                 )
             },
             onAuthorizedRequest: { request in
+                await MobileHostService.shared.retireSupersededIrohConnections(
+                    newestConnectionID: id
+                )
                 guard let clientID = Self.clientID(from: request.params) else {
                     return
                 }
@@ -1227,6 +1230,14 @@ final class MobileHostService {
             )
         }
         MobileHostRequestActivity.endConnection()
+    }
+
+    private func retireSupersededIrohConnections(newestConnectionID: UUID) async {
+        let superseded = MobileHostConnectionRegistry.shared
+            .removeOlderIrohConnectionsIfNewest(id: newestConnectionID)
+        for connection in superseded {
+            await connection.close(reason: "superseded by newer authenticated iroh session")
+        }
     }
 
     private func recordClientID(_ clientID: String, for connectionID: UUID) {
@@ -1933,12 +1944,12 @@ actor MobileHostConnection {
             guard !isClosed, !Task.isCancelled else {
                 return
             }
-            if let intercepted = await handleSubscriptionRPC(request) {
-                _ = await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: request.id, result: intercepted))
-                return
-            }
             await onAuthorizedRequest(request)
             guard !isClosed, !Task.isCancelled else {
+                return
+            }
+            if let intercepted = await handleSubscriptionRPC(request) {
+                _ = await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: request.id, result: intercepted))
                 return
             }
             let result = await handleRequest(request)
