@@ -929,7 +929,7 @@ extension CMUXCLI {
             branchBaseRef: parsedArgs.branchBase,
             agentProvider: parsedArgs.agentProvider
         )
-        if let cwd = parsedArgs.cwd {
+        if let cwd = parsedArgs.cwd, parsedArgs.source != .lastTurn {
             diffSourceContext.repoRoot = try gitRepoRoot(startingAt: resolvePath(cwd))
         } else if parsedArgs.source == nil {
             // Piped patches get a best-effort repo root from the CLI's cwd so
