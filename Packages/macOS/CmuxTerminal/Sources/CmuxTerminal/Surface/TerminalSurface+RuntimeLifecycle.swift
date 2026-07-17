@@ -198,6 +198,9 @@ extension TerminalSurface {
         guard portalLifecycleState != .closing else { return }
         recordTeardownRequest(reason: reason)
         portalLifecycleState = .closing
+        // Parked wake-ups are for re-anchoring live content; a closing surface
+        // has none, and the park guard refuses new entries from here on.
+        portalHostVacancyRetries.removeAll()
         portalLifecycleGeneration &+= 1
 #if DEBUG
         logDebugEvent(
@@ -212,6 +215,7 @@ extension TerminalSurface {
         guard portalLifecycleState != .closed else { return }
         portalLifecycleState = .closed
         portalLifecycleGeneration &+= 1
+        portalHostVacancyRetries.removeAll()
 #if DEBUG
         logDebugEvent(
             "surface.lifecycle.close.sealed surface=\(id.uuidString.prefix(5)) " +

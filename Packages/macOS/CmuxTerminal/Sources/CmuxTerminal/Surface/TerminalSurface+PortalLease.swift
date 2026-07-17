@@ -105,6 +105,7 @@ extension TerminalSurface {
             area: current.area
         )
         clearPortalHostAuthorityIfHeld(by: hostId, instanceSerial: current.instanceSerial)
+        notifyPortalHostVacated(vacatedHostId: hostId)
 #if DEBUG
         logDebugEvent(
             "terminal.portal.host.rearm surface=\(id.uuidString.prefix(5)) " +
@@ -139,6 +140,23 @@ extension TerminalSurface {
             "generation=\(authority.ownershipGeneration) serial=\(authority.instanceSerial)"
         )
 #endif
+    }
+
+    /// Wakes every parked candidate now that the owner is gone. One deferred
+    /// block per vacancy, newest host first so a single claim wins and the
+    /// rest are rejected against it; common run-loop modes because owners
+    /// vacate mid divider-drag, where a default-mode block waits for mouse-up.
+    /// Deferred a turn so no retry mutates the lease inside the dying host's
+    /// dismantle.
+    private func notifyPortalHostVacated(vacatedHostId: ObjectIdentifier) {
+        portalHostVacancyRetries.removeValue(forKey: vacatedHostId)
+        guard !portalHostVacancyRetries.isEmpty else { return }
+        let retries = portalHostVacancyRetries.values
+            .sorted { $0.instanceSerial > $1.instanceSerial }
+            .map(\.retry)
+        RunLoop.main.perform(inModes: [.common]) {
+            for retry in retries { retry() }
+        }
     }
 
     /// Claims (or re-claims) the portal host for a pane.
@@ -302,6 +320,7 @@ extension TerminalSurface {
               current.instanceSerial == instanceSerial else { return }
         activePortalHostLease = nil
         clearPortalHostAuthorityIfHeld(by: hostId, instanceSerial: current.instanceSerial)
+        notifyPortalHostVacated(vacatedHostId: hostId)
 #if DEBUG
         logDebugEvent(
             "terminal.portal.host.release surface=\(id.uuidString.prefix(5)) " +

@@ -12175,6 +12175,14 @@ struct GhosttyTerminalView: NSViewRepresentable {
         var lastPaneDropZone: DropZone?
         var lastSynchronizedHostGeometryRevision: UInt64 = 0
         weak var hostedView: GhosttySurfaceScrollView?
+        /// The owner-death wake-up. The surface's vacancy registry holds only
+        /// a weak trampoline into this coordinator, so the real retry (and
+        /// everything it captures) dies with the representable.
+        var vacancyRetry: (() -> Void)?
+        /// The surface this representable last parked a wake-up on; dismantle
+        /// removes the park through this because `hostedView` is weak and can
+        /// already be gone by then.
+        weak var vacancyParkedSurface: TerminalSurface?
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -12411,6 +12419,78 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
                 terminalSurface.flushPendingManualSizeReportIfAttached()
             }
+            // The owner-death wake. Every claim above runs on this host's own
+            // edges; the lease owner dying fires none of them, and a pane whose
+            // owner dismantled can otherwise wait a full settle budget for an
+            // unrelated SwiftUI update before it re-anchors. Parked only while
+            // this host owns its pane AND its content is presented; the wake
+            // re-checks both live and never writes visible/active state, so it
+            // can re-anchor on-screen content but can never reveal a hidden
+            // tab (bind is a show path — a hidden survivor waits for its own
+            // update instead).
+            coordinator.vacancyRetry = { [weak host, weak hostedView, weak coordinator] in
+                guard let host, let hostedView, let coordinator else { return }
+                guard coordinator.attachGeneration == generation else { return }
+                guard isCurrentPaneOwner() else { return }
+                guard hostedView.isVisibleInUI, coordinator.desiredIsVisibleInUI else { return }
+                guard host.window != nil else { return }
+                guard portalBindingStillLive() else { return }
+                guard terminalSurface.claimPortalHost(
+                    hostId: ObjectIdentifier(host),
+                    paneId: paneId,
+                    instanceSerial: host.instanceSerial,
+                    ownershipGeneration: ownershipGeneration,
+                    inWindow: true,
+                    bounds: host.bounds,
+                    allowsAuthorityAcquisition: true,
+                    reason: "hostVacated"
+                ) else { return }
+                TerminalWindowPortalRegistry.bind(
+                    hostedView: hostedView,
+                    to: host,
+                    visibleInUI: coordinator.desiredIsVisibleInUI,
+                    zPriority: coordinator.desiredPortalZPriority,
+                    expectedSurfaceId: portalExpectedSurfaceId,
+                    expectedGeneration: portalExpectedGeneration,
+                    deferLayoutSynchronization: true
+                )
+                coordinator.lastBoundHostId = ObjectIdentifier(host)
+                coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
+                // The dying owner's dismantle cleared the shared hosted view's
+                // handlers, and this survivor skipped its own configuration
+                // when it lost the earlier claim. Restore the owner-owned
+                // non-visibility state; visible/active stay with updates.
+                hostedView.setSessionContentWidthPresentation(sessionContentWidthPresentation)
+                hostedView.setFocusHandler { onFocus?(terminalSurface.id) }
+                hostedView.setTriggerFlashHandler(onTriggerFlash)
+                hostedView.setPaneDropContext(TerminalPaneDropContext(
+                    workspaceId: terminalSurface.tabId,
+                    panelId: terminalSurface.id,
+                    paneId: paneId
+                ))
+                hostedView.setInactiveOverlay(
+                    color: inactiveOverlayColor,
+                    opacity: CGFloat(inactiveOverlayOpacity),
+                    visible: showsInactiveOverlay
+                )
+                hostedView.setNotificationRing(visible: showsUnreadNotificationRing)
+                hostedView.setSearchOverlay(searchState: searchState)
+                hostedView.syncKeyStateIndicator(text: terminalSurface.currentKeyStateIndicatorText)
+                terminalSurface.flushPendingManualSizeReportIfAttached()
+            }
+            if ownsCurrentPane, isVisibleInUI {
+                coordinator.vacancyParkedSurface = terminalSurface
+                terminalSurface.parkPortalVacancyRetry(
+                    hostId: ObjectIdentifier(host),
+                    instanceSerial: host.instanceSerial
+                ) { [weak coordinator] in
+                    coordinator?.vacancyRetry?()
+                }
+            } else {
+                coordinator.vacancyRetry = nil
+                coordinator.vacancyParkedSurface?.removePortalVacancyRetry(hostId: ObjectIdentifier(host))
+                coordinator.vacancyParkedSurface = nil
+            }
             host.onGeometryChanged = { [weak host, weak hostedView, weak coordinator] in
                 guard let host, let hostedView, let coordinator else { return }
                 guard coordinator.attachGeneration == generation else { return }
@@ -12583,6 +12663,12 @@ struct GhosttyTerminalView: NSViewRepresentable {
         if let host = nsView as? HostContainerView {
             host.onDidMoveToWindow = nil
             host.onGeometryChanged = nil
+            // The owner's vacate path drops its own wake-up; a candidate that
+            // never owned has no vacate path, so drop it here — through the
+            // coordinator's reference, since hostedView can already be gone.
+            coordinator.vacancyRetry = nil
+            coordinator.vacancyParkedSurface?.removePortalVacancyRetry(hostId: ObjectIdentifier(host))
+            coordinator.vacancyParkedSurface = nil
             hostedView?.prepareOwnedPortalHostForTransientReattach(
                 hostId: ObjectIdentifier(host),
                 instanceSerial: host.instanceSerial,

@@ -309,6 +309,36 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var portalLifecycleGeneration: UInt64 = 1
     var activePortalHostLease: PortalHostLease?
     var portalHostAuthority: TerminalPortalHostAuthority?
+    /// Wake-up retries for the owner-death edge, one per live candidate host.
+    ///
+    /// Every claim runs on a candidate's own edge (its SwiftUI update, window
+    /// entry, geometry change); the lease owner dying fires no edge on any
+    /// survivor, so a pane whose owner dismantled can wait a full settle
+    /// budget for an unrelated update before it re-anchors. The values are
+    /// weak trampolines into each candidate's coordinator — the surface holds
+    /// no view state and no strong reference back to itself, so a dead
+    /// coordinator turns its entry into a no-op and no retain cycle exists.
+    /// Entries drop when their own host vacates the lease, when the host
+    /// dismantles, and when the portal lifecycle leaves `.live`; parking is
+    /// refused from `.closing` onward.
+    var portalHostVacancyRetries: [ObjectIdentifier: (instanceSerial: UInt64, retry: () -> Void)] = [:]
+
+    /// Parks (or refreshes) a host's vacancy retry. See
+    /// `portalHostVacancyRetries` for lifetime rules.
+    public func parkPortalVacancyRetry(
+        hostId: ObjectIdentifier,
+        instanceSerial: UInt64,
+        _ retry: @escaping () -> Void
+    ) {
+        guard portalLifecycleState == .live else { return }
+        portalHostVacancyRetries[hostId] = (instanceSerial, retry)
+    }
+
+    /// Drops a host's vacancy retry (dismantle, or the host stopped owning
+    /// its pane; the owner's own vacate paths drop theirs).
+    public func removePortalVacancyRetry(hostId: ObjectIdentifier) {
+        portalHostVacancyRetries.removeValue(forKey: hostId)
+    }
 
     /// The live find session, or nil when find is closed. Setting it arms the
     /// debounced needle pipeline; clearing it ends the runtime search.
