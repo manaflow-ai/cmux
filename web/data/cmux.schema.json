@@ -560,7 +560,6 @@
             {
               "type": "number",
               "minimum": 320,
-              "maximum": 2400,
               "multipleOf": 20
             }
           ],

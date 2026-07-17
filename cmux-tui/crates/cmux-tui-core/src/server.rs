@@ -457,7 +457,8 @@ const WEBSOCKET_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 #[cfg(test)]
 const WEBSOCKET_HANDSHAKE_TIMEOUT: Duration = Duration::from_millis(100);
 const MAX_SERVER_CONNECTIONS: usize = 64;
-const MAX_WEBSOCKET_MESSAGE_SIZE: usize = 4 * 1024 * 1024;
+const WEBSOCKET_AUTH_MAX_BYTES: usize = 4 * 1024;
+const WEBSOCKET_MESSAGE_MAX_BYTES: usize = 4 * 1024 * 1024;
 const OUTBOUND_CAPACITY: usize = 256;
 const OUTBOUND_CONTROL_RESERVE: usize = 256;
 const OUTBOUND_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
@@ -1177,6 +1178,16 @@ pub fn serve_websocket(
     if !addr.ip().is_loopback() && !allow_insecure_bind {
         anyhow::bail!("refusing non-loopback WebSocket bind {addr} without --ws-insecure-bind");
     }
+    let token = token.filter(|value| !value.trim().is_empty());
+    if let Some(token_value) = token.as_ref() {
+        let auth_message_bytes =
+            serde_json::to_vec(&json!({"auth": {"token": token_value}}))?.len();
+        if auth_message_bytes > WEBSOCKET_AUTH_MAX_BYTES {
+            anyhow::bail!(
+                "WebSocket token produces a {auth_message_bytes}-byte auth message; maximum is {WEBSOCKET_AUTH_MAX_BYTES} bytes"
+            );
+        }
+    }
     let listener = TcpListener::bind(addr)?;
     let local_addr = listener.local_addr()?;
     let shutdown = Arc::new(AtomicBool::new(false));
@@ -1301,17 +1312,24 @@ fn handle_websocket_connection(
     {
         return;
     }
-    let config = WebSocketConfig::default()
+    let auth_config = WebSocketConfig::default()
         .read_buffer_size(4 * 1024)
-        .max_message_size(Some(MAX_WEBSOCKET_MESSAGE_SIZE))
-        .max_frame_size(Some(MAX_WEBSOCKET_MESSAGE_SIZE));
-    let Ok(mut websocket) = accept_with_config(stream, Some(config)) else { return };
+        .write_buffer_size(4 * 1024)
+        .max_write_buffer_size(WEBSOCKET_MESSAGE_MAX_BYTES)
+        .max_message_size(Some(WEBSOCKET_AUTH_MAX_BYTES))
+        .max_frame_size(Some(WEBSOCKET_AUTH_MAX_BYTES));
+    let Ok(mut websocket) = accept_with_config(stream, Some(auth_config)) else { return };
 
     if !authenticate_websocket(&mux, &mut websocket, peer, token) {
         let frame = CloseFrame { code: CloseCode::Policy, reason: "authentication failed".into() };
         let _ = websocket.close(Some(frame));
+        let _ = websocket.flush();
         return;
     }
+    websocket.set_config(|config| {
+        config.max_message_size = Some(WEBSOCKET_MESSAGE_MAX_BYTES);
+        config.max_frame_size = Some(WEBSOCKET_MESSAGE_MAX_BYTES);
+    });
     let _ = websocket.get_mut().set_read_timeout(None);
     let _ = websocket.get_mut().set_write_timeout(Some(STREAM_WRITE_TIMEOUT));
     let Ok(writer_stream) = websocket.get_ref().try_clone() else { return };
