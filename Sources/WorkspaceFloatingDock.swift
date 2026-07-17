@@ -15,6 +15,9 @@ final class WorkspaceFloatingDock: Identifiable {
 
     @ObservationIgnored let store: DockSplitStore
     @ObservationIgnored let noteFilePath: String
+    @ObservationIgnored let configurationSeedIdentity: String?
+    @ObservationIgnored let configurationContent: DockControlDefinition?
+    @ObservationIgnored let configurationBaseDirectory: String?
     @ObservationIgnored private(set) var notePanelId: UUID?
 
     init(
@@ -25,6 +28,9 @@ final class WorkspaceFloatingDock: Identifiable {
         isPresented: Bool,
         noteFilePath: String,
         existingNotePanelId: UUID? = nil,
+        configurationSeedIdentity: String? = nil,
+        configurationContent: DockControlDefinition? = nil,
+        configurationBaseDirectory: String? = nil,
         baseDirectoryProvider: @escaping () -> String?,
         remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings
     ) {
@@ -34,6 +40,9 @@ final class WorkspaceFloatingDock: Identifiable {
         self.frame = frame
         self.isPresented = isPresented
         self.noteFilePath = noteFilePath
+        self.configurationSeedIdentity = configurationSeedIdentity
+        self.configurationContent = configurationContent
+        self.configurationBaseDirectory = configurationBaseDirectory
         self.store = DockSplitStore(
             workspaceId: workspaceId,
             scope: .workspace,
@@ -42,16 +51,26 @@ final class WorkspaceFloatingDock: Identifiable {
             remoteBrowserSettingsProvider: remoteBrowserSettingsProvider
         )
 
-        if let existingNotePanelId {
-            notePanelId = existingNotePanelId
-        } else if let rootPane = store.bonsplitController.allPaneIds.first {
-            notePanelId = store.newSurface(
-                kind: .note,
-                inPane: rootPane,
-                noteFilePath: noteFilePath,
-                noteTitle: String(localized: "floatingDock.note.title", defaultValue: "Notes"),
-                focus: false
+        if let configurationContent, configurationContent.kind != .note {
+            store.seedConfiguration(
+                definitions: [configurationContent],
+                baseDirectory: configurationBaseDirectory
+                    ?? baseDirectoryProvider()
+                    ?? FileManager.default.homeDirectoryForCurrentUser.path
             )
+        } else {
+            if let existingNotePanelId {
+                notePanelId = existingNotePanelId
+            } else if let rootPane = store.bonsplitController.allPaneIds.first {
+                notePanelId = store.newSurface(
+                    kind: .note,
+                    inPane: rootPane,
+                    noteFilePath: noteFilePath,
+                    noteTitle: configurationContent?.title
+                        ?? String(localized: "floatingDock.note.title", defaultValue: "Notes"),
+                    focus: false
+                )
+            }
         }
     }
 

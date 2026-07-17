@@ -8,7 +8,10 @@ extension Workspace {
         id: UUID = UUID(),
         title: String? = nil,
         frame: CGRect = CGRect(x: 36, y: 80, width: 520, height: 380),
-        isPresented: Bool = true
+        isPresented: Bool = true,
+        configurationSeedIdentity: String? = nil,
+        configurationContent: DockControlDefinition? = nil,
+        configurationBaseDirectory: String? = nil
     ) -> WorkspaceFloatingDock? {
         let resolvedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
         let displayTitle = resolvedTitle?.isEmpty == false
@@ -29,6 +32,9 @@ extension Workspace {
             isPresented: isPresented,
             noteFilePath: noteFileURL.path,
             existingNotePanelId: existingNotePanel?.id,
+            configurationSeedIdentity: configurationSeedIdentity,
+            configurationContent: configurationContent,
+            configurationBaseDirectory: configurationBaseDirectory,
             baseDirectoryProvider: { [weak self] in self?.currentDirectory },
             remoteBrowserSettingsProvider: { [weak self] in
                 self?.dockRemoteBrowserSettingsSnapshot() ?? .local
@@ -75,15 +81,25 @@ extension Workspace {
                 y: dock.frame.origin.y,
                 width: dock.frame.width,
                 height: dock.frame.height,
-                isPresented: dock.isPresented
+                isPresented: dock.isPresented,
+                configurationSeedIdentity: dock.configurationSeedIdentity,
+                configurationContent: dock.configurationContent,
+                configurationBaseDirectory: dock.configurationBaseDirectory
             )
         }
         return snapshots.isEmpty ? nil : snapshots
     }
 
-    func restoreFloatingDocks(from snapshots: [SessionFloatingDockSnapshot]?) {
+    func restoreFloatingDocks(
+        from snapshots: [SessionFloatingDockSnapshot]?,
+        seededConfigurationIdentities: [String]?
+    ) {
         floatingDocks.forEach { $0.close() }
         floatingDocks.removeAll()
+        seededFloatingDockConfigurationIdentities = Set(seededConfigurationIdentities ?? [])
+        seededFloatingDockConfigurationIdentities.formUnion(
+            (snapshots ?? []).compactMap(\.configurationSeedIdentity)
+        )
         for snapshot in snapshots ?? [] {
             _ = createFloatingDock(
                 id: snapshot.id,
@@ -94,7 +110,10 @@ extension Workspace {
                     width: snapshot.width,
                     height: snapshot.height
                 ),
-                isPresented: snapshot.isPresented
+                isPresented: snapshot.isPresented,
+                configurationSeedIdentity: snapshot.configurationSeedIdentity,
+                configurationContent: snapshot.configurationContent,
+                configurationBaseDirectory: snapshot.configurationBaseDirectory
             )
         }
     }

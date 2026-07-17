@@ -128,6 +128,9 @@ extension DockSplitStore {
     }
 
     nonisolated static func configurationLoadErrorMessage(for error: Error) -> String {
+        if let validationError = error as? DockConfigValidationError {
+            return validationError.message
+        }
         if let message = dockValidationErrorMessage(for: error) {
             return message
         }
@@ -138,6 +141,9 @@ extension DockSplitStore {
     }
 
     nonisolated static func configurationOpenErrorMessage(for error: Error) -> String {
+        if let validationError = error as? DockConfigValidationError {
+            return validationError.message
+        }
         if let message = dockValidationErrorMessage(for: error) {
             return message
         }
@@ -161,7 +167,10 @@ extension DockSplitStore {
     nonisolated static func trustDescriptor(for resolution: DockConfigResolution) -> CmuxActionTrustDescriptor {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        let data = (try? encoder.encode(DockConfigFile(controls: resolution.controls))) ?? Data()
+        let data = (try? encoder.encode(DockConfigFile(
+            controls: resolution.controls,
+            floats: resolution.floats
+        ))) ?? Data()
         let commandFingerprint = String(data: data, encoding: .utf8) ?? ""
         return CmuxActionTrustDescriptor(
             actionID: "cmux.dock",
@@ -182,23 +191,10 @@ extension DockSplitStore {
     ) throws -> DockConfigResolution {
         let data = try Data(contentsOf: url)
         let file = try JSONDecoder().decode(DockConfigFile.self, from: data)
-        var seen = Set<String>()
-        for control in file.controls {
-            guard seen.insert(control.id).inserted else {
-                throw NSError(
-                    domain: "cmux.dock",
-                    code: 1,
-                    userInfo: [
-                        NSLocalizedDescriptionKey: String(
-                            localized: "dock.error.duplicateControl",
-                            defaultValue: "Dock control ids must be unique."
-                        )
-                    ]
-                )
-            }
-        }
+        try file.validate(isProjectSource: isProjectSource)
         return DockConfigResolution(
             controls: file.controls,
+            floats: file.floats,
             sourceURL: url,
             baseDirectory: baseDirectory,
             isProjectSource: isProjectSource

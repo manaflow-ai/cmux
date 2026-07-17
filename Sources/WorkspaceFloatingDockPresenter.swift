@@ -14,6 +14,7 @@ final class WorkspaceFloatingDockPresenter {
 
     func refresh(focusDockId: UUID? = nil) {
         guard let parentWindow, let tabManager else { return }
+        tabManager.selectedWorkspace?.ensureFloatingDockConfigurationLoaded()
         let allDocks = tabManager.tabs.flatMap(\.floatingDocks)
         let liveIds = Set(allDocks.map(\.id))
         let staleIds = controllers.keys.filter { !liveIds.contains($0) }

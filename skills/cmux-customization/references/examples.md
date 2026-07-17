@@ -125,6 +125,14 @@ controls for repeated local development.
   "controls": [
     { "id": "git", "title": "Git", "command": "lazygit", "cwd": ".", "height": 320 },
     { "id": "feed", "title": "Feed", "command": "cmux feed tui --opentui", "height": 260 }
+  ],
+  "floats": [
+    {
+      "id": "scratch",
+      "title": "Scratch",
+      "frame": { "width": 520, "height": 380 },
+      "content": { "id": "note", "title": "Notes", "type": "note" }
+    }
   ]
 }
 ```
@@ -331,6 +339,8 @@ or release-monitoring commands. Prefer Dock controls for long-running monitors.
 ## Validation Checklist
 
 - Parse any changed JSON or JSONC before reporting success.
+- Keep Floating Dock `floats` in project `.cmux/dock.json`; global Dock config supports `controls` only.
+- Treat float IDs as config seed identities, separate from runtime UUIDs and `float:N` selectors: reuse preserves session state, while a new ID creates a new seed.
 - Keep `cwd` inside the `workspace` object for workspace commands.
 - Confirm `workspaceCommand.commandName` matches a `commands[].name`.
 - Use `ui.newWorkspace.contextMenu` in new examples, not the alias.

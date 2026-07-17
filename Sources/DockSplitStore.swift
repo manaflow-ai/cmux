@@ -34,6 +34,8 @@ final class DockSplitStore: BonsplitDelegate {
     private let remoteBrowserSettingsProvider: () -> DockRemoteBrowserSettings
     private let browserAvailabilityProvider: () -> Bool
     private let loadsConfiguration: Bool
+    private let appliesControlSeed: Bool
+    private let onConfigurationResolved: ((DockConfigResolution) -> Void)?
     var panels: [UUID: any Panel] = [:]
     var surfaceIdToPanelId: [TabID: UUID] = [:]
     var panelCancellables: [UUID: AnyCancellable] = [:]
@@ -76,16 +78,21 @@ final class DockSplitStore: BonsplitDelegate {
         workspaceId: UUID,
         scope: DockScope = .workspace,
         loadsConfiguration: Bool = true,
+        appliesControlSeed: Bool = true,
+        registersForRouting: Bool = true,
         baseDirectoryProvider: @escaping () -> String?,
         remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings = { .local },
-        browserAvailabilityProvider: @escaping () -> Bool = { BrowserAvailabilitySettings.isEnabled() }
+        browserAvailabilityProvider: @escaping () -> Bool = { BrowserAvailabilitySettings.isEnabled() },
+        onConfigurationResolved: ((DockConfigResolution) -> Void)? = nil
     ) {
         self.workspaceId = workspaceId
         self.scope = scope
         self.loadsConfiguration = loadsConfiguration
+        self.appliesControlSeed = appliesControlSeed
         self.baseDirectoryProvider = baseDirectoryProvider
         self.remoteBrowserSettingsProvider = remoteBrowserSettingsProvider
         self.browserAvailabilityProvider = browserAvailabilityProvider
+        self.onConfigurationResolved = onConfigurationResolved
         self.bonsplitController = BonsplitController(configuration: Self.makeConfiguration())
         self.sourceLabel = String(localized: "dock.source.title", defaultValue: "Dock")
         self.bonsplitController.delegate = self
@@ -119,7 +126,9 @@ final class DockSplitStore: BonsplitDelegate {
             _ = bonsplitController.closeTab(tabId)
         }
         focusHistoryNavigation.attach(host: self)
-        Self.liveStoresTable.add(self)
+        if registersForRouting {
+            Self.liveStoresTable.add(self)
+        }
         if !loadsConfiguration {
             hasLoadedConfiguration = true
         }
@@ -183,6 +192,11 @@ final class DockSplitStore: BonsplitDelegate {
 
     func setRootDirectory(_ directory: String?) {
         rootDirectoryOverride = Self.normalizedBaseDirectory(directory)
+    }
+
+    func configurationContextDidChange() {
+        guard loadsConfiguration, hasLoadedConfiguration else { return }
+        reloadIfBaseDirectoryChanged()
     }
 
     private func reloadIfBaseDirectoryChanged() {
@@ -768,9 +782,10 @@ final class DockSplitStore: BonsplitDelegate {
                 return
             }
             sourceLabel = Self.sourceLabel(for: resolution)
+            onConfigurationResolved?(resolution)
             let shouldSeed = configurationSeedSuppressionGeneration != generation && (replacingPanels || !hasAppliedConfigurationSeed)
-            if shouldSeed {
-                seed(definitions: resolution.controls, baseDirectory: resolution.baseDirectory)
+            if shouldSeed, appliesControlSeed {
+                seedConfiguration(definitions: resolution.controls, baseDirectory: resolution.baseDirectory)
             }
             if configurationSeedSuppressionGeneration == generation { configurationSeedSuppressionGeneration = nil }
             hasAppliedConfigurationSeed = true
@@ -795,7 +810,7 @@ final class DockSplitStore: BonsplitDelegate {
     /// initial divider is set from the requested-height ratios (a fractional
     /// Bonsplit tree cannot pin absolute point heights, but the proportions are
     /// preserved and remain user-resizable).
-    private func seed(definitions: [DockControlDefinition], baseDirectory: String) {
+    func seedConfiguration(definitions: [DockControlDefinition], baseDirectory: String) {
         // Build panels first so divider math runs over the entries actually
         // created (e.g. browser entries are skipped when the browser is disabled).
         let created: [(definition: DockControlDefinition, panel: any Panel)] = definitions.compactMap { definition in
@@ -859,6 +874,7 @@ final class DockSplitStore: BonsplitDelegate {
 
     private func trustRequestIfNeeded(for resolution: DockConfigResolution) -> DockTrustRequest? {
         guard resolution.isProjectSource, let sourceURL = resolution.sourceURL else { return nil }
+        guard appliesControlSeed || !resolution.floats.isEmpty else { return nil }
         let descriptor = Self.trustDescriptor(for: resolution)
         guard !CmuxActionTrust.shared.isTrusted(descriptor) else { return nil }
         return DockTrustRequest(descriptor: descriptor, configPath: sourceURL.path)

@@ -9,4 +9,7 @@ struct SessionFloatingDockSnapshot: Codable, Sendable {
     var width: Double
     var height: Double
     var isPresented: Bool
+    var configurationSeedIdentity: String? = nil
+    var configurationContent: DockControlDefinition? = nil
+    var configurationBaseDirectory: String? = nil
 }

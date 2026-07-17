@@ -1767,6 +1767,8 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var canvasPanes: [SessionCanvasPaneSnapshot]? = nil
     /// Workspace-scoped window-like Dock containers.
     var floatingDocks: [SessionFloatingDockSnapshot]? = nil
+    /// Config seeds already considered for this workspace, including closed floats.
+    var seededFloatingDockConfigurationIdentities: [String]? = nil
     var panels: [SessionPanelSnapshot]
     var statusEntries: [SessionStatusEntrySnapshot]
     var logEntries: [SessionLogEntrySnapshot]

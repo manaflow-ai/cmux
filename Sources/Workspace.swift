@@ -138,6 +138,7 @@ extension Workspace {
             layoutMode: layoutMode.rawValue,
             canvasPanes: canvasSessionPaneSnapshots(),
             floatingDocks: floatingDockSessionSnapshots(),
+            seededFloatingDockConfigurationIdentities: seededFloatingDockConfigurationIdentities.sorted(),
             panels: panelSnapshots,
             statusEntries: statusSnapshots,
             logEntries: logSnapshots,
@@ -235,7 +236,10 @@ extension Workspace {
         isPinned = snapshot.isPinned
         groupId = snapshot.groupId
         restoreTodoState(from: snapshot)
-        restoreFloatingDocks(from: snapshot.floatingDocks)
+        restoreFloatingDocks(
+            from: snapshot.floatingDocks,
+            seededConfigurationIdentities: snapshot.seededFloatingDockConfigurationIdentities
+        )
 
         // Status entries and agent PIDs are ephemeral runtime state tied to running
         // processes (e.g. claude_code "Running"). Don't restore them across app
@@ -2012,6 +2016,8 @@ final class Workspace: Identifiable, ObservableObject {
             let oldDirectory = oldValue.trimmingCharacters(in: .whitespacesAndNewlines)
             let newDirectory = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
             guard oldDirectory != newDirectory else { return }
+            _floatingDockConfigurationStore?.setRootDirectory(currentDirectory)
+            _floatingDockConfigurationStore?.configurationContextDidChange()
             scheduleExtensionSidebarProjectRootRefresh(for: currentDirectory)
             // Notify the sidebar so anchor-cwd-driven group config (color,
             // icon, context menu, newWorkspacePlacement) refreshes even
@@ -2045,6 +2051,8 @@ final class Workspace: Identifiable, ObservableObject {
     /// Window-like Bonsplit containers scoped to this workspace.
     /// Mutated by the shared lifecycle methods in `Workspace+FloatingDocks`.
     var floatingDocks: [WorkspaceFloatingDock] = []
+    var seededFloatingDockConfigurationIdentities: Set<String> = []
+    var _floatingDockConfigurationStore: DockSplitStore?
 
     /// The right-sidebar Dock for this workspace: its own Bonsplit tree of
     /// terminal/browser panels, separate from the main-area `bonsplitController`.
@@ -8695,6 +8703,8 @@ final class Workspace: Identifiable, ObservableObject {
         // Tear down the right-sidebar Dock's own panels (terminals/browsers) too,
         // but only if the Dock was ever opened for this workspace.
         _dockSplit?.closeAllPanels()
+        _floatingDockConfigurationStore?.closeAllPanels()
+        _floatingDockConfigurationStore = nil
         floatingDocks.forEach { $0.close() }
         floatingDocks.removeAll()
     }
