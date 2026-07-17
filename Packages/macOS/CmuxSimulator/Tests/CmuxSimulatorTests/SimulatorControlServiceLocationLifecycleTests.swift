@@ -55,7 +55,7 @@ struct SimulatorControlServiceLocationLifecycleTests {
             let activeRoute = await service.activeLocationRoutes["DEVICE"]
             let lifecycleTask = await service.locationLifecycleTasks["DEVICE"]
             let token = await service.locationRouteTokens["DEVICE"]
-            return activeRoute == nil && lifecycleTask == nil && token == nil
+            return activeRoute == nil && lifecycleTask == nil && token != nil
         }
         #expect(await service.locationRouteInitialCoordinates["DEVICE"] == route.waypoints[0])
 
@@ -150,11 +150,15 @@ struct SimulatorControlServiceLocationLifecycleTests {
         )
         await oldSleeper.advance()
         for _ in 0..<200 { await Task.yield() }
+        try await oldService.stopLocationRoute(deviceID: deviceID)
 
         #expect(await oldCommands.arguments().count == 1)
         #expect(await newCommands.arguments() == [
             ["simctl", "location", deviceID, "set", "40.0,-73.0"],
         ])
+        #expect(await oldService.activeLocationRoutes[deviceID] == nil)
+        #expect(await oldService.locationRouteInitialCoordinates[deviceID] == nil)
+        #expect(await oldService.locationRouteTokens[deviceID] == nil)
     }
 
     private static func route() -> SimulatorLocationRoute {
