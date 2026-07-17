@@ -934,7 +934,7 @@ struct RestorableAgentSessionIndex: Sendable {
         let processIDs: Set<Int>
         let agentProcessIDs: Set<Int>
         let agentProcessIdentities: [Int: AgentPIDProcessIdentity]
-        let hasStructuredHookIdentity: Bool = false
+        let hasStructuredHookIdentity: Bool
     }
 
     enum ProcessDetectedSessionIDSource: Equatable, Sendable {
