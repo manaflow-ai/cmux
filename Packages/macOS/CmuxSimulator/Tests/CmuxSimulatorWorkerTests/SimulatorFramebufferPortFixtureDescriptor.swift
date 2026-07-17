@@ -6,20 +6,30 @@ final class SimulatorFramebufferPortFixtureDescriptor: NSObject {
     private var frameCallback: (() -> Void)?
     private var propertiesChangedCallback: (() -> Void)?
     private let properties: SimulatorFramebufferPortFixtureScreenProperties
+    private let propertiesAvailableAfterRegistration: Bool
+    private var didRegisterCallbacks = false
     private(set) var screenPropertiesReadCount = 0
 
-    init(screenID: UInt32 = 0, screenType: UInt64 = 0, width: Int = 8, height: Int = 12) {
+    init(
+        screenID: UInt32 = 0,
+        screenType: UInt64 = 0,
+        width: Int = 8,
+        height: Int = 12,
+        propertiesAvailableAfterRegistration: Bool = false
+    ) {
         surface = makeSimulatorFramebufferPortFixtureSurface(width: width, height: height)
         properties = SimulatorFramebufferPortFixtureScreenProperties(
             screenID: screenID,
             screenType: screenType
         )
+        self.propertiesAvailableAfterRegistration = propertiesAvailableAfterRegistration
         super.init()
     }
 
     @objc dynamic func framebufferSurface() -> AnyObject? { surface }
-    @objc dynamic func screenProperties() -> AnyObject {
+    @objc dynamic func screenProperties() -> AnyObject? {
         screenPropertiesReadCount += 1
+        if propertiesAvailableAfterRegistration, !didRegisterCallbacks { return nil }
         return properties
     }
 
@@ -31,6 +41,7 @@ final class SimulatorFramebufferPortFixtureDescriptor: NSObject {
         surfacesChangedCallback _: @escaping @convention(block) () -> Void,
         propertiesChangedCallback: @escaping @convention(block) () -> Void
     ) {
+        didRegisterCallbacks = true
         self.frameCallback = frameCallback
         self.propertiesChangedCallback = propertiesChangedCallback
         propertiesChangedCallback()

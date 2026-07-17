@@ -27,6 +27,23 @@ struct SimulatorFramebufferPortDiscoveryTests {
         #expect(metadata?.height == 12)
     }
 
+    @Test("Display identity may be published by callback registration")
+    func callbackRegistrationPublishesDisplayIdentity() async throws {
+        let fixture = SimulatorFramebufferPortFixture(
+            propertiesAvailableAfterRegistration: true
+        )
+        var metadata: SimulatorDisplayMetadata?
+        let framebuffer = SimulatorFramebuffer(
+            onFrameTransportChange: { _ in },
+            onDisplayChange: { metadata = $0 }
+        )
+
+        try await framebuffer.start(device: fixture.device)
+
+        #expect(metadata?.width == 8)
+        #expect(metadata?.height == 12)
+    }
+
     @Test("The built-in display wins over a larger external display")
     func primaryDisplayIdentityWins() async throws {
         let fixture = SimulatorFramebufferPortFixture(displays: [

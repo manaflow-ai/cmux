@@ -13,14 +13,16 @@ final class SimulatorFramebufferPortFixture {
     init(
         displays: [(screenID: UInt32, screenType: UInt64, width: Int, height: Int)] = [
             (0, 0, 8, 12)
-        ]
+        ],
+        propertiesAvailableAfterRegistration: Bool = false
     ) {
         let descriptors = displays.map {
             SimulatorFramebufferPortFixtureDescriptor(
                 screenID: $0.screenID,
                 screenType: $0.screenType,
                 width: $0.width,
-                height: $0.height
+                height: $0.height,
+                propertiesAvailableAfterRegistration: propertiesAvailableAfterRegistration
             )
         }
         self.descriptors = descriptors
