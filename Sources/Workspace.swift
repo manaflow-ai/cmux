@@ -6373,6 +6373,7 @@ final class Workspace: Identifiable, ObservableObject {
         remoteConnectionDetail = detail
         if state == .connected { _ = reattachPersistentRemotePTYPanels() }
         applyBrowserRemoteWorkspaceStatusToPanels()
+        postRemoteConnectionPresentationDidChange()
 
         if suppressProxyOnlySidebarError {
             clearProxyOnlyRemoteSidebarArtifacts()
@@ -6462,6 +6463,7 @@ final class Workspace: Identifiable, ObservableObject {
     func applyRemoteDaemonStatusUpdate(_ status: WorkspaceRemoteDaemonStatus, target: String) {
         remoteDaemonStatus = status
         applyBrowserRemoteWorkspaceStatusToPanels()
+        postRemoteConnectionPresentationDidChange()
         guard status.state == .error else {
             remoteLastDaemonErrorFingerprint = nil
             return
@@ -6484,12 +6486,14 @@ final class Workspace: Identifiable, ObservableObject {
         }
         _dockSplit?.applyRemoteProxyEndpointUpdate(endpoint)
         applyBrowserRemoteWorkspaceStatusToPanels()
+        postRemoteConnectionPresentationDidChange()
     }
 
     func applyRemoteHeartbeatUpdate(count: Int, lastSeenAt: Date?) {
         remoteHeartbeatCount = max(0, count)
         remoteLastHeartbeatAt = lastSeenAt
         applyBrowserRemoteWorkspaceStatusToPanels()
+        postRemoteConnectionPresentationDidChange()
     }
 
     func applyRemoteDetectedSurfacePortsSnapshot(

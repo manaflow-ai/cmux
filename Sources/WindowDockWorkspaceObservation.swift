@@ -1,4 +1,3 @@
-import Combine
 import Foundation
 import Observation
 
@@ -8,7 +7,7 @@ import Observation
 final class WindowDockWorkspaceObservation {
     private(set) var snapshot: WindowDockWorkspaceSnapshot
     @ObservationIgnored private weak var workspace: Workspace?
-    @ObservationIgnored private var cancellables: Set<AnyCancellable> = []
+    @ObservationIgnored private var observationTasks: [Task<Void, Never>] = []
 
     init(workspace: Workspace) {
         snapshot = workspace.windowDockWorkspaceSnapshot()
@@ -18,53 +17,48 @@ final class WindowDockWorkspaceObservation {
     func observe(_ workspace: Workspace) {
         guard self.workspace !== workspace else { return }
         self.workspace = workspace
-        cancellables.removeAll()
+        cancelObservationTasks()
         apply(workspace.windowDockWorkspaceSnapshot())
 
-        let changes: [AnyPublisher<Void, Never>] = [
-            workspace.$currentDirectory
-                .dropFirst()
-                .map { _ in () }
-                .eraseToAnyPublisher(),
-            workspace.currentDirectoryChangeRevisionPublisher()
-                .dropFirst()
-                .map { _ in () }
-                .eraseToAnyPublisher(),
-            workspace.$remoteConfiguration
-                .dropFirst()
-                .map { _ in () }
-                .eraseToAnyPublisher(),
-            workspace.$remoteDaemonStatus
-                .dropFirst()
-                .map { _ in () }
-                .eraseToAnyPublisher(),
-            workspace.$remoteProxyEndpoint
-                .dropFirst()
-                .map { _ in () }
-                .eraseToAnyPublisher(),
-            workspace.$remoteConnectionState
-                .dropFirst()
-                .map { _ in () }
-                .eraseToAnyPublisher(),
-            workspace.$remoteHeartbeatCount
-                .dropFirst()
-                .map { _ in () }
-                .eraseToAnyPublisher(),
-            workspace.$remoteLastHeartbeatAt
-                .dropFirst()
-                .map { _ in () }
-                .eraseToAnyPublisher(),
+        observationTasks = [
+            observe(
+                workspace,
+                notification: .workspaceCurrentDirectoryDidChange
+            ),
+            observe(
+                workspace,
+                notification: .workspaceRemoteConnectionPresentationDidChange
+            ),
         ]
+    }
 
-        Publishers.MergeMany(changes)
-            // Workspace's legacy @Published properties emit in willSet. Deliver
-            // on the main queue so the immutable snapshot reads committed state.
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self, weak workspace] in
-                guard let self, let workspace, self.workspace === workspace else { return }
+    deinit {
+        observationTasks.forEach { $0.cancel() }
+    }
+
+    private func observe(
+        _ workspace: Workspace,
+        notification name: Notification.Name
+    ) -> Task<Void, Never> {
+        Task { @MainActor [weak self, weak workspace] in
+            guard let workspace else { return }
+            for await _ in NotificationCenter.default.notifications(
+                named: name,
+                object: workspace
+            ) {
+                guard !Task.isCancelled,
+                      let self,
+                      self.workspace === workspace else {
+                    return
+                }
                 self.apply(workspace.windowDockWorkspaceSnapshot())
             }
-            .store(in: &cancellables)
+        }
+    }
+
+    private func cancelObservationTasks() {
+        observationTasks.forEach { $0.cancel() }
+        observationTasks.removeAll()
     }
 
     private func apply(_ next: WindowDockWorkspaceSnapshot) {
