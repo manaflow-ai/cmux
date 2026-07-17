@@ -112,14 +112,16 @@ extension MobilePairedMacStore {
     }
 
     func hasOtherActiveMac(
-        than macDeviceID: String,
+        thanOwnerKey ownerKey: String,
+        macDeviceID: String,
         stackUserID: String?,
         teamID: String?
     ) throws -> Bool {
         var statement: OpaquePointer?
         defer { sqlite3_finalize(statement) }
         let sql = """
-            SELECT 1 FROM paired_macs WHERE is_active = 1 AND mac_device_id <> ?
+            SELECT 1 FROM paired_macs WHERE is_active = 1
+              AND (mac_device_id <> ? OR owner_key <> ?)
               AND stack_user_id IS ? AND ((? IS NULL AND team_id IS NULL)
                 OR (? IS NOT NULL AND (team_id IS ? OR team_id IS NULL))) LIMIT 1;
         """
@@ -129,7 +131,8 @@ extension MobilePairedMacStore {
         }
         let team = teamID.map(BindValue.text) ?? .null
         try bind(statement: statement, parameters: [
-            .text(macDeviceID), stackUserID.map(BindValue.text) ?? .null,
+            .text(macDeviceID), .text(ownerKey),
+            stackUserID.map(BindValue.text) ?? .null,
             team, team, team,
         ])
         return sqlite3_step(statement) == SQLITE_ROW

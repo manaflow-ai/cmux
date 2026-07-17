@@ -11,7 +11,6 @@ import Foundation
 /// discovered device. A lifecycle scope prevents a delayed callback from a
 /// signed-out or prior account runtime from repopulating the current catalog.
 public actor MobileIrohRouteCatalog {
-    static let maximumBindingCount = 32
     static let preferredRoutePriority = -10_000
 
     private var activeScope: UInt64?
@@ -27,10 +26,10 @@ public actor MobileIrohRouteCatalog {
 
     /// Replaces the catalog from one authenticated, runtime-verified discovery.
     ///
-    /// Only pairable Mac bindings are retained. Routes intentionally contain no
-    /// path hints: the dial-time context provider performs a fresh authenticated
-    /// discovery and admits only current public paths while private-network hints
-    /// remain disabled on iOS.
+    /// Only pairable Mac bindings are retained. Broker routes intentionally
+    /// contain no private path hints. The registry decorator may later attach a
+    /// locally known Tailscale address as a fallback, while dial-time discovery
+    /// supplies current authenticated public paths.
     func replace(
         with discovery: CmxIrohDiscoveryResponse,
         scope: UInt64
@@ -57,7 +56,7 @@ public actor MobileIrohRouteCatalog {
 
         let pairableMacs = bindings.filter {
             $0.platform == .mac && $0.pairingEnabled
-        }.prefix(Self.maximumBindingCount)
+        }.prefix(CmxIrohDiscoveryResponse.maximumBindingCount)
         let endpointCounts = Dictionary(
             grouping: pairableMacs,
             by: \CmxIrohBrokerBinding.endpointID
@@ -200,9 +199,19 @@ public struct PersonalIrohDeviceRegistryDecorator: DeviceRegistryRefreshing {
 
     static func merged(
         personal: [CmxAttachRoute],
-        team: [CmxAttachRoute]
+        team: [CmxAttachRoute],
+        now: Date = Date()
     ) -> [CmxAttachRoute] {
-        var merged = personal
+        let decoratedRoutes = CmxAttachRoute.addingIrohPrivatePaths(
+            to: personal + team,
+            observedAt: now
+        )
+        precondition(
+            decoratedRoutes.count == personal.count + team.count,
+            "Private-path decoration must preserve route count and order"
+        )
+        let personalWithPrivatePaths = Array(decoratedRoutes.prefix(personal.count))
+        var merged = personalWithPrivatePaths
         var routeIDs = Set(personal.map(\.id))
         var peerIdentities = Set<CmxIrohPeerIdentity>(personal.compactMap { route in
             guard case let .peer(identity, _) = route.endpoint else { return nil }

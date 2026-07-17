@@ -1,3 +1,4 @@
+public import CMUXMobileCore
 public import Foundation
 
 /// A seam exposing per-surface terminal output as an `AsyncStream`.
@@ -24,15 +25,19 @@ public struct MobileTerminalOutputChunk: Sendable {
     public let data: Data
     public let streamToken: UUID
     public let viewportPolicy: MobileTerminalOutputViewportPolicy?
+    /// Raw Ghostty defaults that must be installed before this chunk's VT replay.
+    public let terminalConfigTheme: TerminalTheme?
 
     public init(
         data: Data,
         streamToken: UUID,
-        viewportPolicy: MobileTerminalOutputViewportPolicy? = nil
+        viewportPolicy: MobileTerminalOutputViewportPolicy? = nil,
+        terminalConfigTheme: TerminalTheme? = nil
     ) {
         self.data = data
         self.streamToken = streamToken
         self.viewportPolicy = viewportPolicy
+        self.terminalConfigTheme = terminalConfigTheme
     }
 }
 

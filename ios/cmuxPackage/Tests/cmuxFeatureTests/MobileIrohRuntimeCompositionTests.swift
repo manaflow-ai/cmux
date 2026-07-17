@@ -3,8 +3,10 @@ import CMUXAuthCore
 import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxIrohTransport
+import CmuxMobileRPC
 import CmuxMobileShell
 import CmuxMobileShellModel
+import CmuxMobileTransport
 import CryptoKit
 import Foundation
 import Testing
@@ -13,6 +15,32 @@ import Testing
 @MainActor
 @Suite
 struct MobileIrohRuntimeCompositionTests {
+    @Test
+    func discoveryCatalogRetainsFortyConcurrentDevelopmentBindings() async throws {
+        let bindings = (0..<40).map { index in
+            mobileIrohBinding(
+                bindingID: String(format: "00000000-0000-4000-8000-%012d", index),
+                deviceID: String(format: "10000000-0000-4000-8000-%012d", index),
+                appInstanceID: String(format: "20000000-0000-4000-8000-%012d", index),
+                endpointID: String(format: "%064x", index + 1),
+                platform: "mac",
+                pairingEnabled: true
+            )
+        }
+        let discovery = try mobileIrohDiscovery(bindings: bindings)
+        let catalog = MobileIrohRouteCatalog()
+        await catalog.activate(scope: 1)
+        await catalog.replace(with: discovery, scope: 1)
+
+        for index in 0..<40 {
+            let deviceID = String(format: "10000000-0000-4000-8000-%012d", index)
+            #expect(await catalog.routes(
+                forKnownMacDeviceID: deviceID,
+                instanceTag: "test"
+            ).count == 1)
+        }
+    }
+
     @Test
     func relayPolicyRefreshesBeforeExpiryAndDeactivatesOnlyAtExpiry() {
         let now = Date(timeIntervalSince1970: 1_000)
@@ -158,7 +186,9 @@ struct MobileIrohRuntimeCompositionTests {
 
     @Test
     func pathStateAdvancesGenerationWhileProfilesRemainFailClosed() async {
-        let state = MobileIrohNetworkPathState()
+        let state = MobileIrohNetworkPathState(
+            networkInterfaces: MobileIrohInterfaceProvider([])
+        )
         let initial = await state.snapshot()
 
         await state.pathDidChange()
@@ -171,7 +201,9 @@ struct MobileIrohRuntimeCompositionTests {
 
     @Test
     func lanProfileAuthorizationIsBoundToPathGenerationAndRevocation() async throws {
-        let state = MobileIrohNetworkPathState()
+        let state = MobileIrohNetworkPathState(
+            networkInterfaces: MobileIrohInterfaceProvider([])
+        )
         let profile = try CmxIrohNetworkProfileKey(
             source: .lan,
             profileID: String(repeating: "a", count: 64)
@@ -214,6 +246,28 @@ struct MobileIrohRuntimeCompositionTests {
             generation: 1,
             interfaceIndex: 4
         ) == false)
+    }
+
+    @Test
+    func pathStateAuthorizesTailscaleProfileOnlyWhileTailnetIsActive() async throws {
+        let provider = MobileIrohInterfaceProvider([
+            NetworkInterfaceAddress(
+                interfaceName: "utun5",
+                address: "100.99.1.2"
+            ),
+        ])
+        let state = MobileIrohNetworkPathState(networkInterfaces: provider)
+        let profile = CmxIrohNetworkProfileKey.activeTailscaleTunnel
+
+        #expect(await state.snapshot().activeNetworkProfiles == [profile])
+
+        provider.set([
+            NetworkInterfaceAddress(
+                interfaceName: "en0",
+                address: "192.168.1.2"
+            ),
+        ])
+        #expect(await state.snapshot().activeNetworkProfiles.isEmpty)
     }
 
     @Test
@@ -273,7 +327,21 @@ struct MobileIrohRuntimeCompositionTests {
             return
         }
         #expect(identity.endpointID == String(repeating: "a", count: 64))
-        #expect(hints.isEmpty)
+        let tailscaleHint = try #require(hints.first)
+        #expect(tailscaleHint.kind == .directAddress)
+        #expect(tailscaleHint.value == "100.64.0.10:50906")
+        #expect(tailscaleHint.source == .tailscale)
+        #expect(tailscaleHint.privacyScope == .privateNetwork)
+        #expect(tailscaleHint.use == .fallbackOnly)
+        #expect(tailscaleHint.networkProfile?.source == .tailscale)
+        #expect(tailscaleHint.isUsable(at: Date()))
+        let tailscaleProfile = try #require(tailscaleHint.networkProfile)
+        let dialPlan = try #require(routes[0].endpoint.irohDialPlan(
+            at: Date(),
+            managedRelayURLs: [],
+            activeNetworkProfiles: [tailscaleProfile]
+        ))
+        #expect(dialPlan.privateFallbackPaths == [tailscaleHint])
         #expect(await registry.freshRoutes(
             forMacDeviceID: "123e4567-e89b-42d3-a456-426614174099",
             instanceTag: "test"
@@ -586,6 +654,30 @@ private actor MobileIrohBaseRegistry: DeviceRegistryRefreshing {
         instanceTag _: String?
     ) -> [CmxAttachRoute]? { routes }
     func listDevices() -> DeviceRegistryListOutcome { .ok([]) }
+}
+
+private final class MobileIrohInterfaceProvider:
+    NetworkInterfaceAddressProviding,
+    @unchecked Sendable
+{
+    private let lock = NSLock()
+    private var interfaces: [NetworkInterfaceAddress]?
+
+    init(_ interfaces: [NetworkInterfaceAddress]?) {
+        self.interfaces = interfaces
+    }
+
+    func set(_ interfaces: [NetworkInterfaceAddress]?) {
+        lock.lock()
+        self.interfaces = interfaces
+        lock.unlock()
+    }
+
+    func currentInterfaceAddresses() -> [NetworkInterfaceAddress]? {
+        lock.lock()
+        defer { lock.unlock() }
+        return interfaces
+    }
 }
 
 @MainActor

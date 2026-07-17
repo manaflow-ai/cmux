@@ -30,8 +30,6 @@ struct ControlCommandExecutionPolicyTests {
         for method in [
             "system.ping", "system.capabilities", "auth.status", "auth.sign_in_url",
             "feed.push", "browser.download.wait", "system.top", "system.memory",
-            "performance.metrics.exercise_process",
-            "performance.metrics.exercise_git_pr",
             "workspace.remote.pty_bridge", "workspace.env", "sidebar.custom.reload",
             "sidebar.custom.open",
             "debug.sidebar.simulate_drag", "mobile.attach_ticket.create",
@@ -52,6 +50,7 @@ struct ControlCommandExecutionPolicyTests {
             "browser.storage.clear", "browser.console.list", "browser.console.clear",
             "browser.errors.list", "browser.state.save", "browser.state.load",
             "browser.addinitscript", "browser.addscript", "browser.addstyle",
+            "browser.design_mode.set", "browser.design_mode.status",
         ] {
             #expect(ControlCommandExecutionPolicy(forMethod: method).runsOnSocketWorker, "\(method)")
         }
@@ -73,7 +72,12 @@ struct ControlCommandExecutionPolicyTests {
     }
 
     @Test func remoteTmuxTestMethodsOnlyRunOnWorkerInDebugBuilds() {
-        for method in ["remote.tmux.test_exec", "remote.tmux.test_set_frame"] {
+        for method in [
+            "remote.tmux.test_exec", "remote.tmux.test_set_frame",
+            "remote.tmux.test_perturb_divider",
+            // window is a DEBUG-only alias of mirror; it must share the worker lane.
+            "remote.tmux.window",
+        ] {
             let policy = ControlCommandExecutionPolicy(forMethod: method)
 #if DEBUG
             #expect(policy == .socketWorker(mainThreadCallable: false), "\(method)")

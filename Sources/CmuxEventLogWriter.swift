@@ -13,7 +13,7 @@ final class CmuxEventLogWriter: @unchecked Sendable {
     private let maxEventLogBytes: UInt64
     private let maxPendingLines: Int
     private let lock = NSLock()
-    private var pendingLines: CmuxBoundedRingBuffer<Data>
+    private var pendingLines: [String] = []
     private var flushScheduled = false
     private var droppedLineCount = 0
 #if DEBUG
@@ -24,15 +24,17 @@ final class CmuxEventLogWriter: @unchecked Sendable {
         self.eventLogURL = eventLogURL
         self.maxEventLogBytes = max(1, maxEventLogBytes)
         self.maxPendingLines = max(1, maxPendingLines)
-        self.pendingLines = CmuxBoundedRingBuffer(capacity: self.maxPendingLines)
     }
 
-    func enqueue(_ line: Data) {
+    func enqueue(_ line: String) {
         var shouldSchedule = false
         lock.lock()
-        if pendingLines.appendDroppingOldest(line) {
-            droppedLineCount += 1
+        if pendingLines.count >= maxPendingLines {
+            let removedCount = pendingLines.count - maxPendingLines + 1
+            pendingLines.removeFirst(removedCount)
+            droppedLineCount += removedCount
         }
+        pendingLines.append(line)
 #if DEBUG
         if flushSuspendedForTesting {
             lock.unlock()
@@ -103,7 +105,7 @@ final class CmuxEventLogWriter: @unchecked Sendable {
 
     private func flushPendingLines() {
         while true {
-            let lines: [Data]
+            let lines: [String]
             let droppedCount: Int
             lock.lock()
             if pendingLines.isEmpty {
@@ -116,14 +118,14 @@ final class CmuxEventLogWriter: @unchecked Sendable {
                 }
                 return
             }
-            lines = pendingLines.elements
-            pendingLines.removeAll()
+            lines = pendingLines
+            pendingLines.removeAll(keepingCapacity: true)
             lock.unlock()
             append(lines)
         }
     }
 
-    private func append(_ lines: [Data]) {
+    private func append(_ lines: [String]) {
         guard !lines.isEmpty else { return }
         do {
             try FileManager.default.createDirectory(
@@ -138,7 +140,8 @@ final class CmuxEventLogWriter: @unchecked Sendable {
             defer { try? handle.close() }
             try handle.seekToEnd()
             var currentSize = Self.fileSize(at: eventLogURL, fileManager: fileManager)
-            for data in lines {
+            for line in lines {
+                let data = Data((line + "\n").utf8)
                 if currentSize + UInt64(data.count) > maxEventLogBytes {
                     try handle.close()
                     try rotate(fileManager: fileManager)

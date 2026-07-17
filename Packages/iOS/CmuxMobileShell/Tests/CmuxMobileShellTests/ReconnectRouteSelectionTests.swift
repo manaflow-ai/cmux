@@ -53,14 +53,16 @@ import Testing
         #expect(pick?.0 == "100.82.214.112") // tailscale, not the phone's 127.0.0.1
     }
 
-    @Test func physicalDeviceFallsBackToLoopbackWhenItIsTheOnlyRoute() throws {
-        // The on-device XCUITest mock host serves a real listener on 127.0.0.1.
+    @Test func physicalDeviceRejectsLoopbackWhenItIsTheOnlyRoute() throws {
+        // A stale backup can contain only the Mac's debug loopback route. On a
+        // real phone that address names the phone, so reconnect must fail closed
+        // instead of dialing a local port that can never reach the Mac.
         let pick = MobileShellComposite.firstReconnectHostPortRoute(
             [try loopback()],
             supportedKinds: [.debugLoopback, .tailscale],
             preferNonLoopback: true
         )
-        #expect(pick?.0 == "127.0.0.1")
+        #expect(pick == nil)
     }
 
     @Test func simulatorKeepsLoopbackPriorityOrder() throws {
@@ -98,16 +100,17 @@ import Testing
         #expect(candidates.map { $0.host } == ["100.82.214.112"])
     }
 
-    @Test func physicalDeviceCandidatesUseLoopbackOnlyAsSoleSupportedRoute() throws {
-        // The on-device XCUITest mock host serves a real listener on 127.0.0.1
-        // and advertises no other route.
+    @Test func physicalDeviceCandidatesRejectSoleLoopbackRoute() throws {
+        // Candidate iteration must enforce the same fail-closed rule as the
+        // single-route helper, otherwise a later caller can reintroduce the bad
+        // physical-device dial even when the preferred-route helper is correct.
         let candidates = MobileShellComposite.reconnectHostPortRoutes(
             [try loopback()],
             supportedKinds: [.debugLoopback, .tailscale],
             preferNonLoopback: true
         )
 
-        #expect(candidates.map { $0.host } == ["127.0.0.1"])
+        #expect(candidates.isEmpty)
     }
 
     @Test func reconnectCandidatesDeduplicateEndpoints() throws {
