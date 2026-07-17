@@ -28,7 +28,7 @@ import Testing
         case .upsert(let record, _), .upsertPreservingCustomizations(let record, _),
              .revive(let record, _), .revivePreservingCustomizations(let record, _):
             return record
-        case .delete:
+        case .delete, .deleteInstance:
             return nil
         }
     }

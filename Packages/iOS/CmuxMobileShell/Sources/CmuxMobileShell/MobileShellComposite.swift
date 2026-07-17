@@ -4759,10 +4759,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                     replaceRemoteClient(with: client)
                     activeMacInstanceTag = resolvedInstanceTag
-                    prepareTerminalThemeRevisionAuthority(
-                        macInstanceTag: resolvedInstanceTag, producerEpoch: status.terminalThemeRevisionEpoch,
-                        connectionID: generation.uuidString
-                    )
                     // Reuse the authenticated status response that bound this
                     // route to its Mac instance. The event listener needs the
                     // same payload for capability negotiation, so asking again
