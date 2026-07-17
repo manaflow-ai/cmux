@@ -7,6 +7,11 @@ on:
         description: "TUI package version to publish, for example 0.1.0"
         required: true
         type: string
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
 
 permissions: {}
 

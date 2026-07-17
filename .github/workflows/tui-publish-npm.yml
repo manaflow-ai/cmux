@@ -12,6 +12,14 @@ on:
         required: true
         default: false
         type: boolean
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+      confirm_tui_cmux:
+        required: true
+        type: boolean
 
 permissions: {}
 

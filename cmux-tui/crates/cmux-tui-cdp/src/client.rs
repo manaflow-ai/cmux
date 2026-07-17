@@ -136,7 +136,8 @@ impl EventQueue {
             if retained_bytes > CDP_EVENT_QUEUE_MAX_BYTES {
                 return Err(());
             }
-            state.events[index] = QueuedEvent { event, retained_bytes: event_bytes };
+            state.events.remove(index);
+            state.events.push_back(QueuedEvent { event, retained_bytes: event_bytes });
             state.retained_bytes = retained_bytes;
         } else {
             let retained_bytes = state.retained_bytes.checked_add(event_bytes).ok_or(())?;

@@ -253,33 +253,32 @@ impl SurfaceRoute {
 
         match event {
             CdpEvent::ScreencastFrame(frame) => {
-                if let Some(queued) = state
+                if let Some(index) = state
                     .events
-                    .iter_mut()
-                    .find(|queued| matches!(queued, CdpEvent::ScreencastFrame(_)))
+                    .iter()
+                    .position(|queued| matches!(queued, CdpEvent::ScreencastFrame(_)))
                 {
-                    *queued = CdpEvent::ScreencastFrame(frame);
-                } else if state.events.len() < CDP_EVENT_QUEUE_CAPACITY {
-                    state.events.push_back(CdpEvent::ScreencastFrame(frame));
-                } else {
+                    state.events.remove(index);
+                } else if state.events.len() >= CDP_EVENT_QUEUE_CAPACITY {
                     fail_surface_route(&mut state, "CDP surface event queue overflow");
                     self.ready.notify_one();
                     return true;
                 }
+                state.events.push_back(CdpEvent::ScreencastFrame(frame));
             }
             CdpEvent::TargetInfoChanged(info) => {
-                if let Some(queued) = state.events.iter_mut().find(|queued| {
+                if let Some(index) = state.events.iter().position(|queued| {
                     matches!(queued, CdpEvent::TargetInfoChanged(existing) if existing.target_id == info.target_id)
                 }) {
-                    *queued = CdpEvent::TargetInfoChanged(info);
+                    state.events.remove(index);
                 } else {
                     if state.events.len() >= CDP_EVENT_QUEUE_CAPACITY {
                         fail_surface_route(&mut state, "CDP surface event queue overflow");
                         self.ready.notify_one();
                         return true;
                     }
-                    state.events.push_back(CdpEvent::TargetInfoChanged(info));
                 }
+                state.events.push_back(CdpEvent::TargetInfoChanged(info));
             }
             event => {
                 if state.events.len() >= CDP_EVENT_QUEUE_CAPACITY {

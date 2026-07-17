@@ -584,6 +584,19 @@ export class CmuxClient {
         this.validateAttachEncodedData(event.data, "frame");
         return event as DecodedAttachEvent;
       }
+      case "browser-state": {
+        const frame = event.frame;
+        if (frame !== undefined && frame !== null) {
+          if (typeof frame !== "object" || Array.isArray(frame)) {
+            throw new CmuxProtocolError("browser-state frame is not an object");
+          }
+          this.validateAttachEncodedData(
+            (frame as { data?: unknown }).data,
+            "browser-state frame",
+          );
+        }
+        return event as DecodedAttachEvent;
+      }
       default: return event as DecodedAttachEvent;
     }
   }
@@ -612,6 +625,11 @@ export class CmuxClient {
         return event.data instanceof Uint8Array ? event.data.byteLength : 0;
       case "frame":
         return typeof event.data === "string" ? event.data.length : 0;
+      case "browser-state":
+        if (!event.frame || typeof event.frame !== "object" || Array.isArray(event.frame)) return 0;
+        return typeof (event.frame as { data?: unknown }).data === "string"
+          ? ((event.frame as { data: string }).data).length
+          : 0;
       default:
         return 0;
     }
@@ -642,6 +660,7 @@ export class CmuxClient {
       || event === "output"
       || event === "resized"
       || event === "frame"
+      || event === "browser-state"
       || event === "colors-changed"
       || event === "detached";
   }
