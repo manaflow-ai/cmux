@@ -3530,19 +3530,10 @@ impl App {
                 }
                 Ok(RenderAction::Draw)
             }
-            AppEvent::Input(Event::Key(key)) => {
-                if key.kind != KeyEventKind::Release {
-                    self.reassert_visible_surface_sizes();
-                }
-                self.handle_key(key)
-            }
-            AppEvent::Input(Event::Mouse(mouse)) => {
-                self.reassert_visible_surface_sizes();
-                self.handle_mouse(mouse)
-            }
+            AppEvent::Input(Event::Key(key)) => self.handle_key(key),
+            AppEvent::Input(Event::Mouse(mouse)) => self.handle_mouse(mouse),
             AppEvent::Input(Event::Paste(text)) => {
                 self.status_message = None;
-                self.reassert_visible_surface_sizes();
                 if self.pairing_dialog.is_some() {
                     Ok(RenderAction::Draw)
                 } else if let Some(prompt) = self.prompt.as_mut() {
