@@ -1,10 +1,5 @@
 import SwiftUI
 
-struct SidebarWorkspaceTableContextMenuActions {
-    let didOpen: () -> Void
-    let didClose: () -> Void
-}
-
 /// Immutable description of one AppKit-owned sidebar row.
 @MainActor
 struct SidebarWorkspaceTableRowConfiguration {
