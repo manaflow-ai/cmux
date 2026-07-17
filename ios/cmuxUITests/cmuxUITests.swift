@@ -737,6 +737,83 @@ final class cmuxUITests: XCTestCase {
         )
     }
 
+    /// Regression: the production composer must route a Claude task through
+    /// the connected host and select the exact workspace returned by that RPC.
+    @MainActor
+    func testTaskComposerCreatesAndSelectsConnectedWorkspace() async throws {
+        let server = try MobileSyncMockHostServer(usesSyntheticManualHostIdentity: true)
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedAppViaManualPairing(port: port)
+        defer { app.terminate() }
+
+        let backButton = app.buttons["MobileWorkspaceBackButton"]
+        XCTAssertTrue(backButton.waitForExistence(timeout: 4))
+        tap(backButton, in: app)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
+                .waitForExistence(timeout: 4)
+        )
+
+        let composerButton = app.buttons["MobileTaskComposerButton"]
+        XCTAssertTrue(composerButton.waitForExistence(timeout: 4))
+        tap(composerButton, in: app)
+
+        let promptText = "Connected Claude task \(UUID().uuidString)"
+        let prompt = app.textFields["MobileTaskComposerPrompt"]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 4))
+        tap(app.buttons["Claude"], in: app)
+        try replaceText(promptText, in: prompt, app: app)
+
+        let create = app.buttons["MobileTaskComposerCreateButton"]
+        let ready = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@ AND enabled == true", "Start Claude"),
+            object: create
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 4), .completed)
+        tap(create, in: app)
+
+        XCTAssertTrue(
+            prompt.waitForNonExistence(timeout: 8),
+            "A successful connected create must dismiss the task composer"
+        )
+
+        guard let request = await server.waitForWorkspaceCreateRequest(timeout: 8) else {
+            XCTFail("The connected host never received workspace.create")
+            return
+        }
+        XCTAssertEqual(request.title, promptText)
+        XCTAssertEqual(request.workingDirectory, "~/cmux")
+        XCTAssertEqual(request.initialCommand, "claude -- \"$CMUX_TASK_PROMPT\"")
+        XCTAssertEqual(request.initialEnvironment, ["CMUX_TASK_PROMPT": promptText])
+        guard let operationID = request.operationID else {
+            XCTFail("workspace.create must carry an operation ID")
+            return
+        }
+        XCTAssertFalse(operationID.isEmpty)
+        XCTAssertNotNil(UUID(uuidString: operationID))
+
+        await assertHostSelection(
+            workspaceID: "workspace-3",
+            terminalID: "workspace-3-terminal-1",
+            server: server
+        )
+        let title = workspaceTitleElement(in: app)
+        let selectedTitle = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", promptText),
+            object: title
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [selectedTitle], timeout: 8), .completed)
+        XCTAssertTrue(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8))
+
+        let terminalDropdown = app.buttons["MobileTerminalDropdown"]
+        XCTAssertTrue(terminalDropdown.waitForExistence(timeout: 4))
+        XCTAssertEqual(terminalDropdown.value as? String, "Terminal 1")
+        tap(terminalDropdown, in: app)
+        assertTerminalMenuItemExists("workspace-3-terminal-1", in: app)
+    }
+
     /// Regression: preparation must durably save the exact retry identity
     /// before routing starts, while Cancel remains available until the create
     /// boundary is committed.
@@ -2534,6 +2611,51 @@ final class cmuxUITests: XCTestCase {
             assertTerminalRow(0, label: "$ cmux ios status", in: app)
             assertTerminalRow(1, label: "Mobile Core: connected", in: app)
         }
+        return app
+    }
+
+    @MainActor
+    private func launchConnectedAppViaManualPairing(port: UInt16) throws -> XCUIApplication {
+        let portText = String(port)
+        guard let finalPortDigit = portText.last else {
+            throw URLError(.badURL)
+        }
+        let app = launchApp(mockData: true, environment: [
+            "CMUX_UITEST_ADD_DEVICE_PORT": String(portText.dropLast()),
+        ])
+        let pairingForm = app.otherElements["MobileAddDeviceForm"]
+        XCTAssertTrue(pairingForm.waitForExistence(timeout: 8))
+
+        let hostField = app.textFields["MobileAddDeviceHostField"]
+        XCTAssertTrue(hostField.waitForExistence(timeout: 4))
+        hostField.tap()
+        hostField.typeText("127.0.0.1")
+
+        let portField = app.textFields["MobileAddDevicePortField"]
+        XCTAssertTrue(portField.waitForExistence(timeout: 4))
+        portField.tap()
+        portField.typeText(String(finalPortDigit))
+        XCTAssertEqual(hostField.value as? String, "127.0.0.1")
+        XCTAssertEqual(portField.value as? String, portText)
+
+        let pairButton = app.buttons["MobilePairButton"]
+        let pairReady = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "enabled == true"),
+            object: pairButton
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [pairReady], timeout: 4), .completed)
+        XCTAssertTrue(pairButton.isHittable)
+        pairButton.tap()
+
+        XCTAssertTrue(
+            pairingForm.waitForNonExistence(timeout: 20),
+            "Successful manual loopback pairing must dismiss the Add Computer sheet"
+        )
+
+        waitForWorkspaceShell(in: app)
+        try openSelectedWorkspaceIfNeeded(app)
+        assertTerminalRow(0, label: "$ cmux ios status", in: app)
+        assertTerminalRow(1, label: "Mobile Core: connected", in: app)
         return app
     }
 
@@ -4764,6 +4886,14 @@ private enum MockColorBands {
 }
 
 private final class MobileSyncMockHostServer: @unchecked Sendable {
+    struct WorkspaceCreateRequest: Sendable {
+        let title: String?
+        let workingDirectory: String?
+        let initialCommand: String?
+        let initialEnvironment: [String: String]?
+        let operationID: String?
+    }
+
     private struct Workspace {
         var id: String
         var title: String
@@ -4782,10 +4912,12 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private let listener: NWListener
     private let queue = DispatchQueue(label: "dev.cmux.ios-ui-tests.mobile-sync-server")
     private let createdWorkspaceTerminalDelay: TimeInterval?
+    private let usesSyntheticManualHostIdentity: Bool
     private var readyContinuation: CheckedContinuation<UInt16, Error>?
     private var connections: [NWConnection] = []
     private var selectedWorkspaceID = "workspace-main"
     private var selectedTerminalID = "terminal-build"
+    private var workspaceCreateRequests: [WorkspaceCreateRequest] = []
     private var replayCounts: [String: Int] = [:]
     private var streamOffset: UInt64 = 1
     private var workspaces: [Workspace] = [
@@ -4840,10 +4972,12 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     init(
         defaultTerminalLines: [String]? = nil,
         additionalMainTerminalCount: Int = 0,
-        createdWorkspaceTerminalDelay: TimeInterval? = nil
+        createdWorkspaceTerminalDelay: TimeInterval? = nil,
+        usesSyntheticManualHostIdentity: Bool = false
     ) throws {
         listener = try NWListener(using: .tcp, on: .any)
         self.createdWorkspaceTerminalDelay = createdWorkspaceTerminalDelay
+        self.usesSyntheticManualHostIdentity = usesSyntheticManualHostIdentity
         appendMainTerminals(count: additionalMainTerminalCount)
         // Optionally replace the selected terminal's content (used by the
         // color-band render test so the bands stream on attach without a flaky
@@ -4919,6 +5053,27 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     func selectionDescription() async -> String {
         let selection = await currentSelection()
         return "\(selection.workspaceID)/\(selection.terminalID)"
+    }
+
+    func waitForWorkspaceCreateRequest(
+        timeout: TimeInterval = 8
+    ) async -> WorkspaceCreateRequest? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let request = await latestWorkspaceCreateRequest() {
+                return request
+            }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        return await latestWorkspaceCreateRequest()
+    }
+
+    private func latestWorkspaceCreateRequest() async -> WorkspaceCreateRequest? {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                continuation.resume(returning: self.workspaceCreateRequests.last)
+            }
+        }
     }
 
     private func currentSelection() async -> (workspaceID: String, terminalID: String) {
@@ -5052,13 +5207,25 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
 
         let id = request["id"] as? String ?? ""
         let params = request["params"] as? [String: Any] ?? [:]
+        if method == "mobile.attach_ticket.create" {
+            let envelope: [String: Any] = [
+                "id": id,
+                "ok": false,
+                "error": [
+                    "code": "method_not_found",
+                    "message": "Unknown method",
+                ],
+            ]
+            let responsePayload = try JSONSerialization.data(withJSONObject: envelope)
+            return Self.frame(responsePayload)
+        }
         let result: [String: Any]
 
         switch method {
         case "mobile.workspace.list", "workspace.list":
             result = workspaceListResult()
         case "workspace.create":
-            result = createWorkspaceResult()
+            result = createWorkspaceResult(params: params)
         case "terminal.create":
             result = createTerminalResult(params: params)
         case "mobile.events.subscribe":
@@ -5086,7 +5253,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     }
 
     private func mobileHostStatusResult() -> [String: Any] {
-        [
+        var result: [String: Any] = [
             "routes": [],
             "terminal_fidelity": "render_grid",
             "capabilities": [
@@ -5099,32 +5266,49 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
                 "terminal.replay.v1",
                 "terminal.viewport.v1",
                 "workspace.actions.v1",
+                "workspace.task_create.v1",
                 "workspace.read_state.v1",
                 "workspace.close.v1",
                 "dogfood.v1",
                 "workspace.groups.v1",
             ],
         ]
+        if usesSyntheticManualHostIdentity, let port = listener.port?.rawValue {
+            result["mac_device_id"] = "manual-127.0.0.1:\(port)"
+            result["mac_display_name"] = "UI Test Mac"
+            result["mac_instance_tag"] = "dev"
+        }
+        return result
     }
 
-    private func createWorkspaceResult() -> [String: Any] {
+    private func createWorkspaceResult(params: [String: Any]) -> [String: Any] {
+        let request = WorkspaceCreateRequest(
+            title: params["title"] as? String,
+            workingDirectory: params["working_directory"] as? String,
+            initialCommand: params["initial_command"] as? String,
+            initialEnvironment: params["initial_env"] as? [String: String],
+            operationID: params["operation_id"] as? String
+        )
+        workspaceCreateRequests.append(request)
         let nextIndex = workspaces.count + 1
         let workspaceID = "workspace-\(nextIndex)"
         let terminalID = "\(workspaceID)-terminal-1"
+        let title = request.title ?? "Workspace \(nextIndex)"
+        let workingDirectory = request.workingDirectory ?? "~/workspace-\(nextIndex)"
         let terminal = Terminal(
             id: terminalID,
             title: "Terminal 1",
-            currentDirectory: "~/workspace-\(nextIndex)",
+            currentDirectory: workingDirectory,
             lines: [
                 "$ cmux ios",
-                "workspace: Workspace \(nextIndex)",
+                "workspace: \(title)",
                 "terminal: Terminal 1",
             ]
         )
         let workspace = Workspace(
             id: workspaceID,
-            title: "Workspace \(nextIndex)",
-            currentDirectory: "~/workspace-\(nextIndex)",
+            title: title,
+            currentDirectory: workingDirectory,
             terminals: createdWorkspaceTerminalDelay == nil ? [terminal] : []
         )
         workspaces.append(workspace)
