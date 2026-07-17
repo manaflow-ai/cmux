@@ -1,4 +1,5 @@
 import Foundation
+import Testing
 @testable import CmuxUpdater
 
 /// Immediate for the sub-second plumbing delays; parks second-or-longer deadlines until the test
@@ -29,10 +30,16 @@ actor TestDeadlineClock: UpdateClock {
 
     func fireDeadlineWhenReady() async {
         // A test may request a deadline and immediately release it before the task running
-        // `sleep(for:)` reaches the actor. Yield until that real signal is registered instead of
-        // adding timing sleeps to the test.
-        while parked.isEmpty {
+        // `sleep(for:)` reaches the actor. Poll that real registration signal without timing
+        // sleeps, but bound the poll so a missing deadline fails instead of hanging the suite.
+        let clock = ContinuousClock()
+        let timeout = clock.now.advanced(by: .seconds(2))
+        while parked.isEmpty, clock.now < timeout {
             await Task.yield()
+        }
+        guard !parked.isEmpty else {
+            Issue.record("timed out waiting for a test deadline to be armed")
+            return
         }
         fireDeadlines()
     }

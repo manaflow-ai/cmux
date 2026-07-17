@@ -44,7 +44,12 @@ extension UpdateController {
         }
 
         cancelReadinessRetry()
-        startUpdaterIfNeeded()
+        guard startUpdaterIfNeeded(retryAfterFailure: { [weak self] in
+            self?.requestUpdateCheck(intent)
+        }) else {
+            log.append("update check halted because updater startup failed (intent=\(intent.rawValue))")
+            return
+        }
         ensureSparkleInstallationCache()
 
         if mustFinishCurrentCycleBeforeChecking {
@@ -128,6 +133,13 @@ extension UpdateController {
                 remaining -= 1
                 try? await self.clock.sleep(for: self.readyRetryDelay)
                 if Task.isCancelled { return }
+            }
+
+            // Read once more after the final bounded wait. Readiness may have changed during that
+            // last suspension, and reporting a timeout without observing it would drop the check.
+            if self.updater.canCheckForUpdates, !self.updater.sessionInProgress {
+                self.startPendingCheck()
+                return
             }
 
             guard let intent = self.pendingCheckIntent else { return }

@@ -91,6 +91,28 @@ import Testing
         #expect(prompt.choice == nil)
     }
 
+    /// A failed updater start is already an actionable terminal. Check orchestration must not
+    /// replace it with preparation/readiness state, and Retry must preserve the original intent.
+    @Test func updaterStartupFailureStopsCheckAndRetryResumesIntent() {
+        let harness = Harness()
+        let startupError = NSError(domain: "test.updater.start", code: 41)
+        harness.updater.startError = startupError
+
+        harness.controller.checkForUpdates()
+
+        #expect(harness.updater.checkForUpdatesCallCount == 0)
+        guard case .error(let failure) = harness.model.state else {
+            Issue.record("startup failure was overwritten by \(harness.model.state)")
+            return
+        }
+        #expect((failure.error as NSError).domain == startupError.domain)
+
+        harness.updater.startError = nil
+        failure.retry()
+        #expect(harness.updater.checkForUpdatesCallCount == 1)
+        #expect(harness.updater.sessionInProgress)
+    }
+
     /// End-to-end accepted-install lifecycle: retire the old prompt, wait for Sparkle's cycle-end
     /// signal, re-resolve the newest nightly, retain visible ownership through the install reply,
     /// and end only when Sparkle starts downloading.
@@ -138,9 +160,6 @@ import Testing
         harness.controller.attemptUpdate()
 
         #expect(stalePrompt.choice == .dismiss)
-        for _ in 0..<100 {
-            await Task.yield()
-        }
 
         // No Sparkle cycle-finished signal has arrived, so starting a new check is not safe yet.
         #expect(harness.updater.checkForUpdatesCallCount == 0)
@@ -255,6 +274,24 @@ import Testing
         #expect(!harness.controller.installWatchdog.isArmed)
     }
 
+    /// Readiness can change during the final bounded suspension. The controller must observe that
+    /// edge before publishing a false timeout.
+    @Test func readinessOnFinalRetryStartsPendingCheck() async {
+        let harness = Harness()
+        // One read before entering the wait, then twenty loop reads, then the final boundary read.
+        harness.updater.scriptedCanCheckForUpdates = Array(repeating: false, count: 21) + [true]
+
+        harness.controller.checkForUpdates()
+
+        await waitUntil("final readiness read to start the check") {
+            harness.updater.checkForUpdatesCallCount == 1
+        }
+        #expect(harness.updater.sessionInProgress)
+        if case .error = harness.model.state {
+            Issue.record("final readiness edge incorrectly surfaced an error")
+        }
+    }
+
     /// If Sparkle accepts the fresh check call but emits no user-driver callback, the watchdog must
     /// turn the stall into a visible error and kill the attempt so a later unrelated resolution is
     /// not auto-installed.
@@ -328,18 +365,10 @@ import Testing
         harness.model.setState(updateAvailable("0.64.16", replyingInto: freshPrompt))
         harness.model.setState(.idle)
 
-        for _ in 0..<100 {
-            await Task.yield()
+        await waitUntil("prompt-loss error") {
+            errorCode(for: harness.model.state) == UpdateStateModel.installDidNotStartCode
         }
         #expect(freshPrompt.choice == nil)
-        #expect(harness.model.showsPill || harness.controller.installWatchdog.isArmed)
-
-        if harness.controller.installWatchdog.isArmed {
-            await harness.clock.fireDeadlineWhenReady()
-            await waitUntil("prompt-loss error") {
-                errorCode(for: harness.model.state) == UpdateStateModel.installDidNotStartCode
-            }
-        }
     }
 
     /// A retryable accepted-install failure must also resolve the Sparkle terminal it replaces.

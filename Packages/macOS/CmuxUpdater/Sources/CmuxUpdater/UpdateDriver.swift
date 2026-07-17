@@ -202,14 +202,15 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         log.append("update prompt reply consumed (choice=\(choice.rawValue), source=\(source.rawValue))")
         guard source == .user, choice == .dismiss || choice == .skip else { return }
 
-        // Tell the lifecycle owner before emitting idle so an explicit user choice cannot be
-        // mistaken for an unattributed prompt loss during an accepted install.
-        eventDelegate?.updateDriverUserDidDismissPrompt()
         guard case .updateAvailable(let available) = model.state,
               available.reply.id == reply.id else {
             log.append("user prompt reply did not match live prompt; preserving current state")
             return
         }
+
+        // Tell the lifecycle owner only after the structured prompt identity matches. A delayed
+        // action from an old prompt must not cancel a newer check or accepted install.
+        eventDelegate?.updateDriverUserDidDismissPrompt()
         setState(.idle)
     }
 

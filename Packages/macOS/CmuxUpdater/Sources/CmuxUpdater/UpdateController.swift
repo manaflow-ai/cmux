@@ -239,8 +239,16 @@ public final class UpdateController {
     // MARK: - Updater lifecycle
 
     /// Start the updater. If startup fails, the error is shown via the custom UI.
-    public func startUpdaterIfNeeded() {
-        guard !didStartUpdater else { return }
+    @discardableResult
+    public func startUpdaterIfNeeded() -> Bool {
+        startUpdaterIfNeeded(retryAfterFailure: { [weak self] in
+            self?.startUpdaterIfNeeded()
+        })
+    }
+
+    @discardableResult
+    func startUpdaterIfNeeded(retryAfterFailure: @escaping () -> Void) -> Bool {
+        guard !didStartUpdater else { return true }
         ensureSparkleInstallationCache()
 #if DEBUG
         // Keep the permission-related defaults resettable for UI tests even though the
@@ -270,18 +278,20 @@ public final class UpdateController {
                 "updater started (autoChecks=\(updater.automaticallyChecksForUpdates), interval=\(interval)s, autoDownloads=\(updater.automaticallyDownloadsUpdates))"
             )
             startLaunchUpdateProbeIfNeeded()
+            return true
         } catch {
             model.setState(.error(.init(
                 error: error,
                 retry: { [weak self] in
                     self?.model.setState(.idle)
                     self?.didStartUpdater = false
-                    self?.startUpdaterIfNeeded()
+                    retryAfterFailure()
                 },
                 dismiss: { [weak self] in
                     self?.model.setState(.idle)
                 }
             )))
+            return false
         }
     }
 

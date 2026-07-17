@@ -169,6 +169,38 @@ import Testing
         #expect(model.state.isIdle)
     }
 
+    /// A delayed action from a prompt that no longer owns the model cannot cancel the lifecycle
+    /// associated with the current prompt.
+    @Test func stalePromptReplyDoesNotNotifyLifecycleOwner() {
+        let model = UpdateStateModel()
+        let driver = UpdateDriver(
+            model: model,
+            log: NoopUpdateLog(),
+            clock: SystemUpdateClock(),
+            isDevLikeBundle: false
+        )
+        let eventSpy = PromptReplyEventSpy()
+        driver.eventDelegate = eventSpy
+        let staleReply = UpdatePromptReply { _ in }
+        staleReply.onConsumed = { [weak driver] reply, choice, source in
+            driver?.handlePromptReply(reply, choice: choice, source: source)
+        }
+        let currentReply = UpdatePromptReply { _ in }
+        model.setState(.updateAvailable(.init(
+            appcastItem: makeItem("0.64.16"),
+            reply: currentReply
+        )))
+
+        staleReply(.dismiss)
+
+        #expect(eventSpy.promptDismissalCount == 0)
+        guard case .updateAvailable(let available) = model.state else {
+            Issue.record("stale prompt reply cleared the current lifecycle")
+            return
+        }
+        #expect(available.reply.id == currentReply.id)
+    }
+
     /// A causal user dismissal clears its own prompt but cannot authorize a later identity-free
     /// dismissal to clear unrelated progress.
     @Test func userPromptDismissalDoesNotAuthorizeLaterUnscopedDismissal() {
