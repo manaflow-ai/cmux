@@ -226,6 +226,33 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
+    @Test func approvalLedgerRemainsReadableAcrossAppRestarts() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directory = try Self.writeExtension(
+            named: "restart-readable",
+            in: root,
+            manifest: Self.minimalManifest
+        )
+        try "// no-op".write(
+            to: directory.appendingPathComponent("content.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let manager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent()
+        )
+
+        try await manager.approveInstalledCandidate(directory)
+
+        let ledger = root.appendingPathComponent(".cmux-approved-extensions.json")
+        let values = try ledger.resourceValues(forKeys: [.fileProtectionKey])
+        #expect(values.fileProtection != .complete)
+        #expect(try Data(contentsOf: ledger).isEmpty == false)
+    }
+
+    @available(macOS 15.4, *)
     @Test func installsValidExtensionIntoManagedDirectoryAndLoadsItImmediately() async throws {
         let sourceRoot = try Self.makeExtensionsRoot()
         let managedRoot = try Self.makeExtensionsRoot()
