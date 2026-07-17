@@ -1,9 +1,80 @@
 import CmuxTerminalRenderTransport
 import Foundation
+import IOSurface
 import Testing
 @testable import CmuxGhosttyRenderClient
 
 @Suite(.serialized) struct GhosttyRenderWorkerClientTests {
+    @Test func realWorkerRendersFrameInChildProcess() async throws {
+        let client = try GhosttyRenderWorkerClient(executableURL: realWorkerURL())
+        let eventCollector = EventCollector(stream: await client.subscribeEvents())
+        let frameCollector = FrameCollector(stream: await client.subscribeFrames())
+        await client.updateConfiguration(configuration())
+
+        let id = UUID()
+        let descriptor = surfaceDescriptor(id: id, generation: 3)
+        client.commandSink.enqueue(.createSurface(descriptor))
+
+        let readyEvents = await eventCollector.waitUntil(timeout: .seconds(20)) { events in
+            events.contains(.surfaceCreated(
+                surfaceID: id,
+                surfaceGeneration: descriptor.generation
+            ))
+        }
+        let initializedProcessIdentifier = readyEvents.compactMap { event -> Int32? in
+            guard case let .initialized(_, processIdentifier) = event else { return nil }
+            return processIdentifier
+        }.last
+        #expect(initializedProcessIdentifier != nil)
+        #expect(initializedProcessIdentifier != ProcessInfo.processInfo.processIdentifier)
+        #expect(!readyEvents.contains { event in
+            if case .failure = event { return true }
+            return false
+        })
+
+        let initialFrameSequence = await frameCollector.maximumSequence(
+            surfaceID: id,
+            surfaceGeneration: descriptor.generation
+        ) ?? 0
+        let output = Data("\u{1B}[31mrendered by worker\u{1B}[0m\r\n".utf8)
+        client.commandSink.enqueue(.mutateSurface(
+            id: id,
+            generation: descriptor.generation,
+            mutation: .processOutput(sequence: 0, bytes: output)
+        ))
+        client.commandSink.enqueue(.mutateSurface(
+            id: id,
+            generation: descriptor.generation,
+            mutation: .refresh
+        ))
+
+        let outputEvents = await eventCollector.waitUntil(timeout: .seconds(20)) { events in
+            events.contains(.outputApplied(
+                surfaceID: id,
+                surfaceGeneration: descriptor.generation,
+                nextSequence: UInt64(output.count)
+            ))
+        }
+        let frame = await frameCollector.waitForFrame(timeout: .seconds(20)) { frame in
+            frame.metadata.surfaceID == id
+                && frame.metadata.surfaceGeneration == descriptor.generation
+                && frame.metadata.frameSequence > initialFrameSequence
+        }
+        await client.shutdown()
+
+        #expect(outputEvents.contains(.outputApplied(
+            surfaceID: id,
+            surfaceGeneration: descriptor.generation,
+            nextSequence: UInt64(output.count)
+        )))
+        let renderedFrame = try #require(frame)
+        #expect(renderedFrame.metadata.workerGeneration == 1)
+        #expect(renderedFrame.metadata.width > 0)
+        #expect(renderedFrame.metadata.height > 0)
+        #expect(IOSurfaceGetWidth(renderedFrame.surface) == Int(renderedFrame.metadata.width))
+        #expect(IOSurfaceGetHeight(renderedFrame.surface) == Int(renderedFrame.metadata.height))
+    }
+
     @Test func sendsOrderedSurfaceOutputThroughRealProcess() async throws {
         let client = try GhosttyRenderWorkerClient(executableURL: fixtureURL())
         let collector = EventCollector(stream: await client.subscribeEvents())
@@ -265,8 +336,52 @@ private actor EventCollector {
     }
 }
 
+private actor FrameCollector {
+    private var frames: [TerminalRenderFrame] = []
+    private var pump: Task<Void, Never>?
+
+    init(stream: AsyncStream<TerminalRenderFrame>) {
+        Task { await start(stream) }
+    }
+
+    private func start(_ stream: AsyncStream<TerminalRenderFrame>) {
+        pump = Task {
+            for await frame in stream {
+                frames.append(frame)
+            }
+        }
+    }
+
+    func maximumSequence(surfaceID: UUID, surfaceGeneration: UInt64) -> UInt64? {
+        frames.lazy
+            .filter {
+                $0.metadata.surfaceID == surfaceID
+                    && $0.metadata.surfaceGeneration == surfaceGeneration
+            }
+            .map(\.metadata.frameSequence)
+            .max()
+    }
+
+    func waitForFrame(
+        timeout: Duration,
+        _ predicate: @escaping @Sendable (TerminalRenderFrame) -> Bool
+    ) async -> TerminalRenderFrame? {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while clock.now < deadline {
+            if let frame = frames.last(where: predicate) { return frame }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return frames.last(where: predicate)
+    }
+}
+
 private func fixtureURL() -> URL {
     builtExecutableURL(named: "cmux-ghostty-render-fixture")
+}
+
+private func realWorkerURL() -> URL {
+    builtExecutableURL(named: "cmux-ghostty-render-worker-test-host")
 }
 
 private func builtExecutableURL(named name: String) -> URL {
