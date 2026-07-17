@@ -7199,6 +7199,39 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_MIDDLE, mouseModsFromEvent(event))
     }
 
+    override func quickLook(with event: NSEvent) {
+        // macOS dictionary "Look Up" (three-finger tap, force-click, or ⌃⌘D)
+        // for the word under the cursor. Mirrors upstream Ghostty's SurfaceView;
+        // cmux already links the libghostty quicklook APIs (used for cmd-click
+        // path resolution), so no ghostty-submodule change is needed.
+        guard let surface = self.surface else { return super.quickLook(with: event) }
+
+        // Grab the word under the cursor from the terminal grid.
+        var text = ghostty_text_s()
+        guard ghostty_surface_quicklook_word(surface, &text) else {
+            return super.quickLook(with: event)
+        }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard text.text_len > 0, let textPtr = text.text else {
+            return super.quickLook(with: event)
+        }
+
+        // Use the terminal's primary font for the definition popover when available.
+        var attributes: [NSAttributedString.Key: Any] = [:]
+        if let fontRaw = ghostty_surface_quicklook_font(surface) {
+            // ghostty_surface_quicklook_font returns a copied CTFont. Swift retains
+            // it when stored in the dictionary, so release the original copy here.
+            let font = Unmanaged<CTFont>.fromOpaque(fontRaw)
+            attributes[.font] = font.takeUnretainedValue()
+            font.release()
+        }
+
+        // Ghostty uses a top-left origin; convert to AppKit's bottom-left.
+        let point = NSPoint(x: text.tl_px_x, y: frame.size.height - text.tl_px_y)
+        let string = NSAttributedString(string: String(cString: textPtr), attributes: attributes)
+        showDefinition(for: string, at: point)
+    }
+
     override func menu(for event: NSEvent) -> NSMenu? {
         makeContextMenu(for: event, sendsTerminalPointerEvent: true)
     }
