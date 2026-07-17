@@ -23,11 +23,12 @@ jobs:
     steps:
       - name: Dispatch authenticated submission
         env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           GH_TOKEN: ${{ github.token }}
         run: >-
           gh workflow run indexnow.yml
           --repo "$GITHUB_REPOSITORY"
-          --ref "${{ github.event.repository.default_branch }}"
+          --ref "$DEFAULT_BRANCH"
 
   notify:
     name: Notify IndexNow
