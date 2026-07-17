@@ -120,6 +120,7 @@ struct DockConfigFloatingDockTests {
             #"{"floats":[{"id":"x","title":"X","widht":500}]}"#,
             #"{"floats":[{"id":"x","title":"X","frame":{"w":500}}]}"#,
             #"{"floats":[{"id":"x","title":"X","content":{"id":"n","type":"note","script":"echo"}}]}"#,
+            #"{"floats":[{"id":"x","title":"X","content":{"id":"n","type":"note","command":"echo"}}]}"#,
             #"{"floats":[{"id":"x","title":"X","frame":{"width":100,"height":300}}]}"#,
         ]
 
