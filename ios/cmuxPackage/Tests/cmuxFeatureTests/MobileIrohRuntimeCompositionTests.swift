@@ -16,6 +16,13 @@ import Testing
 @Suite
 struct MobileIrohRuntimeCompositionTests {
     @Test
+    func initialAuthenticationAndFirstConnectionDoNotReplayTheSameAuthState() async throws {
+        let fixture = try await MobileIrohSignOutFixture.make()
+
+        #expect(await fixture.endpointFactory.bindCount() == 2)
+    }
+
+    @Test
     func discoveryCatalogRetainsFortyConcurrentDevelopmentBindings() async throws {
         let bindings = (0..<40).map { index in
             mobileIrohBinding(
