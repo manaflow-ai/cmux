@@ -63,7 +63,7 @@ export interface CmuxClientOptions {
   allowProtocolV6Attach?: boolean;
   /** Maximum events retained for a stream whose consumer falls behind. */
   maxBufferedEvents?: number;
-  /** Maximum encoded characters accepted in one attach replay or output event. */
+  /** Maximum encoded characters per attach payload and retained bytes across buffered attach events. */
   maxAttachEncodedChars?: number;
   /** Creates dedicated subscribe/attach transports when supplied. */
   streamTransportFactory?: () => Transport;
@@ -189,6 +189,7 @@ interface StreamWaiter<T> {
 /** A closeable async event stream with optional per-read timeouts. */
 export class CmuxStream<T extends { event: string }> implements AsyncIterable<T> {
   private readonly buffered: T[] = [];
+  private bufferedBytes = 0;
   private readonly waiters: StreamWaiter<T>[] = [];
   private closed = false;
   private endsAfterDrain = false;
@@ -198,11 +199,14 @@ export class CmuxStream<T extends { event: string }> implements AsyncIterable<T>
     private readonly timeoutMs: number,
     private readonly cleanup: () => void,
     private readonly maxBufferedEvents = DEFAULT_MAX_BUFFERED_EVENTS,
+    private readonly maxBufferedBytes = Number.POSITIVE_INFINITY,
+    private readonly retainedBytes: (event: T) => number = () => 0,
   ) {}
 
   async next(timeoutMs = this.timeoutMs): Promise<T> {
     if (this.buffered.length > 0) {
       const event = this.buffered.shift()!;
+      this.bufferedBytes = Math.max(0, this.bufferedBytes - this.retainedBytes(event));
       if (this.endsAfterDrain && this.buffered.length === 0) this.finish();
       return event;
     }
@@ -238,6 +242,7 @@ export class CmuxStream<T extends { event: string }> implements AsyncIterable<T>
   close(): void {
     if (this.closed) return;
     this.buffered.length = 0;
+    this.bufferedBytes = 0;
     this.finish();
     this.rejectWaiters(new CmuxConnectionError("stream is closed"));
   }
@@ -257,7 +262,17 @@ export class CmuxStream<T extends { event: string }> implements AsyncIterable<T>
         this.fail(new CmuxProtocolError("stream event buffer overflow"));
         return;
       }
+      const retainedBytes = this.retainedBytes(event);
+      if (retainedBytes > this.maxBufferedBytes - this.bufferedBytes) {
+        this.fail(
+          new CmuxProtocolError(
+            `stream buffered data exceeds ${this.maxBufferedBytes} bytes`,
+          ),
+        );
+        return;
+      }
       this.buffered.push(event);
+      this.bufferedBytes += retainedBytes;
     }
     if (terminal) this.endsAfterDrain = true;
   }
@@ -266,6 +281,7 @@ export class CmuxStream<T extends { event: string }> implements AsyncIterable<T>
     if (this.closed) return;
     this.terminalError = error;
     this.buffered.length = 0;
+    this.bufferedBytes = 0;
     this.finish();
     this.rejectWaiters(error);
   }
@@ -458,6 +474,11 @@ export class CmuxClient {
       (event) => this.decodeAttachEvent(event as AttachEvent),
       (event, dedicated) => dedicated || this.matchesAttachEvent(event, surface),
       (event) => event.event === "detached" || this.isSurfaceOverflow(event, surface),
+      false,
+      {
+        maxBytes: this.maxAttachEncodedChars,
+        retainedBytes: (event) => this.attachEventRetainedBytes(event),
+      },
     );
   }
 
@@ -493,6 +514,7 @@ export class CmuxClient {
     accept: (event: UnknownEvent, dedicated: boolean) => boolean,
     terminal: (event: T) => boolean = () => false,
     exclusiveSharedSubscription = false,
+    buffering?: { maxBytes: number; retainedBytes: (event: T) => number },
   ): Promise<CmuxStream<T>> {
     const dedicated = this.streamTransportFactory !== undefined;
     if (exclusiveSharedSubscription && !dedicated) {
@@ -515,7 +537,7 @@ export class CmuxClient {
         this.sharedSubscriptionActive = false;
       }
       if (dedicated) transport.close();
-    }, this.maxBufferedEvents);
+    }, this.maxBufferedEvents, buffering?.maxBytes, buffering?.retainedBytes);
     eventSubscription = router.onEvent((event) => {
       if (!accept(event, dedicated)) return;
       try {
@@ -558,11 +580,19 @@ export class CmuxClient {
         const data = this.decodeAttachData(encoded, "resized");
         return { ...event, data, replay: data } as DecodedAttachEvent;
       }
+      case "frame": {
+        this.validateAttachEncodedData(event.data, "frame");
+        return event as DecodedAttachEvent;
+      }
       default: return event as DecodedAttachEvent;
     }
   }
 
   private decodeAttachData(value: unknown, eventName: string): Uint8Array {
+    return decodeBase64(this.validateAttachEncodedData(value, eventName));
+  }
+
+  private validateAttachEncodedData(value: unknown, eventName: string): string {
     if (typeof value !== "string") {
       throw new CmuxProtocolError(`${eventName} data is not base64 text`);
     }
@@ -571,7 +601,20 @@ export class CmuxClient {
         `${eventName} data exceeds ${this.maxAttachEncodedChars} encoded characters`,
       );
     }
-    return decodeBase64(value);
+    return value;
+  }
+
+  private attachEventRetainedBytes(event: DecodedAttachEvent): number {
+    switch (event.event) {
+      case "vt-state":
+      case "output":
+      case "resized":
+        return event.data instanceof Uint8Array ? event.data.byteLength : 0;
+      case "frame":
+        return typeof event.data === "string" ? event.data.length : 0;
+      default:
+        return 0;
+    }
   }
 
   private matchesAttachEvent(event: UnknownEvent, surface: Id): boolean {
@@ -598,6 +641,7 @@ export class CmuxClient {
     return event === "vt-state"
       || event === "output"
       || event === "resized"
+      || event === "frame"
       || event === "colors-changed"
       || event === "detached";
   }

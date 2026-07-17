@@ -2,12 +2,12 @@ use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, SyncSender, TrySendError, sync_channel};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use cmux_tui_cdp::{
     CDP_EVENT_QUEUE_CAPACITY, CdpClient, CdpEvent, CdpKeyEvent, Chrome, ChromeLaunchOptions,
-    TargetCreated, TargetInfo, discover_browser_ws_url, resolve_browser_ws_url,
+    TargetCreated, discover_browser_ws_url, resolve_browser_ws_url,
 };
 
 use crate::platform;
@@ -229,110 +229,117 @@ struct Routes {
 }
 
 struct SurfaceRoute {
-    tx: SyncSender<CdpEvent>,
-    closed: AtomicBool,
-    latest_target_info: Mutex<Option<TargetInfo>>,
-    target_info_relay_running: AtomicBool,
+    state: Mutex<SurfaceRouteState>,
+    ready: Condvar,
+}
+
+#[derive(Default)]
+struct SurfaceRouteState {
+    events: VecDeque<CdpEvent>,
+    closed: bool,
 }
 
 impl SurfaceRoute {
-    fn new(tx: SyncSender<CdpEvent>) -> Self {
-        Self {
-            tx,
-            closed: AtomicBool::new(false),
-            latest_target_info: Mutex::new(None),
-            target_info_relay_running: AtomicBool::new(false),
-        }
+    fn new() -> Self {
+        Self { state: Mutex::new(SurfaceRouteState::default()), ready: Condvar::new() }
     }
 
     /// Returns true when the route must be removed from the runtime maps.
-    fn deliver(self: &Arc<Self>, event: CdpEvent) -> bool {
-        if self.closed.load(Ordering::Acquire) {
+    fn deliver(&self, event: CdpEvent) -> bool {
+        let mut state = self.state.lock().unwrap();
+        if state.closed {
             return true;
         }
-        let event = match event {
-            CdpEvent::TargetInfoChanged(info)
-                if self.target_info_relay_running.load(Ordering::Acquire) =>
-            {
-                self.queue_latest_target_info(info);
-                return false;
+
+        match event {
+            CdpEvent::ScreencastFrame(frame) => {
+                if let Some(queued) = state
+                    .events
+                    .iter_mut()
+                    .find(|queued| matches!(queued, CdpEvent::ScreencastFrame(_)))
+                {
+                    *queued = CdpEvent::ScreencastFrame(frame);
+                } else if state.events.len() < CDP_EVENT_QUEUE_CAPACITY {
+                    state.events.push_back(CdpEvent::ScreencastFrame(frame));
+                }
             }
-            event => event,
-        };
-        match self.tx.try_send(event) {
-            Ok(()) => false,
-            Err(TrySendError::Disconnected(_)) => true,
-            // Screencasts are latest-wins. Once the bounded surface queue is
-            // full, dropping a frame keeps the shared CDP reader responsive;
-            // a later frame will be delivered after the surface catches up.
-            Err(TrySendError::Full(CdpEvent::ScreencastFrame(_))) => false,
-            // Title/navigation state is latest-wins. Relay the newest value
-            // outside the shared reader instead of killing an active surface.
-            Err(TrySendError::Full(CdpEvent::TargetInfoChanged(info))) => {
-                self.queue_latest_target_info(info);
-                false
+            CdpEvent::TargetInfoChanged(info) => {
+                if let Some(queued) = state.events.iter_mut().find(|queued| {
+                    matches!(queued, CdpEvent::TargetInfoChanged(existing) if existing.target_id == info.target_id)
+                }) {
+                    *queued = CdpEvent::TargetInfoChanged(info);
+                } else {
+                    make_surface_event_room(&mut state.events);
+                    if state.events.len() >= CDP_EVENT_QUEUE_CAPACITY {
+                        fail_surface_route(&mut state, "CDP surface event queue overflow");
+                        self.ready.notify_one();
+                        return true;
+                    }
+                    state.events.push_back(CdpEvent::TargetInfoChanged(info));
+                }
             }
-            Err(TrySendError::Full(_)) => {
-                self.close("CDP surface event queue overflow".to_string());
-                true
+            event => {
+                make_surface_event_room(&mut state.events);
+                if state.events.len() >= CDP_EVENT_QUEUE_CAPACITY {
+                    fail_surface_route(&mut state, "CDP surface event queue overflow");
+                    self.ready.notify_one();
+                    return true;
+                }
+                state.events.push_back(event);
             }
         }
+        self.ready.notify_one();
+        false
     }
 
-    fn queue_latest_target_info(self: &Arc<Self>, info: TargetInfo) {
-        *self.latest_target_info.lock().unwrap() = Some(info);
-        if self
-            .target_info_relay_running
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_err()
-        {
-            return;
+    fn recv(&self) -> Option<CdpEvent> {
+        let mut state = self.state.lock().unwrap();
+        loop {
+            if let Some(event) = state.events.pop_front() {
+                return Some(event);
+            }
+            if state.closed {
+                return None;
+            }
+            state = self.ready.wait(state).unwrap();
         }
-        let route = self.clone();
-        let _ =
-            std::thread::Builder::new().name("browser-target-info-relay".into()).spawn(move || {
-                loop {
-                    let next = route.latest_target_info.lock().unwrap().take();
-                    if let Some(info) = next {
-                        if route.tx.send(CdpEvent::TargetInfoChanged(info)).is_err() {
-                            route.closed.store(true, Ordering::Release);
-                            return;
-                        }
-                        continue;
-                    }
-
-                    route.target_info_relay_running.store(false, Ordering::Release);
-                    if route.latest_target_info.lock().unwrap().is_some()
-                        && route
-                            .target_info_relay_running
-                            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-                            .is_ok()
-                    {
-                        continue;
-                    }
-                    return;
-                }
-            });
     }
 
     fn close(&self, reason: String) {
-        if self.closed.swap(true, Ordering::AcqRel) {
+        let mut state = self.state.lock().unwrap();
+        if state.closed {
             return;
         }
-        self.latest_target_info.lock().unwrap().take();
-        let event = CdpEvent::Closed(reason);
-        match self.tx.try_send(event) {
-            Ok(()) | Err(TrySendError::Disconnected(_)) => {}
-            Err(TrySendError::Full(event)) => {
-                let tx = self.tx.clone();
-                let _ = std::thread::Builder::new().name("browser-surface-overflow".into()).spawn(
-                    move || {
-                        let _ = tx.send(event);
-                    },
-                );
-            }
-        }
+        fail_surface_route(&mut state, &reason);
+        self.ready.notify_one();
     }
+
+    #[cfg(test)]
+    fn is_closed(&self) -> bool {
+        self.state.lock().unwrap().closed
+    }
+
+    #[cfg(test)]
+    fn try_recv(&self) -> Option<CdpEvent> {
+        self.state.lock().unwrap().events.pop_front()
+    }
+}
+
+fn make_surface_event_room(events: &mut VecDeque<CdpEvent>) {
+    if events.len() < CDP_EVENT_QUEUE_CAPACITY {
+        return;
+    }
+    if let Some(index) = events.iter().position(|event| {
+        matches!(event, CdpEvent::ScreencastFrame(_) | CdpEvent::TargetInfoChanged(_))
+    }) {
+        events.remove(index);
+    }
+}
+
+fn fail_surface_route(state: &mut SurfaceRouteState, reason: &str) {
+    state.events.clear();
+    state.events.push_back(CdpEvent::Closed(reason.to_string()));
+    state.closed = true;
 }
 
 pub struct BrowserSurface {
@@ -422,8 +429,7 @@ impl BrowserRuntime {
             BrowserBootstrap::ExistingTarget { target_id, url } => (target_id, normalize_url(&url)),
         };
         let session_id = self.client.attach_to_target(&target_id)?;
-        let (event_tx, event_rx) = sync_channel(CDP_EVENT_QUEUE_CAPACITY);
-        self.register(&target_id, &session_id, event_tx);
+        let events = self.register(&target_id, &session_id);
 
         let setup_result =
             self.setup_attached_surface(&surface, &target_id, &session_id, &normalized_url);
@@ -433,7 +439,7 @@ impl BrowserRuntime {
             return Err(err);
         }
 
-        start_surface_thread(surface, event_rx, mux, Arc::downgrade(self))?;
+        start_surface_thread(surface, events, mux, Arc::downgrade(self))?;
         Ok(())
     }
 
@@ -469,11 +475,12 @@ impl BrowserRuntime {
         Ok(())
     }
 
-    fn register(&self, target_id: &str, session_id: &str, tx: SyncSender<CdpEvent>) {
+    fn register(&self, target_id: &str, session_id: &str) -> Arc<SurfaceRoute> {
         let mut routes = self.routes.lock().unwrap();
-        let route = Arc::new(SurfaceRoute::new(tx));
+        let route = Arc::new(SurfaceRoute::new());
         routes.by_session.insert(session_id.to_string(), route.clone());
-        routes.by_target.insert(target_id.to_string(), route);
+        routes.by_target.insert(target_id.to_string(), route.clone());
+        route
     }
 
     fn unregister(&self, target_id: &str, session_id: &str) {
@@ -783,13 +790,13 @@ fn start_router(runtime: Weak<BrowserRuntime>, events: Receiver<CdpEvent>) -> an
 
 fn start_surface_thread(
     surface: Arc<Surface>,
-    events: Receiver<CdpEvent>,
+    events: Arc<SurfaceRoute>,
     mux: Weak<Mux>,
     runtime: Weak<BrowserRuntime>,
 ) -> anyhow::Result<()> {
     let id = surface.id;
     std::thread::Builder::new().name(format!("browser-surface-{id}-events")).spawn(move || {
-        while let Ok(event) = events.recv() {
+        while let Some(event) = events.recv() {
             let Surface::Browser(browser) = surface.as_ref() else { break };
             match event {
                 CdpEvent::ScreencastFrame(frame) => {
@@ -2374,8 +2381,7 @@ mod tests {
             BrowserSource::External,
         )
         .unwrap();
-        let (stalled_tx, _stalled_rx) = mpsc::sync_channel(0);
-        runtime.register("target-stalled", "session-stalled", stalled_tx);
+        let _stalled_route = runtime.register("target-stalled", "session-stalled");
         flood_tx.send(()).unwrap();
         sent_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         thread::sleep(Duration::from_millis(50));
@@ -2391,15 +2397,13 @@ mod tests {
         stop_tx.send(()).unwrap();
         runtime.shutdown();
         server.join().unwrap();
-        drop(_stalled_rx);
         version_call.join().unwrap();
         assert!(version.is_ok(), "stalled surface blocked the shared CDP reader: {version:?}");
     }
 
     #[test]
     fn title_event_burst_keeps_surface_route_live_and_delivers_latest() {
-        let (tx, rx) = mpsc::sync_channel(1);
-        let route = Arc::new(super::SurfaceRoute::new(tx));
+        let route = Arc::new(super::SurfaceRoute::new());
         let event = |index| {
             cmux_tui_cdp::CdpEvent::TargetInfoChanged(cmux_tui_cdp::TargetInfo {
                 session_id: Some("session-1".to_string()),
@@ -2413,10 +2417,10 @@ mod tests {
         for index in 1..=cmux_tui_cdp::CDP_EVENT_QUEUE_CAPACITY {
             assert!(!route.deliver(event(index)));
         }
-        assert!(!route.closed.load(Ordering::Acquire));
+        assert!(!route.is_closed());
 
         let mut latest = String::new();
-        while let Ok(received) = rx.recv_timeout(Duration::from_millis(200)) {
+        while let Some(received) = route.try_recv() {
             if let cmux_tui_cdp::CdpEvent::TargetInfoChanged(info) = received {
                 latest = info.title;
                 if latest == format!("title-{}", cmux_tui_cdp::CDP_EVENT_QUEUE_CAPACITY) {
@@ -2429,8 +2433,7 @@ mod tests {
 
     #[test]
     fn surface_route_retains_only_the_latest_screencast_frame() {
-        let (tx, rx) = mpsc::sync_channel(cmux_tui_cdp::CDP_EVENT_QUEUE_CAPACITY);
-        let route = Arc::new(super::SurfaceRoute::new(tx));
+        let route = Arc::new(super::SurfaceRoute::new());
         let frame = |index| {
             cmux_tui_cdp::CdpEvent::ScreencastFrame(cmux_tui_cdp::ScreencastFrame {
                 session_id: "session-1".to_string(),
@@ -2444,12 +2447,12 @@ mod tests {
         for index in 1..=3 {
             assert!(!route.deliver(frame(index)));
         }
-        let received = rx.recv_timeout(Duration::from_millis(200)).unwrap();
+        let received = route.try_recv().unwrap();
         let cmux_tui_cdp::CdpEvent::ScreencastFrame(frame) = received else {
             panic!("expected a screencast frame");
         };
         assert_eq!(frame.ack_id, 3);
-        assert!(rx.try_recv().is_err(), "stale frames remained queued");
+        assert!(route.try_recv().is_none(), "stale frames remained queued");
     }
 
     #[test]

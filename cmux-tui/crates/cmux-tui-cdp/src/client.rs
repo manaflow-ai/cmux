@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{Receiver, Sender, SyncSender, TryRecvError, channel};
+use std::sync::mpsc::{Receiver, Sender, SyncSender, TryRecvError, TrySendError, channel};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
@@ -531,21 +531,21 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
                 };
                 ack_screencast_frame(inner, target_session, ack_id);
                 let Some(frame) = screencast_frame(&params, target_session) else { return };
-                let _ = inner.events.send(CdpEvent::ScreencastFrame(frame));
+                let _ = inner.events.try_send(CdpEvent::ScreencastFrame(frame));
             }
         }
         "Target.targetCreated" => {
             if let Some(created) = target_created(&params) {
-                let _ = inner.events.send(CdpEvent::TargetCreated(created));
+                let _ = inner.events.try_send(CdpEvent::TargetCreated(created));
             }
         }
         "Target.targetInfoChanged" => {
             if let Some(info) = target_info(&params, session_id.as_deref()) {
-                let _ = inner.events.send(CdpEvent::TargetInfoChanged(info));
+                let _ = inner.events.try_send(CdpEvent::TargetInfoChanged(info));
             }
         }
         _ => {
-            let _ = inner.events.send(CdpEvent::Other {
+            let _ = inner.events.try_send(CdpEvent::Other {
                 method: method.to_string(),
                 params,
                 session_id,
@@ -662,7 +662,13 @@ fn close_inner(inner: &Arc<Inner>, why: &str) {
     for (_, tx) in inner.pending.lock().unwrap().drain() {
         let _ = tx.send(Err(why.to_string()));
     }
-    let _ = inner.events.send(CdpEvent::Closed(why.to_string()));
+    let closed = CdpEvent::Closed(why.to_string());
+    if let Err(TrySendError::Full(closed)) = inner.events.try_send(closed) {
+        let events = inner.events.clone();
+        let _ = std::thread::Builder::new().name("cmux-tui-cdp-close".into()).spawn(move || {
+            let _ = events.send(closed);
+        });
+    }
 }
 
 struct WsEndpoint {
