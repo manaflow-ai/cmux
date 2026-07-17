@@ -8565,11 +8565,12 @@ private class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
 
         // target=_blank link clicks matching the external-open rules go to
         // the system browser instead of an embedded popup. Only explicit
-        // link activations escape: form posts must keep their request body
-        // and scripted window.open popups must not reach the system browser
-        // without a click.
+        // link activations escape: form posts must keep their request body,
+        // scripted window.open popups must not reach the system browser
+        // without a click, and downloads stay on the embedded download path.
         if let url = navigationAction.request.url,
            navigationAction.navigationType == .linkActivated,
+           !navigationAction.shouldPerformDownload,
            BrowserLinkOpenSettings.linkEscapesToSystemBrowser(url) {
 #if DEBUG
             cmuxDebugLog("browser.nav.createWebView.action kind=escapeToSystemBrowser url=\(browserNavigationDebugURL(url))")

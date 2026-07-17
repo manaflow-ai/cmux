@@ -180,17 +180,24 @@ class BrowserFixtureSocketTestCase: XCTestCase {
     /// Locates `Contents/Resources/bin/cmux` inside the app the test target
     /// built, starting from the test bundle's products directory.
     private static func bundledCLIPath() -> String? {
-        // …/Build/Products/Debug/cmuxUITests-Runner.app/PlugIns/cmuxUITests.xctest
-        var productsDir = URL(fileURLWithPath: Bundle(for: BrowserFixtureSocketTestCase.self).bundlePath)
-        for _ in 0..<3 { productsDir.deleteLastPathComponent() }
-        let entries = (try? FileManager.default.contentsOfDirectory(atPath: productsDir.path)) ?? []
-        for entry in entries where entry.hasSuffix(".app") {
-            let cli = productsDir
-                .appendingPathComponent(entry)
-                .appendingPathComponent("Contents/Resources/bin/cmux")
-                .path
-            if FileManager.default.isExecutableFile(atPath: cli) {
-                return cli
+        // …/Build/Products/Debug/cmuxUITests-Runner.app/Contents/PlugIns/cmuxUITests.xctest
+        // Walk ancestors instead of counting components: the runner nests the
+        // test bundle one level deeper (Contents/) than a flat reading of the
+        // path suggests, and a fixed hop count silently lands inside the
+        // runner app, never finding the sibling cmux app.
+        var candidate = URL(fileURLWithPath: Bundle(for: BrowserFixtureSocketTestCase.self).bundlePath)
+        for _ in 0..<6 {
+            candidate.deleteLastPathComponent()
+            guard !candidate.path.hasSuffix(".app"), candidate.path != "/" else { continue }
+            let entries = (try? FileManager.default.contentsOfDirectory(atPath: candidate.path)) ?? []
+            for entry in entries where entry.hasSuffix(".app") {
+                let cli = candidate
+                    .appendingPathComponent(entry)
+                    .appendingPathComponent("Contents/Resources/bin/cmux")
+                    .path
+                if FileManager.default.isExecutableFile(atPath: cli) {
+                    return cli
+                }
             }
         }
         return nil

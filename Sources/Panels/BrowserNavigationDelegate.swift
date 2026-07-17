@@ -310,13 +310,16 @@ import WebKit
             clearAttemptedRequest(discardPendingBypasses: true)
             let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
             decisionHandler(.cancel)
-            browserOpenExternalNavigationURL(
+            let opened = browserOpenExternalNavigationURL(
                 url,
                 source: "navDelegate.escape",
                 webView: webView,
                 presentAlert: presentAlert
             )
-            reportTerminalCancellation()
+            // Like the neighboring policy-cancel branches, only a successful
+            // handoff reports the cancellation: reporting a failed open would
+            // mark a discarded pane restored with nothing showing the page.
+            if opened { reportTerminalCancellation() }
             return
         }
 
