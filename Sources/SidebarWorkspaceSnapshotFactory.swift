@@ -55,12 +55,22 @@ struct SidebarWorkspaceSnapshotFactory {
             guard detailVisibility.showsPullRequests, let orderedPanelIds else { return [] }
             return pullRequestDisplays(orderedPanelIds: orderedPanelIds)
         }()
-        let workspaceStatusVisible = !workspace.todoState.statusHidden
+        let todoControlsEnabled = WorkspaceTodoFeature.isEnabled
+        let workspaceStatusVisible = todoControlsEnabled && !workspace.todoState.statusHidden
         let inferredTaskStatus = workspaceStatusVisible ? workspace.inferredTaskStatus : nil
         let taskStatusResolution: WorkspaceTaskStatusOverride.Resolution? = inferredTaskStatus.map { inferred in
             WorkspaceTaskStatusOverride.effectiveStatus(
                 override: workspace.todoState.statusOverride,
                 inferred: inferred
+            )
+        }
+        let hasManualTaskStatus = workspaceStatusVisible
+            && workspace.todoState.statusOverride != nil
+            && taskStatusResolution?.shouldClearOverride == false
+        let todoStatusMenuModel = inferredTaskStatus.map { inferred in
+            SidebarWorkspaceCompactStatusMenuModel.resolve(
+                inferred: inferred,
+                override: workspace.todoState.statusOverride
             )
         }
         let checklistProgress = workspace.checklistProgressSummary
@@ -102,6 +112,8 @@ struct SidebarWorkspaceSnapshotFactory {
             finderDirectoryPath: WorkspaceFinderDirectoryResolver.path(for: workspace),
             mediaActivity: workspace.browserMediaActivity,
             taskStatus: taskStatusResolution?.effective,
+            todoStatusMenuModel: todoStatusMenuModel,
+            hasManualTaskStatus: hasManualTaskStatus,
             checklistItems: workspace.todoState.checklist,
             checklistCompletedCount: checklistProgress.completedCount,
             checklistTotalCount: checklistProgress.totalCount,
