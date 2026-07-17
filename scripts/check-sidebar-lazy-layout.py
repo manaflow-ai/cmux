@@ -8,7 +8,9 @@ container's placement pass. The terminal fix (#8224) removed the lazy
 container: the default workspace list is one container-level
 `NSViewRepresentable` (`SidebarWorkspaceTableView`) wrapping an `NSTableView`;
 each row is an isolated `NSHostingView` in a recycled cell, and all list
-mutations funnel through `SidebarWorkspaceTableController.apply()`.
+mutations are owned by `SidebarWorkspaceTableController`. `apply()` and
+viewport notifications only stage immutable inputs; actual table mutations
+flush after the originating SwiftUI/AppKit callback returns.
 
 This guard keeps that topology from regressing:
 
@@ -51,10 +53,11 @@ GUARDED_ROW_TYPES = (
 )
 REPRESENTABLE_ALLOWLIST = {"SidebarInlineRenameField", "GPUSpinner"}
 LAYOUT_CALLBACKS = ("layout", "updateTrackingAreas", "viewDidMoveToWindow")
-LAYOUT_MUTATION_PATTERNS = (
+TABLE_MUTATION_PATTERNS = (
     re.compile(r"\breloadData\s*\("),
     re.compile(r"\bnoteHeightOfRows\s*\("),
     re.compile(r"\breconfigure(?:Visible)?Rows\s*\("),
+    re.compile(r"\bscrollRowToVisible\s*\("),
     re.compile(r"\.rootView\s*="),
 )
 SWIFTUI_LIST_CONTAINERS = (
@@ -222,6 +225,64 @@ def extract_all_function_bodies(source, name):
         offset = end
 
 
+def extract_function_bodies_by_name(source):
+    """Return every declared function body keyed by its local method name."""
+    bodies = {}
+    offset = 0
+    pattern = re.compile(r"\bfunc\s+([A-Za-z_]\w*)\s*\(")
+    while True:
+        match = pattern.search(source, offset)
+        if not match:
+            return bodies
+        opening = source.find("{", match.end())
+        if opening < 0:
+            return bodies
+        depth = 0
+        end = None
+        for index in range(opening, len(source)):
+            if source[index] == "{":
+                depth += 1
+            elif source[index] == "}":
+                depth -= 1
+                if depth == 0:
+                    end = index + 1
+                    break
+        if end is None:
+            return bodies
+        bodies.setdefault(match.group(1), []).append(source[opening:end])
+        offset = end
+
+
+def called_local_functions(body, local_names):
+    """Find same-file helper calls while ignoring their declarations."""
+    result = set()
+    for match in re.finditer(r"\b([A-Za-z_]\w*)\s*\(", body):
+        name = match.group(1)
+        if name not in local_names:
+            continue
+        prefix = body[max(0, match.start() - 12):match.start()]
+        if re.search(r"\bfunc\s*$", prefix):
+            continue
+        result.add(name)
+    return result
+
+
+def mutation_path(body, function_bodies, visited=None):
+    """Return a local helper path to a table mutation, if one exists."""
+    visited = set() if visited is None else visited
+    if any(pattern.search(body) for pattern in TABLE_MUTATION_PATTERNS):
+        return []
+    for name in sorted(called_local_functions(body, set(function_bodies))):
+        if name in visited:
+            continue
+        next_visited = visited | {name}
+        for helper_body in function_bodies[name]:
+            path = mutation_path(helper_body, function_bodies, next_visited)
+            if path is not None:
+                return [name] + path
+    return None
+
+
 def extract_type_body(source, name):
     return extract_braced_declaration(
         source,
@@ -304,7 +365,8 @@ def check_appkit_sources(sources_by_name, require_all_files=True):
     required = {
         "SidebarWorkspaceTableView.swift": ("NSViewRepresentable", "makeNSView", "updateNSView"),
         "SidebarWorkspaceTableController.swift": ("@MainActor", "NSTableViewDataSource", "NSTableViewDelegate"),
-        "SidebarWorkspaceTableCellView.swift": ("NSTableCellView", "NSHostingView", "rootView"),
+        "SidebarWorkspaceTableCellView.swift": ("NSTableCellView", "rootView"),
+        "SidebarWorkspaceTableHostingView.swift": ("NSHostingView", "invalidateIntrinsicContentSize"),
         "SidebarWorkspaceTableViewImpl.swift": ("NSTableView", "updateTrackingAreas", "otherMouseDown"),
         "SidebarWorkspaceTableRowConfiguration.swift": ("hasEquivalentContent", "makeContent"),
     }
@@ -321,13 +383,30 @@ def check_appkit_sources(sources_by_name, require_all_files=True):
 
     for filename, source in sources_by_name.items():
         clean = neutralize_swift(source)
+        function_bodies = extract_function_bodies_by_name(clean)
         for callback in LAYOUT_CALLBACKS:
             for body in extract_all_function_bodies(clean, callback):
-                for pattern in LAYOUT_MUTATION_PATTERNS:
-                    if pattern.search(body):
-                        violations.append(
-                            f"{filename}.{callback} mutates/reconfigures the table from a layout callback"
-                        )
+                path = mutation_path(body, function_bodies, visited={callback})
+                if path is not None:
+                    via = " via " + " -> ".join(path) if path else ""
+                    violations.append(
+                        f"{filename}.{callback} mutates/reconfigures the table "
+                        f"from a layout callback{via}"
+                    )
+        staging_callbacks = ()
+        if filename == "SidebarWorkspaceTableView.swift":
+            staging_callbacks = ("updateNSView",)
+        elif filename == "SidebarWorkspaceTableController.swift":
+            staging_callbacks = ("apply", "viewportDidChange")
+        for callback in staging_callbacks:
+            for body in extract_all_function_bodies(clean, callback):
+                path = mutation_path(body, function_bodies, visited={callback})
+                if path is not None:
+                    via = " via " + " -> ".join(path) if path else ""
+                    violations.append(
+                        f"{filename}.{callback} performs a table mutation before its "
+                        f"callback returns{via}"
+                    )
         for pattern, label in (
             (r"\bObservableObject\b", "ObservableObject"),
             (r"@Published\b", "@Published"),

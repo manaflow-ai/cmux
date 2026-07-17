@@ -18,16 +18,14 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var appKitDropIndicatorScope: SidebarWorkspaceReorderDropIndicatorScope = .raw
     private var appKitDropIndicatorIncludesRowTargets = false
     private var clipBoundsObserver: NSObjectProtocol?
+    private var rowIndexById: [SidebarWorkspaceRenderItemID: Int] = [:]
+    private lazy var mutationScheduler = SidebarWorkspaceTableMutationScheduler(
+        applyFlush: { [weak self] in self?.flushApply($0) },
+        viewportChangeFlush: { [weak self] in self?.flushViewportChange() }
+    )
     private let rowHeightOwner = SidebarWorkspaceTableRowHeightOwner()
     private let dropTargetGeometry = SidebarWorkspaceTableDropTargetGeometryGate()
-
-#if DEBUG
-    var reconfigurationProbe: (() -> Void)?
-    var dropTargetComputationProbe: (() -> Void)? {
-        get { dropTargetGeometry.computationProbe }
-        set { dropTargetGeometry.computationProbe = newValue }
-    }
-#endif
+    private let emptyAreaMenuOwner = SidebarWorkspaceTableEmptyAreaMenuOwner()
 
     deinit {
         if let clipBoundsObserver {
@@ -106,7 +104,23 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         selectedWorkspaceId: UUID?,
         selectedScrollTargetWorkspaceId: UUID?
     ) {
+        let input = SidebarWorkspaceTableApplyInput(
+            rows: nextRows,
+            actions: actions,
+            workspaceIds: nextWorkspaceIds,
+            selectedWorkspaceId: selectedWorkspaceId,
+            selectedScrollTargetWorkspaceId: selectedScrollTargetWorkspaceId
+        )
+        mutationScheduler.stageApply(input)
+    }
+
+    private func flushApply(_ input: SidebarWorkspaceTableApplyInput) {
         guard let containerView else { return }
+        let nextRows = input.rows
+        let actions = input.actions
+        let nextWorkspaceIds = input.workspaceIds
+        let selectedWorkspaceId = input.selectedWorkspaceId
+        let selectedScrollTargetWorkspaceId = input.selectedScrollTargetWorkspaceId
         self.actions = actions
         actions.attachScrollView(containerView.scrollView)
         configureDropViews(in: containerView, actions: actions)
@@ -118,6 +132,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 && !previousRows[index].hasEquivalentContent(to: nextRows[index])
         })
         rows = nextRows
+        rowIndexById = Dictionary(
+            uniqueKeysWithValues: nextRows.enumerated().map { ($1.id, $0) }
+        )
         rowHeightOwner.apply(rows: nextRows, hasStructuralChanges: hasStructuralChanges)
 
         if hasStructuralChanges {
@@ -165,7 +182,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         false
     }
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
-        guard rows.indices.contains(row), let actions else { return nil }
+        guard rows.indices.contains(row), !rows[row].isGroupHeader, let actions else { return nil }
         let workspaceId = rows[row].workspaceId
         actions.beginWorkspaceDrag(workspaceId)
         workspaceDragSessionDidBegin()
@@ -212,32 +229,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         actions?.createWorkspaceAtEnd()
     }
     func createEmptyWorkspaceGroup() {
-        guard actions?.canCreateEmptyWorkspaceGroup == true else { return }
-        actions?.createEmptyWorkspaceGroup()
+        emptyAreaMenuOwner.createEmptyWorkspaceGroup(actions: actions)
     }
     func emptyAreaMenu() -> NSMenu {
-        let menu = NSMenu()
-        let item = NSMenuItem(
-            title: String(
-                localized: "contextMenu.workspaceGroup.newEmpty",
-                defaultValue: "New Empty Workspace Group"
-            ),
-            action: #selector(createEmptyWorkspaceGroupFromMenu),
-            keyEquivalent: ""
-        )
-        item.target = self
-        item.isEnabled = actions?.canCreateEmptyWorkspaceGroup == true
-        let shortcut = KeyboardShortcutSettings.shortcut(for: .newWorkspaceGroup)
-        if let keyEquivalent = shortcut.menuItemKeyEquivalent {
-            item.keyEquivalent = keyEquivalent
-            item.keyEquivalentModifierMask = shortcut.modifierFlags
-        }
-        menu.addItem(item)
-        return menu
-    }
-
-    @objc private func createEmptyWorkspaceGroupFromMenu() {
-        createEmptyWorkspaceGroup()
+        emptyAreaMenuOwner.menu(actions: actions)
     }
 
     func pointerDidLeaveTable() {
@@ -259,6 +254,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     func viewportDidChange() {
+        mutationScheduler.stageViewportChange()
+    }
+
+    private func flushViewportChange() {
         rowHeightOwner.viewportDidChange()
         recomputeHoveredRow()
         updateDropTargets()
@@ -291,8 +290,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     private func reconfigureRows(withIds ids: [SidebarWorkspaceRenderItemID]) {
-        let idSet = Set(ids)
-        let indexes = IndexSet(rows.indices.filter { idSet.contains(rows[$0].id) })
+        let indexes = IndexSet(ids.compactMap { rowIndexById[$0] })
         reconfigureVisibleRows(indexes)
     }
 
@@ -310,9 +308,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private func configure(cell: SidebarWorkspaceTableCellView, at row: Int) {
         let configuration = rows[row]
         let rowId = configuration.id
-#if DEBUG
-        cell.reconfigurationProbe = reconfigurationProbe
-#endif
         cell.configure(
             row: configuration,
             isPointerHovering: hoveredRowId == rowId && contextMenuRowId != rowId,

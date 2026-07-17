@@ -10563,10 +10563,13 @@ struct VerticalTabsSidebar: View {
     }
 
     /// Projects every render item into an immutable AppKit table row
-    /// configuration. This is the same eager O(workspaces) value projection
-    /// the LazyVStack path performed per body evaluation; full row view trees
-    /// and closure binding still happen only when the table configures a
-    /// visible cell.
+    /// configuration. Equivalence intentionally uses the complete row value:
+    /// dropping menu fields from that value can leave an already-visible
+    /// context menu stale. This remains linear in workspace count: ordinary
+    /// rows aggregate one workspace with at most the notification-index limit,
+    /// while multi-selected rows reuse the one parent-owned aggregate. Full
+    /// row view construction and action binding still happen only when the
+    /// table configures a visible cell.
     private func workspaceTableRows(
         renderContext: WorkspaceListRenderContext,
         environment: SidebarWorkspaceTableEnvironmentSnapshot
@@ -10677,7 +10680,7 @@ struct VerticalTabsSidebar: View {
 #if DEBUG
                 cmuxDebugLog("sidebar.close workspace=\(workspaceId.uuidString.prefix(5)) method=middleClick")
 #endif
-                tabManager.closeWorkspaceWithConfirmation(workspace)
+                _ = tabManager.closeWorkspaceFromCloseTabGesture(workspace)
             },
             createWorkspaceAtEnd: {
                 if tabManager.selectedTab?.isRemoteTmuxMirror == true {

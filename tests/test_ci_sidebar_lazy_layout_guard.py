@@ -17,7 +17,7 @@ Cases:
       force-measure fails (the historical livelock ingredients).
   (g) A custom Layout-conforming type applied to a row fails, under any name.
   (h) reloadData/reconfigure/rootView-assignment from an AppKit layout
-      lifecycle callback fails.
+      lifecycle callback fails, including through recursive local helpers.
   (i) Comment/string neutralization: prose naming forbidden tokens passes.
   (j) --file mode does not report missing sibling files.
   (k) The real --file CLI entrypoint (argparse, file read, basename scoping)
@@ -197,6 +197,53 @@ final class SidebarWorkspaceTableViewImpl: NSTableView {
             "SidebarWorkspaceTableViewImpl.swift": bad_lifecycle,
         }, require_all_files=False)),
         "reload from updateTrackingAreas fails",
+    )
+
+    hidden_lifecycle = """
+final class SidebarWorkspaceTableViewImpl: NSTableView {
+    override func layout() {
+        super.layout()
+        refreshVisibleGeometry()
+    }
+    private func refreshVisibleGeometry() {
+        commitVisibleGeometry()
+    }
+    private func commitVisibleGeometry() {
+        noteHeightOfRows(withIndexesChanged: IndexSet(integer: 0))
+    }
+}
+"""
+    hidden_violations = guard.check_appkit_sources({
+        "SidebarWorkspaceTableViewImpl.swift": hidden_lifecycle,
+    }, require_all_files=False)
+    failures += expect(
+        any(
+            "layout callback" in item
+            and "refreshVisibleGeometry -> commitVisibleGeometry" in item
+            for item in hidden_violations
+        ),
+        "table mutation hidden behind recursive local helpers fails",
+    )
+
+    bad_staging_boundary = """
+final class SidebarWorkspaceTableController {
+    func apply(rows: [Int]) {
+        applyImmediately()
+    }
+    private func applyImmediately() {
+        tableView.reloadData()
+    }
+}
+"""
+    staging_violations = guard.check_appkit_sources({
+        "SidebarWorkspaceTableController.swift": bad_staging_boundary,
+    }, require_all_files=False)
+    failures += expect(
+        any(
+            "before its callback returns via applyImmediately" in item
+            for item in staging_violations
+        ),
+        "apply mutation hidden behind a local helper fails the staging boundary",
     )
 
     comments_only = """

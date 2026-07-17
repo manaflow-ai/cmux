@@ -19,8 +19,8 @@ import SwiftUI
 /// detected. The list is now an AppKit `NSTableView` with per-cell hosted
 /// SwiftUI roots (#8224); these tests mount the production
 /// `VerticalTabsSidebar` at 300 workspaces and count actual row body
-/// evaluations, cell materialization, and hosted-root reconfigurations
-/// through `SidebarLazyContractProbe`, so ANY future mechanism that realizes
+/// evaluations and cell materialization through `SidebarLazyContractProbe`
+/// plus the live AppKit hierarchy, so ANY future mechanism that realizes
 /// the whole list or loops row invalidation fails here instead of on a
 /// user's machine. `scripts/check-sidebar-lazy-layout.py` bans the known
 /// source shapes; this is the mechanism-independent backstop.
@@ -54,7 +54,6 @@ final class SidebarLazyLayoutScaleTests {
         var insideWorkspaceRowBody = false
         var snapshotBuildsInCurrentRowBody = 0
         var maxSnapshotBuildsInOneRowBody = 0
-        var tableRootViewReconfigures = 0
         func reset() {
             workspaceRowBodies = 0
             groupHeaderBodies = 0
@@ -63,7 +62,6 @@ final class SidebarLazyLayoutScaleTests {
             insideWorkspaceRowBody = false
             snapshotBuildsInCurrentRowBody = 0
             maxSnapshotBuildsInOneRowBody = 0
-            tableRootViewReconfigures = 0
         }
     }
 
@@ -185,9 +183,6 @@ final class SidebarLazyLayoutScaleTests {
                 },
                 workspaceRowInputProjection: {
                     counter.workspaceRowInputProjections += 1
-                },
-                tableRootViewReconfigure: {
-                    counter.tableRootViewReconfigures += 1
                 }
             )
         )
@@ -339,7 +334,9 @@ final class SidebarLazyLayoutScaleTests {
     /// A simultaneous workspace-publisher burst must cross the parent snapshot
     /// boundary once per batch. Re-projecting all 300 row inputs once per
     /// emitting workspace is O(N²) main-actor work even though LazyVStack only
-    /// realizes the viewport rows.
+    /// realizes the viewport rows. This also bounds the table's complete
+    /// row-equivalence projection: single-row context-menu aggregation is
+    /// bounded independently of N, and selected rows share one aggregate.
     @Test
     @MainActor
     func testWorkspacePublisherBatchProjectsParentListLinearly() async throws {
@@ -434,6 +431,7 @@ final class SidebarLazyLayoutScaleTests {
         await Self.drainMainRunLoop(for: harness.window)
 
         let stormEvals = harness.counter.workspaceRowBodies
+        #expect(stormEvals > 0, "The unread storm did not update any hosted workspace row.")
         #expect(
             stormEvals < storms * 10,
             """
@@ -444,27 +442,8 @@ final class SidebarLazyLayoutScaleTests {
             """
         )
 
-        let stormReconfigures = harness.counter.tableRootViewReconfigures
-        #expect(
-            stormReconfigures > 0,
-            """
-            The unread storm reconfigured no hosted roots at all; the \
-            tableRootViewReconfigure probe is disconnected, which would make the \
-            storm bound and the quiet-period zero-check below pass vacuously.
-            """
-        )
-        #expect(
-            stormReconfigures < storms * 10,
-            "Unread storm reconfigured \(stormReconfigures) hosted roots; only changed visible rows may reconfigure."
-        )
-
         harness.counter.reset()
         await Self.drainMainRunLoop(for: harness.window, iterations: 30)
-        let quietReconfigures = harness.counter.tableRootViewReconfigures
-        #expect(
-            quietReconfigures == 0,
-            "The table reconfigured \(quietReconfigures) hosted roots during a quiet period."
-        )
         let quietEvals = harness.counter.workspaceRowBodies + harness.counter.groupHeaderBodies
         #expect(
             quietEvals < 20,

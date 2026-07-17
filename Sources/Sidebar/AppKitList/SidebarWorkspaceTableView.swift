@@ -8,10 +8,6 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
     let selectedWorkspaceId: UUID?
     let selectedScrollTargetWorkspaceId: UUID?
 
-#if DEBUG
-    @Environment(\.sidebarLazyContractProbe) private var sidebarLazyContractProbe
-#endif
-
     func makeCoordinator() -> SidebarWorkspaceTableController {
         SidebarWorkspaceTableController()
     }
@@ -21,10 +17,6 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: SidebarWorkspaceTableContainerView, context: Context) {
-#if DEBUG
-        context.coordinator.reconfigurationProbe = sidebarLazyContractProbe.tableRootViewReconfigure
-        context.coordinator.dropTargetComputationProbe = sidebarLazyContractProbe.tableDropTargetComputation
-#endif
         context.coordinator.apply(
             rows: rows,
             actions: actions,

@@ -24,7 +24,6 @@ struct SidebarWorkspaceTableTests {
                 && area.options.contains(.mouseMoved)
                 && area.options.contains(.inVisibleRect)
         })
-
         #expect(container.tableView.style == .fullWidth)
         #expect(container.scrollView.contentInsets.left == 0)
         #expect(container.scrollView.contentInsets.right == 0)
@@ -36,10 +35,33 @@ struct SidebarWorkspaceTableTests {
         #expect(!hoverTrackingArea.options.contains(.activeInKeyWindow))
     }
 
-    /// A hosted row can change height from cell-local SwiftUI state without a
-    /// new table snapshot. The table must follow the rendered cell instead of
-    /// leaving the old row rectangle in place while content paints over its
-    /// neighbors.
+    @Test
+    @MainActor
+    func tableApplyCoalescesAndMutatesOnlyAfterTheCurrentCallbackReturns() {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let first = makeRowConfiguration()
+        let second = makeRowConfiguration()
+        let actions = makeTableActions()
+        controller.apply(
+            rows: [first],
+            actions: actions,
+            workspaceIds: [first.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        controller.apply(
+            rows: [first, second],
+            actions: actions,
+            workspaceIds: [first.workspaceId, second.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        #expect(container.tableView.numberOfRows == 0)
+        flushStagedTableMutations()
+        #expect(container.tableView.numberOfRows == 2)
+    }
+
     @Test
     @MainActor
     func liveCellHeightChangeUpdatesTheTableRowGeometry() throws {
@@ -61,6 +83,7 @@ struct SidebarWorkspaceTableTests {
             selectedWorkspaceId: nil,
             selectedScrollTargetWorkspaceId: nil
         )
+        flushStagedTableMutations()
         container.layoutSubtreeIfNeeded()
         container.tableView.layoutSubtreeIfNeeded()
         _ = try #require(
@@ -68,68 +91,83 @@ struct SidebarWorkspaceTableTests {
                 as? SidebarWorkspaceTableCellView
         )
         let collapsedHeight = container.tableView.rect(ofRow: 0).height
-
         model.isExpanded = true
         for _ in 0..<3 {
             _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02))
             container.layoutSubtreeIfNeeded()
             container.tableView.layoutSubtreeIfNeeded()
         }
-
         #expect(container.tableView.rect(ofRow: 0).height > collapsedHeight + 40)
     }
 
-#if DEBUG
     @Test
     @MainActor
-    func equivalentCellConfigurationDoesNotRenderAgain() {
+    func equivalentCellConfigurationDoesNotChangeCellStateAgain() {
         let cell = SidebarWorkspaceTableCellView()
         let workspaceId = UUID()
-        var renders = 0
-        cell.reconfigurationProbe = { renders += 1 }
-
-        configure(cell, row: makeRowConfiguration(workspaceId: workspaceId))
-        configure(cell, row: makeRowConfiguration(workspaceId: workspaceId))
-
-        #expect(renders == 1)
+        let firstChanged = configure(cell, row: makeRowConfiguration(workspaceId: workspaceId))
+        let equivalentChanged = configure(cell, row: makeRowConfiguration(workspaceId: workspaceId))
+        #expect(firstChanged)
+        #expect(!equivalentChanged)
+        #expect(cell.model.state?.row.id == .workspace(workspaceId))
     }
 
     @Test
     @MainActor
-    func hoverFlipRendersOnlyTheAffectedCell() {
+    func hoverFlipChangesOnlyTheAffectedCellState() {
         let firstCell = SidebarWorkspaceTableCellView()
         let secondCell = SidebarWorkspaceTableCellView()
         let firstRow = makeRowConfiguration()
         let secondRow = makeRowConfiguration()
-        var firstRenders = 0
-        var secondRenders = 0
-        firstCell.reconfigurationProbe = { firstRenders += 1 }
-        secondCell.reconfigurationProbe = { secondRenders += 1 }
-
-        configure(firstCell, row: firstRow)
-        configure(secondCell, row: secondRow)
-        configure(firstCell, row: firstRow, isPointerHovering: true)
-        configure(firstCell, row: firstRow, isPointerHovering: true)
-
-        #expect(firstRenders == 2)
-        #expect(secondRenders == 1)
+        #expect(configure(firstCell, row: firstRow))
+        #expect(configure(secondCell, row: secondRow))
+        #expect(configure(firstCell, row: firstRow, isPointerHovering: true))
+        #expect(!configure(firstCell, row: firstRow, isPointerHovering: true))
+        #expect(firstCell.model.state?.isPointerHovering == true)
+        #expect(secondCell.model.state?.isPointerHovering == false)
     }
 
     @Test
     @MainActor
-    func cellReusePreservesOneHostingViewAndStableRootIdentity() {
+    func cellReusePreservesOneHostingView() {
         let cell = SidebarWorkspaceTableCellView()
-        let hostingIdentity = cell.hostingViewIdentity
-        let rootIdentity = cell.hostedRootIdentity
+        let hostingView = cell.subviews.first
         let reusedWorkspaceId = UUID()
-
         configure(cell, row: makeRowConfiguration())
         configure(cell, row: makeRowConfiguration(workspaceId: reusedWorkspaceId))
-
         #expect(cell.subviews.count == 1)
-        #expect(cell.hostingViewIdentity == hostingIdentity)
-        #expect(cell.hostedRootIdentity == rootIdentity)
+        #expect(cell.subviews.first === hostingView)
         #expect(cell.representedRowId == .workspace(reusedWorkspaceId))
+    }
+
+    @Test
+    @MainActor
+    func groupHeaderCannotBeginWorkspaceDragButWorkspaceRowCan() {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let groupId = UUID()
+        let anchorId = UUID()
+        let workspaceId = UUID()
+        var draggedWorkspaceIds: [UUID] = []
+        let group = makeRowConfiguration(
+            id: .group(groupId),
+            workspaceId: anchorId,
+            groupId: groupId,
+            isGroupHeader: true
+        )
+        let workspace = makeRowConfiguration(workspaceId: workspaceId)
+        controller.apply(
+            rows: [group, workspace],
+            actions: makeTableActions(beginWorkspaceDrag: { draggedWorkspaceIds.append($0) }),
+            workspaceIds: [anchorId, workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        flushStagedTableMutations()
+        #expect(controller.tableView(container.tableView, pasteboardWriterForRow: 0) == nil)
+        #expect(draggedWorkspaceIds.isEmpty)
+        #expect(controller.tableView(container.tableView, pasteboardWriterForRow: 1) != nil)
+        #expect(draggedWorkspaceIds == [workspaceId])
     }
 
     @Test
@@ -152,26 +190,23 @@ struct SidebarWorkspaceTableTests {
             selectedWorkspaceId: nil,
             selectedScrollTargetWorkspaceId: nil
         )
+        flushStagedTableMutations()
         container.layoutSubtreeIfNeeded()
         container.tableView.layoutSubtreeIfNeeded()
-        var computations = 0
-        controller.dropTargetComputationProbe = { computations += 1 }
-
         controller.viewportDidChange()
         controller.viewportDidChange()
-        #expect(computations == 0)
-
+        flushStagedTableMutations()
+        #expect(container.reorderDropView.targets.isEmpty)
         controller.workspaceDragSessionDidBegin()
-        #expect(computations == 1)
         #expect(container.reorderDropView.targets.map(\.workspaceId) == [workspaceId])
-
         controller.viewportDidChange()
-        #expect(computations == 2)
-
+        flushStagedTableMutations()
+        #expect(container.reorderDropView.targets.map(\.workspaceId) == [workspaceId])
         controller.workspaceDragSessionDidEnd()
         #expect(container.reorderDropView.targets.isEmpty)
         controller.viewportDidChange()
-        #expect(computations == 2)
+        flushStagedTableMutations()
+        #expect(container.reorderDropView.targets.isEmpty)
     }
     @Test
     @MainActor
@@ -193,9 +228,9 @@ struct SidebarWorkspaceTableTests {
             selectedWorkspaceId: nil,
             selectedScrollTargetWorkspaceId: nil
         )
+        flushStagedTableMutations()
         container.layoutSubtreeIfNeeded()
         container.tableView.layoutSubtreeIfNeeded()
-
         let rowRect = container.tableView.rect(ofRow: 0)
         let windowPoint = container.tableView.convert(
             NSPoint(x: rowRect.midX, y: rowRect.midY),
@@ -207,9 +242,6 @@ struct SidebarWorkspaceTableTests {
                 as? SidebarWorkspaceTableCellView
         )
         container.tableView.layoutSubtreeIfNeeded()
-        // The reconfigure path resolves cells with makeIfNecessary: false, so
-        // prove the realized cell is installed in the live table hierarchy
-        // before asserting on the transitions.
         let cell = try #require(
             container.tableView.view(atColumn: 0, row: 0, makeIfNecessary: false)
                 as? SidebarWorkspaceTableCellView,
@@ -217,21 +249,15 @@ struct SidebarWorkspaceTableTests {
         )
         #expect(cell === realized)
         #expect(cell.representedRowId == row.id)
-
-        // configure(cell:at:) rebinds the cell probe from the controller on
-        // every pass, so observe reconfigures at the controller level.
-        var renders = 0
-        controller.reconfigurationProbe = { renders += 1 }
-
-        // Opening drops the hovered flag on the menu's row immediately instead
-        // of leaving it stale until the next unrelated apply().
+        #expect(cell.model.state?.isPointerHovering == true)
+        // Opening drops the hovered flag immediately.
         controller.contextMenuDidOpen(rowId: row.id)
-        #expect(renders == 1)
+        #expect(cell.model.state?.isPointerHovering == false)
 
         // Closing with a stationary pointer restores the hovered flag even
         // though recomputeHoveredRow() resolves the unchanged row id.
         controller.contextMenuDidClose(rowId: row.id)
-        #expect(renders == 2)
+        #expect(cell.model.state?.isPointerHovering == true)
     }
 
     @Test
@@ -250,7 +276,7 @@ struct SidebarWorkspaceTableTests {
             selectedWorkspaceId: nil,
             selectedScrollTargetWorkspaceId: nil
         )
-
+        flushStagedTableMutations()
         let item = try #require(controller.emptyAreaMenu().items.first)
         #expect(!item.isEnabled)
         controller.createEmptyWorkspaceGroup()
@@ -278,16 +304,13 @@ struct SidebarWorkspaceTableTests {
             selectedWorkspaceId: nil,
             selectedScrollTargetWorkspaceId: nil
         )
-        // Transfer only has its Decodable initializer (the explicit
-        // init(from:) suppresses the memberwise one), so build it the way
-        // production does: from a pasteboard JSON payload.
+        flushStagedTableMutations()
         let transfer = try JSONDecoder().decode(
             BonsplitTabDragPayload.Transfer.self,
             from: Data("""
             {"tab":{"id":"\(UUID().uuidString)"},"sourcePaneId":"\(UUID().uuidString)","sourceProcessId":0}
             """.utf8)
         )
-
         // A subset-relative index of 0 with the indicator anchored at the
         // third workspace must land at global index 2, not 0.
         #expect(container.bonsplitDropView.performNewWorkspaceMove(
@@ -296,14 +319,12 @@ struct SidebarWorkspaceTableTests {
             transfer
         ))
         #expect(receivedInsertionIndex == 2)
-
         #expect(container.bonsplitDropView.performNewWorkspaceMove(
             0,
             SidebarDropIndicator(tabId: workspaceIds[2], edge: .bottom),
             transfer
         ))
         #expect(receivedInsertionIndex == 3)
-
         // An end-of-list indicator appends after the full ordering.
         #expect(container.bonsplitDropView.performNewWorkspaceMove(
             0,
@@ -312,15 +333,12 @@ struct SidebarWorkspaceTableTests {
         ))
         #expect(receivedInsertionIndex == 4)
     }
-#endif
-
     @Test
     func hoverRecomputesFromStationaryWindowPointAfterScrollAndReorder() throws {
         let resolver = SidebarWorkspaceTableHoverResolver()
         let pointer = NSPoint(x: 20, y: 15)
         var scrollOffset: CGFloat = 0
         var orderedIds = ["a", "b", "c", "d"]
-
         func resolvedId() -> String? {
             let row = resolver.hoveredRow(
                 windowPoint: pointer,
@@ -330,7 +348,6 @@ struct SidebarWorkspaceTableTests {
             )
             return row.map { orderedIds[$0] }
         }
-
         #expect(resolvedId() == "a")
         scrollOffset = 20
         #expect(resolvedId() == "b")
@@ -340,7 +357,10 @@ struct SidebarWorkspaceTableTests {
 
     @MainActor
     private func makeRowConfiguration(
+        id: SidebarWorkspaceRenderItemID? = nil,
         workspaceId: UUID = UUID(),
+        groupId: UUID? = nil,
+        isGroupHeader: Bool = false,
         contentToken: Int = 0,
         fontMagnificationPercent: Int = 100,
         colorScheme: ColorScheme = .light
@@ -358,10 +378,10 @@ struct SidebarWorkspaceTableTests {
         )
 #endif
         return SidebarWorkspaceTableRowConfiguration(
-            id: .workspace(workspaceId),
+            id: id ?? .workspace(workspaceId),
             workspaceId: workspaceId,
-            groupId: nil,
-            isGroupHeader: false,
+            groupId: groupId,
+            isGroupHeader: isGroupHeader,
             isPinned: false,
             environment: environment,
             equivalenceValue: TestRowContent(token: contentToken)
@@ -400,13 +420,13 @@ struct SidebarWorkspaceTableTests {
         }
     }
 
-#if DEBUG
     @MainActor
+    @discardableResult
     private func configure(
         _ cell: SidebarWorkspaceTableCellView,
         row: SidebarWorkspaceTableRowConfiguration,
         isPointerHovering: Bool = false
-    ) {
+    ) -> Bool {
         cell.configure(
             row: row,
             isPointerHovering: isPointerHovering,
@@ -416,9 +436,15 @@ struct SidebarWorkspaceTableTests {
     }
 
     @MainActor
+    private func flushStagedTableMutations() {
+        _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02))
+    }
+
+    @MainActor
     private func makeTableActions(
         canCreateEmptyWorkspaceGroup: Bool = true,
         createEmptyWorkspaceGroup: @escaping () -> Void = {},
+        beginWorkspaceDrag: @escaping (UUID) -> Void = { _ in },
         moveBonsplitToNewWorkspace: @escaping (Int, BonsplitTabDragPayload.Transfer) -> UUID? = { _, _ in nil }
     ) -> SidebarWorkspaceTableActions {
         SidebarWorkspaceTableActions(
@@ -427,7 +453,7 @@ struct SidebarWorkspaceTableTests {
             createWorkspaceAtEnd: {},
             canCreateEmptyWorkspaceGroup: canCreateEmptyWorkspaceGroup,
             createEmptyWorkspaceGroup: createEmptyWorkspaceGroup,
-            beginWorkspaceDrag: { _ in },
+            beginWorkspaceDrag: beginWorkspaceDrag,
             endWorkspaceDrag: {},
             isValidWorkspaceDrag: { true },
             updateWorkspaceDrag: { _, _ in false },
@@ -445,11 +471,8 @@ struct SidebarWorkspaceTableTests {
             setBonsplitDropIndicator: { _ in }
         )
     }
-#endif
-
     private struct TestRowContent: View, Equatable {
         let token: Int
-
         var body: some View {
             EmptyView()
         }

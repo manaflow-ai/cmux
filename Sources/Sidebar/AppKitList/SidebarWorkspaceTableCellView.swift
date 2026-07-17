@@ -6,19 +6,13 @@ import SwiftUI
 final class SidebarWorkspaceTableCellView: NSTableCellView {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier("SidebarWorkspaceTableCellView")
 
-    private let model: SidebarWorkspaceTableCellModel
+    let model: SidebarWorkspaceTableCellModel
     private let hostingView: SidebarWorkspaceTableHostingView
 
     var hostedContentSizeDidInvalidate: (() -> Void)? {
         get { hostingView.contentSizeDidInvalidate }
         set { hostingView.contentSizeDidInvalidate = newValue }
     }
-
-#if DEBUG
-    var reconfigurationProbe: (() -> Void)?
-    var hostingViewIdentity: ObjectIdentifier { ObjectIdentifier(hostingView) }
-    var hostedRootIdentity: UUID { hostingView.rootView.identity }
-#endif
 
     var representedRowId: SidebarWorkspaceRenderItemID? {
         model.state?.row.id
@@ -28,10 +22,7 @@ final class SidebarWorkspaceTableCellView: NSTableCellView {
         let model = SidebarWorkspaceTableCellModel()
         self.model = model
         self.hostingView = SidebarWorkspaceTableHostingView(
-            rootView: SidebarWorkspaceTableCellRootView(
-                identity: UUID(),
-                model: model
-            )
+            rootView: SidebarWorkspaceTableCellRootView(model: model)
         )
         super.init(frame: frameRect)
         identifier = Self.reuseIdentifier
@@ -72,28 +63,10 @@ final class SidebarWorkspaceTableCellView: NSTableCellView {
                 didClose: contextMenuDidClose
             )
         )
-#if DEBUG
-        if didReconfigure {
-            reconfigurationProbe?()
-        }
-#endif
         return didReconfigure
     }
 
     func hostedContentHeight() -> CGFloat {
         ceil(max(1, hostingView.fittingSize.height))
-    }
-}
-
-/// Reports hosted-content size invalidation without mutating table geometry
-/// from inside SwiftUI rendering.
-@MainActor
-private final class SidebarWorkspaceTableHostingView:
-    NSHostingView<SidebarWorkspaceTableCellRootView> {
-    var contentSizeDidInvalidate: (() -> Void)?
-
-    override func invalidateIntrinsicContentSize() {
-        super.invalidateIntrinsicContentSize()
-        contentSizeDidInvalidate?()
     }
 }
