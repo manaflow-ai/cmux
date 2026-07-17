@@ -6695,7 +6695,6 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                 "--name", "SSH Workspace",
                 "--port", "2222",
                 "--identity", "/Users/test/.ssh/id_ed25519",
-                "--ssh-option", "ControlPath /tmp/cmux-ssh-%C",
                 "--ssh-option", "StrictHostKeyChecking=accept-new",
                 "--window", windowID,
                 "cmux-macmini",
@@ -6749,7 +6748,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let sshOptions = try XCTUnwrap(configureParams["ssh_options"] as? [String])
         XCTAssertTrue(sshOptions.contains("ControlMaster=auto"))
         XCTAssertTrue(sshOptions.contains("ControlPersist=600"))
-        XCTAssertTrue(sshOptions.contains("ControlPath /tmp/cmux-ssh-%C"))
+        XCTAssertTrue(sshOptions.contains("ControlPath=/tmp/cmux-ssh-\(getuid())-%C"))
+        XCTAssertFalse(sshOptions.contains(where: { $0.contains("-\(relayPort)-%C") }))
         XCTAssertTrue(sshOptions.contains("StrictHostKeyChecking=accept-new"))
 
         // `cmux ssh` should land the user in the new SSH workspace immediately.
