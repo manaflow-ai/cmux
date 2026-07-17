@@ -127,6 +127,41 @@ struct SimulatorWebInspectorServiceFailureTests {
         #expect(snapshots.count == 1)
     }
 
+    @Test("Two workers cannot attach to the same target concurrently")
+    func targetLeaseSpansAttachedSession() async throws {
+        let lockDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-web-inspector-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: lockDirectory) }
+        let first = SimulatorWebInspectorService(
+            subprocessRunner: SimulatorSubprocessRunner(),
+            mutationGate: SimulatorMutationGate(lockDirectory: lockDirectory)
+        )
+        let second = SimulatorWebInspectorService(
+            subprocessRunner: SimulatorSubprocessRunner(),
+            mutationGate: SimulatorMutationGate(lockDirectory: lockDirectory)
+        )
+        let firstTransport = SuccessfulWebInspectorTransport(service: first)
+        let secondTransport = SuccessfulWebInspectorTransport(service: second)
+        first.socket = firstTransport
+        second.socket = secondTransport
+        first.currentDeviceIdentifier = "DEVICE"
+        second.currentDeviceIdentifier = "DEVICE"
+        Self.seedTarget(into: first)
+        Self.seedTarget(into: second)
+
+        _ = try await first.attach(targetIdentifier: "APP|7")
+        let secondAttach = Task { @MainActor in
+            try await second.attach(targetIdentifier: "APP|7")
+        }
+        for _ in 0..<200 { await Task.yield() }
+        #expect(second.session == nil)
+
+        try await first.releaseSession()
+        _ = try await secondAttach.value
+        #expect(second.session != nil)
+        second.shutdown()
+    }
+
     private static func service() -> SimulatorWebInspectorService {
         SimulatorWebInspectorService(subprocessRunner: SimulatorSubprocessRunner())
     }
@@ -158,6 +193,43 @@ struct SimulatorWebInspectorServiceFailureTests {
             ],
         ], ownConnectionIdentifier: "OURS")
     }
+}
+
+@MainActor
+private final class SuccessfulWebInspectorTransport: SimulatorWebInspectorTransport {
+    nonisolated let messages: AsyncStream<Data> = AsyncStream { _ in }
+    weak var service: SimulatorWebInspectorService?
+
+    init(service: SimulatorWebInspectorService) {
+        self.service = service
+    }
+
+    func send(propertyList: [String: Any]) throws {
+        guard propertyList["__selector"] as? String == "_rpc_forwardSocketData:",
+              let argument = propertyList["__argument"] as? [String: Any],
+              let request = argument["WIRSocketDataKey"] as? Data,
+              let object = try JSONSerialization.jsonObject(with: request) as? [String: Any],
+              let identifier = simulatorWebInspectorInteger(object["id"]),
+              let service else { return }
+        let response = try JSONSerialization.data(withJSONObject: [
+            "id": identifier,
+            "result": [:],
+        ])
+        let body = try SimulatorWebInspectorPlistFrameCodec().encodeBody([
+            "__selector": "_rpc_applicationSentData:",
+            "__argument": [
+                "WIRApplicationIdentifierKey": "APP",
+                "WIRPageIdentifierKey": 7,
+                "WIRDestinationKey": service.session?.senderIdentifier ?? "",
+                "WIRMessageDataKey": response,
+            ],
+        ])
+        Task { @MainActor [weak service] in
+            service?.receive(propertyListBody: body)
+        }
+    }
+
+    func close() {}
 }
 
 private actor ManualWebInspectorSleeper: SimulatorWebInspectorSleeping {
