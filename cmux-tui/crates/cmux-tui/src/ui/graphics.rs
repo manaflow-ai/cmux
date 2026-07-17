@@ -128,6 +128,11 @@ fn ioctl_cell_pixels() -> Option<(u16, u16)> {
     Some((w, h))
 }
 
+#[cfg(not(unix))]
+fn ioctl_cell_pixels() -> Option<(u16, u16)> {
+    None
+}
+
 fn query_cell_pixels() -> Option<(u16, u16)> {
     let (cols, rows) = crossterm::terminal::size().ok()?;
     if cols == 0 || rows == 0 {
@@ -145,11 +150,6 @@ fn query_cell_pixels() -> Option<(u16, u16)> {
     let height = parts.next()?.parse::<u32>().ok()?;
     let width = parts.next()?.parse::<u32>().ok()?;
     Some((((width / cols as u32).max(1)) as u16, ((height / rows as u32).max(1)) as u16))
-}
-
-#[cfg(not(unix))]
-fn ioctl_cell_pixels() -> Option<(u16, u16)> {
-    None
 }
 
 #[cfg(unix)]

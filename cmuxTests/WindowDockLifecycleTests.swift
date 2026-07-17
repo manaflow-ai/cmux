@@ -176,6 +176,53 @@ struct WindowDockLifecycleTests {
         #expect(!appDelegate.closeWindowDockRuntimeSurface(surfaceId: UUID(), force: true))
     }
 
+    @Test("Background Dock close preserves main-window keyboard focus")
+    @MainActor
+    func backgroundDockClosePreservesMainWindowKeyboardFocus() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let windowId = appDelegate.registerMainWindowContextForTesting(
+            tabManager: manager,
+            window: window
+        )
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            window.close()
+        }
+
+        let dock = appDelegate.windowDock(forWindowId: windowId)
+        let remainingPanel = try dock.seedTestPanel()
+        let closingPanel = try dock.seedTestPanel()
+        let closingTab = try #require(dock.surfaceId(forPanelId: closingPanel.id))
+        let pane = try #require(dock.paneId(forPanelId: closingPanel.id))
+        dock.setVisibleInUI(true)
+        dock.bonsplitController.focusPane(pane)
+        dock.bonsplitController.selectTab(closingTab)
+
+        let mainInput = NSTextField(frame: NSRect(x: 20, y: 20, width: 240, height: 24))
+        window.contentView?.addSubview(mainInput)
+        window.makeKeyAndOrderFront(nil)
+        #expect(window.makeFirstResponder(mainInput))
+        let mainResponder = try #require(window.firstResponder)
+
+        dock.bonsplitController.delegate = nil
+        #expect(dock.bonsplitController.closeTab(closingTab))
+        dock.bonsplitController.delegate = dock
+        let focusCountBeforeReconciliation = remainingPanel.focusCount
+
+        dock.splitTabBar(dock.bonsplitController, didCloseTab: closingTab, fromPane: pane)
+
+        #expect(remainingPanel.focusCount == focusCountBeforeReconciliation)
+        #expect(window.firstResponder === mainResponder)
+    }
+
     @Test("Window Dock close confirmation uses the owning window manager")
     @MainActor
     func windowDockCloseConfirmationUsesOwningWindowManager() async throws {

@@ -2911,6 +2911,7 @@ class GhosttyApp {
         case GHOSTTY_ACTION_COLOR_CHANGE:
             let change = action.action.color_change
             let newColor = color(from: change)
+            if let surfaceID = surfaceView.terminalSurface?.id { NotificationCenter.default.post(name: .ghosttySurfaceThemeDidChange, object: surfaceID) }
             if action.action.color_change.kind == GHOSTTY_ACTION_COLOR_KIND_BACKGROUND {
                 if backgroundLogEnabled {
                     logBackground(
@@ -2932,6 +2933,7 @@ class GhosttyApp {
             }
             return true
         case GHOSTTY_ACTION_CONFIG_CHANGE:
+            let configChangeSurfaceID = surfaceView.terminalSurface?.id
             DispatchQueue.main.async { [self] in
                 if let staleOverride = surfaceView.backgroundColor {
                     surfaceView.backgroundColor = nil
@@ -2944,8 +2946,6 @@ class GhosttyApp {
                     surfaceView.applyWindowBackgroundIfActive()
                 }
             }
-            // Keep surface config-change handling scoped to the surface. The app-level
-            // default background is owned by reloadConfiguration's resolved GhosttyConfig.
             let effectiveConfigChangeColorScheme = effectiveTerminalColorSchemePreference
             synchronizeGhosttyRuntimeColorScheme(
                 effectiveConfigChangeColorScheme,
@@ -2956,6 +2956,7 @@ class GhosttyApp {
                     force: true,
                     preferredColorScheme: effectiveConfigChangeColorScheme
                 )
+                if let configChangeSurfaceID { NotificationCenter.default.post(name: .ghosttySurfaceThemeDidChange, object: configChangeSurfaceID) }
             }
             if backgroundLogEnabled {
                 logBackground(
@@ -3373,7 +3374,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
 
-    fileprivate static func focusLog(_ message: String) {
+    static func focusLog(_ message: String) {
         guard focusDebugEnabled else { return }
         AppDelegate.shared?.focusLog.append(message)
         #if DEBUG
@@ -3826,8 +3827,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             sourceSurface: surface
         )
         if titleUpdateSurfaceKey != nextTitleUpdateSurfaceKey {
-            if let titleUpdateSurfaceKey {
-                titleUpdateIngress.retire(titleUpdateSurfaceKey)
+            if titleUpdateSurfaceKey != nil {
+                titleUpdateIngress.retireCurrentAttachment()
             }
             titleUpdateSurfaceKey = nextTitleUpdateSurfaceKey
         }
@@ -4000,13 +4001,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
-    private static func shouldDeferSurfaceResizeForActiveDrag() -> Bool {
+    private static func shouldDeferSurfaceResizeForActiveDrag(in window: NSWindow?) -> Bool {
         // The drag pasteboard can retain tab-transfer UTIs briefly after a split command
         // or other layout churn. Only defer terminal resizes while an actual drag event
         // is in flight; otherwise pre-existing panes can stay stuck at their old size.
         // Interactive geometry resize already has an explicit fast path for sidebar and
         // split-divider drags. Do not let stale drag-pasteboard state suppress those updates.
-        if TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive {
+        if TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window) {
             return false
         }
         guard hasTabDragPasteboardTypes() else { return false }
@@ -4015,7 +4016,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func activeSurfaceResizeDeferralReason() -> String? {
         if isWindowLiveResizeActive { return nil }
-        return Self.shouldDeferSurfaceResizeForActiveDrag() ? "tabDrag" : nil
+        return Self.shouldDeferSurfaceResizeForActiveDrag(in: window) ? "tabDrag" : nil
     }
 
     private var isWindowLiveResizeActive: Bool {
@@ -4159,7 +4160,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             yScale: yScale,
             layerScale: layerScale,
             backingSize: backingSize,
-            coalescePixelOnlyResize: isWindowLiveResizeActive && !bypassLiveResizeCoalescing
+            coalescePixelOnlyResize: TerminalSurfaceResizeCoalescingPolicy(
+                windowLiveResizeActive: isWindowLiveResizeActive,
+                interactiveGeometryResizeActive: TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window),
+                bypass: bypassLiveResizeCoalescing
+            ).shouldCoalescePixelOnlyResize,
+            // Don't pin the surface to the tmux-assigned grid mid-drag: the pin
+            // would hold it at the pre-drag (larger) size and paint past the
+            // shrinking pane. Re-pins at rest when the interactive flag clears.
+            suppressAssignedGridPin: isWindowLiveResizeActive
+                || TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window)
         )
         return didChange || surfaceSizeChanged
     }
@@ -6435,14 +6445,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         onFocus?()
     }
 
-    override func mouseDown(with event: NSEvent) {
+    /// Applies terminal focus intent for pointer-downs that land outside the
+    /// capped terminal content but remain inside its pane.
+    func focusFromPointerDown() {
         terminalSurface?.didReceiveExplicitInput()
-        #if DEBUG
-        let debugPoint = convert(event.locationInWindow, from: nil)
-        cmuxDebugLog("terminal.mouseDown surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))] clickCount=\(event.clickCount) point=(\(String(format: "%.0f", debugPoint.x)),\(String(format: "%.0f", debugPoint.y)))")
-        #endif
-        let shouldForwardTerminalActivation = terminalPointerShouldForwardActivation()
-        // Treat pointer-down as explicit focus intent before forwarding any terminal activation.
         if let terminalSurface {
             if terminalSurface.focusPlacement == .rightSidebarDock {
                 AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: window)
@@ -6463,6 +6469,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 surfaceId: terminalSurface.id
             )
         }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        #if DEBUG
+        let debugPoint = convert(event.locationInWindow, from: nil)
+        cmuxDebugLog("terminal.mouseDown surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))] clickCount=\(event.clickCount) point=(\(String(format: "%.0f", debugPoint.x)),\(String(format: "%.0f", debugPoint.y)))")
+        #endif
+        let shouldForwardTerminalActivation = terminalPointerShouldForwardActivation()
+        // Treat pointer-down as explicit focus intent before forwarding any terminal activation.
+        focusFromPointerDown()
         guard shouldForwardTerminalActivation else { return }
         guard let surface = surface else { return }
         let eventPoint = convert(event.locationInWindow, from: nil)
@@ -7184,15 +7200,35 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
+        makeContextMenu(for: event, sendsTerminalPointerEvent: true)
+    }
+
+    /// Builds the terminal's cmux context menu for pane chrome outside the
+    /// terminal viewport without sending an out-of-bounds mouse event to Ghostty.
+    func paneContextMenu(for event: NSEvent) -> NSMenu? {
+        makeContextMenu(for: event, sendsTerminalPointerEvent: false)
+    }
+
+    private func makeContextMenu(
+        for event: NSEvent,
+        sendsTerminalPointerEvent: Bool
+    ) -> NSMenu? {
         guard let surface = surface else { return nil }
-        if ghostty_surface_mouse_captured(surface) {
+        if sendsTerminalPointerEvent, ghostty_surface_mouse_captured(surface) {
             return nil
         }
 
         window?.makeFirstResponder(self)
-        let point = convert(event.locationInWindow, from: nil)
-        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, mouseModsFromEvent(event))
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, mouseModsFromEvent(event))
+        if sendsTerminalPointerEvent {
+            let point = convert(event.locationInWindow, from: nil)
+            ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, mouseModsFromEvent(event))
+            _ = ghostty_surface_mouse_button(
+                surface,
+                GHOSTTY_MOUSE_PRESS,
+                GHOSTTY_MOUSE_RIGHT,
+                mouseModsFromEvent(event)
+            )
+        }
 
         let menu = NSMenu()
         if onTriggerFlash != nil {
@@ -7481,8 +7517,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
     deinit {
         selectionAccessibilitySignal.finish()
-        if let titleUpdateSurfaceKey {
-            titleUpdateIngress.retire(titleUpdateSurfaceKey)
+        if titleUpdateSurfaceKey != nil {
+            titleUpdateIngress.retireCurrentAttachment()
         }
 #if DEBUG
         cmuxDebugLog(
@@ -7853,7 +7889,6 @@ private extension NSScreen {
         return nil
     }
 }
-
 extension Notification.Name {
     static let ghosttyDidTick = Notification.Name("ghosttyDidTick")
     static let ghosttyDidRenderFrame = Notification.Name("ghosttyDidRenderFrame")
@@ -7863,35 +7898,11 @@ extension Notification.Name {
     static let ghosttySearchFocus = Notification.Name("ghosttySearchFocus")
     static let ghosttyConfigDidReload = Notification.Name("ghosttyConfigDidReload")
     static let ghosttyDefaultBackgroundDidChange = Notification.Name("ghosttyDefaultBackgroundDidChange")
+    static let ghosttySurfaceThemeDidChange = Notification.Name("ghosttySurfaceThemeDidChange")
     static let browserSearchFocus = Notification.Name("browserSearchFocus")
     static let workspaceRemoteConnectionPresentationDidChange = Notification.Name(
         "cmux.workspaceRemoteConnectionPresentationDidChange"
     )
-}
-
-// MARK: - Scroll View Wrapper (Ghostty-style scrollbar)
-
-private final class GhosttyScrollView: NSScrollView {
-    weak var surfaceView: GhosttyNSView?
-
-    // Keep keyboard routing on the terminal surface; this wrapper is viewport plumbing.
-    override var acceptsFirstResponder: Bool { false }
-
-    override func scrollWheel(with event: NSEvent) {
-        guard let surfaceView else {
-            super.scrollWheel(with: event)
-            return
-        }
-
-        // Route wheel gestures to the terminal surface so Ghostty handles scrollback.
-        // Letting NSScrollView consume these events moves the wrapper viewport itself,
-        // which causes pane-content drift instead of terminal scrollback movement.
-        GhosttyNSView.focusLog("GhosttyScrollView.scrollWheel: surface scroll")
-        if window?.firstResponder !== surfaceView {
-            window?.makeFirstResponder(surfaceView)
-        }
-        surfaceView.scrollWheel(with: event)
-    }
 }
 
 private final class GhosttyFlashOverlayView: NSView {
@@ -8124,7 +8135,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private var sharedBackdropCutoutView: NSView?
-    private let backgroundView: NSView
+    private let backgroundView: TerminalPaneBackgroundView
     private let scrollView: GhosttyScrollView
     private let documentView: NSView
     let surfaceView: GhosttyNSView
@@ -8137,6 +8148,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let flashOverlayView: GhosttyFlashOverlayView
     private let flashLayer: CAShapeLayer
     private var cloudTerminalReconnectOverlayView: CloudTerminalReconnectOverlayView?
+    private var hasVisibilityRevealRefreshScheduled = false
     var isRightSidebarDockSurface: Bool {
         surfaceView.terminalSurface?.focusPlacement == .rightSidebarDock
     }
@@ -8186,6 +8198,7 @@ final class GhosttySurfaceScrollView: NSView {
     private var lastRequestedPortalOcclusionVisible: Bool?
     private var activeDropZone: DropZone?
     private var pendingDropZone: DropZone?
+    private var sessionContentWidthPresentation = SessionContentWidthPresentation.disabled
     private var dropZoneOverlayAnimationGeneration: UInt64 = 0
     private var pendingAutomaticFirstResponderApply = false
     private var pendingSuppressedFirstResponderFocusReapply = false
@@ -8381,7 +8394,7 @@ final class GhosttySurfaceScrollView: NSView {
         #endif
 
         self.surfaceView = surfaceView
-        backgroundView = NSView(frame: .zero)
+        backgroundView = TerminalPaneBackgroundView(frame: .zero)
         scrollView = GhosttyScrollView()
         inactiveOverlayView = GhosttyFlashOverlayView(frame: .zero)
         dropZoneOverlayView = GhosttyFlashOverlayView(frame: .zero)
@@ -8421,6 +8434,8 @@ final class GhosttySurfaceScrollView: NSView {
         backgroundView.wantsLayer = true
         backgroundView.layer?.backgroundColor = NSColor.clear.cgColor
         backgroundView.layer?.isOpaque = false
+        backgroundView.terminalSurfaceView = surfaceView
+        backgroundView.terminalScrollView = scrollView
         addSubview(backgroundView)
         addSubview(scrollView)
         mobileViewportBorderOverlayView.isHidden = true
@@ -8862,7 +8877,8 @@ final class GhosttySurfaceScrollView: NSView {
             _ = setFrameIfNeeded(sharedBackdropCutoutView, to: bounds)
         }
         _ = setFrameIfNeeded(backgroundView, to: bounds)
-        _ = setFrameIfNeeded(scrollView, to: bounds)
+        let contentFrame = sessionContentFrame
+        _ = setFrameIfNeeded(scrollView, to: contentFrame)
         let targetSize = scrollView.bounds.size
 #if DEBUG
         logLayoutDuringActiveDrag(targetSize: targetSize)
@@ -8874,7 +8890,7 @@ final class GhosttySurfaceScrollView: NSView {
             size: CGSize(width: scrollView.bounds.width, height: documentView.frame.height)
         )
         _ = setFrameIfNeeded(documentView, to: targetDocumentFrame)
-        _ = setFrameIfNeeded(mobileViewportBorderOverlayView, to: bounds)
+        _ = setFrameIfNeeded(mobileViewportBorderOverlayView, to: contentFrame)
         _ = setFrameIfNeeded(inactiveOverlayView, to: bounds)
         _ = setFrameIfNeeded(paneDropTargetView, to: bounds)
         if let zone = activeDropZone {
@@ -8898,13 +8914,13 @@ final class GhosttySurfaceScrollView: NSView {
         }
         _ = setFrameIfNeeded(notificationRingOverlayView, to: bounds)
         _ = setFrameIfNeeded(flashOverlayView, to: bounds)
-        _ = setFrameIfNeeded(linkHoverIndicatorView, to: bounds)
+        _ = setFrameIfNeeded(linkHoverIndicatorView, to: contentFrame)
         if let cloudTerminalReconnectOverlayView {
-            _ = setFrameIfNeeded(cloudTerminalReconnectOverlayView, to: bounds)
+            _ = setFrameIfNeeded(cloudTerminalReconnectOverlayView, to: contentFrame)
         }
         synchronizeCloudTerminalReconnectOverlay()
         if let overlay = searchOverlayHostingView {
-            _ = setFrameIfNeeded(overlay, to: bounds)
+            _ = setFrameIfNeeded(overlay, to: contentFrame)
         }
         bringPaneDropTargetToFrontIfNeeded()
         // NSScrollView can defer clip-view/content-size updates until its own layout pass,
@@ -8920,6 +8936,17 @@ final class GhosttySurfaceScrollView: NSView {
         synchronizeSurfaceView()
         let didCoreSurfaceChange = synchronizeCoreSurface()
         return !sizeApproximatelyEqual(previousSurfaceSize, targetSize) || didCoreSurfaceChange
+    }
+
+    /// Updates terminal content geometry without shrinking pane-level overlays.
+    func setSessionContentWidthPresentation(_ presentation: SessionContentWidthPresentation) {
+        guard sessionContentWidthPresentation != presentation else { return }
+        sessionContentWidthPresentation = presentation
+        _ = synchronizeGeometryAndContent()
+    }
+
+    private var sessionContentFrame: CGRect {
+        sessionContentWidthPresentation.contentFrame(in: bounds)
     }
 
     func setMobileViewportBorder(size: CGSize?, drawRight: Bool, drawBottom: Bool) {
@@ -8976,8 +9003,8 @@ final class GhosttySurfaceScrollView: NSView {
         if let existing = cloudTerminalReconnectOverlayView {
             overlay = existing
         } else {
-            overlay = CloudTerminalReconnectOverlayView(frame: bounds)
-            overlay.autoresizingMask = [.width, .height]
+            overlay = CloudTerminalReconnectOverlayView(frame: sessionContentFrame)
+            overlay.autoresizingMask = []
             cloudTerminalReconnectOverlayView = overlay
         }
         overlay.apply(presentation)
@@ -8988,7 +9015,7 @@ final class GhosttySurfaceScrollView: NSView {
             }
             _ = workspace.reconnectCloudTerminalSurface(surfaceId: terminalSurface.id)
         }
-        overlay.frame = bounds
+        overlay.frame = sessionContentFrame
         if overlay.superview !== self {
             addSubview(overlay, positioned: .above, relativeTo: nil)
         }
@@ -9560,7 +9587,7 @@ final class GhosttySurfaceScrollView: NSView {
            lastSearchOverlayStateID == searchStateID,
            overlay.superview === self {
             cancelDeferredSearchOverlayMutation()
-            _ = setFrameIfNeeded(overlay, to: bounds)
+            _ = setFrameIfNeeded(overlay, to: sessionContentFrame)
             updateKeyboardCopyModeBadgeZOrder(relativeTo: overlay)
             return
         }
@@ -9582,8 +9609,8 @@ final class GhosttySurfaceScrollView: NSView {
                 scheduleDeferredSearchOverlayMutation(generation: mutationGeneration) { [weak self, weak overlay] in
                     guard let self, let overlay else { return }
                     overlay.removeFromSuperview()
-                    overlay.frame = self.bounds
-                    overlay.autoresizingMask = [.width, .height]
+                    overlay.frame = self.sessionContentFrame
+                    overlay.autoresizingMask = []
                     self.addSubview(overlay)
                     self.updateKeyboardCopyModeBadgeZOrder(relativeTo: overlay)
                     self.requestMountedSearchFieldFocus(
@@ -9594,23 +9621,23 @@ final class GhosttySurfaceScrollView: NSView {
                 return
             }
             cancelDeferredSearchOverlayMutation()
-            _ = setFrameIfNeeded(overlay, to: bounds)
+            _ = setFrameIfNeeded(overlay, to: sessionContentFrame)
             updateKeyboardCopyModeBadgeZOrder(relativeTo: overlay)
             return
         }
 
         searchFocusTarget = .searchField
         let overlay = TerminalSearchOverlayHostingView(rootView: rootView, surfaceView: surfaceView)
-        overlay.frame = bounds
-        overlay.autoresizingMask = [.width, .height]
+        overlay.frame = sessionContentFrame
+        overlay.autoresizingMask = []
         searchOverlayHostingView = overlay
         lastSearchOverlayStateID = searchStateID
         scheduleDeferredSearchOverlayMutation(generation: mutationGeneration) { [weak self, weak overlay] in
             guard let self, let overlay else { return }
             guard self.searchOverlayHostingView === overlay else { return }
             overlay.removeFromSuperview()
-            overlay.frame = self.bounds
-            overlay.autoresizingMask = [.width, .height]
+            overlay.frame = self.sessionContentFrame
+            overlay.autoresizingMask = []
             self.addSubview(overlay)
             self.updateKeyboardCopyModeBadgeZOrder(relativeTo: overlay)
             self.requestMountedSearchFieldFocus(
@@ -9907,12 +9934,27 @@ final class GhosttySurfaceScrollView: NSView {
             }
         } else if !wasVisible {
             // Workspace/sidebar selection can make an already-sized terminal visible again
-            // without a portal frame delta or a focus handoff. Reuse the portal refresh
-            // path so the Metal layer is nudged immediately on plain visibility restores.
-            refreshSurfaceNow(reason: "setVisibleInUI")
+            // without a portal frame delta or a focus handoff. Nudge the Metal layer with
+            // the portal refresh path — but on the next main-queue turn: reveals arrive
+            // from inside SwiftUI update/layout (updateNSView, viewDidMoveToWindow, the
+            // geometry-callback rebind), where a synchronous display can wedge the main
+            // thread in Metal against the still-open window transaction.
+            scheduleVisibilityRevealRefresh()
             scheduleAutomaticFirstResponderApply(reason: "setVisibleInUI")
         }
     }
+
+    private func scheduleVisibilityRevealRefresh() {
+        guard !hasVisibilityRevealRefreshScheduled else { return }
+        hasVisibilityRevealRefreshScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.hasVisibilityRevealRefreshScheduled = false
+            guard self.surfaceView.isVisibleInUI else { return }
+            self.refreshSurfaceNow(reason: "setVisibleInUI.deferred")
+        }
+    }
+
     var debugPortalVisibleInUI: Bool {
         surfaceView.isVisibleInUI
     }
@@ -12016,6 +12058,8 @@ struct GhosttyTerminalView: NSViewRepresentable {
     let paneId: PaneID
     var isActive: Bool = true
     var isVisibleInUI: Bool = true
+    var ownershipGeneration: UInt64 = 0
+    var isCurrentPaneOwner: @MainActor () -> Bool = { true }
     var portalZPriority: Int = 0
     var showsInactiveOverlay: Bool = false
     var showsUnreadNotificationRing: Bool = false
@@ -12023,6 +12067,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
     var inactiveOverlayOpacity: Double = 0
     var searchState: TerminalSurface.SearchState? = nil
     var reattachToken: UInt64 = 0
+    var sessionContentWidthPresentation = SessionContentWidthPresentation.disabled
     var onFocus: ((UUID) -> Void)? = nil
     var onTriggerFlash: (() -> Void)? = nil
 
@@ -12208,22 +12253,27 @@ struct GhosttyTerminalView: NSViewRepresentable {
 #endif
 
         let hostContainer = nsView as? HostContainerView
+        let ownsCurrentPane = isCurrentPaneOwner()
         let hostOwnsPortalNow = hostContainer.map { host in
-            terminalSurface.claimPortalHost(
+            guard ownsCurrentPane else { return false }
+            return terminalSurface.claimPortalHost(
                 hostId: ObjectIdentifier(host),
                 paneId: paneId,
                 instanceSerial: host.instanceSerial,
+                ownershipGeneration: ownershipGeneration,
                 inWindow: host.window != nil,
                 bounds: host.bounds,
+                allowsAuthorityAcquisition: ownsCurrentPane,
                 reason: "update"
             )
-        } ?? true
+        } ?? ownsCurrentPane
 
         // Keep the surface lifecycle and handlers updated even if we defer re-parenting.
         hostedView.attachSurface(terminalSurface)
-        hostedView.setFocusHandler { onFocus?(terminalSurface.id) }
-        hostedView.setTriggerFlashHandler(onTriggerFlash)
         if hostOwnsPortalNow {
+            hostedView.setSessionContentWidthPresentation(sessionContentWidthPresentation)
+            hostedView.setFocusHandler { onFocus?(terminalSurface.id) }
+            hostedView.setTriggerFlashHandler(onTriggerFlash)
             hostedView.setPaneDropContext(TerminalPaneDropContext(
                 workspaceId: terminalSurface.tabId,
                 panelId: terminalSurface.id,
@@ -12277,12 +12327,15 @@ struct GhosttyTerminalView: NSViewRepresentable {
             host.onDidMoveToWindow = { [weak host, weak hostedView, weak coordinator] in
                 guard let host, let hostedView, let coordinator else { return }
                 guard coordinator.attachGeneration == generation else { return }
+                guard isCurrentPaneOwner() else { return }
                 guard terminalSurface.claimPortalHost(
                     hostId: ObjectIdentifier(host),
                     paneId: paneId,
                     instanceSerial: host.instanceSerial,
+                    ownershipGeneration: ownershipGeneration,
                     inWindow: host.window != nil,
                     bounds: host.bounds,
+                    allowsAuthorityAcquisition: true,
                     reason: "didMoveToWindow"
                 ) else { return }
                 guard host.window != nil else { return }
@@ -12306,12 +12359,15 @@ struct GhosttyTerminalView: NSViewRepresentable {
             host.onGeometryChanged = { [weak host, weak hostedView, weak coordinator] in
                 guard let host, let hostedView, let coordinator else { return }
                 guard coordinator.attachGeneration == generation else { return }
+                guard isCurrentPaneOwner() else { return }
                 guard terminalSurface.claimPortalHost(
                     hostId: ObjectIdentifier(host),
                     paneId: paneId,
                     instanceSerial: host.instanceSerial,
+                    ownershipGeneration: ownershipGeneration,
                     inWindow: host.window != nil,
                     bounds: host.bounds,
+                    allowsAuthorityAcquisition: true,
                     reason: "geometryChanged"
                 ) else { return }
                 guard portalBindingStillLive() else { return }
