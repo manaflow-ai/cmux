@@ -101,18 +101,20 @@ extension CmxIrohClientRuntimeTests {
         )
         let refresh = Task { await runtime.refreshLiveDiscovery() }
         await broker.waitForRegistrationCount(2)
-        await endpoint.emit(.networkChanged)
-        for _ in 0..<1_000 where !(await runtime.registrationRefreshPending) {
-            await Task.yield()
-        }
+        await runtime.handleSupervisorNetworkChange(
+            revision: await runtime.lifecycleRevision
+        )
         #expect(await runtime.registrationRefreshPending)
 
         await secondRegistration.open()
         await broker.waitForRegistrationCount(3)
+        #expect(await runtime.registrationRefreshTaskID != nil)
         await thirdRegistration.open()
 
         #expect(await refresh.value)
-        #expect(!(await broker.waitForRegistrationCount(4, timeout: .milliseconds(100))))
+        #expect(await runtime.registrationRefreshTaskID == nil)
+        #expect(!(await runtime.registrationRefreshPending))
+        #expect(await broker.observedRegistrations().count == 3)
         await runtime.stop()
     }
 

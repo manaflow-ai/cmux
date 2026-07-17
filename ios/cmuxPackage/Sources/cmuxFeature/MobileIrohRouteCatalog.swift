@@ -62,6 +62,7 @@ public actor MobileIrohRouteCatalog {
     private static func makeRoutesByMacDeviceID(
         from bindings: [CmxIrohBrokerBinding]
     ) -> [String: [String: [CmxAttachRoute]]] {
+        let timestampParser = TimestampParser()
         let pairableMacs = bindings.filter {
             $0.platform == .mac && $0.pairingEnabled
         }.prefix(CmxIrohDiscoveryResponse.maximumBindingCount)
@@ -82,7 +83,13 @@ public actor MobileIrohRouteCatalog {
             let bindingsByTag = Dictionary(grouping: bindings, by: \.tag)
             var routesByTag: [String: [CmxAttachRoute]] = [:]
             for (tag, taggedBindings) in bindingsByTag {
-                let ordered = taggedBindings.sorted(by: Self.bindingSortsBefore)
+                let ordered = taggedBindings.sorted {
+                    Self.bindingSortsBefore(
+                        $0,
+                        $1,
+                        timestampParser: timestampParser
+                    )
+                }
                 let routes = ordered.enumerated().compactMap { index, binding in
                     try? CmxAttachRoute(
                         id: "iroh-personal-\(binding.bindingID)",
@@ -105,6 +112,7 @@ public actor MobileIrohRouteCatalog {
     private static func makeLiveMacs(
         from bindings: [CmxIrohBrokerBinding]
     ) -> [MobileDiscoveredIrohMac] {
+        let timestampParser = TimestampParser()
         let pairableMacs = Array(bindings.filter {
             $0.platform == .mac && $0.pairingEnabled
         }.prefix(CmxIrohDiscoveryResponse.maximumBindingCount))
@@ -138,7 +146,7 @@ public actor MobileIrohRouteCatalog {
                 displayName: binding.displayName,
                 instanceTag: binding.tag,
                 routes: [route],
-                lastSeenAt: parseTimestamp(binding.lastSeenAt)
+                lastSeenAt: timestampParser.parse(binding.lastSeenAt)
             )
         }
     }
@@ -208,22 +216,33 @@ public actor MobileIrohRouteCatalog {
 
     private static func bindingSortsBefore(
         _ left: CmxIrohBrokerBinding,
-        _ right: CmxIrohBrokerBinding
+        _ right: CmxIrohBrokerBinding,
+        timestampParser: TimestampParser
     ) -> Bool {
-        let leftDate = parseTimestamp(left.lastSeenAt)
-        let rightDate = parseTimestamp(right.lastSeenAt)
+        let leftDate = timestampParser.parse(left.lastSeenAt)
+        let rightDate = timestampParser.parse(right.lastSeenAt)
         if leftDate == rightDate {
             return left.bindingID < right.bindingID
         }
         return leftDate > rightDate
     }
 
-    private static func parseTimestamp(_ value: String) -> Date {
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return fractional.date(from: value)
-            ?? ISO8601DateFormatter().date(from: value)
-            ?? .distantPast
+    private final class TimestampParser {
+        private let fractional: ISO8601DateFormatter
+        private let wholeSeconds: ISO8601DateFormatter
+
+        init() {
+            fractional = ISO8601DateFormatter()
+            fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            wholeSeconds = ISO8601DateFormatter()
+            wholeSeconds.formatOptions = [.withInternetDateTime]
+        }
+
+        func parse(_ value: String) -> Date {
+            fractional.date(from: value)
+                ?? wholeSeconds.date(from: value)
+                ?? .distantPast
+        }
     }
 }
 

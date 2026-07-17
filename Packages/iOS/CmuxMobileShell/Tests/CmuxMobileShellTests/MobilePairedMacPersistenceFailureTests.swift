@@ -46,7 +46,7 @@ struct MobilePairedMacPersistenceFailureTests {
             macDeviceID: "test-mac",
             macDisplayName: "Test Mac",
             routes: [route],
-            expiresAt: Date().addingTimeInterval(3_600)
+            expiresAt: Date(timeIntervalSince1970: 4_102_444_800)
         )
 
         #expect(!(await shell.persistPairedMacFromTicket(ticket)))

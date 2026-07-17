@@ -49,6 +49,44 @@ struct MobileIrohRuntimeCompositionTests {
     }
 
     @Test
+    func discoveryCatalogOrdersFractionalAndWholeSecondTimestamps() async throws {
+        let deviceID = "30000000-0000-4000-8000-000000000101"
+        let olderBindingID = "30000000-0000-4000-8000-000000000102"
+        let newerBindingID = "30000000-0000-4000-8000-000000000103"
+        let discovery = try mobileIrohDiscovery(bindings: [
+            mobileIrohBinding(
+                bindingID: olderBindingID,
+                deviceID: deviceID,
+                appInstanceID: "30000000-0000-4000-8000-000000000104",
+                endpointID: String(repeating: "a", count: 64),
+                platform: "mac",
+                pairingEnabled: true,
+                lastSeenAt: "2027-07-10T12:00:00.500Z"
+            ),
+            mobileIrohBinding(
+                bindingID: newerBindingID,
+                deviceID: deviceID,
+                appInstanceID: "30000000-0000-4000-8000-000000000105",
+                endpointID: String(repeating: "b", count: 64),
+                platform: "mac",
+                pairingEnabled: true,
+                lastSeenAt: "2027-07-10T12:00:01Z"
+            ),
+        ])
+        let catalog = MobileIrohRouteCatalog()
+        await catalog.activate(scope: 2)
+        await catalog.replace(with: discovery, scope: 2)
+
+        #expect(await catalog.routes(
+            forKnownMacDeviceID: deviceID,
+            instanceTag: "test"
+        ).map(\.id) == [
+            "iroh-personal-\(newerBindingID)",
+            "iroh-personal-\(olderBindingID)",
+        ])
+    }
+
+    @Test
     func zeroTouchDiscoveryRejectsAmbiguousEndpointAndDeviceTagBindings() async throws {
         let duplicateDeviceID = "30000000-0000-4000-8000-000000000001"
         let discovery = try mobileIrohDiscovery(bindings: [
@@ -1259,7 +1297,8 @@ private func mobileIrohBinding(
     appInstanceID: String,
     endpointID: String,
     platform: String,
-    pairingEnabled: Bool
+    pairingEnabled: Bool,
+    lastSeenAt: String = "2027-07-10T12:00:00.000Z"
 ) -> [String: Any] {
     [
         "binding_id": bindingID,
@@ -1272,7 +1311,7 @@ private func mobileIrohBinding(
         "pairing_enabled": pairingEnabled,
         "capabilities": ["mobile-rpc-v1"],
         "path_hints": [],
-        "last_seen_at": "2027-07-10T12:00:00.000Z",
+        "last_seen_at": lastSeenAt,
     ]
 }
 
