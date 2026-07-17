@@ -13,6 +13,26 @@ import WebKit
 
 @MainActor
 struct BrowserWebExtensionsManagerTests {
+    private final class RejectingCreateTabDelegate: BonsplitDelegate {
+        func splitTabBar(
+            _ controller: BonsplitController,
+            shouldCreateTab tab: Bonsplit.Tab,
+            inPane pane: PaneID
+        ) -> Bool {
+            false
+        }
+    }
+
+    private final class RejectingSplitPaneDelegate: BonsplitDelegate {
+        func splitTabBar(
+            _ controller: BonsplitController,
+            shouldSplitPane pane: PaneID,
+            orientation: SplitOrientation
+        ) -> Bool {
+            false
+        }
+    }
+
     private static func makeExtensionsRoot() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-browser-extensions-tests-\(UUID().uuidString)", isDirectory: true)
@@ -271,6 +291,125 @@ struct BrowserWebExtensionsManagerTests {
         await #expect(throws: BrowserWebExtensionInstallError.self) {
             try await manager.approveInstalledCandidate(archive)
         }
+    }
+
+    @available(macOS 15.4, *)
+    @Test func unpackedInstallRejectsCumulativeBytesBeforeCreatingDestination() async throws {
+        let sourceRoot = try Self.makeExtensionsRoot()
+        let managedRoot = try Self.makeExtensionsRoot()
+        defer {
+            try? FileManager.default.removeItem(at: sourceRoot)
+            try? FileManager.default.removeItem(at: managedRoot)
+        }
+        let source = sourceRoot.appendingPathComponent("oversized", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try Data(repeating: 0x41, count: 6).write(to: source.appendingPathComponent("first.js"))
+        try Data(repeating: 0x42, count: 6).write(to: source.appendingPathComponent("second.js"))
+        let repository = BrowserWebExtensionDirectoryRepository(packageLimits: .init(
+            maximumByteCount: 10,
+            maximumFileCount: 10
+        ))
+
+        do {
+            _ = try await repository.installCandidate(from: source, into: managedRoot)
+            Issue.record("Expected cumulative unpacked bytes to reject installation")
+        } catch let error as BrowserWebExtensionInstallError {
+            guard case .packageTooLarge = error else {
+                Issue.record("Expected packageTooLarge, got \(error)")
+                return
+            }
+        }
+
+        #expect(!FileManager.default.fileExists(
+            atPath: managedRoot.appendingPathComponent("oversized").path
+        ))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: managedRoot.path).isEmpty)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func unpackedInstallCountsDirectoriesTowardEntryLimit() async throws {
+        let sourceRoot = try Self.makeExtensionsRoot()
+        let managedRoot = try Self.makeExtensionsRoot()
+        defer {
+            try? FileManager.default.removeItem(at: sourceRoot)
+            try? FileManager.default.removeItem(at: managedRoot)
+        }
+        let source = sourceRoot.appendingPathComponent("entry-heavy", isDirectory: true)
+        for name in ["first", "second", "third"] {
+            try FileManager.default.createDirectory(
+                at: source.appendingPathComponent(name, isDirectory: true),
+                withIntermediateDirectories: true
+            )
+        }
+        let repository = BrowserWebExtensionDirectoryRepository(packageLimits: .init(
+            maximumByteCount: 10,
+            maximumFileCount: 2
+        ))
+
+        do {
+            _ = try await repository.installCandidate(from: source, into: managedRoot)
+            Issue.record("Expected unpacked entry count to reject installation")
+        } catch let error as BrowserWebExtensionInstallError {
+            guard case .packageContainsTooManyFiles = error else {
+                Issue.record("Expected packageContainsTooManyFiles, got \(error)")
+                return
+            }
+        }
+
+        #expect(!FileManager.default.fileExists(
+            atPath: managedRoot.appendingPathComponent("entry-heavy").path
+        ))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: managedRoot.path).isEmpty)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func unpackedInstallAcceptsExactCumulativeLimits() async throws {
+        let sourceRoot = try Self.makeExtensionsRoot()
+        let managedRoot = try Self.makeExtensionsRoot()
+        defer {
+            try? FileManager.default.removeItem(at: sourceRoot)
+            try? FileManager.default.removeItem(at: managedRoot)
+        }
+        let source = sourceRoot.appendingPathComponent("exact-limit", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try Data(repeating: 0x41, count: 6).write(to: source.appendingPathComponent("first.js"))
+        try Data(repeating: 0x42, count: 6).write(to: source.appendingPathComponent("second.js"))
+        let repository = BrowserWebExtensionDirectoryRepository(packageLimits: .init(
+            maximumByteCount: 12,
+            maximumFileCount: 2
+        ))
+
+        let installed = try await repository.installCandidate(from: source, into: managedRoot)
+
+        #expect(try Data(contentsOf: installed.appendingPathComponent("first.js")).count == 6)
+        #expect(try Data(contentsOf: installed.appendingPathComponent("second.js")).count == 6)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func unpackedInstallRevalidatesSymlinksAfterPreflight() async throws {
+        let sourceRoot = try Self.makeExtensionsRoot()
+        let managedRoot = try Self.makeExtensionsRoot()
+        defer {
+            try? FileManager.default.removeItem(at: sourceRoot)
+            try? FileManager.default.removeItem(at: managedRoot)
+        }
+        let source = sourceRoot.appendingPathComponent("replaced", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        let script = source.appendingPathComponent("content.js")
+        try Data("safe".utf8).write(to: script)
+        let repository = BrowserWebExtensionDirectoryRepository()
+        try await repository.validatePackageSize(at: source)
+        try FileManager.default.removeItem(at: script)
+        try FileManager.default.createSymbolicLink(
+            at: script,
+            withDestinationURL: sourceRoot.appendingPathComponent("outside.js")
+        )
+
+        await #expect(throws: BrowserWebExtensionInstallError.self) {
+            _ = try await repository.installCandidate(from: source, into: managedRoot)
+        }
+
+        #expect(try FileManager.default.contentsOfDirectory(atPath: managedRoot.path).isEmpty)
     }
 
     @available(macOS 15.4, *)
@@ -816,6 +955,54 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
+    @Test func rejectedBrowserTabCreationDoesNotRegisterOrRetainPanel() throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let services = BrowserServices(extensionDirectory: root)
+        let tabManager = TabManager(autoWelcomeIfNeeded: false, browserServices: services)
+        let workspace = try #require(tabManager.selectedWorkspace)
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let originalPanelCount = workspace.panels.count
+        let rejectingDelegate = RejectingCreateTabDelegate()
+        workspace.bonsplitController.delegate = rejectingDelegate
+
+        let created = workspace.newBrowserSurface(
+            inPane: pane,
+            focus: false,
+            creationPolicy: .restoration
+        )
+
+        #expect(created == nil)
+        #expect(workspace.panels.count == originalPanelCount)
+        #expect(services.registeredBrowserPanelCount == 0)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func rejectedManagerSplitKeepsOnlySourcePanelRegistered() throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let services = BrowserServices(extensionDirectory: root)
+        let tabManager = TabManager(autoWelcomeIfNeeded: false, browserServices: services)
+        let workspace = try #require(tabManager.selectedWorkspace)
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let source = try #require(workspace.newBrowserSurface(
+            inPane: pane,
+            focus: false,
+            creationPolicy: .restoration
+        ))
+        let originalPanelCount = workspace.panels.count
+        #expect(services.registeredBrowserPanelCount == 1)
+        let rejectingDelegate = RejectingSplitPaneDelegate()
+        workspace.bonsplitController.delegate = rejectingDelegate
+
+        let manager = workspace.openBrowserExtensionsManager(from: source.id)
+
+        #expect(manager == nil)
+        #expect(workspace.panels.count == originalPanelCount)
+        #expect(services.registeredBrowserPanelCount == 1)
+    }
+
+    @available(macOS 15.4, *)
     @Test func extensionControllerReportsNoFocusedWindowWithoutAKeyCmuxWindow() async throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -845,6 +1032,40 @@ struct BrowserWebExtensionsManagerTests {
             manager.controller,
             focusedWindowFor: extensionContext
         ) == nil)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func extensionControllerPrefersTheAuthoritativeFocusedOwner() {
+        let manager = BrowserWebExtensionsManager(
+            directory: FileManager.default.temporaryDirectory,
+            controllerConfiguration: .nonPersistent()
+        )
+        let fallbackOwnerID = UUID()
+        let focusedOwnerID = UUID()
+        let fallbackPanel = BrowserPanel(workspaceId: fallbackOwnerID)
+        let focusedPanel = BrowserPanel(workspaceId: focusedOwnerID)
+        defer {
+            manager.unregister(panelID: fallbackPanel.id)
+            manager.unregister(panelID: focusedPanel.id)
+            fallbackPanel.close()
+            focusedPanel.close()
+        }
+        manager.register(
+            panel: fallbackPanel,
+            ownerID: fallbackOwnerID,
+            activePanelID: { fallbackPanel.id },
+            focusPriority: { 1 },
+            focusPanel: { _ in }
+        )
+        manager.register(
+            panel: focusedPanel,
+            ownerID: focusedOwnerID,
+            activePanelID: { focusedPanel.id },
+            focusPriority: { 2 },
+            focusPanel: { _ in }
+        )
+
+        #expect(manager.debugPreferredFocusedWindowOwnerID == focusedOwnerID)
     }
 
     @available(macOS 15.4, *)
