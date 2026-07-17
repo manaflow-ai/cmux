@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import CMUXAgentLaunch
+import CmuxSettings
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -10,6 +11,87 @@ import CMUXAgentLaunch
 
 @Suite("Feed coordinator", .serialized)
 struct FeedCoordinatorTests {
+    @MainActor
+    @Test func nonBlockingActionableReplyResolvesPendingStoreItem() async throws {
+        let store = WorkstreamStore(ringCapacity: 10)
+        FeedCoordinator.shared.install(store: store)
+        let requestID = "non-blocking-actionable"
+        let event = WorkstreamEvent(
+            sessionId: "claude-non-blocking-actionable",
+            hookEventName: .permissionRequest,
+            source: "claude",
+            cwd: "/tmp",
+            toolName: "Bash",
+            toolInputJSON: #"{"command":"true"}"#,
+            requestId: requestID
+        )
+
+        let ingest = await FeedCoordinator.shared.ingestBlocking(event: event, waitTimeout: 0)
+        guard case .acknowledged(let itemID) = ingest else {
+            Issue.record("expected non-blocking Feed event to be acknowledged")
+            return
+        }
+        let resolvedID = try #require(itemID)
+
+        #expect(
+            await FeedCoordinator.shared.deliverReply(
+                requestId: requestID,
+                decision: .permission(.once)
+            )
+        )
+        guard case .resolved(.permission(.once), _) = store.items.first(where: { $0.id == resolvedID })?.status else {
+            Issue.record("non-blocking actionable item should resolve locally")
+            return
+        }
+    }
+
+    @MainActor
+    @Test func notificationPolicyUsesGlobalHooksWithoutWorkspaceMapping() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "cmux-feed-global-hook-\(UUID().uuidString)",
+                isDirectory: true
+            )
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let configURL = root.appendingPathComponent("cmux.json")
+            try #"{"notifications":{"hooks":[{"id":"feed-global","command":"cat"}]}}"#
+                .write(to: configURL, atomically: true, encoding: .utf8)
+            let configStore = CmuxConfigStore(
+                globalConfigPath: configURL.path,
+                startFileWatchers: false
+            )
+            configStore.loadAll()
+
+            let previousAppDelegate = AppDelegate.shared
+            let appDelegate = AppDelegate()
+            AppDelegate.shared = appDelegate
+            defer { AppDelegate.shared = previousAppDelegate }
+            let manager = TabManager()
+            let windowID = appDelegate.registerMainWindowContextForTesting(
+                tabManager: manager,
+                cmuxConfigStore: configStore
+            )
+            defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowID) }
+
+            let event = WorkstreamEvent(
+                sessionId: "claude-no-workspace",
+                hookEventName: .notification,
+                source: "claude",
+                cwd: root.path
+            )
+            let context = await FeedNotificationPolicyContext.make(
+                event: event,
+                title: "Done",
+                body: "Finished",
+                hookCache: CmuxNotificationHookCache()
+            )
+
+            #expect(context.globalConfigPath == configURL.path)
+            #expect(context.hooks.map(\.id) == ["feed-global"])
+        }
+    }
+
     @Test func blockingBridgeReturnsFallbackAtItsDeadline() {
         let bridge = FeedBlockingCallBridge<Bool>()
 
