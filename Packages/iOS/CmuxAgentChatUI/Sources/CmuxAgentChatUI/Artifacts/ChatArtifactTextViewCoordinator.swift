@@ -9,7 +9,7 @@ final class ChatArtifactTextViewCoordinator:
     UITextViewDelegate,
     UIGestureRecognizerDelegate
 {
-    private enum BottomPinTrigger {
+    private enum BottomPinTrigger: Int {
         case layoutChanged
         case appendsFlushed
         case reachedEOF
@@ -31,6 +31,7 @@ final class ChatArtifactTextViewCoordinator:
     private var bottomPin = ChatArtifactTextBottomPinStateMachine()
     private var endJumpConvergence: ChatArtifactTextJumpConvergence?
     private var isSettlingBoundaryJump = false
+    private var pendingBottomPinTriggerMask = 0
     private weak var containerView: ChatArtifactTextContainerView?
     private let syntaxHighlighter = ChatArtifactSyntaxHighlighter()
     private var highlightTask: Task<Void, Never>?
@@ -126,6 +127,7 @@ final class ChatArtifactTextViewCoordinator:
 
     private func cancelBottomPinOwnership() {
         endJumpConvergence = nil
+        pendingBottomPinTriggerMask = 0
         bottomPin.userInteracted()
     }
 
@@ -143,6 +145,7 @@ final class ChatArtifactTextViewCoordinator:
         topJumpConvergence = nil
         bottomPin = ChatArtifactTextBottomPinStateMachine()
         endJumpConvergence = nil
+        pendingBottomPinTriggerMask = 0
         appliedChunkCount = 0
     }
 
@@ -268,8 +271,12 @@ final class ChatArtifactTextViewCoordinator:
         in textView: UITextView,
         bottomPinTrigger: BottomPinTrigger? = nil
     ) {
+        if let bottomPinTrigger {
+            pendingBottomPinTriggerMask |= 1 << bottomPinTrigger.rawValue
+        }
         // UIKit may synchronously report animation completion while a fallback
-        // range is being materialized. The active settle already owns that edge.
+        // range or a deferred append is being materialized. The active settle
+        // owns that edge and drains every trigger recorded by re-entrant work.
         guard !isSettlingBoundaryJump else { return }
         isSettlingBoundaryJump = true
         defer { isSettlingBoundaryJump = false }
@@ -277,21 +284,40 @@ final class ChatArtifactTextViewCoordinator:
         guard !appendPolicy.isDeferring,
               pendingTextChunks.isEmpty else { return }
 
-        while settleBoundaryJumpOnceIfReady(in: textView) {}
+        while true {
+            while settleBoundaryJumpOnceIfReady(in: textView) {}
 
-        guard endJumpConvergence == nil,
-              let bottomPinTrigger else { return }
-        let boundary = documentEndBoundary(in: textView)
-        let action: ChatArtifactTextBottomPinStateMachine.Action
-        switch bottomPinTrigger {
-        case .layoutChanged:
-            action = bottomPin.layoutChanged(to: boundary)
-        case .appendsFlushed:
-            action = bottomPin.appendsFlushed(at: boundary)
-        case .reachedEOF:
-            action = bottomPin.reachedEOF(at: boundary)
+            guard !appendPolicy.isDeferring,
+                  pendingTextChunks.isEmpty,
+                  endJumpConvergence == nil,
+                  let bottomPinTrigger = takePendingBottomPinTrigger() else { return }
+            let boundary = documentEndBoundary(in: textView)
+            let action: ChatArtifactTextBottomPinStateMachine.Action
+            switch bottomPinTrigger {
+            case .layoutChanged:
+                action = bottomPin.layoutChanged(to: boundary)
+            case .appendsFlushed:
+                action = bottomPin.appendsFlushed(at: boundary)
+            case .reachedEOF:
+                action = bottomPin.reachedEOF(at: boundary)
+            }
+            _ = applyBottomPinAction(action, in: textView)
+
+            guard !appendPolicy.isDeferring,
+                  pendingTextChunks.isEmpty else { return }
         }
-        _ = applyBottomPinAction(action, in: textView)
+    }
+
+    private func takePendingBottomPinTrigger() -> BottomPinTrigger? {
+        for trigger in [
+            BottomPinTrigger.reachedEOF,
+            .appendsFlushed,
+            .layoutChanged,
+        ] where pendingBottomPinTriggerMask & (1 << trigger.rawValue) != 0 {
+            pendingBottomPinTriggerMask &= ~(1 << trigger.rawValue)
+            return trigger
+        }
+        return nil
     }
 
     /// Performs one budgeted settle step and reports whether layout must be sampled again now.
