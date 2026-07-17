@@ -472,13 +472,13 @@ public struct SettingsWindowRoot: View {
 
         BetaFeaturesSection(defaultsStore: defaultsStore, catalog: catalog)
             .id(anchorID(for: .betaFeatures))
-
         AutomationSection(
             defaultsStore: defaultsStore,
             jsonStore: jsonStore,
             secretStore: secretStore,
             catalog: catalog,
-            errorLog: runtime.errorLog
+            errorLog: runtime.errorLog,
+            hostActions: hostActions
         )
         .id(anchorID(for: .automation))
 

@@ -313,6 +313,7 @@ if "archive" in args:
     write_plist(
         app / "Info.plist",
         {{
+            "CFBundleExecutable": "cmux",
             "CFBundleIdentifier": bundle_id,
             "CFBundleVersion": build_number,
             "CFBundleShortVersionString": marketing_version,
@@ -332,7 +333,7 @@ if "-exportArchive" in args:
     payload_root = export_path / "Payload"
     app = payload_root / "cmux.app"
     write_plist(app / "Info.plist", archived_info)
-    if os.environ.get("CMUX_FAKE_EMBED_FRAMEWORK_WITHOUT_MINIMUM_OS") == "1":
+    if os.environ.get("CMUX_FAKE_EMBED_INVALID_FRAMEWORK_SHELL") == "1":
         write_plist(
             app / "Frameworks" / "Iroh.framework" / "Info.plist",
             {{
@@ -509,6 +510,7 @@ def _bump_patch(version: str) -> str:
 def _write_fake_archive(path: Path, *, bundle_id: str, build_number: str, marketing_version: str) -> None:
     app = path / "Products" / "Applications" / "cmux.app"
     info = {
+        "CFBundleExecutable": "cmux",
         "CFBundleIdentifier": bundle_id,
         "CFBundleVersion": build_number,
         "CFBundleShortVersionString": marketing_version,
@@ -638,10 +640,10 @@ def test_upload_beta_lane_uses_beta_marketing_version(tmp: Path, fakebin: Path) 
     )
 
 
-def test_upload_rejects_framework_without_minimum_os_version(tmp: Path, fakebin: Path) -> None:
+def test_upload_strips_framework_without_valid_executable(tmp: Path, fakebin: Path) -> None:
     env = _base_env(tmp, fakebin)
     env["CMUX_IOS_UPLOAD_DIR"] = str(tmp / "upload")
-    env["CMUX_FAKE_EMBED_FRAMEWORK_WITHOUT_MINIMUM_OS"] = "1"
+    env["CMUX_FAKE_EMBED_INVALID_FRAMEWORK_SHELL"] = "1"
     result = _run(
         [
             "bash",
@@ -656,12 +658,23 @@ def test_upload_rejects_framework_without_minimum_os_version(tmp: Path, fakebin:
         ],
         env=env,
         tmp=tmp,
-        log_failure=False,
     )
-    _check(result.returncode != 0, "upload rejects a framework without MinimumOSVersion")
+    _check(result.returncode == 0, "upload strips an invalid embedded framework shell")
     _check(
-        "Iroh.framework is missing MinimumOSVersion" in result.stderr,
-        "framework metadata failure names the malformed framework",
+        "stripping embedded framework without a valid dynamic-library executable "
+        "(<executable missing>)" in result.stdout,
+        "upload reports why the invalid framework shell was stripped",
+    )
+    ipa_line = next(line for line in result.stdout.splitlines() if line.startswith("IPA_PATH="))
+    ipa_path = Path(ipa_line.removeprefix("IPA_PATH="))
+    with zipfile.ZipFile(ipa_path) as zf:
+        ipa_entries = zf.namelist()
+    _check(
+        not any(
+            entry.startswith("Payload/cmux.app/Frameworks/Iroh.framework/")
+            for entry in ipa_entries
+        ),
+        "final signed IPA omits the stripped framework shell",
     )
 
 
@@ -1301,8 +1314,8 @@ def main() -> None:
         fakebin = tmp / "bin"
         _install_fake_tools(fakebin)
         test_upload_beta_lane_uses_beta_marketing_version(tmp / "beta-upload-test", fakebin)
-        test_upload_rejects_framework_without_minimum_os_version(
-            tmp / "beta-framework-metadata-test", fakebin
+        test_upload_strips_framework_without_valid_executable(
+            tmp / "beta-framework-strip-test", fakebin
         )
         test_upload_beta_archive_path_accepts_marketing_version_override(tmp / "beta-archive-override-test", fakebin)
         test_upload_beta_auto_version_uses_checked_in_beta_floor(tmp / "beta-auto-version-test", fakebin)
