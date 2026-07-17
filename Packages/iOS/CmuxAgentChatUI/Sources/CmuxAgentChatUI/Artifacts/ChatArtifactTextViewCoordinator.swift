@@ -20,6 +20,7 @@ final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
     private var topJumpConvergence: ChatArtifactTextJumpConvergence?
     private var endJumpTarget: ChatArtifactTextEndJumpTarget?
     private var endJumpConvergence: ChatArtifactTextJumpConvergence?
+    private var isSettlingBoundaryJump = false
     private weak var containerView: ChatArtifactTextContainerView?
     private let syntaxHighlighter = ChatArtifactSyntaxHighlighter()
     private var highlightTask: Task<Void, Never>?
@@ -235,8 +236,19 @@ final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
 
     /// Retargets a boundary intent after each animation or streamed edit changes layout.
     private func settleBoundaryJumpIfReady(in textView: UITextView) {
+        // UIKit may synchronously report animation completion while a fallback
+        // range is being materialized. The active settle already owns that edge.
+        guard !isSettlingBoundaryJump else { return }
+        isSettlingBoundaryJump = true
+        defer { isSettlingBoundaryJump = false }
+
+        while settleBoundaryJumpOnceIfReady(in: textView) {}
+    }
+
+    /// Performs one budgeted settle step and reports whether layout must be sampled again now.
+    private func settleBoundaryJumpOnceIfReady(in textView: UITextView) -> Bool {
         guard !appendPolicy.isDeferring,
-              pendingTextChunks.isEmpty else { return }
+              pendingTextChunks.isEmpty else { return false }
 
         if var convergence = topJumpConvergence {
             let target = documentTopContentOffset(in: textView)
@@ -245,22 +257,20 @@ final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
                 targetOffset: Double(target.y)
             )
             topJumpConvergence = convergence
-            applyTopJumpDecision(decision, target: target, in: textView)
-            return
+            return applyTopJumpDecision(decision, target: target, in: textView)
         }
 
-        guard let endJumpTarget else { return }
+        guard let endJumpTarget else { return false }
         let target = documentEndContentOffset(in: textView)
-        guard var convergence = endJumpConvergence else {
-            textView.setContentOffset(target, animated: false)
-            return
-        }
+        var convergence = endJumpConvergence ?? ChatArtifactTextJumpConvergence(
+            initialTargetOffset: Double(textView.contentOffset.y)
+        )
         let decision = convergence.decision(
             observedOffset: Double(textView.contentOffset.y),
             targetOffset: Double(target.y)
         )
         endJumpConvergence = convergence
-        applyEndJumpDecision(
+        return applyEndJumpDecision(
             decision,
             target: target,
             semanticTarget: endJumpTarget,
@@ -272,18 +282,21 @@ final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
         _ decision: ChatArtifactTextJumpConvergence.Decision,
         target: CGPoint,
         in textView: UITextView
-    ) {
+    ) -> Bool {
         switch decision {
         case .finish:
             topJumpConvergence = nil
+            return false
         case .retarget:
             if !setContentOffset(target, animated: true, in: textView) {
                 textView.layoutIfNeeded()
-                settleBoundaryJumpIfReady(in: textView)
+                return true
             }
+            return false
         case .force:
-            settleAtDocumentTop(in: textView)
             topJumpConvergence = nil
+            settleAtDocumentTop(in: textView)
+            return false
         }
     }
 
@@ -292,24 +305,27 @@ final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
         target: CGPoint,
         semanticTarget: ChatArtifactTextEndJumpTarget,
         in textView: UITextView
-    ) {
+    ) -> Bool {
         switch decision {
         case .finish:
             endJumpConvergence = nil
             if semanticTarget == .end {
                 endJumpTarget = nil
             }
+            return false
         case .retarget:
             if !setContentOffset(target, animated: true, in: textView) {
                 textView.layoutIfNeeded()
-                settleBoundaryJumpIfReady(in: textView)
+                return true
             }
+            return false
         case .force:
-            settleAtDocumentEnd(in: textView)
             endJumpConvergence = nil
             if semanticTarget == .end {
                 endJumpTarget = nil
             }
+            settleAtDocumentEnd(in: textView)
+            return false
         }
     }
 

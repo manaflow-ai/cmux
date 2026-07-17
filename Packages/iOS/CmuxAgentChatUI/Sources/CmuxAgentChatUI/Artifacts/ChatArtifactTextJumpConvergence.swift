@@ -9,6 +9,8 @@ struct ChatArtifactTextJumpConvergence: Equatable, Sendable {
     private let tolerance: Double
     private var previousTargetOffset: Double
     private var remainingRetargetCount: Int
+    // A synchronous settle callback must not claim the forced fallback twice.
+    private var exhaustedRetargetBudget = false
 
     init(
         initialTargetOffset: Double,
@@ -21,6 +23,8 @@ struct ChatArtifactTextJumpConvergence: Equatable, Sendable {
     }
 
     mutating func decision(observedOffset: Double, targetOffset: Double) -> Decision {
+        guard !exhaustedRetargetBudget else { return .finish }
+
         let reachedTarget = abs(observedOffset - targetOffset) <= tolerance
         let targetIsStable = abs(previousTargetOffset - targetOffset) <= tolerance
         if reachedTarget, targetIsStable {
@@ -29,6 +33,7 @@ struct ChatArtifactTextJumpConvergence: Equatable, Sendable {
 
         previousTargetOffset = targetOffset
         guard remainingRetargetCount > 0 else {
+            exhaustedRetargetBudget = true
             return .force(offset: targetOffset)
         }
         remainingRetargetCount -= 1
