@@ -1,11 +1,6 @@
 public import Foundation
 @preconcurrency public import Sparkle
 
-enum UpdateCheckCancellationSource {
-    case user
-    case superseded
-}
-
 /// The current phase of the custom (non-Sparkle-UI) update flow, with the per-phase payload
 /// needed to advance, cancel, or describe it.
 ///
