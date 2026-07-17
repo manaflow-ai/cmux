@@ -427,13 +427,3 @@ struct FeedListView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
-
-@MainActor
-private final class FeedFocusHostReference {
-    weak var host: FeedKeyboardFocusView?
-}
-
-private struct FeedScrollRequest: Equatable {
-    let id: UUID
-    let sequence: Int
-}

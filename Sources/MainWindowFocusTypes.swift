@@ -10,19 +10,6 @@ struct FeedFocusSnapshot: Equatable {
     }
 }
 
-enum FeedPlacement: Equatable, Sendable {
-    case rightSidebar
-    case pane
-
-    var usesRightSidebarFocusCoordinator: Bool {
-        self == .rightSidebar
-    }
-}
-
-protocol FeedKeyboardFocusResponder: AnyObject {
-    var feedFocusScopeID: UUID { get }
-}
-
 enum MainWindowKeyboardFocusIntent: Equatable {
     case mainPanel(workspaceId: UUID, panelId: UUID)
     case rightSidebar(mode: RightSidebarMode)

@@ -1178,7 +1178,6 @@ final class ShortcutHintModifierPolicyTests: XCTestCase {
 }
 
 
-@MainActor
 final class RightSidebarModeShortcutHintTests: XCTestCase {
     private let touchedShortcutActions: [KeyboardShortcutSettings.Action] = [
         .focusRightSidebar,
@@ -1379,33 +1378,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
 
 final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
     private final class TestRightSidebarResponder: NSView, FeedKeyboardFocusResponder {
-        let feedFocusScopeID = UUID()
-
         override var acceptsFirstResponder: Bool { true }
-    }
-
-    private final class TestFeedPaneResponder: NSView, FeedKeyboardFocusResponder {
-        let feedFocusScopeID = UUID()
-
-        override var acceptsFirstResponder: Bool { true }
-    }
-
-    @MainActor
-    func testFeedPaneResponderDoesNotClaimRightSidebarFocus() {
-        let controller = MainWindowFocusController(
-            windowId: UUID(),
-            window: nil,
-            tabManager: TabManager(),
-            fileExplorerState: FileExplorerState()
-        )
-        let responder = TestFeedPaneResponder(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
-
-        XCTAssertFalse(controller.ownsRightSidebarFocus(responder))
-    }
-
-    func testOnlySidebarFeedPlacementUsesSidebarFocusCoordinator() {
-        XCTAssertTrue(FeedPlacement.rightSidebar.usesRightSidebarFocusCoordinator)
-        XCTAssertFalse(FeedPlacement.pane.usesRightSidebarFocusCoordinator)
     }
 
     @MainActor
@@ -1477,9 +1450,6 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
             fileExplorerState: FileExplorerState()
         )
         let responder = TestRightSidebarResponder(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
-        let feedHost = FeedKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
-        feedHost.feedFocusScopeID = responder.feedFocusScopeID
-        controller.registerFeedHost(feedHost)
 
         let workspaceId = UUID()
         let panelId = UUID()

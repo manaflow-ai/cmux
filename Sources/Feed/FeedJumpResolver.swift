@@ -3,11 +3,6 @@ import Foundation
 /// Resolves Feed workstream identifiers through the per-agent hook-session
 /// stores written by `cmux <agent>-hook session-start`.
 final class FeedJumpResolver: @unchecked Sendable {
-    struct Target: Equatable, Sendable {
-        let workspaceId: String
-        let surfaceId: String
-    }
-
     private let sessionsDirectory: URL
 
     init(
@@ -25,7 +20,7 @@ final class FeedJumpResolver: @unchecked Sendable {
         return (agent, sessionId)
     }
 
-    func lookup(agent: String, sessionId: String) -> Target? {
+    func lookup(agent: String, sessionId: String) -> FeedJumpTarget? {
         let file = sessionsDirectory
             .appendingPathComponent("\(agent)-hook-sessions.json", isDirectory: false)
         guard let data = try? Data(contentsOf: file),
@@ -44,10 +39,10 @@ final class FeedJumpResolver: @unchecked Sendable {
               let surfaceId = entry["surfaceId"] as? String,
               !workspaceId.isEmpty, !surfaceId.isEmpty
         else { return nil }
-        return Target(workspaceId: workspaceId, surfaceId: surfaceId)
+        return FeedJumpTarget(workspaceId: workspaceId, surfaceId: surfaceId)
     }
 
-    func resolve(_ workstreamId: String) -> Target? {
+    func resolve(_ workstreamId: String) -> FeedJumpTarget? {
         guard let parsed = parse(workstreamId) else { return nil }
         return lookup(agent: parsed.agent, sessionId: parsed.sessionId)
     }
@@ -57,7 +52,7 @@ final class FeedJumpResolver: @unchecked Sendable {
     #else
     @Sendable
     #endif
-    nonisolated func resolveOffMain(_ workstreamId: String) async -> Target? {
+    nonisolated func resolveOffMain(_ workstreamId: String) async -> FeedJumpTarget? {
         await Task.detached(priority: .userInitiated) { [self] in
             resolve(workstreamId)
         }.value
