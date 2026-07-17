@@ -2711,7 +2711,9 @@ impl App {
             self.session.invalidate_sidebar_plugin_sync();
             self.sidebar_plugin_surface = None;
             self.sidebar_plugin_error = Some("sidebar plugin exited".to_string());
-            self.sidebar_focused = false;
+            if self.config.sidebar.plugin.is_some() {
+                self.sidebar_focused = false;
+            }
         }
         if self.selection.is_some_and(|selection| selection.surface == surface) {
             self.selection = None;
@@ -3079,7 +3081,16 @@ impl App {
     }
 
     fn sync_sidebar_plugin(&mut self, relaunch: bool) -> bool {
-        if self.config.sidebar.plugin.is_none() || self.sidebar_width < 3 || !self.sidebar_visible {
+        if self.config.sidebar.plugin.is_none() {
+            self.session.invalidate_sidebar_plugin_sync();
+            self.sidebar_plugin_surface = None;
+            self.sidebar_plugin_error = None;
+            self.sidebar_plugin_retry_after_ms = None;
+            self.sidebar_plugin_retry_at = None;
+            self.sidebar_focus_pending = false;
+            return false;
+        }
+        if self.sidebar_width < 3 || !self.sidebar_visible {
             self.session.invalidate_sidebar_plugin_sync();
             self.sidebar_plugin_surface = None;
             self.sidebar_plugin_error = None;
@@ -3121,7 +3132,16 @@ impl App {
     }
 
     fn apply_sidebar_plugin_status(&mut self, status: SidebarPluginSurface, relaunch: bool) {
-        if !self.sidebar_visible || self.config.sidebar.plugin.is_none() {
+        if self.config.sidebar.plugin.is_none() {
+            self.session.invalidate_sidebar_plugin_sync();
+            self.sidebar_plugin_surface = None;
+            self.sidebar_plugin_error = None;
+            self.sidebar_plugin_retry_after_ms = None;
+            self.sidebar_plugin_retry_at = None;
+            self.sidebar_focus_pending = false;
+            return;
+        }
+        if !self.sidebar_visible {
             self.session.invalidate_sidebar_plugin_sync();
             self.sidebar_plugin_surface = None;
             self.sidebar_plugin_error = None;
