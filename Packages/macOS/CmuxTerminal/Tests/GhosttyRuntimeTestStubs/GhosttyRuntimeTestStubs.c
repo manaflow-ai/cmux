@@ -81,7 +81,11 @@ bool ghostty_config_get(
     return true;
 }
 
-void ghostty_config_diagnostics_count(void) {}
+uint32_t ghostty_config_diagnostics_count(void *raw_config) {
+    GhosttyRuntimeTestConfig *config = raw_config;
+    return config == NULL ? 0 : config->diagnostics_count;
+}
+
 void ghostty_config_get_diagnostic(void) {}
 void ghostty_string_free(ghostty_string_s string) {
     (void)string;

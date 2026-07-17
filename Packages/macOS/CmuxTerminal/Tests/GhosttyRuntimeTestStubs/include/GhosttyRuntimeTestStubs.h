@@ -29,7 +29,7 @@ bool ghostty_config_get(
     void *value,
     const char *key,
     uintptr_t key_len);
-void ghostty_config_diagnostics_count(void);
+uint32_t ghostty_config_diagnostics_count(void *config);
 void ghostty_config_get_diagnostic(void);
 void ghostty_string_free(ghostty_string_s string);
 void ghostty_surface_binding_action(void);
