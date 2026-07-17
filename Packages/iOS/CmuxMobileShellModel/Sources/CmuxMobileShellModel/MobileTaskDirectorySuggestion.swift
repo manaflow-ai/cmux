@@ -184,6 +184,9 @@ public struct MobileTaskDirectorySuggestionIndex: Sendable {
         if candidate.candidate.path.hasPrefix(rawQuery) {
             return (tier: 4, unmatchedComponents: max(0, candidate.foldedComponents.count - queryComponents.count))
         }
+        if candidate.foldedBasename == queryBasename {
+            return (tier: 4, unmatchedComponents: max(0, candidate.foldedComponents.count - queryComponents.count))
+        }
         if candidate.foldedPath.hasPrefix(foldedQuery) {
             return (tier: 3, unmatchedComponents: max(0, candidate.foldedComponents.count - queryComponents.count))
         }
