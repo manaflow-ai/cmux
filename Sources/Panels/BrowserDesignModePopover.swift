@@ -233,6 +233,7 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             }
         }
         context.coordinator.textView = textView
+        context.coordinator.restoreArchivedPrompt(selections: selections)
         context.coordinator.sync(selections: selections, requestedChange: controller.requestedChange)
         DispatchQueue.main.async {
             textView.window?.makeFirstResponder(textView)
@@ -286,6 +287,7 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             lastIdentities = []
             pendingRemovals.removeAll()
             controller.requestedChange = ""
+            controller.promptRuns = []
             // Runs inside updateNSView; a synchronous @State write would be
             // silently dropped by SwiftUI and the card would stay tall.
             DispatchQueue.main.async { [weak self] in
@@ -353,6 +355,7 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             }
             lastIdentities = attachmentIdentities(in: storage)
             controller.requestedChange = plainText(of: storage)
+            archivePrompt()
             // sync() runs inside makeNSView/updateNSView; defer the height
             // report so the @State write happens outside SwiftUI's update
             // pass. textDidChange() reports synchronously (AppKit event).
@@ -407,6 +410,7 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             guard !syncing, let textView else { return }
             let identities = attachmentIdentities(in: textView.textStorage)
             controller.requestedChange = plainText(of: textView.textStorage)
+            archivePrompt()
             if identities != lastIdentities {
                 // Tokens were deleted through editing. Storage order can
                 // diverge from the runtime's click order (tokens may be
@@ -516,6 +520,51 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             return identities
         }
 
+        /// Snapshots the storage's text/pill order onto the controller,
+        /// which outlives this view across pane moves.
+        private func archivePrompt() {
+            guard let storage = textView?.textStorage else { return }
+            var runs: [BrowserDesignModePromptRun] = []
+            storage.enumerateAttributes(in: NSRange(location: 0, length: storage.length)) { attrs, range, _ in
+                if let attachment = attrs[.attachment] as? BrowserDesignModeTokenAttachment {
+                    runs.append(.token(attachment.identity))
+                    return
+                }
+                let piece = (storage.string as NSString).substring(with: range)
+                guard !piece.isEmpty else { return }
+                if case .text(let previous)? = runs.last {
+                    runs[runs.count - 1] = .text(previous + piece)
+                } else {
+                    runs.append(.text(piece))
+                }
+            }
+            controller.promptRuns = runs
+        }
+
+        /// Rebuilds a freshly created (empty) field from the controller's
+        /// archived runs so a pane move never loses the typed prompt.
+        func restoreArchivedPrompt(selections: [BrowserDesignModeSelection]) {
+            guard let textView, let storage = textView.textStorage,
+                  storage.length == 0, !controller.promptRuns.isEmpty else { return }
+            syncing = true
+            for run in controller.promptRuns {
+                switch run {
+                case .text(let string):
+                    storage.append(NSAttributedString(string: string, attributes: typingAttributes))
+                case .token(let identity):
+                    guard let selection = selections.first(where: { $0.selector == identity }) else { continue }
+                    storage.append(BrowserDesignModeTokenAttachment.attributedToken(for: selection, at: 0))
+                }
+            }
+            syncing = false
+            lastIdentities = attachmentIdentities(in: storage)
+            controller.requestedChange = plainText(of: storage)
+            textView.setSelectedRange(NSRange(location: storage.length, length: 0))
+            DispatchQueue.main.async { [weak self] in
+                self?.reportHeight()
+            }
+        }
+
         private func plainText(of storage: NSTextStorage?) -> String {
             guard let storage else { return "" }
             let text = storage.string.replacingOccurrences(of: "\u{FFFC}", with: "")
@@ -573,6 +622,14 @@ final class BrowserDesignModeTokenTextView: NSTextView {
             ]
         )
     }
+}
+
+/// One run of composer content — literal text or a selection pill — in
+/// document order. Archived on the controller so the prompt survives the
+/// field's NSTextView being torn down (e.g. when the browser pane moves).
+enum BrowserDesignModePromptRun: Equatable {
+    case text(String)
+    case token(String)
 }
 
 enum BrowserDesignModeTokenStyle {

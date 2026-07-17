@@ -38,6 +38,11 @@ final class BrowserDesignModeController {
             didCopy = false
         }
     }
+    /// The composer prompt's content runs (text and pill order), archived by
+    /// the token field so a recreated NSTextView (pane moves rebuild the
+    /// overlay) can restore the prompt verbatim. Not observed: only the field
+    /// reads and writes it imperatively.
+    @ObservationIgnored var promptRuns: [BrowserDesignModePromptRun] = []
     private(set) var isCopying = false
     private(set) var didCopy = false
 
@@ -119,6 +124,7 @@ final class BrowserDesignModeController {
             onPromptReset: { [weak self] in
                 guard let self, self.isActive else { return }
                 self.requestedChange = ""
+                self.promptRuns = []
                 self.promptResetGeneration &+= 1
                 self.didCopy = false
                 self.errorMessage = nil
@@ -287,6 +293,7 @@ final class BrowserDesignModeController {
         let hasContent = snapshot?.selections.isEmpty == false || !requestedChange.isEmpty
         if hasContent {
             requestedChange = ""
+            promptRuns = []
             promptResetGeneration &+= 1
             didCopy = false
             errorMessage = nil
