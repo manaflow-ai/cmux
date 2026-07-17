@@ -102,7 +102,12 @@ struct ChatArtifactZoomableImageView: UIViewRepresentable {
 
         func reportMinimumZoomIfNeeded(force: Bool) {
             guard let scrollView else { return }
-            let isAtMinimum = policy.isAtMinimum(Double(scrollView.zoomScale))
+            let swipeOwner = policy.horizontalSwipeOwner(at: Double(scrollView.zoomScale))
+            // The page controller's ancestor pan recognizer must own fitted
+            // images. A nested UIScrollView pan still wins gesture arbitration
+            // even when it has no scrollable content, swallowing the page swipe.
+            scrollView.panGestureRecognizer.isEnabled = swipeOwner == .image
+            let isAtMinimum = swipeOwner == .pager
             guard force || lastReportedMinimumState != isAtMinimum else { return }
             lastReportedMinimumState = isAtMinimum
             onMinimumZoomChanged(isAtMinimum)
