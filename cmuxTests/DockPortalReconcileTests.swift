@@ -155,6 +155,38 @@ struct DockPortalReconcileTests {
             bounds: bounds,
             reason: "test.dock.browser.laterSamePaneHost"
         ))
+
+        let survivingPanel = BrowserPanel(workspaceId: UUID(), renderInitialNavigation: false)
+        defer { survivingPanel.close() }
+        let survivingHost = NSView()
+        let survivingPane = PaneID()
+        let laterSurvivingPaneHost = NSView()
+
+        #expect(survivingPanel.claimPortalHost(
+            hostId: ObjectIdentifier(survivingHost),
+            paneId: sourcePane,
+            inWindow: true,
+            bounds: bounds,
+            reason: "test.dock.browser.survivingSource"
+        ))
+        survivingPanel.preparePortalHostReplacementForNextDistinctClaim(
+            inPane: survivingPane,
+            reason: "test.dock.browser.survivingMoveRearm"
+        )
+        #expect(survivingPanel.claimPortalHost(
+            hostId: ObjectIdentifier(survivingHost),
+            paneId: survivingPane,
+            inWindow: true,
+            bounds: bounds,
+            reason: "test.dock.browser.survivingDestination"
+        ))
+        #expect(!survivingPanel.claimPortalHost(
+            hostId: ObjectIdentifier(laterSurvivingPaneHost),
+            paneId: survivingPane,
+            inWindow: true,
+            bounds: bounds,
+            reason: "test.dock.browser.laterSurvivingPaneHost"
+        ))
     }
 
     @Test("Newer stale workspace host is rejected by live Dock ownership")
