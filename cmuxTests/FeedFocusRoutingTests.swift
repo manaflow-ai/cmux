@@ -56,4 +56,49 @@ import Testing
         #expect(FeedPlacement.rightSidebar.usesRightSidebarFocusCoordinator)
         #expect(!FeedPlacement.pane.usesRightSidebarFocusCoordinator)
     }
+
+    @Test func editorBlurTracksFeedFocusScope() {
+        let scopeID = UUID()
+        var blurCount = 0
+        let field = FeedInlineTextField(
+            text: .constant(""),
+            focusRequest: nil,
+            placeholder: "",
+            isEnabled: true,
+            font: .systemFont(ofSize: 12),
+            placement: .pane,
+            focusScopeID: scopeID,
+            onFocus: {},
+            onBlur: { blurCount += 1 },
+            onSubmit: nil
+        )
+        let coordinator = FeedInlineTextFieldCoordinator(parent: field)
+        let editor = FeedInlineTextEditorView(frame: NSRect(x: 0, y: 0, width: 80, height: 24))
+        coordinator.view = editor
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 200, height: 100),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let content = NSView(frame: window.contentView?.bounds ?? .zero)
+        window.contentView = content
+        content.addSubview(editor)
+
+        let sameScope = ScopedFeedResponder(scopeID: scopeID)
+        content.addSubview(sameScope)
+        #expect(window.makeFirstResponder(sameScope))
+        coordinator.textDidEndEditing(
+            Notification(name: NSText.didEndEditingNotification, object: editor.textView)
+        )
+        #expect(blurCount == 0)
+
+        let otherScope = ScopedFeedResponder(scopeID: UUID())
+        content.addSubview(otherScope)
+        #expect(window.makeFirstResponder(otherScope))
+        coordinator.textDidEndEditing(
+            Notification(name: NSText.didEndEditingNotification, object: editor.textView)
+        )
+        #expect(blurCount == 1)
+    }
 }
