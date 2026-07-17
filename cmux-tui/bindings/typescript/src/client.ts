@@ -344,6 +344,9 @@ export class CmuxClient {
   }
   listClients(): Promise<ListClientsResult> { return this.request("list-clients"); }
   detachClient(client: Id): Promise<EmptyResult> { return this.request("detach-client", { client }); }
+  setClientSizing(client: Id, enabled: boolean): Promise<EmptyResult> {
+    return this.request("set-client-sizing", { client, enabled });
+  }
   reloadConfig(): Promise<ReloadConfigResult> { return this.request("reload-config"); }
   setWindowTitle(title: string): Promise<EmptyResult> { return this.request("set-window-title", { title }); }
   clearWindowTitle(): Promise<EmptyResult> { return this.request("clear-window-title"); }

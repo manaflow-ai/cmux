@@ -45,7 +45,7 @@ use crate::pty_input::{
     PtyInputSender, PtyOperationDelivery, PtyOperationFailure,
 };
 use crate::session::{
-    Session, SidebarPluginSurface, SurfaceHandle, TreeView, is_remote_timeout,
+    ClientInfo, Session, SidebarPluginSurface, SurfaceHandle, TreeView, is_remote_timeout,
     is_remote_transport_failure,
 };
 use crate::sidebar_files::{FileBrowser, FileCommand, file_url, shell_single_quote};
@@ -702,6 +702,18 @@ impl OrderedSession {
 
     fn respond_pairing(&self, request: u64, approve: bool) -> anyhow::Result<()> {
         self.inner.respond_pairing(request, approve)
+    }
+
+    fn clients(&self) -> anyhow::Result<Vec<ClientInfo>> {
+        self.inner.clients()
+    }
+
+    fn set_client_sizing(&self, client: u64, enabled: bool) -> anyhow::Result<()> {
+        self.inner.set_client_sizing(client, enabled)
+    }
+
+    fn disconnect_client(&self, client: u64) -> anyhow::Result<()> {
+        self.inner.disconnect_client(client)
     }
 
     pub(crate) fn surface(&self, id: SurfaceId) -> Option<SurfaceHandle> {
@@ -1556,6 +1568,9 @@ pub enum Hit {
     NewTab {
         pane: PaneId,
     },
+    Clients {
+        surface: SurfaceId,
+    },
     /// A pane's scrollbar column (click/drag jumps the viewport).
     Scrollbar {
         surface: SurfaceId,
@@ -1631,6 +1646,10 @@ pub enum MenuAction {
     SplitDown(PaneId),
     CloseTab(PaneId),
     ClosePane(PaneId),
+    SetClientSizing { client: u64, enabled: bool },
+    UseClientSize(u64),
+    RestoreAllClientSizing,
+    DisconnectClient(u64),
 }
 
 impl MenuAction {
@@ -1656,28 +1675,95 @@ impl MenuAction {
             MenuAction::SplitDown(_) => "Split down",
             MenuAction::CloseTab(_) => "Close tab",
             MenuAction::ClosePane(_) => "Close pane",
+            MenuAction::SetClientSizing { enabled: true, .. } => "Use for sizing",
+            MenuAction::SetClientSizing { enabled: false, .. } => "Exclude from sizing",
+            MenuAction::UseClientSize(_) => "Use only this client's size",
+            MenuAction::RestoreAllClientSizing => "Use all client sizes",
+            MenuAction::DisconnectClient(_) => "Disconnect",
         }
     }
 }
 
 /// One row in a context menu. Separators divide related action groups and
 /// are skipped by keyboard and mouse selection.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MenuItem {
     Action(MenuAction),
+    Submenu { label: String, items: Vec<MenuItem> },
     Separator,
 }
 
 impl MenuItem {
-    pub fn action(self) -> Option<MenuAction> {
+    pub fn action(&self) -> Option<MenuAction> {
         match self {
-            MenuItem::Action(action) => Some(action),
+            MenuItem::Action(action) => Some(*action),
+            MenuItem::Submenu { .. } | MenuItem::Separator => None,
+        }
+    }
+
+    pub fn label(&self) -> Option<&str> {
+        match self {
+            MenuItem::Action(action) => Some(action.label()),
+            MenuItem::Submenu { label, .. } => Some(label),
             MenuItem::Separator => None,
         }
     }
 
-    pub fn label(self) -> Option<&'static str> {
-        self.action().map(|action| action.label())
+    fn selectable(&self) -> bool {
+        !matches!(self, MenuItem::Separator)
+    }
+
+    fn submenu(&self) -> Option<&[MenuItem]> {
+        match self {
+            MenuItem::Submenu { items, .. } => Some(items),
+            _ => None,
+        }
+    }
+}
+
+pub struct MenuLevel {
+    pub items: Vec<MenuItem>,
+    all_items: Vec<MenuItem>,
+    pub selected: usize,
+    pub rect: Rect,
+}
+
+impl MenuLevel {
+    fn new(x: u16, y: u16, items: Vec<MenuItem>) -> Self {
+        let label_w = items
+            .iter()
+            .filter_map(MenuItem::label)
+            .map(|label| label.chars().count())
+            .max()
+            .unwrap_or(0) as u16;
+        let width = label_w + 2 + ContextMenu::PAD * 2 + 2;
+        let height = items.len() as u16 + 2;
+        let selected = items.iter().position(MenuItem::selectable).unwrap_or(0);
+        Self { all_items: items.clone(), items, selected, rect: Rect { x, y, width, height } }
+    }
+
+    pub fn fit_to_rows(&mut self, max_rows: usize) {
+        let selected_item = self.items.get(self.selected).cloned();
+        let selectable_count = self.all_items.iter().filter(|item| item.selectable()).count();
+        let mut separator_budget = max_rows.saturating_sub(selectable_count);
+        self.items = self
+            .all_items
+            .iter()
+            .filter(|item| match item {
+                MenuItem::Separator if separator_budget > 0 => {
+                    separator_budget -= 1;
+                    true
+                }
+                MenuItem::Separator => false,
+                _ => true,
+            })
+            .cloned()
+            .collect();
+        self.selected = selected_item
+            .and_then(|selected| self.items.iter().position(|item| *item == selected))
+            .or_else(|| self.items.iter().position(MenuItem::selectable))
+            .unwrap_or(0);
+        self.rect.height = self.items.len() as u16 + 2;
     }
 }
 
@@ -1686,14 +1772,9 @@ impl MenuItem {
 /// groups are divided by separator rows, and the hover/selection highlight
 /// spans the full inner row including those padding cells.
 pub struct ContextMenu {
-    pub items: Vec<MenuItem>,
-    all_items: Vec<MenuItem>,
-    pub selected: usize,
+    pub levels: Vec<MenuLevel>,
     right_press: (u16, u16),
     right_drag_moved: bool,
-    /// Where the menu is drawn (clamped to the screen by the renderer,
-    /// which writes the final rect back for hit-testing).
-    pub rect: Rect,
 }
 
 impl ContextMenu {
@@ -1701,92 +1782,132 @@ impl ContextMenu {
     pub const PAD: u16 = 1;
 
     fn at(x: u16, y: u16, groups: Vec<Vec<MenuAction>>) -> Self {
+        Self::with_groups(
+            x,
+            y,
+            groups
+                .into_iter()
+                .map(|group| group.into_iter().map(MenuItem::Action).collect())
+                .collect(),
+        )
+    }
+
+    fn with_groups(x: u16, y: u16, groups: Vec<Vec<MenuItem>>) -> Self {
         let mut items = Vec::new();
         for group in groups.into_iter().filter(|group| !group.is_empty()) {
             if !items.is_empty() {
                 items.push(MenuItem::Separator);
             }
-            items.extend(group.into_iter().map(MenuItem::Action));
+            items.extend(group);
         }
-        let label_w =
-            items.iter().filter_map(|item| item.label()).map(str::len).max().unwrap_or(0) as u16;
-        // One space of inner padding either side of the label, plus the
-        // one-cell padding column on each side, plus the border.
-        let width = label_w + 2 + Self::PAD * 2 + 2;
-        let height = items.len() as u16 + 2;
         ContextMenu {
-            all_items: items.clone(),
-            items,
-            selected: 0,
+            levels: vec![MenuLevel::new(x.saturating_sub(1), y.saturating_sub(1), items)],
             right_press: (x, y),
             right_drag_moved: false,
-            rect: Rect { x: x.saturating_sub(1), y: y.saturating_sub(1), width, height },
         }
     }
 
     /// The item row at a screen cell. Border cells are dead chrome and
     /// never activate an item.
+    #[cfg(test)]
     pub fn item_at(&self, x: u16, y: u16) -> Option<usize> {
-        if !self.rect.contains(x, y) {
-            return None;
-        }
-        let right = self.rect.x + self.rect.width.saturating_sub(1);
-        let bottom = self.rect.y + self.rect.height.saturating_sub(1);
-        if x == self.rect.x || y == self.rect.y || x == right || y == bottom {
-            return None;
-        }
-        let row = (y - self.rect.y - 1) as usize;
-        self.items.get(row)?.action().map(|_| row)
+        self.hit_at(x, y).filter(|(depth, _)| *depth == 0).map(|(_, item)| item)
+    }
+
+    pub fn hit_at(&self, x: u16, y: u16) -> Option<(usize, usize)> {
+        self.levels.iter().enumerate().rev().find_map(|(depth, level)| {
+            let rect = level.rect;
+            if !rect.contains(x, y) {
+                return None;
+            }
+            let right = rect.x + rect.width.saturating_sub(1);
+            let bottom = rect.y + rect.height.saturating_sub(1);
+            if x == rect.x || y == rect.y || x == right || y == bottom {
+                return None;
+            }
+            let row = (y - rect.y - 1) as usize;
+            level.items.get(row).filter(|item| item.selectable()).map(|_| (depth, row))
+        })
+    }
+
+    pub fn contains(&self, x: u16, y: u16) -> bool {
+        self.levels.iter().any(|level| level.rect.contains(x, y))
+    }
+
+    pub fn intersects(&self, rect: Rect) -> bool {
+        self.levels.iter().any(|level| rects_intersect(rect, level.rect))
     }
 
     fn selected_action(&self) -> Option<MenuAction> {
-        self.items.get(self.selected).and_then(|item| item.action())
+        let level = self.levels.last()?;
+        level.items.get(level.selected).and_then(MenuItem::action)
+    }
+
+    fn open_selected_submenu(&mut self) -> bool {
+        let depth = self.levels.len().saturating_sub(1);
+        let Some(parent) = self.levels.get(depth) else {
+            return false;
+        };
+        let Some(items) = parent.items.get(parent.selected).and_then(MenuItem::submenu) else {
+            return false;
+        };
+        let x = parent.rect.x.saturating_add(parent.rect.width.saturating_sub(1));
+        let y = parent.rect.y.saturating_add(parent.selected as u16);
+        self.levels.push(MenuLevel::new(x, y, items.to_vec()));
+        true
+    }
+
+    fn close_submenu(&mut self) -> bool {
+        if self.levels.len() > 1 {
+            self.levels.pop();
+            true
+        } else {
+            false
+        }
+    }
+
+    fn select_at(&mut self, depth: usize, item: usize) -> bool {
+        let had_deeper_level = self.levels.len() != depth + 1;
+        let Some(level) = self.levels.get_mut(depth) else { return false };
+        if !level.items.get(item).is_some_and(MenuItem::selectable) {
+            return false;
+        }
+        let changed = level.selected != item || had_deeper_level;
+        level.selected = item;
+        self.levels.truncate(depth + 1);
+        self.open_selected_submenu();
+        changed || self.levels.len() > depth + 1
     }
 
     /// Keep every action row visible when separators are the only reason the
     /// menu exceeds the available height. Full grouping returns after a resize.
+    #[cfg(test)]
     pub fn fit_to_rows(&mut self, max_rows: usize) {
-        let selected_action = self.selected_action();
-        let action_count = self.all_items.iter().filter(|item| item.action().is_some()).count();
-        let mut separator_budget = max_rows.saturating_sub(action_count);
-        self.items = self
-            .all_items
-            .iter()
-            .copied()
-            .filter(|item| match item {
-                MenuItem::Action(_) => true,
-                MenuItem::Separator if separator_budget > 0 => {
-                    separator_budget -= 1;
-                    true
-                }
-                MenuItem::Separator => false,
-            })
-            .collect();
-        self.selected = selected_action
-            .and_then(|action| self.items.iter().position(|item| item.action() == Some(action)))
-            .or_else(|| self.items.iter().position(|item| item.action().is_some()))
-            .unwrap_or(0);
-        self.rect.height = self.items.len() as u16 + 2;
+        if let Some(level) = self.levels.first_mut() {
+            level.fit_to_rows(max_rows);
+        }
     }
 
     fn select_previous(&mut self) {
-        if let Some(index) = self
+        let Some(level) = self.levels.last_mut() else { return };
+        if let Some(index) = level
             .items
-            .get(..self.selected)
-            .and_then(|items| items.iter().rposition(|item| item.action().is_some()))
+            .get(..level.selected)
+            .and_then(|items| items.iter().rposition(MenuItem::selectable))
         {
-            self.selected = index;
+            level.selected = index;
+            let depth = self.levels.len();
+            self.levels.truncate(depth);
         }
     }
 
     fn select_next(&mut self) {
-        let start = self.selected.saturating_add(1);
-        if let Some(offset) = self
-            .items
-            .get(start..)
-            .and_then(|items| items.iter().position(|item| item.action().is_some()))
+        let Some(level) = self.levels.last_mut() else { return };
+        let start = level.selected.saturating_add(1);
+        if let Some(offset) =
+            level.items.get(start..).and_then(|items| items.iter().position(MenuItem::selectable))
         {
-            self.selected += offset + 1;
+            level.selected += offset + 1;
         }
     }
 }
@@ -1820,6 +1941,45 @@ fn pane_context_menu_groups(
         ],
         vec![MenuAction::CopyTabId(pane), MenuAction::CopyPaneId(pane)],
     ]
+}
+
+fn client_menu_item(clients: &[ClientInfo], surface: SurfaceId) -> Option<MenuItem> {
+    if clients.is_empty() {
+        return None;
+    }
+    let mut items = vec![MenuItem::Action(MenuAction::RestoreAllClientSizing), MenuItem::Separator];
+    for client in clients {
+        let reported_size = client
+            .sizes
+            .iter()
+            .find(|size| size.surface == surface)
+            .and_then(|size| size.cols.zip(size.rows));
+        let identity = client.kind.as_deref().or(client.name.as_deref()).unwrap_or("client");
+        let size = reported_size
+            .map(|(cols, rows)| format!("{cols}×{rows}"))
+            .unwrap_or_else(|| "no grid".to_string());
+        let self_label = if client.is_self { " · this client" } else { "" };
+        let sizing_label = if client.size_participating { "" } else { " · excluded" };
+        let label = format!("#{} {identity} · {size}{self_label}{sizing_label}", client.client);
+        let mut actions = Vec::new();
+        if reported_size.is_some() {
+            actions.extend([
+                MenuItem::Action(MenuAction::UseClientSize(client.client)),
+                MenuItem::Action(MenuAction::SetClientSizing {
+                    client: client.client,
+                    enabled: !client.size_participating,
+                }),
+            ]);
+        }
+        if client.client != 0 {
+            if !actions.is_empty() {
+                actions.push(MenuItem::Separator);
+            }
+            actions.push(MenuItem::Action(MenuAction::DisconnectClient(client.client)));
+        }
+        items.push(MenuItem::Submenu { label, items: actions });
+    }
+    Some(MenuItem::Submenu { label: format!("Connected clients ({})", clients.len()), items })
 }
 
 /// What a committed rename prompt applies to.
@@ -2048,6 +2208,7 @@ pub struct App {
     /// a hover highlight.
     pub hover: Option<(u16, u16)>,
     pub menu: Option<ContextMenu>,
+    pub clients: Vec<ClientInfo>,
     pub prompt: Option<Prompt>,
     pub pairing_dialog: Option<PairingDialog>,
     pairing_queue: VecDeque<PairingChallenge>,
@@ -2361,6 +2522,7 @@ pub fn run(
         tab_scroll: HashMap::new(),
         hover: None,
         menu: None,
+        clients: Vec::new(),
         prompt: None,
         pairing_dialog: None,
         pairing_queue: VecDeque::new(),
@@ -2391,6 +2553,7 @@ pub fn run(
         encode_buf: Vec::with_capacity(64),
         quit: false,
     };
+    app.refresh_clients();
 
     let result = app.event_loop(&mut terminal, rx);
     app.cancel_pty_mouse_drag();
@@ -2927,7 +3090,7 @@ impl App {
     }
 
     fn browser_graphic_occluded(&self, rect: Rect) -> bool {
-        self.menu.as_ref().is_some_and(|menu| rects_intersect(rect, menu.rect))
+        self.menu.as_ref().is_some_and(|menu| menu.intersects(rect))
             || self.prompt.as_ref().is_some_and(|prompt| rects_intersect(rect, prompt.rect))
     }
 
@@ -3350,6 +3513,7 @@ impl App {
             }
             AppEvent::Mux(MuxEvent::SurfaceResized { surface, cols, rows, reservation_id }) => {
                 self.session.confirm_surface_resize(surface, (cols, rows), reservation_id);
+                self.refresh_clients();
                 Ok(RenderAction::Draw)
             }
             AppEvent::Mux(MuxEvent::SurfaceResizeFailed {
@@ -3417,6 +3581,14 @@ impl App {
                 {
                     self.pairing_dialog = self.pairing_queue.pop_front().map(PairingDialog::new);
                 }
+                Ok(RenderAction::Draw)
+            }
+            AppEvent::Mux(
+                MuxEvent::ClientAttached { .. }
+                | MuxEvent::ClientChanged { .. }
+                | MuxEvent::ClientDetached(_),
+            ) => {
+                self.refresh_clients();
                 Ok(RenderAction::Draw)
             }
             AppEvent::Mux(_) => Ok(RenderAction::Draw),
@@ -4341,7 +4513,9 @@ impl App {
         let Some(menu) = self.menu.as_mut() else { return Ok(RenderAction::None) };
         match key.code {
             KeyCode::Esc => {
-                self.menu = None;
+                if !menu.close_submenu() {
+                    self.menu = None;
+                }
                 Ok(RenderAction::Draw)
             }
             KeyCode::Up => {
@@ -4352,7 +4526,18 @@ impl App {
                 menu.select_next();
                 Ok(RenderAction::Draw)
             }
+            KeyCode::Left => {
+                menu.close_submenu();
+                Ok(RenderAction::Draw)
+            }
+            KeyCode::Right => {
+                menu.open_selected_submenu();
+                Ok(RenderAction::Draw)
+            }
             KeyCode::Enter => {
+                if menu.open_selected_submenu() {
+                    return Ok(RenderAction::Draw);
+                }
                 let Some(action) = menu.selected_action() else { return Ok(RenderAction::Draw) };
                 self.menu = None;
                 self.activate_menu(action)?;
@@ -4752,6 +4937,28 @@ impl App {
                 }
             }
             MenuAction::ClosePane(id) => self.session.close_pane(id),
+            MenuAction::SetClientSizing { client, enabled } => {
+                self.session.set_client_sizing(client, enabled)?;
+                self.refresh_clients();
+            }
+            MenuAction::UseClientSize(client) => {
+                let clients = self.session.clients()?;
+                for info in clients {
+                    self.session.set_client_sizing(info.client, info.client == client)?;
+                }
+                self.refresh_clients();
+            }
+            MenuAction::RestoreAllClientSizing => {
+                let clients = self.session.clients()?;
+                for info in clients {
+                    self.session.set_client_sizing(info.client, true)?;
+                }
+                self.refresh_clients();
+            }
+            MenuAction::DisconnectClient(client) => {
+                self.session.disconnect_client(client)?;
+                self.refresh_clients();
+            }
         }
         Ok(())
     }
@@ -5819,8 +6026,8 @@ impl App {
             // Everything inside the menu rect is menu territory: only item
             // rows are clickable; border cells never inherit clickability
             // from hits underneath.
-            if menu.rect.contains(x, y) {
-                return menu.item_at(x, y).is_some();
+            if menu.contains(x, y) {
+                return menu.hit_at(x, y).is_some();
             }
         }
         if self.omnibar_hit_at(x, y).is_some() {
@@ -5858,10 +6065,9 @@ impl App {
     ) -> anyhow::Result<RenderAction> {
         self.sync_pointer_shape(x, y);
         if let Some(menu) = self.menu.as_mut()
-            && let Some(item) = menu.item_at(x, y)
+            && let Some((depth, item)) = menu.hit_at(x, y)
         {
-            if item != menu.selected {
-                menu.selected = item;
+            if menu.select_at(depth, item) {
                 return Ok(RenderAction::Draw);
             }
             return Ok(RenderAction::None);
@@ -5932,23 +6138,25 @@ impl App {
         if (x, y) != menu.right_press {
             menu.right_drag_moved = true;
         }
-        if let Some(item) = menu.item_at(x, y)
-            && item != menu.selected
+        if let Some((depth, item)) = menu.hit_at(x, y)
+            && menu.select_at(depth, item)
         {
-            menu.selected = item;
             return Ok(RenderAction::Draw);
         }
         Ok(RenderAction::None)
     }
 
     fn handle_right_up(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
-        let Some(menu) = self.menu.take() else { return Ok(RenderAction::None) };
+        let Some(mut menu) = self.menu.take() else { return Ok(RenderAction::None) };
         let plain_open_click = !menu.right_drag_moved && (x, y) == menu.right_press;
         if plain_open_click {
             self.menu = Some(menu);
-        } else if let Some(item) = menu.item_at(x, y) {
-            if let Some(action) = menu.items[item].action() {
+        } else if let Some((depth, item)) = menu.hit_at(x, y) {
+            menu.select_at(depth, item);
+            if let Some(action) = menu.selected_action() {
                 self.activate_menu(action)?;
+            } else {
+                self.menu = Some(menu);
             }
         } else {
             self.menu = Some(menu);
@@ -5975,12 +6183,15 @@ impl App {
 
         // An open menu captures the click: activate or dismiss. Clicks on
         // the border chrome keep it open without activating.
-        if let Some(menu) = self.menu.take() {
-            if let Some(item) = menu.item_at(x, y) {
-                if let Some(action) = menu.items[item].action() {
+        if let Some(mut menu) = self.menu.take() {
+            if let Some((depth, item)) = menu.hit_at(x, y) {
+                menu.select_at(depth, item);
+                if let Some(action) = menu.selected_action() {
                     self.activate_menu(action)?;
+                } else {
+                    self.menu = Some(menu);
                 }
-            } else if menu.rect.contains(x, y) {
+            } else if menu.contains(x, y) {
                 self.menu = Some(menu); // padding click: keep it open
             }
             return Ok(RenderAction::Draw);
@@ -6066,6 +6277,7 @@ impl App {
                             .new_tab(Some(pane), self.terminal_tab_size_hint(Some(pane)))?;
                     }
                 }
+                Hit::Clients { surface } => self.open_clients_menu(x, y, surface),
                 Hit::Scrollbar { surface, track } => {
                     self.start_scrollbar_drag(surface, track, y);
                 }
@@ -6491,6 +6703,7 @@ impl App {
         self.cancel_pty_mouse_drag();
         self.menu = None;
         self.omnibar = None;
+        self.refresh_clients();
         match self.hit_at(x, y) {
             Some(Hit::Workspace { id, .. }) => {
                 self.menu = Some(ContextMenu::at(
@@ -6511,17 +6724,38 @@ impl App {
                 ));
                 return;
             }
+            Some(Hit::Clients { surface }) => {
+                self.open_clients_menu(x, y, surface);
+                return;
+            }
             _ => {}
         }
         if let Some(area) = self.pane_area_at(x, y) {
             let is_browser = self.surface_kind(area.surface) == Some(SurfaceKind::Browser);
             let external_browser =
                 self.browser_source(area.surface) == Some(BrowserSource::External);
-            self.menu = Some(ContextMenu::at(
-                x,
-                y,
-                pane_context_menu_groups(area.pane, is_browser, external_browser),
-            ));
+            let mut groups = pane_context_menu_groups(area.pane, is_browser, external_browser)
+                .into_iter()
+                .map(|group| group.into_iter().map(MenuItem::Action).collect())
+                .collect::<Vec<Vec<MenuItem>>>();
+            if let Some(clients) = client_menu_item(&self.clients, area.surface) {
+                groups.push(vec![clients]);
+            }
+            self.menu = Some(ContextMenu::with_groups(x, y, groups));
+        }
+    }
+
+    fn refresh_clients(&mut self) {
+        match self.session.clients() {
+            Ok(clients) => self.clients = clients,
+            Err(error) => self.status_message = Some(format!("Could not list clients: {error}")),
+        }
+    }
+
+    fn open_clients_menu(&mut self, x: u16, y: u16, surface: SurfaceId) {
+        self.refresh_clients();
+        if let Some(MenuItem::Submenu { items, .. }) = client_menu_item(&self.clients, surface) {
+            self.menu = Some(ContextMenu::with_groups(x, y, vec![items]));
         }
     }
 
@@ -6803,8 +7037,9 @@ mod tests {
         PtyMousePressResult, RenderAction, Selection, SessionCompletion, SessionCompletionAction,
         SidebarPluginSyncClaim, SidebarPluginSyncState, SurfaceResizeDecision,
         SurfaceResizeOwnership, browser_content_size_for_rect, browser_hover_forward_allowed,
-        forward_mux_event, forward_mux_events, pane_context_menu_groups, pane_parts_for_rect,
-        record_surface_resize_dispatch_result, sidebar_plugin_status_settles_passive_claim,
+        client_menu_item, forward_mux_event, forward_mux_events, pane_context_menu_groups,
+        pane_parts_for_rect, record_surface_resize_dispatch_result,
+        sidebar_plugin_status_settles_passive_claim,
     };
     use std::collections::{HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
@@ -6832,7 +7067,7 @@ mod tests {
         PtyOperationDelivery, PtyOperationFailure,
     };
     use crate::session::tree::{PaneView, ScreenView, TabNotificationView, TabView, WorkspaceView};
-    use crate::session::{Session, SidebarPluginSurface, SurfaceHandle, TreeView};
+    use crate::session::{ClientInfo, Session, SidebarPluginSurface, SurfaceHandle, TreeView};
     use crate::sidebar_files::FileBrowser;
 
     fn settled(outcome: super::SessionMutationOutcome) -> AppEvent {
@@ -6845,7 +7080,7 @@ mod tests {
         let menu = ContextMenu::at(10, 5, pane_context_menu_groups(pane, false, false));
 
         assert_eq!(
-            menu.items,
+            menu.levels[0].items,
             vec![
                 MenuItem::Action(MenuAction::RenameTab(pane)),
                 MenuItem::Action(MenuAction::CloseTab(pane)),
@@ -6889,16 +7124,64 @@ mod tests {
         menu.select_previous();
         assert_eq!(menu.selected_action(), Some(MenuAction::CloseTab(7)));
 
-        menu.selected = usize::MAX;
+        menu.levels[0].selected = usize::MAX;
         menu.select_previous();
         menu.select_next();
-        assert_eq!(menu.selected, usize::MAX);
+        assert_eq!(menu.levels[0].selected, usize::MAX);
         assert_eq!(menu.selected_action(), None);
 
         let mut empty = ContextMenu::at(10, 5, Vec::new());
         empty.select_previous();
         empty.select_next();
         assert_eq!(empty.selected_action(), None);
+    }
+
+    #[test]
+    fn context_menu_supports_arbitrarily_nested_submenus() {
+        let mut menu = ContextMenu::with_groups(
+            10,
+            5,
+            vec![vec![MenuItem::Submenu {
+                label: "Clients".to_string(),
+                items: vec![MenuItem::Submenu {
+                    label: "client 7 · 80×24".to_string(),
+                    items: vec![MenuItem::Action(MenuAction::DisconnectClient(7))],
+                }],
+            }]],
+        );
+
+        assert!(menu.open_selected_submenu());
+        assert_eq!(menu.levels.len(), 2);
+        assert!(menu.open_selected_submenu());
+        assert_eq!(menu.levels.len(), 3);
+        assert_eq!(menu.selected_action(), Some(MenuAction::DisconnectClient(7)));
+        assert!(menu.close_submenu());
+        assert_eq!(menu.levels.len(), 2);
+        assert!(menu.close_submenu());
+        assert_eq!(menu.levels.len(), 1);
+        assert!(!menu.close_submenu());
+    }
+
+    #[test]
+    fn control_only_client_menu_offers_disconnect_without_sizing_actions() {
+        let client = ClientInfo {
+            client: 7,
+            transport: "unix".to_string(),
+            name: Some("control".to_string()),
+            kind: Some("web".to_string()),
+            connected_seconds: 1,
+            attached: Vec::new(),
+            sizes: Vec::new(),
+            is_self: false,
+            size_participating: true,
+        };
+        let Some(MenuItem::Submenu { items, .. }) = client_menu_item(&[client], 31) else {
+            panic!("expected connected clients submenu");
+        };
+        let MenuItem::Submenu { items, .. } = &items[2] else {
+            panic!("expected client submenu");
+        };
+        assert_eq!(items, &vec![MenuItem::Action(MenuAction::DisconnectClient(7))]);
     }
 
     #[test]
@@ -6923,23 +7206,32 @@ mod tests {
     fn context_menu_drops_only_overflowing_separators_and_restores_them_after_resize() {
         let pane = 7;
         let mut menu = ContextMenu::at(10, 5, pane_context_menu_groups(pane, true, true));
-        menu.selected = menu
+        menu.levels[0].selected = menu.levels[0]
             .items
             .iter()
             .position(|item| item.action() == Some(MenuAction::CopyPaneId(pane)))
             .unwrap();
 
-        assert_eq!(menu.items.len(), 19);
-        assert_eq!(menu.items.iter().filter(|item| **item == MenuItem::Separator).count(), 4);
+        assert_eq!(menu.levels[0].items.len(), 19);
+        assert_eq!(
+            menu.levels[0].items.iter().filter(|item| **item == MenuItem::Separator).count(),
+            4
+        );
         menu.fit_to_rows(18);
-        assert_eq!(menu.items.len(), 18);
-        assert_eq!(menu.items.iter().filter(|item| **item == MenuItem::Separator).count(), 3);
+        assert_eq!(menu.levels[0].items.len(), 18);
+        assert_eq!(
+            menu.levels[0].items.iter().filter(|item| **item == MenuItem::Separator).count(),
+            3
+        );
         assert_eq!(menu.selected_action(), Some(MenuAction::CopyPaneId(pane)));
-        assert_eq!(menu.rect.height, 20);
+        assert_eq!(menu.levels[0].rect.height, 20);
 
         menu.fit_to_rows(19);
-        assert_eq!(menu.items.len(), 19);
-        assert_eq!(menu.items.iter().filter(|item| **item == MenuItem::Separator).count(), 4);
+        assert_eq!(menu.levels[0].items.len(), 19);
+        assert_eq!(
+            menu.levels[0].items.iter().filter(|item| **item == MenuItem::Separator).count(),
+            4
+        );
         assert_eq!(menu.selected_action(), Some(MenuAction::CopyPaneId(pane)));
     }
 
@@ -9806,6 +10098,7 @@ mod tests {
             tab_scroll: HashMap::new(),
             hover: None,
             menu: None,
+            clients: Vec::new(),
             prompt: None,
             pairing_dialog: None,
             pairing_queue: VecDeque::new(),

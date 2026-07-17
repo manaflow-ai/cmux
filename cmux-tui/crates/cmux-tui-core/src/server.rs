@@ -76,6 +76,10 @@ enum Command {
         kind: Option<String>,
     },
     ListClients,
+    SetClientSizing {
+        client: u64,
+        enabled: bool,
+    },
     PairingResponse {
         request: u64,
         approve: bool,
@@ -1013,7 +1017,7 @@ impl ClientRegistry {
         Ok((record.name.clone(), record.kind.clone()))
     }
 
-    fn list_json(&self, requesting_client: u64) -> Value {
+    pub(crate) fn list_json(&self, requesting_client: u64) -> Value {
         let clients = self.clients.lock().unwrap();
         json!(
             clients
@@ -1439,6 +1443,10 @@ fn disconnect_client(mux: &Mux, client: u64, send_detached: bool) -> bool {
     mux.remove_size_client(client);
     mux.emit(MuxEvent::ClientDetached(client));
     true
+}
+
+pub fn detach_control_client(mux: &Mux, client: u64) -> bool {
+    disconnect_client(mux, client, true)
 }
 
 fn handle_message(mux: &Arc<Mux>, client: u64, message: &str, writer: &MessageWriter) -> bool {
@@ -2163,7 +2171,14 @@ fn handle_command(
             mux.emit(MuxEvent::ClientChanged { client, name, kind });
             Ok(json!({}))
         }
-        Command::ListClients => Ok(mux.control_clients.list_json(client)),
+        Command::ListClients => Ok(mux.control_clients_json(client)),
+        Command::SetClientSizing { client: target, enabled } => {
+            if !mux.control_clients.contains(target) && !mux.has_size_client(target) {
+                anyhow::bail!("unknown client {target}");
+            }
+            mux.set_client_size_participation(target, enabled);
+            Ok(json!({}))
+        }
         Command::PairingResponse { request, approve } => {
             if !mux.control_clients.is_unix(client) {
                 anyhow::bail!("pairing decisions require a trusted local connection");
@@ -3429,6 +3444,21 @@ mod tests {
             Ok(MuxEvent::ClientChanged { client: id, kind: Some(kind), .. })
                 if id == client && kind == "tui"
         ));
+    }
+
+    #[test]
+    fn client_sizing_command_updates_list_clients() {
+        let mux = test_mux();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+
+        let listed = handle_command(&mux, client, Command::ListClients, &writer).unwrap();
+        assert_eq!(listed[0]["size_participating"], true);
+
+        handle_command(&mux, client, Command::SetClientSizing { client, enabled: false }, &writer)
+            .unwrap();
+        let listed = handle_command(&mux, client, Command::ListClients, &writer).unwrap();
+        assert_eq!(listed[0]["size_participating"], false);
     }
 
     #[test]

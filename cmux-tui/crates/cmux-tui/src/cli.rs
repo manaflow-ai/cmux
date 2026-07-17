@@ -79,6 +79,12 @@ const VERBS: &[VerbSpec] = &[
         kind: socket(build_detach_client, print_empty, false),
     },
     VerbSpec {
+        name: "set-client-sizing",
+        help: "Include or exclude a client from shared terminal sizing.",
+        allowed: &["client", "enabled"],
+        kind: socket(build_set_client_sizing, print_empty, false),
+    },
+    VerbSpec {
         name: "reload-config",
         help: "Ask a running TUI to reload its config file.",
         allowed: &[],
@@ -741,6 +747,16 @@ fn build_detach_client(flags: &FlagMap) -> Result<Value, UsageError> {
     Ok(json!({ "client": flags.required_u64("client")? }))
 }
 
+fn build_set_client_sizing(flags: &FlagMap) -> Result<Value, UsageError> {
+    let enabled_value = flags.required("enabled")?;
+    let enabled = match enabled_value.as_str() {
+        "true" => true,
+        "false" => false,
+        _ => return Err(UsageError("--enabled must be true or false".to_string())),
+    };
+    Ok(json!({ "client": flags.required_u64("client")?, "enabled": enabled }))
+}
+
 fn build_surface(flags: &FlagMap) -> Result<Value, UsageError> {
     Ok(json!({ "surface": flags.required_u64("surface")? }))
 }
@@ -1273,7 +1289,7 @@ fn print_clients(data: &Value, out: &mut dyn Write) -> io::Result<()> {
             .unwrap_or_else(|| "-".to_string());
         writeln!(
             out,
-            "{} {} {} {} connected={}s attached={} sizes={} self={}",
+            "{} {} {} {} connected={}s attached={} sizes={} self={} sizing={}",
             client.get("client").and_then(Value::as_u64).unwrap_or(0),
             client.get("transport").and_then(Value::as_str).unwrap_or(""),
             client.get("name").and_then(Value::as_str).unwrap_or("-"),
@@ -1282,6 +1298,7 @@ fn print_clients(data: &Value, out: &mut dyn Write) -> io::Result<()> {
             attached,
             sizes,
             client.get("self").and_then(Value::as_bool).unwrap_or(false),
+            client.get("size_participating").and_then(Value::as_bool).unwrap_or(true),
         )?;
     }
     Ok(())

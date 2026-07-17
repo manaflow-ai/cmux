@@ -100,6 +100,39 @@ fn draw_box(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool) {
     buf[(x1, y0)].set_symbol("┐").set_style(style);
     buf[(x0, y1)].set_symbol("└").set_style(style);
     buf[(x1, y1)].set_symbol("┘").set_style(style);
+
+    if focused {
+        let sized_clients = app
+            .clients
+            .iter()
+            .filter_map(|client| {
+                client
+                    .sizes
+                    .iter()
+                    .find(|size| size.surface == area.surface)
+                    .and_then(|size| size.cols.zip(size.rows))
+                    .map(|size| (client.size_participating, size))
+            })
+            .collect::<Vec<_>>();
+        if sized_clients.len() > 1 {
+            let minimum = sized_clients
+                .iter()
+                .filter(|(participating, _)| *participating)
+                .map(|(_, size)| *size)
+                .reduce(|smallest, size| (smallest.0.min(size.0), smallest.1.min(size.1)));
+            let label = minimum
+                .map(|(cols, rows)| {
+                    format!(" {} clients · {cols}×{rows} min ", sized_clients.len())
+                })
+                .unwrap_or_else(|| format!(" {} clients ", sized_clients.len()));
+            let width = label.chars().count() as u16;
+            if width + 2 < rect.width {
+                let hit = Rect { x: x1.saturating_sub(width + 1), y: y1, width, height: 1 };
+                buf.set_stringn(hit.x, hit.y, &label, width as usize, style);
+                app.hits.push((hit, Hit::Clients { surface: area.surface }));
+            }
+        }
+    }
 }
 
 /// The top border row: `┌` + tabs + `+` + `─...─` + `┐`, with `‹`/`›`

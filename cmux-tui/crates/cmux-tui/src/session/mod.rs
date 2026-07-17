@@ -19,6 +19,7 @@ use cmux_tui_core::{
     SurfaceResizeReporter, WorkspaceId, ZoomMode,
 };
 use ghostty_vt::{MouseInput, RenderState, Terminal};
+use serde::Deserialize;
 use serde_json::json;
 
 pub use remote::{RemoteSession, RemoteSurface};
@@ -67,6 +68,32 @@ pub struct SidebarPluginSurface {
     pub retry_after_ms: Option<u64>,
 }
 
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct ClientSizeInfo {
+    pub surface: SurfaceId,
+    pub cols: Option<u16>,
+    pub rows: Option<u16>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct ClientInfo {
+    pub client: u64,
+    pub transport: String,
+    pub name: Option<String>,
+    pub kind: Option<String>,
+    pub connected_seconds: u64,
+    pub attached: Vec<SurfaceId>,
+    pub sizes: Vec<ClientSizeInfo>,
+    #[serde(rename = "self")]
+    pub is_self: bool,
+    #[serde(default = "default_true")]
+    pub size_participating: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
 /// Attach optional cols/rows fields to a remote command.
 fn with_size(mut cmd: serde_json::Value, size: Option<(u16, u16)>) -> serde_json::Value {
     if let Some((cols, rows)) = size {
@@ -97,6 +124,45 @@ pub enum SurfaceHandle {
 }
 
 impl Session {
+    pub fn clients(&self) -> anyhow::Result<Vec<ClientInfo>> {
+        let value = match self {
+            Session::Local(mux) => mux.control_clients_json(0),
+            Session::Remote(remote) => remote.request(json!({"cmd": "list-clients"}))?,
+        };
+        serde_json::from_value(value).map_err(Into::into)
+    }
+
+    pub fn set_client_sizing(&self, client: u64, enabled: bool) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => {
+                mux.set_client_size_participation(client, enabled);
+                Ok(())
+            }
+            Session::Remote(remote) => remote
+                .request(json!({
+                    "cmd": "set-client-sizing",
+                    "client": client,
+                    "enabled": enabled,
+                }))
+                .map(|_| ()),
+        }
+    }
+
+    pub fn disconnect_client(&self, client: u64) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => {
+                if cmux_tui_core::server::detach_control_client(mux, client) {
+                    Ok(())
+                } else {
+                    anyhow::bail!("unknown client {client}")
+                }
+            }
+            Session::Remote(remote) => {
+                remote.request(json!({"cmd": "detach-client", "client": client})).map(|_| ())
+            }
+        }
+    }
+
     pub fn begin_shutdown(&self) {
         if let Session::Remote(remote) = self {
             remote.begin_shutdown();

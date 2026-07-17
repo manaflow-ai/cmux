@@ -101,6 +101,23 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     let clients_human = cli(&server, &["list-clients"]);
     assert_success(&clients_human);
     assert!(String::from_utf8_lossy(&clients_human.stdout).contains("connected="));
+    let excluded = cli(
+        &server,
+        &["set-client-sizing", "--client", &target_id.to_string(), "--enabled", "false"],
+    );
+    assert_success(&excluded);
+    let clients = cli(&server, &["--json", "list-clients"]);
+    assert_success(&clients);
+    let clients_json: serde_json::Value = serde_json::from_slice(&clients.stdout).unwrap();
+    assert_eq!(
+        clients_json
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|client| client["client"] == target_id)
+            .unwrap()["size_participating"],
+        false
+    );
     let detached = cli(&server, &["detach-client", "--client", &target_id.to_string()]);
     assert_success(&detached);
     target_response.clear();
