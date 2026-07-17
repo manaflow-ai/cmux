@@ -3138,11 +3138,9 @@ extension CMUXCLI {
         let openingURL = try mapper.viewerURL(for: openingFileURL)
         let sourceLabel = "git \(selectedSource.slug)"
         let title = titleOverride ?? selectedSource.title
-        let message = diffViewerLoadingDiffMessage(selectedSource.menuLabel)
         try writeDiffViewerOpeningHTML(
             to: openingFileURL,
             title: title,
-            message: message,
             appearance: appearance
         )
         let allowedFiles = [try mapper.allowedFile(fileURL: openingFileURL, mimeType: "text/html")]
