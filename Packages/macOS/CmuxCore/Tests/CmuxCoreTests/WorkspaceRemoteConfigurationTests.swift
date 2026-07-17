@@ -175,7 +175,7 @@ struct WorkspaceRemoteConfigurationValueTests {
         #expect(base.proxyBrokerTransportKey != otherHost.proxyBrokerTransportKey)
     }
 
-    @Test("durable trust key separates SSH routes but ignores tunnel instances")
+    @Test("durable trust key separates remote identities and ignores managed tunnel instances")
     func durableTransportTrustKey() {
         let firstRoute = makeConfiguration(
             identityFile: "/keys/first",

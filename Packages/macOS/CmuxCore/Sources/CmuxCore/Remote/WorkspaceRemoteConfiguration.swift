@@ -221,9 +221,10 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
     /// Stable, non-secret transport identity for authorizing remote-sourced configuration.
     ///
     /// Unlike ``proxyBrokerTransportKey``, this deliberately excludes tunnel-instance
-    /// details such as the owner workspace, local proxy port, and WebSocket broker
-    /// session. Those values can rotate while the durable remote security boundary
-    /// (account, SSH route, daemon slot, or managed VM) remains unchanged.
+    /// details such as the owner workspace, local proxy port, and rotating WebSocket
+    /// URL path. Broker authority remains part of the security boundary; unmanaged
+    /// WebSocket remotes also retain their non-secret session id as a fail-closed
+    /// fallback when no durable managed-VM identity exists.
     public var durableTransportTrustKey: String {
         let normalizedTransport = transport.rawValue
         let normalizedBootstrapMode = skipDaemonBootstrap ? "vm-baked" : "bootstrap"
@@ -233,7 +234,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         let normalizedOptions = Self.durableSSHOptions(sshOptions).joined(separator: "\u{1f}")
         let normalizedPersistentDaemonSlot = persistentDaemonSlot ?? ""
         let normalizedManagedCloudVMID = managedCloudVMID ?? ""
-        return [
+        var components = [
             normalizedTransport,
             normalizedBootstrapMode,
             normalizedDestination,
@@ -243,7 +244,12 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             normalizedPersistentDaemonSlot,
             normalizedManagedCloudVMID,
         ]
-            .joined(separator: "\u{1e}")
+        if let daemonWebSocketEndpoint {
+            components.append(daemonWebSocketEndpoint.durableTrustKeyComponent(
+                includesSessionFallback: managedCloudVMID == nil
+            ))
+        }
+        return components.joined(separator: "\u{1e}")
     }
 
     private static func proxyBrokerSSHOptions(_ options: [String]) -> [String] {

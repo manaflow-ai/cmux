@@ -1,3 +1,5 @@
+import Foundation
+
 /// A brokered WebSocket endpoint for reaching a Cloud VM's cmuxd-remote daemon.
 public struct WorkspaceRemoteWebSocketDaemonEndpoint: Equatable, Sendable {
     /// Absolute WebSocket URL of the daemon endpoint.
@@ -35,5 +37,38 @@ public struct WorkspaceRemoteWebSocketDaemonEndpoint: Equatable, Sendable {
             String(expiresAtUnix),
         ]
             .joined(separator: "\u{1f}")
+    }
+
+    /// Returns the non-secret broker identity used by durable remote trust.
+    func durableTrustKeyComponent(includesSessionFallback: Bool) -> String {
+        let authority = durableTrustAuthorityComponent
+        var components = [authority]
+        if includesSessionFallback || authority.isEmpty {
+            components.append(sessionId.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        return components.joined(separator: "\u{1f}")
+    }
+
+    /// Normalizes equivalent WebSocket authorities while excluding rotating URL paths.
+    private var durableTrustAuthorityComponent: String {
+        let trimmedURL = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let components = URLComponents(string: trimmedURL),
+              let rawScheme = components.scheme,
+              !rawScheme.isEmpty,
+              let rawHost = components.host,
+              !rawHost.isEmpty else {
+            return ""
+        }
+
+        let scheme = rawScheme.lowercased()
+        let host = rawHost.lowercased()
+        let port: String
+        switch (scheme, components.port) {
+        case ("wss", 443), ("ws", 80), (_, nil):
+            port = ""
+        case (_, let explicitPort?):
+            port = String(explicitPort)
+        }
+        return [scheme, host, port].joined(separator: "\u{1f}")
     }
 }
