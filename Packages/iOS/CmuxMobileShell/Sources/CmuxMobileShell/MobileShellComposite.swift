@@ -2836,6 +2836,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             let noThrowFailure = try await connect(ticket: ticket)
             guard isCurrentPairingAttempt(attemptID) else { return .superseded }
             if connectionState == .connected && activeTicket != nil {
+                // Fresh pairing persists the Mac during `connect(ticket:)`, but
+                // presentation surfaces read the shared in-memory list. Refresh
+                // it before reporting success so an immediately opened picker or
+                // task composer sees the Mac without a manual Computers refresh.
+                await loadPairedMacs()
+                guard isCurrentPairingAttempt(attemptID) else { return .superseded }
                 recordPairingSucceeded()
                 return .connected
             }
