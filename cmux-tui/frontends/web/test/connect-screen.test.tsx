@@ -19,13 +19,25 @@ describe("ConnectScreen", () => {
   });
 
   it("honors a one-tap socket query and token fragment, then removes both", () => {
-    window.history.replaceState({}, "", "/?ws=wss%3A%2F%2Fexample.test%3A8443#token=one-tap");
+    window.history.replaceState(
+      {},
+      "",
+      "/?ws=wss%3A%2F%2Fexample.test%3A8443#view=docs%2Fintro&token=one-tap&section",
+    );
     const onConnect = vi.fn();
     render(<ConnectScreen connecting={false} error={null} pairing={null} onConnect={onConnect} />);
     expect(screen.getByLabelText("WebSocket URL")).toHaveValue("wss://example.test:8443");
     fireEvent.click(screen.getByRole("button", { name: "Connect" }));
     expect(onConnect).toHaveBeenCalledWith({ url: "wss://example.test:8443", token: "one-tap" });
     expect(window.location.search).toBe("");
+    expect(window.location.hash).toBe("#view=docs%2Fintro&section");
+  });
+
+  it("preserves an ordinary fragment verbatim while consuming a socket query", () => {
+    window.history.replaceState({}, "", "/?ws=wss%3A%2F%2Fexample.test%3A8443#docs/intro");
+    render(<ConnectScreen connecting={false} error={null} pairing={null} onConnect={vi.fn()} />);
+    expect(window.location.search).toBe("");
+    expect(window.location.hash).toBe("#docs/intro");
   });
 
   it("shows the comparison code while the TUI decision is pending", () => {

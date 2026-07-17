@@ -11,8 +11,17 @@ use serde_json::{Value, json};
 use tungstenite::client::IntoClientRequest;
 use tungstenite::{Error as WsError, Message, WebSocket, client};
 
+/// Maximum number of pending events in each bounded CDP event queue.
+///
+/// Downstream queue implementations use the same limit so moving an event
+/// between CDP layers cannot expand the maximum pending event count.
 pub const CDP_EVENT_QUEUE_CAPACITY: usize = 64;
 const CDP_INGRESS_EVENT_CAPACITY: usize = 1024;
+/// Maximum estimated retained bytes in each bounded CDP event queue.
+///
+/// The estimate covers dynamically retained event payloads and uses saturating
+/// arithmetic. It is a queue-enforcement budget, not an exact allocator usage
+/// measurement.
 pub const CDP_EVENT_QUEUE_MAX_BYTES: usize = 32 * 1024 * 1024;
 
 #[cfg(test)]
@@ -198,6 +207,11 @@ fn same_replaceable(queued: &CdpEvent, incoming: &CdpEvent) -> bool {
     }
 }
 
+/// Estimates the bytes retained by a CDP event for bounded-queue accounting.
+///
+/// The result includes dynamically owned strings and JSON data, plus the frame
+/// container size, using saturating arithmetic. Callers should compare it with
+/// [`CDP_EVENT_QUEUE_MAX_BYTES`], not treat it as exact allocator usage.
 pub fn event_retained_bytes(event: &CdpEvent) -> usize {
     #[cfg(test)]
     RETAINED_SIZE_CALLS.fetch_add(1, Ordering::Relaxed);

@@ -11,6 +11,14 @@ interface ConnectScreenProps {
   onConnect(config: ConnectionConfig): void;
 }
 
+function removeTokenFragment(hash: string): string {
+  const fragment = hash.replace(/^#/, "");
+  return fragment
+    .split("&")
+    .filter((part) => !new URLSearchParams(part).has("token"))
+    .join("&");
+}
+
 export function ConnectScreen({ connecting, error, pairing, onConnect }: ConnectScreenProps) {
   const [initial] = useState(() => {
     const config = initialConnectionConfig(window.location, window.localStorage);
@@ -21,9 +29,8 @@ export function ConnectScreen({ connecting, error, pairing, onConnect }: Connect
     if (params.has("ws") || params.has("token") || fragment.has("token")) {
       params.delete("ws");
       params.delete("token");
-      fragment.delete("token");
       const search = params.toString();
-      const hash = fragment.toString();
+      const hash = removeTokenFragment(window.location.hash);
       window.history.replaceState(
         null,
         "",
