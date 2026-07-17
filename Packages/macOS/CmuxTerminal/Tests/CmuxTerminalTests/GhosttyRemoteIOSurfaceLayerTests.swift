@@ -82,7 +82,7 @@ struct GhosttyRemoteIOSurfaceLayerTests {
         #expect(layer.present(try makeFrame(sequence: 9)))
     }
 
-    @Test func rejectsMetadataDimensionsThatDoNotMatchExpectedSize() throws {
+    @Test func rejectsMetadataWidthThatDoesNotMatchIOSurface() throws {
         let layer = makeLayer()
         let rejected = try makeFrame(
             metadataSize: GhosttyRenderPixelSize(width: 31, height: 24),
@@ -94,11 +94,11 @@ struct GhosttyRemoteIOSurfaceLayerTests {
         #expect(layer.retainedSurface == nil)
     }
 
-    @Test func rejectsIOSurfaceDimensionsThatDoNotMatchMetadata() throws {
+    @Test func rejectsMetadataHeightThatDoesNotMatchIOSurface() throws {
         let layer = makeLayer()
         let rejected = try makeFrame(
             metadataSize: pixelSize,
-            surfaceSize: GhosttyRenderPixelSize(width: 31, height: 24)
+            surfaceSize: GhosttyRenderPixelSize(width: 32, height: 23)
         )
 
         #expect(!layer.present(rejected))

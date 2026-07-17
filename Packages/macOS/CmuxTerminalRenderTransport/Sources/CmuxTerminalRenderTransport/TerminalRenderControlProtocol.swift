@@ -4,7 +4,7 @@ public import Foundation
 /// faceless Ghostty render worker.
 public enum TerminalRenderProtocol {
     /// Bump when either side can no longer decode the other side's messages.
-    public static let currentVersion: UInt32 = 1
+    public static let currentVersion: UInt32 = 2
 }
 
 /// A bootstrap endpoint for the separate Mach channel that transfers frames.
@@ -183,6 +183,10 @@ public enum TerminalRenderWorkerEvent: Codable, Equatable, Sendable {
 
     /// Highest contiguous output byte position applied by a mirror.
     case outputApplied(id: UUID, generation: UInt64, nextSequence: UInt64)
+
+    /// Pixel geometry applied by a mirror. The host uses this acknowledgement
+    /// to release the next ordered resize without accumulating stale sizes.
+    case resizeApplied(id: UUID, generation: UInt64, width: UInt32, height: UInt32)
 
     /// Recoverable protocol/runtime diagnostic. User-facing UI is intentionally
     /// absent; supervision logs it and respawns when required.

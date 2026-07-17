@@ -168,6 +168,128 @@ import Testing
         }
     }
 
+    @Test func resizeBurstCoalescesToFinalSizeWhileFirstResizeIsInFlight() async throws {
+        let mutationLog = temporaryMutationLogURL()
+        defer { try? FileManager.default.removeItem(at: mutationLog) }
+        let client = try GhosttyRenderWorkerClient(
+            executableURL: fixtureURL(),
+            environment: [
+                "CMUX_GHOSTTY_RENDER_FIXTURE_MUTATION_LOG": mutationLog.path,
+                "CMUX_GHOSTTY_RENDER_FIXTURE_RESIZE_RELEASE_REVISION": "2",
+            ]
+        )
+        let collector = EventCollector(stream: await client.subscribeEvents())
+        await client.updateConfiguration(configuration())
+
+        let id = UUID()
+        let descriptor = surfaceDescriptor(id: id, generation: 6)
+        client.commandSink.enqueue(.createSurface(descriptor))
+        _ = await collector.waitUntil { events in
+            events.contains(.surfaceCreated(surfaceID: id, surfaceGeneration: 6))
+        }
+
+        for offset in 1...128 {
+            client.commandSink.enqueue(resizeCommand(
+                id: id,
+                generation: 6,
+                width: UInt32(800 + offset),
+                height: UInt32(600 + offset)
+            ))
+        }
+        client.commandSink.enqueue(outputCommand(
+            id: id,
+            generation: 6,
+            sequence: 0,
+            text: "z"
+        ))
+        await client.updateConfiguration(configuration(revision: 2))
+
+        let events = await collector.waitUntil { events in
+            events.contains(.outputApplied(
+                surfaceID: id,
+                surfaceGeneration: 6,
+                nextSequence: 1
+            ))
+        }
+        await client.shutdown()
+
+        #expect(events.contains(.outputApplied(
+            surfaceID: id,
+            surfaceGeneration: 6,
+            nextSequence: 1
+        )))
+        #expect(try mutationLogLines(at: mutationLog) == [
+            "resize 801 601",
+            "resize 928 728",
+            "output 0 eg==",
+        ])
+    }
+
+    @Test func processOutputRemainsAnOrderingBarrierBetweenResizeBursts() async throws {
+        let mutationLog = temporaryMutationLogURL()
+        defer { try? FileManager.default.removeItem(at: mutationLog) }
+        let client = try GhosttyRenderWorkerClient(
+            executableURL: fixtureURL(),
+            environment: [
+                "CMUX_GHOSTTY_RENDER_FIXTURE_MUTATION_LOG": mutationLog.path,
+                "CMUX_GHOSTTY_RENDER_FIXTURE_RESIZE_RELEASE_REVISION": "2",
+            ]
+        )
+        let collector = EventCollector(stream: await client.subscribeEvents())
+        await client.updateConfiguration(configuration())
+
+        let id = UUID()
+        let descriptor = surfaceDescriptor(id: id, generation: 7)
+        client.commandSink.enqueue(.createSurface(descriptor))
+        _ = await collector.waitUntil { events in
+            events.contains(.surfaceCreated(surfaceID: id, surfaceGeneration: 7))
+        }
+
+        client.commandSink.enqueue(resizeCommand(id: id, generation: 7, width: 900, height: 700))
+        client.commandSink.enqueue(resizeCommand(id: id, generation: 7, width: 910, height: 710))
+        client.commandSink.enqueue(outputCommand(
+            id: id,
+            generation: 7,
+            sequence: 0,
+            text: "a"
+        ))
+        client.commandSink.enqueue(resizeCommand(id: id, generation: 7, width: 920, height: 720))
+        client.commandSink.enqueue(resizeCommand(id: id, generation: 7, width: 930, height: 730))
+        client.commandSink.enqueue(outputCommand(
+            id: id,
+            generation: 7,
+            sequence: 1,
+            text: "b"
+        ))
+        await client.updateConfiguration(configuration(revision: 2))
+
+        let events = await collector.waitUntil { events in
+            events.contains(.outputApplied(
+                surfaceID: id,
+                surfaceGeneration: 7,
+                nextSequence: 2
+            ))
+        }
+        await client.shutdown()
+
+        let outputPositions = events.compactMap { event -> UInt64? in
+            guard case let .outputApplied(surfaceID, generation, nextSequence) = event,
+                  surfaceID == id,
+                  generation == 7 else {
+                return nil
+            }
+            return nextSequence
+        }
+        #expect(outputPositions == [1, 2])
+        #expect(try mutationLogLines(at: mutationLog) == [
+            "resize 900 700",
+            "resize 910 710",
+            "output 0 YQ==",
+            "resize 930 730",
+            "output 1 Yg==",
+        ])
+    }
+
     @Test func restartsHungWorkerOnceWithoutDuplicateExitEvents() async throws {
         let client = try GhosttyRenderWorkerClient(
             executableURL: URL(fileURLWithPath: "/bin/sleep"),
@@ -344,6 +466,32 @@ import Testing
             context: 1
         )
     }
+
+    private func resizeCommand(
+        id: UUID,
+        generation: UInt64,
+        width: UInt32,
+        height: UInt32
+    ) -> TerminalRenderWorkerCommand {
+        .mutateSurface(
+            id: id,
+            generation: generation,
+            mutation: .resize(width: width, height: height)
+        )
+    }
+
+    private func outputCommand(
+        id: UUID,
+        generation: UInt64,
+        sequence: UInt64,
+        text: String
+    ) -> TerminalRenderWorkerCommand {
+        .mutateSurface(
+            id: id,
+            generation: generation,
+            mutation: .processOutput(sequence: sequence, bytes: Data(text.utf8))
+        )
+    }
 }
 
 private actor EventCollector {
@@ -426,6 +574,17 @@ private func fixtureURL() -> URL {
 
 private func realWorkerURL() -> URL {
     builtExecutableURL(named: "cmux-ghostty-render-worker-test-host")
+}
+
+private func temporaryMutationLogURL() -> URL {
+    FileManager.default.temporaryDirectory
+        .appendingPathComponent("cmux-ghostty-render-mutations-\(UUID().uuidString).log")
+}
+
+private func mutationLogLines(at url: URL) throws -> [String] {
+    try String(contentsOf: url, encoding: .utf8)
+        .split(whereSeparator: \.isNewline)
+        .map(String.init)
 }
 
 private func builtExecutableURL(named name: String) -> URL {

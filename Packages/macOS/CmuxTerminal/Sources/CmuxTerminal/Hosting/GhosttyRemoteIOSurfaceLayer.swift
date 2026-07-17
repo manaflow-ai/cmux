@@ -59,7 +59,7 @@ public final class GhosttyRemoteIOSurfaceLayer: CALayer {
     /// Native mirror generation currently allowed to present.
     @MainActor public var surfaceGeneration: UInt64 { presentationState.surfaceGeneration }
 
-    /// Pixel dimensions frames must match before presentation.
+    /// Pixel dimensions currently desired by AppKit for diagnostics and scheduling.
     @MainActor public var expectedPixelSize: GhosttyRenderPixelSize {
         presentationState.expectedPixelSize
     }
@@ -138,7 +138,7 @@ public final class GhosttyRemoteIOSurfaceLayer: CALayer {
         presentationState.lastAcceptedFrameSequence = nil
     }
 
-    /// Updates the required pixel dimensions without clearing the last frame.
+    /// Updates AppKit's desired pixel dimensions without clearing the last frame.
     @MainActor public func updateExpectedPixelSize(_ size: GhosttyRenderPixelSize) {
         presentationState.expectedPixelSize = size
     }
@@ -148,8 +148,8 @@ public final class GhosttyRemoteIOSurfaceLayer: CALayer {
         contentsScale = Self.validatedBackingScaleFactor(backingScaleFactor)
     }
 
-    /// Presents a frame when every identity, generation, sequence, and size
-    /// fence matches. Rejected frames leave the current contents untouched.
+    /// Presents a frame when every identity, generation, sequence, and internal
+    /// dimension fence matches. Rejected frames leave the current contents untouched.
     @discardableResult
     @MainActor public func present(_ frame: TerminalRenderFrame) -> Bool {
         let metadata = frame.metadata
@@ -157,10 +157,8 @@ public final class GhosttyRemoteIOSurfaceLayer: CALayer {
               let workerGeneration = presentationState.workerGeneration,
               metadata.workerGeneration == workerGeneration,
               metadata.surfaceGeneration == presentationState.surfaceGeneration,
-              metadata.width == presentationState.expectedPixelSize.width,
-              metadata.height == presentationState.expectedPixelSize.height,
-              IOSurfaceGetWidth(frame.surface) == Int(presentationState.expectedPixelSize.width),
-              IOSurfaceGetHeight(frame.surface) == Int(presentationState.expectedPixelSize.height),
+              IOSurfaceGetWidth(frame.surface) == Int(metadata.width),
+              IOSurfaceGetHeight(frame.surface) == Int(metadata.height),
               presentationState.lastAcceptedFrameSequence.map({ metadata.frameSequence > $0 }) ?? true else {
             return false
         }

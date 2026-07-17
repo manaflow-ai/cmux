@@ -40,6 +40,7 @@ public actor GhosttyRenderWorkerClient {
     private var desiredSurfaces: [UUID: TerminalRenderSurfaceDescriptor] = [:]
     private var resynchronizingSurfaces: Set<UUID> = []
     private var pendingMutations: [UUID: [TerminalRenderWorkerCommand]] = [:]
+    private var inFlightResizes: [UUID: GhosttyRenderInFlightResize] = [:]
 
     private var eventSubscribers: [Int: AsyncStream<GhosttyRenderWorkerClientEvent>.Continuation] = [:]
     private var frameSubscribers: [Int: AsyncStream<TerminalRenderFrame>.Continuation] = [:]
@@ -164,6 +165,8 @@ public actor GhosttyRenderWorkerClient {
         frameContinuation.finish()
         controlContinuation.finish()
         frameReceiver.stop()
+        pendingMutations.removeAll()
+        inFlightResizes.removeAll()
         for continuation in eventSubscribers.values { continuation.finish() }
         for continuation in frameSubscribers.values { continuation.finish() }
         eventSubscribers.removeAll()
@@ -194,6 +197,7 @@ public actor GhosttyRenderWorkerClient {
             desiredSurfaces[descriptor.id] = descriptor
             resynchronizingSurfaces.remove(descriptor.id)
             pendingMutations[descriptor.id] = nil
+            inFlightResizes[descriptor.id] = nil
             guard configuration != nil else { return }
             do {
                 let launched = try ensureRunning()
@@ -207,18 +211,20 @@ public actor GhosttyRenderWorkerClient {
         case let .mutateSurface(id, generation, _):
             guard desiredSurfaces[id]?.generation == generation else { return }
             guard configuration != nil else {
-                pendingMutations[id, default: []].append(command)
+                enqueuePendingMutation(command)
                 return
             }
             do {
                 _ = try ensureRunning()
-                if resynchronizingSurfaces.contains(id) {
-                    pendingMutations[id, default: []].append(command)
-                } else if let channel = child?.channel {
-                    try send(command, through: channel)
+                guard !resynchronizingSurfaces.contains(id),
+                      inFlightResizes[id] == nil,
+                      let channel = child?.channel else {
+                    enqueuePendingMutation(command)
+                    return
                 }
+                try sendScheduledMutation(command, through: channel)
             } catch {
-                pendingMutations[id, default: []].append(command)
+                enqueuePendingMutation(command)
                 loseWorker(reason: "surface mutation send failed: \(error)")
             }
 
@@ -229,10 +235,13 @@ public actor GhosttyRenderWorkerClient {
                 guard let channel = child?.channel else { return }
                 try send(command, through: channel)
                 resynchronizingSurfaces.remove(descriptor.id)
+                inFlightResizes[descriptor.id] = nil
                 let queued = pendingMutations.removeValue(forKey: descriptor.id) ?? []
-                for pending in queued.compactMap({ trim($0, before: nextSequence) }) {
-                    try send(pending, through: channel)
+                let trimmed = queued.compactMap { trim($0, before: nextSequence) }
+                if !trimmed.isEmpty {
+                    pendingMutations[descriptor.id] = trimmed
                 }
+                try drainPendingMutations(for: descriptor.id, through: channel)
             } catch {
                 loseWorker(reason: "surface resynchronization failed: \(error)")
             }
@@ -242,6 +251,7 @@ public actor GhosttyRenderWorkerClient {
             desiredSurfaces[id] = nil
             resynchronizingSurfaces.remove(id)
             pendingMutations[id] = nil
+            inFlightResizes[id] = nil
             if let channel = child?.channel {
                 do { try send(command, through: channel) }
                 catch { loseWorker(reason: "surface destroy send failed: \(error)") }
@@ -326,10 +336,9 @@ public actor GhosttyRenderWorkerClient {
             for descriptor in desiredSurfaces.values {
                 try send(.createSurface(descriptor), through: channel)
             }
-            for commands in pendingMutations.values {
-                for pending in commands { try send(pending, through: channel) }
+            for id in Array(pendingMutations.keys) {
+                try drainPendingMutations(for: id, through: channel)
             }
-            pendingMutations.removeAll()
         }
         hasLaunchedWorker = true
         return true
@@ -387,6 +396,25 @@ public actor GhosttyRenderWorkerClient {
                 surfaceGeneration: surfaceGeneration,
                 nextSequence: nextSequence
             ))
+        case let .resizeApplied(id, surfaceGeneration, width, height):
+            guard initializedGeneration == generation else {
+                loseWorker(reason: "worker applied a resize before initialization")
+                return
+            }
+            guard desiredSurfaces[id]?.generation == surfaceGeneration,
+                  let inFlight = inFlightResizes[id],
+                  inFlight.generation == surfaceGeneration,
+                  inFlight.width == width,
+                  inFlight.height == height else {
+                return
+            }
+            inFlightResizes[id] = nil
+            guard let channel = child?.channel else { return }
+            do {
+                try drainPendingMutations(for: id, through: channel)
+            } catch {
+                loseWorker(reason: "queued surface mutation send failed: \(error)")
+            }
         case let .failure(message):
             broadcast(.failure(message))
         }
@@ -413,6 +441,7 @@ public actor GhosttyRenderWorkerClient {
             endedChild.process.terminate()
         }
         child = nil
+        inFlightResizes.removeAll()
         resynchronizingSurfaces.formUnion(desiredSurfaces.keys)
         broadcast(.workerExited(workerGeneration: generation))
     }
@@ -430,6 +459,7 @@ public actor GhosttyRenderWorkerClient {
             lostChild.process.terminate()
         }
         child = nil
+        inFlightResizes.removeAll()
         resynchronizingSurfaces.formUnion(desiredSurfaces.keys)
         broadcast(.failure(reason))
         broadcast(.workerExited(workerGeneration: generation))
@@ -475,6 +505,74 @@ public actor GhosttyRenderWorkerClient {
         through channel: TerminalRenderMessageChannel
     ) throws {
         try channel.send(TerminalRenderControlCodec.encode(command))
+    }
+
+    private func sendScheduledMutation(
+        _ command: TerminalRenderWorkerCommand,
+        through channel: TerminalRenderMessageChannel
+    ) throws {
+        try send(command, through: channel)
+        guard let resize = resizeIdentity(for: command) else { return }
+        inFlightResizes[resize.id] = resize.inFlight
+    }
+
+    private func enqueuePendingMutation(_ command: TerminalRenderWorkerCommand) {
+        guard case let .mutateSurface(id, generation, mutation) = command else { return }
+        var queued = pendingMutations[id] ?? []
+        if case .resize = mutation,
+           let last = queued.last,
+           case let .mutateSurface(lastID, lastGeneration, lastMutation) = last,
+           lastID == id,
+           lastGeneration == generation,
+           case .resize = lastMutation {
+            queued[queued.index(before: queued.endIndex)] = command
+        } else {
+            queued.append(command)
+        }
+        pendingMutations[id] = queued
+    }
+
+    private func drainPendingMutations(
+        for id: UUID,
+        through channel: TerminalRenderMessageChannel
+    ) throws {
+        guard inFlightResizes[id] == nil,
+              let queued = pendingMutations.removeValue(forKey: id) else {
+            return
+        }
+
+        for index in queued.indices {
+            do {
+                try sendScheduledMutation(queued[index], through: channel)
+            } catch {
+                pendingMutations[id] = Array(queued[index...])
+                throw error
+            }
+            guard inFlightResizes[id] == nil else {
+                let nextIndex = queued.index(after: index)
+                if nextIndex < queued.endIndex {
+                    pendingMutations[id] = Array(queued[nextIndex...])
+                }
+                return
+            }
+        }
+    }
+
+    private func resizeIdentity(
+        for command: TerminalRenderWorkerCommand
+    ) -> (id: UUID, inFlight: GhosttyRenderInFlightResize)? {
+        guard case let .mutateSurface(id, generation, mutation) = command,
+              case let .resize(width, height) = mutation else {
+            return nil
+        }
+        return (
+            id,
+            GhosttyRenderInFlightResize(
+                generation: generation,
+                width: width,
+                height: height
+            )
+        )
     }
 
     private func trim(
@@ -531,6 +629,12 @@ private struct GhosttyRenderChild {
     let channel: TerminalRenderMessageChannel
     let stdin: Pipe
     let stdout: Pipe
+}
+
+private struct GhosttyRenderInFlightResize {
+    let generation: UInt64
+    let width: UInt32
+    let height: UInt32
 }
 
 private enum GhosttyRenderChildControlIngress: Sendable {

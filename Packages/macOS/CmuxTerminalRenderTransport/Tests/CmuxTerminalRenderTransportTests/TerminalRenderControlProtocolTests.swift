@@ -72,6 +72,7 @@ import Testing
             .surfaceCreated(id: id, generation: 9),
             .surfaceDestroyed(id: id, generation: 9),
             .outputApplied(id: id, generation: 9, nextSequence: 1_024),
+            .resizeApplied(id: id, generation: 9, width: 1_600, height: 900),
             .failure("bad command"),
         ]
 

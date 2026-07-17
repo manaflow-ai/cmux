@@ -274,6 +274,12 @@ private final class GhosttyRenderWorkerEngine: @unchecked Sendable {
             applyOutput(sequence: sequence, bytes: bytes, to: surface)
         case let .resize(width, height):
             ghostty_surface_set_size(handle, max(width, 1), max(height, 1))
+            send(.resizeApplied(
+                id: surface.descriptor.id,
+                generation: surface.descriptor.generation,
+                width: width,
+                height: height
+            ))
         case let .contentScale(x, y):
             ghostty_surface_set_content_scale(handle, x, y)
         case let .focus(focused):
