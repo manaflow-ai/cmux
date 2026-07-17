@@ -7484,6 +7484,26 @@ mod tests {
     }
 
     #[test]
+    fn disconnecting_this_client_uses_clean_detach_without_a_socket_round_trip() {
+        let mux = Mux::new("self-disconnect-menu-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.clients = vec![ClientInfo {
+            client: 7,
+            transport: "unix".to_string(),
+            name: Some("this tui".to_string()),
+            kind: Some("tui".to_string()),
+            connected_seconds: 1,
+            attached: vec![],
+            sizes: vec![],
+            is_self: true,
+            size_participating: true,
+        }];
+
+        assert!(app.activate_menu(MenuAction::DisconnectClient(7)).is_ok());
+        assert!(app.quit, "self-disconnect must take the same clean exit path as Ctrl-b d");
+    }
+
+    #[test]
     fn browser_context_menu_keeps_browser_actions_in_their_own_group() {
         let pane = 7;
         let groups = pane_context_menu_groups(pane, true, true);
