@@ -226,16 +226,22 @@ final class BrowserWebExtensionsManager: NSObject {
             resumeLoadWaiters()
         }
         guard !isShutDown else { return }
-        let candidates: [URL]
+        let discovery: BrowserWebExtensionApprovalDiscoveryResult
         do {
-            candidates = try await directoryRepository.approvedCandidateURLs(in: directory)
+            discovery = try await directoryRepository.approvedCandidateURLs(in: directory)
         } catch {
             guard !isShutDown else { return }
             loadErrors.append((url: directory, error: error))
             return
         }
+        loadErrors.append(contentsOf: discovery.failures.map { failure in
+            (
+                url: failure.url,
+                error: BrowserWebExtensionApprovalValidationError(message: failure.message)
+            )
+        })
         guard !Task.isCancelled, !isShutDown else { return }
-        for url in candidates {
+        for url in discovery.candidates {
             guard !Task.isCancelled, !isShutDown else { return }
             do {
                 let context = try await loadExtension(at: url)
@@ -938,6 +944,12 @@ enum BrowserWebExtensionNotificationKey {
     static let panelID = "panelID"
     static let profileID = "profileID"
     static let item = "item"
+}
+
+private struct BrowserWebExtensionApprovalValidationError: LocalizedError {
+    let message: String
+
+    var errorDescription: String? { message }
 }
 
 @available(macOS 15.4, *)

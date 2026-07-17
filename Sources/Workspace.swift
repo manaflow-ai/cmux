@@ -8077,7 +8077,6 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
         managerPanel.showBrowserExtensionsManager()
-        browserServices?.unregisterBrowserPanel(id: managerPanel.id)
         _ = updatePanelTitle(panelId: managerPanel.id, title: managerPanel.displayTitle)
         if let tabId = surfaceIdFromPanelId(managerPanel.id) {
             bonsplitController.updateTab(

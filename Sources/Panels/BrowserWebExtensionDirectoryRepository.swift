@@ -1,6 +1,16 @@
 import CryptoKit
 import Foundation
 
+struct BrowserWebExtensionApprovalDiscoveryResult: Sendable {
+    struct Failure: Sendable {
+        let url: URL
+        let message: String
+    }
+
+    let candidates: [URL]
+    let failures: [Failure]
+}
+
 /// Moves extension-directory enumeration and metadata reads off the main actor.
 @available(macOS 15.4, *)
 actor BrowserWebExtensionDirectoryRepository {
@@ -20,13 +30,25 @@ actor BrowserWebExtensionDirectoryRepository {
         BrowserWebExtensionsManager.candidateURLs(in: directory)
     }
 
-    func approvedCandidateURLs(in directory: URL) throws -> [URL] {
+    func approvedCandidateURLs(in directory: URL) throws -> BrowserWebExtensionApprovalDiscoveryResult {
         try requireActive()
         let approvals = try readApprovals(in: directory)
-        return try candidateURLs(in: directory).filter { candidate in
-            guard let approvedDigest = approvals[candidate.lastPathComponent] else { return false }
-            return try packageDigest(for: candidate) == approvedDigest
+        var candidates: [URL] = []
+        var failures: [BrowserWebExtensionApprovalDiscoveryResult.Failure] = []
+        for candidate in candidateURLs(in: directory) {
+            guard let approvedDigest = approvals[candidate.lastPathComponent] else { continue }
+            do {
+                if try packageDigest(for: candidate) == approvedDigest {
+                    candidates.append(candidate)
+                }
+            } catch {
+                failures.append(.init(url: candidate, message: error.localizedDescription))
+            }
         }
+        return BrowserWebExtensionApprovalDiscoveryResult(
+            candidates: candidates,
+            failures: failures
+        )
     }
 
     func approveCandidate(at candidate: URL, in directory: URL) throws {
