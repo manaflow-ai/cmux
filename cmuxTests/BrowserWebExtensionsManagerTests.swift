@@ -751,6 +751,38 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
+    @Test func shutdownIsTerminalForExtensionLoadingAndInstallation() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sourceRoot = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: sourceRoot) }
+        let source = try Self.writeExtension(
+            named: "shutdown-probe",
+            in: sourceRoot,
+            manifest: Self.minimalManifest
+        )
+        try "// no-op".write(
+            to: source.appendingPathComponent("content.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let manager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent()
+        )
+        manager.shutdown()
+
+        await manager.loadExtensions()
+        await #expect(throws: CancellationError.self) {
+            _ = try await manager.installExtension(from: source)
+        }
+
+        #expect(manager.loadedContexts.isEmpty)
+        #expect(BrowserWebExtensionsManager.candidateURLs(in: root).isEmpty)
+    }
+
+    @available(macOS 15.4, *)
     @Test func repeatedActionMutationsCoalesceIntoOneToolbarUpdate() async throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
