@@ -1,7 +1,7 @@
 import CmuxRemoteSession
 import Foundation
 
-// User-facing connection-state strings resolve here, in the app target, so
+// User-facing remote-session strings resolve here, in the app target, so
 // String(localized:) binds to the app bundle's localization tables (the
 // package never localizes). Keys and default values are identical to the
 // legacy controller's inline String(localized:) calls.
@@ -17,6 +17,10 @@ extension RemoteSessionStrings {
             suspendedDetailFormat: String(
                 localized: "remote.state.suspended.detail",
                 defaultValue: "Can't reach %@ — automatic reconnect is paused. Use Reconnect when your network is back."
+            ),
+            daemonUploadUnavailableDescription: String(
+                localized: "remote.daemon.uploadUnavailable",
+                defaultValue: "Remote file transfer is unavailable."
             )
         )
     }

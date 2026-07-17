@@ -340,7 +340,8 @@ struct RemotePortScanGatingTests {
             ),
             strings: RemoteSessionStrings(
                 connectedVMNoProxyFormat: "%@",
-                suspendedDetailFormat: "%@"
+                suspendedDetailFormat: "%@",
+                daemonUploadUnavailableDescription: "Remote file transfer is unavailable."
             )
         )
     }

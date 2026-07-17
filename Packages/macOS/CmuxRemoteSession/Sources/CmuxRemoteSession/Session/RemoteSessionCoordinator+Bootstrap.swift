@@ -338,11 +338,8 @@ extension RemoteSessionCoordinator {
         }
         scpArgs += [localBinary.path, "\(configuration.destination):\(remoteTempPath)"]
         let scpResult = try scpExec(arguments: scpArgs, timeout: 45)
-        guard scpResult.status == 0 else {
-            let detail = Self.bestErrorLine(stderr: scpResult.stderr, stdout: scpResult.stdout) ?? "scp exited \(scpResult.status)"
-            throw NSError(domain: "cmux.remote.daemon", code: 31, userInfo: [
-                NSLocalizedDescriptionKey: "failed to upload cmuxd-remote: \(detail)",
-            ])
+        if scpResult.status != 0 {
+            try uploadRemoteDaemonBinaryViaExecChannelLocked(localBinary: localBinary, remoteTempPath: remoteTempPath, scpResult: scpResult)
         }
 
         let finalizeScript = """
