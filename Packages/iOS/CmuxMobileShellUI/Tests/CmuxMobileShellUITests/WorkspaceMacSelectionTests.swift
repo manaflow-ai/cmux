@@ -900,8 +900,55 @@ import Testing
         #expect(filter.machines == ["mac-a"])
     }
 
+    @Test func workspaceSearchMatchesVisibleComputerAndGroupContext() async {
+        let store = await shellStore(pairedMacs: [
+            pairedMac(id: "mac-studio", name: "Design Studio", lastSeenAt: 20, isActive: true),
+            pairedMac(id: "mac-laptop", name: "Travel Laptop", lastSeenAt: 10),
+        ])
+        let studioWorkspace = MobileWorkspacePreview(
+            id: "ws-studio",
+            macDeviceID: "mac-studio",
+            macDisplayName: "Design Studio",
+            name: "Canvas",
+            groupID: "group-release",
+            terminals: [MobileTerminalPreview(id: "terminal-canvas", name: "Agent")]
+        )
+        let laptopWorkspace = MobileWorkspacePreview(
+            id: "ws-laptop",
+            macDeviceID: "mac-laptop",
+            macDisplayName: "Travel Laptop",
+            name: "Notes",
+            terminals: [MobileTerminalPreview(id: "terminal-notes", name: "Editor")]
+        )
+        let groups = [
+            MobileWorkspaceGroupPreview(
+                id: "group-release",
+                name: "Release Train",
+                anchorWorkspaceID: studioWorkspace.id
+            ),
+        ]
+
+        let computerSearch = workspaceListView(
+            workspaces: [studioWorkspace, laptopWorkspace],
+            groups: groups,
+            searchText: "design studio",
+            store: store
+        )
+        #expect(computerSearch.filteredWorkspaces.map(\.id) == [studioWorkspace.id])
+
+        let groupSearch = workspaceListView(
+            workspaces: [studioWorkspace, laptopWorkspace],
+            groups: groups,
+            searchText: "release train",
+            store: store
+        )
+        #expect(groupSearch.filteredWorkspaces.map(\.id) == [studioWorkspace.id])
+    }
+
     private func workspaceListView(
         workspaces: [MobileWorkspacePreview],
+        groups: [MobileWorkspaceGroupPreview] = [],
+        searchText: String = "",
         store: CMUXMobileShellStore,
         selectWorkspace: @escaping (MobileWorkspacePreview.ID) -> Void = { _ in },
         macSelection: Binding<WorkspaceMacSelection>? = nil,
@@ -910,6 +957,7 @@ import Testing
     ) -> WorkspaceListView {
         WorkspaceListView(
             workspaces: workspaces,
+            groups: groups,
             selectedWorkspaceID: nil,
             host: "Test Mac",
             connectionStatus: .unavailable,
@@ -920,7 +968,8 @@ import Testing
             macSelection: macSelection ?? binding(initialValue: .all),
             switchMac: switchMac,
             cancelMacSwitch: cancelMacSwitch,
-            store: store
+            store: store,
+            searchText: searchText
         )
     }
 
