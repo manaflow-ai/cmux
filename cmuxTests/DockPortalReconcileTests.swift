@@ -98,6 +98,46 @@ struct DockPortalReconcileTests {
         ))
     }
 
+    @Test("Detached browser destination cannot displace its live source host")
+    @MainActor
+    func detachedBrowserDestinationCannotDisplaceLiveSourceHost() {
+        let panel = BrowserPanel(workspaceId: UUID(), renderInitialNavigation: false)
+        defer { panel.close() }
+        let liveSourceHost = NSView()
+        let detachedDestinationHost = NSView()
+        let sourcePane = PaneID()
+        let destinationPane = PaneID()
+        let bounds = CGRect(x: 0, y: 0, width: 210, height: 510)
+
+        #expect(panel.claimPortalHost(
+            hostId: ObjectIdentifier(liveSourceHost),
+            paneId: sourcePane,
+            inWindow: true,
+            bounds: bounds,
+            reason: "test.dock.browser.liveSource"
+        ))
+
+        #expect(!panel.claimPortalHost(
+            hostId: ObjectIdentifier(detachedDestinationHost),
+            paneId: destinationPane,
+            inWindow: false,
+            bounds: .zero,
+            reason: "test.dock.browser.detachedDestination"
+        ))
+        #expect(panel.releasePortalHostIfOwned(
+            hostId: ObjectIdentifier(liveSourceHost),
+            reason: "test.dock.browser.sourceDismantled"
+        ))
+
+        #expect(panel.claimPortalHost(
+            hostId: ObjectIdentifier(detachedDestinationHost),
+            paneId: destinationPane,
+            inWindow: true,
+            bounds: bounds,
+            reason: "test.dock.browser.attachedDestination"
+        ))
+    }
+
     @Test("Newer stale workspace host is rejected by live Dock ownership")
     @MainActor
     func newerStaleWorkspaceHostIsRejectedByLiveDockOwnership() {
