@@ -35,6 +35,30 @@ private actor AsyncTestBarrier {
 @MainActor
 @Suite(.serialized)
 struct WorkspaceForkConversationContextMenuTests {
+    private func recordedProcessIdentifier(at url: URL) -> pid_t? {
+        guard let contents = try? String(contentsOf: url, encoding: .utf8),
+              let processIdentifier = Int32(contents.trimmingCharacters(in: .whitespacesAndNewlines)),
+              processIdentifier > 0 else {
+            return nil
+        }
+        return processIdentifier
+    }
+
+    private func waitForForkProbeProcessExit(_ processIdentifier: pid_t) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(
+            by: .nanoseconds(AgentForkSupport.commandTerminateTimeoutNanoseconds)
+        )
+        repeat {
+            errno = 0
+            if Darwin.kill(processIdentifier, 0) == -1 {
+                return errno == ESRCH
+            }
+            await Task.yield()
+        } while clock.now < deadline
+        return false
+    }
+
     @Test
     func panelContextMenuActionUsesClickedPanel() async throws {
         let workspace = Workspace()
@@ -1406,7 +1430,6 @@ struct WorkspaceForkConversationContextMenuTests {
         ))
         _ = await refresh
         _ = await duplicateRefresh
-        try await Task.sleep(nanoseconds: 250_000_000)
 
         #expect(sharedIndex.forkSupportProbeAccepted(
             workspaceId: workspaceId,
@@ -4146,11 +4169,20 @@ struct WorkspaceForkConversationContextMenuTests {
 
         let executable = root.appendingPathComponent("pi", isDirectory: false)
         let leakedChildMarker = root.appendingPathComponent("leaked-child", isDirectory: false)
+        let leakedChildPIDFile = root.appendingPathComponent("leaked-child-pid", isDirectory: false)
         let escapedLeakedChildMarker = leakedChildMarker.path
             .replacingOccurrences(of: "'", with: "'\\''")
+        let escapedLeakedChildPIDFile = leakedChildPIDFile.path
+            .replacingOccurrences(of: "'", with: "'\\''")
+        defer {
+            if let processIdentifier = recordedProcessIdentifier(at: leakedChildPIDFile) {
+                _ = Darwin.kill(processIdentifier, SIGKILL)
+            }
+        }
         try """
         #!/bin/sh
-        (sleep 4; touch '\(escapedLeakedChildMarker)') &
+        /usr/bin/python3 -c 'import pathlib, time; time.sleep(4); pathlib.Path('\''\(escapedLeakedChildMarker)'\'').touch()' &
+        printf '%s\\n' "$!" > '\(escapedLeakedChildPIDFile)'
         printf '%s\\n' '0.80.6'
         """
             .write(to: executable, atomically: true, encoding: .utf8)
@@ -4170,10 +4202,9 @@ struct WorkspaceForkConversationContextMenuTests {
             )
         )
 
-        let start = Date()
         #expect(!(await AgentForkSupport.supportsFork(snapshot: snapshot)))
-        #expect(Date().timeIntervalSince(start) < 5)
-        try await Task.sleep(nanoseconds: 1_500_000_000)
+        let leakedChildPID = try #require(recordedProcessIdentifier(at: leakedChildPIDFile))
+        #expect(await waitForForkProbeProcessExit(leakedChildPID))
         #expect(!fileManager.fileExists(atPath: leakedChildMarker.path))
     }
 
@@ -4187,11 +4218,20 @@ struct WorkspaceForkConversationContextMenuTests {
 
         let executable = root.appendingPathComponent("pi", isDirectory: false)
         let leakedChildMarker = root.appendingPathComponent("setsid-child", isDirectory: false)
+        let leakedChildPIDFile = root.appendingPathComponent("setsid-child-pid", isDirectory: false)
         let escapedLeakedChildMarker = leakedChildMarker.path
             .replacingOccurrences(of: "'", with: "'\\''")
+        let escapedLeakedChildPIDFile = leakedChildPIDFile.path
+            .replacingOccurrences(of: "'", with: "'\\''")
+        defer {
+            if let processIdentifier = recordedProcessIdentifier(at: leakedChildPIDFile) {
+                _ = Darwin.kill(processIdentifier, SIGKILL)
+            }
+        }
         try """
         #!/bin/sh
         /usr/bin/python3 -c 'import os, pathlib, time; os.setsid(); time.sleep(4); pathlib.Path('\''\(escapedLeakedChildMarker)'\'').touch()' &
+        printf '%s\\n' "$!" > '\(escapedLeakedChildPIDFile)'
         printf '%s\\n' '0.80.6'
         """
             .write(to: executable, atomically: true, encoding: .utf8)
@@ -4211,10 +4251,9 @@ struct WorkspaceForkConversationContextMenuTests {
             )
         )
 
-        let start = Date()
         #expect(!(await AgentForkSupport.supportsFork(snapshot: snapshot)))
-        #expect(Date().timeIntervalSince(start) < 5)
-        try await Task.sleep(nanoseconds: 4_500_000_000)
+        let leakedChildPID = try #require(recordedProcessIdentifier(at: leakedChildPIDFile))
+        #expect(await waitForForkProbeProcessExit(leakedChildPID))
         #expect(!fileManager.fileExists(atPath: leakedChildMarker.path))
     }
 
@@ -4228,11 +4267,20 @@ struct WorkspaceForkConversationContextMenuTests {
 
         let executable = root.appendingPathComponent("pi", isDirectory: false)
         let leakedChildMarker = root.appendingPathComponent("setsid-sigterm-ignored-child", isDirectory: false)
+        let leakedChildPIDFile = root.appendingPathComponent("setsid-sigterm-ignored-child-pid", isDirectory: false)
         let escapedLeakedChildMarker = leakedChildMarker.path
             .replacingOccurrences(of: "'", with: "'\\''")
+        let escapedLeakedChildPIDFile = leakedChildPIDFile.path
+            .replacingOccurrences(of: "'", with: "'\\''")
+        defer {
+            if let processIdentifier = recordedProcessIdentifier(at: leakedChildPIDFile) {
+                _ = Darwin.kill(processIdentifier, SIGKILL)
+            }
+        }
         try """
         #!/bin/sh
         /usr/bin/python3 -c 'import os, pathlib, signal, time; os.setsid(); signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(4); pathlib.Path('\''\(escapedLeakedChildMarker)'\'').touch()' &
+        printf '%s\\n' "$!" > '\(escapedLeakedChildPIDFile)'
         trap 'exit 0' TERM
         sleep 10
         """
@@ -4253,10 +4301,9 @@ struct WorkspaceForkConversationContextMenuTests {
             )
         )
 
-        let start = Date()
         #expect(!(await AgentForkSupport.supportsFork(snapshot: snapshot)))
-        #expect(Date().timeIntervalSince(start) < 5)
-        try await Task.sleep(nanoseconds: 4_500_000_000)
+        let leakedChildPID = try #require(recordedProcessIdentifier(at: leakedChildPIDFile))
+        #expect(await waitForForkProbeProcessExit(leakedChildPID))
         #expect(
             !fileManager.fileExists(atPath: leakedChildMarker.path),
             "A timed-out probe must retain pipe-holder ownership long enough to hard-kill a daemonized child that ignored SIGTERM."
