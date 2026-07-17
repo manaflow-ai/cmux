@@ -789,6 +789,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		FEED0A00000000000000F007 /* feed-tui in Resources */ = {isa = PBXBuildFile; fileRef = FEED0A00000000000000F006 /* feed-tui */; };
 		FEE200000000000000000013 /* FeedActivitySnapshotGroups.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE100000000000000000013 /* FeedActivitySnapshotGroups.swift */; };
 		FEE200000000000000000012 /* FeedBlockingCallBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE100000000000000000012 /* FeedBlockingCallBridge.swift */; };
+		FEE200000000000000000017 /* FeedBlockingWaiterCompletion.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE100000000000000000017 /* FeedBlockingWaiterCompletion.swift */; };
 		FEE200000000000000000002 /* FeedBlockingWaiterRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE100000000000000000002 /* FeedBlockingWaiterRegistry.swift */; };
 		F17B00000000000000000001 /* FeedButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A00000000000000000001 /* FeedButton.swift */; };
 		F17B00000000000000000030 /* FeedButtonKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A00000000000000000030 /* FeedButtonKind.swift */; };
@@ -2879,6 +2880,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		FEED0A00000000000000F006 /* feed-tui */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; path = "feed-tui"; sourceTree = "<group>"; };
 		FEE100000000000000000013 /* FeedActivitySnapshotGroups.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedActivitySnapshotGroups.swift; sourceTree = "<group>"; };
 		FEE100000000000000000012 /* FeedBlockingCallBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedBlockingCallBridge.swift; sourceTree = "<group>"; };
+		FEE100000000000000000017 /* FeedBlockingWaiterCompletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedBlockingWaiterCompletion.swift; sourceTree = "<group>"; };
 		FEE100000000000000000002 /* FeedBlockingWaiterRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedBlockingWaiterRegistry.swift; sourceTree = "<group>"; };
 		F17A00000000000000000001 /* FeedButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedButton.swift; sourceTree = "<group>"; };
 		F17A00000000000000000030 /* FeedButtonKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedButtonKind.swift; sourceTree = "<group>"; };
@@ -6317,6 +6319,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				FEE100000000000000000005 /* FeedCoordinator+Socket.swift */,
 				FEE100000000000000000006 /* FeedCoordinatorState.swift */,
 				FEE100000000000000000002 /* FeedBlockingWaiterRegistry.swift */,
+				FEE100000000000000000017 /* FeedBlockingWaiterCompletion.swift */,
 				FEE100000000000000000012 /* FeedBlockingCallBridge.swift */,
 				FEE100000000000000000013 /* FeedActivitySnapshotGroups.swift */,
 				FEE100000000000000000014 /* FeedPresentationSnapshot.swift */,
@@ -7259,6 +7262,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DEA7710000000000000007 /* FeatureFlags.swift in Sources */,
 				FEE200000000000000000013 /* FeedActivitySnapshotGroups.swift in Sources */,
 				FEE200000000000000000012 /* FeedBlockingCallBridge.swift in Sources */,
+				FEE200000000000000000017 /* FeedBlockingWaiterCompletion.swift in Sources */,
 				FEE200000000000000000002 /* FeedBlockingWaiterRegistry.swift in Sources */,
 				F17B00000000000000000001 /* FeedButton.swift in Sources */,
 				F17B00000000000000000030 /* FeedButtonKind.swift in Sources */,

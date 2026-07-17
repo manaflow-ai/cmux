@@ -10,12 +10,6 @@ actor FeedBlockingWaiterRegistry {
     private var waiters: [String: FeedPendingWaiter] = [:]
     private var timedOutRequestIDs: Set<String> = []
 
-    enum Completion {
-        case resolved(FeedPendingWaiter, WorkstreamDecision)
-        case timedOut(FeedPendingWaiter)
-        case missing
-    }
-
     func register(requestID: String) -> AsyncStream<WorkstreamDecision>? {
         guard waiters[requestID] == nil else { return nil }
         timedOutRequestIDs.remove(requestID)
@@ -77,7 +71,7 @@ actor FeedBlockingWaiterRegistry {
     /// A decision already accepted by the actor wins; otherwise the waiter is
     /// retained as timed out until its store item finishes expiring, so a late
     /// reply cannot reopen the decision during that main-actor transition.
-    func completeAfterWait(requestID: String) -> Completion {
+    func completeAfterWait(requestID: String) -> FeedBlockingWaiterCompletion {
         guard let waiter = waiters[requestID] else {
             return .missing
         }
