@@ -135,6 +135,61 @@ import Testing
         #expect(await builder.count == 0)
     }
 
+    @Test func freshLaunchFindsDeepProjectWithinEntryBudget() async throws {
+        let fixture = try Self.makeFreshLaunchDirectoryFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+        let service = MobileTaskDirectorySearchService(
+            homeDirectory: fixture.home,
+            configuration: .init(
+                maximumDirectories: 200,
+                maximumDepth: 6,
+                cacheLifetime: 0,
+                maximumFilesystemEntries: 36,
+                indexBuildTimeout: .seconds(60)
+            )
+        )
+
+        let matches = try await service.search(
+            query: "feat-ios-task-composer",
+            seedPaths: [fixture.home.path]
+        )
+
+        #expect(matches == [fixture.project.standardizedFileURL.path])
+    }
+
+    @Test func freshLaunchStrongMatchDoesNotWaitForColdGlobalIndex() async throws {
+        let fixture = try Self.makeFreshLaunchDirectoryFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+        let builder = ReleasableDirectoryIndexBuilder()
+        let service = MobileTaskDirectorySearchService(
+            homeDirectory: fixture.home,
+            configuration: .init(
+                maximumDirectories: 200,
+                maximumDepth: 6,
+                cacheLifetime: 0,
+                maximumFilesystemEntries: 36,
+                indexBuildTimeout: .seconds(1)
+            ),
+            indexBuilder: { _, _ in await builder.run() },
+            deadlineSleep: { _ in await builder.waitForCount(1) }
+        )
+
+        var matches: [String]?
+        var searchError: (any Error)?
+        do {
+            matches = try await service.search(
+                query: "feat-ios-task-composer",
+                seedPaths: [fixture.home.path]
+            )
+        } catch {
+            searchError = error
+        }
+        await builder.release()
+
+        #expect(searchError == nil)
+        #expect(matches == [fixture.project.standardizedFileURL.path])
+    }
+
     @Test func removingAnExternalSeedDoesNotReuseItsCachedPaths() async throws {
         let base = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-directory-roots-\(UUID().uuidString)", isDirectory: true)
@@ -233,6 +288,23 @@ import Testing
             return nil
         }
     }
+
+    private static func makeFreshLaunchDirectoryFixture() throws -> (home: URL, project: URL) {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-fresh-search-\(UUID().uuidString)", isDirectory: true)
+        let project = home.appendingPathComponent(
+            "Dev/Manaflow/cmuxterm-hq/worktrees/feat-ios-task-composer",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        for index in 0..<24 {
+            try FileManager.default.createDirectory(
+                at: home.appendingPathComponent("noise-\(index)", isDirectory: true),
+                withIntermediateDirectories: true
+            )
+        }
+        return (home, project)
+    }
 }
 
 private actor ImmediateDirectoryIndexBuilder {
@@ -241,6 +313,43 @@ private actor ImmediateDirectoryIndexBuilder {
     func run() -> [MobileTaskDirectorySearchService.SearchablePath] {
         count += 1
         return []
+    }
+}
+
+private actor ReleasableDirectoryIndexBuilder {
+    private(set) var count = 0
+    private var released = false
+    private var continuation: CheckedContinuation<[MobileTaskDirectorySearchService.SearchablePath], Never>?
+    private var countWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
+
+    func run() async -> [MobileTaskDirectorySearchService.SearchablePath] {
+        count += 1
+        resumeCountWaiters()
+        if released { return [] }
+        return await withCheckedContinuation { continuation in
+            if released {
+                continuation.resume(returning: [])
+            } else {
+                self.continuation = continuation
+            }
+        }
+    }
+
+    func waitForCount(_ expected: Int) async {
+        if count >= expected { return }
+        await withCheckedContinuation { countWaiters.append((expected, $0)) }
+    }
+
+    func release() {
+        released = true
+        continuation?.resume(returning: [])
+        continuation = nil
+    }
+
+    private func resumeCountWaiters() {
+        let ready = countWaiters.filter { count >= $0.0 }
+        countWaiters.removeAll { count >= $0.0 }
+        for waiter in ready { waiter.1.resume() }
     }
 }
 
