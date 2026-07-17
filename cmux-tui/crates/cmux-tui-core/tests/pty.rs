@@ -1308,6 +1308,7 @@ fn create_empty_workspace_is_visible_and_materialized_in_place() {
             "cmd": "create-workspace",
             "name": "from-gui",
             "key": key,
+            "expected_revision": 0,
         }),
     );
     assert_eq!(created["ok"], true, "create-workspace failed: {created}");
@@ -1325,6 +1326,35 @@ fn create_empty_workspace_is_visible_and_materialized_in_place() {
     assert_eq!(snapshot["data"]["workspaces"][0]["key"], key);
     assert!(snapshot["data"]["workspaces"][0]["screens"].as_array().unwrap().is_empty());
 
+    let stale = socket_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({
+            "id": 21,
+            "cmd": "create-workspace",
+            "name": "stale",
+            "expected_revision": 0,
+        }),
+    );
+    assert_eq!(stale["ok"], false);
+    assert_eq!(stale["error"], "workspace revision conflict: expected 0, current 1");
+
+    let renamed = socket_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({
+            "id": 22,
+            "cmd": "rename-workspace",
+            "key": key,
+            "name": "renamed-from-gui",
+            "expected_revision": 1,
+        }),
+    );
+    assert_eq!(renamed["ok"], true, "rename by key failed: {renamed}");
+    assert_eq!(renamed["data"]["workspace"], workspace);
+    assert_eq!(renamed["data"]["key"], key);
+    assert_eq!(renamed["data"]["workspace_revision"], 2);
+
     let tab = socket_request(
         &mut writer,
         &mut reader,
@@ -1338,13 +1368,25 @@ fn create_empty_workspace_is_visible_and_materialized_in_place() {
     );
     assert_eq!(snapshot["data"]["workspaces"].as_array().unwrap().len(), 1);
     assert_eq!(snapshot["data"]["workspaces"][0]["id"], workspace);
-    assert_eq!(snapshot["data"]["workspace_revision"], 1);
+    assert_eq!(snapshot["data"]["workspaces"][0]["name"], "renamed-from-gui");
+    assert_eq!(snapshot["data"]["workspace_revision"], 2);
     assert_eq!(
         snapshot["data"]["workspaces"][0]["screens"][0]["panes"][0]["tabs"][0]["surface"],
         tab["data"]["surface"]
     );
 
-    mux.close_workspace(workspace);
+    let closed = socket_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({
+            "id": 5,
+            "cmd": "close-workspace",
+            "key": key,
+            "expected_revision": 2,
+        }),
+    );
+    assert_eq!(closed["ok"], true, "close by key failed: {closed}");
+    assert_eq!(closed["data"]["workspace_revision"], 3);
     cmux_tui_core::server::cleanup(&sock_path);
 }
 

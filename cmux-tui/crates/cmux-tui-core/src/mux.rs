@@ -464,6 +464,18 @@ impl Mux {
         ))
     }
 
+    fn require_workspace_revision(state: &State, expected: Option<u64>) -> anyhow::Result<()> {
+        if let Some(expected) = expected
+            && expected != state.workspace_revision
+        {
+            anyhow::bail!(
+                "workspace revision conflict: expected {expected}, current {}",
+                state.workspace_revision
+            );
+        }
+        Ok(())
+    }
+
     pub fn subscribe(&self) -> MuxEventReceiver {
         self.subscribers.subscribe()
     }
@@ -1276,6 +1288,7 @@ impl Mux {
         &self,
         name: Option<String>,
         key: Option<String>,
+        expected_revision: Option<u64>,
     ) -> anyhow::Result<WorkspacePlacement> {
         let key = match key {
             Some(key) if key.trim().is_empty() => anyhow::bail!("workspace key cannot be empty"),
@@ -1286,6 +1299,7 @@ impl Mux {
         let notifications = self.surface_notifications();
         let (placement, delta) = {
             let mut state = self.state.lock().unwrap();
+            Self::require_workspace_revision(&state, expected_revision)?;
             if state.workspaces.iter().any(|workspace| workspace.key == key) {
                 anyhow::bail!("workspace key already exists: {key}");
             }
@@ -2031,85 +2045,103 @@ impl Mux {
 
     /// Close a workspace and every screen/pane/tab in it.
     pub fn close_workspace(&self, target: WorkspaceId) -> bool {
+        self.close_workspace_at_revision(target, None).unwrap_or(false)
+    }
+
+    /// Atomically close one workspace if the caller's registry snapshot is
+    /// still current. Returns the resulting revision when the workspace was
+    /// present and closed.
+    pub fn close_workspace_at_revision(
+        &self,
+        target: WorkspaceId,
+        expected_revision: Option<u64>,
+    ) -> anyhow::Result<bool> {
         let notifications = self.surface_notifications();
-        let (tabs, mut delta) = {
-            let state = self.state.lock().unwrap();
-            let Some(ws) = state.workspaces.iter().find(|ws| ws.id == target) else {
-                return false;
+        let (removed, delta, empty) = {
+            let mut state = self.state.lock().unwrap();
+            Self::require_workspace_revision(&state, expected_revision)?;
+            let Some(index) = state.workspaces.iter().position(|workspace| workspace.id == target)
+            else {
+                return Ok(false);
             };
-            (
-                ws.screens
-                    .iter()
-                    .flat_map(|screen| screen_tabs(&state, screen))
-                    .collect::<Vec<_>>(),
-                close_workspace_delta(&state, &notifications, target)
-                    .expect("live workspace has a close delta"),
-            )
-        };
-        if tabs.is_empty() {
-            let empty = {
-                let mut state = self.state.lock().unwrap();
-                let Some(index) =
-                    state.workspaces.iter().position(|workspace| workspace.id == target)
-                else {
-                    return false;
-                };
-                let active_id =
-                    state.workspaces.get(state.active_workspace).map(|workspace| workspace.id);
-                state.workspaces.remove(index);
-                state.active_workspace = active_id
-                    .and_then(|id| state.workspaces.iter().position(|workspace| workspace.id == id))
-                    .unwrap_or_else(|| state.workspaces.len().saturating_sub(1));
-                state.workspace_revision = state.workspace_revision.saturating_add(1);
-                delta.workspace_revision = Some(state.workspace_revision);
-                state.workspaces.is_empty()
-            };
-            self.emit(MuxEvent::TreeDelta(delta));
-            if empty {
-                self.emit(MuxEvent::Empty);
+            let mut delta = close_workspace_delta(&state, &notifications, target)
+                .expect("live workspace has a close delta");
+            let active_id =
+                state.workspaces.get(state.active_workspace).map(|workspace| workspace.id);
+            let workspace = state.workspaces.remove(index);
+            let mut pane_ids = Vec::new();
+            for screen in &workspace.screens {
+                screen.root.pane_ids(&mut pane_ids);
             }
-            return true;
+            let mut removed = Vec::new();
+            for pane_id in pane_ids {
+                if let Some(pane) = state.panes.remove(&pane_id) {
+                    for surface in pane.tabs {
+                        if let Some(surface) = state.surfaces.remove(&surface) {
+                            removed.push(surface);
+                        }
+                    }
+                }
+            }
+            state.active_workspace = active_id
+                .and_then(|id| state.workspaces.iter().position(|workspace| workspace.id == id))
+                .unwrap_or_else(|| state.workspaces.len().saturating_sub(1));
+            state.workspace_revision = state.workspace_revision.saturating_add(1);
+            delta.workspace_revision = Some(state.workspace_revision);
+            (removed, delta, state.workspaces.is_empty())
+        };
+        for surface in removed {
+            self.purge_surface_side_tables(surface.id);
+            surface.kill();
         }
-        self.close_surfaces(tabs, delta);
-        true
+        self.emit(MuxEvent::TreeDelta(delta));
+        if empty {
+            self.emit(MuxEvent::Empty);
+        }
+        Ok(true)
     }
 
     pub fn rename_workspace(&self, target: WorkspaceId, name: String) -> bool {
+        self.rename_workspace_at_revision(target, name, None).unwrap_or(false)
+    }
+
+    pub fn rename_workspace_at_revision(
+        &self,
+        target: WorkspaceId,
+        name: String,
+        expected_revision: Option<u64>,
+    ) -> anyhow::Result<bool> {
         let notifications = self.surface_notifications();
         let renamed = {
             let mut state = self.state.lock().unwrap();
-            match state.workspaces.iter_mut().find(|ws| ws.id == target) {
-                Some(ws) => {
-                    ws.name = name;
-                    state.workspace_revision = state.workspace_revision.saturating_add(1);
-                    let workspace_revision = state.workspace_revision;
-                    let entity = crate::server::tree_entity_json(
-                        &state,
-                        &notifications,
-                        TreeDeltaKind::WorkspaceRenamed,
-                        target,
-                    )
-                    .expect("renamed workspace is present in tree snapshot");
-                    Some(TreeDelta {
-                        kind: TreeDeltaKind::WorkspaceRenamed,
-                        workspace: target,
-                        screen: None,
-                        pane: None,
-                        surface: None,
-                        index: None,
-                        entity,
-                        workspace_revision: Some(workspace_revision),
-                    })
-                }
-                None => None,
+            Self::require_workspace_revision(&state, expected_revision)?;
+            let Some(index) = state.workspaces.iter().position(|workspace| workspace.id == target)
+            else {
+                return Ok(false);
+            };
+            state.workspaces[index].name = name;
+            state.workspace_revision = state.workspace_revision.saturating_add(1);
+            let workspace_revision = state.workspace_revision;
+            let entity = crate::server::tree_entity_json(
+                &state,
+                &notifications,
+                TreeDeltaKind::WorkspaceRenamed,
+                target,
+            )
+            .expect("renamed workspace is present in tree snapshot");
+            TreeDelta {
+                kind: TreeDeltaKind::WorkspaceRenamed,
+                workspace: target,
+                screen: None,
+                pane: None,
+                surface: None,
+                index: None,
+                entity,
+                workspace_revision: Some(workspace_revision),
             }
         };
-        if let Some(delta) = renamed {
-            self.emit(MuxEvent::TreeDelta(delta));
-            true
-        } else {
-            false
-        }
+        self.emit(MuxEvent::TreeDelta(renamed));
+        Ok(true)
     }
 
     /// Set a pane's user-visible name. An empty name clears it (the pane
@@ -2561,16 +2593,26 @@ impl Mux {
 
     /// Reorder a workspace. The active workspace follows the moved entry.
     pub fn move_workspace(&self, workspace: WorkspaceId, index: usize) -> bool {
+        self.move_workspace_at_revision(workspace, index, None).unwrap_or(false)
+    }
+
+    pub fn move_workspace_at_revision(
+        &self,
+        workspace: WorkspaceId,
+        index: usize,
+        expected_revision: Option<u64>,
+    ) -> anyhow::Result<bool> {
         let notifications = self.surface_notifications();
         let delta = {
             let mut state = self.state.lock().unwrap();
+            Self::require_workspace_revision(&state, expected_revision)?;
             let Some(old_idx) = state.workspaces.iter().position(|ws| ws.id == workspace) else {
-                return false;
+                return Ok(false);
             };
             let new_idx = if index > old_idx { index.saturating_sub(1) } else { index };
             let new_idx = new_idx.min(state.workspaces.len().saturating_sub(1));
             if new_idx == old_idx {
-                return false;
+                return Ok(false);
             }
             let active_id = state.workspaces.get(state.active_workspace).map(|ws| ws.id);
             let ws = state.workspaces.remove(old_idx);
@@ -2600,9 +2642,9 @@ impl Mux {
         };
         if let Some(delta) = delta {
             self.emit(MuxEvent::TreeDelta(delta));
-            true
+            Ok(true)
         } else {
-            false
+            Ok(false)
         }
     }
 
@@ -3911,7 +3953,7 @@ mod tests {
         let events = mux.subscribe();
         let key = "018f6e21-7b70-7e70-8000-000000000001".to_string();
         let first = mux
-            .create_empty_workspace(Some("empty".into()), Some(key.clone()))
+            .create_empty_workspace(Some("empty".into()), Some(key.clone()), None)
             .expect("create empty workspace");
         assert_eq!(first.key, key);
         assert_eq!(first.index, 0);
@@ -3930,12 +3972,16 @@ mod tests {
         assert_eq!(added.entity["key"], key);
 
         assert!(
-            mux.create_empty_workspace(None, Some(first.key.clone()))
+            mux.create_empty_workspace(None, Some(first.key.clone()), None)
                 .expect_err("duplicate stable key must fail")
                 .to_string()
                 .contains("already exists")
         );
-        assert!(mux.close_workspace(first.workspace));
+        let conflict = mux
+            .rename_workspace_at_revision(first.workspace, "stale".into(), Some(0))
+            .expect_err("stale registry mutation must fail");
+        assert_eq!(conflict.to_string(), "workspace revision conflict: expected 0, current 1");
+        assert!(mux.close_workspace_at_revision(first.workspace, Some(1)).unwrap());
         mux.with_state(|state| {
             assert!(state.workspaces.is_empty());
             assert_eq!(state.workspace_revision, 2);
@@ -3951,7 +3997,7 @@ mod tests {
     #[test]
     fn new_tab_materializes_selected_empty_workspace() {
         let mux = test_mux();
-        let placement = mux.create_empty_workspace(Some("gui".into()), None).unwrap();
+        let placement = mux.create_empty_workspace(Some("gui".into()), None, None).unwrap();
         let surface = mux.new_tab(None, None, Some((80, 24))).unwrap();
         mux.with_state(|state| {
             assert_eq!(state.workspaces.len(), 1);

@@ -289,6 +289,9 @@ enum Command {
         /// generates a UUIDv4 key and returns it.
         #[serde(default)]
         key: Option<String>,
+        /// Compare-and-swap guard for the ordered registry.
+        #[serde(default)]
+        expected_revision: Option<u64>,
     },
     /// New screen in a workspace (default: the active one).
     NewScreen {
@@ -345,8 +348,13 @@ enum Command {
         index: usize,
     },
     MoveWorkspace {
-        workspace: WorkspaceId,
+        #[serde(default)]
+        workspace: Option<WorkspaceId>,
+        #[serde(default)]
+        key: Option<String>,
         index: usize,
+        #[serde(default)]
+        expected_revision: Option<u64>,
     },
     SetDefaultColors {
         #[serde(default)]
@@ -366,7 +374,12 @@ enum Command {
         screen: ScreenId,
     },
     CloseWorkspace {
-        workspace: WorkspaceId,
+        #[serde(default)]
+        workspace: Option<WorkspaceId>,
+        #[serde(default)]
+        key: Option<String>,
+        #[serde(default)]
+        expected_revision: Option<u64>,
     },
     RenamePane {
         pane: PaneId,
@@ -384,8 +397,13 @@ enum Command {
         name: String,
     },
     RenameWorkspace {
-        workspace: WorkspaceId,
+        #[serde(default)]
+        workspace: Option<WorkspaceId>,
+        #[serde(default)]
+        key: Option<String>,
         name: String,
+        #[serde(default)]
+        expected_revision: Option<u64>,
     },
     ResizeSurface {
         surface: SurfaceId,
@@ -1833,6 +1851,31 @@ fn get_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> 
     mux.surface(id).ok_or_else(|| anyhow::anyhow!("unknown surface {id}"))
 }
 
+fn resolve_workspace(
+    mux: &Mux,
+    id: Option<WorkspaceId>,
+    key: Option<&str>,
+) -> anyhow::Result<(WorkspaceId, String)> {
+    mux.with_state(|state| {
+        let by_id = id.and_then(|id| state.workspaces.iter().find(|workspace| workspace.id == id));
+        let by_key =
+            key.and_then(|key| state.workspaces.iter().find(|workspace| workspace.key == key));
+        let workspace = match (id, key, by_id, by_key) {
+            (None, None, _, _) => anyhow::bail!("workspace or key is required"),
+            (Some(id), None, Some(workspace), _) if workspace.id == id => workspace,
+            (Some(id), None, None, _) => anyhow::bail!("unknown workspace {id}"),
+            (None, Some(key), _, Some(workspace)) if workspace.key == key => workspace,
+            (None, Some(key), _, None) => anyhow::bail!("unknown workspace key {key}"),
+            (Some(_), Some(_), Some(by_id), Some(by_key)) if by_id.id == by_key.id => by_id,
+            (Some(_), Some(_), _, _) => {
+                anyhow::bail!("workspace id and key do not identify the same workspace")
+            }
+            _ => unreachable!("workspace selector cases are exhaustive"),
+        };
+        Ok((workspace.id, workspace.key.clone()))
+    })
+}
+
 fn sidebar_plugin_status_json(status: SidebarPluginStatus) -> Value {
     let retry_after_ms = status.retry_after.map(|duration| duration.as_millis() as u64);
     json!({
@@ -2601,8 +2644,8 @@ fn handle_command(
             let surface = mux.new_workspace(name, optional_surface_size(cols, rows))?;
             Ok(json!({ "surface": surface.id }))
         }
-        Command::CreateWorkspace { name, key } => {
-            let placement = mux.create_empty_workspace(name, key)?;
+        Command::CreateWorkspace { name, key, expected_revision } => {
+            let placement = mux.create_empty_workspace(name, key, expected_revision)?;
             Ok(json!({
                 "workspace": placement.workspace,
                 "key": placement.key,
@@ -2681,12 +2724,15 @@ fn handle_command(
             mux.move_tab(surface, pane, index);
             Ok(json!({}))
         }
-        Command::MoveWorkspace { workspace, index } => {
-            if !mux.with_state(|state| state.workspaces.iter().any(|ws| ws.id == workspace)) {
+        Command::MoveWorkspace { workspace, key, index, expected_revision } => {
+            let (workspace, key) = resolve_workspace(mux, workspace, key.as_deref())?;
+            if !mux.move_workspace_at_revision(workspace, index, expected_revision)?
+                && !mux.with_state(|state| state.workspaces.iter().any(|ws| ws.id == workspace))
+            {
                 anyhow::bail!("unknown workspace");
             }
-            mux.move_workspace(workspace, index);
-            Ok(json!({}))
+            let revision = mux.with_state(|state| state.workspace_revision);
+            Ok(json!({"workspace": workspace, "key": key, "workspace_revision": revision}))
         }
         Command::SetDefaultColors { fg, bg } => {
             let current = mux.default_colors();
@@ -2722,11 +2768,13 @@ fn handle_command(
             }
             Ok(json!({}))
         }
-        Command::CloseWorkspace { workspace } => {
-            if !mux.close_workspace(workspace) {
+        Command::CloseWorkspace { workspace, key, expected_revision } => {
+            let (workspace, key) = resolve_workspace(mux, workspace, key.as_deref())?;
+            if !mux.close_workspace_at_revision(workspace, expected_revision)? {
                 anyhow::bail!("unknown workspace {workspace}");
             }
-            Ok(json!({}))
+            let revision = mux.with_state(|state| state.workspace_revision);
+            Ok(json!({"workspace": workspace, "key": key, "workspace_revision": revision}))
         }
         Command::RenamePane { pane, name } => {
             if !mux.rename_pane(pane, name) {
@@ -2746,11 +2794,13 @@ fn handle_command(
             }
             Ok(json!({}))
         }
-        Command::RenameWorkspace { workspace, name } => {
-            if !mux.rename_workspace(workspace, name) {
+        Command::RenameWorkspace { workspace, key, name, expected_revision } => {
+            let (workspace, key) = resolve_workspace(mux, workspace, key.as_deref())?;
+            if !mux.rename_workspace_at_revision(workspace, name, expected_revision)? {
                 anyhow::bail!("unknown workspace {workspace}");
             }
-            Ok(json!({}))
+            let revision = mux.with_state(|state| state.workspace_revision);
+            Ok(json!({"workspace": workspace, "key": key, "workspace_revision": revision}))
         }
         Command::ResizeSurface { surface, cols, rows } => {
             let attached =
