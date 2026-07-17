@@ -157,4 +157,58 @@ struct ChatArtifactTextBottomPinStateMachineTests {
         #expect(pin.target == .end)
         #expect(pin.visibleBoundary == finalBoundary)
     }
+
+    @Test("cold-open End re-arms across immediate appends before concluding at the visible end")
+    func coldOpenEndRearmsAcrossImmediateAppends() {
+        var appendPolicy = ChatArtifactTextAppendPolicy()
+        var pin = ChatArtifactTextBottomPinStateMachine()
+        let lineOneBoundary = ChatArtifactTextBottomBoundary(
+            storageEnd: 1_024,
+            contentOffsetY: 0
+        )
+        let streamedBoundary = ChatArtifactTextBottomBoundary(
+            storageEnd: 174_000,
+            contentOffsetY: 168_000
+        )
+
+        #expect(
+            pin.engage(target: .latest, boundary: lineOneBoundary)
+                == .scrollToBottom(boundary: lineOneBoundary, animated: true)
+        )
+        appendPolicy.beginProgrammaticAnimation()
+
+        // Commit 62f57bab4a deliberately applies these chunks immediately.
+        #expect(appendPolicy.enqueue(chunkCount: 3) == 3)
+        #expect(
+            pin.appendsFlushed(at: streamedBoundary)
+                == .scrollToBottom(boundary: streamedBoundary, animated: true)
+        )
+        #expect(pin.phase == .initialAnimation)
+
+        var convergence = ChatArtifactTextJumpConvergence(
+            initialTargetOffset: streamedBoundary.contentOffsetY
+        )
+        #expect(
+            convergence.decision(
+                observedOffset: lineOneBoundary.contentOffsetY,
+                targetOffset: streamedBoundary.contentOffsetY
+            ) == .retarget(offset: streamedBoundary.contentOffsetY)
+        )
+        #expect(pin.phase == .initialAnimation)
+
+        // A settle callback cannot conclude the pin until the requested bottom
+        // boundary is genuinely visible.
+        #expect(
+            pin.initialAnimationSettled(
+                at: streamedBoundary,
+                isBoundaryVisible: false
+            ) == .scrollToBottom(boundary: streamedBoundary, animated: false)
+        )
+        #expect(pin.phase == .initialAnimation)
+        pin.didApplyPin(at: streamedBoundary)
+
+        #expect(appendPolicy.endProgrammaticAnimation() == 0)
+        #expect(pin.phase == .following)
+        #expect(pin.visibleBoundary == streamedBoundary)
+    }
 }
