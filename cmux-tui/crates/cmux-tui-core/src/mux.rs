@@ -593,8 +593,10 @@ impl Mux {
         rows: u16,
     ) -> anyhow::Result<(bool, Option<u64>)> {
         let requested = (cols.max(1), rows.max(1));
+        // Serialize the report and its application. Otherwise an older
+        // effective size can reach the PTY after a newer shared minimum.
+        let mut sizes = self.client_surface_sizes.lock().unwrap();
         let (effective, previous) = {
-            let mut sizes = self.client_surface_sizes.lock().unwrap();
             let viewers = sizes.entry(id).or_default();
             let previous = viewers.insert(client, requested);
             let effective = viewers
@@ -611,11 +613,11 @@ impl Mux {
         }
         match self.resize_surface_with_reservation(id, effective.0, effective.1) {
             Ok(changed) => {
+                drop(sizes);
                 self.record_client_size(effective.0, effective.1);
                 Ok(changed)
             }
             Err(error) => {
-                let mut sizes = self.client_surface_sizes.lock().unwrap();
                 if let Some(viewers) = sizes.get_mut(&id) {
                     if let Some(previous) = previous {
                         viewers.insert(client, previous);
@@ -632,8 +634,9 @@ impl Mux {
     }
 
     pub fn remove_surface_size_client(&self, id: SurfaceId, client: u64) {
+        // Removal participates in the same ordering as size reports.
+        let mut sizes = self.client_surface_sizes.lock().unwrap();
         let effective = {
-            let mut sizes = self.client_surface_sizes.lock().unwrap();
             let Some(viewers) = sizes.get_mut(&id) else { return };
             viewers.remove(&client);
             let effective = viewers
@@ -645,9 +648,17 @@ impl Mux {
             }
             effective
         };
-        if let Some((cols, rows)) = effective
-            && self.resize_surface(id, cols, rows).is_ok()
-        {
+        #[cfg(test)]
+        let before_apply = self.client_resize_before_apply.lock().unwrap().clone();
+        #[cfg(test)]
+        if let Some(hook) = before_apply {
+            hook();
+        }
+        let applied = effective
+            .map(|(cols, rows)| self.resize_surface(id, cols, rows).map(|_| (cols, rows)))
+            .transpose();
+        drop(sizes);
+        if let Ok(Some((cols, rows))) = applied {
             self.record_client_size(cols, rows);
         }
     }
@@ -2818,6 +2829,56 @@ mod tests {
         second.join().unwrap();
 
         assert_eq!(mux.surface(surface_id).unwrap().size(), (80, 40));
+    }
+
+    #[test]
+    fn concurrent_viewer_removal_and_report_settle_at_shared_minimum() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let surface_id = surface.id;
+        mux.resize_surface_for_client(surface_id, 1, 80, 40).unwrap();
+        mux.resize_surface_for_client(surface_id, 2, 120, 50).unwrap();
+
+        let pause_first = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let (reached_tx, reached_rx) = std::sync::mpsc::sync_channel(1);
+        let release = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+        let hook_release = release.clone();
+        mux.set_client_resize_before_apply(Some(Arc::new(move || {
+            if pause_first.swap(false, Ordering::SeqCst) {
+                reached_tx.send(()).unwrap();
+                let (lock, ready) = &*hook_release;
+                let mut released = lock.lock().unwrap();
+                while !*released {
+                    released = ready.wait(released).unwrap();
+                }
+            }
+        })));
+
+        let remove_mux = mux.clone();
+        let remove = std::thread::spawn(move || {
+            remove_mux.remove_surface_size_client(surface_id, 1);
+        });
+        reached_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let report_mux = mux.clone();
+        let (report_done_tx, report_done_rx) = std::sync::mpsc::sync_channel(1);
+        let report = std::thread::spawn(move || {
+            report_mux.resize_surface_for_client(surface_id, 2, 90, 45).unwrap();
+            report_done_tx.send(()).unwrap();
+        });
+        let report_finished_before_release =
+            report_done_rx.recv_timeout(Duration::from_millis(250)).is_ok();
+
+        let (lock, ready) = &*release;
+        *lock.lock().unwrap() = true;
+        ready.notify_all();
+        remove.join().unwrap();
+        if !report_finished_before_release {
+            report_done_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        }
+        report.join().unwrap();
+
+        assert_eq!(mux.surface(surface_id).unwrap().size(), (90, 45));
     }
 
     #[test]
