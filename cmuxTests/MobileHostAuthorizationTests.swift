@@ -443,6 +443,44 @@ struct MobileHostAuthorizationTests {
         let error = MobileHostService.ticketAuthorizationError(ticket: ticket, request: request)
         #expect(error == nil)
     }
+    @Test func testAttachTicketAcceptsAgentLaunchForPairedDevice() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
+        for (method, params) in [
+            ("mobile.workspace.launch_agent", ["prompt": "fix the login bug"]),
+            ("mobile.agent.launch_options", [:]),
+        ] {
+            let request = MobileHostRPCRequest(
+                id: method,
+                method: method,
+                params: params,
+                auth: MobileHostRPCAuth(
+                    attachToken: ticket.authToken,
+                    stackAccessToken: nil
+                )
+            )
+            let error = MobileHostService.ticketAuthorizationError(ticket: ticket, request: request)
+            #expect(error == nil, "\(method) should be allowed like workspace.create")
+        }
+    }
+
+    @Test func testAgentLaunchIntoGroupRejectsWorkspaceScopedTicket() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: nil)
+        let request = MobileHostRPCRequest(
+            id: "agent-launch-group",
+            method: "mobile.workspace.launch_agent",
+            params: [
+                "prompt": "fix the login bug",
+                "group_id": "group-main",
+            ],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+        let error = MobileHostService.ticketAuthorizationError(ticket: ticket, request: request)
+        #expect(error?.code == "forbidden")
+    }
+
     @Test func testWorkspaceMoveRejectsForeignWorkspaceForWorkspaceScopedTicket() throws {
         let error = try workspaceMoveAuthorizationError(
             ticketWorkspaceID: "workspace",

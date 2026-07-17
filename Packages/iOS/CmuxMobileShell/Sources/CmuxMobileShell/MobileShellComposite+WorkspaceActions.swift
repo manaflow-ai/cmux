@@ -403,7 +403,7 @@ extension MobileShellComposite {
         return workspaceMutationTarget(for: anchorWorkspaceID)
     }
 
-    private func workspaceMutationFailure(
+    func workspaceMutationFailure(
         _ error: any Error,
         hostDisplayName: String?
     ) -> MobileWorkspaceMutationFailure {
