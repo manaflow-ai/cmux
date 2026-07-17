@@ -230,6 +230,7 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
     private let revokeError: CmxIrohTrustBrokerClientError?
     private let registrationHook: (@Sendable () async -> Bool)?
     private let subsequentRegistrationHook: (@Sendable () async -> Void)?
+    private let relayIssueHook: (@Sendable () async -> Void)?
     private var subsequentRegistrationErrors: [CmxIrohTrustBrokerClientError]
     private var registrationCount = 0
     private var relayIssueCount = 0
@@ -248,6 +249,7 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
         revokeError: CmxIrohTrustBrokerClientError? = nil,
         registrationHook: (@Sendable () async -> Bool)? = nil,
         subsequentRegistrationHook: (@Sendable () async -> Void)? = nil,
+        relayIssueHook: (@Sendable () async -> Void)? = nil,
         subsequentRegistrationErrors: [CmxIrohTrustBrokerClientError] = []
     ) {
         self.registrationBinding = registrationBinding
@@ -257,6 +259,7 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
         self.revokeError = revokeError
         self.registrationHook = registrationHook
         self.subsequentRegistrationHook = subsequentRegistrationHook
+        self.relayIssueHook = relayIssueHook
         self.subsequentRegistrationErrors = subsequentRegistrationErrors
     }
 
@@ -306,8 +309,11 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
     func issueRelayToken(
         bindingID _: String,
         endpointID _: CmxIrohPeerIdentity
-    ) -> CmxIrohRelayTokenResponse {
+    ) async -> CmxIrohRelayTokenResponse {
         relayIssueCount += 1
+        if let relayIssueHook {
+            await relayIssueHook()
+        }
         return CmxIrohRelayTokenResponse(
             token: "testrelaytoken",
             expiresAt: "2027-07-10T12:00:00.000Z",
