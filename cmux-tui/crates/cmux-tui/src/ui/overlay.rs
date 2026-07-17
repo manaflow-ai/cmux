@@ -113,17 +113,6 @@ pub fn draw_pairing_dialog(app: &mut App, frame: &mut Frame) {
     );
 }
 
-#[cfg(test)]
-mod tests {
-    use super::pairing_copy_for_locale;
-
-    #[test]
-    fn pairing_dialog_has_english_and_japanese_copy() {
-        assert_eq!(pairing_copy_for_locale("en_US.UTF-8").title, "Approve browser?");
-        assert_eq!(pairing_copy_for_locale("ja_JP.UTF-8").title, "ブラウザを承認しますか？");
-    }
-}
-
 /// Centered prompt dialog: bordered box with title, input row, and
 /// clickable shortcut buttons. Writes the dialog, input, and button rects
 /// back into the prompt so mouse handling matches the drawn geometry.
@@ -338,4 +327,15 @@ fn draw_border(buf: &mut Buffer, rect: Rect, style: Style) {
 
 fn label_width(label: &str) -> u16 {
     label.chars().count() as u16
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pairing_copy_for_locale;
+
+    #[test]
+    fn pairing_dialog_has_english_and_japanese_copy() {
+        assert_eq!(pairing_copy_for_locale("en_US.UTF-8").title, "Approve browser?");
+        assert_eq!(pairing_copy_for_locale("ja_JP.UTF-8").title, "ブラウザを承認しますか？");
+    }
 }

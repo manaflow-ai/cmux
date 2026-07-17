@@ -324,6 +324,8 @@ enum BrowserSurfaceAttach {
     Attached(Option<TreeDelta>),
 }
 
+type ClientSurfaceSizes = HashMap<SurfaceId, HashMap<u64, (u16, u16)>>;
+
 /// The multiplexer. Shared by frontends and the control socket server.
 pub struct Mux {
     state: Mutex<State>,
@@ -333,7 +335,7 @@ pub struct Mux {
     next_active_at: AtomicU64,
     surface_options: Mutex<SurfaceOptions>,
     latest_client_size: Mutex<Option<(u16, u16)>>,
-    client_surface_sizes: Mutex<HashMap<SurfaceId, HashMap<u64, (u16, u16)>>>,
+    client_surface_sizes: Mutex<ClientSurfaceSizes>,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     cell_pixels: Mutex<(u16, u16)>,
     default_colors: Mutex<DefaultColors>,
