@@ -7201,9 +7201,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func quickLook(with event: NSEvent) {
         // macOS dictionary "Look Up" (three-finger tap, force-click, or ⌃⌘D)
-        // for the word under the cursor. Mirrors upstream Ghostty's SurfaceView;
-        // cmux already links the libghostty quicklook APIs (used for cmd-click
-        // path resolution), so no ghostty-submodule change is needed.
+        // for the word under the cursor, following upstream Ghostty's SurfaceView
+        // (with cmux's length-bounded ghostty_text_s decoding). cmux already links
+        // the libghostty quicklook APIs (used for cmd-click path resolution), so no
+        // ghostty-submodule change is needed.
         guard let surface = self.surface else { return super.quickLook(with: event) }
 
         // Grab the word under the cursor from the terminal grid.
@@ -7219,16 +7220,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // Use the terminal's primary font for the definition popover when available.
         var attributes: [NSAttributedString.Key: Any] = [:]
         if let fontRaw = ghostty_surface_quicklook_font(surface) {
-            // ghostty_surface_quicklook_font returns a copied CTFont. Swift retains
-            // it when stored in the dictionary, so release the original copy here.
-            let font = Unmanaged<CTFont>.fromOpaque(fontRaw)
-            attributes[.font] = font.takeUnretainedValue()
-            font.release()
+            // ghostty_surface_quicklook_font returns a +1 (Create-rule) CTFont;
+            // takeRetainedValue() transfers that ownership to ARC.
+            attributes[.font] = Unmanaged<CTFont>.fromOpaque(fontRaw).takeRetainedValue()
         }
+
+        // Decode exactly text_len bytes, matching the other ghostty_text_s decode
+        // sites in this file; the buffer is length-counted, not NUL-terminated.
+        let word = String(decoding: Data(bytes: textPtr, count: Int(text.text_len)), as: UTF8.self)
 
         // Ghostty uses a top-left origin; convert to AppKit's bottom-left.
         let point = NSPoint(x: text.tl_px_x, y: frame.size.height - text.tl_px_y)
-        let string = NSAttributedString(string: String(cString: textPtr), attributes: attributes)
+        let string = NSAttributedString(string: word, attributes: attributes)
         showDefinition(for: string, at: point)
     }
 
