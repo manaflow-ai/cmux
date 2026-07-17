@@ -14091,13 +14091,14 @@ class TerminalController {
         let hasViewportReportFields = params["viewport_columns"] != nil
             || params["viewport_rows"] != nil
             || params["viewport_generation"] != nil
+        var expectedViewportGrid: (columns: Int, rows: Int)?
         if hasViewportReportFields {
             guard v2String(params, "client_id") != nil,
                   v2Int(params, "viewport_columns") != nil,
                   v2Int(params, "viewport_rows") != nil else {
                 return .err(code: "invalid_params", message: "Invalid mobile viewport report", data: nil)
             }
-            _ = applyMobileViewportReport(
+            expectedViewportGrid = applyMobileViewportReport(
                 params: params,
                 terminalPanel: terminalPanel,
                 reason: "mobile.terminal.replay"
@@ -14116,6 +14117,25 @@ class TerminalController {
             scrollbackLines: prefetchWindow.before,
             scrollForwardLines: prefetchWindow.after
         )
+        if let expectedViewportGrid {
+            guard let renderGrid else {
+                return mobileViewportNotReadyResult(
+                    surfaceID: surfaceId,
+                    expected: expectedViewportGrid,
+                    captured: nil,
+                    reason: "render_grid_unavailable"
+                )
+            }
+            guard renderGrid.columns == expectedViewportGrid.columns,
+                  renderGrid.rows == expectedViewportGrid.rows else {
+                return mobileViewportNotReadyResult(
+                    surfaceID: surfaceId,
+                    expected: expectedViewportGrid,
+                    captured: (renderGrid.columns, renderGrid.rows),
+                    reason: "render_grid_size_mismatch"
+                )
+            }
+        }
         #if DEBUG
         cmuxDebugLog("mobile.terminal.replay surface=\(surfaceId.uuidString.prefix(8)) renderGrid=\(renderGrid != nil) seq=\(seq) hasState=\(state != nil)")
         #endif
@@ -14159,6 +14179,35 @@ class TerminalController {
             }
         }
         return .ok(payload)
+    }
+
+    private func mobileViewportNotReadyResult(
+        surfaceID: UUID,
+        expected: (columns: Int, rows: Int),
+        captured: (columns: Int, rows: Int)?,
+        reason: String
+    ) -> V2CallResult {
+        var data: [String: Any] = [
+            "surface_id": surfaceID.uuidString,
+            "expected_columns": expected.columns,
+            "expected_rows": expected.rows,
+            "reason": reason,
+        ]
+        if let captured {
+            data["captured_columns"] = captured.columns
+            data["captured_rows"] = captured.rows
+        }
+        #if DEBUG
+        let capturedDescription = captured.map { "\($0.columns)x\($0.rows)" } ?? "nil"
+        cmuxDebugLog(
+            "mobile.terminal.replay VIEWPORT_NOT_READY surface=\(surfaceID.uuidString.prefix(8)) expected=\(expected.columns)x\(expected.rows) captured=\(capturedDescription) reason=\(reason)"
+        )
+        #endif
+        return .err(
+            code: "viewport_not_ready",
+            message: "Terminal viewport is still resizing",
+            data: data
+        )
     }
 
     /// Record (or clear) a paired device's reported terminal grid, recompute
