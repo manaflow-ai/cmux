@@ -90,7 +90,7 @@ public struct SSHConnectionSharingOptions: Sendable {
             }
         }
         let controlMaster = resolver.optionValue(named: "ControlMaster", in: merged)
-        let controlMasterDisabled = Self.isDisabled(controlMaster)
+        let controlMasterDisabled = isDisabled(controlMaster)
         if !controlMasterDisabled,
            let controlPath = resolver.optionValue(named: "ControlPath", in: merged),
            isLegacyRelayScopedControlPath(controlPath) {
@@ -139,7 +139,7 @@ public struct SSHConnectionSharingOptions: Sendable {
         let controlMaster = values["controlmaster"] ?? "false"
         let controlPath = values["controlpath"] ?? "none"
         let controlPersist = values["controlpersist"] ?? "no"
-        let hasCustomValue = !Self.isDisabled(controlMaster)
+        let hasCustomValue = !isDisabled(controlMaster)
             || controlPath.lowercased() != "none"
             || !["no", "false", "off", "0"].contains(controlPersist.lowercased())
         guard hasCustomValue else { return nil }
@@ -158,7 +158,7 @@ public struct SSHConnectionSharingOptions: Sendable {
     /// - Returns: The cmux-owned path, or `nil` for user-managed paths.
     public func cmuxOwnedControlPath(in options: [String]) -> String? {
         let resolver = SSHAgentSocketResolver()
-        guard !Self.isDisabled(resolver.optionValue(named: "ControlMaster", in: options)) else {
+        guard !isDisabled(resolver.optionValue(named: "ControlMaster", in: options)) else {
             return nil
         }
         guard let rawPath = resolver.optionValue(named: "ControlPath", in: options) else {
@@ -234,8 +234,8 @@ public struct SSHConnectionSharingOptions: Sendable {
               !destination.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return nil
         }
-        let sshPrefix = sshArguments.map(Self.shellQuote).joined(separator: " ")
-        let quotedDestination = Self.shellQuote(destination)
+        let sshPrefix = sshArguments.map(shellQuote).joined(separator: " ")
+        let quotedDestination = shellQuote(destination)
         return [
             "\(functionName)() {",
             #"  cmux_ssh_control_path="$(command \#(sshPrefix) -G \#(quotedDestination) 2>/dev/null | awk 'tolower($1) == "controlpath" { $1 = ""; sub(/^[[:space:]]+/, ""); print; exit }')" "#,
@@ -266,14 +266,14 @@ public struct SSHConnectionSharingOptions: Sendable {
         return hash.count == 40 && hash.allSatisfy(\.isHexDigit)
     }
 
-    private static func isDisabled(_ rawValue: String?) -> Bool {
+    private func isDisabled(_ rawValue: String?) -> Bool {
         guard let value = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {
             return false
         }
         return ["no", "false", "off"].contains(value)
     }
 
-    private static func shellQuote(_ value: String) -> String {
+    private func shellQuote(_ value: String) -> String {
         let safePattern = "^[A-Za-z0-9_@%+=:,./-]+$"
         if value.range(of: safePattern, options: .regularExpression) != nil {
             return value
