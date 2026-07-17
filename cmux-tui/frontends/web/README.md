@@ -31,12 +31,13 @@ Start these in two terminals from this directory:
 npm run dev
 ```
 
-Open `http://localhost:5173`, keep the default WebSocket URL, enter `change-me`
-as the token, and connect.
+Open `http://localhost:5173`, keep the default WebSocket URL, and connect. The
+browser and TUI show the same six-digit code. Approve it in the TUI with Enter.
+`--ws-token <token>` remains available as a non-interactive automation bypass.
 
 ## Remote access and one-tap links
 
-When the page is served from a non-localhost host, the WebSocket URL defaults to `wss://<hostname>:8443`. Serve the WebSocket endpoint with TLS on port 8443 next to the app, for example with `tailscale serve --https=8443 <ws-port>`. A link shaped as `?ws=<url>#token=<token>` prefills and consumes the form. The fragment never enters the HTTP request, and both values are stripped from the address bar immediately. The last-used WebSocket URL, never the token, is remembered in `localStorage`.
+When served from a non-localhost host, the WebSocket URL defaults to `wss://<hostname>:8443`. Put TLS in front of the server, for example with `tailscale serve --https=8443 <ws-port>`. `?ws=<url>` is consumed from the address bar and the last URL is remembered in `localStorage`. For automation, `?ws=<url>#token=<token>` supplies a static token in the fragment, which never enters the HTTP request and is removed immediately without being persisted.
 
 ## Screenshot
 
@@ -45,8 +46,8 @@ When the page is served from a non-localhost host, the WebSocket URL defaults to
 
 ## What this demonstrates
 
-- `CmuxClient` and `WebSocketTransport` from `cmux/browser`, including mandatory
-  transport-level token authentication.
+- `CmuxClient` and `WebSocketTransport` from `cmux/browser`, including TUI-approved
+  pairing and an optional static-token bypass.
 - Subscribe-before-snapshot reconciliation for interleaved events and command
   responses.
 - `attachSurface()` replay and byte streaming directly into xterm.js.

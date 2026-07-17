@@ -124,6 +124,9 @@ jobs:
       - name: Validate create-dmg version pinning
         run: ./tests/test_ci_create_dmg_pinned.sh
 
+      - name: Validate app bundle license compliance
+        run: ./tests/test_app_bundle_license_compliance.sh
+
       - name: Validate unit-test SwiftPM retry guard
         run: ./tests/test_ci_unit_test_spm_retry.sh
 
@@ -1157,6 +1160,7 @@ jobs:
           # symbol instead of the GhosttyKit archive.
           PACKAGES=(
             CMUXAuthCore
+            CmuxBrowser
             CmuxCanvasUI
             CmuxCore
             CmuxRemoteDaemon
@@ -1197,7 +1201,7 @@ jobs:
             fi
             echo "::group::swift test $pkgdir"
             case "$pkg" in
-            CmuxAuthRuntime|CmuxIrohTransport)
+            CmuxAgentChat|CmuxAuthRuntime|CmuxIrohTransport)
               ./scripts/ci/run-swift-testing-suites.sh "$pkgdir"
               ;;
             CmuxTerminal|CmuxTerminalCore)
@@ -1215,7 +1219,25 @@ jobs:
               fi
               ;;
             *)
-              swift test --package-path "$pkgdir"
+              # Blacksmith macOS runners intermittently abort a package's
+              # test runner at startup (signal 5/6 immediately after "Build
+              # complete!", zero test output). That is a runner flake, not a
+              # test failure: retry exactly once, and only when no test
+              # failures were reported.
+              test_status=0
+              output="$(swift test --package-path "$pkgdir" 2>&1)" || test_status=$?
+              printf '%s\n' "$output"
+              if [ "$test_status" -ne 0 ] \
+                && printf '%s\n' "$output" | grep -q 'Exited with unexpected signal code' \
+                && ! printf '%s\n' "$output" | grep -Eq 'with [1-9][0-9]* failures?'; then
+                echo "Test runner crashed at startup (runner flake); retrying $pkg once."
+                test_status=0
+                output="$(swift test --package-path "$pkgdir" 2>&1)" || test_status=$?
+                printf '%s\n' "$output"
+              fi
+              if [ "$test_status" -ne 0 ]; then
+                exit "$test_status"
+              fi
               ;;
             esac
             echo "::endgroup::"

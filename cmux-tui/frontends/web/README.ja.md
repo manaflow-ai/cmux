@@ -31,8 +31,9 @@ cd ../../frontends/web && npm ci
 npm run dev
 ```
 
-`http://localhost:5173`を開き、既定のWebSocket URLのまま、トークンに
-`change-me`を入力して接続します。
+`http://localhost:5173`を開き、既定のWebSocket URLのまま接続します。ブラウザと
+TUIに同じ6桁のコードが表示されます。TUIでEnterを押して承認します。
+`--ws-token <token>`は自動化用の非対話バイパスとして引き続き利用できます。
 
 ## スクリーンショット
 
@@ -41,8 +42,8 @@ npm run dev
 
 ## この実装で示すもの
 
-- 必須のトランスポート層トークン認証を含む、`cmux/browser`の`CmuxClient`と
-  `WebSocketTransport`。
+- TUI承認ペアリングと任意の静的トークンバイパスを含む、`cmux/browser`の
+  `CmuxClient`と`WebSocketTransport`。
 - イベントとコマンド応答の混在に対応する、購読開始後のスナップショット取得と
   再調整。
 - `attachSurface()`のリプレイとバイトストリームのxterm.jsへの直接入力。
@@ -58,4 +59,4 @@ npm run dev
 
 ## リモートアクセスとワンタップリンク
 
-localhost 以外のホストから配信されている場合、WebSocket URL は `wss://<hostname>:8443` が既定になります（規約として、アプリの隣でポート 8443 に TLS 付きで WS エンドポイントを公開します。例: `tailscale serve --https=8443 <ws-port>`）。`?ws=<url>#token=<token>` 形式のリンクは接続フォームに自動入力され、ワンタップリンクとして使えます。フラグメントは HTTP リクエストに送信されず、両方の値は読み取り後すぐにアドレスバーから除去されます。最後に使用した WebSocket URL（トークンは除く）は `localStorage` に記憶されます。
+localhost以外のホストから配信する場合、WebSocket URLは`wss://<hostname>:8443`が既定です。`tailscale serve --https=8443 <ws-port>`などでTLSを前段に置いてください。`?ws=<url>`はアドレスバーから消去され、最後のURLは`localStorage`に保存されます。自動化では`?ws=<url>#token=<token>`を使用します。トークンのフラグメントはHTTPリクエストに含まれず、直ちに消去されて保存されません。

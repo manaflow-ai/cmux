@@ -2,14 +2,16 @@ import { useState, type FormEvent } from "react";
 import { t } from "../i18n";
 import type { ConnectionConfig } from "../hooks/useCmuxClient";
 import { initialConnectionConfig, rememberWebSocketUrl } from "../lib/connectionDefaults";
+import type { PairingChallenge } from "cmux/browser";
 
 interface ConnectScreenProps {
   connecting: boolean;
   error: string | null;
+  pairing: PairingChallenge | null;
   onConnect(config: ConnectionConfig): void;
 }
 
-export function ConnectScreen({ connecting, error, onConnect }: ConnectScreenProps) {
+export function ConnectScreen({ connecting, error, pairing, onConnect }: ConnectScreenProps) {
   const [initial] = useState(() => {
     const config = initialConnectionConfig(window.location, window.localStorage);
     // Consume the one-tap socket query and credential fragment once. The token
@@ -31,12 +33,11 @@ export function ConnectScreen({ connecting, error, onConnect }: ConnectScreenPro
     return config;
   });
   const [url, setUrl] = useState(initial.url);
-  const [token, setToken] = useState(initial.token);
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const normalizedUrl = url.trim();
     rememberWebSocketUrl(normalizedUrl, window.localStorage);
-    onConnect({ url: normalizedUrl, token: token.trim() || undefined });
+    onConnect({ url: normalizedUrl, token: initial.token || undefined });
   };
 
   return (
@@ -58,22 +59,17 @@ export function ConnectScreen({ connecting, error, onConnect }: ConnectScreenPro
             enterKeyHint="go"
           />
         </label>
-        <label>
-          <span>{t("token")}</span>
-          <input
-            type="password"
-            value={token}
-            onChange={(event) => setToken(event.target.value)}
-            autoComplete="off"
-            autoCapitalize="off"
-            autoCorrect="off"
-            spellCheck={false}
-            enterKeyHint="go"
-            required
-          />
-        </label>
+        {pairing && (
+          <div className="pairing-code" role="status">
+            <span>{t("pairingPrompt")}</span>
+            <strong>{pairing.code}</strong>
+            <small>{t("pairingExpires", { seconds: pairing.expiresIn })}</small>
+          </div>
+        )}
         {error && <div className="inline-error" role="alert">{error || t("unknownError")}</div>}
-        <button type="submit" disabled={connecting}>{connecting ? t("connecting") : t("connect")}</button>
+        <button type="submit" disabled={connecting || pairing !== null}>
+          {pairing ? t("waitingForApproval") : connecting ? t("connecting") : t("connect")}
+        </button>
       </form>
     </main>
   );

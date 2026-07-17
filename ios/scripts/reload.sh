@@ -20,13 +20,12 @@ the tagged Mac app. Opt out granularly:
 
   --prod-auth    sign this DEV build in against PRODUCTION auth (bakes
                  CMUXAuthEnvironment=production into Info.plist; the presence
-                 worker and API base follow the channel in-app), so it can
-                 pair with a real beta/stable Mac via QR. A plain dev build
-                 uses the development Stack project, whose user ids can never
-                 match a release Mac's QR account binding. Implies
+                 worker and API base follow the channel in-app). This does not
+                 change build compatibility: the DEV iOS app still connects
+                 only to the Mac DEV build with the same tag. Implies
                  --no-sign-in (dogfood auto-login creds are dev-channel);
                  sign in in-app with your real account and use the IN-APP
-                 scanner (the system Camera routes prod QRs to the beta app).
+                 scanner.
 
 Device signing uses the local Xcode account, or App Store Connect API
 credentials from ASC_API_KEY_ID, ASC_API_ISSUER_ID, ASC_API_KEY_PATH, or
@@ -72,7 +71,8 @@ NO_SETUP=0
 # Also honored via CMUX_SWIFT_FRONTEND_WORKAROUND=1.
 SWIFT_FRONTEND_WORKAROUND="${CMUX_SWIFT_FRONTEND_WORKAROUND:-0}"
 # --prod-auth: bake CMUXAuthEnvironment=production so the dev build signs in
-# against the production Stack project and can pair with a release Mac.
+# against the production Stack project. Build compatibility remains exact-tag
+# DEV to DEV.
 PROD_AUTH=0
 
 while [[ $# -gt 0 ]]; do
@@ -189,8 +189,8 @@ if [[ "$SWIFT_FRONTEND_WORKAROUND" == "1" ]]; then
   )
 fi
 
-# --prod-auth: point the build at the production auth channel so it can pair
-# with a real beta/stable Mac (https://github.com/manaflow-ai/cmux/issues/7145).
+# --prod-auth: point the build at the production auth channel for production
+# account, registry, and API testing (https://github.com/manaflow-ai/cmux/issues/7145).
 # The value lands in the CMUXAuthEnvironment Info.plist key (a tapped device
 # build sees no shell env), read by MobileAuthComposition. Presence needs no
 # URL here: PresenceClient.resolvedServiceBaseURL follows the resolved auth
@@ -213,7 +213,7 @@ fi
 # isolated CMUX_PORT; production-auth builds retain the production origin.
 # CMUX_IOS_API_BASE_URL is the explicit escape hatch for a physical device or
 # another reachable development host.
-CMUX_IOS_API_BASE_URL_VALUE="${CMUX_IOS_API_BASE_URL:-}"
+CMUX_IOS_API_BASE_URL_VALUE="${CMUX_IOS_API_BASE_URL:-${CMUX_DEV_API_BASE_URL:-}}"
 if [[ -z "$CMUX_IOS_API_BASE_URL_VALUE" ]]; then
   if [[ "$PROD_AUTH" -eq 1 ]]; then
     CMUX_IOS_API_BASE_URL_VALUE="https://cmux.com"
@@ -605,7 +605,7 @@ EOF
     cat <<EOF
 Auth environment:
   production (--prod-auth): sign in in-app with your real account, then pair
-  with your beta/stable Mac using the in-app QR scanner.
+  with the Mac DEV build that has tag $TAG.
 EOF
   fi
 }
@@ -731,7 +731,7 @@ EOF
     cat <<EOF
 Auth environment:
   production (--prod-auth): sign in in-app with your real account, then pair
-  with your beta/stable Mac using the in-app QR scanner.
+  with the Mac DEV build that has tag $TAG.
 EOF
   fi
 }
