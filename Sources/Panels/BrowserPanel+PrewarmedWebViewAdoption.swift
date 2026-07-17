@@ -3,24 +3,22 @@ import Foundation
 import WebKit
 
 private final class DiffViewerLoadingOverlayView: NSView {
-    private let spinner = NSProgressIndicator()
-    private let label = NSTextField(labelWithString: String(
-        localized: "diffViewer.loadingDiff",
-        defaultValue: "Loading diff..."
-    ))
+    private let skeletonWidths: [CGFloat] = [1.0, 0.72, 0.88, 0.64, 0.94, 0.76]
+    private var skeletonBars: [NSView] = []
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
         layer?.backgroundColor = GhosttyBackgroundTheme.currentColor().cgColor
         autoresizingMask = [.width, .height]
-        spinner.style = .spinning
-        spinner.controlSize = .small
-        spinner.startAnimation(nil)
-        label.font = .systemFont(ofSize: 13)
-        label.textColor = .secondaryLabelColor
-        addSubview(spinner)
-        addSubview(label)
+        skeletonBars = skeletonWidths.map { _ in
+            let bar = NSView()
+            bar.wantsLayer = true
+            bar.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.12).cgColor
+            bar.layer?.cornerRadius = 6
+            addSubview(bar)
+            return bar
+        }
     }
 
     @available(*, unavailable)
@@ -28,19 +26,19 @@ private final class DiffViewerLoadingOverlayView: NSView {
 
     override func layout() {
         super.layout()
-        label.sizeToFit()
-        let spinnerSize = NSSize(width: 16, height: 16)
-        let gap: CGFloat = 10
-        let totalWidth = spinnerSize.width + gap + label.frame.width
-        let origin = NSPoint(
-            x: (bounds.width - totalWidth) / 2,
-            y: (bounds.height - max(spinnerSize.height, label.frame.height)) / 2
-        )
-        spinner.frame = NSRect(origin: origin, size: spinnerSize)
-        label.frame.origin = NSPoint(
-            x: origin.x + spinnerSize.width + gap,
-            y: origin.y + (spinnerSize.height - label.frame.height) / 2
-        )
+        let horizontalInset: CGFloat = 20
+        let topInset: CGFloat = 38
+        let height: CGFloat = 14
+        let gap: CGFloat = 20
+        let availableWidth = max(0, bounds.width - horizontalInset * 2)
+        for (index, bar) in skeletonBars.enumerated() {
+            bar.frame = NSRect(
+                x: horizontalInset,
+                y: bounds.height - topInset - height - CGFloat(index) * (height + gap),
+                width: availableWidth * skeletonWidths[index],
+                height: height
+            )
+        }
     }
 }
 
@@ -93,12 +91,6 @@ extension BrowserPanel {
 @MainActor
 enum DiffViewerLoadingPage {
     static let url: URL = {
-        let title = String(localized: "diffViewer.loadingDiff", defaultValue: "Loading diff...")
-        let escapedTitle = title
-            .replacingOccurrences(of: "&", with: "&amp;")
-            .replacingOccurrences(of: "<", with: "&lt;")
-            .replacingOccurrences(of: ">", with: "&gt;")
-            .replacingOccurrences(of: "\"", with: "&quot;")
         let html = """
         <!doctype html>
         <html>
@@ -109,16 +101,16 @@ enum DiffViewerLoadingPage {
           <style>
             :root { color-scheme: light dark; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
             html, body { width: 100%; height: 100%; margin: 0; background: transparent; }
-            body { display: grid; place-items: center; color: color-mix(in srgb, CanvasText 72%, transparent); }
-            main { display: flex; align-items: center; gap: 10px; font-size: 13px; }
-            i { width: 14px; height: 14px; border: 2px solid color-mix(in srgb, CanvasText 18%, transparent);
-                border-top-color: color-mix(in srgb, CanvasText 68%, transparent); border-radius: 50%;
-                animation: spin .8s linear infinite; }
-            @keyframes spin { to { transform: rotate(360deg); } }
-            @media (prefers-reduced-motion: reduce) { i { animation: none; } }
+            main { margin: 38px 20px; display: grid; gap: 20px; opacity: .12; }
+            i { display: block; height: 14px; border-radius: 6px; background: CanvasText; }
+            i:nth-child(2) { width: 72%; }
+            i:nth-child(3) { width: 88%; }
+            i:nth-child(4) { width: 64%; }
+            i:nth-child(5) { width: 94%; }
+            i:nth-child(6) { width: 76%; }
           </style>
         </head>
-        <body><main><i aria-hidden="true"></i><span>\(escapedTitle)</span></main></body>
+        <body><main aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></main></body>
         </html>
         """
         let encoded = Data(html.utf8).base64EncodedString()

@@ -229,11 +229,9 @@ extension CMUXCLI {
     func writeDiffViewerOpeningHTML(
         to viewerURL: URL,
         title: String,
-        message: String,
         appearance: DiffViewerAppearance
     ) throws {
         let escapedTitle = htmlEscaped(title)
-        let escapedMessage = htmlEscaped(message)
         let html = """
         <!doctype html>
         <html data-cmux-diff-pending="true">
@@ -244,16 +242,16 @@ extension CMUXCLI {
           \(diffViewerPrepaintStyle(appearance: appearance))
           <style>
             body { margin: 0; color: var(--cmux-diff-fg); font: 13px -apple-system, BlinkMacSystemFont, sans-serif; }
-            .loading { display: flex; align-items: center; gap: 10px; margin: 20px 16px; opacity: .72; }
-            .spinner { width: 16px; height: 16px; border: 3px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; }
             .skeleton { margin: 38px 20px; display: grid; gap: 20px; opacity: .12; }
             .skeleton i { display: block; height: 14px; border-radius: 6px; background: currentColor; }
-            .skeleton i:nth-child(2n) { width: 72%; }
-            @keyframes spin { to { transform: rotate(360deg); } }
+            .skeleton i:nth-child(2) { width: 72%; }
+            .skeleton i:nth-child(3) { width: 88%; }
+            .skeleton i:nth-child(4) { width: 64%; }
+            .skeleton i:nth-child(5) { width: 94%; }
+            .skeleton i:nth-child(6) { width: 76%; }
           </style>
         </head>
         <body>
-          <div class="loading"><span class="spinner"></span><span>\(escapedMessage)</span></div>
           <div class="skeleton"><i></i><i></i><i></i><i></i><i></i><i></i></div>
         </body>
         </html>

@@ -3656,6 +3656,10 @@ final class BrowserPanel: Panel, ObservableObject {
             }
             self.scheduleBrowserViewportHostRestoration(reason: "webViewHierarchyChanged")
         }
+        webView.onDiffViewerRendererReadyChanged = { [weak self, weak webView] ready in
+            guard ready, let self, self.webView === webView else { return }
+            self.closeDiffViewerLoadingOverlay()
+        }
         DiffCommentsBridge.associate(panelId: id, workspaceId: workspaceId, with: webView)
         webView.onMouseBackButton = { [weak self] in
             self?.goBack()
@@ -3744,9 +3748,6 @@ final class BrowserPanel: Panel, ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 (webView as? CmuxWebView)?.diffViewerNavigationDidCommit(navigation)
-                if webView.url != DiffViewerLoadingPage.url {
-                    self.closeDiffViewerLoadingOverlay()
-                }
                 self.isMainFrameProvisionalNavigationActive = false
                 self.automationDocumentReadiness.didCommit(instanceID: boundWebViewInstanceID)
                 // An about:blank placeholder leaves the restore-stall detector armed.
