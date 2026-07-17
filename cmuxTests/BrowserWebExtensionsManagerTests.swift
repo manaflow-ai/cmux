@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import ObjectiveC.runtime
 import os
 import Testing
 import WebKit
@@ -850,6 +851,72 @@ struct BrowserWebExtensionsManagerTests {
         for _ in 0..<4 { await Task.yield() }
 
         #expect(updateCount.withLock { $0 } == 1)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func actionWarmsBackgroundContentImmediatelyBeforeInvocation() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        var manifest = Self.minimalManifest
+        manifest["background"] = ["service_worker": "background.js"]
+        manifest["action"] = ["default_title": "Background probe"]
+        let directory = try Self.writeExtension(
+            named: "background-action-probe",
+            in: root,
+            manifest: manifest
+        )
+        try "// no-op".write(
+            to: directory.appendingPathComponent("background.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "// no-op".write(
+            to: directory.appendingPathComponent("content.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let manager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent()
+        )
+        try await manager.approveInstalledCandidate(directory)
+        await manager.loadExtensions()
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        manager.register(
+            panel: panel,
+            ownerID: UUID(),
+            activePanelID: { panel.id },
+            focusPanel: { _ in }
+        )
+        defer { manager.unregister(panelID: panel.id) }
+
+        let selector = NSSelectorFromString("loadBackgroundContentWithCompletionHandler:")
+        let method = try #require(class_getInstanceMethod(WKWebExtensionContext.self, selector))
+        let originalImplementation = method_getImplementation(method)
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        let replacement: @convention(block) (
+            WKWebExtensionContext,
+            @escaping (NSError?) -> Void
+        ) -> Void = { _, completionHandler in
+            loadCount.withLock { $0 += 1 }
+            completionHandler(nil)
+        }
+        let replacementImplementation = imp_implementationWithBlock(replacement)
+        method_setImplementation(method, replacementImplementation)
+        defer {
+            method_setImplementation(method, originalImplementation)
+            imp_removeBlock(replacementImplementation)
+        }
+
+        let context = try #require(manager.loadedContexts.first)
+        #expect(manager.performAction(
+            uniqueIdentifier: context.uniqueIdentifier,
+            in: panel,
+            anchorView: nil
+        ))
+        #expect(loadCount.withLock { $0 } == 1)
     }
 
     @available(macOS 15.4, *)
