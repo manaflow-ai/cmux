@@ -8786,6 +8786,18 @@ mod tests {
     }
 
     #[test]
+    fn builtin_sidebar_focus_survives_plugin_sync() {
+        let mux = Mux::new("builtin-sidebar-focus-sync-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_visible = true;
+        app.sidebar_width = 22;
+        app.sidebar_focused = true;
+
+        assert!(!app.sync_sidebar_plugin(false));
+        assert!(app.sidebar_focused);
+    }
+
+    #[test]
     fn key_typed_during_pending_sidebar_focus_follows_successful_focus() {
         let mux = Mux::new("sidebar-plugin-deferred-key-success-test", SurfaceOptions::default());
         let surface = mux.new_workspace(None, None).unwrap();
