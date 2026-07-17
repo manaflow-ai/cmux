@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import os
 import Testing
 import WebKit
 
@@ -550,6 +551,237 @@ struct BrowserWebExtensionsManagerTests {
             .webExtensionController(alternateManager.controller, openWindowsFor: extensionContext)
             .flatMap { $0.tabs(for: extensionContext) }
             .contains { $0.webView(for: extensionContext) === panel.webView })
+    }
+
+    @available(macOS 15.4, *)
+    @Test func extensionControllersUseTheOwningProfileWebsiteDataStore() throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let firstProfile = try #require(BrowserProfileStore.shared.createProfile(
+            named: "Extension cookies A \(UUID().uuidString.prefix(6))"
+        ))
+        let secondProfile = try #require(BrowserProfileStore.shared.createProfile(
+            named: "Extension cookies B \(UUID().uuidString.prefix(6))"
+        ))
+        defer {
+            _ = BrowserProfileStore.shared.deleteProfile(id: firstProfile.id)
+            _ = BrowserProfileStore.shared.deleteProfile(id: secondProfile.id)
+        }
+        let services = BrowserServices(extensionDirectory: root)
+        let defaultProfileID = BrowserProfileStore.shared.builtInDefaultProfileID
+        let defaultManager = services.webExtensionsManager(for: defaultProfileID)
+        let firstManager = services.webExtensionsManager(for: firstProfile.id)
+        let secondManager = services.webExtensionsManager(for: secondProfile.id)
+        let defaultStore = BrowserProfileStore.shared.websiteDataStore(for: defaultProfileID)
+        let firstStore = BrowserProfileStore.shared.websiteDataStore(for: firstProfile.id)
+        let secondStore = BrowserProfileStore.shared.websiteDataStore(for: secondProfile.id)
+
+        #expect(defaultManager.controller.configuration.defaultWebsiteDataStore === defaultStore)
+        #expect(firstManager.controller.configuration.defaultWebsiteDataStore === firstStore)
+        #expect(secondManager.controller.configuration.defaultWebsiteDataStore === secondStore)
+        #expect(firstManager.controller.configuration.defaultWebsiteDataStore !== secondStore)
+        #expect(secondManager.controller.configuration.defaultWebsiteDataStore !== firstStore)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func nestedPopupKeepsTheProfileContextCapturedByItsParent() throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let alternateProfile = try #require(BrowserProfileStore.shared.createProfile(
+            named: "Popup isolation \(UUID().uuidString.prefix(6))"
+        ))
+        defer { _ = BrowserProfileStore.shared.deleteProfile(id: alternateProfile.id) }
+        let services = BrowserServices(extensionDirectory: root)
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            profileID: BrowserProfileStore.shared.builtInDefaultProfileID,
+            browserServices: services
+        )
+        defer { panel.close() }
+        let defaultManager = try #require(services.webExtensionsManager)
+        let originalStore = panel.webView.configuration.websiteDataStore
+        let parent = BrowserPopupWindowController(
+            configuration: WKWebViewConfiguration(),
+            windowFeatures: WKWindowFeatures(),
+            browserContext: panel.popupBrowserContext,
+            openerPanel: panel
+        )
+        defer { parent.closePopup() }
+
+        #expect(parent.webView.configuration.webExtensionController === defaultManager.controller)
+        #expect(panel.switchToProfile(alternateProfile.id))
+        let alternateManager = services.webExtensionsManager(for: alternateProfile.id)
+        let child = try #require(parent.createNestedPopup(
+            configuration: WKWebViewConfiguration(),
+            windowFeatures: WKWindowFeatures()
+        ))
+
+        #expect(child.configuration.websiteDataStore === originalStore)
+        #expect(child.configuration.webExtensionController === defaultManager.controller)
+        #expect(child.configuration.webExtensionController !== alternateManager.controller)
+
+        let freshPopup = try #require(panel.createFloatingPopup(
+            configuration: WKWebViewConfiguration(),
+            windowFeatures: WKWindowFeatures()
+        ))
+        #expect(freshPopup.configuration.websiteDataStore === panel.webView.configuration.websiteDataStore)
+        #expect(freshPopup.configuration.webExtensionController === alternateManager.controller)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func newerNavigationCancelsDeferredStartupNavigation() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let services = BrowserServices(extensionDirectory: root)
+        let manager = try #require(services.webExtensionsManager)
+        manager.loadTask = Task {}
+        let panel = BrowserPanel(workspaceId: UUID(), browserServices: services)
+        defer { panel.close() }
+        var deferredNavigationCount = 0
+
+        panel.runWhenWebExtensionsLoaded {
+            deferredNavigationCount += 1
+        }
+        panel.navigate(to: try #require(URL(string: "https://example.com/newer")))
+        await manager.loadExtensions()
+        for _ in 0..<4 { await Task.yield() }
+
+        #expect(deferredNavigationCount == 0)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func extensionTabOrderAndIndicesFollowVisibleWorkspaceOrder() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let extensionDirectory = try Self.writeExtension(
+            named: "tab-order",
+            in: root,
+            manifest: Self.minimalManifest
+        )
+        let extensionContext = WKWebExtensionContext(
+            for: try await WKWebExtension(resourceBaseURL: extensionDirectory)
+        )
+        let services = BrowserServices(extensionDirectory: root)
+        let tabManager = TabManager(autoWelcomeIfNeeded: false, browserServices: services)
+        let workspace = try #require(tabManager.selectedWorkspace)
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let first = try #require(workspace.newBrowserSurface(
+            inPane: pane,
+            focus: false,
+            creationPolicy: .restoration
+        ))
+        let managerPage = try #require(workspace.newBrowserSurface(
+            inPane: pane,
+            focus: false,
+            creationPolicy: .restoration
+        ))
+        managerPage.showBrowserExtensionsManager()
+        let second = try #require(workspace.newBrowserSurface(
+            inPane: pane,
+            focus: false,
+            creationPolicy: .restoration
+        ))
+        let secondTabID = try #require(workspace.surfaceIdFromPanelId(second.id))
+        #expect(workspace.bonsplitController.reorderTab(secondTabID, toIndex: 0))
+
+        let manager = try #require(services.webExtensionsManager)
+        let window = try #require(manager
+            .webExtensionController(manager.controller, openWindowsFor: extensionContext)
+            .first { window in
+                window.tabs(for: extensionContext).contains {
+                    $0.webView(for: extensionContext) === first.webView
+                }
+            })
+        let visibleTabs = window.tabs(for: extensionContext)
+        #expect(visibleTabs.map { $0.webView(for: extensionContext) } == [second.webView, first.webView])
+        let secondAdapter = try #require(visibleTabs.first as? BrowserWebExtensionTabAdapter)
+        let firstAdapter = try #require(visibleTabs.last as? BrowserWebExtensionTabAdapter)
+        #expect(secondAdapter.indexInWindow(for: extensionContext) == 0)
+        #expect(firstAdapter.indexInWindow(for: extensionContext) == 1)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func extensionControllerReportsNoFocusedWindowWithoutAKeyCmuxWindow() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directory = try Self.writeExtension(
+            named: "focus-probe",
+            in: root,
+            manifest: Self.minimalManifest
+        )
+        let extensionContext = WKWebExtensionContext(
+            for: try await WKWebExtension(resourceBaseURL: directory)
+        )
+        let manager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent()
+        )
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        manager.register(
+            panel: panel,
+            ownerID: UUID(),
+            activePanelID: { panel.id },
+            focusPanel: { _ in }
+        )
+        defer { manager.unregister(panelID: panel.id) }
+
+        #expect(manager.webExtensionController(
+            manager.controller,
+            focusedWindowFor: extensionContext
+        ) == nil)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func deletingProfileReleasesItsExtensionRuntime() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let profile = try #require(BrowserProfileStore.shared.createProfile(
+            named: "Extension teardown \(UUID().uuidString.prefix(6))"
+        ))
+        let services = BrowserServices(extensionDirectory: root)
+        var manager: BrowserWebExtensionsManager? = services.webExtensionsManager(for: profile.id)
+        weak var weakManager = manager
+        manager = nil
+
+        #expect(BrowserProfileStore.shared.deleteProfile(id: profile.id) != nil)
+        for _ in 0..<8 { await Task.yield() }
+
+        #expect(weakManager == nil)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func repeatedActionMutationsCoalesceIntoOneToolbarUpdate() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        var manifest = Self.minimalManifest
+        manifest["action"] = ["default_title": "Action probe"]
+        let directory = try Self.writeExtension(named: "action-probe", in: root, manifest: manifest)
+        let context = WKWebExtensionContext(
+            for: try await WKWebExtension(resourceBaseURL: directory)
+        )
+        context.uniqueIdentifier = "cmux-action-probe"
+        let action = try #require(context.action(for: nil))
+        let manager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent()
+        )
+        let updateCount = OSAllocatedUnfairLock(initialState: 0)
+        let observer = NotificationCenter.default.addObserver(
+            forName: .browserWebExtensionActionDidChange,
+            object: context.uniqueIdentifier,
+            queue: nil
+        ) { _ in
+            updateCount.withLock { $0 += 1 }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        manager.webExtensionController(manager.controller, didUpdate: action, forExtensionContext: context)
+        manager.webExtensionController(manager.controller, didUpdate: action, forExtensionContext: context)
+        manager.webExtensionController(manager.controller, didUpdate: action, forExtensionContext: context)
+        for _ in 0..<4 { await Task.yield() }
+
+        #expect(updateCount.withLock { $0 } == 1)
     }
 
     @available(macOS 15.4, *)
