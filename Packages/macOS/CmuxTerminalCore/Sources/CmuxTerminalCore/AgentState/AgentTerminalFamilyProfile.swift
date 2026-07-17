@@ -4,6 +4,8 @@ public struct AgentTerminalFamilyProfile: Sendable, Equatable {
     public let id: String
     /// Existing cmux lifecycle/status key used by sidebar integration.
     public let statusKey: String
+    /// Canonical hook/session provider identifier used by `cmux agents`.
+    public let sessionProviderID: String
     /// Human-readable family name for diagnostics.
     public let displayName: String
     /// Whether a complete official lifecycle integration may own semantic state.
@@ -32,6 +34,7 @@ public struct AgentTerminalFamilyProfile: Sendable, Equatable {
     public init(
         id: String,
         statusKey: String,
+        sessionProviderID: String? = nil,
         displayName: String,
         lifecycleAuthoritative: Bool = false,
         executableBasenames: Set<String>,
@@ -45,6 +48,7 @@ public struct AgentTerminalFamilyProfile: Sendable, Equatable {
     ) {
         self.id = id
         self.statusKey = statusKey
+        self.sessionProviderID = sessionProviderID ?? statusKey
         self.displayName = displayName
         self.lifecycleAuthoritative = lifecycleAuthoritative
         self.executableBasenames = executableBasenames

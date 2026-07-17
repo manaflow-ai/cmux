@@ -561,8 +561,14 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         // Dropping by id only clears the registry/replay state; releasing
         // `teeLease` on each exit path frees the userdata independently.
         let teeSurfaceID = id
+        let teeSurfaceGeneration = runtimeSurfaceGeneration
         let teeBinding = byteTee
-        Task { @MainActor in teeBinding.dropSurface(surfaceID: teeSurfaceID) }
+        Task { @MainActor in
+            teeBinding.dropSurface(
+                surfaceID: teeSurfaceID,
+                surfaceGeneration: teeSurfaceGeneration
+            )
+        }
 
         // Nil out the surface pointer so any in-flight closures (e.g. geometry
         // reconcile dispatched via DispatchQueue.main.async) that read self.surface

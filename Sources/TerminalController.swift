@@ -1268,6 +1268,8 @@ class TerminalController {
             return v2Ok(id: request.id, result: ["pong": true])
         case "system.capabilities":
             return v2Ok(id: request.id, result: v2CapabilitiesWithBrowserDesignMode())
+        case "agents.observations":
+            return v2Ok(id: request.id, result: v2AgentObservations())
         case "system.top":
             return v2Result(id: request.id, v2SystemTop(params: request.params))
         case "system.memory":
@@ -2307,6 +2309,7 @@ class TerminalController {
             "system.capabilities",
             "system.identify",
             "system.tree",
+            "agents.observations",
             "sidebar.custom.open",
             "system.top",
             "system.memory",

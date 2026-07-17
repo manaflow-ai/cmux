@@ -7,11 +7,12 @@ final class FakeTerminalByteTee: TerminalByteTeeBinding {
     func installTee(
         on surface: ghostty_surface_t,
         workspaceID: UUID,
-        surfaceID: UUID
+        surfaceID: UUID,
+        surfaceGeneration: UInt64
     ) -> any TerminalByteTeeLease {
         FakeTerminalByteTeeLease()
     }
 
     @MainActor
-    func dropSurface(surfaceID: UUID) {}
+    func dropSurface(surfaceID: UUID, surfaceGeneration: UInt64) {}
 }

@@ -12,23 +12,11 @@ public actor AgentTerminalStateDetectionScheduler {
     private var tasks: [UUID: Task<Void, Never>] = [:]
     private var lastEvaluatedRevision: [UUID: UInt64] = [:]
     private var lastPublished: [UUID: AgentTerminalStateClassification] = [:]
-    private var observers: [UUID: AsyncStream<AgentTerminalDetectionUpdate>.Continuation] = [:]
 
     /// Creates a scheduler with an injected clock for deterministic timing tests.
     public init(clock: AgentTerminalDetectionClock, configuration: AgentTerminalDetectionConfiguration = .init()) {
         self.clock = clock
         self.configuration = configuration
-    }
-
-    /// Returns a buffering-newest stream of effective state changes.
-    public func updates() -> AsyncStream<AgentTerminalDetectionUpdate> {
-        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
-            let observerID = UUID()
-            observers[observerID] = continuation
-            continuation.onTermination = { [weak self] _ in
-                Task { await self?.removeObserver(observerID) }
-            }
-        }
     }
 
     /// Starts or replaces detection for one surface.
@@ -37,14 +25,21 @@ public actor AgentTerminalStateDetectionScheduler {
     ///   - surfaceID: Stable surface identifier.
     ///   - signal: Synchronous dirty signal installed in the PTY tee.
     ///   - evaluate: Deferred snapshot/classification operation for a requested revision.
+    ///   - deliver: Per-surface delivery that cannot overwrite another surface's update.
     public func start(
         surfaceID: UUID,
         signal: AgentTerminalDirtySignal,
-        evaluate: @escaping @Sendable (_ revision: UInt64) async -> AgentTerminalStateClassification?
+        evaluate: @escaping @Sendable (_ revision: UInt64) async -> AgentTerminalStateClassification?,
+        deliver: @escaping @Sendable (AgentTerminalDetectionUpdate) async -> Void
     ) {
         stop(surfaceID: surfaceID)
         tasks[surfaceID] = Task { [weak self] in
-            await self?.consume(surfaceID: surfaceID, signal: signal, evaluate: evaluate)
+            await self?.consume(
+                surfaceID: surfaceID,
+                signal: signal,
+                evaluate: evaluate,
+                deliver: deliver
+            )
         }
     }
 
@@ -66,7 +61,8 @@ public actor AgentTerminalStateDetectionScheduler {
     private func consume(
         surfaceID: UUID,
         signal: AgentTerminalDirtySignal,
-        evaluate: @escaping @Sendable (UInt64) async -> AgentTerminalStateClassification?
+        evaluate: @escaping @Sendable (UInt64) async -> AgentTerminalStateClassification?,
+        deliver: @escaping @Sendable (AgentTerminalDetectionUpdate) async -> Void
     ) async {
         for await receivedRevision in signal.revisions {
             guard !Task.isCancelled else { return }
@@ -109,23 +105,11 @@ public actor AgentTerminalStateDetectionScheduler {
             lastEvaluatedRevision[surfaceID] = revision
             guard lastPublished[surfaceID] != classification else { continue }
             lastPublished[surfaceID] = classification
-            publish(AgentTerminalDetectionUpdate(
+            await deliver(AgentTerminalDetectionUpdate(
                 surfaceID: surfaceID,
                 revision: revision,
                 classification: classification
             ))
         }
-    }
-
-    private func publish(_ update: AgentTerminalDetectionUpdate) {
-        var terminated: [UUID] = []
-        for (id, observer) in observers {
-            if case .terminated = observer.yield(update) { terminated.append(id) }
-        }
-        for id in terminated { observers[id] = nil }
-    }
-
-    private func removeObserver(_ id: UUID) {
-        observers[id] = nil
     }
 }

@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 import Testing
 
@@ -10,6 +11,39 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct AgentTerminalStateRuntimeLifecycleTests {
+    @Test
+    func observationCacheCopiesLatestMetadataWithoutMainActorWork() async throws {
+        let cache = AgentTerminalObservationCache()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let observation = CmuxAgentTerminalObservation(
+            runtimeID: "runtime",
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            surfaceGeneration: 3,
+            revision: 9,
+            familyID: "codex",
+            sessionProviderID: "codex",
+            lifecycleAuthoritative: true,
+            state: .working,
+            pid: 42,
+            processStartSeconds: 100,
+            processStartMicroseconds: 200,
+            cwd: "/tmp/project",
+            publishedAt: 300
+        )
+
+        await Task.detached {
+            cache.replace(surfaceID: surfaceID, with: observation)
+        }.value
+        #expect(cache.snapshot() == [observation])
+
+        await Task.detached {
+            cache.replace(surfaceID: surfaceID, with: nil)
+        }.value
+        #expect(cache.snapshot().isEmpty)
+    }
+
     @Test
     func reinstallWaitsForPriorTeardownAndRepeatedDropIsIdempotent() async {
         let sequencer = AgentTerminalSurfaceTaskSequencer()

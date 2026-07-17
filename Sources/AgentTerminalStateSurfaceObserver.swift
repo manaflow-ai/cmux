@@ -7,6 +7,7 @@ import Foundation
 final class AgentTerminalStateSurfaceObserver {
     let workspaceID: UUID
     let surfaceID: UUID
+    let expectedRuntimeGeneration: UInt64
     private let inspector: AgentTerminalProcessInspector
     private let classifier: AgentTerminalStateClassifier
     private var previousReliableState: AgentTerminalSemanticState?
@@ -17,20 +18,23 @@ final class AgentTerminalStateSurfaceObserver {
     init(
         workspaceID: UUID,
         surfaceID: UUID,
+        expectedRuntimeGeneration: UInt64,
         inspector: AgentTerminalProcessInspector = .init(),
         classifier: AgentTerminalStateClassifier = .init()
     ) {
         self.workspaceID = workspaceID
         self.surfaceID = surfaceID
+        self.expectedRuntimeGeneration = expectedRuntimeGeneration
         self.inspector = inspector
         self.classifier = classifier
     }
 
     func capture() async -> AgentTerminalScreenSnapshot? {
         guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID),
+              surface.runtimeSurfaceGeneration == expectedRuntimeGeneration,
               let rawPID = surface.foregroundProcessID() else { return nil }
         let pid = Int32(rawPID)
-        let runtimeGeneration = surface.runtimeSurfaceGeneration
+        let runtimeGeneration = expectedRuntimeGeneration
         guard let identity = await inspector.identity(pid: pid, runtimeGeneration: runtimeGeneration) else { return nil }
         let familyID: String?
         if cachedProcessIdentity == identity {

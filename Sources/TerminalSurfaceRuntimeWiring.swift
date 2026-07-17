@@ -101,7 +101,8 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
     func installTee(
         on surface: ghostty_surface_t,
         workspaceID: UUID,
-        surfaceID: UUID
+        surfaceID: UUID,
+        surfaceGeneration: UInt64
     ) -> any TerminalByteTeeLease {
         let agentStateSignal = AgentTerminalDirtySignal()
         let teeContext = Unmanaged.passRetained(TerminalOutputTeeContext(
@@ -118,15 +119,16 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
         agentStateRuntime.install(
             workspaceID: workspaceID,
             surfaceID: surfaceID,
+            expectedRuntimeGeneration: surfaceGeneration,
             signal: agentStateSignal
         )
         return Lease(context: teeContext)
     }
 
     @MainActor
-    func dropSurface(surfaceID: UUID) {
+    func dropSurface(surfaceID: UUID, surfaceGeneration: UInt64) {
         MobileTerminalByteTee.shared.dropSurface(surfaceID: surfaceID)
-        agentStateRuntime.drop(surfaceID: surfaceID)
+        agentStateRuntime.drop(surfaceID: surfaceID, surfaceGeneration: surfaceGeneration)
     }
 }
 

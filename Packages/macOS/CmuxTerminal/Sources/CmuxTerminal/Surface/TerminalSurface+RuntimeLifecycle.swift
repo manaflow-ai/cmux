@@ -237,7 +237,7 @@ extension TerminalSurface {
         self.manualIOContext = nil
         let teeLease = mobileByteTeeLease
         mobileByteTeeLease = nil
-        byteTee.dropSurface(surfaceID: id)
+        byteTee.dropSurface(surfaceID: id, surfaceGeneration: runtimeSurfaceGeneration)
 
         let surfaceToFree = surface
         if let surfaceToFree {
@@ -306,7 +306,7 @@ extension TerminalSurface {
         self.manualIOContext = nil
         let teeLease = mobileByteTeeLease
         mobileByteTeeLease = nil
-        byteTee.dropSurface(surfaceID: id)
+        byteTee.dropSurface(surfaceID: id, surfaceGeneration: runtimeSurfaceGeneration)
 
         let surfaceToFree = surface
         if let surfaceToFree {
@@ -564,7 +564,12 @@ extension TerminalSurface {
         // grid parity by construction. The lease is released alongside
         // `surfaceCallbackContext` when the surface tears down.
         mobileByteTeeLease?.release()
-        mobileByteTeeLease = byteTee.installTee(on: createdSurface, workspaceID: tabId, surfaceID: id)
+        mobileByteTeeLease = byteTee.installTee(
+            on: createdSurface,
+            workspaceID: tabId,
+            surfaceID: id,
+            surfaceGeneration: runtimeSurfaceGeneration
+        )
         if runtimeInitialInput != nil {
             nextRuntimeInitialInput = nil
         }

@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 extension CMUXCLI {
@@ -5,7 +6,8 @@ extension CMUXCLI {
         commandArgs: [String],
         jsonOutput: Bool,
         processEnv: [String: String],
-        fileManager: FileManager
+        fileManager: FileManager,
+        terminalObservations: [CmuxAgentTerminalObservation]
     ) throws {
         let (agentFilter, remainder0) = parseOption(commandArgs, name: "--agent")
         let (sessionFilter, remainder1) = parseOption(remainder0, name: "--session")
@@ -103,6 +105,7 @@ extension CMUXCLI {
         )
         var nodes: [AgentSessionGraphNode] = []
         var edges: [AgentSessionGraphEdge] = []
+        var activeSessionBySurface: [String: String] = [:]
         for specification in selectedSpecifications {
             let url = URL(fileURLWithPath: stateDirectory, isDirectory: true)
                 .appendingPathComponent("\(specification.suffix)-hook-sessions.json", isDirectory: false)
@@ -141,21 +144,25 @@ extension CMUXCLI {
                     ) else { continue }
                     let projection = AgentSessionStateProjection(record: record, run: run)
                     guard includesEndedRecords || queryScope.includes(projection: projection) else { continue }
-                    if let normalizedState, projection.effective.rawValue != normalizedState { continue }
-                    if let normalizedActivity, projection.activity.state.rawValue != normalizedActivity { continue }
-                    if let normalizedWorkKind,
-                       !projection.workloads.contains(where: {
-                           $0.kind.rawValue == normalizedWorkKind && $0.phase.isActive
-                       }) { continue }
+                    let runtime = run.cmuxRuntime ?? record.cmuxRuntime
+                    if store.activeSessionsBySurface[record.surfaceId]?.sessionId == record.sessionId,
+                       let runtimeID = runtime?.id {
+                        activeSessionBySurface[AgentTerminalObservationJoiner.surfaceKey(
+                            provider: specification.name,
+                            runtimeID: runtimeID,
+                            surfaceID: record.surfaceId
+                        )] = record.sessionId
+                    }
                     let node = AgentSessionGraphNode(
                         provider: specification.name,
                         sessionId: record.sessionId,
                         runId: run.runId,
                         pid: run.pid,
                         processStartedAt: run.processStartedAt,
-                        cmuxRuntime: run.cmuxRuntime ?? record.cmuxRuntime,
+                        cmuxRuntime: runtime,
                         workspaceId: record.workspaceId,
                         surfaceId: record.surfaceId,
+                        cwd: record.cwd,
                         processState: projection.process,
                         sessionState: projection.session,
                         foregroundState: projection.foreground,
@@ -183,8 +190,42 @@ extension CMUXCLI {
             }
         }
 
+        let matchingObservations = terminalObservations.filter { observation in
+            if let normalizedAgent,
+               observation.sessionProviderID.lowercased() != normalizedAgent,
+               observation.familyID.lowercased() != normalizedAgent { return false }
+            if let normalizedWorkspace,
+               observation.workspaceID.uuidString.lowercased() != normalizedWorkspace { return false }
+            if let normalizedSurface,
+               observation.surfaceID.uuidString.lowercased() != normalizedSurface { return false }
+            switch queryScope {
+            case .history, .legacyUnscoped:
+                return true
+            case let .currentRuntime(runtimeID):
+                return observation.runtimeID == runtimeID
+            }
+        }
+        nodes = AgentTerminalObservationJoiner().merge(
+            nodes: nodes,
+            observations: matchingObservations,
+            activeSessionBySurface: activeSessionBySurface
+        )
+        nodes.removeAll { node in
+            if let normalizedSession, node.sessionId?.lowercased() != normalizedSession { return true }
+            if let normalizedState, node.effectiveState.rawValue != normalizedState { return true }
+            if let normalizedActivity, node.activity.state.rawValue != normalizedActivity { return true }
+            if let normalizedWorkKind,
+               !node.workloads.contains(where: {
+                   $0.kind.rawValue == normalizedWorkKind && $0.phase.isActive
+               }) { return true }
+            return false
+        }
+
         let edgeResolver = AgentSessionGraphEdgeResolver(nodes: nodes)
-        edges.removeAll { edgeResolver.parentNodeId(for: $0) == nil }
+        let visibleNodeIDs = Set(nodes.map(\.nodeId))
+        edges.removeAll {
+            !visibleNodeIDs.contains($0.toNodeId) || edgeResolver.parentNodeId(for: $0) == nil
+        }
         AgentSubtreeActivityProjector().project(nodes: &nodes, edges: edges)
 
         nodes.sort { lhs, rhs in
@@ -246,7 +287,10 @@ extension CMUXCLI {
             let authority = node.restoreAuthority ? " restore-owner" : " child"
             let modes = node.activity.modes.map(\.rawValue).joined(separator: ",")
             let activity = modes.isEmpty ? "" : " [\(modes)]"
-            lines.append("\(prefix)\(node.provider) \(node.sessionId) \(node.effectiveState.rawValue.uppercased())\(activity)\(authority) \(node.surfaceId)")
+            let identity = node.sessionId ?? "pid \(node.pid.map(String.init) ?? "unknown")"
+            let location = "workspace:\(node.workspaceId) surface:\(node.surfaceId)"
+            let workingDirectory = node.cwd.map { " cwd:\($0)" } ?? ""
+            lines.append("\(prefix)\(node.provider) \(identity) \(node.effectiveState.rawValue.uppercased())\(activity)\(authority) \(location)\(workingDirectory)")
             let children = (childrenByRunId[node.nodeId] ?? []).compactMap { nodeById[$0.toNodeId] }
             for (index, child) in children.enumerated() {
                 append(child, prefix: prefix + (index == children.count - 1 ? "└── " : "├── "), depth: depth + 1)

@@ -1,15 +1,18 @@
+import CmuxFoundation
 import Foundation
 
 /// A sanitized CLI snapshot of one agent process generation.
 struct AgentSessionGraphNode: Codable, Sendable, Equatable {
     var provider: String
-    var sessionId: String
+    var sessionId: String?
     var runId: String
+    var identitySource: String
     var pid: Int?
     var processStartedAt: TimeInterval?
     var cmuxRuntime: AgentCmuxRuntimeIdentity?
     var workspaceId: String
     var surfaceId: String
+    var cwd: String?
     var processState: AgentProcessState
     var sessionState: AgentSessionLifecycleState
     var foregroundState: AgentForegroundState
@@ -22,24 +25,32 @@ struct AgentSessionGraphNode: Codable, Sendable, Equatable {
     var startedAt: TimeInterval
     var updatedAt: TimeInterval
     var endedAt: TimeInterval?
+    var terminalObservation: CmuxAgentTerminalObservation?
+    var terminalStateApplied: Bool
 
     /// A process generation can host more than one logical session and some
     /// providers emit hooks from the same launcher process. Graph identity must
     /// therefore include provider and session instead of treating `runId` as a
     /// globally unique node key.
     var nodeId: String {
-        "\(provider)\u{1F}\(sessionId)\u{1F}\(runId)"
+        if let sessionId {
+            return "\(provider)\u{1F}\(sessionId)\u{1F}\(runId)"
+        }
+        let runtime = cmuxRuntime?.id ?? terminalObservation?.runtimeID ?? "unknown"
+        return "terminal\u{1F}\(runtime)\u{1F}\(surfaceId)\u{1F}\(runId)"
     }
 
     init(
         provider: String,
-        sessionId: String,
+        sessionId: String?,
         runId: String,
+        identitySource: String = "hook_session",
         pid: Int?,
         processStartedAt: TimeInterval?,
         cmuxRuntime: AgentCmuxRuntimeIdentity?,
         workspaceId: String,
         surfaceId: String,
+        cwd: String? = nil,
         processState: AgentProcessState,
         sessionState: AgentSessionLifecycleState,
         foregroundState: AgentForegroundState,
@@ -51,16 +62,20 @@ struct AgentSessionGraphNode: Codable, Sendable, Equatable {
         restoreAuthority: Bool,
         startedAt: TimeInterval,
         updatedAt: TimeInterval,
-        endedAt: TimeInterval?
+        endedAt: TimeInterval?,
+        terminalObservation: CmuxAgentTerminalObservation? = nil,
+        terminalStateApplied: Bool = false
     ) {
         self.provider = provider
         self.sessionId = sessionId
         self.runId = runId
+        self.identitySource = identitySource
         self.pid = pid
         self.processStartedAt = processStartedAt
         self.cmuxRuntime = cmuxRuntime
         self.workspaceId = workspaceId
         self.surfaceId = surfaceId
+        self.cwd = cwd
         self.processState = processState
         self.sessionState = sessionState
         self.foregroundState = foregroundState
@@ -73,19 +88,23 @@ struct AgentSessionGraphNode: Codable, Sendable, Equatable {
         self.startedAt = startedAt
         self.updatedAt = updatedAt
         self.endedAt = endedAt
+        self.terminalObservation = terminalObservation
+        self.terminalStateApplied = terminalStateApplied
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(nodeId, forKey: .nodeId)
         try container.encode(provider, forKey: .provider)
-        try container.encode(sessionId, forKey: .sessionId)
+        try container.encodeIfPresent(sessionId, forKey: .sessionId)
         try container.encode(runId, forKey: .runId)
+        try container.encode(identitySource, forKey: .identitySource)
         try container.encodeIfPresent(pid, forKey: .pid)
         try container.encodeIfPresent(processStartedAt, forKey: .processStartedAt)
         try container.encodeIfPresent(cmuxRuntime, forKey: .cmuxRuntime)
         try container.encode(workspaceId, forKey: .workspaceId)
         try container.encode(surfaceId, forKey: .surfaceId)
+        try container.encodeIfPresent(cwd, forKey: .cwd)
         try container.encode(processState, forKey: .processState)
         try container.encode(sessionState, forKey: .sessionState)
         try container.encode(foregroundState, forKey: .foregroundState)
@@ -98,6 +117,8 @@ struct AgentSessionGraphNode: Codable, Sendable, Equatable {
         try container.encode(startedAt, forKey: .startedAt)
         try container.encode(updatedAt, forKey: .updatedAt)
         try container.encodeIfPresent(endedAt, forKey: .endedAt)
+        try container.encodeIfPresent(terminalObservation, forKey: .terminalObservation)
+        try container.encode(terminalStateApplied ? "terminal" : "lifecycle", forKey: .stateSource)
     }
 
     init(from decoder: Decoder) throws {
@@ -106,13 +127,15 @@ struct AgentSessionGraphNode: Codable, Sendable, Equatable {
         // fields so older persisted payloads without node_id remain compatible.
         self.init(
             provider: try container.decode(String.self, forKey: .provider),
-            sessionId: try container.decode(String.self, forKey: .sessionId),
+            sessionId: try container.decodeIfPresent(String.self, forKey: .sessionId),
             runId: try container.decode(String.self, forKey: .runId),
+            identitySource: try container.decodeIfPresent(String.self, forKey: .identitySource) ?? "hook_session",
             pid: try container.decodeIfPresent(Int.self, forKey: .pid),
             processStartedAt: try container.decodeIfPresent(TimeInterval.self, forKey: .processStartedAt),
             cmuxRuntime: try container.decodeIfPresent(AgentCmuxRuntimeIdentity.self, forKey: .cmuxRuntime),
             workspaceId: try container.decode(String.self, forKey: .workspaceId),
             surfaceId: try container.decode(String.self, forKey: .surfaceId),
+            cwd: try container.decodeIfPresent(String.self, forKey: .cwd),
             processState: try container.decode(AgentProcessState.self, forKey: .processState),
             sessionState: try container.decode(AgentSessionLifecycleState.self, forKey: .sessionState),
             foregroundState: try container.decode(AgentForegroundState.self, forKey: .foregroundState),
@@ -127,7 +150,12 @@ struct AgentSessionGraphNode: Codable, Sendable, Equatable {
             restoreAuthority: try container.decode(Bool.self, forKey: .restoreAuthority),
             startedAt: try container.decode(TimeInterval.self, forKey: .startedAt),
             updatedAt: try container.decode(TimeInterval.self, forKey: .updatedAt),
-            endedAt: try container.decodeIfPresent(TimeInterval.self, forKey: .endedAt)
+            endedAt: try container.decodeIfPresent(TimeInterval.self, forKey: .endedAt),
+            terminalObservation: try container.decodeIfPresent(
+                CmuxAgentTerminalObservation.self,
+                forKey: .terminalObservation
+            ),
+            terminalStateApplied: (try container.decodeIfPresent(String.self, forKey: .stateSource)) == "terminal"
         )
     }
 
@@ -136,11 +164,13 @@ struct AgentSessionGraphNode: Codable, Sendable, Equatable {
         case provider
         case sessionId = "session_id"
         case runId = "run_id"
+        case identitySource = "identity_source"
         case pid
         case processStartedAt = "process_started_at"
         case cmuxRuntime = "cmux_runtime"
         case workspaceId = "workspace_id"
         case surfaceId = "surface_id"
+        case cwd
         case processState = "process_state"
         case sessionState = "session_state"
         case foregroundState = "foreground_state"
@@ -153,6 +183,8 @@ struct AgentSessionGraphNode: Codable, Sendable, Equatable {
         case startedAt = "started_at"
         case updatedAt = "updated_at"
         case endedAt = "ended_at"
+        case terminalObservation = "terminal_observation"
+        case stateSource = "state_source"
     }
 }
 
@@ -190,8 +222,8 @@ struct AgentSessionGraphNodeIndex: Sendable {
     private static func prefers(_ candidate: AgentSessionGraphNode, over existing: AgentSessionGraphNode) -> Bool {
         if candidate.updatedAt != existing.updatedAt { return candidate.updatedAt > existing.updatedAt }
         if candidate.startedAt != existing.startedAt { return candidate.startedAt > existing.startedAt }
-        let candidateKey = "\(candidate.provider):\(candidate.sessionId):\(candidate.surfaceId)"
-        let existingKey = "\(existing.provider):\(existing.sessionId):\(existing.surfaceId)"
+        let candidateKey = "\(candidate.provider):\(candidate.sessionId ?? ""):\(candidate.surfaceId)"
+        let existingKey = "\(existing.provider):\(existing.sessionId ?? ""):\(existing.surfaceId)"
         return candidateKey < existingKey
     }
 }

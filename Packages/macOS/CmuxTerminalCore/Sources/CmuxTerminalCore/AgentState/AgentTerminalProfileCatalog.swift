@@ -80,6 +80,7 @@ public struct AgentTerminalProfileCatalog: Sendable {
         return AgentTerminalFamilyProfile(
             id: id,
             statusKey: statusKey,
+            sessionProviderID: raw.sessionProviderID,
             displayName: displayName,
             lifecycleAuthoritative: raw.lifecycleAuthoritative,
             executableBasenames: executables,
@@ -143,7 +144,7 @@ public struct AgentTerminalProfileCatalog: Sendable {
         profile("opencode", "OpenCode", authoritative: true, executables: ["opencode", "opencode-ai", "open-code"], arguments: ["opencode"], idle: ["ask anything"], working: [["esc interrupt"]]),
         profile("kilo", "Kilo Code CLI", authoritative: true, executables: ["kilo", "kilo-code"], arguments: ["kilo-code"], idle: ["ask anything"], working: [["esc to interrupt"]]),
         profile("mastracode", "MastraCode", authoritative: true, executables: ["mastracode", "mastra-code"], arguments: ["mastracode", "mastra-code"], idle: ["mastra"], working: [["esc to interrupt"]]),
-        profile("claude-code", "Claude Code", statusKey: "claude_code", executables: ["claude", "claude-code", "claude_code"], arguments: ["@anthropic-ai/claude-code", "claude-code", "/claude/versions/"], aliases: ["claude"], idle: ["try \"", "claude code"], working: [["esc to interrupt"]]),
+        profile("claude-code", "Claude Code", statusKey: "claude_code", sessionProviderID: "claude", executables: ["claude", "claude-code", "claude_code"], arguments: ["@anthropic-ai/claude-code", "claude-code", "/claude/versions/"], aliases: ["claude"], idle: ["try \"", "claude code"], working: [["esc to interrupt"]]),
         profile("codex", "Codex", executables: ["codex"], arguments: ["@openai/codex"], idle: ["ask codex", "write tests for"], working: [["working ("], ["esc to interrupt"]]),
         profile("cursor-agent", "Cursor Agent CLI", statusKey: "cursor", executables: ["cursor-agent"], arguments: ["cursor-agent"], aliases: ["cursor"], idle: ["ask cursor", "cursor agent"], working: [["running", "tokens"]]),
         profile("amp", "Amp", executables: ["amp"], arguments: ["@ampcode"], idle: ["ask amp"], working: [["esc to interrupt"]]),
@@ -173,6 +174,7 @@ public struct AgentTerminalProfileCatalog: Sendable {
         _ id: String,
         _ displayName: String,
         statusKey: String? = nil,
+        sessionProviderID: String? = nil,
         authoritative: Bool = false,
         executables: Set<String>,
         arguments: [String],
@@ -184,6 +186,7 @@ public struct AgentTerminalProfileCatalog: Sendable {
         AgentTerminalFamilyProfile(
             id: id,
             statusKey: statusKey ?? id,
+            sessionProviderID: sessionProviderID ?? statusKey ?? id,
             displayName: displayName,
             lifecycleAuthoritative: authoritative,
             executableBasenames: executables,

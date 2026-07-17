@@ -11,9 +11,11 @@ struct AgentSessionGraphEdgeResolver: Sendable {
         let canonical = AgentSessionGraphNodeIndex.canonicalNodes(nodes)
         nodesByRunId = AgentSessionGraphNodeIndex.candidatesByRunId(canonical)
         nodesByNodeId = AgentSessionGraphNodeIndex.nodes(canonical)
-        parentCandidatesBySessionId = Dictionary(grouping: canonical, by: \.sessionId)
+        parentCandidatesBySessionId = Dictionary(grouping: canonical.compactMap { node in
+            node.sessionId.map { ($0, node) }
+        }, by: \.0)
             .mapValues { candidates in
-                candidates.sorted { lhs, rhs in
+                candidates.map(\.1).sorted { lhs, rhs in
                     if (lhs.endedAt == nil) != (rhs.endedAt == nil) { return lhs.endedAt == nil }
                     if lhs.restoreAuthority != rhs.restoreAuthority { return lhs.restoreAuthority }
                     if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt > rhs.updatedAt }

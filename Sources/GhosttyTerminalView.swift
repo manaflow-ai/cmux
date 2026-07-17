@@ -383,6 +383,12 @@ class GhosttyApp {
     /// Process-wide coding-agent terminal-state runtime, constructed at the app composition root.
     @MainActor
     private let agentTerminalStateRuntime = AgentTerminalStateRuntime()
+
+    /// Copies cached live-agent metadata without triggering terminal capture.
+    nonisolated
+    func agentTerminalObservationsSnapshot() -> [CmuxAgentTerminalObservation] {
+        agentTerminalObservationCache.snapshot()
+    }
     /// Snapshotted once per app session so all workspaces use consistent values.
     static let terminalSessionPortBase: Int = {
         let val = UserDefaults.standard.integer(forKey: AutomationSettings.portBaseKey)

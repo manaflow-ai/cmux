@@ -3116,6 +3116,7 @@ struct CMUXCLI {
         if command == "welcome" { printWelcome(); return }
         if command == "agents" || command == "sessions" || command == "session-debug" {
             var queryEnvironment = processEnv
+            var terminalObservations: [CmuxAgentTerminalObservation] = []
             let ambientSocketPath = (processEnv["CMUX_SOCKET_PATH"] ?? processEnv["CMUX_SOCKET"])?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             if let querySocketPath = explicitSocketPath
@@ -3131,12 +3132,18 @@ struct CMUXCLI {
                     )
                     let capabilities = try client.sendV2(
                         method: "system.capabilities",
-                        responseTimeout: 1
+                        responseTimeout: 10
                     )
                     queryEnvironment = agentSessionQueryEnvironment(
                         environment: queryEnvironment,
                         socketCapabilities: capabilities
                     )
+                    if (capabilities["methods"] as? [String])?.contains("agents.observations") == true {
+                        terminalObservations = try decodeAgentTerminalObservations(
+                            client.sendV2(method: "agents.observations", responseTimeout: 10),
+                            expectedRuntimeID: capabilities["runtime_id"] as? String
+                        )
+                    }
                 } catch {
                     if explicitSocketPath != nil { throw error }
                 }
@@ -3144,7 +3151,8 @@ struct CMUXCLI {
             try runAgentsCommand(
                 commandArgs: command == "session-debug" ? ["debug"] + commandArgs : commandArgs,
                 jsonOutput: jsonOutput,
-                processEnv: queryEnvironment
+                processEnv: queryEnvironment,
+                terminalObservations: terminalObservations
             )
             return
         }

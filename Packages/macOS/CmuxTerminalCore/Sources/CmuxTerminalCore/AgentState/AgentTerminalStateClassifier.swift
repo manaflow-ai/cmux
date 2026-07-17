@@ -47,6 +47,7 @@ public struct AgentTerminalStateClassifier: Sendable {
             return AgentTerminalStateClassification(
                 familyID: nil,
                 statusKey: nil,
+                sessionProviderID: nil,
                 state: .unknown,
                 processIdentity: snapshot.processIdentity
             )
@@ -70,6 +71,8 @@ public struct AgentTerminalStateClassifier: Sendable {
         return AgentTerminalStateClassification(
             familyID: profile.id,
             statusKey: profile.statusKey,
+            sessionProviderID: profile.sessionProviderID,
+            lifecycleAuthoritative: profile.lifecycleAuthoritative,
             state: state,
             processIdentity: snapshot.processIdentity
         )

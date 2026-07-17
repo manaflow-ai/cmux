@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 extension CMUXCLI {
@@ -5,7 +6,8 @@ extension CMUXCLI {
         commandArgs: [String],
         jsonOutput: Bool,
         processEnv: [String: String] = ProcessInfo.processInfo.environment,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        terminalObservations: [CmuxAgentTerminalObservation] = []
     ) throws {
         let subcommand = commandArgs.first?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if subcommand == "tree" {
@@ -13,7 +15,8 @@ extension CMUXCLI {
                 commandArgs: Array(commandArgs.dropFirst()),
                 jsonOutput: jsonOutput,
                 processEnv: processEnv,
-                fileManager: fileManager
+                fileManager: fileManager,
+                terminalObservations: terminalObservations
             )
             return
         }
@@ -31,8 +34,9 @@ extension CMUXCLI {
                cmux agents tree [options]
                cmux agents [options]
 
-        Print saved agent state from ~/.cmuxterm/*-hook-sessions.json.
-        This command reads files directly. With --socket, it queries runtime identity once.
+        Print saved session lifecycle plus cached live terminal state.
+        With a cmux socket, this queries runtime identity and cached observations once.
+        Without a socket, it reads saved hook state from ~/.cmuxterm.
         Inside cmux, default output is scoped to that running app process.
         Pass --all to inspect cross-runtime history.
 
@@ -79,5 +83,22 @@ extension CMUXCLI {
             return NSNull()
         }
         return object
+    }
+
+    func decodeAgentTerminalObservations(
+        _ response: [String: Any],
+        expectedRuntimeID: String?
+    ) throws -> [CmuxAgentTerminalObservation] {
+        guard let runtimeID = response["runtime_id"] as? String,
+              expectedRuntimeID == nil || runtimeID == expectedRuntimeID else {
+            throw CLIError(message: String(
+                localized: "cli.agents.error.runtimeMismatch",
+                defaultValue: "agents: live observation runtime does not match the connected cmux instance"
+            ))
+        }
+        guard let observations = response["observations"] as? [Any],
+              JSONSerialization.isValidJSONObject(observations) else { return [] }
+        let data = try JSONSerialization.data(withJSONObject: observations)
+        return try JSONDecoder().decode([CmuxAgentTerminalObservation].self, from: data)
     }
 }

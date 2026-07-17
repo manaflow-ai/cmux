@@ -9,6 +9,82 @@ import Testing
 #endif
 
 extension CMUXCLIErrorOutputRegressionTests {
+    @Test func terminalObservationJoinsExactProcessGenerationAndUpdatesState() throws {
+        let observation = makeTerminalObservation(state: .working, lifecycleAuthoritative: false)
+        let node = makeTerminalNodeCandidate(
+            sessionID: "codex-session",
+            observation: observation,
+            effectiveState: .idle
+        )
+
+        let merged = AgentTerminalObservationJoiner().merge(
+            nodes: [node], observations: [observation], activeSessionBySurface: [:]
+        )
+
+        let result = try #require(merged.first)
+        #expect(merged.count == 1)
+        #expect(result.sessionId == "codex-session")
+        #expect(result.effectiveState == .working)
+        #expect(result.terminalStateApplied)
+        #expect(result.activity.counts.foreground == 1)
+    }
+
+    @Test func lifecycleAuthoritativeObservationDoesNotOverrideKnownHookState() throws {
+        let observation = makeTerminalObservation(state: .blocked, lifecycleAuthoritative: true)
+        let node = makeTerminalNodeCandidate(
+            sessionID: "claude-session",
+            observation: observation,
+            effectiveState: .idle
+        )
+
+        let result = try #require(AgentTerminalObservationJoiner().merge(
+            nodes: [node], observations: [observation], activeSessionBySurface: [:]
+        ).first)
+
+        #expect(result.effectiveState == .idle)
+        #expect(!result.terminalStateApplied)
+        #expect(result.terminalObservation == observation)
+    }
+
+    @Test func activeSurfaceSlotDisambiguatesSessionsSharingOneProcess() throws {
+        let observation = makeTerminalObservation(state: .blocked, lifecycleAuthoritative: false)
+        let first = makeTerminalNodeCandidate(
+            sessionID: "old-session", observation: observation, effectiveState: .idle
+        )
+        let active = makeTerminalNodeCandidate(
+            sessionID: "active-session", observation: observation, effectiveState: .idle
+        )
+        let surfaceKey = AgentTerminalObservationJoiner.surfaceKey(
+            provider: observation.sessionProviderID,
+            runtimeID: observation.runtimeID,
+            surfaceID: observation.surfaceID.uuidString
+        )
+
+        let merged = AgentTerminalObservationJoiner().merge(
+            nodes: [first, active],
+            observations: [observation],
+            activeSessionBySurface: [surfaceKey: "active-session"]
+        )
+
+        #expect(merged.first(where: { $0.sessionId == "old-session" })?.effectiveState == .idle)
+        #expect(merged.first(where: { $0.sessionId == "active-session" })?.effectiveState == .needsInput)
+    }
+
+    @Test func unmatchedObservationBecomesTerminalProcessNodeWithoutInventedSessionID() throws {
+        let observation = makeTerminalObservation(state: .idle, lifecycleAuthoritative: false)
+
+        let result = try #require(AgentTerminalObservationJoiner().merge(
+            nodes: [], observations: [observation], activeSessionBySurface: [:]
+        ).first)
+
+        #expect(result.sessionId == nil)
+        #expect(result.identitySource == "terminal_process")
+        #expect(result.pid == Int(observation.pid))
+        #expect(result.cwd == observation.cwd)
+        #expect(result.effectiveState == .idle)
+        #expect(!result.restoreAuthority)
+    }
+
     @Test func olderCompatibilityWriterCannotHideCurrentCodexRunFromAgentsTree() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -547,4 +623,57 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect((output["nodes"] as? [Any])?.isEmpty == true)
     }
 
+}
+
+private func makeTerminalObservation(
+    state: CmuxAgentObservedState,
+    lifecycleAuthoritative: Bool
+) -> CmuxAgentTerminalObservation {
+    CmuxAgentTerminalObservation(
+        runtimeID: "runtime-test",
+        workspaceID: UUID(),
+        surfaceID: UUID(),
+        surfaceGeneration: 9,
+        revision: 4,
+        familyID: "codex",
+        sessionProviderID: lifecycleAuthoritative ? "claude" : "codex",
+        lifecycleAuthoritative: lifecycleAuthoritative,
+        state: state,
+        pid: 42,
+        processStartSeconds: 100,
+        processStartMicroseconds: 123,
+        cwd: "/tmp/project",
+        publishedAt: 200
+    )
+}
+
+private func makeTerminalNodeCandidate(
+    sessionID: String,
+    observation: CmuxAgentTerminalObservation,
+    effectiveState: AgentEffectiveState
+) -> AgentSessionGraphNode {
+    AgentSessionGraphNode(
+        provider: observation.sessionProviderID,
+        sessionId: sessionID,
+        runId: "run-\(sessionID)",
+        pid: Int(observation.pid),
+        processStartedAt: TimeInterval(observation.processStartSeconds)
+            + TimeInterval(observation.processStartMicroseconds) / 1_000_000,
+        cmuxRuntime: AgentCmuxRuntimeIdentity(
+            id: observation.runtimeID, socketPath: nil, bundleIdentifier: nil
+        ),
+        workspaceId: observation.workspaceID.uuidString,
+        surfaceId: observation.surfaceID.uuidString,
+        processState: .alive,
+        sessionState: .active,
+        foregroundState: .idle,
+        attentionState: .none,
+        activity: AgentActivitySnapshot(state: .idle, busy: false, modes: [], counts: .init()),
+        effectiveState: effectiveState,
+        workloads: [],
+        restoreAuthority: true,
+        startedAt: 100,
+        updatedAt: 150,
+        endedAt: nil
+    )
 }

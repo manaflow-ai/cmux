@@ -13,7 +13,7 @@ struct AgentTerminalStateDetectionSchedulerTests {
         let signal = AgentTerminalDirtySignal()
         let surfaceID = UUID()
         let recorder = SchedulerEvaluationRecorder()
-        var updates = await scheduler.updates().makeAsyncIterator()
+        let updates = SchedulerUpdateRecorder()
         let identity = AgentTerminalProcessIdentity(
             pid: 7,
             startSeconds: 1,
@@ -31,9 +31,12 @@ struct AgentTerminalStateDetectionSchedulerTests {
                 state: .working,
                 processIdentity: identity
             )
+        } deliver: { update in
+            await updates.record(update)
         }
 
-        let update = try #require(await updates.next())
+        await updates.waitForCount(1)
+        let update = try #require(await updates.values.first)
         #expect(update.revision == 2)
         #expect(await recorder.revisions == [2])
         await scheduler.stopAll()
@@ -46,20 +49,24 @@ struct AgentTerminalStateDetectionSchedulerTests {
         let surfaceID = UUID()
         let state = SchedulerClassificationState()
         let recorder = SchedulerEvaluationRecorder()
-        var updates = await scheduler.updates().makeAsyncIterator()
+        let updates = SchedulerUpdateRecorder()
 
         await scheduler.start(surfaceID: surfaceID, signal: signal) { revision in
             await recorder.record(revision)
             return await state.classification(revision: revision)
+        } deliver: { update in
+            await updates.record(update)
         }
         signal.markDirty()
-        #expect(try #require(await updates.next()).classification.state == .working)
+        await updates.waitForCount(1)
+        #expect(try #require(await updates.values.first).classification.state == .working)
 
         signal.markDirty()
         await recorder.waitForCount(2)
         await state.set(.idle)
         signal.markDirty()
-        let next = try #require(await updates.next())
+        await updates.waitForCount(2)
+        let next = try #require(await updates.values.last)
         #expect(next.revision == 3)
         #expect(next.classification.state == .idle)
         await scheduler.stopAll()
@@ -72,7 +79,7 @@ struct AgentTerminalStateDetectionSchedulerTests {
         let surfaceID = UUID()
         let recorder = SchedulerEvaluationRecorder()
         let gate = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
-        var updates = await scheduler.updates().makeAsyncIterator()
+        let updates = SchedulerUpdateRecorder()
 
         await scheduler.start(surfaceID: surfaceID, signal: signal) { revision in
             await recorder.record(revision)
@@ -81,16 +88,49 @@ struct AgentTerminalStateDetectionSchedulerTests {
                 _ = await iterator.next()
             }
             return makeClassification(revision == 1 ? .working : .idle, pid: Int32(revision))
+        } deliver: { update in
+            await updates.record(update)
         }
         signal.markDirty()
         await recorder.waitForCount(1)
         signal.markDirty()
         gate.continuation.yield(())
 
-        let update = try #require(await updates.next())
+        await updates.waitForCount(1)
+        let update = try #require(await updates.values.first)
         #expect(update.revision == 2)
         #expect(update.classification.state == .idle)
         #expect(await recorder.revisions == [1, 2])
+        await scheduler.stopAll()
+    }
+
+    @Test
+    func simultaneousSurfacesDeliverIndependently() async throws {
+        let scheduler = immediateScheduler()
+        let firstSignal = AgentTerminalDirtySignal()
+        let secondSignal = AgentTerminalDirtySignal()
+        let firstSurface = UUID()
+        let secondSurface = UUID()
+        let updates = SchedulerUpdateRecorder()
+
+        await scheduler.start(surfaceID: firstSurface, signal: firstSignal) { _ in
+            makeClassification(.working, pid: 11)
+        } deliver: { update in
+            await updates.record(update)
+        }
+        await scheduler.start(surfaceID: secondSurface, signal: secondSignal) { _ in
+            makeClassification(.blocked, pid: 22)
+        } deliver: { update in
+            await updates.record(update)
+        }
+        firstSignal.markDirty()
+        secondSignal.markDirty()
+
+        await updates.waitForCount(2)
+        let delivered = await updates.values
+        #expect(Set(delivered.map(\.surfaceID)) == Set([firstSurface, secondSurface]))
+        #expect(delivered.first(where: { $0.surfaceID == firstSurface })?.classification.state == .working)
+        #expect(delivered.first(where: { $0.surfaceID == secondSurface })?.classification.state == .blocked)
         await scheduler.stopAll()
     }
 
@@ -115,6 +155,25 @@ private actor SchedulerEvaluationRecorder {
 
     func waitForCount(_ count: Int) async {
         if revisions.count >= count { return }
+        await withCheckedContinuation { continuation in
+            waiters.append((count, continuation))
+        }
+    }
+}
+
+private actor SchedulerUpdateRecorder {
+    private(set) var values: [AgentTerminalDetectionUpdate] = []
+    private var waiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+
+    func record(_ update: AgentTerminalDetectionUpdate) {
+        values.append(update)
+        let ready = waiters.filter { values.count >= $0.count }
+        waiters.removeAll { values.count >= $0.count }
+        for waiter in ready { waiter.continuation.resume() }
+    }
+
+    func waitForCount(_ count: Int) async {
+        if values.count >= count { return }
         await withCheckedContinuation { continuation in
             waiters.append((count, continuation))
         }
