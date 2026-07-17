@@ -96,8 +96,11 @@ extension MobileHostIrohRuntime {
               let refreshToken,
               !refreshToken.isEmpty else { return }
         do {
+            guard let brokerBaseURL = AuthEnvironment.irohBrokerBaseURL else {
+                throw CmxIrohTrustBrokerClientError.invalidBaseURL
+            }
             let broker = try CmxIrohTrustBrokerClient(
-                baseURL: AuthEnvironment.vmAPIBaseURL,
+                baseURL: brokerBaseURL,
                 tokenSource: CmxIrohBrokerTokenSource(
                     accessToken: { accessToken },
                     refreshToken: { refreshToken }

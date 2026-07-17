@@ -227,6 +227,18 @@ if [[ -z "$CMUX_IOS_API_BASE_URL_VALUE" ]]; then
   fi
 fi
 
+# Iroh discovery and grants must use one shared broker even while each tagged
+# app keeps its own local general API origin. Production-auth builds use the
+# production broker because their Stack identity belongs to that channel.
+CMUX_IOS_IROH_BROKER_BASE_URL_VALUE="${CMUX_IOS_IROH_BROKER_BASE_URL:-${CMUX_IROH_BROKER_BASE_URL:-}}"
+if [[ -z "$CMUX_IOS_IROH_BROKER_BASE_URL_VALUE" ]]; then
+  if [[ "$PROD_AUTH" -eq 1 ]]; then
+    CMUX_IOS_IROH_BROKER_BASE_URL_VALUE="https://cmux.com"
+  else
+    CMUX_IOS_IROH_BROKER_BASE_URL_VALUE="https://cmux-staging.vercel.app"
+  fi
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IOS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # Shared tag/identity + attach helpers; sanitize_tag() above delegates here so the
@@ -547,6 +559,7 @@ reload_simulator() {
     CMUX_PRESENCE_BASE_URL="${CMUX_PRESENCE_BASE_URL:-}" \
     CMUX_IOS_AUTH_ENV="$CMUX_IOS_AUTH_ENV_VALUE" \
     CMUX_API_BASE_URL="$CMUX_IOS_API_BASE_URL_VALUE" \
+    CMUX_IROH_BROKER_BASE_URL="$CMUX_IOS_IROH_BROKER_BASE_URL_VALUE" \
     EXCLUDED_SOURCE_FILE_NAMES=Info.plist \
     CODE_SIGNING_ALLOWED=NO \
     SWIFT_OPTIMIZATION_LEVEL=-O \
@@ -665,6 +678,7 @@ reload_device() {
     CMUX_PRESENCE_BASE_URL="${CMUX_PRESENCE_BASE_URL:-}"
     CMUX_IOS_AUTH_ENV="$CMUX_IOS_AUTH_ENV_VALUE"
     CMUX_API_BASE_URL="$CMUX_IOS_API_BASE_URL_VALUE"
+    CMUX_IROH_BROKER_BASE_URL="$CMUX_IOS_IROH_BROKER_BASE_URL_VALUE"
     EXCLUDED_SOURCE_FILE_NAMES=Info.plist
     CODE_SIGNING_ALLOWED=YES
     CODE_SIGN_STYLE=Automatic

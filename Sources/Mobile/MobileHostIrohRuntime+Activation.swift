@@ -85,8 +85,11 @@ extension MobileHostIrohRuntime {
             lastKnownTag = tag
         }
 
+        guard let brokerBaseURL = AuthEnvironment.irohBrokerBaseURL else {
+            throw CmxIrohTrustBrokerClientError.invalidBaseURL
+        }
         let broker = try CmxIrohTrustBrokerClient(
-            baseURL: AuthEnvironment.vmAPIBaseURL,
+            baseURL: brokerBaseURL,
             tokenSource: CmxIrohBrokerTokenSource(
                 accessToken: { [weak auth] in
                     guard let auth,

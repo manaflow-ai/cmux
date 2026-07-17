@@ -134,7 +134,17 @@ public final class MobileIrohRuntimeComposition:
         let transportVerificationMode = CmxIrohTransportVerificationMode.automatic
         #endif
         let installState = CmxIrohUserDefaultsInstallStateStore(defaults: defaults)
-        let baseURL = URL(string: apiBaseURL)
+        #if targetEnvironment(simulator)
+        let allowsLoopbackBrokerOrigin = true
+        #else
+        let allowsLoopbackBrokerOrigin = false
+        #endif
+        let baseURL = Self.resolvedBrokerBaseURL(
+            apiBaseURL: apiBaseURL,
+            infoDictionary: infoDictionary,
+            bundleIdentifier: bundleIdentifier,
+            allowsLoopback: allowsLoopbackBrokerOrigin
+        )
         let networkPathState = MobileIrohNetworkPathState()
         let lanPeerDiscovery = CmxIrohLANPeerDiscovery(
             networkPath: { await networkPathState.snapshot() },
@@ -1466,6 +1476,55 @@ public final class MobileIrohRuntimeComposition:
         }
         let value = String(normalized)
         return value.isEmpty ? "default" : value
+    }
+
+    static func resolvedBrokerBaseURL(
+        apiBaseURL: String,
+        infoDictionary: [String: Any]?,
+        bundleIdentifier: String? = nil,
+        allowsLoopback: Bool = true
+    ) -> URL? {
+        if let baked = infoDictionary?["CMUXIrohBrokerBaseURL"] as? String {
+            let trimmed = baked.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return validatedBrokerBaseURL(trimmed, allowsLoopback: allowsLoopback)
+            }
+        }
+        let authEnvironment = (infoDictionary?["CMUXAuthEnvironment"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if authEnvironment == "production" {
+            return URL(string: "https://cmux.com")
+        }
+        if MobileIOSBuildScope.current(
+            infoDictionary: infoDictionary,
+            bundleIdentifier: bundleIdentifier
+        ) != nil {
+            return URL(string: "https://cmux-staging.vercel.app")
+        }
+        return validatedBrokerBaseURL(apiBaseURL, allowsLoopback: allowsLoopback)
+    }
+
+    private static func validatedBrokerBaseURL(
+        _ rawValue: String,
+        allowsLoopback: Bool
+    ) -> URL? {
+        guard let url = URL(string: rawValue),
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let scheme = components.scheme?.lowercased(),
+              let host = components.host?.lowercased(),
+              components.user == nil,
+              components.password == nil,
+              components.query == nil,
+              components.fragment == nil else {
+            return nil
+        }
+        if scheme == "https" { return url }
+        let loopbackHosts = ["127.0.0.1", "::1", "localhost"]
+        guard allowsLoopback,
+              scheme == "http",
+              loopbackHosts.contains(host) else { return nil }
+        return url
     }
 }
 
