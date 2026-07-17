@@ -33,6 +33,12 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     /// actions (create workspace/terminal, switch terminal) do not pop the
     /// software keyboard.
     var autoFocusOnWindowAttach: Bool = true
+    /// Whether this mount may send viewport reports (grants that resize the
+    /// shared PTY on the Mac). `false` for preview mounts — a pager neighbor
+    /// visible mid-swipe, a map miniature — which stream and render but must
+    /// never resize the Mac's panes. Flipping to `true` (the page settled and
+    /// this surface became the viewed one) sends exactly one settled grant.
+    var isViewportReportingEnabled: Bool = true
     /// Whether the iMessage-style composer is open. When it flips on, the
     /// coordinator mounts the SwiftUI compose field into the surface's composer
     /// band and pins first responder so the keyboard hands over in place; when it
@@ -89,6 +95,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             terminalConfigTheme: terminalConfigTheme
         )
         view.autoFocusOnWindowAttach = autoFocusOnWindowAttach
+        view.viewportReportingEnabled = isViewportReportingEnabled
         view.artifactFilesEnabled = artifactFilesEnabled
         #if DEBUG
         // Hand the surface the structured diagnostic log so the composer-dock
@@ -121,6 +128,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // state write, so it is safe in `updateUIView`.
         guard let surfaceView = uiView as? GhosttySurfaceView else { return }
         surfaceView.autoFocusOnWindowAttach = autoFocusOnWindowAttach
+        surfaceView.viewportReportingEnabled = isViewportReportingEnabled
         surfaceView.terminalTheme = terminalTheme
         surfaceView.terminalConfigTheme = terminalConfigTheme
         context.coordinator.onArtifactFilesRequested = onArtifactFilesRequested

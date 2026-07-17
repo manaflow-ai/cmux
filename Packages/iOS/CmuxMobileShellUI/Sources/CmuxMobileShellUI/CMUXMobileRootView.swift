@@ -70,6 +70,22 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
+    private var shouldShowSurfaceNavigatorPreview: Bool {
+        #if os(iOS) && DEBUG
+        return UITestConfig.surfaceNavigatorPreviewEnabled
+        #else
+        return false
+        #endif
+    }
+
+    @ViewBuilder private var surfaceNavigatorPreview: some View {
+        #if os(iOS) && DEBUG
+        SurfaceNavigatorPreviewView()
+        #else
+        EmptyView()
+        #endif
+    }
+
     private var shouldShowWorkspaceListLayoutPreview: Bool {
         #if os(iOS) && DEBUG
         return UITestConfig.workspaceListLayoutPreviewEnabled
@@ -211,6 +227,8 @@ struct CMUXMobileRootView: View {
             deleteComputersVerifier
         } else if shouldShowAgentChatDemoPreview {
             agentChatDemoPreview
+        } else if shouldShowSurfaceNavigatorPreview {
+            surfaceNavigatorPreview
         } else if shouldShowTerminalLayoutPreview {
             terminalLayoutPreview
         } else if shouldShowWorkspaceListLayoutPreview {

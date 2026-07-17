@@ -6,9 +6,16 @@ import CmuxMobileTerminal
 import SwiftUI
 
 extension WorkspaceDetailView {
+    /// One pager page hosting a live terminal surface.
+    ///
+    /// `isCurrent` is false for preview mounts (the pager's neighbors): they
+    /// stream and render, but never autofocus, never send viewport grants
+    /// (peeking must not resize panes on the Mac), never host the composer,
+    /// and skip the artifact-chip RPC work until they become current.
     @ViewBuilder
-    func terminalArtifactSurface(terminalID: String) -> some View {
-    let shouldAutoFocus = activeSurface == .terminal
+    func terminalArtifactSurface(terminalID: String, isCurrent: Bool = true) -> some View {
+    let shouldAutoFocus = isCurrent
+        && activeSurface == .terminal
         && store.shouldAutoFocusTerminalSurface(terminalID)
         && !store.isComposerPresented
     GhosttySurfaceRepresentable(
@@ -19,7 +26,8 @@ extension WorkspaceDetailView {
         // Do not let a terminal reattach steal focus while the
         // composer owns or intentionally withholds the keyboard.
         autoFocusOnWindowAttach: shouldAutoFocus,
-        isComposerActive: store.isComposerPresented,
+        isViewportReportingEnabled: isCurrent,
+        isComposerActive: isCurrent && store.isComposerPresented,
         terminalTheme: store.activeTerminalTheme,
         terminalConfigTheme: store.activeTerminalConfigTheme,
         // Drives the live recolor: when the synced theme changes the
@@ -28,8 +36,8 @@ extension WorkspaceDetailView {
         // letterbox, default cell colors) without a remount, so
         // scrollback survives a theme change.
         configThemeGeneration: store.terminalConfigThemeGeneration,
-        artifactFilesEnabled: store.supportsTerminalArtifacts,
-        sessionArtifactCountEnabled: store.supportsChatArtifactGallery,
+        artifactFilesEnabled: isCurrent && store.supportsTerminalArtifacts,
+        sessionArtifactCountEnabled: isCurrent && store.supportsChatArtifactGallery,
         visibleArtifactCount: visibleArtifactCount,
         onArtifactFilesRequested: { anchor in
             terminalArtifactFilesContext = TerminalArtifactContext(

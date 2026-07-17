@@ -65,6 +65,21 @@ public struct UITestConfig {
         #endif
     }
 
+    /// Whether the standalone surface-navigator preview is enabled.
+    ///
+    /// When `CMUX_UITEST_SURFACE_NAV_PREVIEW=1`, the root view renders the
+    /// surface navigator harness (tab strip + pager + workspace map) over a
+    /// deterministic fake pane/tab layout with synthetic terminal pages — no
+    /// sign-in, Mac pairing, or streaming — so the strip, paging, and map can
+    /// be screenshotted and UI-tested on the simulator. DEBUG-only.
+    public static var surfaceNavigatorPreviewEnabled: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_SURFACE_NAV_PREVIEW"] == "1"
+        #else
+        return false
+        #endif
+    }
+
     /// Whether the standalone terminal-layout preview is enabled.
     ///
     /// When `CMUX_UITEST_TERMINAL_PREVIEW=1`, the root view renders a standalone

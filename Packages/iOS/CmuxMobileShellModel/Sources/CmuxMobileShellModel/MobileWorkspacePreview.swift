@@ -75,6 +75,11 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     public var hasUnread: Bool
     /// The terminals contained in the workspace, in display order.
     public var terminals: [MobileTerminalPreview]
+    /// The workspace's pane/tab split structure as arranged on the Mac. Set by
+    /// the RPC mapping when the Mac reports it; `nil` on Macs too old to emit
+    /// `layout` (consumers then fall back to a synthesized single-pane layout
+    /// over ``terminals``).
+    public var paneLayout: MobileWorkspacePaneLayout? = nil
     /// The owning Mac's DISTINCT color index in the aggregated list, stamped by
     /// ``MobileWorkspaceAggregation/derivedWorkspaces`` so same-Mac workspaces
     /// share one avatar color and different Macs are guaranteed distinct. `nil`
