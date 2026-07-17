@@ -30,16 +30,6 @@ extension TerminalSurface {
         return true
     }
 
-    static let portalHostAreaThreshold: CGFloat = 4
-
-    static func portalHostArea(for bounds: CGRect) -> CGFloat {
-        max(0, bounds.width) * max(0, bounds.height)
-    }
-
-    static func portalHostIsUsable(_ lease: PortalHostLease) -> Bool {
-        lease.inWindow && lease.area > portalHostAreaThreshold
-    }
-
     /// The model ownership epoch used before representable creation order breaks ties.
     public func currentPortalHostOwnershipGeneration() -> UInt64 {
         portalLifecycleGeneration
@@ -192,12 +182,13 @@ extension TerminalSurface {
         allowsAuthorityAcquisition: Bool = true,
         reason: String
     ) -> Bool {
+        let leasePolicy = PortalHostLeasePolicy()
         let next = PortalHostLease(
             hostId: hostId,
             paneId: paneId.id,
             instanceSerial: instanceSerial,
             inWindow: inWindow,
-            area: Self.portalHostArea(for: bounds)
+            area: leasePolicy.area(for: bounds)
         )
 
         // Owner identity is host AND creation serial: ObjectIdentifier values
@@ -248,26 +239,20 @@ extension TerminalSurface {
                 return true
             }
 
-            let currentUsable = Self.portalHostIsUsable(current)
-            let nextUsable = Self.portalHostIsUsable(next)
             // During split churn SwiftUI can briefly keep the old host alive while the new
             // host for the same pane is already in the window. Prefer the newer live host
             // immediately so the surface moves with the pane instead of waiting for a later
             // update from unrelated focus/layout work.
             let newerSamePaneHostReady =
                 current.paneId == paneId.id &&
-                nextUsable &&
                 next.instanceSerial > current.instanceSerial
             let newerModelOwnerReady =
-                nextUsable &&
                 ownershipGeneration > (portalHostAuthority?.ownershipGeneration ?? 0)
-            // A dragged terminal must hand off immediately when it moves to a different pane.
-            // Waiting for the old host to become "worse" leaves the moved pane blank/stale.
-            let shouldReplace =
-                current.paneId != paneId.id ||
-                !currentUsable ||
-                newerSamePaneHostReady ||
-                newerModelOwnerReady
+            let shouldReplace = leasePolicy.shouldReplace(
+                current: current,
+                with: next,
+                allowsSamePaneReplacement: newerSamePaneHostReady || newerModelOwnerReady
+            )
 
             if shouldReplace {
                 guard reservePortalHostAuthority(
@@ -302,7 +287,8 @@ extension TerminalSurface {
                 "size=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) " +
                 "ownerHost=\(current.hostId) ownerPane=\(current.paneId.uuidString.prefix(5)) " +
                 "ownerInWin=\(current.inWindow ? 1 : 0) " +
-                "ownerArea=\(String(format: "%.1f", current.area))"
+                "ownerArea=\(String(format: "%.1f", current.area)) " +
+                "cause=\(leasePolicy.isUsable(next) ? "ownerPreferred" : "detachedOrTiny")"
             )
 #endif
             return false
