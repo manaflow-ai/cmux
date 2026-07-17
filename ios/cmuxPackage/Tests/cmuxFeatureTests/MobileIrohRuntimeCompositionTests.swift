@@ -141,6 +141,54 @@ struct MobileIrohRuntimeCompositionTests {
     }
 
     @Test
+    func taggedDevelopmentDiscoveryCannotCrossIntoAnotherAgentLane() async throws {
+        let discovery = try mobileIrohDiscovery(bindings: [
+            mobileIrohBinding(
+                bindingID: "31000000-0000-4000-8000-000000000001",
+                deviceID: "31000000-0000-4000-8000-000000000002",
+                appInstanceID: "31000000-0000-4000-8000-000000000003",
+                endpointID: String(repeating: "a", count: 64),
+                platform: "mac",
+                pairingEnabled: true,
+                tag: "lane-a"
+            ),
+            mobileIrohBinding(
+                bindingID: "31000000-0000-4000-8000-000000000004",
+                deviceID: "31000000-0000-4000-8000-000000000005",
+                appInstanceID: "31000000-0000-4000-8000-000000000006",
+                endpointID: String(repeating: "b", count: 64),
+                platform: "mac",
+                pairingEnabled: true,
+                tag: "lane-b"
+            ),
+            mobileIrohBinding(
+                bindingID: "31000000-0000-4000-8000-000000000007",
+                deviceID: "31000000-0000-4000-8000-000000000008",
+                appInstanceID: "31000000-0000-4000-8000-000000000009",
+                endpointID: String(repeating: "c", count: 64),
+                platform: "mac",
+                pairingEnabled: true,
+                tag: "default"
+            ),
+        ])
+        let catalog = MobileIrohRouteCatalog()
+        await catalog.activate(scope: 4)
+        await catalog.replace(with: discovery, scope: 4)
+
+        let isolated = await catalog.liveMacCandidates(
+            preferredTag: "lane-a",
+            exactTagOnly: true
+        )
+        #expect(isolated.map(\.instanceTag) == ["lane-a"])
+
+        let productionCompatible = await catalog.liveMacCandidates(
+            preferredTag: "lane-a",
+            exactTagOnly: false
+        )
+        #expect(productionCompatible.map(\.instanceTag) == ["lane-a", "default", "lane-b"])
+    }
+
+    @Test
     func relayPolicyRefreshesBeforeExpiryAndDeactivatesOnlyAtExpiry() {
         let now = Date(timeIntervalSince1970: 1_000)
         let expiresAt = now.addingTimeInterval(300)
@@ -1298,13 +1346,14 @@ private func mobileIrohBinding(
     endpointID: String,
     platform: String,
     pairingEnabled: Bool,
+    tag: String = "test",
     lastSeenAt: String = "2027-07-10T12:00:00.000Z"
 ) -> [String: Any] {
     [
         "binding_id": bindingID,
         "device_id": deviceID,
         "app_instance_id": appInstanceID,
-        "tag": "test",
+        "tag": tag,
         "platform": platform,
         "endpoint_id": endpointID,
         "identity_generation": 1,
