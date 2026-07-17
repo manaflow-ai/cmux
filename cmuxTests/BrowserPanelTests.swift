@@ -632,7 +632,9 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
         XCTAssertNil(panel.diffViewerImmediatePresentationHost)
         XCTAssertNil(immediateHost.superview)
         XCTAssertTrue(loadingOverlay.superview === panel.webView.cmuxBrowserViewportPresentationView)
-        panel.closeDiffViewerLoadingOverlay()
+        panel.webView.diffViewerFocusStateDidChange(viewer: true, editable: false, rendererReady: false)
+        XCTAssertNotNil(panel.diffViewerLoadingOverlay)
+        panel.webView.diffViewerFocusStateDidChange(viewer: true, editable: false, rendererReady: true)
         XCTAssertNil(panel.diffViewerLoadingOverlay)
     }
 
