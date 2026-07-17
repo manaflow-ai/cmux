@@ -20,6 +20,7 @@ public struct TaskComposerAccessibilityPreviewView: View {
     private let presentsTemplateForm: Bool
     private let presentsDirectoryPicker: Bool
     private let holdsSubmissionInPreparation: Bool
+    @State private var directoryPaginationRecoveryPreview: TaskComposerDirectoryPaginationRecoveryPreview?
 
     /// Creates the preview with isolated, in-memory task state so repeated UI
     /// tests cannot inherit production templates, selections, or drafts. Set
@@ -28,27 +29,38 @@ public struct TaskComposerAccessibilityPreviewView: View {
     /// or `CMUX_UITEST_TASK_TEMPLATE_FORM_PREVIEW=1` to present the production
     /// add-template form directly. Set
     /// `CMUX_UITEST_TASK_DIRECTORY_PICKER_PREVIEW=1` to present the production
-    /// directory picker with deterministic filesystem results.
+    /// directory picker with deterministic filesystem results. Set
+    /// `CMUX_UITEST_TASK_DIRECTORY_PAGINATION_RECOVERY_PREVIEW=1` to make the
+    /// first page-2 request fail and its exact retry succeed.
     public init() {
+        let environment = ProcessInfo.processInfo.environment
+        let presentsDirectoryPaginationRecovery = environment[
+            "CMUX_UITEST_TASK_DIRECTORY_PAGINATION_RECOVERY_PREVIEW"
+        ] == "1"
         self.store = CMUXMobileShellStore(
             isSignedIn: true,
             taskTemplateStore: TaskComposerAccessibilityTemplateStore()
         )
-        self.returnsSubmissionFailure = ProcessInfo.processInfo.environment[
+        self.returnsSubmissionFailure = environment[
             "CMUX_UITEST_TASK_COMPOSER_FAILURE"
         ] == "1"
-        self.failsFirstSubmission = ProcessInfo.processInfo.environment[
+        self.failsFirstSubmission = environment[
             "CMUX_UITEST_TASK_COMPOSER_FAIL_ONCE"
         ] == "1"
-        self.presentsTemplateForm = ProcessInfo.processInfo.environment[
+        self.presentsTemplateForm = environment[
             "CMUX_UITEST_TASK_TEMPLATE_FORM_PREVIEW"
         ] == "1"
-        self.presentsDirectoryPicker = ProcessInfo.processInfo.environment[
+        self.presentsDirectoryPicker = environment[
             "CMUX_UITEST_TASK_DIRECTORY_PICKER_PREVIEW"
-        ] == "1"
-        self.holdsSubmissionInPreparation = ProcessInfo.processInfo.environment[
+        ] == "1" || presentsDirectoryPaginationRecovery
+        self.holdsSubmissionInPreparation = environment[
             "CMUX_UITEST_TASK_COMPOSER_HOLD_PREPARATION"
         ] == "1"
+        _directoryPaginationRecoveryPreview = State(
+            initialValue: presentsDirectoryPaginationRecovery
+                ? TaskComposerDirectoryPaginationRecoveryPreview()
+                : nil
+        )
     }
 
     /// Presents the requested production task-composer surface over an otherwise empty host.
@@ -79,7 +91,7 @@ public struct TaskComposerAccessibilityPreviewView: View {
                         selectedPath: selectedDirectory ?? "~",
                         select: { selectedDirectory = $0 },
                         searchMac: Self.searchPreviewDirectories,
-                        listMac: Self.listPreviewDirectories
+                        listMac: listDirectoriesForPreview
                     )
                 } else {
                     TaskComposerSheet(
@@ -226,6 +238,98 @@ public struct TaskComposerAccessibilityPreviewView: View {
             totalCount: entries.count,
             nextOffset: nil
         ) else {
+            return .failure(.rejected)
+        }
+        return .success(response)
+    }
+
+    private func listDirectoriesForPreview(
+        _ requestedPath: String,
+        _ offset: Int
+    ) async -> Result<MobileTaskDirectoryListResponse, MobileTaskDirectoryListFailure> {
+        if let directoryPaginationRecoveryPreview {
+            return await directoryPaginationRecoveryPreview.listDirectories(
+                requestedPath,
+                offset
+            )
+        }
+        return await Self.listPreviewDirectories(requestedPath, offset)
+    }
+}
+
+private actor TaskComposerDirectoryPaginationRecoveryPreview {
+    private struct AppendRequest: Equatable {
+        let path: String
+        let offset: Int
+    }
+
+    private var failedAppendRequest: AppendRequest?
+
+    func listDirectories(
+        _ requestedPath: String,
+        _ offset: Int
+    ) -> Result<MobileTaskDirectoryListResponse, MobileTaskDirectoryListFailure> {
+        if offset == 0 {
+            guard requestedPath == "~" || requestedPath == "/Users/ui" else {
+                return .failure(.rejected)
+            }
+            return Self.page(
+                entries: [
+                    ("first-page-folder", "/Users/ui/first-page-folder", true),
+                    ("unreadable-page-one", "/Users/ui/unreadable-page-one", false),
+                ],
+                offset: 0,
+                nextOffset: 2
+            )
+        }
+
+        let request = AppendRequest(path: requestedPath, offset: offset)
+        let expectedRequest = AppendRequest(path: "/Users/ui", offset: 2)
+        guard request == expectedRequest else {
+            return .failure(.rejected)
+        }
+        guard let failedAppendRequest else {
+            self.failedAppendRequest = request
+            return .failure(.timedOut)
+        }
+        guard request == failedAppendRequest else {
+            return .failure(.rejected)
+        }
+
+        return Self.page(
+            entries: [
+                ("second-page-folder", "/Users/ui/second-page-folder", true),
+            ],
+            offset: 2,
+            nextOffset: nil
+        )
+    }
+
+    private static func page(
+        entries: [(name: String, path: String, isReadable: Bool)],
+        offset: Int,
+        nextOffset: Int?
+    ) -> Result<MobileTaskDirectoryListResponse, MobileTaskDirectoryListFailure> {
+        let directoryEntries = entries.compactMap { entry in
+            MobileTaskDirectoryListEntry(
+                name: entry.name,
+                path: entry.path,
+                isHidden: false,
+                isPackage: false,
+                isSymbolicLink: false,
+                isReadable: entry.isReadable
+            )
+        }
+        guard directoryEntries.count == entries.count,
+              let response = MobileTaskDirectoryListResponse(
+                  currentPath: "/Users/ui",
+                  parentPath: "/Users",
+                  entries: directoryEntries,
+                  offset: offset,
+                  limit: 2,
+                  totalCount: 3,
+                  nextOffset: nextOffset
+              ) else {
             return .failure(.rejected)
         }
         return .success(response)

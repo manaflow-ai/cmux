@@ -523,6 +523,44 @@ final class cmuxUITests: XCTestCase {
         XCTAssertEqual(selectedPath.label, "/Users/ui/mobile-root")
     }
 
+    /// A failed append must leave page 1 interactive, and retry must request
+    /// the exact failed page without replacing the successful snapshot.
+    @MainActor
+    func testTaskComposerDirectoryPaginationRecoveryPreservesPageOneAndRetriesPageTwo() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_DIRECTORY_PAGINATION_RECOVERY_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        let pageOneFolder = app.buttons["first-page-folder"]
+        let unreadableFolder = app.buttons["unreadable-page-one"]
+        XCTAssertTrue(pageOneFolder.waitForExistence(timeout: 8))
+        XCTAssertTrue(unreadableFolder.exists)
+        XCTAssertFalse(unreadableFolder.isEnabled)
+
+        let showMore = app.buttons["MobileTaskDirectoryBrowseMore"]
+        XCTAssertTrue(showMore.waitForExistence(timeout: 3))
+        XCTAssertTrue(showMore.isHittable)
+        XCTAssertGreaterThanOrEqual(showMore.frame.height, 44)
+        tap(showMore, in: app)
+
+        let retry = app.buttons["TaskComposerDirectoryBrowseRetry"]
+        XCTAssertTrue(retry.waitForExistence(timeout: 4))
+        XCTAssertTrue(app.staticTexts["Couldn’t Load More Folders"].exists)
+        XCTAssertTrue(pageOneFolder.exists)
+        XCTAssertTrue(unreadableFolder.exists)
+        XCTAssertFalse(unreadableFolder.isEnabled)
+        XCTAssertFalse(app.buttons["second-page-folder"].exists)
+
+        XCTAssertTrue(retry.isHittable)
+        XCTAssertGreaterThanOrEqual(retry.frame.height, 44)
+        tap(retry, in: app)
+        XCTAssertTrue(app.buttons["second-page-folder"].waitForExistence(timeout: 4))
+        XCTAssertTrue(pageOneFolder.exists)
+        XCTAssertFalse(retry.waitForExistence(timeout: 1))
+    }
+
     /// The production editor must persist add, edit, and delete mutations in
     /// one isolated composer session.
     @MainActor
