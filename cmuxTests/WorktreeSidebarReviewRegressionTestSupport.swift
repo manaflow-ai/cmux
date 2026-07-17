@@ -11,17 +11,26 @@ import Observation
 actor WorktreeSidebarReviewRegressionGit: WorktreeSidebarGitOperating {
     let worktree: WorktreeSidebarWorktree
     private let returnsReplacementOnFourthListing: Bool
+    private let blocksRemoval: Bool
+    private let failsRemoval: Bool
     private var listingCallCount = 0
     private var blockedListingCalls: Set<Int> = [2, 3, 4]
     private var listingContinuations: [Int: CheckedContinuation<Void, Never>] = [:]
     private var listingCallWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
+    private var removalContinuation: CheckedContinuation<Void, Never>?
+    private var removalWaiters: [CheckedContinuation<Void, Never>] = []
+    private var removalStarted = false
 
     init(
         projectRootPath: String,
         worktreePath: String,
-        returnsReplacementOnFourthListing: Bool = false
+        returnsReplacementOnFourthListing: Bool = false,
+        blocksRemoval: Bool = false,
+        failsRemoval: Bool = false
     ) {
         self.returnsReplacementOnFourthListing = returnsReplacementOnFourthListing
+        self.blocksRemoval = blocksRemoval
+        self.failsRemoval = failsRemoval
         worktree = WorktreeSidebarWorktree(
             path: worktreePath,
             head: "1111111111111111111111111111111111111111",
@@ -86,7 +95,34 @@ actor WorktreeSidebarReviewRegressionGit: WorktreeSidebarGitOperating {
         expected: WorktreeSidebarDeletionInspection,
         force: Bool
     ) async throws -> WorktreeSidebarDeletionResult {
-        WorktreeSidebarDeletionResult(removal: .removed, branch: .notApplicable)
+        removalStarted = true
+        let waiters = removalWaiters
+        removalWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+        if blocksRemoval {
+            await withCheckedContinuation { continuation in
+                removalContinuation = continuation
+            }
+        }
+        if failsRemoval {
+            throw WorktreeSidebarGitError.commandFailed(
+                .remove,
+                details: "Expected review regression failure"
+            )
+        }
+        return WorktreeSidebarDeletionResult(removal: .removed, branch: .notApplicable)
+    }
+
+    func waitUntilRemovalStarts() async {
+        guard !removalStarted else { return }
+        await withCheckedContinuation { continuation in
+            removalWaiters.append(continuation)
+        }
+    }
+
+    func resumeRemoval() {
+        removalContinuation?.resume()
+        removalContinuation = nil
     }
 
     func createWorktree(

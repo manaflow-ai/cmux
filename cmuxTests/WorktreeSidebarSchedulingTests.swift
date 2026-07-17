@@ -139,6 +139,57 @@ struct WorktreeSidebarSchedulingTests {
         #expect(manager.tabs.count == workspaceCount + 1)
     }
 
+    @MainActor
+    @Test("workspaces quiesce before removal and recover when Git refuses deletion")
+    func workspacesQuiesceBeforeRemovalAndRecoverOnFailure() async throws {
+        let projectRoot = "/tmp/worktree-sidebar-removal-order-project"
+        let worktreePath = projectRoot + "/linked"
+        let manager = TabManager(
+            initialWorkingDirectory: worktreePath,
+            autoWelcomeIfNeeded: false
+        )
+        let originalWorkspace = try #require(manager.tabs.first)
+        let git = WorktreeSidebarReviewRegressionGit(
+            projectRootPath: projectRoot,
+            worktreePath: worktreePath,
+            blocksRemoval: true,
+            failsRemoval: true
+        )
+        let model = WorktreeSidebarModel(
+            projectRootPath: projectRoot,
+            git: git,
+            dialogs: WorktreeSidebarReviewRegressionDialogs(),
+            workspaces: WorktreeSidebarWorkspaceController(tabManager: manager)
+        )
+        let waiter = WorktreeSidebarModelWaiter()
+        model.start()
+        defer {
+            model.stop()
+            Task { await git.resumeRemoval() }
+        }
+        await waiter.wait(for: model) { !$0.rows.isEmpty }
+        let row = try #require(model.rows.first)
+
+        model.requestDeletion(for: row)
+        await git.waitUntilRemovalStarts()
+
+        #expect(!manager.tabs.contains { $0.id == originalWorkspace.id })
+        #expect(!manager.tabs.contains { workspace in
+            workspace.worktreeSidebarCandidateDirectories().contains { directory in
+                directory == worktreePath || directory.hasPrefix(worktreePath + "/")
+            }
+        })
+
+        await git.resumeRemoval()
+        await waiter.wait(for: model) { $0.operationPhase == .idle }
+
+        #expect(manager.tabs.contains { workspace in
+            workspace.worktreeSidebarCandidateDirectories().contains { directory in
+                directory == worktreePath || directory.hasPrefix(worktreePath + "/")
+            }
+        })
+    }
+
     @Test("keep-unmerged disposition preserves a branch already merged into HEAD")
     func keepUnmergedDispositionPreservesBranchMergedIntoHEAD() async throws {
         let container = FileManager.default.temporaryDirectory
