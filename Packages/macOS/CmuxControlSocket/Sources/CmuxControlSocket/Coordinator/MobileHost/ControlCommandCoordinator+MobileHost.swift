@@ -53,6 +53,10 @@ extension ControlCommandCoordinator {
             return context?.controlMobileTerminalPaste(params: request.params)
         case "chat.sessions.dump":
             return context?.controlMobileChatSessionsDump()
+        case "hive.open":
+            return context?.controlHiveOpen(params: request.params)
+        case "hive.render_probe":
+            return context?.controlHiveRenderProbe()
         default:
             return nil
         }

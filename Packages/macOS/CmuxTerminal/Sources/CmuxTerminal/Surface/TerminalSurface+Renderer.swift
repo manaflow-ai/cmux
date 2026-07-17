@@ -152,4 +152,59 @@ extension TerminalSurface {
         }
 #endif
     }
+
+    /// Make sure this surface's renderer is actually producing frames.
+    ///
+    /// A surface that lives in a window that has never been key — a mirror
+    /// viewer window opened behind Settings, or a manual-IO display pane the
+    /// user never focuses — can have live terminal state and a realized view
+    /// yet draw nothing: `setFocus(true)` is the only path that asserts the
+    /// display id, so Ghostty's per-surface display link may never start.
+    /// This re-realizes a released renderer, asserts the display id from the
+    /// view's current screen so the display link can start without a focus
+    /// event, and requests a refresh.
+    @MainActor
+    public func ensureRendererDrawing() {
+#if os(macOS)
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "renderer.ensureDrawing") else { return }
+        realizeRenderer()
+        if let view = attachedView,
+           let displayID = (view.window?.screen ?? NSScreen.main)?.displayID,
+           displayID != 0 {
+            ghostty_surface_set_display_id(surface, displayID)
+        }
+        // Ghostty renderers start `focused = true` with the display link
+        // running, and a running link means draws happen ONLY on its vsync
+        // callbacks. A surface that never receives a focus event (a mirror
+        // display pane is never first responder) can therefore sit on a dead
+        // link forever: refreshes are consumed but nothing is drawn. Force a
+        // focus transition to leave that state — unfocused renderers stop the
+        // link and draw change-driven; a genuinely focused pane gets the link
+        // restarted on the display id asserted above.
+        ghostty_surface_set_focus(surface, false)
+        if desiredFocusState {
+            ghostty_surface_set_focus(surface, true)
+        }
+        ghostty_surface_refresh(surface)
+#endif
+    }
+
+    /// One-line renderer-state summary for the `hive.render_probe` debug RPC:
+    /// runtime/realized/visibility flags, manual-IO, the live grid and pixel
+    /// size, and the display id the surface's window resolves to.
+    @MainActor
+    public func rendererDebugSummary() -> String {
+        var size = "none"
+        if let surface = liveSurfaceForGhosttyAccess(reason: "renderer.debugSummary") {
+            let s = ghostty_surface_size(surface)
+            size = "\(s.columns)x\(s.rows)@\(s.width_px)x\(s.height_px)px"
+        }
+        var display = "none"
+        if let view = attachedView, let id = view.window?.screen?.displayID {
+            display = "\(id)"
+        }
+        return "runtime=\(surface != nil ? 1 : 0) realized=\(rendererRealized ? 1 : 0) "
+            + "portalVisible=\(rendererPortalVisible ? 1 : 0) manualIO=\(manualIO ? 1 : 0) "
+            + "focusDesired=\(desiredFocusState ? 1 : 0) size=\(size) display=\(display)"
+    }
 }

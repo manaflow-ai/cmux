@@ -64,54 +64,9 @@ extension HostSettingsActions {
     }
 
     func openComputerViewer(deviceID: String) {
-        // Honor the presentation setting: sidebar mode routes the key main
-        // window's content to the embedded computer page (same page the
-        // sidebar scope picker drives); windows mode opens/focuses the
-        // per-computer auxiliary viewer window.
-        Task { @MainActor in
-            let presentation: ComputersPresentationMode
-            if let runtime = AppDelegate.shared?.settingsRuntime {
-                presentation = await runtime.jsonStore.value(for: runtime.catalog.computers.presentation)
-            } else {
-                presentation = .windows
-            }
-            switch presentation {
-            case .sidebar:
-                guard let appDelegate = AppDelegate.shared,
-                      let context = appDelegate.mainWindowContexts.values.first(where: { $0.window?.isKeyWindow == true })
-                        ?? appDelegate.mainWindowContexts.values.first(where: { $0.window != nil })
-                else {
-                    HiveViewerWindowController.shared.show(deviceID: deviceID)
-                    return
-                }
-                // Native mirrors: the computer's workspaces join the main
-                // sidebar as real workspaces.
-                context.sidebarSelectionState.selection = .tabs
-                _ = await HiveComputerMirrorController.shared.attach(
-                    deviceID: deviceID,
-                    into: context.tabManager
-                )
-                context.window?.makeKeyAndOrderFront(nil)
-            case .windows:
-                // A real cmux window scoped to this computer: create a main
-                // window, scope its sidebar to the device, attach mirrors.
-                guard let appDelegate = AppDelegate.shared else { return }
-                let windowId = appDelegate.createMainWindow(shouldActivate: true)
-                var context = appDelegate.mainWindowContexts.values.first { $0.windowId == windowId }
-                var attempts = 0
-                while context == nil, attempts < 20 {
-                    try? await Task.sleep(for: .milliseconds(100))
-                    context = appDelegate.mainWindowContexts.values.first { $0.windowId == windowId }
-                    attempts += 1
-                }
-                guard let context else { return }
-                HiveSidebarScopeModel.scopeModel(for: context.tabManager).scope = .device(deviceID)
-                _ = await HiveComputerMirrorController.shared.attach(
-                    deviceID: deviceID,
-                    into: context.tabManager
-                )
-            }
-        }
+        // One shared action path with the sidebar scope picker and the
+        // `hive.open` RPC; honors the `computers.presentation` setting.
+        HiveComputerMirrorController.presentViewer(deviceID: deviceID)
     }
 
     /// Mints a short-lived 6-digit pairing code and advertises it through the

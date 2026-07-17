@@ -1,5 +1,6 @@
 import CmuxHive
 import CmuxMobileRPC
+import CmuxSettings
 import CmuxTerminal
 import Foundation
 
@@ -45,6 +46,12 @@ final class HiveComputerMirrorController {
         var rows = 0
     }
 
+    /// Weak panel holder so closures passed INTO `addRemoteTmuxDisplayPane`
+    /// (which creates the panel) can reference the created panel afterwards.
+    private final class HiveMirrorPanelBox {
+        weak var panel: TerminalPanel?
+    }
+
     /// Repaints a mirror workspace's terminals from their cached full frames
     /// and re-requests replays. Called when the workspace is selected so a
     /// surface that realized after its replay landed still paints. Scoped to
@@ -57,6 +64,11 @@ final class HiveComputerMirrorController {
             let terminalIDs = mirror.terminalIDsByRemoteWorkspaceID[remoteWorkspaceID] ?? []
             for terminalID in terminalIDs {
                 guard let terminal = mirror.terminalsByRemoteID[terminalID] else { continue }
+                if let panelId = mirror.panelIdByRemoteTerminalID[terminalID],
+                   let workspace = mirror.tabManager?.workspacesById[workspaceId],
+                   let panel = workspace.panels[panelId] as? TerminalPanel {
+                    panel.surface.ensureRendererDrawing()
+                }
                 if let cached = terminal.lastFullFrameBytes {
                     terminal.frameBytesHandler?(cached)
                 }
@@ -76,6 +88,64 @@ final class HiveComputerMirrorController {
         return nil
     }
 
+    /// Open a paired computer's viewer honoring the `computers.presentation`
+    /// setting. This is the ONE shared action path behind every entrypoint
+    /// (Settings "Open" button, sidebar scope picker, `hive.open` RPC):
+    /// sidebar mode attaches mirrors into the key main window's sidebar;
+    /// windows mode creates a real main window scoped to the device.
+    static func presentViewer(deviceID: String) {
+        Task { @MainActor in
+            cmuxDebugLog("hive.presentViewer.begin device=\(deviceID.prefix(8))")
+            let presentation: ComputersPresentationMode
+            if let runtime = AppDelegate.shared?.settingsRuntime {
+                presentation = await runtime.jsonStore.value(for: runtime.catalog.computers.presentation)
+            } else {
+                presentation = .windows
+            }
+            cmuxDebugLog("hive.presentViewer.mode \(presentation)")
+            switch presentation {
+            case .sidebar:
+                guard let appDelegate = AppDelegate.shared,
+                      let context = appDelegate.mainWindowContexts.values.first(where: { $0.window?.isKeyWindow == true })
+                        ?? appDelegate.mainWindowContexts.values.first(where: { $0.window != nil })
+                else {
+                    HiveViewerWindowController.shared.show(deviceID: deviceID)
+                    return
+                }
+                // Native mirrors: the computer's workspaces join the main
+                // sidebar as real workspaces.
+                context.sidebarSelectionState.selection = .tabs
+                _ = await HiveComputerMirrorController.shared.attach(
+                    deviceID: deviceID,
+                    into: context.tabManager
+                )
+                context.window?.makeKeyAndOrderFront(nil)
+            case .windows:
+                // A real cmux window scoped to this computer: create a main
+                // window, scope its sidebar to the device, attach mirrors.
+                guard let appDelegate = AppDelegate.shared else { return }
+                let windowId = appDelegate.createMainWindow(shouldActivate: true)
+                var context = appDelegate.mainWindowContexts.values.first { $0.windowId == windowId }
+                var attempts = 0
+                while context == nil, attempts < 20 {
+                    try? await Task.sleep(for: .milliseconds(100))
+                    context = appDelegate.mainWindowContexts.values.first { $0.windowId == windowId }
+                    attempts += 1
+                }
+                guard let context else {
+                    cmuxDebugLog("hive.presentViewer.windowContextMissing windowId=\(windowId)")
+                    return
+                }
+                HiveSidebarScopeModel.scopeModel(for: context.tabManager).scope = .device(deviceID)
+                let attached = await HiveComputerMirrorController.shared.attach(
+                    deviceID: deviceID,
+                    into: context.tabManager
+                )
+                cmuxDebugLog("hive.presentViewer.attached workspace=\(attached?.uuidString.prefix(8) ?? "nil")")
+            }
+        }
+    }
+
     /// Attaches (or re-focuses) a paired computer's workspaces as native
     /// mirror workspaces in `tabManager`, keeping them reconciled with the
     /// host's live topology.
@@ -91,6 +161,7 @@ final class HiveComputerMirrorController {
             mirrorsByDeviceID.removeValue(forKey: deviceID)
         }
         guard let session = await HiveComputersService.shared.embeddedSession(deviceID: deviceID) else {
+            cmuxDebugLog("hive.mirror.attach.noSession device=\(deviceID.prefix(8))")
             return nil
         }
         let mirror = DeviceMirror()
@@ -225,6 +296,7 @@ final class HiveComputerMirrorController {
                     await HiveReconnectBackoff().delay(attempt: attempt)
                 }
             )
+            let panelBox = HiveMirrorPanelBox()
             guard let panel = workspace.addRemoteTmuxDisplayPane(
                 remotePaneId: index,
                 title: terminal.title,
@@ -234,18 +306,23 @@ final class HiveComputerMirrorController {
                     guard !text.isEmpty else { return }
                     Task { @MainActor in terminalSession.send(text: text) }
                 },
-                onResize: { [weak terminalSession, weak self] _, _ in
+                onResize: { [weak terminalSession] _, _ in
                     // A replay delivered to an unrealized/zero-sized manual
                     // surface renders nothing; repaint from the cached full
-                    // frame immediately and re-request a fresh replay.
+                    // frame immediately and re-request a fresh replay. The
+                    // resize is also the first moment the view is laid out in
+                    // its window, so kick the renderer here — a mirror window
+                    // that never becomes key gets no focus event, and focus is
+                    // otherwise the only path that starts the display link.
+                    panelBox.panel?.surface.ensureRendererDrawing()
                     guard let terminalSession else { return }
                     if let cached = terminalSession.lastFullFrameBytes {
                         terminalSession.frameBytesHandler?(cached)
                     }
                     terminalSession.refreshReplay()
-                    _ = self
                 }
             ) else { continue }
+            panelBox.panel = panel
             // Font-fitted fill is disabled until the fit path supports
             // manual surfaces reliably (post-merge it produced blank panes);
             // the legacy cap renders at remote size, which always paints.
@@ -265,6 +342,9 @@ final class HiveComputerMirrorController {
                         rows: grid.rows,
                         reason: "hiveMirrorFrame"
                     )
+                    // First frame (or a remote resize): make sure the renderer
+                    // is actually producing frames — see onResize above.
+                    panel.surface.ensureRendererDrawing()
                 }
                 guard !bytes.isEmpty else { return }
                 panel.surface.processRemoteOutput(bytes)
