@@ -1895,13 +1895,15 @@ final class DiffViewerSchemeTaskLifecycle: @unchecked Sendable {
         stop(state)
     }
 
-    func stop(_ taskID: ObjectIdentifier) {
+    @discardableResult
+    func stop(_ taskID: ObjectIdentifier) -> Registration? {
         lock.lock()
         let entry = registrationByTask.removeValue(forKey: taskID)
         lock.unlock()
         if let entry {
             stop(entry.1)
         }
+        return entry?.0
     }
 
     private func stop(_ state: State) {
@@ -1915,37 +1917,97 @@ final class DiffViewerSchemeTaskLifecycle: @unchecked Sendable {
 }
 
 actor DiffViewerAssetStreamLimiter {
-    private var availablePermits: Int
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private struct Waiter {
+        let key: UUID
+        let continuation: CheckedContinuation<Bool, Never>
+    }
 
-    init(limit: Int) {
-        precondition(limit > 0)
+    #if DEBUG
+    private struct QueueCountWaiter {
+        let count: Int
+        let continuation: CheckedContinuation<Void, Never>
+    }
+    #endif
+
+    private var availablePermits: Int
+    private let queueLimit: Int
+    private var waiters: [Waiter] = []
+    #if DEBUG
+    private var queueCountWaiters: [QueueCountWaiter] = []
+    #endif
+
+    init(limit: Int, queueLimit: Int = 64) {
+        precondition(limit > 0 && queueLimit > 0)
         availablePermits = limit
+        self.queueLimit = queueLimit
     }
 
     func withPermit(_ operation: @Sendable () async -> Void) async {
-        await acquire()
-        await operation()
-        release()
+        _ = await withPermit(key: UUID(), operation)
     }
 
-    private func acquire() async {
+    @discardableResult
+    func withPermit(
+        key: UUID,
+        _ operation: @Sendable () async -> Void
+    ) async -> Bool {
+        guard await acquire(key: key) else { return false }
+        await operation()
+        release()
+        return true
+    }
+
+    func cancel(_ key: UUID) {
+        guard let index = waiters.firstIndex(where: { $0.key == key }) else { return }
+        let waiter = waiters.remove(at: index)
+        waiter.continuation.resume(returning: false)
+    }
+
+    #if DEBUG
+    func waitUntilQueued(count: Int) async {
+        guard waiters.count < count else { return }
+        await withCheckedContinuation { continuation in
+            queueCountWaiters.append(QueueCountWaiter(count: count, continuation: continuation))
+        }
+    }
+    #endif
+
+    private func acquire(key: UUID) async -> Bool {
         if availablePermits > 0 {
             availablePermits -= 1
-            return
+            return true
         }
-        await withCheckedContinuation { continuation in
-            waiters.append(continuation)
+        guard waiters.count < queueLimit else { return false }
+        return await withCheckedContinuation { continuation in
+            waiters.append(Waiter(key: key, continuation: continuation))
+            #if DEBUG
+            resumeSatisfiedQueueCountWaiters()
+            #endif
         }
     }
 
     private func release() {
-        guard let waiter = waiters.popLast() else {
+        guard !waiters.isEmpty else {
             availablePermits += 1
             return
         }
-        waiter.resume()
+        let waiter = waiters.removeFirst()
+        waiter.continuation.resume(returning: true)
     }
+
+    #if DEBUG
+    private func resumeSatisfiedQueueCountWaiters() {
+        var remaining: [QueueCountWaiter] = []
+        for waiter in queueCountWaiters {
+            if waiters.count >= waiter.count {
+                waiter.continuation.resume()
+            } else {
+                remaining.append(waiter)
+            }
+        }
+        queueCountWaiters = remaining
+    }
+    #endif
 }
 final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     static let scheme = "cmux-diff-viewer"
@@ -2383,7 +2445,9 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
 
     func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
         let taskID = ObjectIdentifier(urlSchemeTask as AnyObject)
-        taskLifecycle.stop(taskID)
+        if let registration = taskLifecycle.stop(taskID) {
+            Task { await assetStreamLimiter.cancel(registration.generation) }
+        }
     }
 
     static func registeredFile(from object: [String: Any]) -> RegisteredFile? {
@@ -2580,7 +2644,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         )
 
         Task.detached(priority: .userInitiated) {
-            await streamLimiter.withPermit {
+            let admitted = await streamLimiter.withPermit(key: registration.generation) {
                 do {
                     guard lifecycle.deliver(registration, {
                         urlSchemeTask.didReceive(response)
@@ -2612,6 +2676,13 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
                     lifecycle.finish(registration)
                 }
             }
+            guard !admitted else { return }
+            guard lifecycle.deliver(registration, {
+                urlSchemeTask.didFailWithError(
+                    NSError(domain: NSURLErrorDomain, code: NSURLErrorResourceUnavailable)
+                )
+            }) else { return }
+            lifecycle.finish(registration)
         }
     }
 

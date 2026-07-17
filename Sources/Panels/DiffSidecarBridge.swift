@@ -1,6 +1,28 @@
 import Foundation
 import WebKit
 
+private final class DiffSidecarProcessExitSignal: @unchecked Sendable {
+    private let condition = NSCondition()
+    private var exited = false
+
+    func markExited() {
+        condition.lock()
+        exited = true
+        condition.broadcast()
+        condition.unlock()
+    }
+
+    func wait(timeout: TimeInterval) -> Bool {
+        condition.lock()
+        defer { condition.unlock() }
+        let deadline = Date(timeIntervalSinceNow: timeout)
+        while !exited {
+            guard condition.wait(until: deadline) else { return exited }
+        }
+        return true
+    }
+}
+
 /// Reply-capable transport for the Rust diff sidecar. Requests share one
 /// app-scoped child over bounded stdin/stdout frames. The sidecar never opens a
 /// socket, and WebKit never receives filesystem paths or process access.
@@ -255,8 +277,8 @@ actor DiffSidecarProcessSupervisor {
         }
     }
 
-    func shutdown() {
-        stopProcess(error: CancellationError())
+    func shutdown() async {
+        await stopProcess(error: CancellationError())
     }
 
     private func ensureRunning() async throws {
@@ -273,7 +295,7 @@ actor DiffSidecarProcessSupervisor {
             startupTask = nil
         } catch {
             startupTask = nil
-            stopProcess(error: error)
+            await stopProcess(error: error)
             throw error
         }
     }
@@ -387,7 +409,7 @@ actor DiffSidecarProcessSupervisor {
                 try Self.write(frame: request, to: input.fileHandleForWriting)
             } catch {
                 complete(requestID: requestID, result: .failure(error))
-                transportDidFail(generation: requestGeneration, error: error)
+                Task { await self.transportDidFail(generation: requestGeneration, error: error) }
             }
         }
     }
@@ -430,22 +452,22 @@ actor DiffSidecarProcessSupervisor {
         request.continuation.resume(with: result)
     }
 
-    private func processDidExit(generation: UInt64, status: Int32) {
+    private func processDidExit(generation: UInt64, status: Int32) async {
         guard generation == self.generation else { return }
-        stopProcess(error: SupervisorError.processExited(status))
+        await stopProcess(error: SupervisorError.processExited(status))
     }
 
-    private func outputDidEnd(generation: UInt64) {
+    private func outputDidEnd(generation: UInt64) async {
         guard generation == self.generation else { return }
-        stopProcess(error: SupervisorError.processExited(process?.terminationStatus ?? -1))
+        await stopProcess(error: SupervisorError.processExited(process?.terminationStatus ?? -1))
     }
 
-    private func transportDidFail(generation: UInt64, error: Error) {
+    private func transportDidFail(generation: UInt64, error: Error) async {
         guard generation == self.generation else { return }
-        stopProcess(error: error)
+        await stopProcess(error: error)
     }
 
-    private func stopProcess(error: Error) {
+    private func stopProcess(error: Error) async {
         generation &+= 1
         startupTask?.cancel()
         startupTask = nil
@@ -458,10 +480,8 @@ actor DiffSidecarProcessSupervisor {
         try? input?.fileHandleForWriting.close()
         try? output?.fileHandleForReading.close()
         try? readiness?.fileHandleForReading.close()
-        if let process, process.isRunning {
-            Self.terminate(process)
-        }
-        process?.terminationHandler = nil
+        let processToReap = process
+        processToReap?.terminationHandler = nil
         process = nil
         input = nil
         output = nil
@@ -471,6 +491,9 @@ actor DiffSidecarProcessSupervisor {
         for request in pendingRequests {
             request.timeoutTask.cancel()
             request.continuation.resume(throwing: error)
+        }
+        if let processToReap, processToReap.isRunning {
+            await Self.terminateAndReap(processToReap)
         }
     }
 
@@ -520,14 +543,41 @@ actor DiffSidecarProcessSupervisor {
         }
     }
 
-    private nonisolated static func terminate(_ process: Process) {
+    nonisolated static func terminateAndReap(
+        _ process: Process,
+        gracePeriod: Duration = .seconds(1)
+    ) async {
         let processID = process.processIdentifier
         guard processID > 0 else { return }
+        let exitSignal = DiffSidecarProcessExitSignal()
+        process.terminationHandler = { _ in exitSignal.markExited() }
+        if !process.isRunning {
+            exitSignal.markExited()
+        }
         if Darwin.getpgid(processID) == processID {
             _ = Darwin.kill(-processID, SIGTERM)
         } else {
             process.terminate()
         }
+        let components = gracePeriod.components
+        let timeout = max(
+            0,
+            Double(components.seconds) + Double(components.attoseconds) / 1_000_000_000_000_000_000
+        )
+        let exitedDuringGrace = await Task.detached(priority: .utility) {
+            exitSignal.wait(timeout: timeout)
+        }.value
+        if !exitedDuringGrace, process.isRunning {
+            if Darwin.getpgid(processID) == processID {
+                _ = Darwin.kill(-processID, SIGKILL)
+            } else {
+                _ = Darwin.kill(processID, SIGKILL)
+            }
+        }
+        await Task.detached(priority: .utility) {
+            process.waitUntilExit()
+        }.value
+        process.terminationHandler = nil
     }
 
     private nonisolated static func prepareRootDirectory() throws -> URL {

@@ -6057,18 +6057,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         let fallbackCwd = workspace.resolvedWorkingDirectory()
             ?? FileManager.default.homeDirectoryForCurrentUser.path
-        let agentSnapshot = preferAgentContext
-            ? SharedLiveAgentIndex.shared.snapshot(workspaceId: workspace.id, panelId: sourceSurfaceId)
-            : nil
-        let launchContext = Self.openDiffViewerLaunchContext(
-            preferAgentContext: preferAgentContext,
-            fallbackCwd: fallbackCwd,
-            sessionId: agentSnapshot?.sessionId,
-            agentProvider: agentSnapshot?.kind.diffTrajectoryProvider,
-            agentWorkingDirectory: agentSnapshot?.workingDirectory
-                ?? agentSnapshot?.launchCommand?.workingDirectory
-        )
-
         let loadingURL = DiffViewerLoadingPage.url
         let sourcePresentationView: NSView? = {
             if let terminal = workspace.panels[sourceSurfaceId] as? TerminalPanel {
@@ -6112,22 +6100,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "surface=\(placement.panel.id.uuidString.prefix(5)) immediate=\(presentedImmediately ? 1 : 0)"
         )
 #endif
-        let launched = launchDiffViewerProcess(
-            cliURL: cliURL,
-            socketPath: socketPath,
-            cwd: launchContext.cwd,
-            workspaceId: workspace.id,
-            surfaceId: sourceSurfaceId,
-            useLastTurnSource: launchContext.useLastTurnSource,
-            sessionId: launchContext.sessionId,
-            agentProvider: launchContext.agentProvider,
-            targetSurfaceId: placement.panel.id,
-            targetExpectedURL: loadingURL.absoluteString
-        )
-        if !launched {
-            _ = workspace.closePanel(placement.panel.id, force: true)
+        let targetSurfaceId = placement.panel.id
+        let workspaceId = workspace.id
+        let launch: (SessionRestorableAgentSnapshot?) -> Bool = { [weak self] agentSnapshot in
+            guard let self else { return false }
+            let launchContext = Self.openDiffViewerLaunchContext(
+                preferAgentContext: preferAgentContext,
+                fallbackCwd: fallbackCwd,
+                sessionId: agentSnapshot?.sessionId,
+                agentProvider: agentSnapshot?.kind.diffTrajectoryProvider,
+                agentWorkingDirectory: agentSnapshot?.workingDirectory
+                    ?? agentSnapshot?.launchCommand?.workingDirectory
+            )
+            return self.launchDiffViewerProcess(
+                cliURL: cliURL,
+                socketPath: socketPath,
+                cwd: launchContext.cwd,
+                workspaceId: workspaceId,
+                surfaceId: sourceSurfaceId,
+                useLastTurnSource: launchContext.useLastTurnSource,
+                sessionId: launchContext.sessionId,
+                agentProvider: launchContext.agentProvider,
+                targetSurfaceId: targetSurfaceId,
+                targetExpectedURL: loadingURL.absoluteString
+            )
         }
-        return launched
+        guard preferAgentContext else {
+            let launched = launch(nil)
+            if !launched {
+                _ = workspace.closePanel(targetSurfaceId, force: true)
+            }
+            return launched
+        }
+
+        Task { @MainActor [weak tabManager, weak workspace] in
+            let freshSnapshot = await SharedLiveAgentIndex.shared.freshSnapshot(
+                workspaceId: workspaceId,
+                panelId: sourceSurfaceId
+            )
+            guard let workspace,
+                  tabManager?.selectedWorkspace?.id == workspace.id,
+                  workspace.panels[sourceSurfaceId] != nil,
+                  workspace.focusedPanelId == targetSurfaceId,
+                  let targetPanel = workspace.panels[targetSurfaceId] as? BrowserPanel,
+                  targetPanel.isShowingDiffViewerLoadingState(expectedURL: loadingURL.absoluteString) else {
+                if let workspace {
+                    _ = workspace.closePanel(targetSurfaceId, force: true)
+                }
+                return
+            }
+            let launched = launch(freshSnapshot)
+            if !launched {
+                _ = workspace.closePanel(targetSurfaceId, force: true)
+            }
+        }
+        return true
     }
 
     nonisolated static func openDiffViewerLaunchContext(
