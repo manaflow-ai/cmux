@@ -198,6 +198,13 @@ enum MobileHostSyncDecision: Equatable {
     case restart
 }
 
+/// Separates account-authenticated Iroh availability from the opt-in legacy
+/// TCP listener used by Tailscale and other private-network clients.
+struct MobileHostStartupPlan: Equatable {
+    let activatesIroh: Bool
+    let startsLegacyListener: Bool
+}
+
 /// Outcome of an explicit "Apply port" request from settings. A pure value so
 /// ``MobileHostService/portApplyDecision(enabled:currentBoundPort:requestedPort:isAvailable:)``
 /// is unit-testable without binding a real `NWListener`.
@@ -506,6 +513,19 @@ final class MobileHostService {
         return .noop
     }
 
+    /// Iroh is an account-authenticated transport and starts for every signed-in
+    /// Mac. The legacy listener remains opt-in so existing Tailscale and private
+    /// network users keep their route without making it a prerequisite for Iroh.
+    nonisolated static func startupPlan(
+        legacyListenerEnabled: Bool,
+        legacyListenerRunning: Bool
+    ) -> MobileHostStartupPlan {
+        MobileHostStartupPlan(
+            activatesIroh: true,
+            startsLegacyListener: legacyListenerEnabled && !legacyListenerRunning
+        )
+    }
+
     /// Pure pre-bind classification for an explicit "Apply port" request. Returns
     /// the outcome for the cases that need no bind attempt, or `nil` when a real
     /// bind must be tried (pairing on, valid port, different from the bound one).
@@ -676,18 +696,22 @@ final class MobileHostService {
     }
 
     func start() {
-        guard Self.isListeningEnabled else {
+        let plan = Self.startupPlan(
+            legacyListenerEnabled: Self.isListeningEnabled,
+            legacyListenerRunning: listener != nil
+        )
+        guard plan.startsLegacyListener else {
             #if DEBUG
             if Self.canPublishRoutesWithoutListenerForXCTest(defaults: .standard) {
                 publishRoutesWithoutListenerForXCTest()
-                return
             }
             #endif
-            mobileHostLog.info("mobile host listener disabled; not binding")
-            return
-        }
-        guard listener == nil else {
-            MobileHostIrohRuntime.shared.setDesiredActive(true)
+            if listener == nil {
+                mobileHostLog.info("legacy mobile host listener disabled; starting Iroh only")
+            }
+            if plan.activatesIroh {
+                MobileHostIrohRuntime.shared.setDesiredActive(true)
+            }
             return
         }
 
@@ -915,6 +939,9 @@ final class MobileHostService {
     /// no caller-supplied store to honor here.
     func syncToSettings() {
         let defaults = UserDefaults.standard
+        // Settings control only the legacy TCP/Tailscale listener. Account-
+        // authenticated Iroh stays available for signed-in Macs.
+        MobileHostIrohRuntime.shared.setDesiredActive(true)
         // An invalid stored port (`resolvedDesiredPort == nil`, e.g. mid-edit)
         // must not restart a running listener. Treat it as "no change" by
         // reusing the applied port; a fresh start still binds the default via
@@ -933,7 +960,7 @@ final class MobileHostService {
         case .start:
             start()
         case .stop:
-            stop()
+            stopLegacyListener(reason: "legacy pairing listener disabled")
         case .restart:
             restart()
         }

@@ -293,9 +293,17 @@ extension MobileHostIrohRuntime {
                 )
             },
             handleLANRefresh: {
+                guard MobileHostService.isListeningEnabled else {
+                    await lanPublisher.stop()
+                    return
+                }
                 await lanPublisher.refresh()
             },
             handleLANPolicy: { context, directAddresses in
+                guard MobileHostService.isListeningEnabled else {
+                    await lanPublisher.stop()
+                    return
+                }
                 await lanPublisher.activate(
                     rendezvous: context.rendezvous,
                     binding: context.binding,

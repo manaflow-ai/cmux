@@ -218,6 +218,10 @@ extension MobileHostIrohRuntime {
             scheduleReconcile(eraseAccountState: true)
             return
         }
+        // Network-path observations are freshness hints, not ownership
+        // transitions. The in-flight activation already observes endpoint
+        // changes and replays one pending registration refresh after startup.
+        guard transitionTask == nil else { return }
         if runtime != nil {
             let revision = lifecycleRevision
             Task { @MainActor [weak self] in
@@ -225,11 +229,33 @@ extension MobileHostIrohRuntime {
                       self.desiredActive,
                       self.runtime != nil,
                       revision == self.lifecycleRevision else { return }
-                await self.lanPublisher.permissionMayHaveChanged()
+                await self.synchronizeLANPublicationWithSettings()
             }
             return
         }
         scheduleReconcile(eraseAccountState: false)
+    }
+
+    /// Applies the legacy-listener setting only to account-private Bonjour
+    /// publication. The authenticated Iroh endpoint and broker binding remain
+    /// active regardless, while enabling the listener later can publish the
+    /// already-validated runtime without restarting it.
+    func synchronizeLANPublicationWithSettings() async {
+        guard MobileHostService.isListeningEnabled else {
+            await lanPublisher.stop()
+            return
+        }
+        guard desiredActive,
+              let runtime,
+              let context = await runtime.lanAdvertisementContext() else {
+            await lanPublisher.stop()
+            return
+        }
+        await lanPublisher.activate(
+            rendezvous: context.rendezvous,
+            binding: context.binding,
+            directAddresses: { await runtime.localDirectAddresses() }
+        )
     }
 
     /// Stops the endpoint and durably quarantines its binding before auth clears tokens.
