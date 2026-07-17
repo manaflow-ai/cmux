@@ -12,6 +12,30 @@ import CmuxTerminal
 @MainActor
 @Suite
 struct GhosttyDrawableSizeRetryTests {
+    @Test func remoteRendererBackingLayerLeavesRootGeometryToAppKit() throws {
+        _ = NSApplication.shared
+
+        let initialSize = CGSize(width: 760, height: 644)
+        let resizedSize = CGSize(width: 379.5, height: 644)
+        let surfaceView = GhosttyNSView(
+            frame: NSRect(origin: .zero, size: initialSize)
+        )
+        surfaceView.configureRemoteRenderer(
+            surfaceID: UUID(),
+            surfaceGeneration: 1,
+            width: 1_520,
+            height: 1_288
+        )
+
+        let remoteLayer = try #require(surfaceView.layer as? GhosttyRemoteIOSurfaceLayer)
+        #expect(remoteLayer.autoresizingMask.isEmpty)
+
+        surfaceView.setFrameSize(resizedSize)
+        surfaceView.layoutSubtreeIfNeeded()
+
+        #expect(remoteLayer.frame == surfaceView.bounds)
+    }
+
     @Test func reconcilesDrawableAfterFullSizeUpdateRunsBeforeMetalLayerRealizes() throws {
         _ = NSApplication.shared
 
