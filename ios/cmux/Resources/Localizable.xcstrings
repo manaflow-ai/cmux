@@ -3350,6 +3350,23 @@
         }
       }
     },
+    "mobile.pairing.buildIncompatible": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This iPhone build cannot connect to that cmux build."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この iPhone ビルドは、その cmux ビルドに接続できません。"
+          }
+        }
+      }
+    },
     "mobile.pairing.emailMismatchFormat": {
       "extractionState": "manual",
       "localizations": {
@@ -3407,13 +3424,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rebuild this app with production auth (ios/scripts/reload.sh --prod-auth), or pair with a dev-channel Mac signed in to the same account."
+            "value": "Use BETA, INTERNAL, or the App Store app with Stable or Nightly. Use this DEV app with a Mac that has the same DEV tag."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "本番認証を使ってこのアプリをビルドし直す（ios/scripts/reload.sh --prod-auth）か、同じアカウントでサインインした開発チャネルの Mac とペアリングしてください。"
+            "value": "BETA、INTERNAL、または App Store アプリは Stable または Nightly と一緒に使用してください。この DEV アプリは同じ DEV タグを持つ Mac と一緒に使用してください。"
           }
         }
       }
@@ -3431,6 +3448,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "リリース版の cmux アプリを実行している Mac とペアリングするか、開発用の Mac には開発チャネルの iPhone ビルドを使用してください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.guidance.buildIncompatible": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DEV builds must use the same DEV tag. BETA, INTERNAL, and App Store builds connect only to Stable or Nightly."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DEV ビルド同士は同じ DEV タグを使用する必要があります。BETA、INTERNAL、App Store ビルドは Stable または Nightly にのみ接続できます。"
           }
         }
       }
