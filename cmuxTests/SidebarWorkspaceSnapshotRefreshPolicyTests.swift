@@ -159,6 +159,8 @@ import Testing
             finderDirectoryPath: finderDirectoryPath,
             mediaActivity: mediaActivity,
             taskStatus: nil,
+            todoStatusMenuModel: nil,
+            hasManualTaskStatus: false,
             checklistItems: [],
             checklistCompletedCount: 0,
             checklistTotalCount: 0,
