@@ -32,6 +32,42 @@ class PackageResolvedPolicyTests(unittest.TestCase):
 
             self.assertFalse(affects_pins)
 
+    def test_workspace_local_path_rewire_does_not_require_lockfile(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            current = self.make_package_tree(root / "current", wrapper="WrapperB")
+            previous = self.make_package_tree(root / "previous", wrapper="WrapperA")
+
+            self.assertFalse(
+                policy.workspace_dependency_pins_changed(
+                    {"Consumer"},
+                    {"Consumer"},
+                    policy.package_graph(current),
+                    policy.package_graph(previous),
+                    {"Consumer"},
+                    set(),
+                )
+            )
+
+    def test_workspace_remote_requirement_change_requires_lockfile(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            current = self.make_package_tree(
+                root / "current", wrapper="WrapperB", wrapper_b_version="2.0.0"
+            )
+            previous = self.make_package_tree(root / "previous", wrapper="WrapperA")
+
+            self.assertTrue(
+                policy.workspace_dependency_pins_changed(
+                    {"Consumer"},
+                    {"Consumer"},
+                    policy.package_graph(current),
+                    policy.package_graph(previous),
+                    {"Consumer"},
+                    {"Consumer"},
+                )
+            )
+
     def test_changed_remote_requirement_affects_consumer_pins(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)

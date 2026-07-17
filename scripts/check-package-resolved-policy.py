@@ -239,6 +239,26 @@ def package_dependency_closure(
     return closure
 
 
+def workspace_dependency_pins_changed(
+    current_workspace_roots: set[str],
+    previous_workspace_roots: set[str],
+    current_graph: dict[str, tuple[bool, list[str]]],
+    previous_graph: dict[str, tuple[bool, list[str]]],
+    changed_dependency_roots: set[str],
+    pin_affecting_dependency_roots: set[str],
+) -> bool:
+    current_dependency_roots: set[str] = set()
+    for root in current_workspace_roots:
+        current_dependency_roots.update(package_dependency_closure(root, current_graph))
+    previous_dependency_roots: set[str] = set()
+    for root in previous_workspace_roots:
+        previous_dependency_roots.update(package_dependency_closure(root, previous_graph))
+    changed_workspace_dependency_roots = (
+        current_dependency_roots | previous_dependency_roots
+    ) & changed_dependency_roots
+    return bool(changed_workspace_dependency_roots & pin_affecting_dependency_roots)
+
+
 def workspace_package_roots(
     workspace_file: str,
     manifests: dict[str, Path],
@@ -546,22 +566,13 @@ def main() -> int:
         if merge_base is not None
         else set()
     )
-    current_ios_workspace_dependency_roots: set[str] = set()
-    for root in current_ios_workspace_roots:
-        current_ios_workspace_dependency_roots.update(
-            package_dependency_closure(root, graph)
-        )
-    previous_ios_workspace_dependency_roots: set[str] = set()
-    for root in previous_ios_workspace_roots:
-        previous_ios_workspace_dependency_roots.update(
-            package_dependency_closure(root, previous_graph)
-        )
-    ios_workspace_dependencies_changed = bool(
-        (
-            current_ios_workspace_dependency_roots
-            | previous_ios_workspace_dependency_roots
-        )
-        & changed_dependency_roots
+    ios_workspace_dependencies_changed = workspace_dependency_pins_changed(
+        current_ios_workspace_roots,
+        previous_ios_workspace_roots,
+        graph,
+        previous_graph,
+        changed_dependency_roots,
+        pin_affecting_dependency_roots,
     )
     changed_ios_workspace_members = (
         current_ios_workspace_roots ^ previous_ios_workspace_roots
