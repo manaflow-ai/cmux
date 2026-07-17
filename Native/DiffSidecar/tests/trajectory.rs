@@ -667,6 +667,59 @@ fn opencode_resolver_uses_diffs_parented_to_the_latest_user_message() {
     assert!(!resolved.patch.contains("+older"));
 }
 
+#[test]
+fn opencode_resolver_rejects_patch_paths_outside_the_repository() {
+    let fixture = FixtureRoot::new("opencode-outside-repo");
+    prepare_common_directories(&fixture);
+    let home = fixture.home();
+    let repo = fixture.repo();
+    let database_path = home.join(".local/share/opencode/opencode.db");
+    fs::create_dir_all(database_path.parent().expect("database parent"))
+        .expect("create database parent");
+    let database = Connection::open(&database_path).expect("open fixture database");
+    database
+        .execute_batch(
+            "CREATE TABLE session (id TEXT PRIMARY KEY, directory TEXT NOT NULL);\n\
+             CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, time_created INTEGER NOT NULL, data TEXT NOT NULL);\n\
+             CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT NOT NULL, session_id TEXT NOT NULL, time_created INTEGER NOT NULL, data TEXT NOT NULL);",
+        )
+        .expect("create OpenCode schema");
+    database
+        .execute(
+            "INSERT INTO session (id, directory) VALUES (?1, ?2)",
+            ("opencode-session", repo.to_string_lossy().as_ref()),
+        )
+        .expect("insert session");
+    insert_opencode_message(
+        &database,
+        "user-current",
+        1,
+        &serde_json::json!({"role":"user"}),
+    );
+    insert_opencode_message(
+        &database,
+        "assistant-current",
+        2,
+        &serde_json::json!({"role":"assistant","parentID":"user-current"}),
+    );
+    insert_opencode_part(
+        &database,
+        "part-current",
+        "assistant-current",
+        3,
+        "Index: /tmp/outside.txt\n--- /tmp/outside.txt\n+++ /tmp/outside.txt\n@@ -1 +1 @@\n-before\n+after\n",
+    );
+    drop(database);
+
+    let error = resolve_last_turn_patch(
+        &AgentTurnIdentity::new(AgentProvider::OpenCode, "opencode-session"),
+        &TrajectoryRoots::for_home(home),
+    )
+    .expect_err("outside-repository OpenCode paths must be rejected");
+
+    assert_eq!(error.to_string(), "agent trajectory is invalid");
+}
+
 fn prepare_common_directories(fixture: &FixtureRoot) {
     fs::create_dir_all(fixture.home().join(".cmuxterm")).expect("create hook store directory");
     fs::create_dir_all(fixture.repo()).expect("create repository directory");

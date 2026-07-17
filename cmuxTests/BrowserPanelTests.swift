@@ -825,6 +825,21 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         XCTAssertEqual(delivered, 2)
     }
 
+    func testDiffViewerSchemeLifecycleCanDeliverOffMainActor() async {
+        let lifecycle = DiffViewerSchemeTaskLifecycle()
+        let registration = lifecycle.register(ObjectIdentifier(NSObject()))
+        let delivered = expectation(description: "callback delivered off main actor")
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            XCTAssertTrue(lifecycle.deliver(registration) {
+                XCTAssertFalse(Thread.isMainThread)
+            })
+            delivered.fulfill()
+        }
+
+        await fulfillment(of: [delivered], timeout: 1)
+    }
+
     func testDiffViewerAssetStreamLimiterBoundsConcurrentReaders() async {
         let limiter = DiffViewerAssetStreamLimiter(limit: 2)
         let probe = DiffViewerStreamConcurrencyProbe()
