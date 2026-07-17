@@ -74,4 +74,12 @@ struct BrowserNotificationPermissionRepositoryTests {
         #expect(repository.decision(for: unrelatedOrigin, profileID: migratingProfile) == .denied)
         #expect(repository.decision(for: legacyDisplayOrigin, profileID: otherProfile) == .denied)
     }
+
+    @Test func canonicalOriginPreservesIPv6LiteralHosts() throws {
+        let loopback = try #require(URL(string: "http://[::1]:8080/inbox?q=1"))
+        let expanded = try #require(URL(string: "https://[2001:db8::7]:9443/path"))
+
+        #expect(BrowserNotificationPermissionRepository.canonicalOrigin(loopback) == "http://[::1]:8080")
+        #expect(BrowserNotificationPermissionRepository.canonicalOrigin(expanded) == "https://[2001:db8::7]:9443")
+    }
 }

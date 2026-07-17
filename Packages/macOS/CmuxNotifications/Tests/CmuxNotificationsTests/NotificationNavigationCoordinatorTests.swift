@@ -241,6 +241,32 @@ struct NotificationNavigationCoordinatorTests {
         #expect(openRouting.log.isEmpty)
     }
 
+    @Test("jumpToLatestUnread skips website notifications instead of opening the browser")
+    func skipsWebsiteNotificationsInScan() {
+        let store = FakeStore()
+        let openRouting = FakeOpenRouting()
+        let websiteRouting = FakeWebsiteClickRouting()
+        let website = snapshot(
+            tabId: UUID(),
+            websiteClickTarget: NotificationNavWebsiteClickTarget(
+                displayOrigin: URL(string: "https://example.com")!
+            )
+        )
+        let terminal = snapshot(tabId: UUID())
+        store.orderedNotifications = [website, terminal]
+        let coordinator = makeCoordinator(
+            store: store,
+            openRouting: openRouting,
+            websiteClickRouting: websiteRouting
+        )
+
+        let openedId = coordinator.jumpToLatestUnread()
+
+        #expect(openedId == terminal.id)
+        #expect(websiteRouting.opens.isEmpty)
+        #expect(openRouting.log.count == 1)
+    }
+
     @Test("jumpToLatestUnread honors the excluded notification id")
     func honorsExcludedNotification() {
         let store = FakeStore()

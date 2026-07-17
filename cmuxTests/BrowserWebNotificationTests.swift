@@ -377,6 +377,85 @@ struct BrowserWebNotificationTests {
         #expect(replies == [true, true])
     }
 
+    @Test func deferredPermissionRequestsCancelExactlyOnceWhenPanelCloses() throws {
+        let setting = SettingCatalog().browser.forwardWebNotifications
+        let defaults = UserDefaults.standard
+        let previousSetting = defaults.object(forKey: setting.userDefaultsKey)
+        let profileID = BrowserProfileRepository.builtInDefaultProfileID
+        let origin = try #require(URL(string: "https://close.example"))
+        let repository = BrowserProfileStore.shared.notificationPermissions
+        let previousDecision = repository.decision(for: origin, profileID: profileID)
+        defer {
+            repository.setDecision(previousDecision, for: origin, profileID: profileID)
+            if let previousSetting { defaults.set(previousSetting, forKey: setting.userDefaultsKey) }
+            else { defaults.removeObject(forKey: setting.userDefaultsKey) }
+        }
+        setting.set(true, in: defaults)
+        repository.setDecision(.prompt, for: origin, profileID: profileID)
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            profileID: profileID,
+            renderInitialNavigation: false,
+            preloadInitialNavigationInBackground: true
+        )
+        var staleCompletion: ((NSApplication.ModalResponse) -> Void)?
+        var fallbackPresentations = 0
+        panel.webNotificationPermissionAlertPresenter = { _, _, completion, _ in
+            fallbackPresentations += 1
+            staleCompletion = completion
+        }
+        var replies: [Bool] = []
+
+        panel.resolveWebNotificationPermission(for: origin, in: panel.webView) { replies.append($0) }
+        panel.resolveWebNotificationPermission(for: origin, in: panel.webView) { replies.append($0) }
+
+        #expect(fallbackPresentations == 0)
+        #expect(panel.activeInteractiveBrowserPromptIDs.count == 1)
+        #expect(replies.isEmpty)
+
+        panel.close()
+        #expect(replies == [false, false])
+        #expect(panel.activeInteractiveBrowserPromptIDs.isEmpty)
+
+        staleCompletion?(.alertFirstButtonReturn)
+        #expect(replies == [false, false])
+        #expect(repository.decision(for: origin, profileID: profileID) == .prompt)
+    }
+
+    @Test func permissionPromptCannotGrantTheProfileSelectedAfterItWasShown() throws {
+        let setting = SettingCatalog().browser.forwardWebNotifications
+        let defaults = UserDefaults.standard
+        let previousSetting = defaults.object(forKey: setting.userDefaultsKey)
+        let sourceProfileID = BrowserProfileRepository.builtInDefaultProfileID
+        let targetProfile = try #require(BrowserProfileStore.shared.createProfile(named: "Notification switch \(UUID())"))
+        let origin = try #require(URL(string: "https://profile-switch.example"))
+        let repository = BrowserProfileStore.shared.notificationPermissions
+        let previousSourceDecision = repository.decision(for: origin, profileID: sourceProfileID)
+        defer {
+            repository.setDecision(previousSourceDecision, for: origin, profileID: sourceProfileID)
+            repository.clear(profileID: targetProfile.id)
+            _ = BrowserProfileStore.shared.deleteProfile(id: targetProfile.id)
+            if let previousSetting { defaults.set(previousSetting, forKey: setting.userDefaultsKey) }
+            else { defaults.removeObject(forKey: setting.userDefaultsKey) }
+        }
+        setting.set(true, in: defaults)
+        repository.setDecision(.prompt, for: origin, profileID: sourceProfileID)
+        repository.setDecision(.prompt, for: origin, profileID: targetProfile.id)
+        let panel = BrowserPanel(workspaceId: UUID(), profileID: sourceProfileID, renderInitialNavigation: false)
+        defer { panel.close() }
+        var completion: ((NSApplication.ModalResponse) -> Void)?
+        panel.webNotificationPermissionAlertPresenter = { _, _, callback, _ in completion = callback }
+        var replies: [Bool] = []
+
+        panel.resolveWebNotificationPermission(for: origin, in: panel.webView) { replies.append($0) }
+        #expect(panel.switchToProfile(targetProfile.id))
+        completion?(.alertFirstButtonReturn)
+
+        #expect(replies == [false])
+        #expect(repository.decision(for: origin, profileID: sourceProfileID) == .prompt)
+        #expect(repository.decision(for: origin, profileID: targetProfile.id) == .prompt)
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func nativeProviderGrantsAndDeliversOnSupportedMacOS() async throws {
         guard ProcessInfo.processInfo.operatingSystemVersion.majorVersion > 14 else { return }
@@ -740,6 +819,39 @@ struct BrowserWebNotificationTests {
         #expect(store.notifications.isEmpty)
     }
 
+    @Test func persistentDeliveryRechecksTheProfilesLivePermission() throws {
+        let setting = SettingCatalog().browser.forwardWebNotifications
+        let defaults = UserDefaults.standard
+        let previousSetting = defaults.object(forKey: setting.userDefaultsKey)
+        let store = TerminalNotificationStore.shared
+        let adapter = BrowserWebNotificationNativeAdapter.shared
+        let dataStore = WKWebsiteDataStore.nonPersistent()
+        let profileID = UUID()
+        let origin = try #require(URL(string: "https://revoked.example"))
+        let repository = BrowserProfileStore.shared.notificationPermissions
+        let previousDecision = repository.decision(for: origin, profileID: profileID)
+        adapter.setProfileForTesting(profileID, on: dataStore)
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        defer {
+            adapter.setProfileForTesting(nil, on: dataStore)
+            repository.setDecision(previousDecision, for: origin, profileID: profileID)
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            if let previousSetting { defaults.set(previousSetting, forKey: setting.userDefaultsKey) }
+            else { defaults.removeObject(forKey: setting.userDefaultsKey) }
+        }
+        setting.set(true, in: defaults)
+        repository.setDecision(.denied, for: origin, profileID: profileID)
+
+        adapter.showPersistentNotification(
+            BrowserPersistentNotificationProbe(title: "Revoked", body: "Must stay hidden", origin: origin),
+            from: dataStore
+        )
+
+        #expect(store.notifications.isEmpty)
+    }
+
     @Test func nativePermissionSnapshotRespectsTheLiveForwardingSetting() throws {
         let setting = SettingCatalog().browser.forwardWebNotifications
         let defaults = UserDefaults.standard
@@ -812,7 +924,7 @@ struct BrowserWebNotificationTests {
         #expect(adapter.provisionManagerForTesting(manager))
     }
 
-    @Test func nativeForegroundAcknowledgementSurvivesPageRegistrationTeardown() {
+    @Test func nativeForegroundAcknowledgementRequiresALivePageRegistration() {
         let adapter = BrowserWebNotificationNativeAdapter.shared
         let pageKey: UInt = 0xBEEF
         let manager = UnsafeRawPointer(bitPattern: 0xCAFE)!
@@ -833,8 +945,22 @@ struct BrowserWebNotificationTests {
             notificationID: notificationID
         )
 
-        #expect(acknowledged?.manager == manager)
-        #expect(acknowledged?.notificationID == notificationID)
+        #expect(acknowledged == nil)
+    }
+
+    @Test func websiteDataStoreDelegateAcceptsServiceWorkerOpenWindowRequests() throws {
+        let panel = BrowserPanel(workspaceId: UUID(), renderInitialNavigation: false)
+        defer { panel.close() }
+        let dataStore = panel.webView.configuration.websiteDataStore
+        let delegateSelector = NSSelectorFromString("_delegate")
+        let openWindowSelector = NSSelectorFromString(
+            "websiteDataStore:openWindow:fromServiceWorkerOrigin:completionHandler:"
+        )
+        let delegate = dataStore.responds(to: delegateSelector)
+            ? dataStore.perform(delegateSelector)?.takeUnretainedValue() as? NSObject
+            : nil
+
+        #expect(delegate?.responds(to: openWindowSelector) == true)
     }
 
     @Test func rejectedPersistentClickOpensTheDisplayOrigin() throws {
@@ -869,9 +995,7 @@ struct BrowserWebNotificationTests {
         let origin = try #require(URL(string: "https://example.com"))
         store.replaceNotificationsForTesting([])
         store.configureNotificationDeliveryHandlerForTesting { _, _ in }
-        store.configureNotificationRemovalHandlerForTesting { notificationIDs in
-            adapter.removePersistentClickRegistrations(notificationIDs: notificationIDs)
-        }
+        store.resetNotificationRemovalHandlerForTesting()
         defer {
             store.replaceNotificationsForTesting([])
             store.resetNotificationDeliveryHandlerForTesting()
@@ -896,6 +1020,36 @@ struct BrowserWebNotificationTests {
         store.remove(id: notificationID)
 
         #expect(!adapter.hasPersistentClickRegistrationForTesting(notificationID))
+    }
+
+    @Test func globalWebsiteNotificationsUseBoundedRetentionAndPhoneBadgeCounts() throws {
+        let store = TerminalNotificationStore.shared
+        let origin = try #require(URL(string: "https://retention.example"))
+        var removedIDs: [UUID] = []
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        store.configureNotificationRemovalHandlerForTesting { removedIDs.append(contentsOf: $0) }
+        defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            store.resetNotificationRemovalHandlerForTesting()
+        }
+
+        var insertedIDs: [UUID] = []
+        for index in 0...128 {
+            insertedIDs.append(store.addGlobalWebsiteNotification(
+                title: "Background \(index)",
+                subtitle: "retention.example",
+                body: "Ready",
+                origin: origin
+            ))
+        }
+
+        #expect(store.notifications.count == 128)
+        #expect(!store.notifications.contains(where: { $0.id == insertedIDs[0] }))
+        #expect(removedIDs == [insertedIDs[0]])
+        #expect(store.notificationMenuSnapshot.unreadCount == 128)
+        #expect(store.unreadNotificationCount == 0)
     }
 
     @Test func websiteClickMarksReadOnlyWhenTheActionIsAccepted() throws {

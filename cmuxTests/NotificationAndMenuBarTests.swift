@@ -1789,6 +1789,26 @@ final class MenuBarNotificationLineFormatterTests: XCTestCase {
         XCTAssertTrue(line.contains("staging"))
     }
 
+    func testWebsitePlainTitleIncludesOriginWhenBodyIsPresent() throws {
+        let origin = try XCTUnwrap(URL(string: "https://example.com"))
+        let notification = TerminalNotification(
+            id: UUID(),
+            surfaceId: nil,
+            title: "Build finished",
+            subtitle: "example.com",
+            body: "All checks passed",
+            createdAt: Date(timeIntervalSince1970: 0),
+            isRead: false,
+            source: .website(origin: origin),
+            target: .global
+        )
+
+        let line = MenuBarNotificationLineFormatter.plainTitle(notification: notification, tabTitle: nil)
+
+        XCTAssertTrue(line.contains("example.com"))
+        XCTAssertTrue(line.contains("All checks passed"))
+    }
+
     func testMenuTitleWrapsAndTruncatesToThreeLines() {
         let notification = TerminalNotification(
             id: UUID(),

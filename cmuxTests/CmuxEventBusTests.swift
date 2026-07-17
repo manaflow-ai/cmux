@@ -373,6 +373,28 @@ final class CmuxEventBusTests: XCTestCase {
         )
     }
 
+    func testGlobalWebsiteNotificationLifecycleOmitsWorkspaceIdentity() throws {
+        let bus = CmuxEventBus(retainedEventLimit: 8)
+        let notification = TerminalNotification(
+            id: UUID(),
+            surfaceId: nil,
+            title: "Website",
+            subtitle: "example.com",
+            body: "Ready",
+            createdAt: Date(),
+            isRead: false,
+            source: .website(origin: try XCTUnwrap(URL(string: "https://example.com"))),
+            target: .global
+        )
+
+        bus.publishNotificationChanges(oldValue: [], newValue: [notification])
+
+        let event = try XCTUnwrap(bus.retainedSnapshot().first)
+        let payload = try XCTUnwrap(event["payload"] as? [String: Any])
+        XCTAssertTrue(event["workspace_id"] == nil || event["workspace_id"] is NSNull)
+        XCTAssertTrue(payload["workspace_id"] == nil || payload["workspace_id"] is NSNull)
+    }
+
     @MainActor
     func testBulkNotificationClearPublishesClearedWithoutRemovedDuplicates() throws {
         let store = TerminalNotificationStore.shared
