@@ -492,7 +492,7 @@ struct WorkspaceForkConversationContextMenuTests {
 
     @Test
     func forkTimeoutResumeGateResumesOnlyFirstClaim() async {
-        let value = await withCheckedContinuation { continuation in
+        let value = await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
             let gate = AgentForkTimeoutResumeGate(continuation)
 
             #expect(gate.resume(returning: "timeout"))
@@ -1172,7 +1172,9 @@ struct WorkspaceForkConversationContextMenuTests {
         ))
         let probedLaunchers = OSAllocatedUnfairLock(initialState: [String]())
 
-        func index(for snapshot: SessionRestorableAgentSnapshot) -> RestorableAgentSessionIndex {
+        // @Sendable closure, not a local func: the enclosing suite is
+        // main-actor-isolated and the indexLoader closure is @Sendable.
+        let index: @Sendable (SessionRestorableAgentSnapshot) -> RestorableAgentSessionIndex = { snapshot in
             RestorableAgentSessionIndex.load(
                 homeDirectory: root.path,
                 fileManager: fm,
@@ -1199,7 +1201,7 @@ struct WorkspaceForkConversationContextMenuTests {
             indexLoader: {
                 let snapshot = snapshot.withLock { $0 }
                 return (
-                    index: index(for: snapshot),
+                    index: index(snapshot),
                     liveAgentProcessFingerprint: [],
                     processScopeFingerprint: [snapshot.launchCommand?.launcher ?? ""],
                     forkValidatedPanels: [
@@ -1230,13 +1232,12 @@ struct WorkspaceForkConversationContextMenuTests {
         )
         #expect(probedLaunchers.withLock { $0 } == ["pi"])
 
-        snapshot.withLock {
-            $0 = makePiFamilySnapshot(
-                launcher: "omp",
-                workspaceRoot: root.path,
-                executablePath: executable.path
-            )
-        }
+        let ompSnapshot = makePiFamilySnapshot(
+            launcher: "omp",
+            workspaceRoot: root.path,
+            executablePath: executable.path
+        )
+        snapshot.withLock { $0 = ompSnapshot }
         now.withLock { $0 = Date(timeIntervalSince1970: 1) }
         await sharedIndex.refreshForkAvailabilityNow()
 
@@ -2639,7 +2640,7 @@ struct WorkspaceForkConversationContextMenuTests {
             executablePath: executable.path
         )
 
-        func indexResult() -> SharedLiveAgentIndexLoader.LoadResult {
+        let indexResult: @Sendable () -> SharedLiveAgentIndexLoader.LoadResult = {
             let panelKey = RestorableAgentSessionIndex.PanelKey(
                 workspaceId: workspaceId,
                 panelId: panelId
@@ -3151,7 +3152,7 @@ struct WorkspaceForkConversationContextMenuTests {
             } else if let workspaceId = notification.userInfo?["workspaceId"] as? UUID,
                let panelId = notification.userInfo?["panelId"] as? UUID {
                 notifiedPanelKeys.withLock {
-                    $0.insert("\(workspaceId.uuidString)|\(panelId.uuidString)")
+                    _ = $0.insert("\(workspaceId.uuidString)|\(panelId.uuidString)")
                 }
             } else {
                 unscopedNotificationCount.withLock { $0 += 1 }
