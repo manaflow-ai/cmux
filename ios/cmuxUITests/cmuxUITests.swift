@@ -128,7 +128,7 @@ final class cmuxUITests: XCTestCase {
         ])
         defer { app.terminate() }
 
-        let scroll = app.collectionViews["MobileWorkspaceList"]
+        let scroll = app.descendants(matching: .any)["MobileWorkspaceList"]
         XCTAssertTrue(scroll.waitForExistence(timeout: 8))
         XCTAssertTrue(
             app.descendants(matching: .any)["MobileWorkspaceListRefreshGeneration-0"]
@@ -148,6 +148,9 @@ final class cmuxUITests: XCTestCase {
         let searchKey = app.keyboards.buttons["Search"]
         XCTAssertTrue(searchKey.waitForExistence(timeout: 3))
         searchKey.tap()
+        if !waitForKeyboardDismissal(in: app), searchKey.exists {
+            searchKey.tap()
+        }
         XCTAssertTrue(waitForKeyboardDismissal(in: app))
 
         let beforeRefreshField = app.searchFields.firstMatch
