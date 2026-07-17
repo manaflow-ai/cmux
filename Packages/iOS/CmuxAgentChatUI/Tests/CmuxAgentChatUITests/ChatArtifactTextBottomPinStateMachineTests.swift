@@ -122,4 +122,37 @@ struct ChatArtifactTextBottomPinStateMachineTests {
 
         #expect(pin.visibleBoundary == finalBoundary)
     }
+
+    @Test("EOF plus the final deferred append leaves the pinned document end visible")
+    func finalDeferredAppendLeavesDocumentEndVisible() {
+        var appendPolicy = ChatArtifactTextAppendPolicy()
+        var pin = ChatArtifactTextBottomPinStateMachine()
+        let preFlushBoundary = ChatArtifactTextBottomBoundary(
+            storageEnd: 171_817,
+            contentOffsetY: 165_817
+        )
+        let finalBoundary = ChatArtifactTextBottomBoundary(
+            storageEnd: 174_000,
+            contentOffsetY: 168_000
+        )
+
+        _ = pin.engage(target: .latest, boundary: preFlushBoundary)
+        appendPolicy.beginProgrammaticAnimation()
+        #expect(appendPolicy.enqueue(chunkCount: 1) == 0)
+        let didReachEOF = pin.markReachedEOF()
+        #expect(didReachEOF)
+
+        let finalFlushCount = appendPolicy.endProgrammaticAnimation()
+        #expect(finalFlushCount == 1)
+        #expect(pin.appendsFlushed(at: finalBoundary) == .none)
+        #expect(
+            pin.initialAnimationSettled(at: preFlushBoundary)
+                == .scrollToBottom(boundary: finalBoundary, animated: false)
+        )
+        pin.didApplyPin(at: finalBoundary)
+
+        #expect(!appendPolicy.isDeferring)
+        #expect(pin.target == .end)
+        #expect(pin.visibleBoundary == finalBoundary)
+    }
 }
