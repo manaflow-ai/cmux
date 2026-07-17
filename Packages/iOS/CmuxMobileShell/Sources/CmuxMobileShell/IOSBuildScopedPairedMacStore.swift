@@ -4,19 +4,22 @@ public import Foundation
 
 /// Scopes the iOS saved-Mac list to one tagged iOS app build.
 ///
-/// QR pairing still accepts any Mac build because the Mac's device id and routes
-/// are unchanged. This decorator only decides where that successful pairing is
-/// stored, so two iOS dev tags stop restoring or aggregating each other's saved
-/// Macs.
+/// The scoped store also enforces exact Mac app-instance compatibility, so a
+/// tagged iOS build cannot display, restore, or reconnect another tag that was
+/// saved into its partition by an older build.
 public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
     private static let separator = "\u{1F}"
 
+    private let rawInner: any MobilePairedMacStoring
     private let inner: any MobilePairedMacStoring
     private let scope: MobileIOSBuildScope
     private let mutationGate: PairedMacMutationGate
 
     public init(inner: any MobilePairedMacStoring, scope: MobileIOSBuildScope) {
-        self.inner = inner
+        self.rawInner = inner
+        self.inner = MobileMacBuildCompatibilityPolicy
+            .development(expectedInstanceTag: scope.value)
+            .scoping(inner)
         self.scope = scope
         self.mutationGate = PairedMacMutationGate()
     }
@@ -225,7 +228,7 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
                 }
             }
         }
-        return byID.values.sorted { lhs, rhs in
+        return removingAuthenticatedLegacyAliases(from: Array(byID.values)).sorted { lhs, rhs in
             if lhs.lastSeenAt != rhs.lastSeenAt { return lhs.lastSeenAt > rhs.lastSeenAt }
             return lhs.macDeviceID < rhs.macDeviceID
         }
@@ -352,8 +355,13 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
     }
 
     private func removeAllUnlocked() async throws {
-        for mac in try await inner.loadAll(stackUserID: nil, teamID: nil) where isScoped(mac) {
-            try await inner.remove(macDeviceID: mac.macDeviceID, stackUserID: mac.stackUserID, teamID: mac.teamID)
+        for mac in try await rawInner.loadAll(stackUserID: nil, teamID: nil) where isScoped(mac) {
+            try await rawInner.remove(
+                macDeviceID: mac.macDeviceID,
+                instanceTag: mac.instanceTag,
+                stackUserID: mac.stackUserID,
+                teamID: mac.teamID
+            )
         }
     }
 
@@ -387,5 +395,51 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
 
     private var scopedSuffix: String {
         "\(Self.separator)\(scope.serializedScope)"
+    }
+    private func matches(
+        _ mac: MobilePairedMac,
+        macDeviceID: String,
+        instanceTag: String?
+    ) -> Bool {
+        mac.macDeviceID == macDeviceID && mac.instanceTag == instanceTag
+    }
+
+    /// A legacy nil-tag row and a tagged row are the same app instance only
+    /// when both the physical Mac id and authenticated Iroh peer id match.
+    /// Distinct tagged builds and legacy rows for other peers remain visible.
+    private func removingAuthenticatedLegacyAliases(
+        from rows: [MobilePairedMac]
+    ) -> [MobilePairedMac] {
+        var taggedPeersByMacDeviceID: [String: Set<String>] = [:]
+        for mac in rows where mac.instanceTag?.isEmpty == false {
+            taggedPeersByMacDeviceID[mac.macDeviceID, default: []]
+                .formUnion(irohPeerEndpointIDs(in: mac.routes))
+        }
+        return rows.filter { mac in
+            guard mac.instanceTag == nil,
+                  let taggedPeers = taggedPeersByMacDeviceID[mac.macDeviceID] else {
+                return true
+            }
+            return taggedPeers.isDisjoint(with: irohPeerEndpointIDs(in: mac.routes))
+        }
+    }
+
+    private func irohPeerEndpointIDs(in routes: [CmxAttachRoute]) -> Set<String> {
+        Set(routes.compactMap { route in
+            guard route.kind == .iroh,
+                  case let .peer(identity, _) = route.endpoint else {
+                return nil
+            }
+            return identity.endpointID
+        })
+    }
+}
+
+private extension MobilePairedMacRouteWriteCondition {
+    var instanceTag: String? {
+        switch self {
+        case .matchingInstanceTag(let instanceTag): instanceTag
+        case .unclaimed: nil
+        }
     }
 }
