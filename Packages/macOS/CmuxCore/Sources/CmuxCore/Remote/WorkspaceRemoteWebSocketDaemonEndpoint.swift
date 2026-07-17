@@ -42,14 +42,19 @@ public struct WorkspaceRemoteWebSocketDaemonEndpoint: Equatable, Sendable {
     /// Returns the non-secret broker identity used by durable remote trust.
     func durableTrustKeyComponent(includesSessionFallback: Bool) -> String {
         let authority = durableTrustAuthorityComponent
-        var components = [authority]
-        if includesSessionFallback || authority.isEmpty {
-            components.append(sessionId.trimmingCharacters(in: .whitespacesAndNewlines))
+        guard includesSessionFallback || authority.isEmpty else {
+            return authority
         }
-        return components.joined(separator: "\u{1f}")
+
+        let normalizedSessionID = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallbackKind = normalizedSessionID.isEmpty ? "path" : "session"
+        let fallbackValue = normalizedSessionID.isEmpty
+            ? durableTrustPathComponent
+            : normalizedSessionID
+        return [authority, fallbackKind, fallbackValue].joined(separator: "\u{1f}")
     }
 
-    /// Normalizes equivalent WebSocket authorities while excluding rotating URL paths.
+    /// Normalizes equivalent WebSocket authorities without retaining passwords or URL paths.
     private var durableTrustAuthorityComponent: String {
         let trimmedURL = url.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let components = URLComponents(string: trimmedURL),
@@ -61,6 +66,7 @@ public struct WorkspaceRemoteWebSocketDaemonEndpoint: Equatable, Sendable {
         }
 
         let scheme = rawScheme.lowercased()
+        let normalizedUser = components.user ?? ""
         let host = rawHost.lowercased()
         let port: String
         switch (scheme, components.port) {
@@ -69,6 +75,15 @@ public struct WorkspaceRemoteWebSocketDaemonEndpoint: Equatable, Sendable {
         case (_, let explicitPort?):
             port = String(explicitPort)
         }
-        return [scheme, host, port].joined(separator: "\u{1f}")
+        return [scheme, normalizedUser, host, port].joined(separator: "\u{1f}")
+    }
+
+    /// Provides a non-secret endpoint distinction when no usable session ID exists.
+    private var durableTrustPathComponent: String {
+        let trimmedURL = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let components = URLComponents(string: trimmedURL) else {
+            return ""
+        }
+        return components.percentEncodedPath.isEmpty ? "/" : components.percentEncodedPath
     }
 }

@@ -198,14 +198,14 @@ struct WorkspaceRemoteConfigurationValueTests {
         #expect(firstRoute.durableTransportTrustKey != secondRoute.durableTransportTrustKey)
 
         let firstBrokerSession = WorkspaceRemoteWebSocketDaemonEndpoint(
-            url: "wss://tenant@broker.example/session-a",
+            url: "wss://tenant:password-a@broker.example/session-a",
             headers: [:],
             token: "token-a",
             sessionId: "session-a",
             expiresAtUnix: 100
         )
         let refreshedBrokerSession = WorkspaceRemoteWebSocketDaemonEndpoint(
-            url: "WSS://tenant@BROKER.EXAMPLE:443/session-b",
+            url: "WSS://tenant:password-b@BROKER.EXAMPLE:443/session-b",
             headers: [:],
             token: "token-b",
             sessionId: "session-b",
