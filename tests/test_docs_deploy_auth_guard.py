@@ -14,6 +14,7 @@ class DocsDeployAuthGuardTests(unittest.TestCase):
         self.assertIn('bun-version: "1.3.14"', workflow)
         self.assertIn("bunx vercel@56.3.1 deploy", workflow)
         self.assertNotIn("bunx vercel deploy", workflow)
+        self.assertNotIn("--token", workflow)
 
     def test_vercel_auth_is_checked_daily(self) -> None:
         workflow = HEALTH_WORKFLOW.read_text()
@@ -23,6 +24,7 @@ class DocsDeployAuthGuardTests(unittest.TestCase):
         self.assertIn('bun-version: "1.3.14"', workflow)
         self.assertIn("bunx vercel@56.3.1 whoami", workflow)
         self.assertIn("VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}", workflow)
+        self.assertNotIn("--token", workflow)
 
 
 if __name__ == "__main__":
