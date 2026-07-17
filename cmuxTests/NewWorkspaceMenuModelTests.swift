@@ -31,6 +31,25 @@ struct NewWorkspaceMenuModelTests {
         }
     }
 
+    @Test func remoteDisabledFeedIsAbsentFromNewWorkspaceMenu() {
+        let model = NewWorkspaceMenuModel.build(
+            newWorkspaceContextMenuItems: [],
+            agentChatAction: nil,
+            feedSectionEnabled: false,
+            cloudSectionEnabled: false,
+            templateNames: [],
+            loadedActions: [],
+            newWorkspaceActionID: nil,
+            deletable: { _ in false },
+            sectionOrder: .customFirst
+        )
+
+        #expect(!model.sections.contains { section in
+            if case .feed = section { return true }
+            return false
+        })
+    }
+
 
     @MainActor
     private func loadStore(globalJSON: String) throws -> (store: CmuxConfigStore, root: URL) {
