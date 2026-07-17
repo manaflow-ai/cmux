@@ -1106,6 +1106,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         suppressNextConnectionOutageEdge = true
         clearAutomaticReconnectBackoff()
         lastPresenceReconnectEvidence = nil
+        connectionRecoveryOwner.cancel()
+        applyConnectionRecoveryOwnerState()
         invalidatePairingAttempt()
         clearMacSwitchAttemptState()
         connectionGeneration = UUID()
