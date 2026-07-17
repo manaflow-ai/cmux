@@ -296,10 +296,10 @@ final class WorktreeSidebarModel {
         self.worktrees = worktrees
         worktreeByPath = Dictionary(uniqueKeysWithValues: worktrees.map { ($0.path, $0) })
         worktreePaths = worktrees.map(\.path)
-        minimumListingRequestIDByRemovedPath = minimumListingRequestIDByRemovedPath.filter {
-            $0.value > requestID
-        }
         let validPaths = Set(worktrees.map(\.path))
+        minimumListingRequestIDByRemovedPath = minimumListingRequestIDByRemovedPath.filter {
+            $0.value > requestID || validPaths.contains($0.key)
+        }
         for path in visiblePaths.subtracting(validPaths) {
             stopStatusTracking(path: path)
         }
