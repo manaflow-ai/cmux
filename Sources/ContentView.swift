@@ -831,7 +831,6 @@ struct ContentView: View {
     @State private var isResizerDragging = false
     @State private var sidebarDragStartWidth: CGFloat?
     // Non-observed: flush pacing must not invalidate the view.
-    @State private var lastSidebarResizeFlushBox = MutableTimeBox()
     @State private var selectedTabIds: Set<UUID> = []
     @State private var mountedWorkspaceIds: [UUID] = []
     @State private var lastReconciledPortalRenderingStatesByWorkspaceId: [UUID: Bool] = [:]
@@ -1186,7 +1185,6 @@ struct ContentView: View {
                     withTransaction(Transaction(animation: nil)) {
                         sidebarWidth = nextWidth
                     }
-                    flushSidebarResizeToDisplay()
                 },
                 finishDrag: { sidebarDragStartWidth = nil }
             )
@@ -1204,7 +1202,6 @@ struct ContentView: View {
                     withTransaction(Transaction(animation: nil)) {
                         fileExplorerWidth = nextWidth
                     }
-                    flushSidebarResizeToDisplay()
                 },
                 finishDrag: {
                     fileExplorerDragStartWidth = nil
@@ -1334,28 +1331,6 @@ struct ContentView: View {
             fileExplorerWidth = nextWidth
         }
         fileExplorerState.width = nextWidth
-    }
-
-    /// Glues divider drags to the cursor: flushes the pending SwiftUI layout
-    /// commit, the terminal portal's anchor sync (immediate path during
-    /// interactive resize), and the window's display inside the SAME mouse
-    /// event, removing the async runloop hop that made resizes feel choppy
-    /// while the main thread sat idle.
-    ///
-    /// Paced to the display's refresh interval: mouse events can arrive far
-    /// faster than frames can present (high-polling mice), and flushing per
-    /// event would do redundant layout+draw passes the screen never shows.
-    /// Events inside the same refresh interval only update state; the next
-    /// eligible event (or the normal async commit) presents them.
-    private func flushSidebarResizeToDisplay() {
-        guard let window = observedWindow else { return }
-        let maxFPS = max(60, window.screen?.maximumFramesPerSecond ?? 120)
-        let minInterval = 1.0 / Double(maxFPS)
-        let now = CACurrentMediaTime()
-        guard now - lastSidebarResizeFlushBox.value >= minInterval else { return }
-        lastSidebarResizeFlushBox.value = now
-        window.contentView?.layoutSubtreeIfNeeded()
-        window.displayIfNeeded()
     }
 
     private func activateSidebarResizerCursor() {
@@ -1513,11 +1488,81 @@ struct ContentView: View {
         scheduleSidebarResizerCursorRelease(force: true)
     }
 
+    @ViewBuilder
     private func sidebarResizerHandleOverlay(
         _ handle: SidebarResizerHandle,
         width: CGFloat,
         availableWidth: CGFloat,
         accessibilityIdentifier: String? = nil
+    ) -> some View {
+        let base = sidebarResizerHandleBase(handle, width: width)
+        if CmuxFeatureFlags.shared.isAppKitSidebarListEnabled {
+            base
+                .overlay(
+                    // Native divider tracking (NSSplitView's technique): a
+                    // synchronous event loop that commits and presents each
+                    // width change inside the mouse event.
+                    SidebarDividerTracker(
+                        onBegan: {
+                            let config = resizerConfig(for: handle, availableWidth: availableWidth)
+                            TerminalWindowPortalRegistry.beginInteractiveGeometryResize(
+                                owner: tabManager,
+                                in: observedWindow
+                            )
+                            isResizerDragging = true
+                            config.captureStart()
+                            activateSidebarResizerCursor()
+                        },
+                        onChanged: { translation in
+                            let config = resizerConfig(for: handle, availableWidth: availableWidth)
+                            config.updateWidth(translation)
+                        },
+                        onEnded: {
+                            TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: tabManager)
+                            isResizerDragging = false
+                            let config = resizerConfig(for: handle, availableWidth: availableWidth)
+                            config.finishDrag()
+                            activateSidebarResizerCursor()
+                            scheduleSidebarResizerCursorRelease()
+                        }
+                    )
+                )
+                .modifier(SidebarResizerAccessibilityModifier(accessibilityIdentifier: accessibilityIdentifier))
+        } else {
+            base
+                .gesture(
+                    DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                        .onChanged { value in
+                            let config = resizerConfig(for: handle, availableWidth: availableWidth)
+                            if !isResizerDragging {
+                                TerminalWindowPortalRegistry.beginInteractiveGeometryResize(
+                                    owner: tabManager,
+                                    in: observedWindow
+                                )
+                                isResizerDragging = true
+                                config.captureStart()
+                            }
+                            activateSidebarResizerCursor()
+                            config.updateWidth(value.translation.width)
+                        }
+                        .onEnded { _ in
+                            if isResizerDragging {
+                                TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: tabManager)
+                                isResizerDragging = false
+                                let config = resizerConfig(for: handle, availableWidth: availableWidth)
+                                config.finishDrag()
+                            }
+                            activateSidebarResizerCursor()
+                            scheduleSidebarResizerCursorRelease()
+                        }
+                )
+                .modifier(SidebarResizerAccessibilityModifier(accessibilityIdentifier: accessibilityIdentifier))
+        }
+    }
+
+    private func sidebarResizerHandleBase(
+        _ handle: SidebarResizerHandle,
+        width: CGFloat
     ) -> some View {
         Color.clear
             .frame(width: width)
@@ -1554,33 +1599,6 @@ struct ContentView: View {
                 isResizerBandActive = false
                 scheduleSidebarResizerCursorRelease(force: true)
             }
-            .gesture(
-                DragGesture(minimumDistance: 0, coordinateSpace: .global)
-                    .onChanged { value in
-                        let config = resizerConfig(for: handle, availableWidth: availableWidth)
-                        if !isResizerDragging {
-                            TerminalWindowPortalRegistry.beginInteractiveGeometryResize(
-                                owner: tabManager,
-                                in: observedWindow
-                            )
-                            isResizerDragging = true
-                            config.captureStart()
-                        }
-                        activateSidebarResizerCursor()
-                        config.updateWidth(value.translation.width)
-                    }
-                    .onEnded { _ in
-                        if isResizerDragging {
-                            TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: tabManager)
-                            isResizerDragging = false
-                            let config = resizerConfig(for: handle, availableWidth: availableWidth)
-                            config.finishDrag()
-                        }
-                        activateSidebarResizerCursor()
-                        scheduleSidebarResizerCursorRelease()
-                    }
-            )
-            .modifier(SidebarResizerAccessibilityModifier(accessibilityIdentifier: accessibilityIdentifier))
     }
 
     private func placedSidebarResizerOverlay(
@@ -13438,12 +13456,6 @@ struct SidebarWorkspaceRowFramePreferenceKey: PreferenceKey {
     static func reduce(value: inout [UUID: Anchor<CGRect>], nextValue: () -> [UUID: Anchor<CGRect>]) {
         value.merge(nextValue()) { _, next in next }
     }
-}
-
-/// Plain mutable box for throttle timestamps kept out of SwiftUI observation.
-@MainActor
-final class MutableTimeBox {
-    var value: CFTimeInterval = 0
 }
 
 @MainActor
