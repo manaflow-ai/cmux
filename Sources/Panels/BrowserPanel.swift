@@ -4351,6 +4351,7 @@ final class BrowserPanel: Panel, ObservableObject {
         _ alert: NSAlert,
         in webView: WKWebView,
         windowProvider: (() -> NSWindow?)? = nil,
+        fallbackPresenter: BrowserAlertPresenter = browserPresentAlert,
         completion: @escaping (NSApplication.ModalResponse) -> Void,
         cancel: @escaping () -> Void
     ) {
@@ -4391,7 +4392,22 @@ final class BrowserPanel: Panel, ObservableObject {
 #endif
             return
         }
-        browserPresentAlert(alert, in: webView, completion: trackedCompletion, cancel: trackedCancel)
+        fallbackPresenter(alert, webView, trackedCompletion, trackedCancel)
+    }
+
+    func presentWebNotificationPermissionAlert(
+        _ alert: NSAlert,
+        in webView: WKWebView,
+        completion: @escaping (NSApplication.ModalResponse) -> Void,
+        cancel: @escaping () -> Void
+    ) {
+        presentBrowserAlert(
+            alert,
+            in: webView,
+            fallbackPresenter: webNotificationPermissionAlertPresenter,
+            completion: completion,
+            cancel: cancel
+        )
     }
 
     private func drainPendingInteractiveBrowserPromptsIfPossible(reason: String) {
@@ -4685,6 +4701,7 @@ final class BrowserPanel: Panel, ObservableObject {
         faviconTask?.cancel()
         faviconTask = nil
         faviconRefreshGeneration &+= 1
+        cancelPendingWebNotificationPermissionRequests()
         cancelPendingInteractiveBrowserPrompts(reason: "profileSwitch")
         closeBackgroundPreloadHost(reason: "profileSwitch")
         navigationDelegate?.clearSSLTrustState()
@@ -5210,6 +5227,7 @@ final class BrowserPanel: Panel, ObservableObject {
         loadingEndWorkItem = nil
         isLoading = false
         estimatedProgress = 0
+        cancelPendingWebNotificationPermissionRequests()
         cancelPendingInteractiveBrowserPrompts(reason: reason)
         closeBackgroundPreloadHost(reason: reason)
         BrowserWindowPortalRegistry.detach(webView: oldWebView)
@@ -5398,6 +5416,7 @@ final class BrowserPanel: Panel, ObservableObject {
         BrowserWindowPortalRegistry.updateOmnibarSuggestions(for: webView, configuration: nil)
         BrowserWindowPortalRegistry.detach(webView: webView)
         navigationDelegate?.cancelPendingAuthenticationPrompts()
+        cancelPendingWebNotificationPermissionRequests()
         cancelPendingInteractiveBrowserPrompts(reason: "close", cancelAuthenticationPrompts: false)
         closeBackgroundPreloadHost(reason: "close")
         let popupsToClose = popupControllers; popupControllers.removeAll()

@@ -121,7 +121,11 @@ public final class BrowserNotificationPermissionRepository {
         }
         var components = URLComponents()
         components.scheme = scheme
-        components.host = host
+        if host.contains(":") {
+            components.percentEncodedHost = "[\(host)]"
+        } else {
+            components.host = host
+        }
         components.port = url.port
         return components.url?.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
     }

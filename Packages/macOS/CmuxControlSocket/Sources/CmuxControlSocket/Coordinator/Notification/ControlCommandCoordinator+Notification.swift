@@ -335,7 +335,7 @@ extension ControlCommandCoordinator {
     ) -> [String: JSONValue] {
         var payload: [String: JSONValue] = [
             "id": .string(snapshot.id.uuidString),
-            "workspace_id": .string(snapshot.workspaceID.uuidString),
+            "workspace_id": orNull(snapshot.workspaceID?.uuidString),
             "workspace_ref": ref(.workspace, snapshot.workspaceID),
             "surface_id": orNull(snapshot.surfaceID?.uuidString),
             "surface_ref": ref(.surface, snapshot.surfaceID),

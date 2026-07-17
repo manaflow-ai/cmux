@@ -322,11 +322,13 @@ extension BrowserPanel {
         case .denied:
             reply(false)
         case .prompt:
-            if pendingWebNotificationPermissionReplies[originKey] != nil {
-                pendingWebNotificationPermissionReplies[originKey]?.append(reply)
+            let requestProfileID = profileID
+            let requestKey = "\(requestProfileID.uuidString)|\(originKey)"
+            if pendingWebNotificationPermissionReplies[requestKey] != nil {
+                pendingWebNotificationPermissionReplies[requestKey]?.append(reply)
                 return
             }
-            pendingWebNotificationPermissionReplies[originKey] = [reply]
+            pendingWebNotificationPermissionReplies[requestKey] = [reply]
             let alert = NSAlert()
             alert.messageText = String(
                 localized: "browser.notifications.permission.title",
@@ -338,21 +340,28 @@ extension BrowserPanel {
             )
             alert.addButton(withTitle: String(localized: "browser.notifications.permission.allow", defaultValue: "Allow"))
             alert.addButton(withTitle: String(localized: "browser.notifications.permission.deny", defaultValue: "Don't Allow"))
-            let finish: (Bool, Bool) -> Void = { [weak self] allowed, shouldPersist in
-                guard let self else { return }
-                if shouldPersist {
-                    repository.setDecision(allowed ? .allowed : .denied, for: origin, profileID: self.profileID)
+            let finish: (Bool, Bool) -> Void = { [self] allowed, shouldPersist in
+                guard let replies = pendingWebNotificationPermissionReplies.removeValue(forKey: requestKey) else {
+                    return
                 }
-                let replies = self.pendingWebNotificationPermissionReplies.removeValue(forKey: originKey) ?? []
+                if shouldPersist {
+                    repository.setDecision(allowed ? .allowed : .denied, for: origin, profileID: requestProfileID)
+                }
                 for reply in replies { reply(allowed) }
             }
-            webNotificationPermissionAlertPresenter(alert, webView, { response in
+            presentWebNotificationPermissionAlert(alert, in: webView, completion: { response in
                 let settingIsEnabled = BrowserWebNotificationSettings.isForwardingEnabled
                 finish(settingIsEnabled && response == .alertFirstButtonReturn, settingIsEnabled)
-            }, {
+            }, cancel: {
                 finish(false, false)
             })
         }
+    }
+
+    func cancelPendingWebNotificationPermissionRequests() {
+        let pendingReplies = pendingWebNotificationPermissionReplies.values.flatMap { $0 }
+        pendingWebNotificationPermissionReplies.removeAll()
+        pendingReplies.forEach { $0(false) }
     }
 
     private func webNotificationPermissionDecision(
@@ -394,8 +403,9 @@ extension BrowserPanel {
     }
 
     /// Handles a foreground notification delivered by WebKit's native provider.
-    func handleNativeWebNotification(title: String, body: String, securityOrigin: URL? = nil) {
-        guard BrowserWebNotificationSettings.isForwardingEnabled else { return }
+    @discardableResult
+    func handleNativeWebNotification(title: String, body: String, securityOrigin: URL? = nil) -> Bool {
+        guard BrowserWebNotificationSettings.isForwardingEnabled else { return false }
         // The active page may have navigated since WebKit created the
         // notification. Never substitute webView.url when the notification's
         // own security origin is unavailable, because that misattributes it.
@@ -407,5 +417,6 @@ extension BrowserPanel {
             origin?.host ?? "",
             String(body.prefix(BrowserWebNotificationPayload.maximumBodyLength))
         )
+        return true
     }
 }

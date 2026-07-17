@@ -12134,25 +12134,25 @@ class TerminalController {
     /// store (plus each notification's tab title); the ISO8601 formatting,
     /// percent-escaping, and line join run on the calling thread.
     private nonisolated func listNotifications() -> String {
-        let rows: [(id: UUID, tabId: UUID, surfaceText: String, readText: String, title: String, subtitle: String, body: String, createdAt: Date, tabTitle: String)] = v2MainSync {
+        let rows: [(id: UUID, tabText: String, surfaceText: String, readText: String, title: String, subtitle: String, body: String, createdAt: Date, tabTitle: String)] = v2MainSync {
             TerminalNotificationStore.shared.notifications.map { notification in
                 (
                     id: notification.id,
-                    tabId: notification.tabId,
+                    tabText: notification.workspaceTabId?.uuidString ?? "none",
                     surfaceText: notification.surfaceId?.uuidString ?? "none",
                     readText: notification.isRead ? "read" : "unread",
                     title: notification.title,
                     subtitle: notification.subtitle,
                     body: notification.body,
                     createdAt: notification.createdAt,
-                    tabTitle: AppDelegate.shared?.tabTitle(for: notification.tabId) ?? ""
+                    tabTitle: notification.workspaceTabId.flatMap { AppDelegate.shared?.tabTitle(for: $0) } ?? ""
                 )
             }
         }
         let lines = rows.enumerated().map { index, row in
             let createdAt = Self.notificationCreatedAtString(row.createdAt)
             let tabTitle = Self.notificationListTrailingField(row.tabTitle)
-            return "\(index):\(row.id.uuidString)|\(row.tabId.uuidString)|\(row.surfaceText)|\(row.readText)|\(row.title)|\(row.subtitle)|\(row.body)|\(createdAt)|\(tabTitle)"
+            return "\(index):\(row.id.uuidString)|\(row.tabText)|\(row.surfaceText)|\(row.readText)|\(row.title)|\(row.subtitle)|\(row.body)|\(createdAt)|\(tabTitle)"
         }
         let result = lines.joined(separator: "\n")
         return result.isEmpty ? "No notifications" : result

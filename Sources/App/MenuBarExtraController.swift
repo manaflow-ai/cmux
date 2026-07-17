@@ -241,7 +241,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         guard insertionIndex >= 0 else { return }
 
         for (offset, notification) in recentNotifications.enumerated() {
-            let tabTitle = AppDelegate.shared?.tabTitle(for: notification.tabId)
+            let tabTitle = notification.workspaceTabId.flatMap { AppDelegate.shared?.tabTitle(for: $0) }
             let item = makeNotificationItem(notification: notification, tabTitle: tabTitle)
             menu.insertItem(item, at: insertionIndex + offset)
             notificationItems.append(item)
@@ -391,9 +391,13 @@ enum MenuBarNotificationLineFormatter {
         var lines: [String] = []
         lines.append("\(dot)\(notification.title)  \(timeText)")
 
-        let detail = notification.body.isEmpty ? notification.subtitle : notification.body
-        if !detail.isEmpty {
-            lines.append(detail)
+        if notification.isGlobal, !notification.subtitle.isEmpty {
+            lines.append(notification.subtitle)
+        }
+        if !notification.body.isEmpty {
+            lines.append(notification.body)
+        } else if !notification.isGlobal, !notification.subtitle.isEmpty {
+            lines.append(notification.subtitle)
         }
 
         if let tabTitle, !tabTitle.isEmpty {

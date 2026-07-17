@@ -2036,11 +2036,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         self.tabManager = tabManager
         self.settingsRuntime = settingsRuntime
         self.notificationStore = notificationStore
-        notificationStore.notificationRemovalHandler = { notificationIDs in
-            BrowserWebNotificationNativeAdapter.shared.removePersistentClickRegistrations(
-                notificationIDs: notificationIDs
-            )
-        }
         self.sidebarState = sidebarState
         self.auth = auth
         VMClient.bootstrap(auth: auth.coordinator)

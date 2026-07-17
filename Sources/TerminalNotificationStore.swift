@@ -152,6 +152,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     private struct NotificationIndexes {
         var unreadCount = 0
+        var phoneUnreadCount = 0
         var unreadCountByTabId: [UUID: Int] = [:]
         var unreadByTabSurface = Set<TabSurfaceKey>()
         var latestUnreadByTabId: [UUID: TerminalNotification] = [:]
@@ -180,11 +181,12 @@ final class TerminalNotificationStore: ObservableObject {
     /// refreshes the Mac Dock badge, so every mutation lane is covered.
     static let badgeEventTopic = "notification.badge"
 
-    /// The number of unread notification *entries* — the count the iOS app icon
-    /// badge mirrors. The phone's banners mirror notification entries, so its
-    /// badge counts exactly those. (The Mac Dock badge additionally counts
-    /// workspace-level manual unread indicators, which have no phone banner.)
-    var unreadNotificationCount: Int { indexes.unreadCount }
+    /// The number of unread workspace notification entries — the count the iOS
+    /// app icon badge mirrors. Global website notifications stay Mac-local, so
+    /// the phone badge counts exactly the entries mirrored as phone banners.
+    /// (The Mac Dock badge additionally counts website notifications and
+    /// workspace-level manual unread indicators.)
+    var unreadNotificationCount: Int { indexes.phoneUnreadCount }
 
     /// Recently dismissed/cleared notification ids, kept so the phone's
     /// foreground reconcile sweep can classify a delivered banner as "handled
@@ -297,7 +299,7 @@ final class TerminalNotificationStore: ObservableObject {
     private func emitNotificationsDismissed(ids: [String]) {
         guard !ids.isEmpty else { return }
         recordDismissTombstones(ids: ids.compactMap { UUID(uuidString: $0) })
-        let unreadCount = indexes.unreadCount
+        let unreadCount = indexes.phoneUnreadCount
         // Live lane: nonisolated static fan-out; short-circuits when no phone is
         // subscribed.
         MobileHostService.emitEvent(
@@ -335,7 +337,7 @@ final class TerminalNotificationStore: ObservableObject {
     /// per-call-site emits. Cheap when nothing is attached (subscriber
     /// short-circuit inside `emitEvent`).
     private func emitUnreadBadgeEventIfChanged() {
-        let count = indexes.unreadCount
+        let count = indexes.phoneUnreadCount
         guard count != lastEmittedPhoneBadgeCount else { return }
         lastEmittedPhoneBadgeCount = count
         MobileHostService.emitEvent(
@@ -426,7 +428,9 @@ final class TerminalNotificationStore: ObservableObject {
         effects in
         store.scheduleUserNotification(notification, effects: effects)
     }
-    var notificationRemovalHandler: ([UUID]) -> Void = { _ in }
+    var notificationRemovalHandler: ([UUID]) -> Void = {
+        BrowserWebNotificationNativeAdapter.shared.removePersistentClickRegistrations(notificationIDs: $0)
+    }
     private var nativeNotificationDeliveryHooks = NativeNotificationDeliveryHooks()
     private var suppressedNotificationFeedbackHandler: (TerminalNotificationStore, TerminalNotification, TerminalNotificationPolicyEffects) -> Void = {
         store,
@@ -997,7 +1001,15 @@ final class TerminalNotificationStore: ObservableObject {
             source: .website(origin: origin),
             target: .global
         )
-        notifications.insert(notification, at: 0)
+        var updatedNotifications = notifications
+        updatedNotifications.insert(notification, at: 0)
+        var retainedWebsiteNotificationCount = 0
+        updatedNotifications.removeAll { candidate in
+            guard candidate.isGlobal, case .website = candidate.source else { return false }
+            retainedWebsiteNotificationCount += 1
+            return retainedWebsiteNotificationCount > 128
+        }
+        notifications = updatedNotifications
         var effects = TerminalNotificationPolicyEffects()
         effects.reorderWorkspace = false
         effects.command = false
@@ -1363,7 +1375,7 @@ final class TerminalNotificationStore: ObservableObject {
             // mutated above, so it includes this notification); the server
             // stamps it as `aps.badge` so the icon badge is SET, not incremented.
             if effects.desktop {
-                let queued = PhonePushClient.shared.forward(notification, badgeCount: indexes.unreadCount)
+                let queued = PhonePushClient.shared.forward(notification, badgeCount: indexes.phoneUnreadCount)
                 // Only once the replacement banner push is queued is it safe to
                 // clear the superseded banners it replaces (deferred from
                 // `recordNotification`); a throttled push leaves them stashed
@@ -1848,7 +1860,7 @@ final class TerminalNotificationStore: ObservableObject {
         let notificationSubtitle = notification.subtitle
         let notificationBody = notification.body
         let notificationId = notification.id
-        let notificationTabId = notification.tabId
+        let notificationTabId = notification.workspaceTabId
         let notificationSurfaceId = notification.surfaceId
         let retargetsToLiveSurfaceOwner = notification.retargetsToLiveSurfaceOwner
         let clickActionUserInfo = notification.clickAction?.userInfo ?? [:]
@@ -1871,10 +1883,12 @@ final class TerminalNotificationStore: ObservableObject {
             content.sound = effects.sound ? NotificationSoundSettings.sound() : nil
             content.categoryIdentifier = categoryIdentifier
             content.userInfo = [
-                "tabId": notificationTabId.uuidString,
                 "notificationId": notificationId.uuidString,
                 Self.retargetsToLiveSurfaceOwnerUserInfoKey: retargetsToLiveSurfaceOwner,
             ]
+            if let notificationTabId {
+                content.userInfo["tabId"] = notificationTabId.uuidString
+            }
             if let surfaceId = notificationSurfaceId {
                 content.userInfo["surfaceId"] = surfaceId.uuidString
             }
@@ -2122,6 +2136,7 @@ final class TerminalNotificationStore: ObservableObject {
         for notification in notifications {
             if !notification.isRead { indexes.unreadCount += 1 }
             guard let tabId = notification.workspaceTabId else { continue }
+            if !notification.isRead { indexes.phoneUnreadCount += 1 }
             if indexes.latestByTabId[tabId] == nil {
                 indexes.latestByTabId[tabId] = notification
             }
@@ -2200,7 +2215,9 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func resetNotificationRemovalHandlerForTesting() {
-        notificationRemovalHandler = { _ in }
+        notificationRemovalHandler = {
+            BrowserWebNotificationNativeAdapter.shared.removePersistentClickRegistrations(notificationIDs: $0)
+        }
     }
 
     func configureNativeNotificationDeliveryHooksForTesting(

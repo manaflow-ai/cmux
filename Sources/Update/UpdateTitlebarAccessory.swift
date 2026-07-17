@@ -2344,7 +2344,9 @@ private struct NotificationsPopoverView: View {
                     ForEach(Array(snapshot.enumerated()), id: \.element.id) { index, notification in
                         NotificationPopoverRow(
                             notification: notification,
-                            workspaceTitle: titleSnapshot[notification.tabId],
+                            workspaceTitle: notification.isGlobal
+                                ? notification.subtitle
+                                : notification.workspaceTabId.flatMap { titleSnapshot[$0] },
                             onOpen: { open(notification) },
                             onClear: {
                                 withAnimation(.easeOut(duration: 0.18)) {
@@ -2363,9 +2365,10 @@ private struct NotificationsPopoverView: View {
                                     // call clearFocusedReadIndicator — it treats nil as
                                     // "clear any pane indicator on this tab" and would wipe
                                     // an unrelated pane badge.
-                                    if let surfaceId = notification.surfaceId {
+                                    if let workspaceTabId = notification.workspaceTabId,
+                                       let surfaceId = notification.surfaceId {
                                         notificationStore.clearFocusedReadIndicator(
-                                            forTabId: notification.tabId,
+                                            forTabId: workspaceTabId,
                                             surfaceId: surfaceId
                                         )
                                     }

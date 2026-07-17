@@ -322,14 +322,14 @@ extension TerminalController: ControlNotificationContext {
     ) -> ControlNotificationSnapshot {
         ControlNotificationSnapshot(
             id: notification.id,
-            workspaceID: notification.tabId,
+            workspaceID: notification.workspaceTabId,
             surfaceID: surfaceID ?? notification.surfaceId,
             title: notification.title,
             subtitle: notification.subtitle,
             body: notification.body,
             createdAtISO8601: notificationCreatedAtISO8601(notification.createdAt),
             isRead: notification.isRead,
-            tabTitle: AppDelegate.shared?.tabTitle(for: notification.tabId)
+            tabTitle: notification.workspaceTabId.flatMap { AppDelegate.shared?.tabTitle(for: $0) }
         )
     }
 

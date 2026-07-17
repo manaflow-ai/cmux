@@ -93,6 +93,6 @@ public struct NotificationNavSnapshot: Sendable, Equatable, Identifiable {
         if let excludedWorkspaceId, tabId == excludedWorkspaceId {
             return false
         }
-        return !hasClickAction
+        return !hasClickAction && websiteClickTarget == nil
     }
 }

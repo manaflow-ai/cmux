@@ -118,7 +118,12 @@ extension WKSecurityOrigin {
     var canonicalURL: URL? {
         var components = URLComponents()
         components.scheme = self.protocol.lowercased()
-        components.host = host.lowercased()
+        let normalizedHost = host.lowercased()
+        if normalizedHost.contains(":") {
+            components.percentEncodedHost = "[\(normalizedHost)]"
+        } else {
+            components.host = normalizedHost
+        }
         if port != 0 { components.port = port }
         return components.url
     }

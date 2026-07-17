@@ -320,13 +320,16 @@ extension CmuxEventBus {
                 if !old.isRead, notification.isRead {
                     publishNotificationRead(
                         ids: [notification.id.uuidString],
-                        workspaceId: notification.tabId,
+                        workspaceId: notification.workspaceTabId,
                         surfaceId: notification.surfaceId
                     )
                 }
             } else {
                 let replacedIds = removed
-                    .filter { $0.tabId == notification.tabId && $0.surfaceId == notification.surfaceId }
+                    .filter {
+                        $0.workspaceTabId == notification.workspaceTabId &&
+                            $0.surfaceId == notification.surfaceId
+                    }
                     .map { $0.id.uuidString }
                 publishNotificationCreated(notification, delivery: "store", replacedNotificationIds: replacedIds)
             }
@@ -392,7 +395,7 @@ extension CmuxEventBus {
     ) {
         var payload = CmuxSocketEventMapper.redactedNotificationParams([
             "notification_id": notification.id.uuidString,
-            "workspace_id": notification.tabId.uuidString,
+            "workspace_id": notification.workspaceTabId?.uuidString ?? NSNull(),
             "surface_id": notification.surfaceId?.uuidString ?? NSNull(),
             "title": notification.title,
             "subtitle": notification.subtitle,
@@ -405,7 +408,7 @@ extension CmuxEventBus {
             name: name,
             category: "notification",
             source: "notification.store",
-            workspaceId: notification.tabId.uuidString,
+            workspaceId: notification.workspaceTabId?.uuidString,
             surfaceId: notification.surfaceId?.uuidString,
             payload: payload
         )

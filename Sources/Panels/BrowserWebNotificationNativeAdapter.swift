@@ -1,5 +1,6 @@
 import AppKit
 import CmuxBrowser
+import CmuxNotifications
 import CmuxSettings
 import Darwin
 import Foundation
@@ -54,6 +55,17 @@ private final class BrowserWebsiteDataStoreNotificationDelegate: NSObject {
     func websiteDataStore(_ dataStore: WKWebsiteDataStore, showNotification notification: NSObject) {
         adapter?.showPersistentNotification(notification, from: dataStore)
     }
+
+    @objc(websiteDataStore:openWindow:fromServiceWorkerOrigin:completionHandler:)
+    func websiteDataStore(
+        _ dataStore: WKWebsiteDataStore,
+        openWindow url: URL,
+        fromServiceWorkerOrigin origin: WKSecurityOrigin,
+        completionHandler: @escaping (WKWebView?) -> Void
+    ) {
+        adapter?.openServiceWorkerWindow(url, from: origin, dataStore: dataStore)
+        completionHandler(nil)
+    }
 }
 
 /// Runtime-only bridge to WebKit's notification provider SPI.
@@ -96,7 +108,6 @@ final class BrowserWebNotificationNativeAdapter {
     private let dataStoreDelegate = BrowserWebsiteDataStoreNotificationDelegate()
 
     private var registrations: [UInt: Registration] = [:]
-    private var pageManagers: [UInt: UnsafeRawPointer] = [:]
     private var dataStoreProfiles: [ObjectIdentifier: UUID] = [:]
     private var managers: [UInt: ManagerState] = [:]
     private var persistentClicks: [UUID: PersistentClickRegistration] = [:]
@@ -162,7 +173,6 @@ final class BrowserWebNotificationNativeAdapter {
         }
         let pageKey = Self.key(page)
         removeRegistration(forPageKey: pageKey)
-        pageManagers[pageKey] = manager
         registrations[pageKey] = Registration(
             webView: webView,
             panel: panel,
@@ -193,10 +203,14 @@ final class BrowserWebNotificationNativeAdapter {
 
     func showPersistentNotification(_ notification: NSObject, from dataStore: WKWebsiteDataStore) {
         guard BrowserWebNotificationSettings.isForwardingEnabled,
-              dataStoreProfiles[ObjectIdentifier(dataStore)] != nil,
+              let profileID = dataStoreProfiles[ObjectIdentifier(dataStore)],
               let title = Self.stringProperty("title", on: notification),
               let originString = Self.stringProperty("origin", on: notification),
-              let origin = URL(string: originString) else {
+              let origin = URL(string: originString),
+              BrowserProfileStore.shared.notificationPermissions.decision(
+                  for: origin,
+                  profileID: profileID
+              ) == .allowed else {
             return
         }
         let body = Self.stringProperty("body", on: notification) ?? ""
@@ -222,12 +236,37 @@ final class BrowserWebNotificationNativeAdapter {
                   on: dataStore,
                   dictionary: registration.dictionary,
                   completion: { processed in
-                      if !processed { _ = self.openExternalURL(registration.origin) }
+                      if !processed,
+                         NotificationNavWebsiteClickTarget.isValidDisplayOrigin(registration.origin) {
+                          _ = self.openExternalURL(registration.origin)
+                      }
                   }
               ) else {
+            guard NotificationNavWebsiteClickTarget.isValidDisplayOrigin(displayFallbackOrigin) else {
+                return false
+            }
             return openExternalURL(displayFallbackOrigin)
         }
         return true
+    }
+
+    func openServiceWorkerWindow(
+        _ url: URL,
+        from origin: WKSecurityOrigin,
+        dataStore: WKWebsiteDataStore
+    ) {
+        guard BrowserNotificationPermissionRepository.canonicalOrigin(url) != nil,
+              let securityOrigin = origin.canonicalURL,
+              let profileID = dataStoreProfiles[ObjectIdentifier(dataStore)],
+              BrowserProfileStore.shared.notificationPermissions.decision(
+                  for: securityOrigin,
+                  profileID: profileID
+              ) == .allowed,
+              url.user == nil,
+              url.password == nil else {
+            return
+        }
+        _ = openExternalURL(url)
     }
 
     func removePersistentClickRegistrations(notificationIDs: [UUID]) {
@@ -257,7 +296,6 @@ final class BrowserWebNotificationNativeAdapter {
     }
 
     func trackPageManagerForTesting(pageKey: UInt, manager: UnsafeRawPointer) {
-        pageManagers[pageKey] = manager
         _ = provisionManager(manager, pageKey: pageKey)
     }
 
@@ -266,7 +304,7 @@ final class BrowserWebNotificationNativeAdapter {
     }
 
     func acknowledgeForegroundNotificationForTesting(pageKey: UInt, notificationID: UInt64) {
-        guard let manager = pageManagers[pageKey] else { return }
+        guard let manager = registrations[pageKey]?.manager else { return }
         acknowledgeNotificationShown(manager: manager, notificationID: notificationID)
     }
 
@@ -353,16 +391,22 @@ final class BrowserWebNotificationNativeAdapter {
             .flatMap { copiedString(using: copySecurityOriginString, from: $0) }
             .flatMap(URL.init(string:))
 
-        if let page {
+        if let page,
+           let securityOrigin {
             let pageKey = Self.key(page)
-            registrations[pageKey]?.panel?.handleNativeWebNotification(
+            guard let registration = registrations[pageKey],
+                  BrowserProfileStore.shared.notificationPermissions.decision(
+                      for: securityOrigin,
+                      profileID: registration.profileID
+                  ) == .allowed,
+                  registration.panel?.handleNativeWebNotification(
                 title: title,
                 body: body,
                 securityOrigin: securityOrigin
-            )
-            if !persistent, id != 0, let manager = pageManagers[pageKey] {
-                acknowledgeNotificationShown(manager: manager, notificationID: id)
-            }
+                  ) == true,
+                  !persistent,
+                  id != 0 else { return }
+            acknowledgeNotificationShown(manager: registration.manager, notificationID: id)
         } else if persistent {
             // Persistent/service-worker notifications are delivered through
             // the website-data-store delegate, which preserves profile and
@@ -424,7 +468,6 @@ final class BrowserWebNotificationNativeAdapter {
         // Defensive cleanup covers registrations created before WebKit invoked
         // addNotificationManager, as well as any weak-registration drift.
         registrations = registrations.filter { Self.key($0.value.manager) != managerKey }
-        pageManagers = pageManagers.filter { Self.key($0.value) != managerKey }
     }
 
     private func removeRegistration(forPageKey pageKey: UInt) {

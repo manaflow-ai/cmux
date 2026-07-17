@@ -15,7 +15,8 @@ struct SidebarWorkspaceNotificationIndex {
         var grouped: [UUID: [TerminalNotification]] = [:]
         grouped.reserveCapacity(min(notifications.count, 64))
         for notification in notifications {
-            grouped[notification.tabId, default: []].append(notification)
+            guard let workspaceTabId = notification.workspaceTabId else { continue }
+            grouped[workspaceTabId, default: []].append(notification)
         }
         for workspaceId in Array(grouped.keys) {
             guard let bucket = grouped[workspaceId] else { continue }

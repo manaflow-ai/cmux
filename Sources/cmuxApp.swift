@@ -1161,7 +1161,7 @@ struct cmuxApp: App {
     }
 
     private func notificationMenuItemTitle(for notification: TerminalNotification) -> String {
-        let tabTitle = appDelegate.tabTitle(for: notification.tabId)
+        let tabTitle = notification.workspaceTabId.flatMap { appDelegate.tabTitle(for: $0) }
         return MenuBarNotificationLineFormatter.menuTitle(notification: notification, tabTitle: tabTitle)
     }
 

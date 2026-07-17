@@ -13,8 +13,8 @@ public import Foundation
 public struct ControlNotificationSnapshot: Sendable, Equatable {
     /// The notification's stable identifier.
     public let id: UUID
-    /// The workspace (tab) the notification belongs to.
-    public let workspaceID: UUID
+    /// The workspace (tab) the notification belongs to, if workspace-scoped.
+    public let workspaceID: UUID?
     /// The surface the notification targets, if any.
     public let surfaceID: UUID?
     /// The notification title.
@@ -38,7 +38,7 @@ public struct ControlNotificationSnapshot: Sendable, Equatable {
     ///
     /// - Parameters:
     ///   - id: The notification's stable identifier.
-    ///   - workspaceID: The owning workspace (tab) id.
+    ///   - workspaceID: The owning workspace (tab) id, if workspace-scoped.
     ///   - surfaceID: The targeted surface, if any.
     ///   - title: The notification title.
     ///   - subtitle: The notification subtitle.
@@ -48,7 +48,7 @@ public struct ControlNotificationSnapshot: Sendable, Equatable {
     ///   - tabTitle: The owning workspace's tab title, if any.
     public init(
         id: UUID,
-        workspaceID: UUID,
+        workspaceID: UUID?,
         surfaceID: UUID?,
         title: String,
         subtitle: String,
