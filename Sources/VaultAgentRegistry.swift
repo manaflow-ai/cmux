@@ -139,7 +139,7 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
             detect: CmuxVaultAgentDetectRule(processName: "pi", argvContains: ["pi"]),
             sessionIdSource: .piSessionFile,
             resumeCommand: "{{executable}} --session {{sessionId}}",
-            forkCommand: "{{executable}} --session {{sessionId}} --fork",
+            forkCommand: "{{executable}} --fork {{sessionId}}",
             cwd: .preserve,
             sessionDirectory: "~/.pi/agent/sessions"
         )
@@ -156,10 +156,32 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
             ),
             sessionIdSource: .piSessionFile,
             resumeCommand: "{{executable}} --session {{sessionId}}",
-            forkCommand: "{{executable}} --session {{sessionId}} --fork",
+            forkCommand: "{{executable}} --fork {{sessionId}}",
             cwd: .preserve,
             sessionDirectory: "~/.omp/agent/sessions"
         )
+    }
+
+    var migratedPersistedBuiltInRegistration: CmuxVaultAgentRegistration {
+        if matchesPersistedBuiltInHistory(current: Self.builtInPi) {
+            return Self.builtInPi
+        }
+        if matchesPersistedBuiltInHistory(current: Self.builtInOmp) {
+            return Self.builtInOmp
+        }
+        return self
+    }
+
+    private func matchesPersistedBuiltInHistory(current: CmuxVaultAgentRegistration) -> Bool {
+        let legacyForkCommand = "{{executable}} --session {{sessionId}} --fork"
+        guard iconAssetName == nil || iconAssetName == current.iconAssetName,
+              forkCommand == legacyForkCommand else {
+            return false
+        }
+        var candidate = self
+        candidate.iconAssetName = current.iconAssetName
+        candidate.forkCommand = current.forkCommand
+        return candidate == current
     }
 
     static var builtInAntigravity: CmuxVaultAgentRegistration {

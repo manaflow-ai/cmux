@@ -441,9 +441,7 @@ jobs:
             PROFILE_BASE64="${IOS_BETA_PROVISIONING_PROFILE_INTERNAL_BASE64}"
             EXPECTED_APP_ID="7WLXT3NR37.dev.cmux.app.internal"
             PROFILE_TYPE="internal"
-            # Internal profile created in ASC but may lack push notifications entitlement
-            # Set to true to skip aps-environment check for internal builds
-            SKIP_APS_ENVIRONMENT_CHECK=true
+            SKIP_APS_ENVIRONMENT_CHECK=false
           else
             PROFILE_BASE64="${IOS_BETA_PROVISIONING_PROFILE_BASE64}"
             EXPECTED_APP_ID="7WLXT3NR37.dev.cmux.app.beta"
@@ -466,7 +464,7 @@ jobs:
             echo "$PROFILE_TYPE provisioning profile targets unexpected app ID: $APP_ID (expected $EXPECTED_APP_ID)" >&2
             exit 1
           fi
-          # Check aps-environment, but skip for internal profiles (ASC profile may not have it yet)
+          # Check aps-environment for every TestFlight provisioning profile.
           if [ "${SKIP_APS_ENVIRONMENT_CHECK:-false}" != "true" ]; then
             APS_ENVIRONMENT="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:aps-environment" "$TMP_PLIST" 2>/dev/null || echo "")"
             if [ -z "$APS_ENVIRONMENT" ] || [ "$APS_ENVIRONMENT" != "production" ]; then

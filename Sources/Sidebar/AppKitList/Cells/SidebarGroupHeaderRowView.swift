@@ -17,8 +17,10 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     private let chevronButton = SidebarHeaderGlyphButton()
     private let iconImageView = NSImageView()
     private let nameField = NSTextField(labelWithString: "")
-    private let unreadBadgeView = NSView()
-    private let unreadBadgeLabel = NSTextField(labelWithString: "")
+    // Direct-draw badge (shared with workspace rows): NSTextField's
+    // intrinsic insets shift single digits off the circle's optical center.
+    private let unreadBadgeView = SidebarRowUnreadBadgeView()
+    private var unreadBadgeFont: NSFont = .systemFont(ofSize: 10, weight: .semibold)
     private let plusButton = SidebarHeaderGlyphButton()
     private let topDropIndicator = NSView()
     private let bottomDropIndicator = NSView()
@@ -71,10 +73,6 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         nameField.cell?.truncatesLastVisibleLine = true
         addSubview(nameField)
 
-        unreadBadgeView.wantsLayer = true
-        unreadBadgeLabel.alignment = .center
-        unreadBadgeLabel.textColor = .white
-        unreadBadgeView.addSubview(unreadBadgeLabel)
         addSubview(unreadBadgeView)
 
         plusButton.onClick = { [weak self] in self?.actions?.onTapPlus() }
@@ -159,12 +157,16 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         let showsBadge = model.anchorUnreadCount > 0
         unreadBadgeView.isHidden = !showsBadge
         if showsBadge {
-            unreadBadgeLabel.stringValue = "\(model.anchorUnreadCount)"
-            unreadBadgeLabel.font = .systemFont(
+            unreadBadgeFont = .systemFont(
                 ofSize: GlobalFontMagnification.scaledSize(metrics.unreadFontSize, percent: percent),
                 weight: .semibold
             )
-            unreadBadgeView.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
+            unreadBadgeView.configure(
+                count: model.anchorUnreadCount,
+                fillColor: .controlAccentColor,
+                textColor: .white,
+                font: unreadBadgeFont
+            )
             unreadBadgeView.setAccessibilityLabel(String.localizedStringWithFormat(
                 String(localized: "workspaceGroup.unread.a11y", defaultValue: "%lld unread"),
                 model.anchorUnreadCount
@@ -206,6 +208,15 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     private func updatePlusVisibility() {
         let showsHint = model?.shortcutHintText != nil
         plusButton.setRevealed(isPointerHovering && !contextMenuVisible && !showsHint)
+    }
+
+    /// Authoritative hover enforcement: the controller sweeps visible cells
+    /// so hover-revealed chrome cannot strand on rows the pointer left
+    /// (row-index/id races during churn made per-transition repaints miss).
+    func enforcePointerHovering(_ hovering: Bool) {
+        guard isPointerHovering != hovering else { return }
+        isPointerHovering = hovering
+        updatePlusVisibility()
     }
 
     // MARK: Layout
@@ -253,7 +264,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
         var badgeSize = NSSize.zero
         if !unreadBadgeView.isHidden {
-            let textSize = unreadBadgeLabel.intrinsicContentSize
+            let textSize = NSString(string: "\(model.anchorUnreadCount)")
+                .size(withAttributes: [.font: unreadBadgeFont])
             badgeSize = NSSize(
                 width: ceil(textSize.width) + metrics.unreadHorizontalPadding * 2,
                 height: ceil(textSize.height) + metrics.unreadVerticalPadding * 2
@@ -279,11 +291,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
                 width: badgeSize.width,
                 height: badgeSize.height
             )
-            unreadBadgeView.layer?.cornerRadius = badgeSize.height / 2
-            unreadBadgeLabel.frame = unreadBadgeView.bounds.insetBy(
-                dx: metrics.unreadHorizontalPadding,
-                dy: metrics.unreadVerticalPadding
-            )
+            unreadBadgeView.needsDisplay = true
         }
 
         let indicatorX: CGFloat = 8
