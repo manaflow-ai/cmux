@@ -31,6 +31,8 @@ public struct MobileTerminalPreview: Identifiable, Equatable, Sendable {
     public var isReady: Bool
     /// Whether the terminal currently holds focus in the shell.
     public var isFocused: Bool
+    /// Owning pane identifier, when reported by a pane-capable Mac.
+    public var paneID: String?
     /// The negotiated viewport fit, when the remote has reported one.
     public var viewportFit: MobileTerminalViewportFit?
 
@@ -40,18 +42,21 @@ public struct MobileTerminalPreview: Identifiable, Equatable, Sendable {
     ///   - name: The terminal's user-facing display name.
     ///   - isReady: Whether the terminal surface is ready. Defaults to `true`.
     ///   - isFocused: Whether the terminal currently holds focus. Defaults to `false`.
+    ///   - paneID: Owning pane identifier, when reported. Defaults to `nil`.
     ///   - viewportFit: The negotiated viewport fit, if any. Defaults to `nil`.
     public init(
         id: ID,
         name: String,
         isReady: Bool = true,
         isFocused: Bool = false,
+        paneID: String? = nil,
         viewportFit: MobileTerminalViewportFit? = nil
     ) {
         self.id = id
         self.name = name
         self.isReady = isReady
         self.isFocused = isFocused
+        self.paneID = paneID
         self.viewportFit = viewportFit
     }
 }

@@ -70,6 +70,14 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
+    private var shouldShowSplitsPreview: Bool {
+        #if os(iOS) && DEBUG
+        return UITestConfig.splitsPreviewEnabled
+        #else
+        return false
+        #endif
+    }
+
     private var shouldShowWorkspaceListLayoutPreview: Bool {
         #if os(iOS) && DEBUG
         return UITestConfig.workspaceListLayoutPreviewEnabled
@@ -97,6 +105,14 @@ struct CMUXMobileRootView: View {
     @ViewBuilder private var terminalLayoutPreview: some View {
         #if os(iOS) && DEBUG
         TerminalLayoutPreviewView()
+        #else
+        EmptyView()
+        #endif
+    }
+
+    @ViewBuilder private var splitsPreview: some View {
+        #if os(iOS) && DEBUG
+        PaneRackFixtureView(staticTails: UITestConfig.splitsPreviewStaticEnabled)
         #else
         EmptyView()
         #endif
@@ -211,6 +227,8 @@ struct CMUXMobileRootView: View {
             deleteComputersVerifier
         } else if shouldShowAgentChatDemoPreview {
             agentChatDemoPreview
+        } else if shouldShowSplitsPreview {
+            splitsPreview
         } else if shouldShowTerminalLayoutPreview {
             terminalLayoutPreview
         } else if shouldShowWorkspaceListLayoutPreview {

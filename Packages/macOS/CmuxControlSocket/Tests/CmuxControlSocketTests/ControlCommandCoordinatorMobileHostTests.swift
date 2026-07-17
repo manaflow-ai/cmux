@@ -31,6 +31,10 @@ private final class FakeMobileHostControlCommandContext: ControlCommandContext {
         record("terminal.create", params)
     }
 
+    func controlMobileTerminalClose(params: [String: JSONValue]) -> ControlCallResult {
+        record("terminal.close", params)
+    }
+
     func controlMobileTerminalInput(params: [String: JSONValue]) -> ControlCallResult {
         record("terminal.input", params)
     }
@@ -75,12 +79,16 @@ struct ControlCommandCoordinatorMobileHostTests {
 
     // MARK: - handleMobileHost (processV2Command surface)
 
-    @Test func v2SurfaceRoutesPasteAndAliasThroughSeam() {
+    @Test func v2SurfaceRoutesPasteCloseAndAliasesThroughSeam() {
         let (coordinator, context) = makeCoordinator()
         #expect(coordinator.handle(request("mobile.terminal.paste")) != nil)
         #expect(context.lastMarker == "terminal.paste")
         #expect(coordinator.handle(request("terminal.paste")) != nil)
         #expect(context.lastMarker == "terminal.paste")
+        #expect(coordinator.handle(request("mobile.terminal.close")) != nil)
+        #expect(context.lastMarker == "terminal.close")
+        #expect(coordinator.handle(request("terminal.close")) != nil)
+        #expect(context.lastMarker == "terminal.close")
     }
 
     @Test func v2SurfaceRoutesChatSessionsDumpThroughSeam() {

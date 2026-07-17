@@ -341,10 +341,11 @@ final class cmuxUITests: XCTestCase {
         XCTAssertFalse(app.buttons["MobileNewTerminalMenuItem"].exists)
         dismissOpenMenu(in: app)
 
-        tap(app.buttons["MobileTerminalNewWorkspaceButton"], in: app)
+        tapCompactToolbarTitleMenu(app.buttons["MobileWorkspaceTitleMenu"], in: app)
+        tapMenuItem(app.buttons["MobileNewWorkspaceMenuItem"], in: app)
         let freshBackButton = app.buttons["MobileWorkspaceBackButton"]
         let freshTitleMenu = workspaceTitleElement(in: app)
-        let freshTerminalDropdown = app.buttons["MobileTerminalDropdown"]
+        let freshTerminalDropdown = app.buttons["PaneRackHeader"]
         assertWorkspaceToolbarVisible(
             backButton: freshBackButton,
             titleMenu: freshTitleMenu,
@@ -371,20 +372,10 @@ final class cmuxUITests: XCTestCase {
         assertToolbarOverflowButtonDoesNotExist(in: app)
         assertBackButtonFrameStaysCompactAroundPress(freshBackButton, in: app)
 
-        tap(app.buttons["MobileTerminalDropdown"], in: app)
-        assertTerminalMenuItemExists("workspace-3-terminal-1", in: app)
-        assertMenuButtonDoesNotExist("MobileWorkspaceTitleRenameMenuItem", in: app)
-        assertMenuButtonDoesNotExist("MobileWorkspaceTitleReadStateMenuItem", in: app)
-        assertMenuButtonDoesNotExist("MobileWorkspaceTitleCloseMenuItem", in: app)
-        tapMenuItem(app.buttons["MobileNewTerminalMenuItem"], in: app)
-        await assertHostSelection(
-            workspaceID: "workspace-3",
-            terminalID: "workspace-3-terminal-2",
-            server: server
+        XCTAssertFalse(
+            app.buttons["PaneRackHeader"].exists,
+            "One pane with one tab must hide Pane Rack chrome."
         )
-
-        tap(app.buttons["MobileTerminalDropdown"], in: app)
-        assertTerminalMenuItemExists("workspace-3-terminal-2", in: app)
     }
 
     @MainActor
@@ -392,7 +383,7 @@ final class cmuxUITests: XCTestCase {
         let app = launchWorkspaceDetailDelayedTerminalPreviewApp()
         let backButton = app.buttons["MobileWorkspaceBackButton"]
         let titleMenu = workspaceTitleElement(in: app)
-        let terminalDropdown = app.buttons["MobileTerminalDropdown"]
+        let terminalDropdown = app.buttons["PaneRackHeader"]
 
         assertWorkspaceToolbarVisible(
             backButton: backButton,
@@ -416,8 +407,7 @@ final class cmuxUITests: XCTestCase {
         assertToolbarOverflowButtonDoesNotExist(in: app)
         assertBackButtonFrameStaysCompactAroundPress(backButton, in: app)
 
-        tap(terminalDropdown, in: app)
-        assertTerminalMenuItemExists("terminal-delayed", in: app)
+        XCTAssertFalse(terminalDropdown.exists, "One pane with one tab must hide Pane Rack chrome.")
     }
 
     @MainActor
@@ -427,7 +417,7 @@ final class cmuxUITests: XCTestCase {
         ])
         let backButton = app.buttons["MobileWorkspaceBackButton"]
         let titleMenu = workspaceTitleElement(in: app)
-        let terminalDropdown = app.buttons["MobileTerminalDropdown"]
+        let terminalDropdown = app.buttons["PaneRackHeader"]
 
         RunLoop.current.run(until: Date().addingTimeInterval(2.5))
         assertWorkspaceToolbarVisible(
@@ -439,8 +429,7 @@ final class cmuxUITests: XCTestCase {
         )
         XCTAssertFalse(app.buttons["MobileWorkspaceAgentChatButton"].exists)
         assertToolbarOverflowButtonDoesNotExist(in: app)
-        tap(terminalDropdown, in: app)
-        assertTerminalMenuItemExists("terminal-delayed", in: app)
+        XCTAssertFalse(terminalDropdown.exists, "One pane with one tab must hide Pane Rack chrome.")
     }
 
     @MainActor
@@ -452,7 +441,7 @@ final class cmuxUITests: XCTestCase {
         let backButton = app.buttons["MobileWorkspaceBackButton"]
         let titleMenu = workspaceTitleElement(in: app)
         let chatButton = app.buttons["MobileWorkspaceAgentChatButton"]
-        let terminalDropdown = app.buttons["MobileTerminalDropdown"]
+        let terminalDropdown = app.buttons["PaneRackHeader"]
 
         RunLoop.current.run(until: Date().addingTimeInterval(2.5))
         assertWorkspaceToolbarVisible(
@@ -465,20 +454,19 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(chatButton.waitForExistence(timeout: 4))
         XCTAssertTrue(chatButton.isHittable)
         assertToolbarOverflowButtonDoesNotExist(in: app)
-        tap(terminalDropdown, in: app)
-        assertTerminalMenuItemExists("terminal-delayed", in: app)
+        XCTAssertFalse(terminalDropdown.exists, "One pane with one tab must hide Pane Rack chrome.")
     }
 
     @MainActor
     func testWorkspaceDetailToolbarSurvivesCreateWorkspaceDelayedTerminalLifecycle() throws {
         let app = launchWorkspaceDetailCreateDelayedTerminalPreviewApp()
-        let initialTerminalDropdown = app.buttons["MobileTerminalDropdown"]
-        tap(initialTerminalDropdown, in: app)
+        let initialTitleMenu = app.buttons["MobileWorkspaceTitleMenu"]
+        tapCompactToolbarTitleMenu(initialTitleMenu, in: app)
         tapMenuItem(app.buttons["MobileNewWorkspaceMenuItem"], in: app)
 
         let backButton = app.buttons["MobileWorkspaceBackButton"]
         let titleMenu = workspaceTitleElement(in: app)
-        let terminalDropdown = app.buttons["MobileTerminalDropdown"]
+        let terminalDropdown = app.buttons["PaneRackHeader"]
 
         assertWorkspaceToolbarVisible(
             backButton: backButton,
@@ -502,8 +490,7 @@ final class cmuxUITests: XCTestCase {
         assertToolbarOverflowButtonDoesNotExist(in: app)
         assertBackButtonFrameStaysCompactAroundPress(backButton, in: app)
 
-        tap(terminalDropdown, in: app)
-        assertTerminalMenuItemExists("workspace-3-terminal-1", in: app)
+        XCTAssertFalse(terminalDropdown.exists, "One pane with one tab must hide Pane Rack chrome.")
     }
 
     @MainActor
@@ -515,7 +502,7 @@ final class cmuxUITests: XCTestCase {
         let app = try launchConnectedApp(port: port)
         try openSelectedWorkspaceIfNeeded(app)
 
-        tap(app.buttons["MobileTerminalDropdown"], in: app)
+        tap(app.buttons["PaneRackHeader"], in: app)
         assertTerminalMenuItemExists("terminal-build", in: app)
         let target = scrollTerminalMenuToItem("terminal-extra-24", in: app)
         tapMenuItem(target, in: app)
@@ -527,12 +514,12 @@ final class cmuxUITests: XCTestCase {
     func testTerminalDropdownKeepsBottomScrollDuringWorkspaceRefresh() throws {
         let app = launchWorkspaceDetailRefreshingTerminalMenuPreviewApp()
 
-        tap(app.buttons["MobileTerminalDropdown"], in: app)
+        tap(app.buttons["PaneRackHeader"], in: app)
         assertTerminalMenuItemExists("terminal-build", in: app)
         let target = scrollTerminalMenuToItem("terminal-extra-24", in: app)
         XCTAssertTrue(target.isHittable, "Bottom terminal must be visible before refresh pulses start.")
 
-        let refreshedTarget = app.buttons["MobileTerminalMenuItem-terminal-extra-24"]
+        let refreshedTarget = app.buttons["PaneRackTabRow-terminal-extra-24"]
         let deadline = Date().addingTimeInterval(3.0)
         while Date() < deadline {
             XCTAssertTrue(
@@ -542,7 +529,7 @@ final class cmuxUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
         tapMenuItem(refreshedTarget, in: app)
-        let selectedValue = app.buttons["MobileTerminalDropdown"].value as? String ?? ""
+        let selectedValue = app.buttons["PaneRackHeader"].value as? String ?? ""
         XCTAssertTrue(
             selectedValue.contains("Terminal 24"),
             "Selecting the bottom terminal should update the picker value. value=\(selectedValue)"
@@ -558,8 +545,8 @@ final class cmuxUITests: XCTestCase {
         let app = try launchConnectedApp(port: port)
         try openSelectedWorkspaceIfNeeded(app)
 
-        tap(app.buttons["MobileTerminalDropdown"], in: app)
-        tapMenuItem(app.buttons["MobileTerminalMenuItem-terminal-tui"], in: app)
+        tap(app.buttons["PaneRackHeader"], in: app)
+        tapMenuItem(app.buttons["PaneRackTabRow-terminal-tui"], in: app)
         await assertHostSelection(workspaceID: "workspace-main", terminalID: "terminal-tui", server: server)
         await assertTerminalReplay(terminalID: "terminal-tui", server: server)
 
@@ -1969,7 +1956,7 @@ final class cmuxUITests: XCTestCase {
             "CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1",
         ])
         XCTAssertTrue(workspaceTitleElement(in: app).waitForExistence(timeout: 8))
-        XCTAssertTrue(app.buttons["MobileTerminalDropdown"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["PaneRackHeader"].waitForExistence(timeout: 8))
         return app
     }
 
@@ -1985,7 +1972,7 @@ final class cmuxUITests: XCTestCase {
             row.tap()
         }
         XCTAssertTrue(workspaceTitleElement(in: app).waitForExistence(timeout: 8))
-        XCTAssertTrue(app.buttons["MobileTerminalDropdown"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["PaneRackHeader"].waitForExistence(timeout: 8))
         return app
     }
 
@@ -2103,8 +2090,8 @@ final class cmuxUITests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) async throws {
-        tap(app.buttons["MobileTerminalDropdown"], in: app, file: file, line: line)
-        tapMenuItem(app.buttons["MobileTerminalMenuItem-terminal-tui"], in: app, file: file, line: line)
+        tap(app.buttons["PaneRackHeader"], in: app, file: file, line: line)
+        tapMenuItem(app.buttons["PaneRackTabRow-terminal-tui"], in: app, file: file, line: line)
         await assertHostSelection(
             workspaceID: "workspace-main",
             terminalID: "terminal-tui",
@@ -2154,7 +2141,7 @@ final class cmuxUITests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        let item = app.buttons["MobileTerminalMenuItem-\(terminalID)"]
+        let item = app.buttons["PaneRackTabRow-\(terminalID)"]
         XCTAssertTrue(
             item.waitForExistence(timeout: 4),
             "Expected terminal menu to contain \(terminalID).",
@@ -2200,7 +2187,7 @@ final class cmuxUITests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) -> XCUIElement {
-        let item = app.buttons["MobileTerminalMenuItem-\(terminalID)"]
+        let item = app.buttons["PaneRackTabRow-\(terminalID)"]
         let deadline = Date().addingTimeInterval(8)
         while Date() < deadline {
             if item.exists, item.isHittable {
@@ -2535,7 +2522,7 @@ final class cmuxUITests: XCTestCase {
     private func assertWorkspaceToolbarVisible(
         backButton: XCUIElement,
         titleMenu: XCUIElement,
-        terminalDropdown: XCUIElement,
+        terminalDropdown _: XCUIElement,
         in app: XCUIApplication,
         context: String,
         file: StaticString = #filePath,
@@ -2543,21 +2530,6 @@ final class cmuxUITests: XCTestCase {
     ) {
         XCTAssertTrue(backButton.waitForExistence(timeout: 4), "\(context): missing back button", file: file, line: line)
         XCTAssertTrue(titleMenu.waitForExistence(timeout: 4), "\(context): missing title menu", file: file, line: line)
-        XCTAssertTrue(terminalDropdown.waitForExistence(timeout: 4), "\(context): missing terminal dropdown", file: file, line: line)
-        XCTAssertTrue(
-            waitForCompactToolbarHeightsToMatch(
-                titleMenu: titleMenu,
-                backButton: backButton,
-                surfacePicker: terminalDropdown,
-                tolerance: 2,
-                timeout: 4,
-                file: file,
-                line: line
-            ),
-            "\(context): toolbar items must keep compact native heights",
-            file: file,
-            line: line
-        )
     }
 
     @MainActor
@@ -4039,6 +4011,126 @@ final class cmuxUITests: XCTestCase {
             object: app
         )
         return XCTWaiter.wait(for: [expectation], timeout: 3) == .completed
+    }
+}
+
+final class PaneRackFixtureUITests: XCTestCase {
+    override func setUpWithError() throws {
+        continueAfterFailure = false
+    }
+
+    @MainActor
+    func testPaneRackFixtureInteractions() throws {
+        let app = launchFixture()
+        defer { app.terminate() }
+
+        let strips = elements(in: app, identifierPrefix: "PaneRackStrip-")
+        XCTAssertTrue(app.buttons["PaneRackStrip-pane-b"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["PaneRackStrip-pane-c"].exists)
+        XCTAssertEqual(strips.count, 2)
+
+        let header = app.buttons["PaneRackHeader"]
+        XCTAssertTrue(header.waitForExistence(timeout: 8))
+        assertHeaderTitle("claude", header: header)
+
+        app.buttons["PaneRackStrip-pane-c"].tap()
+        assertHeaderTitle("review", header: header)
+        XCTAssertEqual(strips.count, 2, "The old stage should become the second strip")
+
+        unfold(header)
+        let rows = elements(in: app, identifierPrefix: "PaneRackTabRow-")
+        assertCount(3, query: rows)
+
+        app.buttons["PaneRackTabRow-logs"].tap()
+        assertHeaderTitle("logs", header: header)
+
+        unfold(header)
+        assertCount(3, query: rows)
+        app.buttons["PaneRackTabClose-server"].tap()
+        assertCount(2, query: rows)
+
+        app.buttons["PaneRackTabClose-review"].tap()
+        let message = app.staticTexts["Close this tab? An agent is still running."]
+        XCTAssertTrue(message.waitForExistence(timeout: 3))
+        let cancel = app.buttons["Cancel"]
+        if cancel.waitForExistence(timeout: 1) {
+            cancel.tap()
+        } else {
+            // Compact-width confirmation dialogs are popovers on newer iOS and
+            // cancel by tapping outside rather than presenting a cancel button.
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.8)).tap()
+        }
+        XCTAssertTrue(message.waitForNonExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["PaneRackTabRow-review"].waitForExistence(timeout: 3))
+        XCTAssertEqual(rows.count, 2)
+    }
+
+    @MainActor
+    private func launchFixture() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchEnvironment["CMUX_UITEST_MOCK_DATA"] = "1"
+        app.launchEnvironment["CMUX_UITEST_SPLITS_PREVIEW"] = "1"
+        app.launchEnvironment["CMUX_UITEST_SPLITS_PREVIEW_STATIC"] = "1"
+        app.launch()
+        return app
+    }
+
+    @MainActor
+    private func elements(
+        in app: XCUIApplication,
+        identifierPrefix: String
+    ) -> XCUIElementQuery {
+        app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", identifierPrefix)
+        )
+    }
+
+    @MainActor
+    private func unfold(_ header: XCUIElement) {
+        header.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+    }
+
+    @MainActor
+    private func assertHeaderTitle(
+        _ title: String,
+        header: XCUIElement,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", title),
+            object: header
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [expectation], timeout: 3),
+            .completed,
+            "Expected Pane Rack header title \(title), got \(String(describing: header.value))",
+            file: file,
+            line: line
+        )
+    }
+
+    @MainActor
+    private func assertCount(
+        _ expectedCount: Int,
+        query: XCUIElementQuery,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { object, _ in
+                (object as? XCUIElementQuery)?.count == expectedCount
+            },
+            object: query
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [expectation], timeout: 3),
+            .completed,
+            "Expected \(expectedCount) elements, got \(query.count)",
+            file: file,
+            line: line
+        )
     }
 }
 

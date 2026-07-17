@@ -2315,11 +2315,13 @@ class TerminalController {
             "mobile.terminal.set_font",
             "mobile.workspace.list",
             "mobile.terminal.create",
+            "mobile.terminal.close",
             "mobile.terminal.input",
             "mobile.terminal.paste",
             "mobile.terminal.replay",
             "mobile.terminal.viewport", "mobile.events.subscribe", "mobile.events.unsubscribe",
             "terminal.create",
+            "terminal.close",
             "terminal.input",
             "terminal.paste",
             "terminal.replay",
@@ -13807,6 +13809,8 @@ class TerminalController {
             result = v2MobileWorkspaceCreate(params: request.params)
         case "mobile.terminal.create", "terminal.create":
             result = v2MobileTerminalCreate(params: request.params)
+        case "mobile.terminal.close", "terminal.close":
+            result = v2MobileTerminalClose(params: request.params)
         case "mobile.terminal.input", "terminal.input":
             result = v2MobileTerminalInput(params: request.params)
         case "mobile.terminal.paste", "terminal.paste":
@@ -14013,54 +14017,6 @@ class TerminalController {
     #if DEBUG
     #endif
 
-    enum MobileTerminalAliasUUID {
-        case missing
-        case value(UUID)
-        case invalid
-        case conflict
-    }
-
-    func mobileTerminalAliasUUID(params: [String: Any]) -> MobileTerminalAliasUUID {
-        var selected: UUID?
-        var sawAlias = false
-        for key in ["surface_id", "terminal_id", "tab_id"] {
-            guard v2HasNonNullParam(params, key) else {
-                continue
-            }
-            sawAlias = true
-            guard let candidate = v2UUID(params, key) else {
-                return .invalid
-            }
-            if let selected, selected != candidate {
-                return .conflict
-            }
-            selected = selected ?? candidate
-        }
-        if let selected {
-            return .value(selected)
-        }
-        return sawAlias ? .invalid : .missing
-    }
-
-    func mobileTerminalAliasValidationError(params: [String: Any]) -> V2CallResult? {
-        switch mobileTerminalAliasUUID(params: params) {
-        case .missing, .value:
-            return nil
-        case .invalid:
-            return .err(code: "invalid_params", message: "Missing or invalid terminal_id", data: nil)
-        case .conflict:
-            return .err(code: "invalid_params", message: "Conflicting terminal identifiers", data: nil)
-        }
-    }
-
-    func mobileWorkspaceIDValidationError(params: [String: Any]) -> V2CallResult? {
-        guard v2HasNonNullParam(params, "workspace_id"),
-              v2UUID(params, "workspace_id") == nil else {
-            return nil
-        }
-        return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
-    }
-
     func clearAllMobileViewportReports(reason: String) {
         guard !mobileViewportReportsBySurfaceID.isEmpty || !mobileViewportGenerationsBySurfaceID.isEmpty || !mobileViewportReportCleanupTimersBySurfaceID.isEmpty else { return }
 
@@ -14119,37 +14075,6 @@ class TerminalController {
         String(
             localized: "workspace.closeProtected.message",
             defaultValue: "Pinned workspaces can't be closed while pinned. Unpin the workspace first."
-        )
-    }
-
-    func v2MobileTerminalCreate(params: [String: Any]) -> V2CallResult {
-        guard let tabManager = v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
-        }
-        if let error = mobileWorkspaceIDValidationError(params: params) {
-            return error
-        }
-        guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
-            return .err(code: "not_found", message: "Workspace not found", data: nil)
-        }
-        guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
-            return .err(code: "not_found", message: "Pane not found", data: nil)
-        }
-        guard let terminal = workspace.newTerminalSurface(
-            inPane: paneId,
-            focus: false,
-            autoRefreshMetadata: false,
-            preserveFocusWhenUnfocused: false,
-            inheritWorkingDirectoryFallback: true,
-            allowTextBoxFocusDefault: false
-        ) else {
-            return .err(code: "internal_error", message: "Failed to create terminal", data: nil)
-        }
-        // workspace.updated emit is handled by MobileWorkspaceListObserver.
-        return v2MobileWorkspaceList(
-            params: params,
-            tabManager: tabManager,
-            createdTerminalID: terminal.id.uuidString
         )
     }
 
@@ -14779,14 +14704,6 @@ class TerminalController {
         }
 
         return (tabManager, workspace, surfaceId)
-    }
-
-    func mobileTerminalPanels(in workspace: Workspace) -> [TerminalPanel] {
-        // Use the workspace's spatial (left-to-right, top-to-bottom) panel order
-        // so the phone's terminal dropdown matches the on-screen bonsplit layout,
-        // rather than focused-first/UUID order. `is_focused` in the payload still
-        // tells the phone which terminal is active.
-        orderedPanels(in: workspace).compactMap { $0 as? TerminalPanel }
     }
 
     deinit {

@@ -37,6 +37,10 @@ extension TerminalController: ControlMobileHostContext {
         bridgeMobileResult(v2MobileTerminalCreate(params: foundationParams(params)))
     }
 
+    func controlMobileTerminalClose(params: [String: JSONValue]) -> ControlCallResult {
+        bridgeMobileResult(v2MobileTerminalClose(params: foundationParams(params)))
+    }
+
     func controlMobileTerminalInput(params: [String: JSONValue]) -> ControlCallResult {
         bridgeMobileResult(v2MobileTerminalInput(params: foundationParams(params)))
     }
