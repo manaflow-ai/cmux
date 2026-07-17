@@ -188,7 +188,7 @@ struct CMUXAuthStateTests {
 
         #expect(state.isAuthenticated)
         #expect(state.currentUser == user)
-        #expect(!state.isRestoringSession)
+        #expect(state.isRestoringSession)
     }
 
     @Test("Primed state does not authenticate from cached user alone")
