@@ -271,7 +271,7 @@ struct MobileIrohRuntimeCompositionTests {
     }
 
     @Test
-    func verifiedPersonalMacDiscoveryMergesIntoPairedRefreshOnly() async throws {
+    func verifiedPersonalMacDiscoverySurfacesAZeroTouchCandidate() async throws {
         let macDeviceID = "123e4567-e89b-42d3-a456-426614174041"
         let discovery = try mobileIrohDiscovery(
             bindings: [
@@ -351,8 +351,16 @@ struct MobileIrohRuntimeCompositionTests {
             instanceTag: "other-build"
         )?.map(\.kind) == [.tailscale])
         switch await registry.listDevices() {
-        case let .ok(devices): #expect(devices.isEmpty)
-        case .authRejected, .transientFailure: Issue.record("Decorator changed the base device-list outcome")
+        case let .ok(devices):
+            let device = try #require(devices.first)
+            #expect(devices.count == 1)
+            #expect(device.deviceId == macDeviceID)
+            #expect(device.platform == "mac")
+            #expect(device.instances.count == 1)
+            #expect(device.instances[0].tag == "test")
+            #expect(device.instances[0].routes.map(\.kind) == [.iroh])
+        case .authRejected, .transientFailure:
+            Issue.record("Verified live Iroh discovery did not create a device-list candidate")
         }
     }
 
