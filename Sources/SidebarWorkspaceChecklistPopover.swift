@@ -17,12 +17,11 @@ struct SidebarWorkspaceChecklistPopoverModel: Equatable {
 }
 
 enum SidebarWorkspaceChecklistPopoverViewportModel {
-    static let minimumVisibleRowCount = 5
     static let maximumVisibleRowCount = 6
 
     static func visibleRowCount(forItemCount count: Int) -> Int {
         guard count > 0 else { return 0 }
-        return min(max(count, minimumVisibleRowCount), maximumVisibleRowCount)
+        return min(count, maximumVisibleRowCount)
     }
 }
 
@@ -101,9 +100,8 @@ struct SidebarWorkspaceChecklistPopover: View {
         return (font.ascender + font.descender) / 2
     }
 
-    /// Content height for `count` rows. Non-empty short lists keep a
-    /// comfortable minimum viewport so two-item workspaces don't collapse
-    /// into the add row/footer; longer lists still cap at six rows and scroll.
+    /// Content height for `count` rows. Short lists size to their item count;
+    /// longer lists cap at six rows and scroll.
     private func scrollViewportHeight(forItemCount count: Int) -> CGFloat {
         guard count > 0 else { return 0 }
         let visibleCount = SidebarWorkspaceChecklistPopoverViewportModel.visibleRowCount(forItemCount: count)

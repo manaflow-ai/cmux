@@ -288,10 +288,10 @@ struct WorkspaceTodoSidebarModelTests {
     }
 
     @Test
-    func checklistPopoverViewportDoesNotCollapseForShortLists() {
+    func checklistPopoverViewportSizesToItemsUntilCap() {
         #expect(SidebarWorkspaceChecklistPopoverViewportModel.visibleRowCount(forItemCount: 0) == 0)
-        #expect(SidebarWorkspaceChecklistPopoverViewportModel.visibleRowCount(forItemCount: 1) == 5)
-        #expect(SidebarWorkspaceChecklistPopoverViewportModel.visibleRowCount(forItemCount: 2) == 5)
+        #expect(SidebarWorkspaceChecklistPopoverViewportModel.visibleRowCount(forItemCount: 1) == 1)
+        #expect(SidebarWorkspaceChecklistPopoverViewportModel.visibleRowCount(forItemCount: 2) == 2)
         #expect(SidebarWorkspaceChecklistPopoverViewportModel.visibleRowCount(forItemCount: 5) == 5)
         #expect(SidebarWorkspaceChecklistPopoverViewportModel.visibleRowCount(forItemCount: 6) == 6)
         #expect(SidebarWorkspaceChecklistPopoverViewportModel.visibleRowCount(forItemCount: 12) == 6)
