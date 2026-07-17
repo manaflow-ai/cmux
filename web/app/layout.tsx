@@ -1,5 +1,6 @@
 import { Geist, Geist_Mono } from "next/font/google";
 import { headers } from "next/headers";
+import { getTranslations } from "next-intl/server";
 import { routing, type Locale } from "../i18n/routing";
 import "./globals.css";
 
@@ -32,6 +33,7 @@ export default async function RootLayout({
 }) {
   const locale = localeFromHeader((await headers()).get(nextIntlLocaleHeader));
   const dir = directionForLocale(locale);
+  const blogTranslations = await getTranslations({ locale, namespace: "blog" });
 
   return (
     <html lang={locale} dir={dir} suppressHydrationWarning>
@@ -39,7 +41,7 @@ export default async function RootLayout({
         <link
           rel="alternate"
           type="application/rss+xml"
-          title="cmux blog RSS"
+          title={`${blogTranslations("layoutTitle")} RSS`}
           href="https://cmux.com/feed.xml"
         />
       </head>

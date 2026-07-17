@@ -1,4 +1,5 @@
 import { blogPosts, type BlogPost } from "../[locale]/components/blog-posts";
+import englishMessages from "../../messages/en.json";
 
 const siteUrl = "https://cmux.com";
 const feedUrl = `${siteUrl}/feed.xml`;
@@ -26,9 +27,9 @@ export function buildBlogRssFeed(
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">',
     "  <channel>",
-    "    <title>cmux blog</title>",
+    `    <title>${escapeXml(englishMessages.blog.layoutTitle)}</title>`,
     `    <link>${siteUrl}/blog</link>`,
-    "    <description>News and updates from the cmux team</description>",
+    `    <description>${escapeXml(englishMessages.blog.metaDescription)}</description>`,
     "    <language>en-us</language>",
     `    <lastBuildDate>${lastBuildDate}</lastBuildDate>`,
     `    <atom:link href="${feedUrl}" rel="self" type="application/rss+xml" />`,
