@@ -46,7 +46,8 @@ regex = "1"
 bindgen = "0.72"
 smallvec = "1"
 getrandom = "0.3"
-uuid = { version = "1", features = ["serde", "v4"] }
+uuid = { version = "1", features = ["serde", "v4", "v5"] }
+fs2 = "0.4.3"
 
 [profile.release]
 lto = "thin"

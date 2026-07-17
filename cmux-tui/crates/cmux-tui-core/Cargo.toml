@@ -23,6 +23,7 @@ regex.workspace = true
 tungstenite.workspace = true
 getrandom.workspace = true
 uuid.workspace = true
+fs2.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 uds_windows.workspace = true

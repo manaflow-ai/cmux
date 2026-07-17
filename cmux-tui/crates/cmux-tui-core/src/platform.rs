@@ -143,6 +143,37 @@ pub fn config_path() -> Option<PathBuf> {
     config_dir().map(preferred_config_path)
 }
 
+/// Persistent daemon-state directory, honoring an explicit environment
+/// override before platform conventions. This is separate from the runtime
+/// socket directory because its contents survive process and machine restarts.
+pub fn state_dir() -> Option<PathBuf> {
+    if let Some(path) = env_path("CMUX_TUI_STATE_DIR") {
+        return Some(path);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        return home_dir().map(|home| {
+            home.join("Library").join("Application Support").join("cmux-tui").join("state")
+        });
+    }
+    #[cfg(target_os = "linux")]
+    {
+        return env_path("XDG_STATE_HOME")
+            .map(|state_home| state_home.join("cmux-tui"))
+            .or_else(|| home_dir().map(|home| home.join(".local/state/cmux-tui")));
+    }
+    #[cfg(windows)]
+    {
+        return env_path("LOCALAPPDATA").map(|dir| dir.join("cmux-tui").join("state"));
+    }
+    #[cfg(all(not(target_os = "macos"), not(target_os = "linux"), not(windows)))]
+    {
+        env_path("XDG_STATE_HOME")
+            .map(|state_home| state_home.join("cmux-tui"))
+            .or_else(|| home_dir().map(|home| home.join(".local/state/cmux-tui")))
+    }
+}
+
 #[cfg(not(windows))]
 fn config_dir() -> Option<PathBuf> {
     env_path("XDG_CONFIG_HOME")

@@ -16,6 +16,7 @@ mod mux;
 mod pairing;
 mod presentation;
 mod short_id;
+mod state_store;
 mod surface;
 
 pub mod layout;
@@ -31,14 +32,15 @@ pub use layout::{
 };
 pub use model::{Node, Pane, Screen, State, Workspace};
 pub use mux::{
-    AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane, CellPixelUpdate,
-    CellPixelUpdateFailure, Direction, LayoutLeafSpec, LayoutSpec, Mux, MuxEvent,
+    AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane, CanonicalSnapshot,
+    CellPixelUpdate, CellPixelUpdateFailure, Direction, LayoutLeafSpec, LayoutSpec, Mux, MuxEvent,
     NotificationEvent, NotificationLevel, RunPlacement, SidebarPluginOptions, SidebarPluginStatus,
     SurfaceNotification, SurfaceResizeReporter, TreeDelta, TreeDeltaKind, ZoomMode, ZoomState,
 };
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
 pub use presentation::{Presentation, PresentationScroll, PresentationView, PresentationZoom};
 pub use short_id::assign_short_ids;
+pub use state_store::{STATE_STORE_VERSION, StateRecovery, StateStore, StateStoreError};
 pub use surface::{
     AttachFrame, AttachFrameReceiver, AttachStream, BrowserAttachState, BrowserFrame,
     BrowserFrameStream, BrowserSource, BrowserStatus, DefaultColors, RenderAttachFrame,

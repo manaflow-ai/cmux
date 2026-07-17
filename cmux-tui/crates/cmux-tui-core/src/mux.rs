@@ -2,6 +2,7 @@
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
 use std::collections::HashMap;
+use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
@@ -327,9 +328,49 @@ enum BrowserSurfaceAttach {
 
 type ClientSurfaceSizes = HashMap<SurfaceId, HashMap<u64, (u16, u16)>>;
 
+struct CanonicalState {
+    value: State,
+    topology_revision: u64,
+}
+
+impl CanonicalState {
+    fn new(value: State) -> Self {
+        Self { value, topology_revision: 0 }
+    }
+
+    /// Commit one canonical topology transaction while the state mutex is
+    /// held. Overflow is a process-fatal invariant violation rather than a
+    /// silently reused revision.
+    fn commit_topology(&mut self) -> u64 {
+        self.topology_revision =
+            self.topology_revision.checked_add(1).expect("canonical topology revision exhausted");
+        self.topology_revision
+    }
+}
+
+impl Deref for CanonicalState {
+    type Target = State;
+
+    fn deref(&self) -> &Self::Target {
+        &self.value
+    }
+}
+
+impl DerefMut for CanonicalState {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.value
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CanonicalSnapshot<T> {
+    pub topology_revision: u64,
+    pub state: T,
+}
+
 /// The multiplexer. Shared by frontends and the control socket server.
 pub struct Mux {
-    state: Mutex<State>,
+    state: Mutex<CanonicalState>,
     subscribers: MuxEventBroadcaster,
     next_id: AtomicU64,
     next_notification_id: AtomicU64,
@@ -379,12 +420,12 @@ impl Mux {
         let mut surface_options = surface_options;
         surface_options.browser_session_name = session.clone();
         Arc::new(Mux {
-            state: Mutex::new(State {
+            state: Mutex::new(CanonicalState::new(State {
                 workspaces: Vec::new(),
                 active_workspace: 0,
                 panes: HashMap::new(),
                 surfaces: HashMap::new(),
-            }),
+            })),
             subscribers: MuxEventBroadcaster::default(),
             next_id: AtomicU64::new(1),
             next_notification_id: AtomicU64::new(1),
@@ -746,7 +787,22 @@ impl Mux {
     /// The state lock is held for the duration of `f`; do not call back
     /// into `Mux` methods that take it (`surface()`, `close_pane()`, ...).
     pub fn with_state<R>(&self, f: impl FnOnce(&State) -> R) -> R {
-        f(&self.state.lock().unwrap())
+        f(&self.state.lock().unwrap().value)
+    }
+
+    /// Read a derived canonical snapshot and its revision under one mutex
+    /// acquisition. The returned value can never be paired with a revision
+    /// from before or after the state observed by `f`.
+    pub fn with_state_snapshot<R>(&self, f: impl FnOnce(&State) -> R) -> CanonicalSnapshot<R> {
+        let canonical = self.state.lock().unwrap();
+        CanonicalSnapshot {
+            topology_revision: canonical.topology_revision,
+            state: f(&canonical.value),
+        }
+    }
+
+    pub fn topology_revision(&self) -> u64 {
+        self.state.lock().unwrap().topology_revision
     }
 
     pub fn surface_count(&self) -> usize {
@@ -1081,6 +1137,7 @@ impl Mux {
                 active_screen: 0,
             });
             state.active_workspace = state.workspaces.len() - 1;
+            state.commit_topology();
             let index = state.workspaces.len() - 1;
             let entity = crate::server::tree_entity_json(
                 &state,
@@ -1140,6 +1197,7 @@ impl Mux {
                     active_screen: 0,
                 });
                 state.active_workspace = state.workspaces.len() - 1;
+                state.commit_topology();
                 let index = state.workspaces.len() - 1;
                 let entity = crate::server::tree_entity_json(
                     &state,
@@ -1213,6 +1271,7 @@ impl Mux {
                 screen: state.workspaces[wi].screens[si].id,
                 workspace: state.workspaces[wi].id,
             };
+            state.commit_topology();
             let entity = crate::server::tree_entity_json(
                 &state,
                 &notifications,
@@ -1281,6 +1340,7 @@ impl Mux {
                     let workspace = ws.id;
                     let index = ws.screens.len() - 1;
                     state.panes.insert(pane_id, pane);
+                    state.commit_topology();
                     let entity = crate::server::tree_entity_json(
                         &state,
                         &notifications,
@@ -1354,6 +1414,7 @@ impl Mux {
                     let (wi, si) = state.screen_of(target).expect("live pane belongs to a screen");
                     let workspace = state.workspaces[wi].id;
                     let screen = state.workspaces[wi].screens[si].id;
+                    state.commit_topology();
                     let entity = crate::server::tree_entity_json(
                         &state,
                         &notifications,
@@ -1431,6 +1492,7 @@ impl Mux {
                     active_screen: 0,
                 });
                 state.active_workspace = state.workspaces.len() - 1;
+                state.commit_topology();
                 let index = state.workspaces.len() - 1;
                 let entity = crate::server::tree_entity_json(
                     &state,
@@ -1468,6 +1530,7 @@ impl Mux {
                     let (wi, si) = state.screen_of(target).expect("live pane belongs to a screen");
                     let workspace = state.workspaces[wi].id;
                     let screen = state.workspaces[wi].screens[si].id;
+                    state.commit_topology();
                     let entity = crate::server::tree_entity_json(
                         &state,
                         &notifications,
@@ -1550,6 +1613,7 @@ impl Mux {
                     pane.active_tab = pane.tabs.len() - 1;
                     pane.active_at = active_at;
                     state.surfaces.insert(surface.id, surface.clone());
+                    state.commit_topology();
                     let delta = (|| {
                         let (wi, si) = state.screen_of(pane_id)?;
                         let pane = state.panes.get(&pane_id)?;
@@ -1633,6 +1697,7 @@ impl Mux {
                         active_at,
                     },
                 );
+                state.commit_topology();
                 let entity = crate::server::tree_entity_json(
                     &state,
                     &notifications,
@@ -1673,8 +1738,12 @@ impl Mux {
             let mut state = self.state.lock().unwrap();
             let changed_screen = surface_screen_id(&state, target);
             let delta = close_surface_delta(&state, &notifications, target);
+            let removed = remove_surface(&mut state, target);
+            if removed.is_some() && delta.is_some() {
+                state.commit_topology();
+            }
             (
-                remove_surface(&mut state, target),
+                removed,
                 changed_screen.into_iter().collect::<Vec<_>>(),
                 state.workspaces.is_empty(),
                 delta,
@@ -1710,6 +1779,9 @@ impl Mux {
                 if let Some(surface) = remove_surface(&mut state, surface) {
                     removed.push(surface);
                 }
+            }
+            if !removed.is_empty() {
+                state.commit_topology();
             }
             (removed, changed_screens, state.workspaces.is_empty())
         };
@@ -1793,6 +1865,7 @@ impl Mux {
             match state.workspaces.iter_mut().find(|ws| ws.id == target) {
                 Some(ws) => {
                     ws.name = name;
+                    state.commit_topology();
                     let entity = crate::server::tree_entity_json(
                         &state,
                         &notifications,
@@ -1829,6 +1902,7 @@ impl Mux {
             match state.panes.get_mut(&target) {
                 Some(pane) => {
                     pane.name = (!name.is_empty()).then_some(name);
+                    state.commit_topology();
                     true
                 }
                 None => false,
@@ -1845,9 +1919,12 @@ impl Mux {
     pub fn rename_surface(&self, target: SurfaceId, name: String) -> bool {
         let notifications = self.surface_notifications();
         let delta = {
-            let state = self.state.lock().unwrap();
+            let mut state = self.state.lock().unwrap();
             let Some(surface) = state.surfaces.get(&target) else { return false };
             surface.set_name((!name.is_empty()).then_some(name));
+            if state.pane_of(target).is_some() {
+                state.commit_topology();
+            }
             (|| {
                 let pane = state.pane_of(target)?;
                 let (wi, si) = state.screen_of(pane)?;
@@ -1887,6 +1964,7 @@ impl Mux {
                 return false;
             };
             state.workspaces[wi].screens[si].name = (!name.is_empty()).then_some(name);
+            state.commit_topology();
             let entity = crate::server::tree_entity_json(
                 &state,
                 &notifications,
@@ -1958,6 +2036,7 @@ impl Mux {
                     ws.active_screen = si;
                     ws.screens[si].active_pane = pane;
                     stamp_pane(&mut state, pane, active_at);
+                    state.commit_topology();
                     (true, Self::active_surface_in_state(&state))
                 }
                 None => (false, None),
@@ -1975,9 +2054,14 @@ impl Mux {
         let ratio = clamp_split_ratio(ratio);
         let changed_screen = {
             let mut state = self.state.lock().unwrap();
-            state.workspaces.iter_mut().flat_map(|ws| ws.screens.iter_mut()).find_map(|screen| {
-                screen.root.set_deepest_ratio(pane, dir, ratio).then_some(screen.id)
-            })
+            let changed =
+                state.workspaces.iter_mut().flat_map(|ws| ws.screens.iter_mut()).find_map(
+                    |screen| screen.root.set_deepest_ratio(pane, dir, ratio).then_some(screen.id),
+                );
+            if changed.is_some() {
+                state.commit_topology();
+            }
+            changed
         };
         if let Some(screen) = changed_screen {
             self.emit(MuxEvent::TreeChanged);
@@ -2022,11 +2106,15 @@ impl Mux {
     pub fn swap_panes(&self, pane: PaneId, target: PaneId) -> bool {
         let changed_screen = {
             let mut state = self.state.lock().unwrap();
-            state
+            let changed = state
                 .workspaces
                 .iter_mut()
                 .flat_map(|ws| ws.screens.iter_mut())
-                .find_map(|screen| screen.root.swap_leaves(pane, target).then_some(screen.id))
+                .find_map(|screen| screen.root.swap_leaves(pane, target).then_some(screen.id));
+            if changed.is_some() {
+                state.commit_topology();
+            }
+            changed
         };
         if let Some(screen) = changed_screen {
             self.emit(MuxEvent::TreeChanged);
@@ -2056,7 +2144,11 @@ impl Mux {
             };
             let changed = screen.zoomed_pane != next;
             screen.zoomed_pane = next;
-            (screen.id, target, next, changed)
+            let screen_id = screen.id;
+            if changed {
+                state.commit_topology();
+            }
+            (screen_id, target, next, changed)
         };
         if changed.3 {
             self.emit(MuxEvent::TreeChanged);
@@ -2135,6 +2227,7 @@ impl Mux {
                     ws.id
                 }
             };
+            state.commit_topology();
             if let Some(workspace_id) = created_workspace {
                 let index = state
                     .workspaces
@@ -2248,6 +2341,7 @@ impl Mux {
             let moved = move_tab_in_state(&mut state, surface, pane, index);
             if moved {
                 stamp_pane(&mut state, pane, active_at);
+                state.commit_topology();
             }
             moved
         };
@@ -2275,6 +2369,7 @@ impl Mux {
             state.active_workspace = active_id
                 .and_then(|id| state.workspaces.iter().position(|ws| ws.id == id))
                 .unwrap_or_else(|| state.workspaces.len().saturating_sub(1));
+            state.commit_topology();
             true
         };
         if moved {
@@ -2304,6 +2399,7 @@ impl Mux {
                     ((pane.active_tab as isize + delta).rem_euclid(len as isize)) as usize;
             }
             stamp_pane(&mut state, target, active_at);
+            state.commit_topology();
             state.panes.get(&target).and_then(|pane| pane.active_surface())
         };
         self.clear_viewed_notification(viewed);
@@ -2332,6 +2428,7 @@ impl Mux {
             if let Some(pane) = ws.active_screen_ref().map(|screen| screen.active_pane) {
                 stamp_pane(&mut state, pane, active_at);
             }
+            state.commit_topology();
             Self::active_surface_in_state(&state)
         };
         self.clear_viewed_notification(viewed);
@@ -2362,6 +2459,7 @@ impl Mux {
             {
                 stamp_pane(&mut state, pane, active_at);
             }
+            state.commit_topology();
             Self::active_surface_in_state(&state)
         };
         self.clear_viewed_notification(viewed);
@@ -2922,7 +3020,7 @@ mod tests {
 
     fn seed_split_ratio_tree(mux: &Mux) -> (PaneId, PaneId, PaneId) {
         let (p1, p2, p3) = (1, 2, 3);
-        *mux.state.lock().unwrap() = State {
+        mux.state.lock().unwrap().value = State {
             workspaces: vec![Workspace {
                 id: 1,
                 name: "1".into(),
@@ -3468,5 +3566,55 @@ mod tests {
             );
             assert_eq!(s.active_workspace, 0);
         });
+    }
+
+    #[test]
+    fn concurrent_topology_snapshots_pair_each_tree_with_its_committed_revision() {
+        use std::sync::Barrier;
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let mux = test_mux();
+        let start = Arc::new(Barrier::new(2));
+        let finished = Arc::new(AtomicBool::new(false));
+        let writer_mux = mux.clone();
+        let writer_start = start.clone();
+        let writer_finished = finished.clone();
+        let writer = std::thread::spawn(move || {
+            writer_start.wait();
+            for index in 0..128 {
+                writer_mux.new_workspace(Some(format!("workspace-{index}")), None).unwrap();
+                std::thread::yield_now();
+            }
+            writer_finished.store(true, Ordering::Release);
+        });
+
+        start.wait();
+        let mut observed = 0;
+        while !finished.load(Ordering::Acquire) {
+            let snapshot = mux.with_state_snapshot(|state| state.workspaces.len());
+            assert_eq!(snapshot.topology_revision as usize, snapshot.state);
+            observed += 1;
+            std::thread::yield_now();
+        }
+        writer.join().unwrap();
+        let final_snapshot = mux.with_state_snapshot(|state| state.workspaces.len());
+        assert_eq!(final_snapshot.topology_revision, 128);
+        assert_eq!(final_snapshot.state, 128);
+        assert!(observed > 0);
+    }
+
+    #[test]
+    fn topology_revision_advances_once_per_committed_tree_transaction() {
+        let mux = test_mux();
+        assert_eq!(mux.topology_revision(), 0);
+
+        mux.new_workspace(Some("one".to_string()), None).unwrap();
+        assert_eq!(mux.topology_revision(), 1);
+        let workspace = mux.with_state(|state| state.workspaces[0].id);
+
+        assert!(mux.rename_workspace(workspace, "renamed".to_string()));
+        assert_eq!(mux.topology_revision(), 2);
+        assert!(!mux.move_workspace(workspace, 0));
+        assert_eq!(mux.topology_revision(), 2);
     }
 }

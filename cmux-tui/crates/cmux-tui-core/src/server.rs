@@ -52,8 +52,13 @@ use crate::{
 
 pub const PROTOCOL_VERSION: u32 = 7;
 pub const PROTOCOL_MIN_VERSION: u32 = 6;
-pub const PROTOCOL_CAPABILITIES: &[&str] =
-    &["presentation-registry-v1", "render-attach-v1", "tree-delta-v1"];
+pub const PROTOCOL_CAPABILITIES: &[&str] = &[
+    "durable-session-identity-v1",
+    "presentation-registry-v1",
+    "render-attach-v1",
+    "topology-revision-v1",
+    "tree-delta-v1",
+];
 
 /// Default socket path for a session.
 pub fn default_socket_path(session: &str) -> PathBuf {
@@ -2190,6 +2195,7 @@ fn handle_command(
             "session": mux.session,
             "session_id": mux.session_id,
             "daemon_instance_id": mux.daemon_instance_id,
+            "topology_revision": mux.topology_revision(),
             "pid": std::process::id(),
         })),
         Command::Ping => Ok(json!({
@@ -2200,6 +2206,7 @@ fn handle_command(
             "protocol_max": PROTOCOL_VERSION,
             "capabilities": PROTOCOL_CAPABILITIES,
             "daemon_instance_id": mux.daemon_instance_id,
+            "topology_revision": mux.topology_revision(),
         })),
         Command::OpenPresentation { view, zoom, scroll } => {
             if !mux.control_clients.contains(client) {
@@ -2269,7 +2276,10 @@ fn handle_command(
         }
         Command::ListWorkspaces => {
             let notifications = mux.surface_notifications();
-            Ok(mux.with_state(|state| workspaces_json(state, &notifications)))
+            let snapshot = mux.with_state_snapshot(|state| workspaces_json(state, &notifications));
+            let mut data = snapshot.state;
+            data["topology_revision"] = json!(snapshot.topology_revision);
+            Ok(data)
         }
         Command::ExportLayout { screen } => {
             mux.with_state(|state| export_layout_json(state, screen))
@@ -3445,6 +3455,7 @@ mod tests {
         assert_eq!(data["protocol_max"].as_u64(), Some(PROTOCOL_VERSION as u64));
         assert_eq!(data["capabilities"], serde_json::to_value(PROTOCOL_CAPABILITIES).unwrap());
         uuid::Uuid::parse_str(data["daemon_instance_id"].as_str().unwrap()).unwrap();
+        assert_eq!(data["topology_revision"], 0);
     }
 
     #[test]
@@ -3467,6 +3478,7 @@ mod tests {
         uuid::Uuid::parse_str(encoded_session).unwrap();
         uuid::Uuid::parse_str(encoded_daemon).unwrap();
         assert_ne!(encoded_session, encoded_daemon);
+        assert_eq!(data["topology_revision"], 0);
 
         let replacement =
             Mux::new_with_session_id("named-session", SurfaceOptions::default(), session_id);
@@ -3479,6 +3491,7 @@ mod tests {
         let mux = test_mux();
         let writer = test_writer();
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let topology_revision = mux.topology_revision();
 
         let first = handle_command(
             &mux,
@@ -3531,6 +3544,7 @@ mod tests {
                 && presentation["scroll"]["offset"] == 0
         }));
         assert!(mux.with_state(|state| state.workspaces.is_empty()));
+        assert_eq!(mux.topology_revision(), topology_revision);
 
         let first_id = first["presentation_id"].as_str().unwrap().parse().unwrap();
         assert_eq!(
@@ -3546,6 +3560,20 @@ mod tests {
         let remaining = handle_command(&mux, client, Command::ListPresentations, &writer).unwrap();
         assert_eq!(remaining.as_array().unwrap().len(), 1);
         assert_eq!(remaining[0]["presentation_id"], second["presentation_id"]);
+    }
+
+    #[test]
+    fn list_workspaces_returns_tree_and_revision_from_one_canonical_snapshot() {
+        let mux = test_mux();
+        let initial = handle_command(&mux, 0, Command::ListWorkspaces, &test_writer()).unwrap();
+        assert_eq!(initial["topology_revision"], 0);
+        assert!(initial["workspaces"].as_array().unwrap().is_empty());
+
+        mux.new_workspace(Some("first".to_string()), None).unwrap();
+        let created = handle_command(&mux, 0, Command::ListWorkspaces, &test_writer()).unwrap();
+        assert_eq!(created["topology_revision"], 1);
+        assert_eq!(created["workspaces"].as_array().unwrap().len(), 1);
+        assert_eq!(created["workspaces"][0]["name"], "first");
     }
 
     #[test]

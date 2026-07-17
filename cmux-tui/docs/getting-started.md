@@ -55,6 +55,16 @@ The usual default is `$XDG_RUNTIME_DIR/cmux-tui-<uid>/main.sock` when `XDG_RUNTI
 
 cmux-tui supports macOS and Linux; Windows support via ConPTY is planned for phase 2. The TUI config path resolves `CMUX_TUI_CONFIG`, then legacy `CMUX_MUX_CONFIG`, then `$XDG_CONFIG_HOME/cmux/cmux-tui.json` or `~/.config/cmux/cmux-tui.json`. Existing `mux.json` files remain supported and are used when `cmux-tui.json` is absent.
 
+Daemon session identity persists separately from configuration. The default
+state directory is `~/Library/Application Support/cmux-tui/state` on macOS,
+`$XDG_STATE_HOME/cmux-tui` on Linux when set, then
+`~/.local/state/cmux-tui`. `CMUX_TUI_STATE_DIR` or server option
+`--state-dir <path>` selects an explicit root. A malformed or unknown-version
+record stops startup without overwriting bytes. `--recover-state` archives the
+bad record and creates a new session identity. This store currently preserves
+identity only; workspace topology, PTYs, scrollback, and presentations are not
+restored after the daemon exits.
+
 Launched Chrome profile paths are platform-specific. On macOS the default is `~/Library/Application Support/cmux-tui/chrome-profile`. On Linux and other non-macOS targets, `XDG_DATA_HOME` is used when set, then `~/.local/share/cmux-tui/chrome-profile`.
 
 ## Development flow

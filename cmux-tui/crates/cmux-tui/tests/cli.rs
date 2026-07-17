@@ -19,7 +19,9 @@ impl HeadlessServer {
         fs::create_dir_all(&dir).unwrap();
         let socket = dir.join("mux.sock");
         let child = Command::new(bin())
-            .args(["--headless", "--socket"])
+            .args(["--headless", "--state-dir"])
+            .arg(dir.join("state"))
+            .arg("--socket")
             .arg(&socket)
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
@@ -358,6 +360,20 @@ fn help_lists_plugin_verbs() {
     assert!(stdout.contains("--ws <addr>"));
     assert!(stdout.contains("--ws-token <token>"));
     assert!(stdout.contains("--ws-insecure-bind"));
+}
+
+#[test]
+fn attach_rejects_recover_state() {
+    let output = Command::new(bin())
+        .args(["attach", "--recover-state"])
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("--recover-state is only valid when starting a daemon session")
+    );
 }
 
 #[cfg(unix)]

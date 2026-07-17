@@ -20,6 +20,8 @@ Protocol v7 is additive for v6 clients: `attach-surface.mode` defaults to `"byte
 
 `presentation-registry-v1` gates `open-presentation`, `close-presentation`, and `list-presentations`. These commands add connection-owned window state without changing the legacy global selection commands.
 
+`durable-session-identity-v1` means `session_id` is loaded from the versioned daemon state store while `daemon_instance_id` remains process-local. `topology-revision-v1` adds a monotonic `topology_revision` to identity, liveness, and canonical tree snapshot responses. Neither capability changes the legacy `protocol:7` compatibility field.
+
 Generated clients must inspect `identify.protocol` before using features newer than the connected server. Bindings may expose proposed APIs behind version checks, but they must not send proposed commands to an older server unless the caller explicitly opts into probing.
 
 ## Generation Model

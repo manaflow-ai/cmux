@@ -37,7 +37,7 @@ Common CLI exit codes for every mapping are `0` success, `1` command error, `2` 
 `Tree`:
 
 ```text
-object{workspaces:array<Workspace>}
+object{topology_revision:uint64,workspaces:array<Workspace>}
 ```
 
 `Presentation`:
@@ -162,14 +162,17 @@ object{
   session:string,
   session_id:Uuid,
   daemon_instance_id:Uuid,
+  topology_revision:uint64,
   pid:uint32
 }
 ```
 
 `protocol` remains the protocol-v7 compatibility field. The inclusive range is
 currently `protocol_min:6` through `protocol_max:7`. `session_id` identifies the
-logical session and can be supplied by a future persistent session loader.
+logical session and is reloaded from the versioned daemon state store.
 `daemon_instance_id` is fresh for each server process lifetime.
+`topology_revision` is the latest committed canonical tree revision at the
+instant this response reads the mux.
 
 Errors:
 
@@ -191,7 +194,7 @@ Example:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":7,"protocol_min":6,"protocol_max":7,"capabilities":["presentation-registry-v1","render-attach-v1","tree-delta-v1"],"session":"main","session_id":"4c28ed8c-d4e8-487e-a063-d7df07d378f9","daemon_instance_id":"1dbcaf41-c45b-4b5f-962f-7a9b20a40353","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":7,"protocol_min":6,"protocol_max":7,"capabilities":["durable-session-identity-v1","presentation-registry-v1","render-attach-v1","topology-revision-v1","tree-delta-v1"],"session":"main","session_id":"4c28ed8c-d4e8-487e-a063-d7df07d378f9","daemon_instance_id":"1dbcaf41-c45b-4b5f-962f-7a9b20a40353","topology_revision":42,"pid":12345}}
 ```
 
 ### ping
@@ -216,13 +219,15 @@ object{
   protocol_min:uint32,
   protocol_max:uint32,
   capabilities:array<string>,
-  daemon_instance_id:Uuid
+  daemon_instance_id:Uuid,
+  topology_revision:uint64
 }
 ```
 
 `daemon_instance_id` lets a liveness monitor distinguish a responsive existing
 daemon from a replacement at the same socket path without returning session
-metadata.
+metadata. `topology_revision` lets a monitor determine whether canonical tree
+state advanced since its previous snapshot.
 
 Errors: `bad request: ...`.
 
@@ -232,7 +237,7 @@ Example:
 
 ```json
 {"id":2,"cmd":"ping"}
-{"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","protocol":7,"protocol_min":6,"protocol_max":7,"capabilities":["presentation-registry-v1","render-attach-v1","tree-delta-v1"],"daemon_instance_id":"1dbcaf41-c45b-4b5f-962f-7a9b20a40353"}}
+{"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","protocol":7,"protocol_min":6,"protocol_max":7,"capabilities":["durable-session-identity-v1","presentation-registry-v1","render-attach-v1","topology-revision-v1","tree-delta-v1"],"daemon_instance_id":"1dbcaf41-c45b-4b5f-962f-7a9b20a40353","topology_revision":42}}
 ```
 
 ### open-presentation
@@ -552,7 +557,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Returns the full workspace, screen, pane, tab, and split-tree snapshot. The snapshot includes active flags, active pane ids, active tab indexes, tab titles, tab names, surface kinds, browser source, size, and dead flags.
+Returns the full workspace, screen, pane, tab, and split-tree snapshot. The snapshot includes active flags, active pane ids, active tab indexes, tab titles, tab names, surface kinds, browser source, size, and dead flags. `topology_revision` and the tree are captured under one canonical-state lock. A successful topology mutation advances the revision before either value becomes visible to readers.
 
 Params: none.
 
@@ -582,7 +587,7 @@ Example:
 
 ```json
 {"id":2,"cmd":"list-workspaces"}
-{"id":2,"ok":true,"data":{"workspaces":[{"id":4,"name":"1","active":true,"screens":[{"id":3,"name":null,"active":true,"active_pane":2,"layout":{"type":"leaf","pane":2},"panes":[{"id":2,"name":null,"active_tab":0,"tabs":[{"surface":1,"kind":"pty","browser_source":null,"name":null,"title":"","size":{"cols":80,"rows":24},"dead":false}]}]}]}]}}
+{"id":2,"ok":true,"data":{"topology_revision":1,"workspaces":[{"id":4,"name":"1","active":true,"screens":[{"id":3,"name":null,"active":true,"active_pane":2,"layout":{"type":"leaf","pane":2},"panes":[{"id":2,"name":null,"active_tab":0,"tabs":[{"surface":1,"kind":"pty","browser_source":null,"name":null,"title":"","size":{"cols":80,"rows":24},"dead":false}]}]}]}]}}
 ```
 
 ### export-layout

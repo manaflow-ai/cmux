@@ -22,7 +22,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use cmux_tui_core::{Mux, SurfaceOptions};
+use cmux_tui_core::{Mux, StateStore, SurfaceOptions};
 use session::{RemoteSession, Session};
 
 static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
@@ -62,6 +62,8 @@ USAGE:
 OPTIONS:
   --session <name>   Session name (default: main). Determines the socket path.
   --socket <path>    Explicit control socket path.
+  --state-dir <path> Persistent daemon state directory (platform default).
+  --recover-state    Archive corrupt session metadata and issue a new identity.
   --headless         Run only the control socket, no TUI.
   --ws <addr>        Also listen for WebSocket clients (default: off).
   --ws-token <token> Allow a static-token bypass for interactive pairing.
@@ -118,6 +120,8 @@ struct Args {
     attach: bool,
     session: String,
     socket: Option<PathBuf>,
+    state_dir: Option<PathBuf>,
+    recover_state: bool,
     headless: bool,
     ws: Option<String>,
     ws_token: Option<String>,
@@ -130,6 +134,8 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
         attach: false,
         session: "main".to_string(),
         socket: None,
+        state_dir: None,
+        recover_state: false,
         headless: false,
         ws: None,
         ws_token: None,
@@ -151,6 +157,12 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
                     args.next().unwrap_or_else(|| usage_exit("--socket needs a value")).into(),
                 );
             }
+            "--state-dir" => {
+                out.state_dir = Some(
+                    args.next().unwrap_or_else(|| usage_exit("--state-dir needs a value")).into(),
+                );
+            }
+            "--recover-state" => out.recover_state = true,
             "--headless" => out.headless = true,
             "--ws" => {
                 out.ws = Some(args.next().unwrap_or_else(|| usage_exit("--ws needs a value")));
@@ -173,6 +185,9 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
             }
             other => usage_exit(&format!("unknown argument {other:?}")),
         }
+    }
+    if out.attach && out.recover_state {
+        usage_exit("--recover-state is only valid when starting a daemon session");
     }
     out
 }
@@ -226,7 +241,20 @@ fn run_server(args: Args) -> anyhow::Result<()> {
     surface_options.extra_env.push(("CMUX_TUI_SOCKET".into(), socket_path.display().to_string()));
     surface_options.extra_env.push(("CMUX_MUX_SOCKET".into(), socket_path.display().to_string()));
 
-    let mux = Mux::new(args.session.clone(), surface_options);
+    let state_store = match args.state_dir {
+        Some(directory) => StateStore::new(directory),
+        None => StateStore::platform_default()?,
+    };
+    let session_id = if args.recover_state {
+        let recovery = state_store.recover_session(&args.session)?;
+        if let Some(path) = recovery.archived_corrupt_state {
+            eprintln!("cmux-tui: archived corrupt session metadata at {}", path.display());
+        }
+        recovery.session_id
+    } else {
+        state_store.load_or_create_session(&args.session)?
+    };
+    let mux = Mux::new_with_session_id(args.session.clone(), surface_options, session_id);
     // Headless sessions have no host terminal to query, so seed the mux from
     // Ghostty's config before any protocol client can create a surface.
     mux.set_default_colors(config.terminal_defaults);
