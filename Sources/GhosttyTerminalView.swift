@@ -4001,13 +4001,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
-    private static func shouldDeferSurfaceResizeForActiveDrag() -> Bool {
+    private static func shouldDeferSurfaceResizeForActiveDrag(in window: NSWindow?) -> Bool {
         // The drag pasteboard can retain tab-transfer UTIs briefly after a split command
         // or other layout churn. Only defer terminal resizes while an actual drag event
         // is in flight; otherwise pre-existing panes can stay stuck at their old size.
         // Interactive geometry resize already has an explicit fast path for sidebar and
         // split-divider drags. Do not let stale drag-pasteboard state suppress those updates.
-        if TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive {
+        if TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window) {
             return false
         }
         guard hasTabDragPasteboardTypes() else { return false }
@@ -4016,7 +4016,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func activeSurfaceResizeDeferralReason() -> String? {
         if isWindowLiveResizeActive { return nil }
-        return Self.shouldDeferSurfaceResizeForActiveDrag() ? "tabDrag" : nil
+        return Self.shouldDeferSurfaceResizeForActiveDrag(in: window) ? "tabDrag" : nil
     }
 
     private var isWindowLiveResizeActive: Bool {
@@ -4160,12 +4160,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             yScale: yScale,
             layerScale: layerScale,
             backingSize: backingSize,
-            coalescePixelOnlyResize: isWindowLiveResizeActive && !bypassLiveResizeCoalescing,
+            coalescePixelOnlyResize: TerminalSurfaceResizeCoalescingPolicy(
+                windowLiveResizeActive: isWindowLiveResizeActive,
+                interactiveGeometryResizeActive: TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window),
+                bypass: bypassLiveResizeCoalescing
+            ).shouldCoalescePixelOnlyResize,
             // Don't pin the surface to the tmux-assigned grid mid-drag: the pin
             // would hold it at the pre-drag (larger) size and paint past the
             // shrinking pane. Re-pins at rest when the interactive flag clears.
             suppressAssignedGridPin: isWindowLiveResizeActive
-                || TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive
+                || TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window)
         )
         return didChange || surfaceSizeChanged
     }
@@ -9109,13 +9113,22 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func logLayoutDuringActiveDrag(targetSize: CGSize) {
+        // Cheap app-owned gates first. The NSPasteboard(name: .drag) read
+        // below is a synchronous XPC round trip to the pasteboard daemon;
+        // unguarded it ran on every pane layout of every width commit during
+        // sidebar divider drags (5% of main-thread time in a Time Profiler
+        // capture) because divider drags also deliver drag mouse events.
+        let dropZoneActive = activeDropZone != nil || pendingDropZone != nil
+        let appOwnedDragActive =
+            AppDelegate.shared?.sidebarWorkspaceDragRegistry.currentWorkspaceId != nil
+        guard dropZoneActive || appOwnedDragActive else { return }
+
         let pasteboardTypes = NSPasteboard(name: .drag).types
         let hasTabDrag = pasteboardTypes?.contains(Self.tabTransferPasteboardType) == true
         let hasSidebarDrag = pasteboardTypes?.contains(Self.sidebarTabReorderPasteboardType) == true
         let eventType = NSApp.currentEvent?.type
         let hasActiveDrag =
-            activeDropZone != nil ||
-            pendingDropZone != nil ||
+            dropZoneActive ||
             ((hasTabDrag || hasSidebarDrag) && Self.isDragMouseEvent(eventType))
         guard hasActiveDrag else { return }
 
