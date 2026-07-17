@@ -1601,6 +1601,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
             guard isCurrentPairingAttempt(attemptID) else { return }
             if connectionState == .connected {
+                // `connect()` persists the manual pairing, while Settings,
+                // the Mac picker, and the task composer read the shared
+                // in-memory list. Refresh it before dismissing PairingView so
+                // those surfaces can use the new Mac immediately.
+                await loadPairedMacs()
+                guard isCurrentPairingAttempt(attemptID) else { return }
                 recordPairingSucceeded()
             } else {
                 // `connect()` returned without connecting and already set a
