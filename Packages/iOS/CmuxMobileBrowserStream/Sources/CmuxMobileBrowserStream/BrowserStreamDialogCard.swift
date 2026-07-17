@@ -50,9 +50,20 @@ struct BrowserStreamDialogCard: View {
 
                 dialogFields
 
-                HStack(spacing: 10) {
-                    ForEach(dialog.buttons, id: \.id) { button in
-                        dialogButton(button)
+                // Match native alert convention: two short buttons sit side by
+                // side, but three-plus (the insecure-HTTP interstitial) or a
+                // long label overflow an HStack, so stack vertically instead.
+                if dialog.buttons.count <= 2, !hasLongButtonLabel {
+                    HStack(spacing: 10) {
+                        ForEach(dialog.buttons, id: \.id) { button in
+                            dialogButton(button)
+                        }
+                    }
+                } else {
+                    VStack(spacing: 8) {
+                        ForEach(dialog.buttons, id: \.id) { button in
+                            dialogButton(button)
+                        }
                     }
                 }
             }
@@ -139,6 +150,10 @@ struct BrowserStreamDialogCard: View {
             "mobile.browserStream.dialog.requestTitle",
             defaultValue: "Browser Request"
         )
+    }
+
+    private var hasLongButtonLabel: Bool {
+        dialog.buttons.contains { $0.label.count > 12 }
     }
 
     private var inputPlaceholder: String {
