@@ -154,12 +154,14 @@ struct DockConfigSourceResolutionTests {
 
     @Test("remote execution identity distinguishes workspaces on the same host and path")
     func remoteExecutionIdentityIncludesWorkspace() {
+        let firstWorkspaceID = UUID()
+        let secondWorkspaceID = UUID()
         let first = context(
             root: "/home/me/project",
             origin: .remote(identity: "ssh|host-a|22", displayTarget: "host-a"),
             files: [:],
             executionContext: .remote(DockRemoteExecutionContext(
-                workspaceID: UUID(),
+                workspaceID: firstWorkspaceID,
                 foregroundAuth: nil
             ))
         )
@@ -168,12 +170,41 @@ struct DockConfigSourceResolutionTests {
             origin: .remote(identity: "ssh|host-a|22", displayTarget: "host-a"),
             files: [:],
             executionContext: .remote(DockRemoteExecutionContext(
-                workspaceID: UUID(),
+                workspaceID: secondWorkspaceID,
                 foregroundAuth: nil
             ))
         )
 
         #expect(first.identity != second.identity)
+
+        let location = DockConfigLocation(
+            origin: .remote(identity: "ssh|host-a|22", displayTarget: "host-a"),
+            path: "/home/me/project/.cmux/dock.json"
+        )
+        let firstResolution = DockConfigResolution(
+            controls: [],
+            sourceLocation: location,
+            baseDirectory: "/home/me/project",
+            isProjectSource: true,
+            executionContext: .remote(DockRemoteExecutionContext(
+                workspaceID: firstWorkspaceID,
+                foregroundAuth: nil
+            ))
+        )
+        let secondResolution = DockConfigResolution(
+            controls: [],
+            sourceLocation: location,
+            baseDirectory: "/home/me/project",
+            isProjectSource: true,
+            executionContext: .remote(DockRemoteExecutionContext(
+                workspaceID: secondWorkspaceID,
+                foregroundAuth: nil
+            ))
+        )
+
+        let firstLoadedIdentity = DockSplitStore.configIdentity(for: firstResolution)
+        let secondLoadedIdentity = DockSplitStore.configIdentity(for: secondResolution)
+        #expect(secondLoadedIdentity.requiresPanelReload(comparedTo: firstLoadedIdentity))
     }
 
     @Test("POSIX traversal never escapes the filesystem root")

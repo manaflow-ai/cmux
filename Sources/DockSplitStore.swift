@@ -770,7 +770,8 @@ final class DockSplitStore: BonsplitDelegate {
             return .failed(
                 identity: DockConfigIdentity(
                     sourceLocation: nil,
-                    baseDirectory: context.emptyBaseDirectory
+                    baseDirectory: context.emptyBaseDirectory,
+                    executionWorkspaceID: context.identity.executionWorkspaceID
                 ),
                 message: configurationLoadErrorMessage(for: error)
             )

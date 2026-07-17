@@ -25,7 +25,11 @@ extension DockSplitStore {
     }
 
     nonisolated static func configIdentity(for resolution: DockConfigResolution) -> DockConfigIdentity {
-        DockConfigIdentity(sourceLocation: resolution.sourceLocation, baseDirectory: resolution.baseDirectory)
+        DockConfigIdentity(
+            sourceLocation: resolution.sourceLocation,
+            baseDirectory: resolution.baseDirectory,
+            executionWorkspaceID: resolution.executionContext.remoteWorkspaceID
+        )
     }
 
     nonisolated static func sourceLabel(for resolution: DockConfigResolution) -> String {

@@ -60,7 +60,8 @@ struct DockConfigResolver: Sendable {
         }
         return DockConfigIdentity(
             sourceLocation: located.location,
-            baseDirectory: located.baseDirectory
+            baseDirectory: located.baseDirectory,
+            executionWorkspaceID: located.executionContext.remoteWorkspaceID
         )
     }
 
