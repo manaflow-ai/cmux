@@ -152,15 +152,20 @@ final class ComputerUseUXCoordinator {
     }
 
     private func recordCapableSessionStarted() {
-        // Query the HELPER's own TCC identity (not cmux's) before deciding whether
-        // a permission grant now requires restarting the helper session. The async
-        // hop also defers the present off this synchronous menu-bar refresh, which
-        // avoids reentering focus/first-responder handling with an inline key window.
+        // Do NOT auto-present the in-app onboarding when a computer-use session
+        // starts. On macOS 26.4.1, bringing up the settings-backed onboarding
+        // window while a computer-use session is spinning up destabilizes the app
+        // (main-actor/first-responder reentrancy on top of the SwiftUI settings
+        // concurrency issue). The permission flow is the macOS system prompt the
+        // helper raises on its first TCC-gated action; in-app onboarding remains
+        // available on demand from Settings > Computer Use (presentOnboarding()).
+        //
+        // We still refresh the helper's TCC status so the Settings UI and the
+        // "restart the helper" hint reflect reality, but never present here.
         Task { [weak self] in
             guard let self else { return }
             let status = await permissionService.refreshHelperStatus()
             agentSessionRequiresRestart = !status.accessibility || !status.screenRecording
-            presentOnboardingAutomaticallyIfNeeded()
         }
     }
 
