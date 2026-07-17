@@ -179,6 +179,8 @@ struct WorkspaceListView: View {
         workspace.name.localizedCaseInsensitiveContains(query)
             || workspace.previewLine.localizedCaseInsensitiveContains(query)
             || workspace.terminals.contains { $0.name.localizedCaseInsensitiveContains(query) }
+            || workspace.macDisplayName?.localizedCaseInsensitiveContains(query) == true
+            || workspace.groupID.flatMap { groupsByID[$0] }?.name.localizedCaseInsensitiveContains(query) == true
     }
 
     /// Filtered workspaces for flat presentation, pinned first and otherwise stable.
