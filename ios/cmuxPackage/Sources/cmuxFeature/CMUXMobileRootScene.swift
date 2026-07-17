@@ -56,6 +56,8 @@ public struct CMUXMobileRootScene: View {
     /// separately and replaces this at the composition root without touching the
     /// shell.
     private let draftStore: any TerminalDraftStoring
+    /// Durable text-note queue for composer sends made while the Mac is offline.
+    private let offlineAgentNoteQueue: (any OfflineAgentNoteQueueStoring)?
     #if DEBUG
     /// The structured diagnostic log injected into the shell store so the DEV
     /// dogfood feedback round-trip can export it. DEBUG-only; `nil` when the app
@@ -109,6 +111,7 @@ public struct CMUXMobileRootScene: View {
         self.signOutHook = signOutHook
         self.pairedMacStore = Self.openPairedMacStore()
         self.draftStore = InMemoryTerminalDraftStore()
+        self.offlineAgentNoteQueue = Self.openOfflineAgentNoteQueue()
         #if DEBUG
         self.diagnosticLog = diagnosticLog
         #endif
@@ -131,6 +134,7 @@ public struct CMUXMobileRootScene: View {
         self.tailscaleStatusMonitor = nil
         self.pairedMacStore = Self.openPairedMacStore()
         self.draftStore = InMemoryTerminalDraftStore()
+        self.offlineAgentNoteQueue = Self.openOfflineAgentNoteQueue()
         #if DEBUG
         self.diagnosticLog = nil
         #endif
@@ -143,6 +147,17 @@ public struct CMUXMobileRootScene: View {
         } catch {
             mobileRootSceneLog.error(
                 "failed to open paired mac store: \(String(describing: error), privacy: .public)"
+            )
+            return nil
+        }
+    }
+
+    private static func openOfflineAgentNoteQueue() -> (any OfflineAgentNoteQueueStoring)? {
+        do {
+            return try FileOfflineAgentNoteQueueStore.defaultStore()
+        } catch {
+            mobileRootSceneLog.error(
+                "failed to open offline agent note queue: \(String(describing: error), privacy: .public)"
             )
             return nil
         }
@@ -340,7 +355,8 @@ public struct CMUXMobileRootScene: View {
             diagnosticLog: diagnosticLog,
             feedbackEmailSubmitter: feedbackEmailSubmitter,
             feedbackStampProvider: feedbackStampProvider,
-            draftStore: draftStore
+            draftStore: draftStore,
+            offlineAgentNoteQueue: offlineAgentNoteQueue
         )
         #else
         return CMUXMobileShellStore(
@@ -357,7 +373,8 @@ public struct CMUXMobileRootScene: View {
             analytics: analytics,
             feedbackEmailSubmitter: feedbackEmailSubmitter,
             feedbackStampProvider: feedbackStampProvider,
-            draftStore: draftStore
+            draftStore: draftStore,
+            offlineAgentNoteQueue: offlineAgentNoteQueue
         )
         #endif
     }
