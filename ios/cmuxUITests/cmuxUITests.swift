@@ -638,6 +638,61 @@ final class cmuxUITests: XCTestCase {
         )
     }
 
+    /// Regression: an ordinary remote failure must preserve the prompt and
+    /// retry identity, then clear its guidance before the successful retry.
+    @MainActor
+    func testTaskComposerRetriesOrdinaryFailureWithSameOperationID() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_COMPOSER_FAIL_ONCE": "1",
+        ])
+        defer { app.terminate() }
+
+        let expectedPrompt = "Retry this exact task"
+        let prompt = app.textFields["MobileTaskComposerPrompt"]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+        try typeText(expectedPrompt, into: prompt, in: app)
+
+        let create = app.buttons["MobileTaskComposerCreateButton"]
+        XCTAssertTrue(create.waitForExistence(timeout: 3))
+        tap(create, in: app)
+
+        let failure = app.staticTexts["MobileTaskComposerFailure"]
+        XCTAssertTrue(failure.waitForExistence(timeout: 3))
+        let retryReady = NSPredicate(format: "label == %@ AND enabled == true", "Try Again")
+        expectation(for: retryReady, evaluatedWith: create)
+        waitForExpectations(timeout: 3)
+        XCTAssertEqual(prompt.value as? String, expectedPrompt)
+
+        let firstOperationID = app.staticTexts["MobileTaskComposerSubmittedOperationID-1"]
+        let firstPrompt = app.staticTexts["MobileTaskComposerSubmittedPrompt-1"]
+        XCTAssertTrue(firstOperationID.waitForExistence(timeout: 3))
+        XCTAssertTrue(firstPrompt.waitForExistence(timeout: 3))
+        XCTAssertNotEqual(firstOperationID.label, "<nil>")
+        XCTAssertEqual(firstPrompt.label, expectedPrompt)
+
+        tap(create, in: app)
+
+        XCTAssertTrue(
+            failure.waitForNonExistence(timeout: 0.5),
+            "Retry must clear stale failure guidance before the request finishes"
+        )
+        XCTAssertTrue(prompt.exists, "The composer must remain presented while retrying")
+        XCTAssertEqual(prompt.value as? String, expectedPrompt)
+
+        let secondOperationID = app.staticTexts["MobileTaskComposerSubmittedOperationID-2"]
+        let secondPrompt = app.staticTexts["MobileTaskComposerSubmittedPrompt-2"]
+        XCTAssertTrue(secondOperationID.waitForExistence(timeout: 1))
+        XCTAssertTrue(secondPrompt.waitForExistence(timeout: 1))
+        XCTAssertEqual(secondOperationID.label, firstOperationID.label)
+        XCTAssertEqual(secondPrompt.label, expectedPrompt)
+
+        XCTAssertTrue(
+            prompt.waitForNonExistence(timeout: 4),
+            "The composer must dismiss after the retry succeeds"
+        )
+    }
+
     /// Regression: preparation must durably save the exact retry identity
     /// before routing starts, while Cancel remains available until the create
     /// boundary is committed.

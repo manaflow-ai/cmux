@@ -12,17 +12,20 @@ public struct TaskComposerAccessibilityPreviewView: View {
     @State private var draftWasPersistedAtSubmit: Bool?
     @State private var submittedMacDeviceID: String?
     @State private var submittedSpec: MobileWorkspaceCreateSpec?
+    @State private var submissionAttempts: [TaskComposerSubmissionAttempt] = []
     @State private var selectedDirectory: String?
     private let store: CMUXMobileShellStore
     private let returnsSubmissionFailure: Bool
+    private let failsFirstSubmission: Bool
     private let presentsTemplateForm: Bool
     private let presentsDirectoryPicker: Bool
     private let holdsSubmissionInPreparation: Bool
 
     /// Creates the preview with isolated, in-memory task state so repeated UI
     /// tests cannot inherit production templates, selections, or drafts. Set
-    /// `CMUX_UITEST_TASK_COMPOSER_FAILURE=1` to exercise failure recovery, or
-    /// `CMUX_UITEST_TASK_TEMPLATE_FORM_PREVIEW=1` to present the production
+    /// `CMUX_UITEST_TASK_COMPOSER_FAILURE=1` to exercise a persistent failure,
+    /// `CMUX_UITEST_TASK_COMPOSER_FAIL_ONCE=1` to exercise a successful retry,
+    /// or `CMUX_UITEST_TASK_TEMPLATE_FORM_PREVIEW=1` to present the production
     /// add-template form directly. Set
     /// `CMUX_UITEST_TASK_DIRECTORY_PICKER_PREVIEW=1` to present the production
     /// directory picker with deterministic filesystem results.
@@ -33,6 +36,9 @@ public struct TaskComposerAccessibilityPreviewView: View {
         )
         self.returnsSubmissionFailure = ProcessInfo.processInfo.environment[
             "CMUX_UITEST_TASK_COMPOSER_FAILURE"
+        ] == "1"
+        self.failsFirstSubmission = ProcessInfo.processInfo.environment[
+            "CMUX_UITEST_TASK_COMPOSER_FAIL_ONCE"
         ] == "1"
         self.presentsTemplateForm = ProcessInfo.processInfo.environment[
             "CMUX_UITEST_TASK_TEMPLATE_FORM_PREVIEW"
@@ -60,6 +66,9 @@ public struct TaskComposerAccessibilityPreviewView: View {
                     Text(verbatim: selectedDirectory)
                         .accessibilityIdentifier("MobileTaskComposerSelectedDirectory")
                 }
+                if !isPresented {
+                    TaskComposerSubmissionHistoryProbe(attempts: submissionAttempts)
+                }
             }
             .sheet(isPresented: $isPresented) {
                 if presentsTemplateForm {
@@ -77,8 +86,14 @@ public struct TaskComposerAccessibilityPreviewView: View {
                         store: store,
                         availableMachines: [Self.previewMac, Self.backupPreviewMac],
                         submitTaskComposer: { macDeviceID, spec, willStartCreate in
+                            let attemptNumber = submissionAttempts.count + 1
                             submittedMacDeviceID = macDeviceID
                             submittedSpec = spec
+                            submissionAttempts.append(TaskComposerSubmissionAttempt(
+                                id: attemptNumber,
+                                operationID: spec.operationID?.uuidString ?? "<nil>",
+                                prompt: spec.initialEnv?["CMUX_TASK_PROMPT"] ?? "<nil>"
+                            ))
                             draftWasPersistedAtSubmit = store.taskTemplateStore?.composerDraft() != nil
                             if holdsSubmissionInPreparation {
                                 do {
@@ -91,13 +106,26 @@ public struct TaskComposerAccessibilityPreviewView: View {
                             if returnsSubmissionFailure {
                                 return .failure(.invalidWorkingDirectory(hostDisplayName: "Preview Mac"))
                             }
+                            if failsFirstSubmission {
+                                if attemptNumber == 1 {
+                                    return .failure(.invalidWorkingDirectory(hostDisplayName: "Preview Mac"))
+                                }
+                                do {
+                                    try await Task.sleep(for: .seconds(2))
+                                } catch {
+                                    return .failure(.notConnected(hostDisplayName: "Preview Mac"))
+                                }
+                            }
                             return .success(())
                         }
                     )
                     .overlay(alignment: .top) {
-                        if let draftWasPersistedAtSubmit {
-                            Text(draftWasPersistedAtSubmit ? "persisted" : "missing")
-                                .accessibilityIdentifier("MobileTaskComposerSubmissionDraftState")
+                        VStack(spacing: 0) {
+                            if let draftWasPersistedAtSubmit {
+                                Text(draftWasPersistedAtSubmit ? "persisted" : "missing")
+                                    .accessibilityIdentifier("MobileTaskComposerSubmissionDraftState")
+                            }
+                            TaskComposerSubmissionHistoryProbe(attempts: submissionAttempts)
                         }
                     }
                 }
@@ -201,6 +229,28 @@ public struct TaskComposerAccessibilityPreviewView: View {
             return .failure(.rejected)
         }
         return .success(response)
+    }
+}
+
+private struct TaskComposerSubmissionAttempt: Identifiable {
+    let id: Int
+    let operationID: String
+    let prompt: String
+}
+
+private struct TaskComposerSubmissionHistoryProbe: View {
+    let attempts: [TaskComposerSubmissionAttempt]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(attempts) { attempt in
+                Text(verbatim: attempt.operationID)
+                    .accessibilityIdentifier("MobileTaskComposerSubmittedOperationID-\(attempt.id)")
+                Text(verbatim: attempt.prompt)
+                    .accessibilityIdentifier("MobileTaskComposerSubmittedPrompt-\(attempt.id)")
+            }
+        }
+        .allowsHitTesting(false)
     }
 }
 
