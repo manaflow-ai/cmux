@@ -115,6 +115,45 @@ fn codex_resolver_uses_patch_events_from_the_latest_turn_id() {
 }
 
 #[test]
+fn codex_resolver_inherits_camel_case_turn_context_for_patch_without_id() {
+    let fixture = FixtureRoot::new("codex-inherited-turn-id");
+    prepare_common_directories(&fixture);
+    let transcript = fixture.home().join("codex-inherited-turn-id.jsonl");
+    let repo = fixture.repo();
+    let current_path = repo.join("current.txt");
+    write_lines(
+        &transcript,
+        &[
+            serde_json::json!({"type":"turn_context","payload":{"turnId":"turn-current"}}),
+            serde_json::json!({"type":"event_msg","payload":{"type":"task_started","turnId":"turn-current"}}),
+            serde_json::json!({"type":"event_msg","payload":{"type":"patch_apply_end","success":true,"status":"completed","changes":{
+                current_path.to_string_lossy(): {"type":"update","move_path":null,"unified_diff":"@@ -1 +1 @@\n-before\n+after\n"}
+            }}}),
+        ],
+    );
+    write_hook_store(
+        &fixture.home(),
+        "codex",
+        "codex-session",
+        &repo,
+        Some(&transcript),
+    );
+
+    let resolved = resolve_last_turn_patch(
+        &AgentTurnIdentity::new(AgentProvider::Codex, "codex-session"),
+        &TrajectoryRoots::for_home(fixture.home()),
+    )
+    .expect("resolve inherited Codex turn patch");
+
+    assert!(
+        resolved
+            .patch
+            .contains("diff --git a/current.txt b/current.txt")
+    );
+    assert!(resolved.patch.contains("+after"));
+}
+
+#[test]
 fn codex_resolver_fails_closed_when_latest_turn_has_no_id() {
     let fixture = FixtureRoot::new("codex-missing-turn-id");
     prepare_common_directories(&fixture);
