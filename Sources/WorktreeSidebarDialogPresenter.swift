@@ -27,7 +27,7 @@ struct WorktreeSidebarDialogPresenter: WorktreeSidebarDialogPresenting {
         ))
         alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
         alert.window.initialFirstResponder = textField
-        guard runCmuxModalAlert(alert) == .alertFirstButtonReturn else { return nil }
+        guard alert.runCmuxModal() == .alertFirstButtonReturn else { return nil }
         return textField.stringValue
     }
 
@@ -92,7 +92,7 @@ struct WorktreeSidebarDialogPresenter: WorktreeSidebarDialogPresenting {
         }
         alert.addButton(withTitle: primaryTitle)
         alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
-        return runCmuxModalAlert(alert) == .alertFirstButtonReturn
+        return alert.runCmuxModal() == .alertFirstButtonReturn
     }
 
     func presentError(_ error: Error) {
@@ -104,7 +104,7 @@ struct WorktreeSidebarDialogPresenter: WorktreeSidebarDialogPresenting {
         )
         alert.informativeText = errorMessage(error)
         alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
-        _ = runCmuxModalAlert(alert)
+        _ = alert.runCmuxModal()
     }
 
     func presentPreservedBranch(name: String, reason: String) {
@@ -123,7 +123,7 @@ struct WorktreeSidebarDialogPresenter: WorktreeSidebarDialogPresenting {
             boundedDetails(reason)
         )
         alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
-        _ = runCmuxModalAlert(alert)
+        _ = alert.runCmuxModal()
     }
 
     private func pathLine(_ path: String) -> String {
