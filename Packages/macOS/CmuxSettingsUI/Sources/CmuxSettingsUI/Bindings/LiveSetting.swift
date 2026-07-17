@@ -32,9 +32,17 @@ import SwiftUI
 /// no wrapping or casting. Reads work without an injected ``SettingsRuntime``
 /// (the `@State` is seeded from the catalog default); the runtime is only
 /// needed to observe and persist changes, resolved from the environment.
-@MainActor
+// Deliberately NOT @MainActor. SwiftUI's `DynamicProperty.update()` requirement
+// is nonisolated, so a @MainActor conformance forces a cross-isolation bridge
+// whose runtime executor check (`_checkExpectedExecutor` ->
+// swift_task_isCurrentExecutor) SEGVs on macOS 26.4.x — crashing the Debug app
+// the moment any @LiveSetting view renders. A plain nonisolated DynamicProperty
+// emits no such check. SwiftUI already drives `update()` and the property-wrapper
+// accessors on the main thread, and every stored member here is either a value
+// type (@State/@Environment projections) or a Sendable closure, so nonisolated
+// is safe.
 @propertyWrapper
-public struct LiveSetting<Value: SettingCodable>: @preconcurrency DynamicProperty {
+public struct LiveSetting<Value: SettingCodable>: DynamicProperty {
     @Environment(\.settingsRuntime) private var runtime
     @State private var value: Value
     @State private var driver = SettingReadDriver<Value>()
@@ -69,7 +77,7 @@ public struct LiveSetting<Value: SettingCodable>: @preconcurrency DynamicPropert
         persist = { runtime, newValue in
             let key = runtime.catalog[keyPath: keyPath]
             let errorLog = runtime.errorLog
-            Task {
+            Task { @MainActor in
                 do { try await runtime.jsonStore.set(newValue, for: key) }
                 catch { errorLog.record(error, keyID: key.id) }
             }
@@ -90,7 +98,7 @@ public struct LiveSetting<Value: SettingCodable>: @preconcurrency DynamicPropert
         persist = { runtime, newValue in
             let key = runtime.catalog[keyPath: keyPath]
             let errorLog = runtime.errorLog
-            Task {
+            Task { @MainActor in
                 do { try await runtime.secretStore.set(newValue, for: key) }
                 catch { errorLog.record(error, keyID: key.id) }
             }
@@ -128,7 +136,11 @@ public struct LiveSetting<Value: SettingCodable>: @preconcurrency DynamicPropert
     /// store's change stream into the wrapper's `@State`; later calls are no-ops.
     public func update() {
         guard let runtime else { return }
+        // Capture locals so the closures passed to `activate` don't capture
+        // `self` (a non-Sendable struct) — avoids a Swift 6 sendable-capture
+        // warning now that this type is nonisolated.
         let binding = $value
+        let makeStream = makeStream
         driver.activate({ makeStream(runtime) }) { binding.wrappedValue = $0 }
     }
 }
