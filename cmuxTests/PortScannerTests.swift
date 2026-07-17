@@ -449,7 +449,7 @@ struct PortScanCoordinationTests {
 struct ProcessTerminationGateTests {
     @Test("A prelaunch termination request is deferred until launch")
     func prelaunchTerminationRequestIsDeferredUntilLaunch() {
-        let gate = ProcessTerminationGate()
+        var gate = ProcessTerminationGate()
 
         #expect(gate.requestTermination() == false)
         #expect(gate.markLaunched())
@@ -459,7 +459,7 @@ struct ProcessTerminationGateTests {
 
     @Test("A finished prelaunch process ignores deferred termination")
     func finishedPrelaunchProcessIgnoresDeferredTermination() {
-        let gate = ProcessTerminationGate()
+        var gate = ProcessTerminationGate()
 
         #expect(gate.requestTermination() == false)
         gate.markFinished()
