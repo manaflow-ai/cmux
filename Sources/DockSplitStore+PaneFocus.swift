@@ -136,6 +136,11 @@ extension DockSplitStore {
                 panel.unfocus()
             }
         }
+        browserServices?.activateWebExtensionTab(
+            panelID: selectedPanel.id,
+            previousPanelID: lastActivatedWebExtensionPanelID
+        )
+        lastActivatedWebExtensionPanelID = selectedPanel.id
         selectedPanel.focus()
     }
 

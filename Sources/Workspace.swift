@@ -8025,9 +8025,12 @@ final class Workspace: Identifiable, ObservableObject {
     /// entrypoint converges on one state owner.
     @discardableResult
     func openBrowserExtensionsManager(from sourcePanelId: UUID) -> BrowserPanel? {
+        let sourceProfileID = (panels[sourcePanelId] as? BrowserPanel)?.profileID
         if let existing = panels.values
             .compactMap({ $0 as? BrowserPanel })
-            .first(where: { $0.internalPage == .extensions }) {
+            .first(where: {
+                $0.internalPage == .extensions && $0.profileID == sourceProfileID
+            }) {
             clearSplitZoom()
             focusPanel(existing.id)
             return existing
@@ -8035,7 +8038,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard let managerPanel = newBrowserSplit(
             from: sourcePanelId,
             orientation: .horizontal,
-            preferredProfileID: (panels[sourcePanelId] as? BrowserPanel)?.profileID,
+            preferredProfileID: sourceProfileID,
             focus: true,
             omnibarVisible: false
         ) else {
@@ -11533,6 +11536,10 @@ extension Workspace: BonsplitDelegate {
             panel,
             focusIntent: activationIntent,
             reassertAppKitFocus: reassertAppKitFocus
+        )
+        browserServices?.activateWebExtensionTab(
+            panelID: panelId,
+            previousPanelID: previousFocusedPanelId
         )
         let focusIntentAllowsBrowserOmnibarAutofocus =
             explicitFocusIntent ||

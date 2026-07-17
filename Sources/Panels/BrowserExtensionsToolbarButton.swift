@@ -3,6 +3,7 @@ import SwiftUI
 
 struct BrowserExtensionsToolbarButton: View {
     @Binding var isPresented: Bool
+    let panelID: UUID
     let iconPointSize: CGFloat
     let hitSize: CGFloat
     let loadSnapshot: @MainActor () async -> BrowserWebExtensionsPresentationSnapshot
@@ -12,6 +13,8 @@ struct BrowserExtensionsToolbarButton: View {
     @State private var snapshot = BrowserWebExtensionsPresentationSnapshot.loading
     @State private var isLoadingPresentation = false
     @State private var managerAnchorHolder = BrowserExtensionActionAnchorHolder()
+    @State private var actionRefreshTask: Task<Void, Never>?
+    @State private var actionRefreshGeneration = 0
 
     var body: some View {
         HStack(spacing: 0) {
@@ -29,10 +32,15 @@ struct BrowserExtensionsToolbarButton: View {
         .task {
             await refreshSnapshot()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .browserWebExtensionActionDidChange)) { _ in
-            Task { @MainActor in
-                await refreshSnapshot()
+        .onReceive(NotificationCenter.default.publisher(for: .browserWebExtensionActionDidChange)) { notification in
+            if let changedPanelID = notification.userInfo?[BrowserWebExtensionNotificationKey.panelID] as? UUID,
+               changedPanelID != panelID {
+                return
             }
+            scheduleActionRefresh()
+        }
+        .onDisappear {
+            actionRefreshTask?.cancel()
         }
     }
 
@@ -81,6 +89,21 @@ struct BrowserExtensionsToolbarButton: View {
     @MainActor
     private func refreshSnapshot() async {
         snapshot = await loadSnapshot()
+    }
+
+    @MainActor
+    private func scheduleActionRefresh() {
+        actionRefreshGeneration &+= 1
+        let generation = actionRefreshGeneration
+        actionRefreshTask?.cancel()
+        actionRefreshTask = Task { @MainActor in
+            // Coalesce action mutations delivered in the same main-actor turn.
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            let nextSnapshot = await loadSnapshot()
+            guard !Task.isCancelled, generation == actionRefreshGeneration else { return }
+            snapshot = nextSnapshot
+        }
     }
 }
 
@@ -318,7 +341,7 @@ private struct BrowserExtensionsManagerHeader: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(String(localized: "browser.extensions.manager.title", defaultValue: "Browser Extensions"))
                     .font(.title2.weight(.semibold))
-                Text(String(localized: "browser.extensions.manager.subtitle", defaultValue: "Discover and manage WebExtensions for every cmux browser pane."))
+                Text(String(localized: "browser.extensions.manager.subtitle", defaultValue: "Discover and manage WebExtensions for this browser profile."))
                     .foregroundStyle(.secondary)
             }
             Spacer()

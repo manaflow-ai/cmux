@@ -12,6 +12,7 @@ import SwiftUI
 @Observable
 final class DockSplitStore: BonsplitDelegate {
     let workspaceId: UUID
+    let webExtensionWindowID = UUID()
     let bonsplitController: BonsplitController
     let browserServices: BrowserServices?
 
@@ -61,6 +62,7 @@ final class DockSplitStore: BonsplitDelegate {
     @ObservationIgnored var tabCloseButtonCloseDockTabIds: Set<TabID> = []
     @ObservationIgnored var terminalViewReattachCoalescingDepth = 0
     @ObservationIgnored var pendingTerminalViewReattachPanelIds: Set<UUID> = []
+    @ObservationIgnored var lastActivatedWebExtensionPanelID: UUID?
     @ObservationIgnored let focusHistoryNavigation: any FocusHistoryNavigating = FocusHistoryModel()
 
     /// Weak registry of every live Dock store. Lets control-surface routing
@@ -557,6 +559,7 @@ final class DockSplitStore: BonsplitDelegate {
 
     func installSubscription(for panel: any Panel, tracksTerminalTitle: Bool) {
         if let browser = panel as? BrowserPanel {
+            browserServices?.registerBrowserPanel(browser, dock: self)
             let cancellable = Publishers.CombineLatest4(
                 browser.$pageTitle.removeDuplicates(),
                 browser.$isLoading.removeDuplicates(),
@@ -620,7 +623,12 @@ final class DockSplitStore: BonsplitDelegate {
             panelCancellables.removeValue(forKey: panelId)
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspaceId, surfaceId: panelId)
             detachedSurfaceTransfersByPanelId.removeValue(forKey: panelId)
-            if let panel = panels.removeValue(forKey: panelId) { panel.close() }
+            if let panel = panels.removeValue(forKey: panelId) {
+                if panel is BrowserPanel {
+                    browserServices?.unregisterBrowserPanel(id: panelId)
+                }
+                panel.close()
+            }
         }
     }
 
@@ -660,7 +668,12 @@ final class DockSplitStore: BonsplitDelegate {
         for tabId in tabIds { _ = bonsplitController.closeTab(tabId) }
         collapseToSingleEmptyPane()
         reconcilePanels()
-        for panel in panels.values { panel.close() }
+        for panel in panels.values {
+            if panel is BrowserPanel {
+                browserServices?.unregisterBrowserPanel(id: panel.id)
+            }
+            panel.close()
+        }
         panels.removeAll(); surfaceIdToPanelId.removeAll()
         detachedSurfaceTransfersByPanelId.removeAll()
         panelCancellables.values.forEach { $0.cancel() }

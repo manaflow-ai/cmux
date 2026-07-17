@@ -3,13 +3,13 @@ import Foundation
 import WebKit
 
 /// Loads Safari Web Extensions (WebExtension `manifest.json` bundles, the same
-/// format Safari and Chrome use) into every cmux browser webview.
+/// format Safari and Chrome use) into the cmux browser webviews registered for
+/// one browser profile.
 ///
-/// Extensions are installed from the native manager or by placing an unpacked
-/// extension directory (or a `.zip` of one) in
-/// `~/.config/cmux/browser-extensions/`. Each entry must contain a
-/// `manifest.json` at its root. Manager installs load immediately; entries added
-/// outside cmux are discovered at app launch.
+/// Each instance owns one controller, context set, tab registry, approval file,
+/// and install directory. The built-in profile keeps the legacy
+/// `~/.config/cmux/browser-extensions/` directory; other profiles use isolated
+/// child directories. Each entry must contain a `manifest.json` at its root.
 ///
 /// Installing an extension into the directory is treated as consent for required
 /// manifest permissions and match patterns. Optional runtime requests are denied
@@ -25,6 +25,11 @@ final class BrowserWebExtensionsManager: NSObject {
             self.anchorView = anchorView
             self.panelID = panelID
         }
+    }
+
+    private struct ActionInvocationKey: Hashable {
+        let extensionIdentifier: String
+        let panelID: UUID
     }
 
     private final class WeakPopupWebView {
@@ -55,14 +60,20 @@ final class BrowserWebExtensionsManager: NSObject {
     private(set) var loadErrors: [(url: URL, error: any Error)] = []
     private var tabAdapters: [UUID: BrowserWebExtensionTabAdapter] = [:]
     private var windowAdapters: [UUID: BrowserWebExtensionWindowAdapter] = [:]
-    private var pendingActionInvocations: [String: PendingActionInvocation] = [:]
+    private var pendingActionInvocations: [ActionInvocationKey: [PendingActionInvocation]] = [:]
+    private var lastActionInvocations: [ActionInvocationKey: PendingActionInvocation] = [:]
     private var popupWebViews: [String: WeakPopupWebView] = [:]
     private var backgroundLoadErrors: [String: any Error] = [:]
 
-    init(directory: URL, controllerConfiguration: WKWebExtensionController.Configuration? = nil) {
+    init(
+        directory: URL,
+        controllerIdentifier: UUID? = nil,
+        controllerConfiguration: WKWebExtensionController.Configuration? = nil
+    ) {
         self.directory = directory
         let configuration = controllerConfiguration
-            ?? WKWebExtensionController.Configuration(identifier: Self.controllerIdentifier)
+            ?? WKWebExtensionController.Configuration(identifier: controllerIdentifier ?? Self.controllerIdentifier)
+        configuration.webViewConfiguration.applicationNameForUserAgent = "Version/18.4 Safari/605.1.15 cmux"
 #if DEBUG
         configuration.webViewConfiguration.userContentController.addUserScript(
             WKUserScript(
@@ -201,8 +212,10 @@ final class BrowserWebExtensionsManager: NSObject {
         _ = try await WKWebExtension(resourceBaseURL: source)
         let destination = try await directoryRepository.installCandidate(from: source, into: directory)
         do {
-            let context = try await loadExtension(at: destination)
+            // Approval computes the package digest and rejects symbolic links.
+            // Finish it before WebKit can execute any extension resource.
             try await directoryRepository.approveCandidate(at: destination, in: directory)
+            let context = try await loadExtension(at: destination)
             return BrowserWebExtensionInstallReceipt(
                 name: context.webExtension.displayName ?? destination.deletingPathExtension().lastPathComponent
             )
@@ -224,15 +237,24 @@ final class BrowserWebExtensionsManager: NSObject {
         return try await installExtension(from: packageURL)
     }
 
-    func register(panel: BrowserPanel, workspace: Workspace) {
+    func register(
+        panel: BrowserPanel,
+        ownerID: UUID,
+        activePanelID: @escaping @MainActor () -> UUID?,
+        focusPanel: @escaping @MainActor (UUID) -> Void
+    ) {
         if tabAdapters[panel.id] != nil { return }
 
         let windowAdapter: BrowserWebExtensionWindowAdapter
-        if let existing = windowAdapters[workspace.id] {
+        if let existing = windowAdapters[ownerID] {
             windowAdapter = existing
         } else {
-            windowAdapter = BrowserWebExtensionWindowAdapter(workspace: workspace)
-            windowAdapters[workspace.id] = windowAdapter
+            windowAdapter = BrowserWebExtensionWindowAdapter(
+                ownerID: ownerID,
+                activePanelID: activePanelID,
+                focusPanel: focusPanel
+            )
+            windowAdapters[ownerID] = windowAdapter
             controller.didOpenWindow(windowAdapter)
         }
 
@@ -243,15 +265,55 @@ final class BrowserWebExtensionsManager: NSObject {
     }
 
     func unregister(panelID: UUID) {
-        pendingActionInvocations = pendingActionInvocations.filter { $0.value.panelID != panelID }
+        pendingActionInvocations = pendingActionInvocations.filter { $0.key.panelID != panelID }
+        lastActionInvocations = lastActionInvocations.filter { $0.key.panelID != panelID }
         guard let tabAdapter = tabAdapters.removeValue(forKey: panelID) else { return }
         controller.didCloseTab(tabAdapter, windowIsClosing: false)
         guard let windowAdapter = tabAdapter.windowAdapter else { return }
         windowAdapter.tabAdapters.removeAll { $0 === tabAdapter || $0.panel == nil }
-        if windowAdapter.tabAdapters.isEmpty, let workspaceID = windowAdapter.workspace?.id {
-            windowAdapters.removeValue(forKey: workspaceID)
+        if windowAdapter.tabAdapters.isEmpty {
+            windowAdapters.removeValue(forKey: windowAdapter.ownerID)
             controller.didCloseWindow(windowAdapter)
         }
+    }
+
+    func registrationOwner(
+        for panelID: UUID
+    ) -> (
+        id: UUID,
+        activePanelID: @MainActor () -> UUID?,
+        focusPanel: @MainActor (UUID) -> Void
+    )? {
+        guard let windowAdapter = tabAdapters[panelID]?.windowAdapter else { return nil }
+        return (
+            windowAdapter.ownerID,
+            windowAdapter.activePanelID,
+            windowAdapter.focusPanel
+        )
+    }
+
+    func tabPropertiesDidChange(
+        panelID: UUID,
+        properties: WKWebExtension.TabChangedProperties
+    ) {
+        guard let tabAdapter = tabAdapters[panelID] else { return }
+        controller.didChangeTabProperties(properties, for: tabAdapter)
+    }
+
+    func activateTab(panelID: UUID, previousPanelID: UUID?) {
+        guard let tabAdapter = tabAdapters[panelID] else { return }
+        let previousAdapter = previousPanelID.flatMap { tabAdapters[$0] }
+        if let previousAdapter, previousAdapter !== tabAdapter {
+            controller.didDeselectTabs([previousAdapter])
+        }
+        controller.didSelectTabs([tabAdapter])
+        controller.didActivateTab(tabAdapter, previousActiveTab: previousAdapter)
+        controller.didFocusWindow(tabAdapter.windowAdapter)
+    }
+
+    func deactivateTab(panelID: UUID) {
+        guard let tabAdapter = tabAdapters[panelID] else { return }
+        controller.didDeselectTabs([tabAdapter])
     }
 
     @discardableResult
@@ -266,10 +328,20 @@ final class BrowserWebExtensionsManager: NSObject {
               action.isEnabled else {
             return false
         }
-        pendingActionInvocations[context.uniqueIdentifier] = PendingActionInvocation(
+        let key = ActionInvocationKey(
+            extensionIdentifier: context.uniqueIdentifier,
+            panelID: panel.id
+        )
+        let invocation = PendingActionInvocation(
             anchorView: anchorView,
             panelID: panel.id
         )
+        lastActionInvocations[key] = invocation
+        if action.presentsPopup {
+            pendingActionInvocations[key, default: []].append(invocation)
+        } else {
+            pendingActionInvocations.removeValue(forKey: key)
+        }
         context.performAction(for: tabAdapter)
         return true
     }
@@ -289,7 +361,8 @@ final class BrowserWebExtensionsManager: NSObject {
         loadedContexts.append(context)
         NotificationCenter.default.post(
             name: .browserWebExtensionActionDidChange,
-            object: context.uniqueIdentifier
+            object: context.uniqueIdentifier,
+            userInfo: [BrowserWebExtensionNotificationKey.panelID: NSNull()]
         )
         if webExtension.hasBackgroundContent {
             context.loadBackgroundContent { [weak self, weak context] error in
@@ -573,14 +646,12 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
         completionHandler: @escaping ((any Error)?) -> Void
     ) {
         guard let popover = action.popupPopover,
-              let invocation = pendingActionInvocations.removeValue(forKey: extensionContext.uniqueIdentifier),
-              let anchor = invocation.anchorView,
-              anchor.window != nil else {
+              let anchor = popupAnchor(for: action, extensionContext: extensionContext) else {
             completionHandler(BrowserWebExtensionActionError.missingPopupAnchor)
             return
         }
         popover.behavior = .transient
-        popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxY)
+        popover.show(relativeTo: anchor.rect, of: anchor.view, preferredEdge: .maxY)
         if let webView = action.popupWebView {
             popupWebViews[extensionContext.uniqueIdentifier] = WeakPopupWebView(webView)
         }
@@ -592,10 +663,46 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
         didUpdate action: WKWebExtension.Action,
         forExtensionContext context: WKWebExtensionContext
     ) {
+        let panelID = (action.associatedTab as? BrowserWebExtensionTabAdapter)?.panel?.id
         NotificationCenter.default.post(
             name: .browserWebExtensionActionDidChange,
-            object: context.uniqueIdentifier
+            object: context.uniqueIdentifier,
+            userInfo: [BrowserWebExtensionNotificationKey.panelID: panelID ?? NSNull()]
         )
+    }
+
+    private func popupAnchor(
+        for action: WKWebExtension.Action,
+        extensionContext: WKWebExtensionContext
+    ) -> (view: NSView, rect: NSRect)? {
+        let associatedPanel = (action.associatedTab as? BrowserWebExtensionTabAdapter)?.panel
+        let key = associatedPanel.map {
+            ActionInvocationKey(extensionIdentifier: extensionContext.uniqueIdentifier, panelID: $0.id)
+        }
+
+        if let key,
+           var queue = pendingActionInvocations[key],
+           !queue.isEmpty {
+            let invocation = queue.removeFirst()
+            if queue.isEmpty {
+                pendingActionInvocations.removeValue(forKey: key)
+            } else {
+                pendingActionInvocations[key] = queue
+            }
+            if let anchor = invocation.anchorView, anchor.window != nil {
+                return (anchor, anchor.bounds)
+            }
+        }
+
+        if let key,
+           let anchor = lastActionInvocations[key]?.anchorView,
+           anchor.window != nil {
+            return (anchor, anchor.bounds)
+        }
+
+        guard let webView = associatedPanel?.webView, webView.window != nil else { return nil }
+        let point = NSPoint(x: webView.bounds.maxX - 1, y: webView.bounds.maxY - 1)
+        return (webView, NSRect(origin: point, size: NSSize(width: 1, height: 1)))
     }
 
     // Required manifest permissions were granted at explicit installation.
@@ -641,7 +748,7 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
             let lhsKey = lhs.compactTabs().contains { $0.panel?.webView.window === NSApp.keyWindow }
             let rhsKey = rhs.compactTabs().contains { $0.panel?.webView.window === NSApp.keyWindow }
             if lhsKey != rhsKey { return lhsKey }
-            return (lhs.workspace?.id.uuidString ?? "") < (rhs.workspace?.id.uuidString ?? "")
+            return lhs.ownerID.uuidString < rhs.ownerID.uuidString
         }
     }
 }
@@ -650,6 +757,10 @@ extension Notification.Name {
     static let browserWebExtensionActionDidChange = Notification.Name(
         "cmux.browserWebExtensionActionDidChange"
     )
+}
+
+enum BrowserWebExtensionNotificationKey {
+    static let panelID = "panelID"
 }
 
 @available(macOS 15.4, *)

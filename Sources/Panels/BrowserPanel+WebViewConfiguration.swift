@@ -5,6 +5,7 @@ import WebKit
 extension BrowserPanel {
     static func configureWebViewConfiguration(
         _ configuration: WKWebViewConfiguration,
+        profileID: UUID,
         websiteDataStore: WKWebsiteDataStore,
         browserServices: BrowserServices? = nil
     ) {
@@ -12,9 +13,10 @@ extension BrowserPanel {
         // Ensure browser cookies/storage persist across navigations and launches.
         // This reduces repeated consent/bot-challenge flows on sites like Google.
         configuration.websiteDataStore = websiteDataStore
-        // Safari Web Extensions installed under ~/.config/cmux/browser-extensions
-        // (macOS 15.4+; no-op when the directory is empty).
-        if #available(macOS 15.4, *), let extensionsManager = browserServices?.webExtensionsManager {
+        // Each browser profile owns a separate WebExtension controller and
+        // install directory. The built-in profile keeps the legacy root.
+        if #available(macOS 15.4, *),
+           let extensionsManager = browserServices?.webExtensionsManager(for: profileID) {
             configuration.webExtensionController = extensionsManager.controller
         }
         if configuration.urlSchemeHandler(forURLScheme: CmuxDiffViewerURLSchemeHandler.scheme) == nil {

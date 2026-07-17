@@ -3076,12 +3076,16 @@ final class BrowserPanel: Panel, ObservableObject {
         isUsingCamera: Bool? = nil,
         reason: String
     ) {
-        var next = mediaActivity
+        let previous = mediaActivity
+        var next = previous
         if let isPlayingAudio { next.isPlayingAudio = isPlayingAudio }
         if let isUsingMicrophone { next.isUsingMicrophone = isUsingMicrophone }
         if let isUsingCamera { next.isUsingCamera = isUsingCamera }
         guard next != mediaActivity else { return }
         mediaActivity = next
+        if #available(macOS 15.4, *), previous.isPlayingAudio != next.isPlayingAudio {
+            notifyWebExtensionTabPropertiesChanged(.playingAudio)
+        }
         onMediaActivityChanged?(next)
         reevaluateHiddenWebViewDiscardScheduling(reason: reason)
     }
@@ -3569,6 +3573,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let config = WKWebViewConfiguration()
         configureWebViewConfiguration(
             config,
+            profileID: profileID,
             websiteDataStore: websiteDataStore ?? BrowserProfileStore.shared.websiteDataStore(for: profileID),
             browserServices: browserServices
         )
@@ -3736,6 +3741,9 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.pageTitle = failedURL.isEmpty ? "" : failedURL
                 self.faviconPNGData = nil
                 self.lastFaviconURLString = nil
+                if #available(macOS 15.4, *) {
+                    self.notifyWebExtensionTabPropertiesChanged([.URL, .title])
+                }
                 self.applyMuteState(to: failedWebView, reason: "navigationFail")
                 if self.isDiscardRestoreBookkeepingNavigation(failedNavigation) {
                     self.noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: "navigation_failed")
@@ -4178,7 +4186,9 @@ final class BrowserPanel: Panel, ObservableObject {
     func runWhenWebExtensionsLoaded(_ navigation: @escaping @MainActor () -> Void) {
         pendingWebExtensionNavigationTask?.cancel()
         pendingWebExtensionNavigationTask = nil
-        if #available(macOS 15.4, *), let manager = browserServices?.webExtensionsManager, !manager.isLoaded {
+        if #available(macOS 15.4, *),
+           let manager = browserServices?.webExtensionsManager(for: profileID),
+           !manager.isLoaded {
             pendingWebExtensionNavigationTask = Task { @MainActor [weak self] in
                 await manager.waitUntilLoaded()
                 guard !Task.isCancelled, let self, !self.isClosingWebViewLifecycle else { return }
@@ -4617,6 +4627,7 @@ final class BrowserPanel: Panel, ObservableObject {
         hasCommittedDocumentSinceWebViewReplacement = false; userStoppedLoadSinceWebViewReplacement = false
         resetWebViewLifecycleMetadata(resetVisibility: false)
         webView = replacement
+        browserServices?.browserPanelProfileDidChange(self)
         currentURL = restoreURL
         shouldRenderWebView = wasRenderable
         refreshWebViewLifecycleState()
@@ -4849,6 +4860,9 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.currentURL = Self.remoteProxyDisplayURL(for: observedURL)
                 self.refreshBackgroundAppearance()
                 GlobalSearchCoordinator.shared.captureBrowserPanel(self)
+                if #available(macOS 15.4, *) {
+                    self.notifyWebExtensionTabPropertiesChanged(.URL)
+                }
             }
         }
         webViewObservers.append(urlObserver)
@@ -4864,6 +4878,9 @@ final class BrowserPanel: Panel, ObservableObject {
                 guard !trimmed.isEmpty else { return }
                 self.pageTitle = trimmed
                 GlobalSearchCoordinator.shared.captureBrowserPanel(self)
+                if #available(macOS 15.4, *) {
+                    self.notifyWebExtensionTabPropertiesChanged(.title)
+                }
             }
         }
         webViewObservers.append(titleObserver)
@@ -4879,6 +4896,9 @@ final class BrowserPanel: Panel, ObservableObject {
             Task { @MainActor in
                 guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
                 self.handleWebViewLoadingChanged(newValue)
+                if #available(macOS 15.4, *) {
+                    self.notifyWebExtensionTabPropertiesChanged(.loading)
+                }
             }
         }
         webViewObservers.append(loadingObserver)
@@ -6228,6 +6248,9 @@ extension BrowserPanel {
         let applied = applyMuteState(muted, to: webView, reason: "setMuted")
         if applied, isMuted != muted {
             isMuted = muted
+            if #available(macOS 15.4, *) {
+                notifyWebExtensionTabPropertiesChanged(.muted)
+            }
             refreshAudioMediaActivity(reason: "audio_mute_changed")
         }
         return applied
@@ -6236,6 +6259,13 @@ extension BrowserPanel {
     @discardableResult
     func toggleMute() -> Bool {
         setMuted(!isMuted)
+    }
+
+    @available(macOS 15.4, *)
+    private func notifyWebExtensionTabPropertiesChanged(
+        _ properties: WKWebExtension.TabChangedProperties
+    ) {
+        browserServices?.webExtensionTabPropertiesDidChange(panelID: id, properties: properties)
     }
 
     /// Go back in history
@@ -7582,25 +7612,23 @@ extension BrowserPanel {
               )?.workspace {
             return workspace.openBrowserExtensionsManager(from: id)?.id
         }
-        guard let manager = app.tabManagerFor(tabId: workspaceId),
-              let workspace = manager.tabs.first(where: { $0.id == workspaceId }),
-              let anchorPanelId = workspace.focusedPanelId else { return nil }
-        return workspace.openBrowserExtensionsManager(from: anchorPanelId)?.id
+        showBrowserExtensionsManager()
+        return id
     }
 
     func browserWebExtensionsPresentationSnapshot() async -> BrowserWebExtensionsPresentationSnapshot {
         guard let browserServices else { return .unsupported }
-        return await browserServices.webExtensionsPresentationSnapshot(for: id)
+        return await browserServices.webExtensionsPresentationSnapshot(for: id, profileID: profileID)
     }
 
     func installBrowserWebExtension(from source: URL) async throws -> BrowserWebExtensionInstallReceipt {
         guard let browserServices else { throw BrowserWebExtensionServiceError.unsupported }
-        return try await browserServices.installWebExtension(from: source)
+        return try await browserServices.installWebExtension(from: source, profileID: profileID)
     }
 
     func installBrowserWebExtension(_ entry: BrowserWebExtensionCatalogEntry) async throws -> BrowserWebExtensionInstallReceipt {
         guard let browserServices else { throw BrowserWebExtensionServiceError.unsupported }
-        return try await browserServices.installWebExtension(entry)
+        return try await browserServices.installWebExtension(entry, profileID: profileID)
     }
 
     @discardableResult

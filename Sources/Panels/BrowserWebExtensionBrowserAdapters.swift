@@ -1,3 +1,4 @@
+import Foundation
 import WebKit
 
 @available(macOS 15.4, *)
@@ -43,19 +44,19 @@ final class BrowserWebExtensionTabAdapter: NSObject, WKWebExtensionTab {
     }
 
     func isSelected(for context: WKWebExtensionContext) -> Bool {
-        guard let panel, let workspace = windowAdapter?.workspace else { return false }
-        return workspace.focusedPanelId == panel.id
+        guard let panel, let windowAdapter else { return false }
+        return windowAdapter.activePanelID() == panel.id
     }
 
     func activate(
         for context: WKWebExtensionContext,
         completionHandler: @escaping (Error?) -> Void
     ) {
-        guard let panel, let workspace = windowAdapter?.workspace else {
+        guard let panel, let windowAdapter else {
             completionHandler(BrowserWebExtensionAdapterError.tabUnavailable)
             return
         }
-        workspace.focusPanel(panel.id)
+        windowAdapter.focusPanel(panel.id)
         completionHandler(nil)
     }
 
@@ -104,11 +105,19 @@ final class BrowserWebExtensionTabAdapter: NSObject, WKWebExtensionTab {
 @available(macOS 15.4, *)
 @MainActor
 final class BrowserWebExtensionWindowAdapter: NSObject, WKWebExtensionWindow {
-    weak var workspace: Workspace?
+    let ownerID: UUID
+    let activePanelID: @MainActor () -> UUID?
+    let focusPanel: @MainActor (UUID) -> Void
     var tabAdapters: [BrowserWebExtensionTabAdapter] = []
 
-    init(workspace: Workspace) {
-        self.workspace = workspace
+    init(
+        ownerID: UUID,
+        activePanelID: @escaping @MainActor () -> UUID?,
+        focusPanel: @escaping @MainActor (UUID) -> Void
+    ) {
+        self.ownerID = ownerID
+        self.activePanelID = activePanelID
+        self.focusPanel = focusPanel
     }
 
     func tabs(for context: WKWebExtensionContext) -> [any WKWebExtensionTab] {
@@ -116,8 +125,7 @@ final class BrowserWebExtensionWindowAdapter: NSObject, WKWebExtensionWindow {
     }
 
     func activeTab(for context: WKWebExtensionContext) -> (any WKWebExtensionTab)? {
-        guard let workspace else { return nil }
-        let focusedPanelID = workspace.focusedPanelId
+        let focusedPanelID = activePanelID()
         return compactTabs().first { $0.panel?.id == focusedPanelID }
             ?? compactTabs().first
     }
@@ -139,11 +147,10 @@ final class BrowserWebExtensionWindowAdapter: NSObject, WKWebExtensionWindow {
     }
 
     func focus(for context: WKWebExtensionContext) async throws {
-        guard let workspace,
-              let panelID = activeTab(for: context).flatMap({ ($0 as? BrowserWebExtensionTabAdapter)?.panel?.id }) else {
+        guard let panelID = activeTab(for: context).flatMap({ ($0 as? BrowserWebExtensionTabAdapter)?.panel?.id }) else {
             return
         }
-        workspace.focusPanel(panelID)
+        focusPanel(panelID)
     }
 
     func compactTabs() -> [BrowserWebExtensionTabAdapter] {

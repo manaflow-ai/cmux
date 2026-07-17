@@ -161,6 +161,10 @@ extension DockSplitStore {
             return nil
         }
 
+        if panel is BrowserPanel {
+            browserServices?.unregisterBrowserPanel(id: panelId)
+        }
+
         return Workspace.DetachedSurfaceTransfer(
             sourceWorkspaceId: workspaceId,
             panelId: panelId,

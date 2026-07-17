@@ -697,6 +697,7 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
 
         BrowserPanel.configureWebViewConfiguration(
             config,
+            profileID: BrowserProfileStore.shared.builtInDefaultProfileID,
             websiteDataStore: .nonPersistent()
         )
 

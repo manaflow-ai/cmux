@@ -54,6 +54,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
         BrowserPanel.configureWebViewConfiguration(
             configuration,
+            profileID: openerPanel?.profileID ?? BrowserProfileStore.shared.builtInDefaultProfileID,
             websiteDataStore: browserContext.websiteDataStore,
             browserServices: openerPanel?.browserServices
         )

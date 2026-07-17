@@ -437,11 +437,156 @@ struct BrowserWebExtensionsManagerTests {
 
         BrowserPanel.configureWebViewConfiguration(
             configuration,
+            profileID: BrowserProfileStore.shared.builtInDefaultProfileID,
             websiteDataStore: .nonPersistent(),
             browserServices: services
         )
 
         #expect(configuration.webExtensionController === services.webExtensionsManager?.controller)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func extensionControllerUsesSafariCompatibleApplicationName() throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let configuration = WKWebExtensionController.Configuration.nonPersistent()
+
+        _ = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: configuration
+        )
+
+        #expect(
+            configuration.webViewConfiguration.applicationNameForUserAgent
+                == "Version/18.4 Safari/605.1.15 cmux"
+        )
+    }
+
+    @available(macOS 15.4, *)
+    @Test func profileManagersUseSeparateControllersAndInstallDirectories() throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let services = BrowserServices(extensionDirectory: root)
+        let defaultProfileID = BrowserProfileStore.shared.builtInDefaultProfileID
+        let alternateProfileID = UUID()
+        let defaultManager = try #require(services.webExtensionsManager)
+        let alternateManager = services.webExtensionsManager(for: alternateProfileID)
+
+        #expect(defaultManager.directory == root)
+        #expect(alternateManager.directory == root
+            .appendingPathComponent(".profiles", isDirectory: true)
+            .appendingPathComponent(alternateProfileID.uuidString.lowercased(), isDirectory: true))
+        #expect(defaultManager.controller !== alternateManager.controller)
+        #expect(BrowserServices.extensionDirectory(
+            for: defaultProfileID,
+            defaultProfileID: defaultProfileID,
+            root: root
+        ) == root)
+
+        let defaultConfiguration = WKWebViewConfiguration()
+        BrowserPanel.configureWebViewConfiguration(
+            defaultConfiguration,
+            profileID: defaultProfileID,
+            websiteDataStore: .nonPersistent(),
+            browserServices: services
+        )
+        let alternateConfiguration = WKWebViewConfiguration()
+        BrowserPanel.configureWebViewConfiguration(
+            alternateConfiguration,
+            profileID: alternateProfileID,
+            websiteDataStore: .nonPersistent(),
+            browserServices: services
+        )
+
+        #expect(defaultConfiguration.webExtensionController === defaultManager.controller)
+        #expect(alternateConfiguration.webExtensionController === alternateManager.controller)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func switchingProfileTransfersPanelBetweenExtensionRegistries() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let alternateProfile = try #require(BrowserProfileStore.shared.createProfile(
+            named: "Extension isolation \(UUID().uuidString.prefix(6))"
+        ))
+        defer { _ = BrowserProfileStore.shared.deleteProfile(id: alternateProfile.id) }
+        let services = BrowserServices(extensionDirectory: root)
+        let tabManager = TabManager(autoWelcomeIfNeeded: false, browserServices: services)
+        let workspace = try #require(tabManager.selectedWorkspace)
+        let panel = BrowserPanel(workspaceId: workspace.id, browserServices: services)
+        services.registerBrowserPanel(panel, workspace: workspace)
+        defer {
+            services.unregisterBrowserPanel(id: panel.id)
+            panel.close()
+        }
+        let extensionDirectory = try Self.writeExtension(
+            named: "registry-probe",
+            in: root,
+            manifest: Self.minimalManifest
+        )
+        let extensionContext = WKWebExtensionContext(
+            for: try await WKWebExtension(resourceBaseURL: extensionDirectory)
+        )
+        let defaultManager = try #require(services.webExtensionsManager)
+        let alternateManager = services.webExtensionsManager(for: alternateProfile.id)
+
+        #expect(defaultManager
+            .webExtensionController(defaultManager.controller, openWindowsFor: extensionContext)
+            .flatMap { $0.tabs(for: extensionContext) }
+            .contains { $0.webView(for: extensionContext) === panel.webView })
+        #expect(!alternateManager
+            .webExtensionController(alternateManager.controller, openWindowsFor: extensionContext)
+            .flatMap { $0.tabs(for: extensionContext) }
+            .contains { $0.webView(for: extensionContext) === panel.webView })
+
+        #expect(panel.switchToProfile(alternateProfile.id))
+
+        #expect(panel.webView.configuration.webExtensionController === alternateManager.controller)
+        #expect(!defaultManager
+            .webExtensionController(defaultManager.controller, openWindowsFor: extensionContext)
+            .flatMap { $0.tabs(for: extensionContext) }
+            .contains { $0.webView(for: extensionContext) === panel.webView })
+        #expect(alternateManager
+            .webExtensionController(alternateManager.controller, openWindowsFor: extensionContext)
+            .flatMap { $0.tabs(for: extensionContext) }
+            .contains { $0.webView(for: extensionContext) === panel.webView })
+    }
+
+    @available(macOS 15.4, *)
+    @Test func nativeInstallTargetsRequestedProfileDirectory() async throws {
+        let managedRoot = try Self.makeExtensionsRoot()
+        let sourceRoot = try Self.makeExtensionsRoot()
+        defer {
+            try? FileManager.default.removeItem(at: managedRoot)
+            try? FileManager.default.removeItem(at: sourceRoot)
+        }
+        let source = try Self.writeExtension(
+            named: "profile-install",
+            in: sourceRoot,
+            manifest: Self.minimalManifest
+        )
+        try "// no-op".write(
+            to: source.appendingPathComponent("content.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let services = BrowserServices(extensionDirectory: managedRoot)
+        let profileID = UUID()
+
+        _ = try await services.installWebExtension(from: source, profileID: profileID)
+
+        let profileDirectory = BrowserServices.extensionDirectory(
+            for: profileID,
+            defaultProfileID: BrowserProfileStore.shared.builtInDefaultProfileID,
+            root: managedRoot
+        )
+        #expect(FileManager.default.fileExists(
+            atPath: profileDirectory.appendingPathComponent(source.lastPathComponent).path
+        ))
+        #expect(!FileManager.default.fileExists(
+            atPath: managedRoot.appendingPathComponent(source.lastPathComponent).path
+        ))
+        #expect(services.webExtensionsManager(for: profileID).directory == profileDirectory)
     }
 
     @available(macOS 15.4, *)
@@ -457,6 +602,72 @@ struct BrowserWebExtensionsManagerTests {
         )
 
         #expect(replacement.configuration.webExtensionController === services.webExtensionsManager?.controller)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func dockBrowserUsesDockWindowOwnershipAndUnregisters() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directory = try Self.writeExtension(named: "sample", in: root, manifest: Self.minimalManifest)
+        try "// no-op".write(
+            to: directory.appendingPathComponent("content.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let services = BrowserServices(extensionDirectory: root)
+        let manager = try #require(services.webExtensionsManager)
+        let extensionContext = WKWebExtensionContext(for: try await WKWebExtension(resourceBaseURL: directory))
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            browserServices: services,
+            baseDirectoryProvider: { root.path },
+            browserAvailabilityProvider: { true }
+        )
+        defer { store.closeAllPanels() }
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let firstPanelID = try #require(store.newSurface(
+            kind: .browser,
+            inPane: rootPane,
+            url: URL(string: "https://example.com"),
+            focus: false
+        ))
+        let secondPanelID = try #require(store.newSurface(
+            kind: .browser,
+            inPane: rootPane,
+            url: URL(string: "https://example.com/second"),
+            focus: false
+        ))
+        let firstPanel = try #require(store.browserPanel(for: firstPanelID))
+        let secondPanel = try #require(store.browserPanel(for: secondPanelID))
+        store.focusPanel(firstPanelID)
+
+        let windows = manager.webExtensionController(manager.controller, openWindowsFor: extensionContext)
+        let dockWindow = try #require(windows.first(where: { window in
+            window.tabs(for: extensionContext).contains {
+                $0.webView(for: extensionContext) === firstPanel.webView
+            }
+        }))
+        let registeredTabs = dockWindow.tabs(for: extensionContext)
+        #expect(registeredTabs.contains { $0.webView(for: extensionContext) === firstPanel.webView })
+        #expect(registeredTabs.contains { $0.webView(for: extensionContext) === secondPanel.webView })
+        #expect(dockWindow.activeTab(for: extensionContext)?.webView(for: extensionContext) === firstPanel.webView)
+
+        let secondTab = try #require(registeredTabs.first {
+            $0.webView(for: extensionContext) === secondPanel.webView
+        })
+        await confirmation("Dock-owned extension tab activated") { activated in
+            secondTab.activate(for: extensionContext) { error in
+                #expect(error == nil)
+                activated()
+            }
+        }
+        #expect(store.focusedPanelId == secondPanelID)
+
+        #expect(store.closePanel(firstPanelID, force: true))
+        let remainingTabs = manager
+            .webExtensionController(manager.controller, openWindowsFor: extensionContext)
+            .flatMap { $0.tabs(for: extensionContext) }
+        #expect(!remainingTabs.contains { $0.webView(for: extensionContext) === firstPanel.webView })
     }
 
     @available(macOS 15.4, *)
