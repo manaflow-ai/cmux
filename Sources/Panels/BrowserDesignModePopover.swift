@@ -10,7 +10,7 @@ import SwiftUI
 /// selection overlays it accompanies.
 struct BrowserDesignModePopover: View {
     @Bindable var controller: BrowserDesignModeController
-    @State private var tokenFieldHeight: CGFloat = 22
+    @State private var tokenFieldHeight: CGFloat = BrowserDesignModeTokenStyle.singleLineFieldHeight
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -28,7 +28,7 @@ struct BrowserDesignModePopover: View {
             )
             // The card grows downward with the prompt; the inner scroll
             // viewport only engages past this generous ceiling.
-            .frame(height: min(max(tokenFieldHeight, 22), 340))
+            .frame(height: min(max(tokenFieldHeight, BrowserDesignModeTokenStyle.singleLineFieldHeight), 340))
             // ONE layout for every prompt size (a state-dependent layout
             // switch caused a re-wrap livelock): the mode toggle pins to the
             // TOP-LEFT, the copy action overlays the BOTTOM-RIGHT, and the
@@ -361,8 +361,6 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             // Fixed line metrics tall enough for the 18pt token cells keep
             // wrapped pill rows evenly spaced instead of jumping per line.
             let paragraph = NSMutableParagraphStyle()
-            paragraph.minimumLineHeight = 20
-            paragraph.maximumLineHeight = 20
             paragraph.lineSpacing = 3
             return [
                 .font: BrowserDesignModeTokenStyle.font,
@@ -479,7 +477,7 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
                   let container = textView.textContainer else { return }
             // An emptied prompt snaps back to the original single-line size.
             guard textView.textStorage?.length ?? 0 > 0 else {
-                onHeightChange(22)
+                onHeightChange(BrowserDesignModeTokenStyle.singleLineFieldHeight)
                 return
             }
             layoutManager.ensureLayout(for: container)
@@ -528,10 +526,7 @@ final class BrowserDesignModeTokenTextView: NSTextView {
         // and newlines left by edits) so the hint hugs the trailing token
         // instead of floating after stale separators.
         let font = BrowserDesignModeTokenStyle.font
-        var origin = NSPoint(
-            x: textContainerInset.width,
-            y: textContainerInset.height + 20 + font.descender - font.ascender
-        )
+        var origin = NSPoint(x: textContainerInset.width, y: textContainerInset.height)
         let content = storage.string as NSString
         var lastCharacter = content.length - 1
         while lastCharacter >= 0,
@@ -568,6 +563,12 @@ final class BrowserDesignModeTokenTextView: NSTextView {
 enum BrowserDesignModeTokenStyle {
     static var font: NSFont { .systemFont(ofSize: 13.5) }
     static let blue = NSColor(calibratedRed: 0.35, green: 0.62, blue: 1.0, alpha: 1)
+    /// The font's natural ascent + descent; pills size to exactly this so no
+    /// row's fragment ever grows past a plain text row (selection highlights
+    /// and the caret then hug the glyphs instead of floating above them).
+    static var naturalLineHeight: CGFloat { font.ascender - font.descender }
+    /// Single-line field height: one rounded-up line plus the 2pt insets.
+    static var singleLineFieldHeight: CGFloat { ceil(naturalLineHeight) + 4 }
 }
 
 /// One selection embedded in the prompt text.
@@ -601,11 +602,8 @@ final class BrowserDesignModeTokenAttachment: NSTextAttachment {
             value: truncated,
             range: NSRange(location: 0, length: token.length)
         )
-        // Match the field's line metrics so rows containing pills keep the
-        // same fragment height as plain text rows.
+        // Match the field's paragraph so pill rows share text-row metrics.
         let paragraph = NSMutableParagraphStyle()
-        paragraph.minimumLineHeight = 20
-        paragraph.maximumLineHeight = 20
         paragraph.lineSpacing = 3
         token.addAttribute(
             .paragraphStyle,
@@ -677,14 +675,19 @@ final class BrowserDesignModeTokenCell: NSTextAttachmentCell {
         // Width includes the visual breathing room between pills (no literal
         // space characters live in the storage).
         let iconWidth: CGFloat = icon == nil ? 0 : 13
-        return NSSize(width: titleSize.width + iconWidth + 16, height: 18)
+        return NSSize(
+            width: titleSize.width + iconWidth + 16,
+            height: BrowserDesignModeTokenStyle.naturalLineHeight
+        )
     }
 
     override func cellBaselineOffset() -> NSPoint {
         // With the field's fixed 20pt lines, AppKit pins each baseline at
-        // fragmentBottom - maxDescent, so a cell descending deeper than the
-        // font shifts text on rows that gain or lose a pill. Matching the
-        // font's descent keeps every row's baseline identical.
+        // AppKit pins each baseline at fragmentBottom - maxDescent, so a cell
+        // descending deeper than the font shifts text on rows that gain or
+        // lose a pill. With the cell sized to naturalLineHeight, this offset
+        // makes its ascent and descent match the font's exactly — pill rows
+        // and text rows keep identical fragments and baselines.
         NSPoint(x: 0, y: BrowserDesignModeTokenStyle.font.descender)
     }
 
