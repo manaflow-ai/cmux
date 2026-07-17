@@ -945,7 +945,7 @@ cmux_claude_sideload_flags_disabled() {
 # just under the host identity).
 cmux_computer_use_standalone_helper() {
     local nested_app="$1"
-    local name dest_dir dest nested_bin dest_bin lock waited
+    local name dest_dir dest nested_bin dest_bin lock
     name="$(basename "$nested_app")"
     dest_dir="${HOME}/Library/Application Support/cmux/computer-use/helper"
     dest="${dest_dir}/${name}"
@@ -971,12 +971,15 @@ cmux_computer_use_standalone_helper() {
             rm -rf "$tmp" 2>/dev/null
         fi
         rmdir "$lock" 2>/dev/null
+        if [[ -x "$dest_bin" ]]; then printf '%s' "$dest"; else printf '%s' "$nested_app"; fi
     else
-        # Another spawn is mid-sync; wait briefly for it to publish the copy.
-        waited=0
-        while [[ -d "$lock" && $waited -lt 100 ]]; do sleep 0.1; waited=$((waited + 1)); done
+        # Another spawn holds the sync lock (is mid-copy). Don't busy-wait on it:
+        # use the nested path for THIS launch and let the standalone copy be
+        # picked up on the next launch via the fast path at the top. Waiting here
+        # would spin on the agent-launch hot path — and hang ~10s if the lock
+        # owner died mid-copy — for no benefit over the correct nested fallback.
+        printf '%s' "$nested_app"
     fi
-    if [[ -x "$dest_bin" ]]; then printf '%s' "$dest"; else printf '%s' "$nested_app"; fi
 }
 
 cmux_computer_use_config() {
