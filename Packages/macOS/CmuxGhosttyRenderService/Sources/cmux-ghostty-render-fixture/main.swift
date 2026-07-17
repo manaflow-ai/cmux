@@ -5,10 +5,23 @@ let channel = TerminalRenderMessageChannel(readDescriptor: 0, writeDescriptor: 1
 let environment = ProcessInfo.processInfo.environment
 let crashAfterInitialize = environment["CMUX_GHOSTTY_RENDER_FIXTURE_CRASH"] == "1"
 let crashOnceFile = environment["CMUX_GHOSTTY_RENDER_FIXTURE_CRASH_ONCE_FILE"]
+let initializationLog = environment["CMUX_GHOSTTY_RENDER_FIXTURE_INITIALIZATION_LOG"]
 
 func send(_ event: TerminalRenderWorkerEvent) {
     guard let payload = try? TerminalRenderControlCodec.encode(event) else { return }
     try? channel.send(payload)
+}
+
+func recordInitializationRevision(_ revision: UInt64) {
+    guard let initializationLog else { return }
+    let url = URL(fileURLWithPath: initializationLog)
+    if !FileManager.default.fileExists(atPath: url.path) {
+        _ = FileManager.default.createFile(atPath: url.path, contents: Data())
+    }
+    guard let handle = try? FileHandle(forWritingTo: url) else { return }
+    defer { try? handle.close() }
+    _ = try? handle.seekToEnd()
+    try? handle.write(contentsOf: Data("\(revision)\n".utf8))
 }
 
 while let payload = channel.receive() {
@@ -17,7 +30,8 @@ while let payload = channel.receive() {
         continue
     }
     switch command {
-    case let .initialize(version, generation, _, _):
+    case let .initialize(version, generation, _, configuration):
+        recordInitializationRevision(configuration.revision)
         send(.initialized(
             protocolVersion: version,
             workerGeneration: generation,

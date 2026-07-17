@@ -278,9 +278,53 @@ import Testing
         )))
     }
 
-    private func configuration() -> TerminalRenderConfigurationSnapshot {
+    @Test func restartRetainsNewestConfigurationRevision() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+        let identifier = UUID().uuidString
+        let crashMarker = temporaryDirectory
+            .appendingPathComponent("cmux-ghostty-render-config-crash-\(identifier)")
+        let initializationLog = temporaryDirectory
+            .appendingPathComponent("cmux-ghostty-render-config-log-\(identifier)")
+        defer {
+            try? FileManager.default.removeItem(at: crashMarker)
+            try? FileManager.default.removeItem(at: initializationLog)
+        }
+
+        let client = try GhosttyRenderWorkerClient(
+            executableURL: fixtureURL(),
+            environment: [
+                "CMUX_GHOSTTY_RENDER_FIXTURE_CRASH_ONCE_FILE": crashMarker.path,
+                "CMUX_GHOSTTY_RENDER_FIXTURE_INITIALIZATION_LOG": initializationLog.path,
+            ]
+        )
+        let collector = EventCollector(stream: await client.subscribeEvents())
+        await client.updateConfiguration(configuration(revision: 2))
+        _ = await collector.waitUntil { events in
+            events.contains(.workerExited(workerGeneration: 1))
+        }
+
+        await client.updateConfiguration(configuration(revision: 1))
+        client.commandSink.enqueue(.createSurface(surfaceDescriptor(
+            id: UUID(),
+            generation: 1
+        )))
+        _ = await collector.waitUntil { events in
+            events.contains { event in
+                guard case let .initialized(workerGeneration, _) = event else { return false }
+                return workerGeneration == 2
+            }
+        }
+        await client.shutdown()
+
+        let revisions = (try? String(contentsOf: initializationLog, encoding: .utf8))?
+            .split(whereSeparator: \.isNewline)
+            .compactMap { UInt64($0) }
+        #expect(revisions == [2, 2])
+    }
+
+    private func configuration(revision: UInt64 = 1) -> TerminalRenderConfigurationSnapshot {
         TerminalRenderConfigurationSnapshot(
-            revision: 1,
+            revision: revision,
             contents: "font-size = 14\n"
         )
     }
