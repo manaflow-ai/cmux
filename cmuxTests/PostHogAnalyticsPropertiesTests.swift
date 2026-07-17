@@ -88,6 +88,30 @@ struct PostHogAnalyticsPropertiesTests {
     }
 
     @MainActor
+    @Test("AppKit sidebar defaults on with an explicit remote false kill switch")
+    func appKitSidebarDefaultsOnWithRemoteFalseKillSwitch() throws {
+        let flag = try #require(CmuxFeatureFlags.allFlags.first {
+            $0.key == "sidebar-appkit-list-experiment"
+        })
+        let suiteName = "cmux.appkit.sidebar.flag.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        var remoteValues: [String: Any] = [:]
+        let flags = CmuxFeatureFlags(defaults: defaults) { key in
+            remoteValues[key]
+        }
+
+        #expect(flags.isAppKitSidebarListEnabled)
+
+        remoteValues[flag.key] = false
+        flags.applyLoadedFlags()
+        #expect(!flags.isAppKitSidebarListEnabled)
+    }
+
+    @MainActor
     @Test("feature flag overrides persist through UserDefaults")
     func featureFlagOverridePersistenceRoundTrip() throws {
         let flag = try #require(CmuxFeatureFlags.allFlags.first { $0.defaultWhenUnavailable })
