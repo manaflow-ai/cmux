@@ -146,13 +146,30 @@ import Testing
             over: baseBackground
         )
         let hoverOverlay = try resolved(style.hoverColor, in: appearance)
+        let actualMaterialPlain = color(
+            components: isDark ? (0x2C, 0x2F, 0x30) : (0xC5, 0xC7, 0xC8)
+        )
+        let actualMaterialFocusedSelection = color(
+            components: isDark ? (0x21, 0x44, 0x63) : (0xA3, 0xBC, 0xD3)
+        )
         return [
-            ("plain", baseBackground),
-            ("selected-focused", composited(focusedSelection, over: baseBackground)),
-            ("selected-unfocused", composited(unfocusedSelection, over: baseBackground)),
-            ("selected-worst-case", worstCaseSelection),
-            ("hovered", composited(hoverOverlay, over: baseBackground)),
+            ("canonical-plain", baseBackground),
+            ("canonical-selected-focused", composited(focusedSelection, over: baseBackground)),
+            ("canonical-selected-unfocused", composited(unfocusedSelection, over: baseBackground)),
+            ("canonical-selected-worst-case", worstCaseSelection),
+            ("canonical-hovered", composited(hoverOverlay, over: baseBackground)),
+            ("actual-material-plain", actualMaterialPlain),
+            ("actual-material-selected-focused", actualMaterialFocusedSelection),
         ]
+    }
+
+    private func color(components: (Int, Int, Int)) -> NSColor {
+        NSColor(
+            srgbRed: CGFloat(components.0) / 255,
+            green: CGFloat(components.1) / 255,
+            blue: CGFloat(components.2) / 255,
+            alpha: 1
+        )
     }
 
     private func resolved(_ color: NSColor, in appearance: NSAppearance) throws -> NSColor {
