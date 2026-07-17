@@ -13,22 +13,25 @@ export function recentlyModifiedUrls(
   lookbackHours = indexNowLookbackHours,
 ): string[] {
   const latest = now.getTime();
-  const modifiedEntries = entries.flatMap((entry) => {
-    if (!entry.lastModified) return [];
+  const modifiedEntries: Array<{ modified: number; url: string }> = [];
+  let newestModification = -Infinity;
+
+  for (const entry of entries) {
+    if (!entry.lastModified) continue;
     const modified = new Date(entry.lastModified).getTime();
-    if (!Number.isFinite(modified) || modified > latest) return [];
-    return [{ modified, url: String(entry.url) }];
-  });
-  const newestModification = Math.max(
-    ...modifiedEntries.map((entry) => entry.modified),
-  );
+    if (!Number.isFinite(modified) || modified > latest) continue;
+    newestModification = Math.max(newestModification, modified);
+    modifiedEntries.push({ modified, url: String(entry.url) });
+  }
   // This selection runs once after each production deployment. Sitemap dates
   // describe content, so anchoring to the newest entry preserves delayed releases.
   const earliest = newestModification - lookbackHours * 60 * 60 * 1000;
 
-  return modifiedEntries
-    .filter((entry) => entry.modified >= earliest)
-    .map((entry) => entry.url);
+  const urls: string[] = [];
+  for (const entry of modifiedEntries) {
+    if (entry.modified >= earliest) urls.push(entry.url);
+  }
+  return urls;
 }
 
 export function indexNowPayload(urls: readonly string[]) {

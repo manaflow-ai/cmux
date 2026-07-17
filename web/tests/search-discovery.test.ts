@@ -83,6 +83,17 @@ describe("search discovery", () => {
     ]);
   });
 
+  test("handles a maximum-size sitemap without spreading timestamps", () => {
+    const entries = Array.from({ length: 50_000 }, (_, index) => ({
+      url: `https://cmux.com/page-${index}`,
+      lastModified: index === 49_999 ? "2026-07-17" : "2026-07-01",
+    }));
+
+    expect(
+      recentlyModifiedUrls(entries, new Date("2026-07-17T14:00:00.000Z")),
+    ).toEqual(["https://cmux.com/page-49999"]);
+  });
+
   test("submits the IndexNow protocol payload", async () => {
     const requests: Array<{ url: string; init?: RequestInit }> = [];
     const fetcher = (async (url: string | URL | Request, init?: RequestInit) => {
