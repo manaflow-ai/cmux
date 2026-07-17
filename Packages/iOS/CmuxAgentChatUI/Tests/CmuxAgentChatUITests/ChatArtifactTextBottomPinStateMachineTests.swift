@@ -1,0 +1,100 @@
+import Testing
+
+@testable import CmuxAgentChatUI
+
+@Suite("Artifact text bottom pin")
+struct ChatArtifactTextBottomPinStateMachineTests {
+    @Test("End engages a durable bottom pin with one initial animation")
+    func endEngagesBottomPin() {
+        var pin = ChatArtifactTextBottomPinStateMachine()
+        let boundary = ChatArtifactTextBottomBoundary(
+            storageEnd: 174_000,
+            contentOffsetY: 149_188
+        )
+
+        #expect(
+            pin.engage(target: .end, boundary: boundary)
+                == .scrollToBottom(boundary: boundary, animated: true)
+        )
+        #expect(pin.isPinned)
+        #expect(pin.target == .end)
+        #expect(pin.phase == .initialAnimation)
+    }
+
+    @Test("a pinned view re-pins non-animated across late layout growth")
+    func repinsAcrossLayoutGrowth() {
+        var pin = ChatArtifactTextBottomPinStateMachine()
+        let earlyBoundary = ChatArtifactTextBottomBoundary(
+            storageEnd: 174_000,
+            contentOffsetY: 149_188
+        )
+        let refinedBoundary = ChatArtifactTextBottomBoundary(
+            storageEnd: 174_000,
+            contentOffsetY: 168_000
+        )
+
+        _ = pin.engage(target: .end, boundary: earlyBoundary)
+        #expect(
+            pin.initialAnimationSettled(at: earlyBoundary)
+                == .scrollToBottom(boundary: earlyBoundary, animated: false)
+        )
+        pin.didApplyPin(at: earlyBoundary)
+
+        #expect(
+            pin.layoutChanged(to: refinedBoundary)
+                == .scrollToBottom(boundary: refinedBoundary, animated: false)
+        )
+        pin.didApplyPin(at: refinedBoundary)
+        #expect(pin.visibleBoundary == refinedBoundary)
+    }
+
+    @Test("user interaction exits the pin and later layout cannot re-engage it")
+    func userInteractionExitsPin() {
+        var pin = ChatArtifactTextBottomPinStateMachine()
+        let boundary = ChatArtifactTextBottomBoundary(
+            storageEnd: 174_000,
+            contentOffsetY: 168_000
+        )
+
+        _ = pin.engage(target: .end, boundary: boundary)
+        _ = pin.initialAnimationSettled(at: boundary)
+        pin.didApplyPin(at: boundary)
+        pin.userInteracted()
+
+        #expect(!pin.isPinned)
+        #expect(pin.layoutChanged(to: boundary) == .none)
+        #expect(pin.visibleBoundary == nil)
+    }
+
+    @Test("streaming follow-tail finishes with the visible boundary at storage end")
+    func terminalStateShowsStorageEnd() {
+        var pin = ChatArtifactTextBottomPinStateMachine()
+        let partialBoundary = ChatArtifactTextBottomBoundary(
+            storageEnd: 120_000,
+            contentOffsetY: 112_000
+        )
+        let finalBoundary = ChatArtifactTextBottomBoundary(
+            storageEnd: 174_000,
+            contentOffsetY: 168_000
+        )
+
+        _ = pin.engage(target: .latest, boundary: partialBoundary)
+        _ = pin.initialAnimationSettled(at: partialBoundary)
+        pin.didApplyPin(at: partialBoundary)
+
+        #expect(
+            pin.appendsFlushed(at: finalBoundary)
+                == .scrollToBottom(boundary: finalBoundary, animated: false)
+        )
+        pin.didApplyPin(at: finalBoundary)
+        #expect(
+            pin.reachedEOF(at: finalBoundary)
+                == .scrollToBottom(boundary: finalBoundary, animated: false)
+        )
+        pin.didApplyPin(at: finalBoundary)
+
+        #expect(pin.target == .end)
+        #expect(pin.phase == .following)
+        #expect(pin.visibleBoundary?.storageEnd == finalBoundary.storageEnd)
+    }
+}
