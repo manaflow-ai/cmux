@@ -957,18 +957,33 @@ extension Workspace {
 
     nonisolated private static func resumeBindingForSessionRestore(
         _ binding: SurfaceResumeBindingSnapshot?,
-        restorableAgent: SessionRestorableAgentSnapshot?
+        restorableAgent: SessionRestorableAgentSnapshot?,
+        codexResumeVerifier: CodexSessionResumeVerifier
     ) -> SurfaceResumeBindingSnapshot? {
+        if let binding,
+           binding.isAgentHookBinding,
+           binding.kind.flatMap(RestorableAgentKind.init(rawValue:)) == .codex,
+           let checkpointId = normalizedResumeBindingValue(binding.checkpointId),
+           !codexResumeVerifierOwnsSession(
+               checkpointId,
+               environment: binding.environment,
+               verifier: codexResumeVerifier
+           ) {
+            return nil
+        }
         guard let binding, binding.isAgentHookBinding, let restorableAgent else {
             return binding
         }
         guard binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines) == restorableAgent.sessionId else {
-            return binding
+            // The hook store is rebuilt from provider-owned resume evidence. If an
+            // older snapshot points at a different hook UUID, discard that poisoned
+            // binding and let the verified restorable-agent snapshot launch instead.
+            return nil
         }
         if let bindingKind = binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines),
            !bindingKind.isEmpty,
            RestorableAgentKind(rawValue: bindingKind) != restorableAgent.kind {
-            return binding
+            return nil
         }
 
         // Restore has no live hook cwd; use the snapshot's derived restorable cwd
@@ -1008,12 +1023,59 @@ extension Workspace {
         return restorableAgent
     }
 
+#if DEBUG
+    nonisolated static func sessionRestoreInputsForTesting(
+        binding: SurfaceResumeBindingSnapshot?,
+        restorableAgent: SessionRestorableAgentSnapshot?
+    ) -> (binding: SurfaceResumeBindingSnapshot?, restorableAgent: SessionRestorableAgentSnapshot?) {
+        let effectiveBinding = resumeBindingForSessionRestore(
+            binding,
+            restorableAgent: restorableAgent,
+            codexResumeVerifier: CodexSessionResumeVerifier()
+        )
+        return (
+            effectiveBinding,
+            restorableAgentForSessionRestore(restorableAgent, resumeBinding: effectiveBinding)
+        )
+    }
+#endif
+
     nonisolated private static func normalizedResumeBindingValue(_ value: String?) -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
             return nil
         }
         return trimmed
+    }
+
+    nonisolated private static func providerVerifiedRestorableAgentForSessionRestore(
+        _ restorableAgent: SessionRestorableAgentSnapshot?,
+        codexResumeVerifier: CodexSessionResumeVerifier
+    ) -> SessionRestorableAgentSnapshot? {
+        guard let restorableAgent, restorableAgent.kind == .codex else { return restorableAgent }
+        return codexResumeVerifierOwnsSession(
+            restorableAgent.sessionId,
+            environment: restorableAgent.launchCommand?.environment,
+            transcriptPath: restorableAgent.transcriptPath,
+            verifier: codexResumeVerifier
+        ) ? restorableAgent : nil
+    }
+
+    nonisolated private static func codexResumeVerifierOwnsSession(
+        _ sessionId: String,
+        environment: [String: String]?,
+        transcriptPath: String? = nil,
+        verifier: CodexSessionResumeVerifier
+    ) -> Bool {
+        let codexHome = normalizedResumeBindingValue(environment?["CODEX_HOME"])
+            ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent(".codex", isDirectory: true)
+                .path
+        return verifier.evidence(
+            sessionId: sessionId,
+            transcriptPath: transcriptPath,
+            codexHome: codexHome
+        ) != nil
     }
 
     nonisolated static func restorableTmuxStartCommand(_ rawCommand: String?) -> String? {
@@ -1257,10 +1319,15 @@ extension Workspace {
                 restoresLegacyRemoteDirectoryWithoutProvenance(snapshot))
         switch snapshot.type {
         case .terminal:
-            let snapshotRestorableAgent = snapshot.terminal?.agent
+            let codexResumeVerifier = CodexSessionResumeVerifier()
+            let snapshotRestorableAgent = Self.providerVerifiedRestorableAgentForSessionRestore(
+                snapshot.terminal?.agent,
+                codexResumeVerifier: codexResumeVerifier
+            )
             let resumeBinding = Self.resumeBindingForSessionRestore(
                 snapshot.terminal?.resumeBinding,
-                restorableAgent: snapshotRestorableAgent
+                restorableAgent: snapshotRestorableAgent,
+                codexResumeVerifier: codexResumeVerifier
             )
             let restorableAgent = Self.restorableAgentForSessionRestore(
                 snapshotRestorableAgent,

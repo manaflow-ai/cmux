@@ -263,8 +263,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         let sessionId = "codex-plain-default-session"
         let ttyName = "ttys307"
+        let transcript = root.appendingPathComponent("rollout-2026-07-16T19-29-41-\(sessionId).jsonl")
 
         try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
+        try #"{"type":"session_meta","payload":{"id":"\#(sessionId)"}}"#
+            .write(to: transcript, atomically: true, encoding: .utf8)
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
@@ -313,7 +316,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             executablePath: cliPath,
             arguments: ["hooks", "codex", "prompt-submit"],
             environment: environment,
-            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(repo.path)","hook_event_name":"UserPromptSubmit","prompt":"review this"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(repo.path)","transcript_path":"\#(transcript.path)","hook_event_name":"UserPromptSubmit","prompt":"review this"}"#,
             timeout: 5
         )
 
@@ -339,6 +342,96 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let sessions = try XCTUnwrap(storeJSON["sessions"] as? [String: Any])
         let persisted = try XCTUnwrap(sessions[sessionId] as? [String: Any])
         XCTAssertEqual((persisted["launchCommand"] as? [String: Any])?["source"] as? String, "default")
+    }
+
+    func testCodexUnindexedReviewHookDoesNotPublishResumeBinding() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("codex-unindexed-review")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-unindexed-review-\(UUID().uuidString)", isDirectory: true)
+        let repo = root.appendingPathComponent("cmuxterm-hq/worktrees/task-modernize-feed", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "019f6dbc-5095-74f3-8035-ab8cdf772bb7"
+        let ttyName = "ttys269"
+
+        try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line) else { return "OK" }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+            case "debug.terminals":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["terminals": [["tty": ttyName, "workspace_id": workspaceId, "surface_id": surfaceId]]]
+                )
+            case "surface.resume.set", "surface.resume.clear":
+                return self.v2Response(id: id, ok: true, result: ["ok": true])
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["HOME"] = root.path
+        environment["PWD"] = repo.path
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+        environment["CMUX_CLI_TTY_NAME"] = ttyName
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        for key in ["ANTHROPIC_BASE_URL", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "CMUX_AGENT_LAUNCH_KIND", "CMUX_AGENT_LAUNCH_EXECUTABLE", "CMUX_AGENT_LAUNCH_ARGV_B64", "CMUX_AGENT_LAUNCH_CWD"] {
+            environment.removeValue(forKey: key)
+        }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "prompt-submit"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(repo.path)","hook_event_name":"UserPromptSubmit","prompt":"review this"}"#,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let commands = state.snapshot()
+        XCTAssertFalse(
+            commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "unindexed review UUID must not become restore authority: \(commands)"
+        )
+        XCTAssertTrue(
+            commands.contains { command in
+                guard let payload = self.jsonObject(command),
+                      payload["method"] as? String == "surface.resume.clear",
+                      let params = payload["params"] as? [String: Any] else {
+                    return false
+                }
+                return params["checkpoint_id"] as? String == sessionId
+            },
+            "the invalid checkpoint should be cleared without touching another session: \(commands)"
+        )
     }
 
     private func writeCodexHookStore(

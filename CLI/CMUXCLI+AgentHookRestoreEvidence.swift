@@ -3,6 +3,28 @@ import CMUXAgentLaunch
 
 extension CMUXCLI {
     private static let codexPermissionEvidenceChunkBytes = 64 * 1024
+    private static let codexSessionResumeVerifier = CodexSessionResumeVerifier()
+
+    func agentHookProviderOwnsResumeTarget(
+        kind: String,
+        sessionId: String,
+        transcriptPath: String?,
+        launchCommand: AgentHookLaunchCommandRecord?
+    ) -> Bool {
+        guard kind == "codex" else { return true }
+        let environment = ProcessInfo.processInfo.environment
+        let codexHome = normalizedHookValue(launchCommand?.environment?["CODEX_HOME"])
+            ?? normalizedHookValue(environment["CODEX_HOME"])
+            ?? URL(
+                fileURLWithPath: normalizedHookValue(environment["HOME"]) ?? NSHomeDirectory(),
+                isDirectory: true
+            ).appendingPathComponent(".codex", isDirectory: true).path
+        return Self.codexSessionResumeVerifier.evidence(
+            sessionId: sessionId,
+            transcriptPath: transcriptPath,
+            codexHome: codexHome
+        ) != nil
+    }
 
     private func codexLaunchHasExplicitPermissions(_ launchCommand: AgentHookLaunchCommandRecord?) -> Bool {
         guard let launchCommand,

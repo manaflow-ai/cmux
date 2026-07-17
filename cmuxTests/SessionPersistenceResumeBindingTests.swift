@@ -9,6 +9,29 @@ import Testing
 #endif
 
 @Suite struct SessionPersistenceResumeBindingTests {
+    @Test func poisonedAgentHookBindingYieldsToProviderVerifiedSession() throws {
+        let poisonedBinding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume 019f6dbc-5095-74f3-8035-ab8cdf772bb7",
+            checkpointId: "019f6dbc-5095-74f3-8035-ab8cdf772bb7",
+            source: "agent-hook",
+            autoResume: true
+        )
+        let verifiedAgent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019f656e-cb8a-7ff2-9bef-81bf82fd6cb3",
+            workingDirectory: "/tmp/feed"
+        )
+
+        let inputs = Workspace.sessionRestoreInputsForTesting(
+            binding: poisonedBinding,
+            restorableAgent: verifiedAgent
+        )
+
+        #expect(inputs.binding == nil)
+        #expect(inputs.restorableAgent?.sessionId == verifiedAgent.sessionId)
+    }
+
     @Test func agentHookSurfaceResumeStartupInputPreservesCustomAbsoluteAgentExecutable() throws {
         let binding = SurfaceResumeBindingSnapshot(
             kind: "codex",
