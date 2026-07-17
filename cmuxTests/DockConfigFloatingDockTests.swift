@@ -114,6 +114,8 @@ struct DockConfigFloatingDockTests {
     func unknownAndMalformedSectionsThrow() {
         let invalidDocuments = [
             #"{"controls":[],"floatingDocks":[]}"#,
+            #"{"controls":null}"#,
+            #"{"floats":null}"#,
             #"{"floats":{}}"#,
             #"{"floats":[{"id":"x","title":"X","widht":500}]}"#,
             #"{"floats":[{"id":"x","title":"X","frame":{"w":500}}]}"#,
@@ -162,12 +164,17 @@ struct DockConfigFloatingDockTests {
             frame: DockFloatingDockFrameDefinition(x: 12, y: 34, width: 700, height: 500)
         )
 
+        let edited = noteFloat(
+            id: "scratch",
+            title: "Edited Config Title",
+            frame: DockFloatingDockFrameDefinition(x: 1, y: 2, width: 500, height: 400)
+        )
         workspace.applyFloatingDockConfiguration(resolution(floats: [first]))
         let seeded = try #require(workspace.floatingDocks.first)
         seeded.title = "My Scratch"
         seeded.frame = CGRect(x: 101, y: 202, width: 801, height: 602)
 
-        workspace.applyFloatingDockConfiguration(resolution(floats: [first]))
+        workspace.applyFloatingDockConfiguration(resolution(floats: [edited]))
         #expect(workspace.floatingDocks.count == 1)
         #expect(workspace.floatingDocks[0].title == "My Scratch")
         #expect(workspace.floatingDocks[0].frame == CGRect(x: 101, y: 202, width: 801, height: 602))
