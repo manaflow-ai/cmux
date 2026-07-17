@@ -70,6 +70,68 @@
         }
       }
     },
+    "terminal.artifact.gallery.action_failed.message" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Check the connection to your Mac and try again." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Macへの接続を確認して、もう一度お試しください。" } }
+      }
+    },
+    "terminal.artifact.gallery.action_failed.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Couldn't complete action" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "操作を完了できませんでした" } }
+      }
+    },
+    "terminal.artifact.gallery.browse_folder" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Browse folder" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "フォルダを表示" } }
+      }
+    },
+    "terminal.artifact.gallery.child_count" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "^[%lld item](inflect: true)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld項目"
+          }
+        }
+      }
+    },
+    "terminal.artifact.gallery.child_count_capped" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld+ items"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld項目以上"
+          }
+        }
+      }
+    },
+    "terminal.artifact.gallery.copy_path" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Copy path" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "パスをコピー" } }
+      }
+    },
     "terminal.artifact.gallery.empty" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -102,6 +164,48 @@
             "value" : "完了"
           }
         }
+      }
+    },
+    "terminal.artifact.gallery.filter.all" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "All" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "すべて" } }
+      }
+    },
+    "terminal.artifact.gallery.filter.code" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Code" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "コード" } }
+      }
+    },
+    "terminal.artifact.gallery.filter.docs" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Docs" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "書類" } }
+      }
+    },
+    "terminal.artifact.gallery.filter.folders" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Folders" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "フォルダ" } }
+      }
+    },
+    "terminal.artifact.gallery.filter.images" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Images" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "画像" } }
+      }
+    },
+    "terminal.artifact.gallery.filter.logs" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Logs" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ログ" } }
       }
     },
     "terminal.artifact.gallery.kind.binary" : {
@@ -206,6 +310,13 @@
         }
       }
     },
+    "terminal.artifact.gallery.loading_all" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Loading all files…" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "すべてのファイルを読み込み中…" } }
+      }
+    },
     "terminal.artifact.gallery.missing" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -221,6 +332,20 @@
             "value" : "Macにありません"
           }
         }
+      }
+    },
+    "terminal.artifact.gallery.new_files" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%lld new files" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "新しいファイル%lld件" } }
+      }
+    },
+    "terminal.artifact.gallery.ok" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "OK" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "OK" } }
       }
     },
     "terminal.artifact.gallery.provenance.attached" : {
@@ -297,6 +422,48 @@
             "value" : "このセッションにはファイルがありません"
           }
         }
+      }
+    },
+    "terminal.artifact.gallery.showing_first" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Showing first %lld files" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "最初の%lld件のファイルを表示" } }
+      }
+    },
+    "terminal.artifact.gallery.sort" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Sort" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "並べ替え" } }
+      }
+    },
+    "terminal.artifact.gallery.share" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Share" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "共有" } }
+      }
+    },
+    "terminal.artifact.gallery.sort.name" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Name" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "名前" } }
+      }
+    },
+    "terminal.artifact.gallery.sort.recent" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Recent" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "最近" } }
+      }
+    },
+    "terminal.artifact.gallery.sort.size" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Size" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "サイズ" } }
       }
     },
     "terminal.artifact.gallery.search" : {

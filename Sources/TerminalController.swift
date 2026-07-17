@@ -16,6 +16,7 @@ import CmuxSwiftRenderUI
 import Carbon.HIToolbox
 import CMUXMobileCore
 import CMUXAgentLaunch
+import CmuxAgentChat
 import Foundation
 import os
 import Bonsplit
@@ -125,6 +126,7 @@ class TerminalController {
     @MainActor private(set) var authCoordinator: AuthCoordinator?
     @MainActor private(set) var browserSignInFlow: HostBrowserSignInFlow?
     @MainActor var agentChatTranscriptService: AgentChatTranscriptService?
+    nonisolated let terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore
     // Sendable value type; injected at construction so socket auth never reaches a global.
     nonisolated let passwordStore: SocketControlPasswordStore
     private nonisolated let socketPasswordFileWatcher: FileWatcher?
@@ -353,6 +355,7 @@ class TerminalController {
             maximumConcurrentClaims: 32
         ),
         agentHookDeliveryQueue: AgentHookDeliveryQueue = AgentHookDeliveryQueue(),
+        terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore = .init(),
         remoteProxyBroker: any RemoteProxyBrokering = RemoteProxyBroker(
             tunnelProvider: RemoteDaemonProxyTunnelProvider(strings: .appLocalized, ptyBridgeStrings: AppRemotePTYBridgeStrings())
         )
@@ -365,6 +368,7 @@ class TerminalController {
         self.socketClientCapabilityAuthority = Self.makeSocketClientCapabilityAuthority()
         self.socketClientPreauthorizationLimiter = socketClientPreauthorizationLimiter
         self.agentHookDeliveryQueue = agentHookDeliveryQueue
+        self.terminalArtifactAuthorizationStore = terminalArtifactAuthorizationStore
         self.transport = transport
         self.remoteProxyBroker = remoteProxyBroker
         let serverEventTarget = ServerEventTarget()
