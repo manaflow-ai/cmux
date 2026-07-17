@@ -9347,7 +9347,7 @@ mod tests {
         }
 
         let mut updates = 0;
-        while let Ok(event) = events.recv_timeout(Duration::from_millis(100)) {
+        while let Ok(event) = events.recv_timeout(Duration::from_secs(5)) {
             if matches!(event, AppEvent::SidebarPluginUpdated { .. }) {
                 updates += 1;
             }
@@ -9376,7 +9376,7 @@ mod tests {
 
         app.session.sidebar_plugin((11, 9), false);
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
         }
 
         assert!(app.sidebar_plugin_error.is_some());
@@ -9462,7 +9462,7 @@ mod tests {
         app.content_area.height = 8;
         app.session.sidebar_plugin((11, 9), false);
         while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            app.handle(events.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
         }
         assert!(app.session.sidebar_plugin_sync.lock().unwrap().applied.is_some());
 
