@@ -1131,6 +1131,14 @@ impl ClientRegistry {
         self.clients.lock().unwrap().keys().copied().collect()
     }
 
+    fn client_info(&self, client: u64) -> Option<(Option<String>, Option<String>)> {
+        self.clients
+            .lock()
+            .unwrap()
+            .get(&client)
+            .map(|record| (record.name.clone(), record.kind.clone()))
+    }
+
     pub(crate) fn attached_client_ids(&self) -> HashSet<u64> {
         self.clients
             .lock()
@@ -2216,19 +2224,32 @@ fn handle_command(
             if exclusive && !enabled {
                 anyhow::bail!("exclusive client sizing must be enabled");
             }
-            if let Some(target) = target {
+            let (changed, changed_clients) = if let Some(target) = target {
                 if !mux.control_clients.contains(target) && !mux.has_size_client(target) {
                     anyhow::bail!("unknown client {target}");
                 }
                 if exclusive {
-                    mux.use_only_client_size(target);
+                    (
+                        mux.use_only_client_size(target),
+                        mux.control_clients.client_ids().into_iter().collect::<Vec<_>>(),
+                    )
                 } else {
-                    mux.set_client_size_participation(target, enabled);
+                    (mux.set_client_size_participation(target, enabled), vec![target])
                 }
             } else if enabled {
-                mux.use_all_client_sizes();
+                (
+                    mux.use_all_client_sizes(),
+                    mux.control_clients.client_ids().into_iter().collect::<Vec<_>>(),
+                )
             } else {
                 anyhow::bail!("client is required when disabling sizing");
+            };
+            if changed {
+                for changed_client in changed_clients {
+                    let (name, kind) =
+                        mux.control_clients.client_info(changed_client).unwrap_or((None, None));
+                    mux.emit(MuxEvent::ClientChanged { client: changed_client, name, kind });
+                }
             }
             Ok(json!({}))
         }

@@ -5,7 +5,9 @@ import type { ContextMenuPoint } from "../lib/contextMenu";
 export interface ContextMenuItem {
   label: string;
   danger?: boolean;
-  onSelect(): void;
+  onSelect?(): void;
+  children?: ContextMenuItem[];
+  separator?: boolean;
 }
 
 interface ContextMenuProps {
@@ -55,7 +57,14 @@ export function MenuPopover({ point, onClose, children, className, ariaLabel }: 
   const moveFocus = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
     event.preventDefault();
-    const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]')];
+    const active = document.activeElement as HTMLButtonElement;
+    const activeMenu = active.closest<HTMLDivElement>('[role="menu"]') ?? event.currentTarget;
+    const direct = activeMenu.querySelectorAll<HTMLButtonElement>(
+      ':scope > .context-menu-items > .context-menu-entry > button[role="menuitem"]',
+    );
+    const buttons = [...(direct.length > 0
+      ? direct
+      : activeMenu.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]'))];
     const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
     const offset = event.key === "ArrowDown" ? 1 : -1;
     buttons[(index + offset + buttons.length) % buttons.length]?.focus();
@@ -79,20 +88,65 @@ export function MenuPopover({ point, onClose, children, className, ariaLabel }: 
 export function ContextMenu({ point, items, onClose }: ContextMenuProps) {
   return (
     <MenuPopover point={point} onClose={onClose}>
-      {items.map((item) => (
-        <button
-          className={item.danger ? "danger" : undefined}
-          key={item.label}
-          onClick={() => {
-            onClose();
-            item.onSelect();
-          }}
-          role="menuitem"
-          type="button"
-        >
-          {item.label}
-        </button>
-      ))}
+      <MenuItems items={items} onClose={onClose} />
     </MenuPopover>
+  );
+}
+
+function MenuItems({ items, onClose }: { items: ContextMenuItem[]; onClose(): void }) {
+  return (
+    <div className="context-menu-items">
+      {items.map((item, index) => {
+        if (item.separator) {
+          return <div className="context-menu-separator" key={`separator-${index}`} role="separator" />;
+        }
+        const nested = item.children && item.children.length > 0;
+        return (
+          <div className="context-menu-entry" key={`${item.label}-${index}`}>
+            <button
+              aria-haspopup={nested ? "menu" : undefined}
+              className={item.danger ? "danger" : undefined}
+              onClick={(event) => {
+                if (nested) {
+                  event.currentTarget.parentElement
+                    ?.querySelector<HTMLButtonElement>(".context-menu-submenu button")
+                    ?.focus();
+                  return;
+                }
+                onClose();
+                item.onSelect?.();
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "ArrowRight" && nested) {
+                  event.preventDefault();
+                  event.currentTarget.parentElement
+                    ?.querySelector<HTMLButtonElement>(".context-menu-submenu button")
+                    ?.focus();
+                } else if (event.key === "ArrowLeft") {
+                  const submenu = event.currentTarget.closest<HTMLElement>(".context-menu-submenu");
+                  const parentButton = submenu?.parentElement?.querySelector<HTMLButtonElement>(
+                    ":scope > button",
+                  );
+                  if (parentButton) {
+                    event.preventDefault();
+                    parentButton.focus();
+                  }
+                }
+              }}
+              role="menuitem"
+              type="button"
+            >
+              <span>{item.label}</span>
+              {nested && <span className="context-menu-arrow" aria-hidden="true">›</span>}
+            </button>
+            {nested && (
+              <div className="context-menu context-menu-submenu" role="menu">
+                <MenuItems items={item.children!} onClose={onClose} />
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 }
