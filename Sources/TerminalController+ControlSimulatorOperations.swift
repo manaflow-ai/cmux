@@ -24,9 +24,19 @@ extension TerminalController {
             return .failed(failure)
         case let .panel(panel):
             let coordinator = panel.coordinator
+            let persistedDeviceID = panel.selectedDeviceID
+            let persistedRuntimeIdentifier = panel.selectedRuntimeIdentifier
+            let persistedDeviceTypeIdentifier = panel.selectedDeviceTypeIdentifier
             let receipt = ControlSimulatorOperationReceipt()
             guard let task = coordinator.startControlAction("control-socket-\(UUID().uuidString)", operation: { coordinator in
-                await self.performSimulatorOperation(operation, coordinator: coordinator, receipt: receipt)
+                await self.performSimulatorOperation(
+                    operation,
+                    coordinator: coordinator,
+                    receipt: receipt,
+                    persistedDeviceID: persistedDeviceID,
+                    persistedRuntimeIdentifier: persistedRuntimeIdentifier,
+                    persistedDeviceTypeIdentifier: persistedDeviceTypeIdentifier
+                )
             }) else {
                 return .unavailable(String(
                     localized: "cli.simulator.error.paneClosed",
@@ -45,7 +55,10 @@ extension TerminalController {
     private func performSimulatorOperation(
         _ operation: ControlSimulatorOperation,
         coordinator: SimulatorPaneCoordinator,
-        receipt: ControlSimulatorOperationReceipt
+        receipt: ControlSimulatorOperationReceipt,
+        persistedDeviceID: String?,
+        persistedRuntimeIdentifier: String?,
+        persistedDeviceTypeIdentifier: String?
     ) async {
         do {
             if !operation.isIdentityRead {
@@ -70,15 +83,24 @@ extension TerminalController {
             var mutationCommitted = false
             switch operation {
             case .context:
-                let deviceID = try simulatorSelectedDeviceID(coordinator)
+                guard let deviceID = coordinator.selectedDeviceID ?? persistedDeviceID else {
+                    throw invalidSimulatorOperation(String(
+                        localized: "cli.simulator.error.noSelectedDevice",
+                        defaultValue: "The Simulator pane has no selected device"
+                    ))
+                }
                 let selectedDevice = coordinator.selectedDevice
                 var values: [String: JSONValue] = [
                     "simulator_id": .string(deviceID),
                     "device_name": selectedDevice.map { .string($0.name) } ?? .null,
-                    "runtime_id": selectedDevice.map { .string($0.runtimeIdentifier) } ?? .null,
-                    "device_type_id": selectedDevice.map { .string($0.deviceTypeIdentifier) } ?? .null,
+                    "runtime_id": selectedDevice.map { .string($0.runtimeIdentifier) }
+                        ?? persistedRuntimeIdentifier.map(JSONValue.string)
+                        ?? .null,
+                    "device_type_id": selectedDevice.map { .string($0.deviceTypeIdentifier) }
+                        ?? persistedDeviceTypeIdentifier.map(JSONValue.string)
+                        ?? .null,
                     "family": selectedDevice.map { .string($0.family.rawValue) } ?? .null,
-                    "state": .string(SimulatorDeviceState.booted.rawValue),
+                    "state": .string(selectedDevice?.state.rawValue ?? SimulatorDeviceState.unknown.rawValue),
                 ]
                 if let display = coordinator.display {
                     values["orientation"] = .string(display.orientation.rawValue)
