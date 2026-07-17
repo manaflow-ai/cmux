@@ -2757,7 +2757,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // An authenticated status response may refresh metadata only for
             // the Mac this connection already represents. A mismatched reply
             // cannot rewrite another paired record.
-            guard ticket.macDeviceID == reportedID else {
+            guard MobileMacInstanceTagAuthority.authenticatedDeviceMatches(
+                reportedDeviceID: reportedID,
+                expectedDeviceID: ticket.macDeviceID
+            ) else {
                 rejectForegroundHostIdentity(client: client, reason: "device_id_mismatch")
                 return
             }
