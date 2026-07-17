@@ -229,6 +229,17 @@ test("macOS and iOS reloads share the dev API backend override", () => {
   assert.match(iosReload, /CMUX_IOS_API_BASE_URL_VALUE=.*CMUX_DEV_API_BASE_URL/);
 });
 
+test("tagged reloads share a dedicated Iroh broker without moving local APIs", () => {
+  const macReload = fs.readFileSync(path.join(repoRoot, "scripts/reload.sh"), "utf8");
+  const iosReload = fs.readFileSync(path.join(repoRoot, "ios/scripts/reload.sh"), "utf8");
+
+  assert.match(macReload, /CMUX_IROH_BROKER_BASE_URL_VALUE=.*cmux-staging\.vercel\.app/);
+  assert.match(macReload, /CMUX_IROH_BROKER_BASE_URL="\$CMUX_IROH_BROKER_BASE_URL_VALUE"/);
+  assert.match(iosReload, /CMUX_IOS_IROH_BROKER_BASE_URL_VALUE=.*cmux-staging\.vercel\.app/);
+  assert.match(iosReload, /CMUX_IROH_BROKER_BASE_URL="\$CMUX_IOS_IROH_BROKER_BASE_URL_VALUE"/);
+  assert.match(iosReload, /PROD_AUTH[\s\S]{0,500}CMUX_IOS_IROH_BROKER_BASE_URL_VALUE="https:\/\/cmux\.com"/);
+});
+
 test("physical-device mint rejects a ticket with only plaintext Tailscale routes", async () => {
   const result = await mintAttachURL(
     "physical_device",

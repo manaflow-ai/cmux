@@ -16,6 +16,20 @@ import Testing
 @Suite
 struct MobileIrohRuntimeCompositionTests {
     @Test
+    func bakedIrohBrokerOriginDoesNotReplaceTheGeneralAPIOrigin() {
+        #expect(MobileIrohRuntimeComposition.resolvedBrokerBaseURL(
+            apiBaseURL: "http://localhost:9450",
+            infoDictionary: [
+                "CMUXIrohBrokerBaseURL": "https://cmux-staging.vercel.app",
+            ]
+        )?.absoluteString == "https://cmux-staging.vercel.app")
+        #expect(MobileIrohRuntimeComposition.resolvedBrokerBaseURL(
+            apiBaseURL: "https://cmux.com",
+            infoDictionary: ["CMUXIrohBrokerBaseURL": "  "]
+        )?.absoluteString == "https://cmux.com")
+    }
+
+    @Test
     func initialAuthenticationAndFirstConnectionDoNotReplayTheSameAuthState() async throws {
         let fixture = try await MobileIrohSignOutFixture.make()
 
