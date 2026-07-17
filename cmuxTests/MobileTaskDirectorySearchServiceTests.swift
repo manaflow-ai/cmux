@@ -89,6 +89,52 @@ import Testing
         #expect(try await service.search(query: "candidate", seedPaths: []).isEmpty)
     }
 
+    @Test func seededHomeDirectorySurvivesGlobalEntryBudget() async throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-seeded-home-\(UUID().uuidString)", isDirectory: true)
+        let project = home.appendingPathComponent(
+            "Dev/Manaflow/cmuxterm-hq/worktrees/feat-ios-task-composer",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: home) }
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        let service = MobileTaskDirectorySearchService(
+            homeDirectory: home,
+            configuration: .init(
+                maximumDirectories: 200,
+                maximumDepth: 6,
+                cacheLifetime: 30,
+                maximumFilesystemEntries: 1
+            )
+        )
+
+        let matches = try await service.search(
+            query: "feat-ios-task-composer",
+            seedPaths: [project.path]
+        )
+
+        #expect(matches == [project.standardizedFileURL.path])
+    }
+
+    @Test func matchingSeedBypassesColdIndexBuild() async throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-seed-fast-path-\(UUID().uuidString)", isDirectory: true)
+        let project = home.appendingPathComponent("Dev/seeded-project", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        let builder = ImmediateDirectoryIndexBuilder()
+        let service = MobileTaskDirectorySearchService(
+            homeDirectory: home,
+            configuration: .init(maximumDirectories: 200, maximumDepth: 6, cacheLifetime: 30),
+            indexBuilder: { _, _ in await builder.run() }
+        )
+
+        let matches = try await service.search(query: "seeded-project", seedPaths: [project.path])
+
+        #expect(matches == [project.standardizedFileURL.path])
+        #expect(await builder.count == 0)
+    }
+
     @Test func removingAnExternalSeedDoesNotReuseItsCachedPaths() async throws {
         let base = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-directory-roots-\(UUID().uuidString)", isDirectory: true)
@@ -186,6 +232,15 @@ import Testing
         } catch {
             return nil
         }
+    }
+}
+
+private actor ImmediateDirectoryIndexBuilder {
+    private(set) var count = 0
+
+    func run() -> [MobileTaskDirectorySearchService.SearchablePath] {
+        count += 1
+        return []
     }
 }
 
