@@ -7,13 +7,22 @@ enum TaskComposerSubmissionPhase: Equatable {
     case idle
     case preparing
     case committed
+    case retryReady
+
+    var allowsSubmission: Bool {
+        self == .idle || self == .retryReady
+    }
+
+    var offersRetry: Bool {
+        self == .retryReady
+    }
 
     var disablesRequestEditing: Bool {
-        self != .idle
+        self == .preparing || self == .committed
     }
 
     var showsProgress: Bool {
-        self != .idle
+        self == .preparing || self == .committed
     }
 
     var locksDismissal: Bool {

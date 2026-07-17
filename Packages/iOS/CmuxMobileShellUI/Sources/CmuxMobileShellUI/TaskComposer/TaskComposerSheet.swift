@@ -382,6 +382,12 @@ struct TaskComposerSheet: View {
     }
 
     private var primaryActionTitle: String {
+        if submissionPhase.offersRetry {
+            return L10n.string(
+                "mobile.taskComposer.tryAgain",
+                defaultValue: "Try Again"
+            )
+        }
         guard let selectedTemplate else {
             return L10n.string("mobile.taskComposer.startTask", defaultValue: "Start Task")
         }
@@ -477,7 +483,12 @@ struct TaskComposerSheet: View {
     }
 
     func startSubmission() {
-        guard submitTask == nil, completedOperationRecovery == nil else { return }
+        guard submitTask == nil,
+              completedOperationRecovery == nil,
+              submissionPhase.allowsSubmission else { return }
+        if submissionPhase.offersRetry {
+            failureText = nil
+        }
         submitTask = Task { @MainActor in
             await submit()
             submitTask = nil
@@ -485,7 +496,8 @@ struct TaskComposerSheet: View {
     }
 
     private func submit() async {
-        guard submissionPhase == .idle, let snapshot = submissionSnapshot() else { return }
+        guard submissionPhase.allowsSubmission,
+              let snapshot = submissionSnapshot() else { return }
         guard store.persistTaskComposerDraft(
             snapshot.draft,
             ifSessionGeneration: sessionGeneration
@@ -529,6 +541,7 @@ struct TaskComposerSheet: View {
                     snapshot.draft,
                     ifSessionGeneration: sessionGeneration
                 )
+                submissionPhase = .retryReady
             }
             let message = Self.failureMessage(failure)
             failureText = message

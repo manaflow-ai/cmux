@@ -43,6 +43,10 @@ extension TaskComposerSheet {
     /// Applies a composer mutation and defers request comparison to a low-
     /// frequency persistence or submission boundary.
     func updateSubmissionRequest(_ update: () -> Void) {
+        if submissionPhase.offersRetry {
+            submissionPhase = .idle
+        }
+        failureText = nil
         update()
         submissionIdentity.markRequestDirty()
         completedOperationRecovery = nil
