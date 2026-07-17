@@ -1,3 +1,5 @@
+import Foundation
+
 struct DockConfigIdentity: Equatable, Sendable {
     let sourceIdentifier: String?
     let sourcePath: String?
