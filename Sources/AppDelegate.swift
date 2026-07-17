@@ -9325,6 +9325,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func routeFeedFocus(workspaceId: String, surfaceId: String) -> Bool {
+        guard let claimedWorkspaceID = UUID(uuidString: workspaceId),
+              let claimedSurfaceID = UUID(uuidString: surfaceId),
+              let located = locateBonsplitSurface(tabId: claimedSurfaceID),
+              located.workspaceId == claimedWorkspaceID
+        else {
+            return false
+        }
         // Invoke the existing V2 commands so the Feed-layer focus request
         // goes through the same code path as a socket-initiated focus.
         // Serialize through JSON so we reuse the v2 command parser.
