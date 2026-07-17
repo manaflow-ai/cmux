@@ -17,7 +17,6 @@ struct ChatArtifactTextBottomPinStateMachine: Equatable, Sendable {
     private(set) var phase: Phase?
     private(set) var visibleBoundary: ChatArtifactTextBottomBoundary?
     private var requestedBoundary: ChatArtifactTextBottomBoundary?
-    private var pendingFlushedBoundary: ChatArtifactTextBottomBoundary?
 
     var isPinned: Bool {
         target != nil
@@ -31,20 +30,27 @@ struct ChatArtifactTextBottomPinStateMachine: Equatable, Sendable {
         phase = .initialAnimation
         visibleBoundary = nil
         requestedBoundary = boundary
-        pendingFlushedBoundary = nil
         return .scrollToBottom(boundary: boundary, animated: true)
     }
 
     mutating func initialAnimationSettled(
-        at boundary: ChatArtifactTextBottomBoundary
+        at boundary: ChatArtifactTextBottomBoundary,
+        isBoundaryVisible: Bool = false
     ) -> Action {
         guard isPinned else { return .none }
-        let boundary = pendingFlushedBoundary ?? boundary
-        pendingFlushedBoundary = nil
+        let targetBoundary = latestBoundary(
+            requestedBoundary,
+            or: boundary
+        )
+        requestedBoundary = targetBoundary
+        guard isBoundaryVisible, targetBoundary == boundary else {
+            visibleBoundary = nil
+            return .scrollToBottom(boundary: targetBoundary, animated: false)
+        }
         phase = .following
-        visibleBoundary = nil
+        visibleBoundary = boundary
         requestedBoundary = boundary
-        return .scrollToBottom(boundary: boundary, animated: false)
+        return .none
     }
 
     mutating func layoutChanged(
@@ -62,10 +68,10 @@ struct ChatArtifactTextBottomPinStateMachine: Equatable, Sendable {
     ) -> Action {
         guard isPinned else { return .none }
         guard phase == .following else {
-            pendingFlushedBoundary = boundary
-            return .none
+            visibleBoundary = nil
+            requestedBoundary = boundary
+            return .scrollToBottom(boundary: boundary, animated: true)
         }
-        pendingFlushedBoundary = nil
         visibleBoundary = nil
         requestedBoundary = boundary
         return .scrollToBottom(boundary: boundary, animated: false)
@@ -89,7 +95,8 @@ struct ChatArtifactTextBottomPinStateMachine: Equatable, Sendable {
     }
 
     mutating func didApplyPin(at boundary: ChatArtifactTextBottomBoundary) {
-        guard phase == .following else { return }
+        guard isPinned, requestedBoundary == boundary else { return }
+        phase = .following
         visibleBoundary = boundary
         requestedBoundary = boundary
     }
@@ -99,6 +106,16 @@ struct ChatArtifactTextBottomPinStateMachine: Equatable, Sendable {
         phase = nil
         visibleBoundary = nil
         requestedBoundary = nil
-        pendingFlushedBoundary = nil
+    }
+
+    private func latestBoundary(
+        _ first: ChatArtifactTextBottomBoundary?,
+        or second: ChatArtifactTextBottomBoundary
+    ) -> ChatArtifactTextBottomBoundary {
+        guard let first else { return second }
+        if first.storageEnd != second.storageEnd {
+            return first.storageEnd > second.storageEnd ? first : second
+        }
+        return first.contentOffsetY > second.contentOffsetY ? first : second
     }
 }

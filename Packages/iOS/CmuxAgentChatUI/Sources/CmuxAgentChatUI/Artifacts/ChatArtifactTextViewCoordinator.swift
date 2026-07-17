@@ -284,6 +284,22 @@ final class ChatArtifactTextViewCoordinator:
         guard !appendPolicy.isDeferring,
               pendingTextChunks.isEmpty else { return }
 
+        let appendsFlushedMask = 1 << BottomPinTrigger.appendsFlushed.rawValue
+        if bottomPin.phase == .initialAnimation,
+           pendingBottomPinTriggerMask & appendsFlushedMask != 0 {
+            pendingBottomPinTriggerMask &= ~appendsFlushedMask
+            let boundary = documentEndBoundary(in: textView)
+            endJumpConvergence = ChatArtifactTextJumpConvergence(
+                initialTargetOffset: boundary.contentOffsetY
+            )
+            if applyBottomPinAction(
+                bottomPin.appendsFlushed(at: boundary),
+                in: textView
+            ) {
+                return
+            }
+        }
+
         while true {
             while settleBoundaryJumpOnceIfReady(in: textView) {}
 
@@ -377,7 +393,10 @@ final class ChatArtifactTextViewCoordinator:
         case .finish:
             endJumpConvergence = nil
             _ = applyBottomPinAction(
-                bottomPin.initialAnimationSettled(at: boundary),
+                bottomPin.initialAnimationSettled(
+                    at: boundary,
+                    isBoundaryVisible: true
+                ),
                 in: textView
             )
             return false
@@ -394,7 +413,10 @@ final class ChatArtifactTextViewCoordinator:
         case .force:
             endJumpConvergence = nil
             _ = applyBottomPinAction(
-                bottomPin.initialAnimationSettled(at: boundary),
+                bottomPin.initialAnimationSettled(
+                    at: boundary,
+                    isBoundaryVisible: false
+                ),
                 in: textView
             )
             return false

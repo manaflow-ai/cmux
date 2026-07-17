@@ -146,7 +146,10 @@ struct ChatArtifactTextBottomPinStateMachineTests {
         #expect(didReachEOF)
 
         #expect(appendPolicy.endProgrammaticAnimation() == 0)
-        #expect(pin.appendsFlushed(at: finalBoundary) == .none)
+        #expect(
+            pin.appendsFlushed(at: finalBoundary)
+                == .scrollToBottom(boundary: finalBoundary, animated: true)
+        )
         #expect(
             pin.initialAnimationSettled(at: preFlushBoundary)
                 == .scrollToBottom(boundary: finalBoundary, animated: false)
