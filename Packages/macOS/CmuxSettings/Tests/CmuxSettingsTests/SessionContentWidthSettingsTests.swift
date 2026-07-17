@@ -20,6 +20,7 @@ struct SessionContentWidthSettingsTests {
         #expect(settings.configuredMaximumWidth(from: 1111) == 1120)
         #expect(settings.configuredMaximumWidth(from: 10) == SessionContentWidthSettings.minimumWidth)
         #expect(settings.configuredMaximumWidth(from: 10_000) == 10_000)
+        #expect(settings.configuredMaximumWidth(from: .greatestFiniteMagnitude)?.isFinite == true)
     }
 
     @Test func editorUsesRememberedWidthWhileDisabled() {
