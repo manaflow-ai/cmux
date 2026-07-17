@@ -18,6 +18,10 @@ struct IrohZeroTouchDiscoveryTests {
         defer { fixture.cleanup() }
 
         #expect(await fixture.shell.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(await fixture.router.waitForCount(
+            of: "mobile.events.subscribe",
+            atLeast: 1
+        ))
         #expect(fixture.shell.connectionState == .connected)
         #expect(fixture.factory.attemptedRouteIDs() == ["iroh-mac-a"])
         let rows = try await fixture.store.loadAll(stackUserID: "user-1", teamID: nil)
@@ -26,6 +30,25 @@ struct IrohZeroTouchDiscoveryTests {
         #expect(saved.macDeviceID == "mac-a")
         #expect(saved.instanceTag == "stable")
         #expect(saved.routes.map(\.kind) == [.iroh])
+    }
+
+    @Test
+    func canonicalUUIDDeviceIDComparisonIgnoresLetterCase() async throws {
+        let canonicalID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+        let fixture = try await makeFixture(
+            candidates: [try candidate(deviceID: canonicalID, endpointByte: "a")],
+            reportedDeviceID: canonicalID.uppercased()
+        )
+        defer { fixture.cleanup() }
+
+        #expect(await fixture.shell.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(await fixture.router.waitForCount(
+            of: "mobile.events.subscribe",
+            atLeast: 1
+        ))
+        #expect(fixture.shell.connectionState == .connected)
+        let rows = try await fixture.store.loadAll(stackUserID: "user-1", teamID: nil)
+        #expect(rows.map(\.macDeviceID) == [canonicalID])
     }
 
     @Test
@@ -302,6 +325,7 @@ struct IrohZeroTouchDiscoveryTests {
             shell: shell,
             store: store,
             factory: factory,
+            router: router,
             directory: directory
         )
     }
@@ -433,6 +457,7 @@ private struct ZeroTouchFixture {
     let shell: MobileShellComposite
     let store: MobilePairedMacStore
     let factory: ZeroTouchRouteFactory
+    let router: LivenessHostRouter
     let directory: URL
 
     func cleanup() {
