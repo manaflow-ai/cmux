@@ -293,7 +293,7 @@ struct CLICodexHookTimeoutRegressionTests {
         let staleStopCommands = Array(commands.snapshot().dropFirst(staleStopStart))
         #expect(
             !staleStopCommands.contains {
-                $0.hasPrefix("notify_target") || ($0.hasPrefix("set_status codex ") && $0.contains(" Idle "))
+                $0.hasPrefix("notify_target") || ($0.hasPrefix("set_status codex ") && $0.contains(" Completed "))
             },
             "An installed async Stop from an older turn must not notify or mark a newer running turn idle, saw \(staleStopCommands)"
         )

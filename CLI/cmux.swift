@@ -59,8 +59,10 @@ struct ClaudeHookParsedInput {
 
 enum AgentHookRuntimeStatus: String, Codable {
     case running
+    case waiting
     case idle
     case needsInput
+    case completed
     case error
 }
 
@@ -24179,7 +24181,7 @@ struct CMUXCLI {
                         // Pending background work keeps the pane out of the
                         // hibernatable .idle state so the planner cannot SIGTERM
                         // a live task (mirrors the antigravity fullyIdle flip).
-                        agentLifecycle: hasPendingBackgroundWork ? .running : .idle,
+                        agentLifecycle: hasPendingBackgroundWork ? .running : .completed,
                         lastSubtitle: completion?.subtitle,
                         lastBody: completion?.body,
                         hadPendingBackgroundWorkAtStop: hasPendingBackgroundWork,
@@ -24203,7 +24205,7 @@ struct CMUXCLI {
                 setAgentLifecycle(
                     client: client,
                     key: Self.claudeCodeStatusKey,
-                    lifecycle: hasPendingBackgroundWork ? .running : .idle,
+                    lifecycle: hasPendingBackgroundWork ? .running : .completed,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId
                 )
@@ -24225,9 +24227,9 @@ struct CMUXCLI {
                         client: client,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        value: String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle"),
-                        icon: "pause.circle.fill",
-                        color: "#8E8E93"
+                        value: String(localized: "agent.generic.status.completed", defaultValue: "Completed"),
+                        icon: "checkmark.circle.fill",
+                        color: "#34C759"
                     )
                 }
                 if let completion {
@@ -24524,7 +24526,7 @@ struct CMUXCLI {
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
-                    agentLifecycle: .needsInput,
+                    agentLifecycle: .waiting,
                     lastSubtitle: summary.subtitle,
                     lastBody: summary.body
                 )
@@ -24534,7 +24536,7 @@ struct CMUXCLI {
                 setAgentLifecycle(
                     client: client,
                     key: Self.claudeCodeStatusKey,
-                    lifecycle: .needsInput,
+                    lifecycle: .waiting,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId
                 )
@@ -24542,9 +24544,9 @@ struct CMUXCLI {
                     client: client,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    value: "Needs input",
+                    value: String(localized: "agent.generic.notification.subtitle.waiting", defaultValue: "Waiting"),
                     icon: "bell.fill",
-                    color: "#4C8DFF", pid: claudePid
+                    color: "#FF9500", pid: claudePid
                 )
             }
             _ = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
@@ -24793,14 +24795,14 @@ struct CMUXCLI {
                     surfaceId: existingSurfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
-                    agentLifecycle: .needsInput,
+                    agentLifecycle: .waiting,
                     lastSubtitle: waitingSubtitle,
                     lastBody: needsInputBody
                 )
                 setAgentLifecycle(
                     client: client,
                     key: Self.claudeCodeStatusKey,
-                    lifecycle: .needsInput,
+                    lifecycle: .waiting,
                     workspaceId: workspaceId,
                     surfaceId: existingSurfaceId
                 )
@@ -24824,9 +24826,9 @@ struct CMUXCLI {
                         client: client,
                         workspaceId: workspaceId,
                         surfaceId: existingSurfaceId,
-                        value: String(localized: "feed.status.needsInput", defaultValue: "Needs input"),
+                        value: String(localized: "agent.generic.notification.subtitle.waiting", defaultValue: "Waiting"),
                         icon: "bell.fill",
-                        color: "#4C8DFF",
+                        color: "#FF9500",
                         pid: claudePid
                     )
                     let title = String(
@@ -30311,7 +30313,7 @@ export default CMUXSessionRestore;
         func runtimeStatus(for notificationStatus: AgentHookNotificationStatus?) -> AgentHookRuntimeStatus? {
             switch notificationStatus {
             case .idle?:
-                return .idle
+                return .completed
             case .needsInput?:
                 return .needsInput
             case .error?:
@@ -30323,9 +30325,11 @@ export default CMUXSessionRestore;
         func agentLifecycle(for notificationStatus: AgentHookNotificationStatus?) -> AgentHibernationLifecycleState? {
             switch notificationStatus {
             case .idle?:
-                return .idle
-            case .needsInput?, .error?:
-                return .needsInput
+                return .completed
+            case .needsInput?:
+                return .waiting
+            case .error?:
+                return .failed
             case nil:
                 return nil
             }
@@ -30348,6 +30352,33 @@ export default CMUXSessionRestore;
             )) == true
         }
         func setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: String, surfaceId: String) {
+            setTerminalStatusUnlessAnotherSessionIsRunning(
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                lifecycle: .idle,
+                statusValue: String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle"),
+                icon: "pause.circle.fill",
+                color: "#8E8E93"
+            )
+        }
+        func setCompletedStatusUnlessAnotherSessionIsRunning(workspaceId: String, surfaceId: String) {
+            setTerminalStatusUnlessAnotherSessionIsRunning(
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                lifecycle: .completed,
+                statusValue: String(localized: "agent.generic.status.completed", defaultValue: "Completed"),
+                icon: "checkmark.circle.fill",
+                color: "#34C759"
+            )
+        }
+        func setTerminalStatusUnlessAnotherSessionIsRunning(
+            workspaceId: String,
+            surfaceId: String,
+            lifecycle: AgentHibernationLifecycleState,
+            statusValue: String,
+            icon: String,
+            color: String
+        ) {
             if hasOtherRunningSession(workspaceId: workspaceId) {
 #if DEBUG
                 agentHookDebugLog(
@@ -30358,9 +30389,15 @@ export default CMUXSessionRestore;
 #endif
                 return
             }
-            let idleStatus = String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle")
+            setAgentLifecycle(
+                client: client,
+                key: def.statusKey,
+                lifecycle: lifecycle,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId
+            )
             _ = try? sendV1Command(
-                "set_status \(def.statusKey) \(idleStatus) --icon=pause.circle.fill --color=#8E8E93 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                "set_status \(def.statusKey) \(statusValue) --icon=\(icon) --color=\(color) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                 client: client
             )
         }
@@ -30739,22 +30776,29 @@ export default CMUXSessionRestore;
                         "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                         client: client
                     )
-                case .idle?:
+                case .idle?, .completed?:
                     if !hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId) {
                         setAgentLifecycle(
                             client: client,
                             key: def.statusKey,
-                            lifecycle: .idle,
+                            lifecycle: latest.runtimeStatus == .completed ? .completed : .idle,
                             workspaceId: workspaceId,
                             surfaceId: surfaceId
                         )
                     }
-                    setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
-                case .needsInput?:
+                    if latest.runtimeStatus == .completed {
+                        setCompletedStatusUnlessAnotherSessionIsRunning(
+                            workspaceId: workspaceId,
+                            surfaceId: surfaceId
+                        )
+                    } else {
+                        setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
+                    }
+                case .waiting?, .needsInput?:
                     setAgentLifecycle(
                         client: client,
                         key: def.statusKey,
-                        lifecycle: .needsInput,
+                        lifecycle: .waiting,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId
                     )
@@ -30763,14 +30807,14 @@ export default CMUXSessionRestore;
                         def.displayName
                     )
                     _ = try? sendV1Command(
-                        "set_status \(def.statusKey) \(statusValue) --icon=bell.fill --color=#4C8DFF --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                        "set_status \(def.statusKey) \(statusValue) --icon=bell.fill --color=#FF9500 --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                         client: client
                     )
                 case .error?:
                     setAgentLifecycle(
                         client: client,
                         key: def.statusKey,
-                        lifecycle: .needsInput,
+                        lifecycle: .failed,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId
                     )
@@ -31106,9 +31150,16 @@ export default CMUXSessionRestore;
                 if antigravityHasActiveBackgroundWork && stopNotificationStatus == .idle {
                     return .running
                 }
-                return stopNotificationStatus == .idle ? .idle : .needsInput
+                switch stopNotificationStatus {
+                case .idle:
+                    return .completed
+                case .error:
+                    return .failed
+                case .needsInput:
+                    return .waiting
+                }
             }()
-            let staleIdleStopHasNewerRunningSession = lifecycleAfterStop == .idle &&
+            let staleIdleStopHasNewerRunningSession = lifecycleAfterStop == .completed &&
                 hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId)
             let terminalActivePromptTurnIdsForStop: Set<String>
             if !staleIdleStopHasNewerRunningSession,
@@ -31277,7 +31328,7 @@ export default CMUXSessionRestore;
                     setAgentLifecycle(
                         client: client,
                         key: def.statusKey,
-                        lifecycle: .needsInput,
+                        lifecycle: .failed,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId
                     )
@@ -31289,7 +31340,7 @@ export default CMUXSessionRestore;
                     setAgentLifecycle(
                         client: client,
                         key: def.statusKey,
-                        lifecycle: .needsInput,
+                        lifecycle: .failed,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId
                     )
@@ -31318,11 +31369,36 @@ export default CMUXSessionRestore;
                     setAgentLifecycle(
                         client: client,
                         key: def.statusKey,
-                        lifecycle: .idle,
+                        lifecycle: lifecycleAfterStop,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId
                     )
-                    setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
+                    if lifecycleAfterStop == .completed {
+                        setCompletedStatusUnlessAnotherSessionIsRunning(
+                            workspaceId: workspaceId,
+                            surfaceId: surfaceId
+                        )
+                    } else if lifecycleAfterStop == .failed {
+                        let statusValue = String.localizedStringWithFormat(
+                            String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
+                            def.displayName
+                        )
+                        _ = try? sendV1Command(
+                            "set_status \(def.statusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                            client: client
+                        )
+                    } else if lifecycleAfterStop == .waiting {
+                        let statusValue = String.localizedStringWithFormat(
+                            String(localized: "agent.generic.notification.status.needsInput", defaultValue: "%@ needs input"),
+                            def.displayName
+                        )
+                        _ = try? sendV1Command(
+                            "set_status \(def.statusKey) \(statusValue) --icon=bell.fill --color=#FF9500 --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                            client: client
+                        )
+                    } else {
+                        setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
+                    }
                 }
             }
 
@@ -31677,7 +31753,7 @@ export default CMUXSessionRestore;
                 setAgentLifecycle(
                     client: client,
                     key: def.statusKey,
-                    lifecycle: .needsInput,
+                    lifecycle: .waiting,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId
                 )
@@ -31693,7 +31769,7 @@ export default CMUXSessionRestore;
                 setAgentLifecycle(
                     client: client,
                     key: def.statusKey,
-                    lifecycle: .needsInput,
+                    lifecycle: .failed,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId
                 )
@@ -31710,12 +31786,12 @@ export default CMUXSessionRestore;
                     setAgentLifecycle(
                         client: client,
                         key: def.statusKey,
-                        lifecycle: .idle,
+                        lifecycle: .completed,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId
                     )
                 }
-                setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
+                setCompletedStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
             case nil:
                 break
             }

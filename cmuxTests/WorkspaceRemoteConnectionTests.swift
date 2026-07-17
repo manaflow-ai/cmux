@@ -4775,7 +4775,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("set_status codex Idle") &&
+                command.contains("set_status codex Completed") &&
                     command.contains("--icon=pause.circle.fill") &&
                     command.contains("--tab=\(workspaceId)")
             },
@@ -5001,7 +5001,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("set_status codex Idle") &&
+                command.contains("set_status codex Completed") &&
                     command.contains("--tab=\(workspaceId)")
             },
             "Expected scoped assistant reply to suppress no-final-response error, saw \(state.commands)"
@@ -5071,7 +5071,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("set_status codex Idle") &&
+                command.contains("set_status codex Completed") &&
                     command.contains("--tab=\(workspaceId)")
             },
             "Expected stale unscoped error to leave Codex idle, saw \(state.commands)"
