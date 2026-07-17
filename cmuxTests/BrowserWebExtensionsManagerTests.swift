@@ -253,6 +253,27 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
+    @Test func oversizedArchiveIsRejectedBeforeApprovalHashing() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let archive = root.appendingPathComponent("oversized.zip")
+        try Data().write(to: archive)
+        let handle = try FileHandle(forWritingTo: archive)
+        try handle.truncate(
+            atOffset: UInt64(BrowserWebExtensionPackageSession.defaultMaximumResponseByteCount + 1)
+        )
+        try handle.close()
+        let manager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent()
+        )
+
+        await #expect(throws: BrowserWebExtensionInstallError.self) {
+            try await manager.approveInstalledCandidate(archive)
+        }
+    }
+
+    @available(macOS 15.4, *)
     @Test func installsValidExtensionIntoManagedDirectoryAndLoadsItImmediately() async throws {
         let sourceRoot = try Self.makeExtensionsRoot()
         let managedRoot = try Self.makeExtensionsRoot()
@@ -582,6 +603,33 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
+    @Test func switchingProfileDefersRestoreUntilNewProfileExtensionsLoad() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let alternateProfile = try #require(BrowserProfileStore.shared.createProfile(
+            named: "Deferred extension restore \(UUID().uuidString.prefix(6))"
+        ))
+        defer { _ = BrowserProfileStore.shared.deleteProfile(id: alternateProfile.id) }
+        let services = BrowserServices(extensionDirectory: root)
+        await services.webExtensionsManager?.loadExtensions()
+        let alternateManager = services.webExtensionsManager(for: alternateProfile.id)
+        alternateManager.loadTask = Task {}
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: try #require(URL(string: "https://example.com/profile-restore")),
+            browserServices: services
+        )
+        defer { panel.close() }
+
+        #expect(panel.switchToProfile(alternateProfile.id))
+        #expect(panel.hasPendingWebExtensionNavigationForTesting)
+
+        await alternateManager.loadExtensions()
+        for _ in 0..<4 { await Task.yield() }
+        #expect(!panel.hasPendingWebExtensionNavigationForTesting)
+    }
+
+    @available(macOS 15.4, *)
     @Test func extensionControllersUseTheOwningProfileWebsiteDataStore() throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -726,6 +774,9 @@ struct BrowserWebExtensionsManagerTests {
         let firstAdapter = try #require(visibleTabs.last as? BrowserWebExtensionTabAdapter)
         #expect(secondAdapter.indexInWindow(for: extensionContext) == 0)
         #expect(firstAdapter.indexInWindow(for: extensionContext) == 1)
+
+        workspace.focusPanel(managerPage.id)
+        #expect(window.activeTab?(for: extensionContext) == nil)
     }
 
     @available(macOS 15.4, *)
@@ -876,6 +927,9 @@ struct BrowserWebExtensionsManagerTests {
         manager.webExtensionController(manager.controller, didUpdate: action, forExtensionContext: context)
         manager.webExtensionController(manager.controller, didUpdate: action, forExtensionContext: context)
         for _ in 0..<4 { await Task.yield() }
+
+        #expect(updateCount.withLock { $0 } == 0)
+        try await Task.sleep(for: .milliseconds(100))
 
         #expect(updateCount.withLock { $0 } == 1)
     }
@@ -1057,6 +1111,13 @@ struct BrowserWebExtensionsManagerTests {
             }
         }
         #expect(store.focusedPanelId == secondPanelID)
+
+        let managerPage = try #require(store.openBrowserExtensionsManager(from: secondPanelID))
+        #expect(managerPage !== secondPanel)
+        #expect(managerPage.internalPage == .extensions)
+        #expect(secondPanel.internalPage == nil)
+        #expect(store.browserPanel(for: managerPage.id) === managerPage)
+        #expect(store.openBrowserExtensionsManager(from: secondPanelID) === managerPage)
 
         #expect(store.closePanel(firstPanelID, force: true))
         let remainingTabs = manager

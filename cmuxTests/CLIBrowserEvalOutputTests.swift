@@ -50,6 +50,32 @@ final class CLIBrowserEvalOutputTests {
         #expect(formatter.string(from: NSNull()) == "null")
     }
 
+    @Test("browser extension queries print their payload without requiring --json")
+    func browserExtensionQueriesPrintPayloadByDefault() throws {
+        let socketPath = "/tmp/cmux-extension-list-\(UUID().uuidString.prefix(8)).sock"
+        let response = #"{"id":null,"ok":true,"result":{"extensions":[{"id":"sample","name":"Sample Extension"}],"profile_id":"profile"}}"#
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = try runProcess(
+            executablePath: BundledCLITestSupport.bundledCLIPath(for: Self.self),
+            arguments: ["browser", "extensions", "list"],
+            environment: environment
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.output))
+        #expect(result.status == 0, Comment(rawValue: result.output))
+        #expect(result.output.contains("Sample Extension"), Comment(rawValue: result.output))
+        #expect(result.output != "OK\n", Comment(rawValue: result.output))
+    }
+
     private func assertBrowserEvalOutput(_ testCase: Case) throws {
         let socketPath = "/tmp/cmux-eval-\(UUID().uuidString.prefix(8)).sock"
         let response = #"{"id":null,"ok":true,"result":{"value":\#(testCase.wireValue)}}"#
