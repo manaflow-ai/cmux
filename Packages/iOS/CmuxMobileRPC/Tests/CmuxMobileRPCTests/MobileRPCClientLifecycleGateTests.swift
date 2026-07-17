@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import Foundation
 import Testing
 @testable import CmuxMobileRPC
 
