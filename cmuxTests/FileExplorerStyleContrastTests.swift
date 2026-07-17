@@ -145,22 +145,66 @@ import Testing
             (isDark ? NSColor.white : NSColor.black).withAlphaComponent(0.20),
             over: baseBackground
         )
-        let hoverOverlay = try resolved(style.hoverColor, in: appearance)
-        let actualMaterialPlain = color(
-            components: isDark ? (0x2C, 0x2F, 0x30) : (0xC5, 0xC7, 0xC8)
-        )
-        let actualMaterialFocusedSelection = color(
-            components: isDark ? (0x21, 0x44, 0x63) : (0xA3, 0xBC, 0xD3)
-        )
+        let canonicalFocusedSelection = composited(focusedSelection, over: baseBackground)
+        let canonicalUnfocusedSelection = composited(unfocusedSelection, over: baseBackground)
+        let actual = actualRowBackgrounds(for: style, isDark: isDark)
+
+        // Hover only drives child prefetching; the row renderer draws no hover fill. Hovered
+        // rows therefore reuse the same normal or selected background instead of another overlay.
         return [
             ("canonical-plain", baseBackground),
-            ("canonical-selected-focused", composited(focusedSelection, over: baseBackground)),
-            ("canonical-selected-unfocused", composited(unfocusedSelection, over: baseBackground)),
+            ("canonical-selected-focused", canonicalFocusedSelection),
+            ("canonical-selected-unfocused", canonicalUnfocusedSelection),
             ("canonical-selected-worst-case", worstCaseSelection),
-            ("canonical-hovered", composited(hoverOverlay, over: baseBackground)),
-            ("actual-material-plain", actualMaterialPlain),
-            ("actual-material-selected-focused", actualMaterialFocusedSelection),
+            ("canonical-hovered", baseBackground),
+            ("canonical-selected-focused-hovered", canonicalFocusedSelection),
+            ("canonical-selected-unfocused-hovered", canonicalUnfocusedSelection),
+            ("actual-material-normal", actual.normal),
+            ("actual-material-selected-focused", actual.selectedFocused),
+            ("actual-material-selected-unfocused", actual.selectedUnfocused),
+            ("actual-material-hovered", actual.normal),
+            ("actual-material-selected-focused-hovered", actual.selectedFocused),
+            ("actual-material-selected-unfocused-hovered", actual.selectedUnfocused),
         ]
+    }
+
+    private func actualRowBackgrounds(
+        for style: FileExplorerStyle,
+        isDark: Bool
+    ) -> (normal: NSColor, selectedFocused: NSColor, selectedUnfocused: NSColor) {
+        let components: (
+            normal: (Int, Int, Int),
+            selectedFocused: (Int, Int, Int),
+            selectedUnfocused: (Int, Int, Int)
+        )
+        switch style {
+        case .liquidGlass:
+            components = isDark
+                ? ((0x21, 0x23, 0x24), (0x1A, 0x34, 0x50), (0x32, 0x34, 0x35))
+                : ((0xB8, 0xBB, 0xBC), (0x93, 0xAE, 0xC9), (0xAA, 0xAC, 0xAD))
+        case .highDensity:
+            components = isDark
+                ? ((0x21, 0x23, 0x24), (0x1A, 0x34, 0x50), (0x32, 0x34, 0x35))
+                : ((0xB8, 0xBB, 0xBC), (0x93, 0xAE, 0xC9), (0xAA, 0xAC, 0xAD))
+        case .terminalStealth:
+            components = isDark
+                ? ((0x21, 0x23, 0x24), (0x1A, 0x34, 0x50), (0x32, 0x34, 0x35))
+                : ((0xB8, 0xBB, 0xBC), (0x93, 0xAE, 0xC9), (0xAA, 0xAC, 0xAD))
+        case .proStudio:
+            components = isDark
+                ? ((0x21, 0x23, 0x24), (0x1A, 0x34, 0x50), (0x32, 0x34, 0x35))
+                : ((0xB8, 0xBB, 0xBC), (0x93, 0xAE, 0xC9), (0xAA, 0xAC, 0xAD))
+        case .finder:
+            components = isDark
+                ? ((0x21, 0x23, 0x24), (0x1A, 0x34, 0x50), (0x32, 0x34, 0x35))
+                : ((0xB8, 0xBB, 0xBC), (0x93, 0xAE, 0xC9), (0xAA, 0xAC, 0xAD))
+        }
+
+        return (
+            normal: color(components: components.normal),
+            selectedFocused: color(components: components.selectedFocused),
+            selectedUnfocused: color(components: components.selectedUnfocused)
+        )
     }
 
     private func color(components: (Int, Int, Int)) -> NSColor {
