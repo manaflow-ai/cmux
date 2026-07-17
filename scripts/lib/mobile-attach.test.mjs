@@ -117,10 +117,77 @@ async function mintAttachURL(target, payload, maxAttempts = 1) {
 function attachPayload(kind) {
   return {
     attach_url: `cmux-ios-dev://attach?v=2&kind=${kind}`,
+    routes: [{ id: kind, kind }],
     ticket: {
       routes: [{ id: kind, kind }],
     },
   };
+}
+
+function runQRGenerator(payloads) {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-mobile-qr-test-"));
+  const scriptsDir = path.join(tempRoot, "scripts");
+  const libDir = path.join(scriptsDir, "lib");
+  const payloadDirectory = path.join(tempRoot, "payloads");
+  const callCounterPath = path.join(tempRoot, "call-count");
+  const paramsLogPath = path.join(tempRoot, "params.log");
+  const outputDirectory = path.join(tempRoot, "out");
+  fs.mkdirSync(libDir, { recursive: true });
+  fs.mkdirSync(payloadDirectory);
+  fs.copyFileSync(
+    path.join(repoRoot, "scripts/mobile-attach-qr.sh"),
+    path.join(scriptsDir, "mobile-attach-qr.sh"),
+  );
+  payloads.forEach((payload, index) => {
+    fs.writeFileSync(
+      path.join(payloadDirectory, `${index + 1}`),
+      JSON.stringify(payload),
+    );
+  });
+  const fakeCLI = path.join(scriptsDir, "cmux-debug-cli.sh");
+  fs.writeFileSync(
+    fakeCLI,
+    [
+      "#!/usr/bin/env bash",
+      'count="$(cat "$CMUX_TEST_CALL_COUNTER" 2>/dev/null || printf 0)"',
+      'count="$((count + 1))"',
+      'printf "%s" "$count" > "$CMUX_TEST_CALL_COUNTER"',
+      'printf "%s\\n" "${@: -1}" >> "$CMUX_TEST_PARAMS_LOG"',
+      'payload="$CMUX_TEST_PAYLOAD_DIRECTORY/$count"',
+      '[[ -f "$payload" ]] && cat "$payload"',
+      "",
+    ].join("\n"),
+  );
+  fs.chmodSync(fakeCLI, 0o755);
+
+  const result = run(
+    "bash",
+    [
+      path.join(scriptsDir, "mobile-attach-qr.sh"),
+      "--tag",
+      "lane-a",
+      "--out-dir",
+      outputDirectory,
+    ],
+    {
+      CMUX_ATTACH_QR_MAX_ATTEMPTS: String(payloads.length),
+      CMUX_ATTACH_QR_POLL_INTERVAL_SECONDS: "0",
+      CMUX_TEST_CALL_COUNTER: callCounterPath,
+      CMUX_TEST_PARAMS_LOG: paramsLogPath,
+      CMUX_TEST_PAYLOAD_DIRECTORY: payloadDirectory,
+    },
+  );
+  result.callCount = fs.existsSync(callCounterPath)
+    ? Number.parseInt(fs.readFileSync(callCounterPath, "utf8"), 10)
+    : 0;
+  result.params = fs.existsSync(paramsLogPath)
+    ? fs.readFileSync(paramsLogPath, "utf8").trim().split("\n").map(JSON.parse)
+    : [];
+  result.filteredPayload = fs.existsSync(path.join(outputDirectory, "attach-ticket.filtered.json"))
+    ? JSON.parse(fs.readFileSync(path.join(outputDirectory, "attach-ticket.filtered.json"), "utf8"))
+    : null;
+  fs.rmSync(tempRoot, { recursive: true, force: true });
+  return result;
 }
 
 test("shared dev-tag validator rejects every spelling that sanitizes to default", () => {
@@ -190,6 +257,35 @@ test("physical-device mint accepts an encrypted Iroh route", async () => {
   const result = await mintAttachURL("physical_device", payload);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, payload.attach_url);
+});
+
+test("QR fallback waits for the exact tagged Mac's authenticated Iroh route", () => {
+  const result = runQRGenerator([
+    attachPayload("tailscale"),
+    attachPayload("iroh"),
+  ]);
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.callCount, 2);
+  assert.deepEqual(
+    result.params.map((params) => params.route_kind),
+    ["iroh", "iroh"],
+  );
+  assert.deepEqual(
+    result.filteredPayload.ticket.routes.map((route) => route.kind),
+    ["iroh"],
+  );
+});
+
+test("QR server pins its launch tags and allocates an isolated port", () => {
+  const server = fs.readFileSync(
+    path.join(repoRoot, "scripts/mobile-attach-qr-server.sh"),
+    "utf8",
+  );
+
+  assert.doesNotMatch(server, /cmux-mobile-attach-qr-tags\.json|refresh_tags|TAG_MARKER_PATH/);
+  assert.match(server, /PORT="\$\{PORT:-0\}"/);
+  assert.match(server, /httpd\.server_address\[1\]/);
 });
 
 test("simulator mint retains its loopback ticket behavior", async () => {
