@@ -194,6 +194,14 @@ struct MobileIrohRuntimeCompositionTests {
         let now = Date()
         let observedAt = now.addingTimeInterval(-30).timeIntervalSinceReferenceDate
         let expiresAt = now.addingTimeInterval(30 * 60).timeIntervalSinceReferenceDate
+        let currentRelayPath: [String: Any] = [
+            "kind": "relay_url",
+            "value": "https://use1-1.relay.lawrence.cmux.iroh.link/",
+            "source": "native",
+            "privacy_scope": "public_internet",
+            "observed_at": observedAt,
+            "expires_at": expiresAt,
+        ]
         let deviceID = "30000000-0000-4000-8000-000000000021"
         let reachableBindingID = "30000000-0000-4000-8000-000000000022"
         let discovery = try mobileIrohDiscovery(bindings: [
@@ -214,14 +222,7 @@ struct MobileIrohRuntimeCompositionTests {
                 platform: "mac",
                 pairingEnabled: true,
                 lastSeenAt: "2027-07-10T12:00:00.000Z",
-                pathHints: [[
-                    "kind": "relay_url",
-                    "value": "https://use1-1.relay.lawrence.cmux.iroh.link/",
-                    "source": "native",
-                    "privacy_scope": "public_internet",
-                    "observed_at": observedAt,
-                    "expires_at": expiresAt,
-                ]]
+                pathHints: [currentRelayPath]
             ),
         ])
         let catalog = MobileIrohRouteCatalog()
@@ -233,6 +234,31 @@ struct MobileIrohRuntimeCompositionTests {
         #expect(candidates.first?.routes.map(\.id) == [
             "iroh-personal-\(reachableBindingID)",
         ])
+
+        let ambiguousDiscovery = try mobileIrohDiscovery(bindings: [
+            mobileIrohBinding(
+                bindingID: "30000000-0000-4000-8000-000000000023",
+                deviceID: deviceID,
+                appInstanceID: "30000000-0000-4000-8000-000000000024",
+                endpointID: String(repeating: "e", count: 64),
+                platform: "mac",
+                pairingEnabled: true,
+                lastSeenAt: "2027-07-10T11:00:00.000Z",
+                pathHints: [currentRelayPath]
+            ),
+            mobileIrohBinding(
+                bindingID: reachableBindingID,
+                deviceID: deviceID,
+                appInstanceID: "30000000-0000-4000-8000-000000000025",
+                endpointID: String(repeating: "f", count: 64),
+                platform: "mac",
+                pairingEnabled: true,
+                lastSeenAt: "2027-07-10T12:00:00.000Z",
+                pathHints: [currentRelayPath]
+            ),
+        ])
+        await catalog.replace(with: ambiguousDiscovery, scope: 31)
+        #expect(await catalog.liveMacCandidates(preferredTag: "test").isEmpty)
     }
 
     @Test

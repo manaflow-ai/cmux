@@ -110,7 +110,8 @@ public actor MobileIrohRouteCatalog {
     }
 
     private static func makeLiveMacs(
-        from bindings: [CmxIrohBrokerBinding]
+        from bindings: [CmxIrohBrokerBinding],
+        now: Date = Date()
     ) -> [MobileDiscoveredIrohMac] {
         let timestampParser = TimestampParser()
         let pairableMacs = Array(bindings.filter {
@@ -124,17 +125,35 @@ public actor MobileIrohRouteCatalog {
             let deviceID: String
             let tag: String
         }
-        let deviceTagCounts = Dictionary(grouping: pairableMacs) {
+        let unambiguousEndpoints = pairableMacs.filter {
+            endpointCounts[$0.endpointID] == 1
+        }
+        let bindingsByDeviceTag = Dictionary(grouping: unambiguousEndpoints) {
             DeviceTag(deviceID: $0.deviceID.lowercased(), tag: $0.tag)
-        }.mapValues(\.count)
+        }
+        let selectedBindingIDs = Set(
+            bindingsByDeviceTag.values.compactMap { candidates in
+                if candidates.count == 1 {
+                    return candidates[0].bindingID
+                }
+                let reachable = candidates.filter { binding in
+                    binding.pathHints.contains { hint in
+                        switch hint.kind {
+                        case .directAddress, .relayURL:
+                            hint.publicDisclosure(at: now) != nil
+                        case .relayIdentifier:
+                            false
+                        }
+                    }
+                }
+                guard reachable.count == 1 else { return nil }
+                return reachable[0].bindingID
+            }
+        )
 
         return pairableMacs.compactMap { binding in
-            let deviceTag = DeviceTag(
-                deviceID: binding.deviceID.lowercased(),
-                tag: binding.tag
-            )
             guard endpointCounts[binding.endpointID] == 1,
-                  deviceTagCounts[deviceTag] == 1,
+                  selectedBindingIDs.contains(binding.bindingID),
                   let route = try? CmxAttachRoute(
                       id: "iroh-personal-\(binding.bindingID)",
                       kind: .iroh,
