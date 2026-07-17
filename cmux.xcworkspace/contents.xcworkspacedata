@@ -60,6 +60,9 @@
          location = "group:CmuxMobileDiagnostics">
       </FileRef>
       <FileRef
+         location = "group:CmuxMobileDiff">
+      </FileRef>
+      <FileRef
          location = "group:CmuxMobilePairedMac">
       </FileRef>
       <FileRef
@@ -107,6 +110,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxCanvasUI">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxChangesEngine">
       </FileRef>
       <FileRef
          location = "group:CmuxCommandPalette">

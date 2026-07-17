@@ -21,6 +21,8 @@ struct WorkspaceChatPane: View {
     @Binding var draft: String
     /// Flips chat mode off (the toggle's "back to terminal" path).
     let onExitChat: () -> Void
+    /// Debug-only native Changes route for chat file-edit cards.
+    let onOpenFileChanges: ((String) -> Void)?
 
     @Environment(BrowserSurfaceStore.self) private var browserStore
 
@@ -38,6 +40,7 @@ struct WorkspaceChatPane: View {
                 accessoryShortcuts: chatAccessoryShortcuts(for: conversation),
                 providesOwnChrome: false,
                 runsStoreTask: false,
+                onOpenFileChanges: onOpenFileChanges,
                 onOpenTerminal: openTerminal
             )
             .environment(\.chatArtifactLoader, artifactLoader)

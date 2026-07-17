@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxAuthRuntime
+import CmuxMobileDiff
 import CmuxMobileShell
 import CmuxMobileSupport
 import CmuxMobileWorkspace
@@ -187,6 +188,57 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsTerminalLogDemo")
+
+                    Picker(selection: $displaySettings.diffNavigationModel) {
+                        Text(L10n.string(
+                            "mobile.settings.nativeChanges.filesFirst",
+                            defaultValue: "Files first"
+                        ))
+                        .tag(DiffNavigationModel.filesFirst)
+                        Text(L10n.string(
+                            "mobile.settings.nativeChanges.diffFirst",
+                            defaultValue: "Diff first"
+                        ))
+                        .tag(DiffNavigationModel.diffFirst)
+                    } label: {
+                        Text(L10n.string(
+                            "mobile.settings.nativeChanges.navigation",
+                            defaultValue: "Native Diff Navigation"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsNativeChangesNavigation")
+
+                    Toggle(isOn: $displaySettings.nativeChangesFileEditLinks) {
+                        Text(L10n.string(
+                            "mobile.settings.nativeChanges.fileEditLinks",
+                            defaultValue: "Open Changes from File Edits"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsNativeChangesFileEditLinks")
+
+                    if let store,
+                       store.supportsWorkspaceChanges,
+                       let workspaceID = store.selectedWorkspaceID,
+                       let service = store.makeChangesService(workspaceID: workspaceID) {
+                        NavigationLink {
+                            ChangesScreen(
+                                service: service,
+                                workspace: ChangesWorkspaceContext(
+                                    workspaceID: workspaceID.rawValue,
+                                    displayName: store.workspaces.first(where: { $0.id == workspaceID })?.name
+                                ),
+                                navigationModel: displaySettings.diffNavigationModel,
+                                layoutPreference: displaySettings.diffLayoutPreference,
+                                setLayoutPreference: { displaySettings.diffLayoutPreference = $0 }
+                            )
+                        } label: {
+                            Label(
+                                L10n.string("mobile.settings.nativeChanges", defaultValue: "Changes (native diff)"),
+                                systemImage: "doc.text.magnifyingglass"
+                            )
+                        }
+                        .accessibilityIdentifier("MobileSettingsNativeChanges")
+                    }
 
                     debugLayoutSlider(
                         title: L10n.string(

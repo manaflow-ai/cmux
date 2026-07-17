@@ -121,6 +121,41 @@ extension AppDelegate {
         return candidates.max(by: { $0.capturedAt < $1.capturedAt })?.repoRoot
     }
 
+    /// Resolves the newest recorded last-turn Git baseline for one live terminal context.
+    nonisolated static func latestAgentTurnDiffBaselineRef(
+        storeURL: URL,
+        repoRoot: String,
+        workspaceId: UUID,
+        surfaceId: UUID,
+        sessionId: String?
+    ) -> String? {
+        guard let data = try? Data(contentsOf: storeURL),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let records = object["records"] as? [[String: Any]] else {
+            return nil
+        }
+        let workspaceKey = workspaceId.uuidString.lowercased()
+        let surfaceKey = surfaceId.uuidString.lowercased()
+        let normalizedRepoRoot = standardizedOpenDiffViewerPath(repoRoot)
+        let normalizedSessionId = normalizedOpenDiffViewerSessionId(sessionId)
+        let candidates = records.compactMap { record -> (baseRef: String, capturedAt: TimeInterval)? in
+            guard let recordWorkspace = normalizedOpenDiffViewerIdentifier(record["workspaceId"] as? String),
+                  let recordSurface = normalizedOpenDiffViewerIdentifier(record["surfaceId"] as? String),
+                  let recordSession = normalizedOpenDiffViewerSessionId(record["sessionId"] as? String),
+                  let recordRepoRoot = normalizedOpenDiffViewerPath(record["repoRoot"] as? String),
+                  let baseRef = normalizedOpenDiffViewerIdentifier(record["baseCommit"] as? String),
+                  recordWorkspace == workspaceKey,
+                  recordSurface == surfaceKey,
+                  standardizedOpenDiffViewerPath(recordRepoRoot) == normalizedRepoRoot,
+                  normalizedSessionId == nil || recordSession == normalizedSessionId else {
+                return nil
+            }
+            let capturedAt = (record["capturedAt"] as? NSNumber)?.doubleValue ?? 0
+            return (baseRef, capturedAt)
+        }
+        return candidates.max(by: { $0.capturedAt < $1.capturedAt })?.baseRef
+    }
+
     nonisolated static func openDiffViewerAgentContextTaskKey(
         workspaceId: UUID,
         surfaceId: UUID,
@@ -162,5 +197,12 @@ extension AppDelegate {
         value?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .nilIfEmpty
+    }
+
+    nonisolated private static func standardizedOpenDiffViewerPath(_ value: String) -> String {
+        URL(fileURLWithPath: value, isDirectory: true)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+            .path
     }
 }

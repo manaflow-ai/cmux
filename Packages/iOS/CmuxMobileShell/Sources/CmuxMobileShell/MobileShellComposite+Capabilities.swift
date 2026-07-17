@@ -9,6 +9,8 @@ extension MobileShellComposite {
     public var supportsWorkspaceCreateInGroup: Bool { supportedHostCapabilities.contains(Self.workspaceCreateInGroupCapability) && allowsMacScopedWorkspaceMutations }
     /// Whether the Mac supports creating workspace groups from iOS.
     public var supportsWorkspaceGroupCreate: Bool { supportedHostCapabilities.contains(Self.workspaceGroupCreateCapability) && allowsMacScopedWorkspaceMutations }
+    /// Whether the Mac supports native workspace changes requests.
+    public var supportsWorkspaceChanges: Bool { supportedHostCapabilities.contains(Self.workspaceChangesCapability) }
     /// Whether the Mac supports dogfood feedback submission.
     public var supportsDogfoodFeedback: Bool { supportedHostCapabilities.contains(Self.dogfoodFeedbackCapability) }
     /// Whether the Mac supports chat artifact stat/fetch/thumbnail/list RPCs.

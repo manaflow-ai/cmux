@@ -52,6 +52,7 @@ public struct ChatMessageRowView: View {
                 ChatFileEditCardView(
                     edit: edit,
                     rowID: rowID,
+                    onOpenChanges: actions.openFileChanges,
                     onShowDetail: { actions.showMessageDetail(snapshot.message) }
                 )
             case .permissionRequest(let request):

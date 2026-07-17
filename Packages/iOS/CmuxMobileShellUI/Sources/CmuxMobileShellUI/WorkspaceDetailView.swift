@@ -33,7 +33,7 @@ struct WorkspaceDetailView: View {
     let backButtonConfiguration: WorkspaceBackButtonConfiguration?
     let signOut: (() -> Void)?
     @Environment(BrowserSurfaceStore.self) var browserStore
-    @Environment(MobileDisplaySettings.self) private var displaySettings
+    @Environment(MobileDisplaySettings.self) var displaySettings
     /// Drives the destructive close-workspace confirmation dialog.
     @State var isConfirmingClose = false
     #if canImport(UIKit)
@@ -68,6 +68,8 @@ struct WorkspaceDetailView: View {
     @State var chatConversationStores: [String: ChatConversationStore] = [:]
     /// Per-session composer drafts, surviving toggles back to the terminal.
     @State var chatDrafts: [String: String] = [:]
+    /// Active request for the shared native Changes navigation destination.
+    @State var changesPresentation: WorkspaceChangesPresentation? = nil
     @State var terminalArtifactFilesContext: TerminalArtifactContext?
     @State var selectedTerminalArtifact: TerminalArtifactSelection?
     @State var terminalArtifactThumbnailCache = ChatArtifactThumbnailCache()
@@ -97,6 +99,9 @@ struct WorkspaceDetailView: View {
             .navigationTitle(systemNavigationTitle)
             .mobileTerminalNavigationChrome(theme: store.activeTerminalTheme)
             .toolbar { workspaceDetailToolbar }
+            .navigationDestination(isPresented: changesNavigationIsPresented) {
+                changesDestination()
+            }
             .task(id: chatRefreshKey) { await refreshChatSessions() }
             .task(id: chatConversationWarmKey) { await runWarmChatConversation() }
             .onChange(of: selectedTerminalID) { _, _ in
@@ -170,6 +175,7 @@ struct WorkspaceDetailView: View {
             hasBackButton: backButtonConfiguration != nil,
             hasTrailingCluster: true,
             hasChatToggle: shouldShowChatToggle,
+            hasChangesButton: store.supportsWorkspaceChanges,
             isEnabled: hasTitleMenuActions,
             menuContent: { titleMenuContent }
         ) {

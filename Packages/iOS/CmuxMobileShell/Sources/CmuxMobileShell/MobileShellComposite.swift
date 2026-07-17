@@ -94,6 +94,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let workspaceMoveCapability = "workspace.move.v1"
     static let workspaceGroupActionsCapability = "workspace.group_actions.v1"
     static let workspaceCreateInGroupCapability = "workspace.create_in_group.v1", workspaceGroupCreateCapability = "workspace.group_create.v1"
+    static let workspaceChangesCapability = "workspace.changes.v1"
     static let chatArtifactCapability = "chat.artifact.v1"
     static let chatArtifactGalleryCapability = "chat.artifact.gallery.v1"
     static let terminalArtifactCapability = "terminal.artifact.v1"
@@ -661,6 +662,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
     /// `remoteClient` narrowed for `MobileShellComposite+AgentChat.swift`.
     var remoteClientForAgentChat: MobileCoreRPCClient? { remoteClient }
+    /// `remoteClient` narrowed for `MobileShellComposite+Changes.swift`.
+    var remoteClientForWorkspaceChanges: MobileCoreRPCClient? { remoteClient }
     /// Identity token that changes when the paired Mac chat event source is rebuilt.
     public var agentChatEventSourceIdentity: String { chatEventSourceGeneration.uuidString }
     var terminalEventListenerTask: Task<Void, Never>?

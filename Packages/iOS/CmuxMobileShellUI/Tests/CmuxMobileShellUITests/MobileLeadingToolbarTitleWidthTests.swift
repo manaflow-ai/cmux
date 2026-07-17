@@ -7,13 +7,15 @@ import Testing
         _ contentWidth: CGFloat,
         hasBackButton: Bool = true,
         hasTrailingCluster: Bool = true,
-        hasChatToggle: Bool = true
+        hasChatToggle: Bool = true,
+        hasChangesButton: Bool = false
     ) -> CGFloat {
         MobileLeadingToolbarTitleWidth(
             contentWidth: contentWidth,
             hasBackButton: hasBackButton,
             hasTrailingCluster: hasTrailingCluster,
-            hasChatToggle: hasChatToggle
+            hasChatToggle: hasChatToggle,
+            hasChangesButton: hasChangesButton
         ).cap
     }
 
@@ -36,6 +38,12 @@ import Testing
 
     @Test func titleGainsRoomWithoutChatToggle() {
         #expect(cap(260, hasChatToggle: false) > cap(260, hasChatToggle: true))
+    }
+
+    @Test func changesButtonReservesOneAdditionalToolbarSlot() {
+        let withoutChanges = cap(392, hasChangesButton: false)
+        let withChanges = cap(392, hasChangesButton: true)
+        #expect(withoutChanges - withChanges == MobileLeadingToolbarTitleWidth.changesButtonReserve)
     }
 
     @Test func iPhoneWidthCapsTitleBeforeTrailingControlsOverflow() {
