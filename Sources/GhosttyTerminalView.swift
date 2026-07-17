@@ -12204,7 +12204,9 @@ struct GhosttyTerminalView: NSViewRepresentable {
         case applyVisibleAndActive
         /// A bound host that lost the lease may still un-show its own
         /// surface — and nothing more. Active/focus state stays
-        /// ownership-gated.
+        /// ownership-gated. (An OWNER's hide is allowed whether or not it is
+        /// currently bound — the lease is authoritative for the surface's
+        /// state, and that has been the apply rule since before this enum.)
         case hideOnly
         /// A non-owner that is not bound must not touch the hosted view.
         case deferred
@@ -12476,6 +12478,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 hostedView.setNotificationRing(visible: showsUnreadNotificationRing)
                 hostedView.setSearchOverlay(searchState: searchState)
                 hostedView.syncKeyStateIndicator(text: terminalSurface.currentKeyStateIndicatorText)
+                hostedView.setDropZoneOverlay(zone: forwardedDropZone)
                 terminalSurface.flushPendingManualSizeReportIfAttached()
             }
             if ownsCurrentPane, isVisibleInUI {
