@@ -23,14 +23,14 @@ final class FeedPanelViewModel {
     ) {
         self.coordinator = coordinator
         storeInstallTask = Task { @MainActor [weak self, weak coordinator] in
-            guard let self, let coordinator else { return }
-            self.arm()
+            guard let coordinator else { return }
+            self?.arm()
             for await _ in notificationCenter.notifications(
                 named: FeedCoordinator.storeInstalledNotification,
                 object: coordinator
             ) {
                 guard !Task.isCancelled else { return }
-                self.arm()
+                self?.arm()
             }
         }
     }

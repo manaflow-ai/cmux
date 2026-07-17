@@ -26,6 +26,7 @@ final class FeedCoordinator: @unchecked Sendable {
   @MainActor private(set) var store: WorkstreamStore!
 
   private let waiterRegistry = FeedBlockingWaiterRegistry()
+  let notificationHookCache = CmuxNotificationHookCache()
   let jumpResolver: FeedJumpResolver
   let socketEncoder = FeedSocketEncoder()
   private let timeoutClock: ContinuousClock

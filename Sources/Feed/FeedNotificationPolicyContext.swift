@@ -12,14 +12,24 @@ extension FeedNotificationPolicyContext {
   static func make(
     event: WorkstreamEvent,
     title: String,
-    body: String
+    body: String,
+    hookCache: CmuxNotificationHookCache
   ) async -> FeedNotificationPolicyContext {
     let snapshot: FeedNotificationPolicySnapshot = await MainActor.run {
       Self.snapshot(event: event, title: title, body: body)
     }
+    let hooks: [CmuxResolvedNotificationHook]
+    if let globalConfigPath = snapshot.globalConfigPath {
+      hooks = await hookCache.hooks(
+        startingFrom: snapshot.hookSearchDirectory,
+        globalConfigPath: globalConfigPath
+      )
+    } else {
+      hooks = []
+    }
     return FeedNotificationPolicyContext(
       envelope: snapshot.envelope,
-      hooks: snapshot.hooks,
+      hooks: hooks,
       globalConfigPath: snapshot.globalConfigPath
     )
   }
@@ -51,20 +61,11 @@ extension FeedNotificationPolicyContext {
     effects.paneFlash = false
 
     let workspaceIdentity = workspaceID?.uuidString ?? ""
-    let configStore = workspace == nil ? nil : context?.cmuxConfigStore
-    let globalConfigPath = configStore?.globalConfigPath
-    let hooks: [CmuxResolvedNotificationHook]
-    if context?.tabManager.selectedTabId == workspaceID {
-      hooks = configStore?.notificationHooks ?? []
-    } else if let globalConfigPath {
-      let normalizedGlobalPath = URL(fileURLWithPath: globalConfigPath).standardizedFileURL.path
-      hooks =
-        configStore?.notificationHooks.filter {
-          guard let sourcePath = $0.sourcePath else { return false }
-          return URL(fileURLWithPath: sourcePath).standardizedFileURL.path == normalizedGlobalPath
-        } ?? []
-    } else {
-      hooks = []
+    let globalConfigPath = workspace == nil ? nil : context?.cmuxConfigStore?.globalConfigPath
+    let hookSearchDirectory = workspace.flatMap { workspace in
+      workspace.isRemoteWorkspace
+        ? nil
+        : (normalizedCWD(event.cwd) ?? workspace.surfaceTabBarDirectory)
     }
     return FeedNotificationPolicySnapshot(
       envelope: TerminalNotificationPolicyEnvelope(
@@ -84,8 +85,8 @@ extension FeedNotificationPolicyContext {
         ),
         effects: effects
       ),
-      hooks: hooks,
-      globalConfigPath: globalConfigPath
+      globalConfigPath: globalConfigPath,
+      hookSearchDirectory: hookSearchDirectory
     )
   }
 

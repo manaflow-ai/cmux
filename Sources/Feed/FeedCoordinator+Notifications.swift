@@ -70,7 +70,8 @@ extension FeedCoordinator {
             let policyContext = await FeedNotificationPolicyContext.make(
                 event: event,
                 title: title,
-                body: body
+                body: body,
+                hookCache: notificationHookCache
             )
             let deliverDefault = { @MainActor [weak self] in
                 await self?.deliverFeedNotificationIfStillAwaiting(
