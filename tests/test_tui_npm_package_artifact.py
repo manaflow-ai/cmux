@@ -4,6 +4,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -81,3 +82,15 @@ def test_publish_workflows_restore_the_mode_preserving_archive() -> None:
     for workflow in (stable, nightly):
         assert "package_npm_artifact.py extract" in workflow
         assert "--archive dist/npm-packages.tar.gz" in workflow
+
+
+def main() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        test_archive_round_trip_preserves_package_executables(Path(directory))
+    with tempfile.TemporaryDirectory() as directory:
+        test_extract_rejects_paths_outside_package_root(Path(directory))
+    test_publish_workflows_restore_the_mode_preserving_archive()
+
+
+if __name__ == "__main__":
+    main()
