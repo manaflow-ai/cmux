@@ -182,7 +182,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         false
     }
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
-        guard rows.indices.contains(row), !rows[row].isGroupHeader, let actions else { return nil }
+        guard rows.indices.contains(row), let actions else { return nil }
         let workspaceId = rows[row].workspaceId
         actions.beginWorkspaceDrag(workspaceId)
         workspaceDragSessionDidBegin()

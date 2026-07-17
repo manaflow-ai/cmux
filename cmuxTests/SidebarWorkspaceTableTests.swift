@@ -142,7 +142,7 @@ struct SidebarWorkspaceTableTests {
 
     @Test
     @MainActor
-    func groupHeaderCannotBeginWorkspaceDragButWorkspaceRowCan() {
+    func groupHeaderBeginsAnchorDragAndWorkspaceRowBeginsOwnDrag() {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
         let groupId = UUID()
@@ -164,10 +164,10 @@ struct SidebarWorkspaceTableTests {
             selectedScrollTargetWorkspaceId: nil
         )
         flushStagedTableMutations()
-        #expect(controller.tableView(container.tableView, pasteboardWriterForRow: 0) == nil)
-        #expect(draggedWorkspaceIds.isEmpty)
+        #expect(controller.tableView(container.tableView, pasteboardWriterForRow: 0) != nil)
+        #expect(draggedWorkspaceIds == [anchorId])
         #expect(controller.tableView(container.tableView, pasteboardWriterForRow: 1) != nil)
-        #expect(draggedWorkspaceIds == [workspaceId])
+        #expect(draggedWorkspaceIds == [anchorId, workspaceId])
     }
 
     @Test
