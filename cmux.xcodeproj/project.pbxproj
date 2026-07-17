@@ -127,8 +127,6 @@
 		804100000000000000000009 /* AppDelegate+AdjacentNavigationShortcut.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80410000000000000000000A /* AppDelegate+AdjacentNavigationShortcut.swift */; };
 		C0DE45AC0000000000000001 /* AppDelegate+AgentChat.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE45AC0000000000000002 /* AppDelegate+AgentChat.swift */; };
 C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */; };
-		C0DE76990000000000000001 /* AppDelegate+BrowserWebExtensionShortcutRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE76990000000000000002 /* AppDelegate+BrowserWebExtensionShortcutRouting.swift */; };
-		B1CFE03F0000000000000001 /* AppDelegate+BrowserWebExtensionStartupReconciliation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE03F0000000000000002 /* AppDelegate+BrowserWebExtensionStartupReconciliation.swift */; };
 		C4A570010000000000000001 /* AppDelegate+CanvasShortcutRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4A570010000000000000002 /* AppDelegate+CanvasShortcutRouting.swift */; };
 		C4160A030000000000000001 /* AppDelegate+ClosedItemHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4160A030000000000000002 /* AppDelegate+ClosedItemHistory.swift */; };
 		C54860050000000000000001 /* AppDelegate+CmuxNavigationDeepLinks.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54860050000000000000002 /* AppDelegate+CmuxNavigationDeepLinks.swift */; };
@@ -196,7 +194,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		7C592156DCB3419BB95383E5 /* AutoNamingEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7752D68A758642EFA282C208 /* AutoNamingEngineTests.swift */; };
 		A4ECF22C62724853A72D6BDE /* AutoNamingGrokAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07EC52007B2144C59C047774 /* AutoNamingGrokAdapterTests.swift */; };
 		74AB3F34FE3B4974A3A5D264 /* AutoNamingHookPayloadAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46792DAA478444ED87B17B31 /* AutoNamingHookPayloadAdapterTests.swift */; };
-		FADE00010000000000000001 /* AuxiliaryWindowCloseShortcut.swift in Sources */ = {isa = PBXBuildFile; fileRef = FADE00010000000000000002 /* AuxiliaryWindowCloseShortcut.swift */; };
 		C0DE35860000000000000001 /* BackgroundWorkspacePrimeCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE35860000000000000002 /* BackgroundWorkspacePrimeCoordinator.swift */; };
 		A50012F1 /* Backport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F0 /* Backport.swift */; };
 		B057B0017E57B0017E57B001 /* Bonsplit in Frameworks */ = {isa = PBXBuildFile; productRef = A5001262 /* Bonsplit */; };
@@ -221,8 +218,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		B1F0C0050000000000000001 /* BrowserDeveloperToolsDockControlNormalizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F0C0050000000000000002 /* BrowserDeveloperToolsDockControlNormalizer.swift */; };
 		B1F0C0060000000000000001 /* BrowserDeveloperToolsDockControlNormalizerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F0C0060000000000000002 /* BrowserDeveloperToolsDockControlNormalizerTests.swift */; };
 		B1F0C0070000000000000001 /* BrowserDeveloperToolsLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F0C0070000000000000002 /* BrowserDeveloperToolsLifecycleTests.swift */; };
-		FADE00060000000000000001 /* BrowserDevToolsIconColorOption.swift in Sources */ = {isa = PBXBuildFile; fileRef = FADE00060000000000000002 /* BrowserDevToolsIconColorOption.swift */; };
-		FADE00030000000000000001 /* BrowserDevToolsIconOption.swift in Sources */ = {isa = PBXBuildFile; fileRef = FADE00030000000000000002 /* BrowserDevToolsIconOption.swift */; };
 		B75040020000000000000001 /* BrowserDiscardedWebViewRestoreRetryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B75040020000000000000002 /* BrowserDiscardedWebViewRestoreRetryTests.swift */; };
 		B75040010000000000000001 /* BrowserDiscardRestoreHeal.swift in Sources */ = {isa = PBXBuildFile; fileRef = B75040010000000000000002 /* BrowserDiscardRestoreHeal.swift */; };
 		B75040030000000000000001 /* BrowserDiscardRestoreHealPredicateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B75040030000000000000002 /* BrowserDiscardRestoreHealPredicateTests.swift */; };
@@ -235,9 +230,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C2035A010000000000000001 /* BrowserErrorPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A010000000000000002 /* BrowserErrorPage.swift */; };
 		C2035A020000000000000001 /* BrowserErrorPageContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A020000000000000002 /* BrowserErrorPageContent.swift */; };
 		C2035A0C000000000000001 /* BrowserErrorPageRetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A0C000000000000002 /* BrowserErrorPageRetry.swift */; };
-		FADE00070000000000000001 /* BrowserExternalNavigationAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = FADE00070000000000000002 /* BrowserExternalNavigationAction.swift */; };
-		FADE00080000000000000001 /* BrowserExternalNavigationHandlingResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = FADE00080000000000000002 /* BrowserExternalNavigationHandlingResult.swift */; };
-		FADE00020000000000000001 /* BrowserExternalNavigationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = FADE00020000000000000002 /* BrowserExternalNavigationPolicy.swift */; };
 		D7632A11A1B2C3D4E5F60718 /* BrowserFileDropNavigationGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7632A12A1B2C3D4E5F60718 /* BrowserFileDropNavigationGuard.swift */; };
 		A5008381 /* BrowserFindJavaScriptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008380 /* BrowserFindJavaScriptTests.swift */; };
 		A5008373 /* BrowserFindWebViewEvaluator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008372 /* BrowserFindWebViewEvaluator.swift */; };
@@ -309,7 +301,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C42660020000000000000001 /* BrowserPDFPrintOperationRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = C42660020000000000000002 /* BrowserPDFPrintOperationRunner.swift */; };
 		C2035A090000000000000001 /* BrowserPendingSSLTrustBypass.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A090000000000000002 /* BrowserPendingSSLTrustBypass.swift */; };
 		C67540040000000000000001 /* BrowserPopupPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C67540040000000000000002 /* BrowserPopupPanel.swift */; };
-		B1CFE03D0000000000000001 /* BrowserPopupStorageContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE03D0000000000000002 /* BrowserPopupStorageContextTests.swift */; };
 		A5007420 /* BrowserPopupWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5007421 /* BrowserPopupWindowController.swift */; };
 		C0DE78950000000000000001 /* BrowserPortalFirstRevealScrollTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE78950000000000000002 /* BrowserPortalFirstRevealScrollTests.swift */; };
 		B7380102B7380102B7380102 /* BrowserPortalOmnibarSuggestionsConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7380101B7380101B7380101 /* BrowserPortalOmnibarSuggestionsConfiguration.swift */; };
@@ -363,51 +354,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A50100000000000000000020 /* BrowserWebAuthnTransportSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5010000000000000000001F /* BrowserWebAuthnTransportSummary.swift */; };
 		A50100000000000000000022 /* BrowserWebAuthnUserDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000021 /* BrowserWebAuthnUserDescriptor.swift */; };
 		C0DE49870000000000000001 /* BrowserWebContentProcessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE49870000000000000002 /* BrowserWebContentProcessTests.swift */; };
-		B1CFE0240000000000000001 /* BrowserWebExtensionActionButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0240000000000000002 /* BrowserWebExtensionActionButton.swift */; };
-		B1CFE00A0000000000000001 /* BrowserWebExtensionActionSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE00A0000000000000002 /* BrowserWebExtensionActionSnapshot.swift */; };
-		B1CFE0110000000000000001 /* BrowserWebExtensionActionSnapshotInvalidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0110000000000000002 /* BrowserWebExtensionActionSnapshotInvalidation.swift */; };
-		B1CFE0250000000000000001 /* BrowserWebExtensionAnchorViewHolder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0250000000000000002 /* BrowserWebExtensionAnchorViewHolder.swift */; };
-		B1CFE0260000000000000001 /* BrowserWebExtensionAnchorViewReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0260000000000000002 /* BrowserWebExtensionAnchorViewReader.swift */; };
-		B1CFE0270000000000000001 /* BrowserWebExtensionCandidate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0270000000000000002 /* BrowserWebExtensionCandidate.swift */; };
-		FADE000A0000000000000001 /* BrowserWebExtensionCandidateKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = FADE000A0000000000000002 /* BrowserWebExtensionCandidateKind.swift */; };
-		B1CFE0370000000000000001 /* BrowserWebExtensionCreatedWindowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0370000000000000002 /* BrowserWebExtensionCreatedWindowTests.swift */; };
-		B1CFE0060000000000000001 /* BrowserWebExtensionDiscoveryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0060000000000000002 /* BrowserWebExtensionDiscoveryService.swift */; };
-		B1CFE0220000000000000001 /* BrowserWebExtensionDiscoveryServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0220000000000000002 /* BrowserWebExtensionDiscoveryServiceTests.swift */; };
-		B1CFE0320000000000000001 /* BrowserWebExtensionFocusedWindowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0320000000000000002 /* BrowserWebExtensionFocusedWindowTests.swift */; };
-		B1CFE0080000000000000001 /* BrowserWebExtensionHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0080000000000000002 /* BrowserWebExtensionHosting.swift */; };
-		B1CFE0330000000000000001 /* BrowserWebExtensionInitialPermissionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0330000000000000002 /* BrowserWebExtensionInitialPermissionTests.swift */; };
-		B1CFE00B0000000000000001 /* BrowserWebExtensionLoadedRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE00B0000000000000002 /* BrowserWebExtensionLoadedRecord.swift */; };
-		B1CFE03C0000000000000001 /* BrowserWebExtensionLoadErrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE03C0000000000000002 /* BrowserWebExtensionLoadErrorTests.swift */; };
-		B1CFE00D0000000000000001 /* BrowserWebExtensionNavigationConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE00D0000000000000002 /* BrowserWebExtensionNavigationConfiguration.swift */; };
-		B1CFE0230000000000000001 /* BrowserWebExtensionNavigationPolicyTestHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0230000000000000002 /* BrowserWebExtensionNavigationPolicyTestHost.swift */; };
-		B1CFE0380000000000000001 /* BrowserWebExtensionOwnershipLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0380000000000000002 /* BrowserWebExtensionOwnershipLifecycleTests.swift */; };
-		B1CFE0310000000000000001 /* BrowserWebExtensionPermissionReconciliationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0310000000000000002 /* BrowserWebExtensionPermissionReconciliationTests.swift */; };
-		B1CFE00E0000000000000001 /* BrowserWebExtensionPermissionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE00E0000000000000002 /* BrowserWebExtensionPermissionState.swift */; };
-		B1CFE0300000000000000001 /* BrowserWebExtensionPermissionStateRemoval.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0300000000000000002 /* BrowserWebExtensionPermissionStateRemoval.swift */; };
-		B1CFE00F0000000000000001 /* BrowserWebExtensionPermissionStateStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE00F0000000000000002 /* BrowserWebExtensionPermissionStateStore.swift */; };
-		B1CFE03A0000000000000001 /* BrowserWebExtensionPopoutPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE03A0000000000000002 /* BrowserWebExtensionPopoutPolicyTests.swift */; };
-		B1CFE02B0000000000000001 /* BrowserWebExtensionPopoutTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE02B0000000000000002 /* BrowserWebExtensionPopoutTab.swift */; };
-		B1CFE03B0000000000000001 /* BrowserWebExtensionPopoutUIDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE03B0000000000000002 /* BrowserWebExtensionPopoutUIDelegate.swift */; };
-		B1CFE0050000000000000001 /* BrowserWebExtensionPopoutWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0050000000000000002 /* BrowserWebExtensionPopoutWindowController.swift */; };
-		B1CFE02C0000000000000001 /* BrowserWebExtensionReconciliationLoadedEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE02C0000000000000002 /* BrowserWebExtensionReconciliationLoadedEntry.swift */; };
-		B1CFE02D0000000000000001 /* BrowserWebExtensionReconciliationPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE02D0000000000000002 /* BrowserWebExtensionReconciliationPlan.swift */; };
-		B1CFE00C0000000000000001 /* BrowserWebExtensionReconciliationPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE00C0000000000000002 /* BrowserWebExtensionReconciliationPlanner.swift */; };
-		B1CFE02E0000000000000001 /* BrowserWebExtensionReconciliationUnloadEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE02E0000000000000002 /* BrowserWebExtensionReconciliationUnloadEntry.swift */; };
-		B1CFE0210000000000000001 /* BrowserWebExtensionReviewRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0210000000000000002 /* BrowserWebExtensionReviewRegressionTests.swift */; };
-		B1CFE0280000000000000001 /* BrowserWebExtensionReviewTestHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0280000000000000002 /* BrowserWebExtensionReviewTestHost.swift */; };
-		B1CFE0400000000000000001 /* BrowserWebExtensionSelectionLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0400000000000000002 /* BrowserWebExtensionSelectionLifecycleTests.swift */; };
-		B1CFE0070000000000000001 /* BrowserWebExtensionSupport+Loading.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0070000000000000002 /* BrowserWebExtensionSupport+Loading.swift */; };
-		B1CFE0100000000000000001 /* BrowserWebExtensionSupport+Permissions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0100000000000000002 /* BrowserWebExtensionSupport+Permissions.swift */; };
-		B1CFE0350000000000000001 /* BrowserWebExtensionSupport+TabCreation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0350000000000000002 /* BrowserWebExtensionSupport+TabCreation.swift */; };
-		B1CFE0340000000000000001 /* BrowserWebExtensionSupport+Windows.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0340000000000000002 /* BrowserWebExtensionSupport+Windows.swift */; };
-		B1CFE0090000000000000001 /* BrowserWebExtensionSupport+WKWebExtensionControllerDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0090000000000000002 /* BrowserWebExtensionSupport+WKWebExtensionControllerDelegate.swift */; };
-		B1CFE0010000000000000001 /* BrowserWebExtensionSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0010000000000000002 /* BrowserWebExtensionSupport.swift */; };
-		B1CFE03E0000000000000001 /* BrowserWebExtensionSupportLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE03E0000000000000002 /* BrowserWebExtensionSupportLifecycleTests.swift */; };
-		B1CFE0200000000000000001 /* BrowserWebExtensionSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0200000000000000002 /* BrowserWebExtensionSupportTests.swift */; };
-		B1CFE0020000000000000001 /* BrowserWebExtensionTabAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0020000000000000002 /* BrowserWebExtensionTabAdapter.swift */; };
-		B1CFE02F0000000000000001 /* BrowserWebExtensionTabMetadataSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE02F0000000000000002 /* BrowserWebExtensionTabMetadataSnapshot.swift */; };
-		B1CFE0040000000000000001 /* BrowserWebExtensionToolbarButtons.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0040000000000000002 /* BrowserWebExtensionToolbarButtons.swift */; };
-		B1CFE0030000000000000001 /* BrowserWebExtensionWindowAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0030000000000000002 /* BrowserWebExtensionWindowAdapter.swift */; };
 		C0DE58990000000000000003 /* BrowserWebKitKeyDownDispatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE58990000000000000001 /* BrowserWebKitKeyDownDispatch.swift */; };
 		8054B0010000000000000001 /* BrowserWebViewLifecycleState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8054B0020000000000000002 /* BrowserWebViewLifecycleState.swift */; };
 		A5001534 /* BrowserWindowPortal.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001533 /* BrowserWindowPortal.swift */; };
@@ -646,7 +592,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		468140000000000000000003 /* CmuxNotificationHookFileFingerprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468140000000000000000004 /* CmuxNotificationHookFileFingerprint.swift */; };
 		468150000000000000000001 /* CmuxNotificationHookFileSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468150000000000000000002 /* CmuxNotificationHookFileSnapshot.swift */; };
 		468140000000000000000007 /* CmuxNotificationHookParsedConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468140000000000000000008 /* CmuxNotificationHookParsedConfig.swift */; };
-		FADE00040000000000000001 /* CmuxNotificationNames.swift in Sources */ = {isa = PBXBuildFile; fileRef = FADE00040000000000000002 /* CmuxNotificationNames.swift */; };
 		E3B7A30000000000000000D3 /* CmuxNotifications in Frameworks */ = {isa = PBXBuildFile; productRef = E3B7A30000000000000000D2 /* CmuxNotifications */; };
 		C0DE31390000000000000101 /* CMUXOpenCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31390000000000000102 /* CMUXOpenCommandTests.swift */; };
 		C0DE31390000000000000111 /* CMUXOpenHTMLFocusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31390000000000000112 /* CMUXOpenHTMLFocusTests.swift */; };
@@ -709,7 +654,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A5001500 /* CmuxWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001510 /* CmuxWebView.swift */; };
 		D7C0DE00000000000000A103 /* CmuxWebViewContextMenuLinkCaptureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7C0DE00000000000000A104 /* CmuxWebViewContextMenuLinkCaptureTests.swift */; };
 		D0B1000CA1B2C3D4E5F60001 /* CmuxWebViewDragRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B1000DA1B2C3D4E5F60001 /* CmuxWebViewDragRoutingTests.swift */; };
-		C0DE59AB0000000000000002 /* CmuxWebViewFocusModeKeyEquivalent.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE59AB0000000000000001 /* CmuxWebViewFocusModeKeyEquivalent.swift */; };
 		C0DE58990000000000000004 /* CmuxWebViewKeyDownReentryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE58990000000000000002 /* CmuxWebViewKeyDownReentryTests.swift */; };
 		7D5DA4DC51454ECDBF9AC978 /* CmuxWebViewMouseNavigationButtonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43F90FAF3FD44F11BF547BE9 /* CmuxWebViewMouseNavigationButtonTests.swift */; };
 		A28B087F0000000000000007 /* CmuxWebViewSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A28B087F0000000000000008 /* CmuxWebViewSupport.swift */; };
@@ -809,7 +753,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D81390010000000000000001 /* DockShortcutRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D81390010000000000000002 /* DockShortcutRoutingTests.swift */; };
 		D6212D0C0000000000000001 /* DockSocketLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6212D0C0000000000000002 /* DockSocketLifecycleTests.swift */; };
 		DCDC1000000000000000B011 /* DockSplitStore+Appearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B012 /* DockSplitStore+Appearance.swift */; };
-		B1CFE0390000000000000001 /* DockSplitStore+BrowserWebExtensionOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0390000000000000002 /* DockSplitStore+BrowserWebExtensionOwnership.swift */; };
 		DCDC1000000000000000B021 /* DockSplitStore+CloseConfirmation.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B022 /* DockSplitStore+CloseConfirmation.swift */; };
 		DCDC0000000000000000A003 /* DockSplitStore+Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC0000000000000000A004 /* DockSplitStore+Config.swift */; };
 		DCDC1000000000000000B019 /* DockSplitStore+PaneFocus.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B020 /* DockSplitStore+PaneFocus.swift */; };
@@ -1239,7 +1182,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D1F0A00100000000000000B1 /* PresenceHeartbeatClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00100000000000000B2 /* PresenceHeartbeatClient.swift */; };
 		DE71CE00000000000000000A /* PresenceHeartbeatClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE71CE000000000000000009 /* PresenceHeartbeatClientTests.swift */; };
 		D1F0A00100000000000000B3 /* PresenceSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00100000000000000B4 /* PresenceSettings.swift */; };
-		B1CFE02A0000000000000001 /* PrewarmTestWebExtensionHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE02A0000000000000002 /* PrewarmTestWebExtensionHost.swift */; };
 		C0DEA771000000000000000D /* PricingPlansScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA771000000000000000E /* PricingPlansScreen.swift */; };
 		C0DEA771000000000000000B /* ProBadgeStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA771000000000000000C /* ProBadgeStyle.swift */; };
 		F0ACC0DE000000000000000D /* ProcessDetectedResumeIndexes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DE000000000000000E /* ProcessDetectedResumeIndexes.swift */; };
@@ -1688,7 +1630,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		804100000000000000000001 /* TabManager+AdjacentWorkspaceReordering.swift in Sources */ = {isa = PBXBuildFile; fileRef = 804100000000000000000002 /* TabManager+AdjacentWorkspaceReordering.swift */; };
 		7136B0017136B0017136B001 /* TabManager+BackgroundWorkspaceMountPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7136F0017136F0017136F001 /* TabManager+BackgroundWorkspaceMountPolicy.swift */; };
 		DCDC1000000000000000B015 /* TabManager+BrowserFocus.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B016 /* TabManager+BrowserFocus.swift */; };
-		B1CFE0360000000000000001 /* TabManager+BrowserWebExtensionOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0360000000000000002 /* TabManager+BrowserWebExtensionOwnership.swift */; };
 		D7AB00000000000000000013 /* TabManager+DetachedWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000014 /* TabManager+DetachedWorkspace.swift */; };
 		E3309A03 /* TabManager+EqualizeSplits.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A04 /* TabManager+EqualizeSplits.swift */; };
 		E3B7A400000000000000000B /* TabManager+FocusHistoryHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A400000000000000000C /* TabManager+FocusHistoryHosting.swift */; };
@@ -1956,7 +1897,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		F17F00000000000000000005 /* Workspace+FullWidthTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17F00000000000000000006 /* Workspace+FullWidthTab.swift */; };
 		C0DE1A050000000000000001 /* Workspace+LayoutCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1A050000000000000002 /* Workspace+LayoutCapture.swift */; };
 		C3744E010000000000000001 /* Workspace+PanelLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */; };
-		FADE00050000000000000001 /* Workspace+PendingTerminalInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = FADE00050000000000000002 /* Workspace+PendingTerminalInput.swift */; };
 		797800030000000000000001 /* Workspace+PersistentRemotePTYReattach.swift in Sources */ = {isa = PBXBuildFile; fileRef = 797800030000000000000002 /* Workspace+PersistentRemotePTYReattach.swift */; };
 		791100010000000000000001 /* Workspace+RemoteDisconnectPlaceholder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 791100020000000000000001 /* Workspace+RemoteDisconnectPlaceholder.swift */; };
 		806100010000000000000001 /* Workspace+RemoteSessionLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 806100010000000000000002 /* Workspace+RemoteSessionLifecycle.swift */; };
@@ -2002,7 +1942,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		CA52B0180000000000000000 /* WorkspaceLayoutMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0180000000000000000 /* WorkspaceLayoutMode.swift */; };
 		A6AC720A0000000000000001 /* WorkspaceLoadingArguments.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC720A0000000000000002 /* WorkspaceLoadingArguments.swift */; };
 		0F2C25F9170130F8DC09DD1B /* WorkspaceManualUnreadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D301919B10F22B8708E8883 /* WorkspaceManualUnreadTests.swift */; };
-		FADE00090000000000000001 /* WorkspacePendingTerminalInputObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = FADE00090000000000000002 /* WorkspacePendingTerminalInputObserver.swift */; };
 		E3B7A4000000000000000005 /* WorkspacePlacement+Resolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A4000000000000000006 /* WorkspacePlacement+Resolution.swift */; };
 		D0B10004A1B2C3D4E5F60001 /* WorkspacePortalPaneDrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10005A1B2C3D4E5F60001 /* WorkspacePortalPaneDrop.swift */; };
 		5732A0055732A0055732A005 /* WorkspacePresentationModeChangeObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5732B0055732B0055732B005 /* WorkspacePresentationModeChangeObserver.swift */; };
@@ -2243,8 +2182,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		80410000000000000000000A /* AppDelegate+AdjacentNavigationShortcut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+AdjacentNavigationShortcut.swift"; sourceTree = "<group>"; };
 		C0DE45AC0000000000000002 /* AppDelegate+AgentChat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+AgentChat.swift"; sourceTree = "<group>"; };
 C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+AgentChatNotifications.swift"; sourceTree = "<group>"; };
-		C0DE76990000000000000002 /* AppDelegate+BrowserWebExtensionShortcutRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+BrowserWebExtensionShortcutRouting.swift"; sourceTree = "<group>"; };
-		B1CFE03F0000000000000002 /* AppDelegate+BrowserWebExtensionStartupReconciliation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+BrowserWebExtensionStartupReconciliation.swift"; sourceTree = "<group>"; };
 		C4A570010000000000000002 /* AppDelegate+CanvasShortcutRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+CanvasShortcutRouting.swift"; sourceTree = "<group>"; };
 		C4160A030000000000000002 /* AppDelegate+ClosedItemHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+ClosedItemHistory.swift"; sourceTree = "<group>"; };
 		C54860050000000000000002 /* AppDelegate+CmuxNavigationDeepLinks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+CmuxNavigationDeepLinks.swift"; sourceTree = "<group>"; };
@@ -2313,7 +2250,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		7752D68A758642EFA282C208 /* AutoNamingEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoNamingEngineTests.swift; sourceTree = "<group>"; };
 		07EC52007B2144C59C047774 /* AutoNamingGrokAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoNamingGrokAdapterTests.swift; sourceTree = "<group>"; };
 		46792DAA478444ED87B17B31 /* AutoNamingHookPayloadAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoNamingHookPayloadAdapterTests.swift; sourceTree = "<group>"; };
-		FADE00010000000000000002 /* AuxiliaryWindowCloseShortcut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AuxiliaryWindowCloseShortcut.swift; sourceTree = "<group>"; };
 		C0DE35860000000000000002 /* BackgroundWorkspacePrimeCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundWorkspacePrimeCoordinator.swift; sourceTree = "<group>"; };
 		A50012F0 /* Backport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Backport.swift; sourceTree = "<group>"; };
 		74060000000000000000001A /* BonsplitConfiguration+RemoteTmuxEmbedded.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BonsplitConfiguration+RemoteTmuxEmbedded.swift"; sourceTree = "<group>"; };
@@ -2337,8 +2273,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		B1F0C0050000000000000002 /* BrowserDeveloperToolsDockControlNormalizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDeveloperToolsDockControlNormalizer.swift; sourceTree = "<group>"; };
 		B1F0C0060000000000000002 /* BrowserDeveloperToolsDockControlNormalizerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserDeveloperToolsDockControlNormalizerTests.swift; sourceTree = "<group>"; };
 		B1F0C0070000000000000002 /* BrowserDeveloperToolsLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserDeveloperToolsLifecycleTests.swift; sourceTree = "<group>"; };
-		FADE00060000000000000002 /* BrowserDevToolsIconColorOption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDevToolsIconColorOption.swift; sourceTree = "<group>"; };
-		FADE00030000000000000002 /* BrowserDevToolsIconOption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDevToolsIconOption.swift; sourceTree = "<group>"; };
 		B75040020000000000000002 /* BrowserDiscardedWebViewRestoreRetryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserDiscardedWebViewRestoreRetryTests.swift; sourceTree = "<group>"; };
 		B75040010000000000000002 /* BrowserDiscardRestoreHeal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDiscardRestoreHeal.swift; sourceTree = "<group>"; };
 		B75040030000000000000002 /* BrowserDiscardRestoreHealPredicateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserDiscardRestoreHealPredicateTests.swift; sourceTree = "<group>"; };
@@ -2351,9 +2285,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C2035A010000000000000002 /* BrowserErrorPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserErrorPage.swift; sourceTree = "<group>"; };
 		C2035A020000000000000002 /* BrowserErrorPageContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserErrorPageContent.swift; sourceTree = "<group>"; };
 		C2035A0C000000000000002 /* BrowserErrorPageRetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserErrorPageRetry.swift; sourceTree = "<group>"; };
-		FADE00070000000000000002 /* BrowserExternalNavigationAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserExternalNavigationAction.swift; sourceTree = "<group>"; };
-		FADE00080000000000000002 /* BrowserExternalNavigationHandlingResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserExternalNavigationHandlingResult.swift; sourceTree = "<group>"; };
-		FADE00020000000000000002 /* BrowserExternalNavigationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserExternalNavigationPolicy.swift; sourceTree = "<group>"; };
 		D7632A12A1B2C3D4E5F60718 /* BrowserFileDropNavigationGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserFileDropNavigationGuard.swift; sourceTree = "<group>"; };
 		A5008380 /* BrowserFindJavaScriptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserFindJavaScriptTests.swift; sourceTree = "<group>"; };
 		A5008372 /* BrowserFindWebViewEvaluator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/BrowserFindWebViewEvaluator.swift; sourceTree = "<group>"; };
@@ -2425,7 +2356,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C42660020000000000000002 /* BrowserPDFPrintOperationRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPDFPrintOperationRunner.swift; sourceTree = "<group>"; };
 		C2035A090000000000000002 /* BrowserPendingSSLTrustBypass.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPendingSSLTrustBypass.swift; sourceTree = "<group>"; };
 		C67540040000000000000002 /* BrowserPopupPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPopupPanel.swift; sourceTree = "<group>"; };
-		B1CFE03D0000000000000002 /* BrowserPopupStorageContextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPopupStorageContextTests.swift; sourceTree = "<group>"; };
 		A5007421 /* BrowserPopupWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPopupWindowController.swift; sourceTree = "<group>"; };
 		C0DE78950000000000000002 /* BrowserPortalFirstRevealScrollTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPortalFirstRevealScrollTests.swift; sourceTree = "<group>"; };
 		B7380101B7380101B7380101 /* BrowserPortalOmnibarSuggestionsConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPortalOmnibarSuggestionsConfiguration.swift; sourceTree = "<group>"; };
@@ -2478,51 +2408,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A5010000000000000000001F /* BrowserWebAuthnTransportSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnTransportSummary.swift; sourceTree = "<group>"; };
 		A50100000000000000000021 /* BrowserWebAuthnUserDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnUserDescriptor.swift; sourceTree = "<group>"; };
 		C0DE49870000000000000002 /* BrowserWebContentProcessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWebContentProcessTests.swift; sourceTree = "<group>"; };
-		B1CFE0240000000000000002 /* BrowserWebExtensionActionButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionActionButton.swift; sourceTree = "<group>"; };
-		B1CFE00A0000000000000002 /* BrowserWebExtensionActionSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionActionSnapshot.swift; sourceTree = "<group>"; };
-		B1CFE0110000000000000002 /* BrowserWebExtensionActionSnapshotInvalidation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionActionSnapshotInvalidation.swift; sourceTree = "<group>"; };
-		B1CFE0250000000000000002 /* BrowserWebExtensionAnchorViewHolder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionAnchorViewHolder.swift; sourceTree = "<group>"; };
-		B1CFE0260000000000000002 /* BrowserWebExtensionAnchorViewReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionAnchorViewReader.swift; sourceTree = "<group>"; };
-		B1CFE0270000000000000002 /* BrowserWebExtensionCandidate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionCandidate.swift; sourceTree = "<group>"; };
-		FADE000A0000000000000002 /* BrowserWebExtensionCandidateKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionCandidateKind.swift; sourceTree = "<group>"; };
-		B1CFE0370000000000000002 /* BrowserWebExtensionCreatedWindowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWebExtensionCreatedWindowTests.swift; sourceTree = "<group>"; };
-		B1CFE0060000000000000002 /* BrowserWebExtensionDiscoveryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionDiscoveryService.swift; sourceTree = "<group>"; };
-		B1CFE0220000000000000002 /* BrowserWebExtensionDiscoveryServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWebExtensionDiscoveryServiceTests.swift; sourceTree = "<group>"; };
-		B1CFE0320000000000000002 /* BrowserWebExtensionFocusedWindowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWebExtensionFocusedWindowTests.swift; sourceTree = "<group>"; };
-		B1CFE0080000000000000002 /* BrowserWebExtensionHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionHosting.swift; sourceTree = "<group>"; };
-		B1CFE0330000000000000002 /* BrowserWebExtensionInitialPermissionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWebExtensionInitialPermissionTests.swift; sourceTree = "<group>"; };
-		B1CFE00B0000000000000002 /* BrowserWebExtensionLoadedRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionLoadedRecord.swift; sourceTree = "<group>"; };
-		B1CFE03C0000000000000002 /* BrowserWebExtensionLoadErrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWebExtensionLoadErrorTests.swift; sourceTree = "<group>"; };
-		B1CFE00D0000000000000002 /* BrowserWebExtensionNavigationConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionNavigationConfiguration.swift; sourceTree = "<group>"; };
-		B1CFE0230000000000000002 /* BrowserWebExtensionNavigationPolicyTestHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWebExtensionNavigationPolicyTestHost.swift; sourceTree = "<group>"; };
-		B1CFE0380000000000000002 /* BrowserWebExtensionOwnershipLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWebExtensionOwnershipLifecycleTests.swift; sourceTree = "<group>"; };
-		B1CFE0310000000000000002 /* BrowserWebExtensionPermissionReconciliationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWebExtensionPermissionReconciliationTests.swift; sourceTree = "<group>"; };
-		B1CFE00E0000000000000002 /* BrowserWebExtensionPermissionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionPermissionState.swift; sourceTree = "<group>"; };
-		B1CFE0300000000000000002 /* BrowserWebExtensionPermissionStateRemoval.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionPermissionStateRemoval.swift; sourceTree = "<group>"; };
-		B1CFE00F0000000000000002 /* BrowserWebExtensionPermissionStateStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionPermissionStateStore.swift; sourceTree = "<group>"; };
-		B1CFE03A0000000000000002 /* BrowserWebExtensionPopoutPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWebExtensionPopoutPolicyTests.swift; sourceTree = "<group>"; };
-		B1CFE02B0000000000000002 /* BrowserWebExtensionPopoutTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionPopoutTab.swift; sourceTree = "<group>"; };
-		B1CFE03B0000000000000002 /* BrowserWebExtensionPopoutUIDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionPopoutUIDelegate.swift; sourceTree = "<group>"; };
-		B1CFE0050000000000000002 /* BrowserWebExtensionPopoutWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionPopoutWindowController.swift; sourceTree = "<group>"; };
-		B1CFE02C0000000000000002 /* BrowserWebExtensionReconciliationLoadedEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionReconciliationLoadedEntry.swift; sourceTree = "<group>"; };
-		B1CFE02D0000000000000002 /* BrowserWebExtensionReconciliationPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionReconciliationPlan.swift; sourceTree = "<group>"; };
-		B1CFE00C0000000000000002 /* BrowserWebExtensionReconciliationPlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionReconciliationPlanner.swift; sourceTree = "<group>"; };
-		B1CFE02E0000000000000002 /* BrowserWebExtensionReconciliationUnloadEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionReconciliationUnloadEntry.swift; sourceTree = "<group>"; };
-		B1CFE0210000000000000002 /* BrowserWebExtensionReviewRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWebExtensionReviewRegressionTests.swift; sourceTree = "<group>"; };
-		B1CFE0280000000000000002 /* BrowserWebExtensionReviewTestHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWebExtensionReviewTestHost.swift; sourceTree = "<group>"; };
-		B1CFE0400000000000000002 /* BrowserWebExtensionSelectionLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWebExtensionSelectionLifecycleTests.swift; sourceTree = "<group>"; };
-		B1CFE0070000000000000002 /* BrowserWebExtensionSupport+Loading.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserWebExtensionSupport+Loading.swift"; sourceTree = "<group>"; };
-		B1CFE0100000000000000002 /* BrowserWebExtensionSupport+Permissions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserWebExtensionSupport+Permissions.swift"; sourceTree = "<group>"; };
-		B1CFE0350000000000000002 /* BrowserWebExtensionSupport+TabCreation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserWebExtensionSupport+TabCreation.swift"; sourceTree = "<group>"; };
-		B1CFE0340000000000000002 /* BrowserWebExtensionSupport+Windows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserWebExtensionSupport+Windows.swift"; sourceTree = "<group>"; };
-		B1CFE0090000000000000002 /* BrowserWebExtensionSupport+WKWebExtensionControllerDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserWebExtensionSupport+WKWebExtensionControllerDelegate.swift"; sourceTree = "<group>"; };
-		B1CFE0010000000000000002 /* BrowserWebExtensionSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionSupport.swift; sourceTree = "<group>"; };
-		B1CFE03E0000000000000002 /* BrowserWebExtensionSupportLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWebExtensionSupportLifecycleTests.swift; sourceTree = "<group>"; };
-		B1CFE0200000000000000002 /* BrowserWebExtensionSupportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWebExtensionSupportTests.swift; sourceTree = "<group>"; };
-		B1CFE0020000000000000002 /* BrowserWebExtensionTabAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionTabAdapter.swift; sourceTree = "<group>"; };
-		B1CFE02F0000000000000002 /* BrowserWebExtensionTabMetadataSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionTabMetadataSnapshot.swift; sourceTree = "<group>"; };
-		B1CFE0040000000000000002 /* BrowserWebExtensionToolbarButtons.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionToolbarButtons.swift; sourceTree = "<group>"; };
-		B1CFE0030000000000000002 /* BrowserWebExtensionWindowAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionWindowAdapter.swift; sourceTree = "<group>"; };
 		C0DE58990000000000000001 /* BrowserWebKitKeyDownDispatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebKitKeyDownDispatch.swift; sourceTree = "<group>"; };
 		8054B0020000000000000002 /* BrowserWebViewLifecycleState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebViewLifecycleState.swift; sourceTree = "<group>"; };
 		A5001533 /* BrowserWindowPortal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWindowPortal.swift; sourceTree = "<group>"; };
@@ -2727,7 +2612,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		468140000000000000000004 /* CmuxNotificationHookFileFingerprint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxNotificationHookFileFingerprint.swift; sourceTree = "<group>"; };
 		468150000000000000000002 /* CmuxNotificationHookFileSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxNotificationHookFileSnapshot.swift; sourceTree = "<group>"; };
 		468140000000000000000008 /* CmuxNotificationHookParsedConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxNotificationHookParsedConfig.swift; sourceTree = "<group>"; };
-		FADE00040000000000000002 /* CmuxNotificationNames.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxNotificationNames.swift; sourceTree = "<group>"; };
 		C0DE31390000000000000102 /* CMUXOpenCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXOpenCommandTests.swift; sourceTree = "<group>"; };
 		C0DE31390000000000000112 /* CMUXOpenHTMLFocusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXOpenHTMLFocusTests.swift; sourceTree = "<group>"; };
 		A9F100000000000000000005 /* CmuxRuntimeDebugCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxRuntimeDebugCapture.swift; sourceTree = "<group>"; };
@@ -2767,7 +2651,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A5001510 /* CmuxWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CmuxWebView.swift; sourceTree = "<group>"; };
 		D7C0DE00000000000000A104 /* CmuxWebViewContextMenuLinkCaptureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxWebViewContextMenuLinkCaptureTests.swift; sourceTree = "<group>"; };
 		D0B1000DA1B2C3D4E5F60001 /* CmuxWebViewDragRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxWebViewDragRoutingTests.swift; sourceTree = "<group>"; };
-		C0DE59AB0000000000000001 /* CmuxWebViewFocusModeKeyEquivalent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CmuxWebViewFocusModeKeyEquivalent.swift; sourceTree = "<group>"; };
 		C0DE58990000000000000002 /* CmuxWebViewKeyDownReentryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxWebViewKeyDownReentryTests.swift; sourceTree = "<group>"; };
 		43F90FAF3FD44F11BF547BE9 /* CmuxWebViewMouseNavigationButtonTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxWebViewMouseNavigationButtonTests.swift; sourceTree = "<group>"; };
 		A28B087F0000000000000008 /* CmuxWebViewSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CmuxWebViewSupport.swift; sourceTree = "<group>"; };
@@ -2863,7 +2746,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D81390010000000000000002 /* DockShortcutRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockShortcutRoutingTests.swift; sourceTree = "<group>"; };
 		D6212D0C0000000000000002 /* DockSocketLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockSocketLifecycleTests.swift; sourceTree = "<group>"; };
 		DCDC1000000000000000B012 /* DockSplitStore+Appearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+Appearance.swift"; sourceTree = "<group>"; };
-		B1CFE0390000000000000002 /* DockSplitStore+BrowserWebExtensionOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+BrowserWebExtensionOwnership.swift"; sourceTree = "<group>"; };
 		DCDC1000000000000000B022 /* DockSplitStore+CloseConfirmation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+CloseConfirmation.swift"; sourceTree = "<group>"; };
 		DCDC0000000000000000A004 /* DockSplitStore+Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+Config.swift"; sourceTree = "<group>"; };
 		DCDC1000000000000000B020 /* DockSplitStore+PaneFocus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+PaneFocus.swift"; sourceTree = "<group>"; };
@@ -3288,7 +3170,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D1F0A00100000000000000B2 /* PresenceHeartbeatClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PresenceHeartbeatClient.swift; sourceTree = "<group>"; };
 		DE71CE000000000000000009 /* PresenceHeartbeatClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresenceHeartbeatClientTests.swift; sourceTree = "<group>"; };
 		D1F0A00100000000000000B4 /* PresenceSettings.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PresenceSettings.swift; sourceTree = "<group>"; };
-		B1CFE02A0000000000000002 /* PrewarmTestWebExtensionHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrewarmTestWebExtensionHost.swift; sourceTree = "<group>"; };
 		C0DEA771000000000000000E /* PricingPlansScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PricingPlansScreen.swift; sourceTree = "<group>"; };
 		C0DEA771000000000000000C /* ProBadgeStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProBadgeStyle.swift; sourceTree = "<group>"; };
 		F0ACC0DE000000000000000E /* ProcessDetectedResumeIndexes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessDetectedResumeIndexes.swift; sourceTree = "<group>"; };
@@ -3723,7 +3604,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		804100000000000000000002 /* TabManager+AdjacentWorkspaceReordering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+AdjacentWorkspaceReordering.swift"; sourceTree = "<group>"; };
 		7136F0017136F0017136F001 /* TabManager+BackgroundWorkspaceMountPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+BackgroundWorkspaceMountPolicy.swift"; sourceTree = "<group>"; };
 		DCDC1000000000000000B016 /* TabManager+BrowserFocus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+BrowserFocus.swift"; sourceTree = "<group>"; };
-		B1CFE0360000000000000002 /* TabManager+BrowserWebExtensionOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+BrowserWebExtensionOwnership.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000000014 /* TabManager+DetachedWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+DetachedWorkspace.swift"; sourceTree = "<group>"; };
 		E3309A04 /* TabManager+EqualizeSplits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+EqualizeSplits.swift"; sourceTree = "<group>"; };
 		E3B7A400000000000000000C /* TabManager+FocusHistoryHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+FocusHistoryHosting.swift"; sourceTree = "<group>"; };
@@ -3991,7 +3871,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		F17F00000000000000000006 /* Workspace+FullWidthTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+FullWidthTab.swift"; sourceTree = "<group>"; };
 		C0DE1A050000000000000002 /* Workspace+LayoutCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+LayoutCapture.swift"; sourceTree = "<group>"; };
 		C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+PanelLifecycle.swift"; sourceTree = "<group>"; };
-		FADE00050000000000000002 /* Workspace+PendingTerminalInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+PendingTerminalInput.swift"; sourceTree = "<group>"; };
 		797800030000000000000002 /* Workspace+PersistentRemotePTYReattach.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+PersistentRemotePTYReattach.swift"; sourceTree = "<group>"; };
 		791100020000000000000001 /* Workspace+RemoteDisconnectPlaceholder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RemoteDisconnectPlaceholder.swift"; sourceTree = "<group>"; };
 		806100010000000000000002 /* Workspace+RemoteSessionLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RemoteSessionLifecycle.swift"; sourceTree = "<group>"; };
@@ -4037,7 +3916,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		CA52C0180000000000000000 /* WorkspaceLayoutMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceLayoutMode.swift"; sourceTree = "<group>"; };
 		A6AC720A0000000000000002 /* WorkspaceLoadingArguments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceLoadingArguments.swift; sourceTree = "<group>"; };
 		1D301919B10F22B8708E8883 /* WorkspaceManualUnreadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceManualUnreadTests.swift; sourceTree = "<group>"; };
-		FADE00090000000000000002 /* WorkspacePendingTerminalInputObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePendingTerminalInputObserver.swift; sourceTree = "<group>"; };
 		E3B7A4000000000000000006 /* WorkspacePlacement+Resolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspacePlacement+Resolution.swift"; sourceTree = "<group>"; };
 		D0B10005A1B2C3D4E5F60001 /* WorkspacePortalPaneDrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePortalPaneDrop.swift; sourceTree = "<group>"; };
 		5732B0055732B0055732B005 /* WorkspacePresentationModeChangeObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePresentationModeChangeObserver.swift; sourceTree = "<group>"; };
@@ -4630,7 +4508,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				47D5AA7D29C94F5CA865B2BF /* ScreenIdentity.swift */,
 				C1713001C1713001C1713001 /* CommandPaletteShortcutRouting.swift */,
 				B42A82C6AA614E74873D9A5F /* ShortcutRoutingSupport.swift */,
-				FADE00010000000000000002 /* AuxiliaryWindowCloseShortcut.swift */,
 				81B8CFAF8FCA4231C702D16A /* WindowKeyDownReplayGuard.swift */,
 				604500200000000000000002 /* WindowTitleTemplateContext.swift */,
 				604500100000000000000002 /* WindowTitleTemplate.swift */,
@@ -4708,7 +4585,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C06552010000000000000004 /* NotificationBurstCoalescer.swift */,
 				C06552010000000000000002 /* PanelTitleUpdateCoalescingSettings.swift */,
 				A5001013 /* TabManager.swift */,
-				B1CFE0360000000000000002 /* TabManager+BrowserWebExtensionOwnership.swift */,
 				7136F0017136F0017136F001 /* TabManager+BackgroundWorkspaceMountPolicy.swift */,
 				C0DE1A030000000000000002 /* TabManager+SavedLayouts.swift */,
 				C548600B0000000000000002 /* TabManager+SessionRestoreIdentity.swift */,
@@ -4781,9 +4657,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C7268001000000000000002 /* Workspace+CustomSidebarSnapshot.swift */,
 				C7268002000000000000002 /* Workspace+SidebarDirectories.swift */,
 				DCDC1000000000000000B014 /* Workspace+DockBrowserLookup.swift */,
-				FADE00040000000000000002 /* CmuxNotificationNames.swift */,
-				FADE00050000000000000002 /* Workspace+PendingTerminalInput.swift */,
-				FADE00090000000000000002 /* WorkspacePendingTerminalInputObserver.swift */,
 				E30780000000000000000011 /* SSHPTYAttachStartupCommandBuilder.swift */,
 				EE30D5000000000000000001 /* RemoteDaemonStrings+App.swift */,
 				EE30D5000000000000000003 /* WorkspaceRemoteRelayCommandRewriter.swift */,
@@ -5023,9 +4896,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A79840020000000000000001 /* AppDelegate+SocketConfiguration.swift */,
 				80410000000000000000000A /* AppDelegate+AdjacentNavigationShortcut.swift */,
 				C0DE45AC0000000000000002 /* AppDelegate+AgentChat.swift */,
-				C0DE76990000000000000002 /* AppDelegate+BrowserWebExtensionShortcutRouting.swift */,
-				B1CFE03F0000000000000002 /* AppDelegate+BrowserWebExtensionStartupReconciliation.swift */,
-				7725A0027725A0027725A002 /* AppDelegate+ResolvedIconRendering.swift */,
 				C0DE71A00000000000000002 /* AgentChatThemeSync.swift */,
 				C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */,
 				B1F0C0080000000000000002 /* AppDelegateDetachedInspectorClose.swift */,
@@ -5140,42 +5010,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C67540080000000000000002 /* BrowserNavigationDebugURL.swift */,
 				C67540110000000000000002 /* BrowserDownloadRecord.swift */,
 				C67540120000000000000002 /* BrowserDownloadsToolbarButton.swift */,
-				B1CFE0040000000000000002 /* BrowserWebExtensionToolbarButtons.swift */,
-				B1CFE0240000000000000002 /* BrowserWebExtensionActionButton.swift */,
-				B1CFE0250000000000000002 /* BrowserWebExtensionAnchorViewHolder.swift */,
-				B1CFE0260000000000000002 /* BrowserWebExtensionAnchorViewReader.swift */,
-				B1CFE0270000000000000002 /* BrowserWebExtensionCandidate.swift */,
-				FADE000A0000000000000002 /* BrowserWebExtensionCandidateKind.swift */,
-				B1CFE0030000000000000002 /* BrowserWebExtensionWindowAdapter.swift */,
-				B1CFE0020000000000000002 /* BrowserWebExtensionTabAdapter.swift */,
-				B1CFE0010000000000000002 /* BrowserWebExtensionSupport.swift */,
-				B1CFE0070000000000000002 /* BrowserWebExtensionSupport+Loading.swift */,
-				B1CFE0100000000000000002 /* BrowserWebExtensionSupport+Permissions.swift */,
-				B1CFE0090000000000000002 /* BrowserWebExtensionSupport+WKWebExtensionControllerDelegate.swift */,
-				B1CFE0350000000000000002 /* BrowserWebExtensionSupport+TabCreation.swift */,
-				B1CFE0340000000000000002 /* BrowserWebExtensionSupport+Windows.swift */,
-				B1CFE0060000000000000002 /* BrowserWebExtensionDiscoveryService.swift */,
-				B1CFE0050000000000000002 /* BrowserWebExtensionPopoutWindowController.swift */,
-				B1CFE02B0000000000000002 /* BrowserWebExtensionPopoutTab.swift */,
-				B1CFE03B0000000000000002 /* BrowserWebExtensionPopoutUIDelegate.swift */,
-				B1CFE0080000000000000002 /* BrowserWebExtensionHosting.swift */,
-				B1CFE00A0000000000000002 /* BrowserWebExtensionActionSnapshot.swift */,
-				B1CFE0110000000000000002 /* BrowserWebExtensionActionSnapshotInvalidation.swift */,
-				B1CFE00B0000000000000002 /* BrowserWebExtensionLoadedRecord.swift */,
-				B1CFE00D0000000000000002 /* BrowserWebExtensionNavigationConfiguration.swift */,
-				FADE00020000000000000002 /* BrowserExternalNavigationPolicy.swift */,
-				FADE00030000000000000002 /* BrowserDevToolsIconOption.swift */,
-				FADE00060000000000000002 /* BrowserDevToolsIconColorOption.swift */,
-				FADE00070000000000000002 /* BrowserExternalNavigationAction.swift */,
-				FADE00080000000000000002 /* BrowserExternalNavigationHandlingResult.swift */,
-				B1CFE00E0000000000000002 /* BrowserWebExtensionPermissionState.swift */,
-				B1CFE0300000000000000002 /* BrowserWebExtensionPermissionStateRemoval.swift */,
-				B1CFE00F0000000000000002 /* BrowserWebExtensionPermissionStateStore.swift */,
-				B1CFE00C0000000000000002 /* BrowserWebExtensionReconciliationPlanner.swift */,
-				B1CFE02C0000000000000002 /* BrowserWebExtensionReconciliationLoadedEntry.swift */,
-				B1CFE02D0000000000000002 /* BrowserWebExtensionReconciliationPlan.swift */,
-				B1CFE02E0000000000000002 /* BrowserWebExtensionReconciliationUnloadEntry.swift */,
-				B1CFE02F0000000000000002 /* BrowserWebExtensionTabMetadataSnapshot.swift */,
 				C67540100000000000000002 /* BrowserNavigationPopupPolicy.swift */,
 				8054A0060000000000000006 /* BrowserAutomationProbeChannel.swift */,
 				8054A0080000000000000008 /* BrowserAutomationSnapshotResult.swift */,
@@ -5356,7 +5190,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A28B087F0000000000000012 /* BrowserFocusModeKeyDecision.swift */,
 				A28B087F0000000000000014 /* BrowserImageCopyPasteboardBuilder.swift */,
 				C0DE58990000000000000001 /* BrowserWebKitKeyDownDispatch.swift */,
-				C0DE59AB0000000000000001 /* CmuxWebViewFocusModeKeyEquivalent.swift */,
 				D7AB0000000000000000000A /* CmuxWebView+MoveTabToNewWorkspace.swift */,
 				D7C0DE00000000000000A102 /* CmuxWebView+ContextMenuLinkCapture.swift */,
 				C57B00080000000000000002 /* CustomSidebarPaneDataContextCache.swift */,
@@ -5581,7 +5414,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D77800020000000000000002 /* DockSplitStore+PortalReconcile.swift */,
 				DCDC1000000000000000B018 /* DockSplitStore+TerminalStartup.swift */,
 				DCDC0000000000000000A002 /* DockSplitStore.swift */,
-				B1CFE0390000000000000002 /* DockSplitStore+BrowserWebExtensionOwnership.swift */,
 				DCDC1000000000000000B00E /* DockSurfaceKind.swift */,
 				DCDC1000000000000000B010 /* DockTrustRequest.swift */,
 				D82680130000000000000002 /* LocalDockConfigFileSystem.swift */,
@@ -5887,8 +5719,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C59240010000000000000004 /* BrowserDownloadFilenameResolverTests.swift */,
 				C0DE58990000000000000002 /* CmuxWebViewKeyDownReentryTests.swift */,
 				C0DE49870000000000000002 /* BrowserWebContentProcessTests.swift */,
-				B1CFE03D0000000000000002 /* BrowserPopupStorageContextTests.swift */,
-				B1CFE03E0000000000000002 /* BrowserWebExtensionSupportLifecycleTests.swift */,
 				43F90FAF3FD44F11BF547BE9 /* CmuxWebViewMouseNavigationButtonTests.swift */,
 				D3622001A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift */,
 				D3622101A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift */,
@@ -5896,20 +5726,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B6585002B6585002B6585002 /* BrowserHiddenWebViewDiscardMemoryPressureTests.swift */,
 				B75040020000000000000002 /* BrowserDiscardedWebViewRestoreRetryTests.swift */,
 				B75040030000000000000002 /* BrowserDiscardRestoreHealPredicateTests.swift */,
-				B1CFE0200000000000000002 /* BrowserWebExtensionSupportTests.swift */,
-				B1CFE0310000000000000002 /* BrowserWebExtensionPermissionReconciliationTests.swift */,
-				B1CFE0320000000000000002 /* BrowserWebExtensionFocusedWindowTests.swift */,
-				B1CFE0400000000000000002 /* BrowserWebExtensionSelectionLifecycleTests.swift */,
-				B1CFE0330000000000000002 /* BrowserWebExtensionInitialPermissionTests.swift */,
-				B1CFE03C0000000000000002 /* BrowserWebExtensionLoadErrorTests.swift */,
-				B1CFE0370000000000000002 /* BrowserWebExtensionCreatedWindowTests.swift */,
-				B1CFE0380000000000000002 /* BrowserWebExtensionOwnershipLifecycleTests.swift */,
-				B1CFE0210000000000000002 /* BrowserWebExtensionReviewRegressionTests.swift */,
-				B1CFE03A0000000000000002 /* BrowserWebExtensionPopoutPolicyTests.swift */,
-				B1CFE0220000000000000002 /* BrowserWebExtensionDiscoveryServiceTests.swift */,
-				B1CFE0230000000000000002 /* BrowserWebExtensionNavigationPolicyTestHost.swift */,
-				B1CFE0280000000000000002 /* BrowserWebExtensionReviewTestHost.swift */,
-				B1CFE02A0000000000000002 /* PrewarmTestWebExtensionHost.swift */,
 				8054B0040000000000000004 /* BrowserAutomationRecoveryLifecycleTests.swift */,
 				B75040040000000000000002 /* BrowserInsecureHTTPAlertTestSupport.swift */,
 				B6585002B6585002B658PW02 /* BrowserPrewarmedWebViewPoolTests.swift */,
@@ -6822,8 +6638,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				804100000000000000000009 /* AppDelegate+AdjacentNavigationShortcut.swift in Sources */,
 				C0DE45AC0000000000000001 /* AppDelegate+AgentChat.swift in Sources */,
 				C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources */,
-				C0DE76990000000000000001 /* AppDelegate+BrowserWebExtensionShortcutRouting.swift in Sources */,
-				B1CFE03F0000000000000001 /* AppDelegate+BrowserWebExtensionStartupReconciliation.swift in Sources */,
 				C4A570010000000000000001 /* AppDelegate+CanvasShortcutRouting.swift in Sources */,
 				C4160A030000000000000001 /* AppDelegate+ClosedItemHistory.swift in Sources */,
 				C54860050000000000000001 /* AppDelegate+CmuxNavigationDeepLinks.swift in Sources */,
@@ -6865,7 +6679,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5001A02A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift in Sources */,
 				A5001A00A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift in Sources */,
 					D9FEC58D5BACCF76459F1BBE /* AuthEnvironment.swift in Sources */,
-				FADE00010000000000000001 /* AuxiliaryWindowCloseShortcut.swift in Sources */,
 					C0DE35860000000000000001 /* BackgroundWorkspacePrimeCoordinator.swift in Sources */,
 					A50012F1 /* Backport.swift in Sources */,
 				74060000000000000000001B /* BonsplitConfiguration+RemoteTmuxEmbedded.swift in Sources */,
@@ -6881,8 +6694,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D7032A020000000000000001 /* BrowserClientCertificateAuthenticationController.swift in Sources */,
 				D7032A050000000000000001 /* BrowserClientCertificateCredentialPicker.swift in Sources */,
 				B1F0C0050000000000000001 /* BrowserDeveloperToolsDockControlNormalizer.swift in Sources */,
-				FADE00060000000000000001 /* BrowserDevToolsIconColorOption.swift in Sources */,
-				FADE00030000000000000001 /* BrowserDevToolsIconOption.swift in Sources */,
 				B75040010000000000000001 /* BrowserDiscardRestoreHeal.swift in Sources */,
 				C42660030000000000000001 /* BrowserDownloadDelegate+PDFPreviewData.swift in Sources */,
 				C59240010000000000000001 /* BrowserDownloadFilenameResolver.swift in Sources */,
@@ -6892,9 +6703,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C2035A010000000000000001 /* BrowserErrorPage.swift in Sources */,
 				C2035A020000000000000001 /* BrowserErrorPageContent.swift in Sources */,
 				C2035A0C000000000000001 /* BrowserErrorPageRetry.swift in Sources */,
-				FADE00070000000000000001 /* BrowserExternalNavigationAction.swift in Sources */,
-				FADE00080000000000000001 /* BrowserExternalNavigationHandlingResult.swift in Sources */,
-				FADE00020000000000000001 /* BrowserExternalNavigationPolicy.swift in Sources */,
 				D7632A11A1B2C3D4E5F60718 /* BrowserFileDropNavigationGuard.swift in Sources */,
 				A5008373 /* BrowserFindWebViewEvaluator.swift in Sources */,
 				A28B087F0000000000000013 /* BrowserFocusModeKeyDecision.swift in Sources */,
@@ -6986,37 +6794,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5010000000000000000001E /* BrowserWebAuthnTransport.swift in Sources */,
 				A50100000000000000000020 /* BrowserWebAuthnTransportSummary.swift in Sources */,
 				A50100000000000000000022 /* BrowserWebAuthnUserDescriptor.swift in Sources */,
-				B1CFE0240000000000000001 /* BrowserWebExtensionActionButton.swift in Sources */,
-				B1CFE00A0000000000000001 /* BrowserWebExtensionActionSnapshot.swift in Sources */,
-				B1CFE0110000000000000001 /* BrowserWebExtensionActionSnapshotInvalidation.swift in Sources */,
-				B1CFE0250000000000000001 /* BrowserWebExtensionAnchorViewHolder.swift in Sources */,
-				B1CFE0260000000000000001 /* BrowserWebExtensionAnchorViewReader.swift in Sources */,
-				B1CFE0270000000000000001 /* BrowserWebExtensionCandidate.swift in Sources */,
-				FADE000A0000000000000001 /* BrowserWebExtensionCandidateKind.swift in Sources */,
-				B1CFE0060000000000000001 /* BrowserWebExtensionDiscoveryService.swift in Sources */,
-				B1CFE0080000000000000001 /* BrowserWebExtensionHosting.swift in Sources */,
-				B1CFE00B0000000000000001 /* BrowserWebExtensionLoadedRecord.swift in Sources */,
-				B1CFE00D0000000000000001 /* BrowserWebExtensionNavigationConfiguration.swift in Sources */,
-				B1CFE00E0000000000000001 /* BrowserWebExtensionPermissionState.swift in Sources */,
-				B1CFE0300000000000000001 /* BrowserWebExtensionPermissionStateRemoval.swift in Sources */,
-				B1CFE00F0000000000000001 /* BrowserWebExtensionPermissionStateStore.swift in Sources */,
-				B1CFE02B0000000000000001 /* BrowserWebExtensionPopoutTab.swift in Sources */,
-				B1CFE03B0000000000000001 /* BrowserWebExtensionPopoutUIDelegate.swift in Sources */,
-				B1CFE0050000000000000001 /* BrowserWebExtensionPopoutWindowController.swift in Sources */,
-				B1CFE02C0000000000000001 /* BrowserWebExtensionReconciliationLoadedEntry.swift in Sources */,
-				B1CFE02D0000000000000001 /* BrowserWebExtensionReconciliationPlan.swift in Sources */,
-				B1CFE00C0000000000000001 /* BrowserWebExtensionReconciliationPlanner.swift in Sources */,
-				B1CFE02E0000000000000001 /* BrowserWebExtensionReconciliationUnloadEntry.swift in Sources */,
-				B1CFE0070000000000000001 /* BrowserWebExtensionSupport+Loading.swift in Sources */,
-				B1CFE0100000000000000001 /* BrowserWebExtensionSupport+Permissions.swift in Sources */,
-				B1CFE0350000000000000001 /* BrowserWebExtensionSupport+TabCreation.swift in Sources */,
-				B1CFE0340000000000000001 /* BrowserWebExtensionSupport+Windows.swift in Sources */,
-				B1CFE0090000000000000001 /* BrowserWebExtensionSupport+WKWebExtensionControllerDelegate.swift in Sources */,
-				B1CFE0010000000000000001 /* BrowserWebExtensionSupport.swift in Sources */,
-				B1CFE0020000000000000001 /* BrowserWebExtensionTabAdapter.swift in Sources */,
-				B1CFE02F0000000000000001 /* BrowserWebExtensionTabMetadataSnapshot.swift in Sources */,
-				B1CFE0040000000000000001 /* BrowserWebExtensionToolbarButtons.swift in Sources */,
-				B1CFE0030000000000000001 /* BrowserWebExtensionWindowAdapter.swift in Sources */,
 				C0DE58990000000000000003 /* BrowserWebKitKeyDownDispatch.swift in Sources */,
 				8054B0010000000000000001 /* BrowserWebViewLifecycleState.swift in Sources */,
 				A5001534 /* BrowserWindowPortal.swift in Sources */,
@@ -7072,7 +6849,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				468140000000000000000003 /* CmuxNotificationHookFileFingerprint.swift in Sources */,
 				468150000000000000000001 /* CmuxNotificationHookFileSnapshot.swift in Sources */,
 				468140000000000000000007 /* CmuxNotificationHookParsedConfig.swift in Sources */,
-				FADE00040000000000000001 /* CmuxNotificationNames.swift in Sources */,
 				A9F200000000000000000005 /* CmuxRuntimeDebugCapture.swift in Sources */,
 				A9F200000000000000000006 /* CmuxRuntimeDebugCaptureConfiguration.swift in Sources */,
 				A9F20000000000000000001A /* CmuxRuntimeDebugCaptureSender.swift in Sources */,
@@ -7100,7 +6876,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C6255D010000000000000001 /* CmuxWebView+ScriptedDownloads.swift in Sources */,
 				C67540030000000000000001 /* CmuxWebView+SubframeDownloadIntentScript.swift in Sources */,
 				A5001500 /* CmuxWebView.swift in Sources */,
-				C0DE59AB0000000000000002 /* CmuxWebViewFocusModeKeyEquivalent.swift in Sources */,
 				A28B087F0000000000000007 /* CmuxWebViewSupport.swift in Sources */,
 				E30750000000000000000004 /* CmuxWorkspaceDefinition.swift in Sources */,
 				C0A1E5CE01C0A1E5CE01A001 /* CoalesceLatestPublisher.swift in Sources */,
@@ -7163,7 +6938,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D826801B0000000000000001 /* DockRemoteExecutionContext.swift in Sources */,
 				DCDC1000000000000000C020 /* DockScope.swift in Sources */,
 				DCDC1000000000000000B011 /* DockSplitStore+Appearance.swift in Sources */,
-				B1CFE0390000000000000001 /* DockSplitStore+BrowserWebExtensionOwnership.swift in Sources */,
 				DCDC1000000000000000B021 /* DockSplitStore+CloseConfirmation.swift in Sources */,
 				DCDC0000000000000000A003 /* DockSplitStore+Config.swift in Sources */,
 				DCDC1000000000000000B019 /* DockSplitStore+PaneFocus.swift in Sources */,
@@ -7736,7 +7510,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				804100000000000000000001 /* TabManager+AdjacentWorkspaceReordering.swift in Sources */,
 				7136B0017136B0017136B001 /* TabManager+BackgroundWorkspaceMountPolicy.swift in Sources */,
 				DCDC1000000000000000B015 /* TabManager+BrowserFocus.swift in Sources */,
-				B1CFE0360000000000000001 /* TabManager+BrowserWebExtensionOwnership.swift in Sources */,
 				D7AB00000000000000000013 /* TabManager+DetachedWorkspace.swift in Sources */,
 				E3309A03 /* TabManager+EqualizeSplits.swift in Sources */,
 				E3B7A400000000000000000B /* TabManager+FocusHistoryHosting.swift in Sources */,
@@ -7948,7 +7721,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F17F00000000000000000005 /* Workspace+FullWidthTab.swift in Sources */,
 				C0DE1A050000000000000001 /* Workspace+LayoutCapture.swift in Sources */,
 				C3744E010000000000000001 /* Workspace+PanelLifecycle.swift in Sources */,
-				FADE00050000000000000001 /* Workspace+PendingTerminalInput.swift in Sources */,
 				797800030000000000000001 /* Workspace+PersistentRemotePTYReattach.swift in Sources */,
 				791100010000000000000001 /* Workspace+RemoteDisconnectPlaceholder.swift in Sources */,
 				806100010000000000000001 /* Workspace+RemoteSessionLifecycle.swift in Sources */,
@@ -7980,7 +7752,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C9A57206C9A57206C9A57206 /* WorkspaceGroupMoveToMenuState.swift in Sources */,
 				E3B7A4000000000000000007 /* WorkspaceIndicatorStyle+Display.swift in Sources */,
 				CA52B0180000000000000000 /* WorkspaceLayoutMode.swift in Sources */,
-				FADE00090000000000000001 /* WorkspacePendingTerminalInputObserver.swift in Sources */,
 				E3B7A4000000000000000005 /* WorkspacePlacement+Resolution.swift in Sources */,
 				D0B10004A1B2C3D4E5F60001 /* WorkspacePortalPaneDrop.swift in Sources */,
 					5732A0055732A0055732A005 /* WorkspacePresentationModeChangeObserver.swift in Sources */,
@@ -8247,7 +8018,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				8054BEEF0000000000000001 /* BrowserPanelViewIdentityTests.swift in Sources */,
 				C42660040000000000000001 /* BrowserPDFPreviewActionRegressionTests.swift in Sources */,
 				C42660050000000000000001 /* BrowserPDFPreviewActionUnitTests.swift in Sources */,
-				B1CFE03D0000000000000001 /* BrowserPopupStorageContextTests.swift in Sources */,
 				C0DE78950000000000000001 /* BrowserPortalFirstRevealScrollTests.swift in Sources */,
 				B6585001B6585001B658PW01 /* BrowserPrewarmedWebViewPoolTests.swift in Sources */,
 				C2035A060000000000000001 /* BrowserSSLTrustBypassStateTests.swift in Sources */,
@@ -8256,20 +8026,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D8072A02D8072A02D8072A02 /* BrowserViewportRuntimeLoadDelegate.swift in Sources */,
 				D8072A04D8072A04D8072A04 /* BrowserViewportRuntimeTests.swift in Sources */,
 				C0DE49870000000000000001 /* BrowserWebContentProcessTests.swift in Sources */,
-				B1CFE0370000000000000001 /* BrowserWebExtensionCreatedWindowTests.swift in Sources */,
-				B1CFE0220000000000000001 /* BrowserWebExtensionDiscoveryServiceTests.swift in Sources */,
-				B1CFE0320000000000000001 /* BrowserWebExtensionFocusedWindowTests.swift in Sources */,
-				B1CFE0330000000000000001 /* BrowserWebExtensionInitialPermissionTests.swift in Sources */,
-				B1CFE03C0000000000000001 /* BrowserWebExtensionLoadErrorTests.swift in Sources */,
-				B1CFE0230000000000000001 /* BrowserWebExtensionNavigationPolicyTestHost.swift in Sources */,
-				B1CFE0380000000000000001 /* BrowserWebExtensionOwnershipLifecycleTests.swift in Sources */,
-				B1CFE0310000000000000001 /* BrowserWebExtensionPermissionReconciliationTests.swift in Sources */,
-				B1CFE03A0000000000000001 /* BrowserWebExtensionPopoutPolicyTests.swift in Sources */,
-				B1CFE0210000000000000001 /* BrowserWebExtensionReviewRegressionTests.swift in Sources */,
-				B1CFE0280000000000000001 /* BrowserWebExtensionReviewTestHost.swift in Sources */,
-				B1CFE0400000000000000001 /* BrowserWebExtensionSelectionLifecycleTests.swift in Sources */,
-				B1CFE03E0000000000000001 /* BrowserWebExtensionSupportLifecycleTests.swift in Sources */,
-				B1CFE0200000000000000001 /* BrowserWebExtensionSupportTests.swift in Sources */,
 				C0DE62600000000000000001 /* BrowserWindowPortalRegistryNotificationTests.swift in Sources */,
 				C0DE35530000000000000101 /* BundledCLILinkageTests.swift in Sources */,
 				0A0F00560000000000000003 /* CampfireHookNotificationTests.swift in Sources */,
@@ -8499,7 +8255,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					F4100000A1B2C3D4E5F60718 /* PortScannerTests.swift in Sources */,
 				B8E9500A0000000000000001 /* PostHogAnalyticsPropertiesTests.swift in Sources */,
 				DE71CE00000000000000000A /* PresenceHeartbeatClientTests.swift in Sources */,
-				B1CFE02A0000000000000001 /* PrewarmTestWebExtensionHost.swift in Sources */,
 				C47110010000000000000001 /* ProcessPipeReadCrashRegressionTests.swift in Sources */,
 				A64610020000000000000001 /* QuitConfirmationAlertPresenterTests.swift in Sources */,
 				A6D1F0400000000000000002 /* ReleasingWindowControllerTests.swift in Sources */,
