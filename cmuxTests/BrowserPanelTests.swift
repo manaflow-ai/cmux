@@ -616,6 +616,34 @@ final class BrowserPanelFileSystemAccessBridgeTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelInitialNavigationTests: XCTestCase {
+    func testDiffViewerImmediateLoadingAppearsBeforeBrowserConstruction() throws {
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 1_000, height: 700))
+        let sourceView = NSView(frame: NSRect(x: 240, y: 0, width: 760, height: 644))
+        contentView.addSubview(sourceView)
+        let window = NSWindow(
+            contentRect: contentView.bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = contentView
+        defer { window.close() }
+
+        let startedAt = CFAbsoluteTimeGetCurrent()
+        let presentation = try XCTUnwrap(DiffViewerImmediateLoadingPresentation(
+            relativeTo: sourceView,
+            placement: .futureRightSplit
+        ))
+        defer { presentation.close() }
+
+        let elapsed = CFAbsoluteTimeGetCurrent() - startedAt
+        let host = try XCTUnwrap(contentView.subviews.first {
+            $0.identifier?.rawValue == "cmux.diffViewerImmediateLoading"
+        })
+        XCTAssertEqual(host.frame, NSRect(x: 620.5, y: 0, width: 379.5, height: 644))
+        XCTAssertLessThan(elapsed, 0.1)
+    }
+
     func testDiffViewerImmediatePresentationUsesFutureRightSplitFrame() throws {
         let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 1_000, height: 700))
         let sourceView = NSView(frame: NSRect(x: 240, y: 0, width: 760, height: 644))
