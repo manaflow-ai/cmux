@@ -178,6 +178,24 @@ struct AgentTerminalStateClassifierTests {
     }
 
     @Test
+    func codexApprovalPromptUsesRenderedRowsInsteadOfVTLineSeparators() {
+        let ghosttyRenderedInteraction = [
+            "Would you like to run the following command?",
+            "",
+            "Environment: local",
+            "",
+            "$ touch /tmp/cmux-agent-state-blocked-proof",
+            "",
+            "1. Yes, proceed (y)",
+            "2. Yes, and don't ask again (p)",
+            "3. No, and tell Codex what to do differently (esc)",
+            "",
+            "Press enter to confirm or esc to cancel",
+        ].joined(separator: "\r\n")
+        #expect(classifier.classify(screen(familyID: "codex", text: ghosttyRenderedInteraction)).state == .blocked)
+    }
+
+    @Test
     func genericWordsAndQuotedQuestionsDoNotCreateActivity() {
         #expect(classifier.classify(screen(
             familyID: "cursor-agent",
