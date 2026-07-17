@@ -476,6 +476,7 @@ final class BrowserWebExtensionsManager: NSObject {
             extensionIdentifier: context.uniqueIdentifier,
             panelID: panel.id
         )
+        let panelID = panel.id
         let invocation = PendingActionInvocation(
             anchorView: anchorView,
             panelID: panel.id
@@ -496,7 +497,7 @@ final class BrowserWebExtensionsManager: NSObject {
                       let context,
                       self.loadedContexts.contains(where: { $0 === context }),
                       let tabAdapter,
-                      self.tabAdapters[panel.id] === tabAdapter else {
+                      self.tabAdapters[panelID] === tabAdapter else {
                     return
                 }
                 if let error {
