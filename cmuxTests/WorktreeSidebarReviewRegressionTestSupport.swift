@@ -11,7 +11,7 @@ import Observation
 actor WorktreeSidebarReviewRegressionGit: WorktreeSidebarGitOperating {
     let worktree: WorktreeSidebarWorktree
     private var listingCallCount = 0
-    private var blockedListingCalls: Set<Int> = [2, 3]
+    private var blockedListingCalls: Set<Int> = [2, 3, 4]
     private var listingContinuations: [Int: CheckedContinuation<Void, Never>] = [:]
     private var listingCallWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
 
@@ -42,7 +42,7 @@ actor WorktreeSidebarReviewRegressionGit: WorktreeSidebarGitOperating {
                 listingContinuations[call] = continuation
             }
         }
-        return call < 3 ? [worktree] : []
+        return call < 4 ? [worktree] : []
     }
 
     func waitUntilListingCall(_ call: Int) async {

@@ -36,8 +36,8 @@ struct WorktreeSidebarSchedulingTests {
     }
 
     @MainActor
-    @Test("removed rows stay blocked until a post-removal listing reconciles")
-    func removedRowsStayBlockedUntilPostRemovalListingReconciliation() async throws {
+    @Test("removed rows stay blocked until a listing omits the removed path")
+    func removedRowsStayBlockedUntilListingOmitsRemovedPath() async throws {
         let projectRoot = "/tmp/worktree-sidebar-review-project"
         let worktreePath = projectRoot + "/linked"
         let manager = TabManager(
@@ -74,6 +74,18 @@ struct WorktreeSidebarSchedulingTests {
         #expect(manager.tabs.count == workspaceCount)
 
         await git.resumeListingCall(3)
+        await waiter.wait(for: model) { $0.listingPhase == .loaded }
+        model.openTerminal(for: row)
+
+        #expect(manager.tabs.count == workspaceCount)
+
+        model.refreshAll()
+        await git.waitUntilListingCall(4)
+        model.openTerminal(for: row)
+
+        #expect(manager.tabs.count == workspaceCount)
+
+        await git.resumeListingCall(4)
         await waiter.wait(for: model) { $0.rows.isEmpty }
     }
 
