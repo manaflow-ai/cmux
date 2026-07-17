@@ -1825,22 +1825,6 @@ enum BrowserInsecureHTTPNavigationIntent {
     case newTab
 }
 
-enum BrowserInsecureHTTPNavigationResolution {
-    case openedExternally
-    case proceededInCurrentTab
-    case proceededInNewTab
-    case cancelled
-
-    var isTerminalPolicyCancellation: Bool {
-        switch self {
-        case .openedExternally, .proceededInNewTab:
-            true
-        case .proceededInCurrentTab, .cancelled:
-            false
-        }
-    }
-}
-
 final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     static let scheme = "cmux-diff-viewer"
     static let shared = CmuxDiffViewerURLSchemeHandler()
@@ -2627,15 +2611,6 @@ final class BrowserSearchState: ObservableObject {
     }
 }
 
-final class BrowserPortalAnchorView: NSView {
-    override var acceptsFirstResponder: Bool { false }
-    override var isOpaque: Bool { false }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        nil
-    }
-}
-
 @MainActor
 final class BrowserPanel: Panel, ObservableObject {
     /// Popup windows owned by this panel (for lifecycle cleanup)
@@ -3037,6 +3012,41 @@ final class BrowserPanel: Panel, ObservableObject {
         didSet {
             guard oldValue != isReactGrabActive else { return }
             reevaluateHiddenWebViewDiscardScheduling(reason: "react_grab_changed")
+        }
+    }
+    lazy var designModeController = BrowserDesignModeController(
+        surfaceID: id,
+        script: BrowserDesignModeScript(),
+        promptFormatter: BrowserDesignModePromptFormatter(),
+        screenshotStore: BrowserDesignModeScreenshotStore(
+            directory: FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-browser-design-mode", isDirectory: true)
+        ),
+        javaScriptEvaluator: BrowserDesignModeJavaScriptEvaluator(),
+        screenshotEvaluator: BrowserDesignModeScreenshotEvaluator(),
+        canEnable: { [weak self] in self?.shouldRenderWebView == true
+                && self?.isMainFrameProvisionalNavigationActive == false
+                && self?.webView.url != nil
+        },
+        clipboardWriter: { prompt in
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            return pasteboard.setString(prompt, forType: .string)
+        },
+        onActivityChanged: { [weak self] in
+            self?.handleDesignModeActivityChanged()
+        }
+    )
+
+    /// Reacts to design-mode phase changes. Kept out of the lazy
+    /// `designModeController` initializer: referencing the property inside
+    /// its own initializer is a circular reference.
+    private func handleDesignModeActivityChanged() {
+        reevaluateHiddenWebViewDiscardScheduling(reason: "design_mode_changed")
+        // Design Mode needs the omnibar on screen (pen toggle, URL context);
+        // drop browser focus mode when it activates.
+        if designModeController.isActive, isBrowserFocusModeActive {
+            clearBrowserFocusMode(reason: "designMode.activated")
         }
     }
     var reactGrabMessageHandler: ReactGrabMessageHandler?
@@ -3722,6 +3732,7 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.uiDelegate = uiDelegate
         setupObservers(for: webView)
         setupReactGrabMessageHandler(for: webView)
+        designModeController.install(on: webView)
         setupSSLTrustBypassMessageHandler(for: webView)
         setupMediaPlaybackMessageHandler(for: webView)
         webAuthnCoordinator.install(on: webView)
@@ -3767,6 +3778,7 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate.didCommit = { [weak self] webView, navigation in
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+                self.designModeController.webViewWillNavigate()
                 (webView as? CmuxWebView)?.diffViewerNavigationDidCommit(navigation)
                 self.isMainFrameProvisionalNavigationActive = false
                 self.automationDocumentReadiness.didCommit(instanceID: boundWebViewInstanceID)
@@ -4876,8 +4888,7 @@ final class BrowserPanel: Panel, ObservableObject {
         return nil
     }
 
-    /// Tears down every live web-view observer (Swift key-path KVO + Combine
-    /// subscriptions) and clears the derived
+    /// Tears down every live web-view observer and clears the derived
     /// media-activity flags. Invoked at each point a web view is released or
     /// replaced, so a discarded/closed pane never shows a stale
     /// speaker/mic/camera glyph; the next `setupObservers` re-seeds the flags
@@ -4898,6 +4909,7 @@ final class BrowserPanel: Panel, ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
                 guard !self.isMainFrameProvisionalNavigationActive else { return }
+                self.designModeController.webViewURLDidChange(to: observedURL)
                 self.currentURL = Self.remoteProxyDisplayURL(for: observedURL)
                 self.refreshBackgroundAppearance()
                 GlobalSearchCoordinator.shared.captureBrowserPanel(self)
@@ -5349,6 +5361,7 @@ final class BrowserPanel: Panel, ObservableObject {
         closeDeveloperToolsForTeardown()
         unfocus()
         BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: nil)
+        BrowserWindowPortalRegistry.updateDesignComposer(for: webView, configuration: nil)
         BrowserWindowPortalRegistry.updateOmnibarSuggestions(for: webView, configuration: nil)
         BrowserWindowPortalRegistry.detach(webView: webView)
         navigationDelegate?.cancelPendingAuthenticationPrompts()
@@ -5357,6 +5370,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let popupsToClose = popupControllers; popupControllers.removeAll()
         for popup in popupsToClose { popup.closeAllChildPopups(); popup.closePopup() }
         webAuthnCoordinator.tearDown(from: webView); webView.stopLoading()
+        designModeController.webViewWillBeRemoved(webView)
         isMainFrameProvisionalNavigationActive = false
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
@@ -6045,6 +6059,7 @@ extension BrowserPanel: BrowserHiddenWebViewDiscardManagerDelegate {
             isDeveloperToolsVisible: isDeveloperToolsVisible(),
             isElementFullscreenActive: isElementFullscreenActive,
             isReactGrabActive: isReactGrabActive,
+            isDesignModeActive: designModeController.protectsFromDiscard,
             isVisualAutomationCaptureActive: activeVisualAutomationCaptureCount > 0,
             hasPopups: !popupControllers.isEmpty,
             isCapturingMedia: webView.cameraCaptureState != .none || webView.microphoneCaptureState != .none,
@@ -7261,7 +7276,10 @@ extension BrowserPanel {
         shouldRenderWebView &&
             browserInteractiveModalHostWindow(for: webView) != nil &&
             !webView.isHiddenOrHasHiddenAncestor &&
-            searchState == nil
+            searchState == nil &&
+            // Design Mode owns the pointer/keyboard and needs the omnibar's
+            // pen toggle reachable; never hide the chrome under it.
+            !designModeController.isActive
     }
 
     var canToggleBrowserFocusMode: Bool {
@@ -7584,6 +7602,12 @@ extension BrowserPanel {
     @discardableResult
     func setOmnibarVisible(_ visible: Bool) -> Bool {
         guard isOmnibarVisible != visible else { return false }
+#if DEBUG
+        cmuxDebugLog(
+            "browser.omnibar.visible panel=\(id.uuidString.prefix(5)) visible=\(visible ? 1 : 0) " +
+            "callers=\(Thread.callStackSymbols.dropFirst().prefix(5).map { frame in String(frame.split(separator: " ").dropFirst(3).first ?? "?") }.joined(separator: "<"))"
+        )
+#endif
         isOmnibarVisible = visible
         if !visible {
             pendingAddressBarFocusRequestId = nil

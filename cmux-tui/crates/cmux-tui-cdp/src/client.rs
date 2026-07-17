@@ -95,6 +95,7 @@ impl CdpClient {
             anyhow::anyhow!("no socket address for {}:{}", endpoint.host, endpoint.port)
         })?;
         let stream = TcpStream::connect_timeout(&addr, Duration::from_secs(5))?;
+        stream.set_nodelay(true)?;
         stream.set_read_timeout(Some(Duration::from_secs(5)))?;
         stream.set_write_timeout(Some(Duration::from_secs(5)))?;
         let request = web_socket_url.into_client_request()?;
@@ -619,6 +620,7 @@ fn fetch_json_version(host: &str, port: u16) -> anyhow::Result<String> {
     let addr =
         addrs.next().ok_or_else(|| anyhow::anyhow!("no socket address for {host}:{port}"))?;
     let mut stream = TcpStream::connect_timeout(&addr, Duration::from_millis(250))?;
+    stream.set_nodelay(true)?;
     stream.set_read_timeout(Some(Duration::from_millis(500)))?;
     stream.set_write_timeout(Some(Duration::from_millis(500)))?;
     write!(

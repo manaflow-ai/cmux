@@ -49,7 +49,7 @@ struct MacComputerRow: View {
             removeSwipeButton
         }
         .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("MobileComputerRow-\(computer.deviceId)")
+        .accessibilityIdentifier("MobileComputerRow-\(computer.id)")
         .confirmationDialog(
             removeTitle,
             isPresented: isConfirmingRemove,
@@ -60,9 +60,9 @@ struct MacComputerRow: View {
                     L10n.string("mobile.computers.remove", defaultValue: "Remove"),
                     role: .destructive
                 ) {
-                    confirmRemove(computer.deviceId)
+                    confirmRemove(computer.id)
                 }
-                .accessibilityIdentifier("MobileComputerRemoveConfirm-\(computer.deviceId)")
+                .accessibilityIdentifier("MobileComputerRemoveConfirm-\(computer.id)")
             }
             Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
                 isConfirmingRemove.wrappedValue = false
@@ -76,12 +76,12 @@ struct MacComputerRow: View {
     private var rowContainer: some View {
         switch style {
         case .computers:
-            NavigationLink(value: computer.deviceId) {
+            NavigationLink(value: computer.id) {
                 rowLabel
             }
         case .reconnect:
             Button {
-                connect?(computer.deviceId)
+                connect?(computer.id)
             } label: {
                 rowLabel
             }
@@ -135,7 +135,7 @@ struct MacComputerRow: View {
     private var removeSwipeButton: some View {
         if let requestRemove {
             Button {
-                requestRemove(computer.deviceId)
+                requestRemove(computer.id)
             } label: {
                 Label(
                     L10n.string("mobile.computers.remove", defaultValue: "Remove"),
@@ -143,7 +143,7 @@ struct MacComputerRow: View {
                 )
             }
             .tint(.red)
-            .accessibilityIdentifier("MobileComputerRemoveSwipeButton-\(computer.deviceId)")
+            .accessibilityIdentifier("MobileComputerRemoveSwipeButton-\(computer.id)")
         }
     }
 
@@ -151,14 +151,14 @@ struct MacComputerRow: View {
     private var removeMenuButton: some View {
         if let requestRemove {
             Button(role: .destructive) {
-                requestRemove(computer.deviceId)
+                requestRemove(computer.id)
             } label: {
                 Label(
                     L10n.string("mobile.computers.remove", defaultValue: "Remove"),
                     systemImage: "trash"
                 )
             }
-            .accessibilityIdentifier("MobileComputerRemoveMenuButton-\(computer.deviceId)")
+            .accessibilityIdentifier("MobileComputerRemoveMenuButton-\(computer.id)")
         }
     }
 

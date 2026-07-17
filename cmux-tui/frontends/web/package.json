@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",
+    "@xterm/addon-webgl": "0.19.0",
     "@xterm/xterm": "^6.0.0",
     "cmux": "file:../../bindings/typescript",
     "react": "19.2.3",

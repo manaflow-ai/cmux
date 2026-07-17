@@ -337,7 +337,7 @@ final class AgentChatSessionRegistry {
     func noteAssistantTurnCompleted(sessionID: String, at timestamp: Date) {
         update(sessionID: sessionID) { record in
             guard case .working = record.state else { return }
-            record.state = .idle
+            record.setTranscriptObservedIdle()
             if timestamp > record.lastActivityAt {
                 record.lastActivityAt = timestamp
             }
@@ -475,7 +475,7 @@ final class AgentChatSessionRegistry {
         record.lastActivityAt = event.receivedAt
 
         let previous = records[sessionID]
-        record.state = Self.nextState(previous: record.state, event: event)
+        record.setHookLifecycleState(Self.nextState(previous: record.state, event: event))
         stampLifecycleTransition(previous: previous, current: &record, at: event.receivedAt)
         stampVersion(&record)
         storeRecord(record, replacing: previous)
@@ -616,7 +616,7 @@ final class AgentChatSessionRegistry {
                 if let normalizedWorkspace { record.workspaceID = normalizedWorkspace }
                 if let normalizedCwd { record.workingDirectory = normalizedCwd }
                 record.pid = nil
-                record.state = .idle
+                record.setProcessObservedIdle()
                 record.lastActivityAt = now
             }
             return

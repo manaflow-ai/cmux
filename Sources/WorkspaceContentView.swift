@@ -13,6 +13,34 @@ private enum WorkspaceTitlebarInteractionMetrics {
     static let minimalModeTopStripHeight: CGFloat = MinimalModeChromeMetrics.titlebarHeight
 }
 
+enum WorkspacePanelVisibilityPolicy {
+    nonisolated static func panelVisibleInUI(
+        isWorkspaceVisible: Bool,
+        paneHasSelectedTab: Bool,
+        isSelectedInPane: Bool,
+        isFocused: Bool
+    ) -> Bool {
+        guard isWorkspaceVisible else { return false }
+        return isSelectedInPane || (isFocused && !paneHasSelectedTab)
+    }
+
+    nonisolated static func visiblePanelIdForRenderedPane(
+        paneId: UUID,
+        selectedPanelId: UUID?,
+        firstPanelId: UUID?,
+        focusedPanelId: UUID?,
+        focusedPanelPaneId: UUID?
+    ) -> UUID? {
+        if let selectedPanelId {
+            return selectedPanelId
+        }
+        if focusedPanelPaneId == paneId, let focusedPanelId {
+            return focusedPanelId
+        }
+        return firstPanelId
+    }
+}
+
 private struct WorkspacePanelContentHostView: View {
     let workspace: Workspace
     let panel: any Panel
@@ -158,13 +186,20 @@ struct WorkspaceContentView: View {
 
     static func panelVisibleInUI(
         isWorkspaceVisible: Bool,
+        paneHasSelectedTab: Bool,
         isSelectedInPane: Bool,
         isFocused: Bool
     ) -> Bool {
-        guard isWorkspaceVisible else { return false }
         // During pane/tab reparenting, Bonsplit can transiently report selected=false
-        // for the currently focused panel. Keep focused content visible to avoid blank frames.
-        return isSelectedInPane || isFocused
+        // for the currently focused panel. Keep focused content visible only when
+        // the pane has no selected tab to report; if another tab is selected, a
+        // stale focused terminal must not keep its portal view visible.
+        return WorkspacePanelVisibilityPolicy.panelVisibleInUI(
+            isWorkspaceVisible: isWorkspaceVisible,
+            paneHasSelectedTab: paneHasSelectedTab,
+            isSelectedInPane: isSelectedInPane,
+            isFocused: isFocused
+        )
     }
 
     var body: some View {
@@ -208,9 +243,11 @@ struct WorkspaceContentView: View {
                 // Gated focus for the ring/active state only: the main pane yields
                 // its focus ring while the right sidebar (Dock) owns focus.
                 let isFocused = isFocusedPanel && !rightSidebarOwnsInputFocus
-                let isSelectedInPane = workspace.bonsplitController.selectedTab(inPane: paneId)?.id == tab.id
+                let selectedTab = workspace.bonsplitController.selectedTab(inPane: paneId)
+                let isSelectedInPane = selectedTab?.id == tab.id
                 let isVisibleInUI = Self.panelVisibleInUI(
                     isWorkspaceVisible: isWorkspaceVisible,
+                    paneHasSelectedTab: selectedTab != nil,
                     isSelectedInPane: isSelectedInPane,
                     isFocused: isFocusedPanel
                 )
