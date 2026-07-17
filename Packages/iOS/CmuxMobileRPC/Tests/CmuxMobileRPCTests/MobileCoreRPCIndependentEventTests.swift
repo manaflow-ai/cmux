@@ -159,6 +159,51 @@ struct MobileCoreRPCIndependentEventTests {
         await client.disconnect()
     }
 
+    @Test
+    func repeatedSubscriptionDoesNotReopenEndedIndependentEventLane() async throws {
+        let route = try irohRoute(hexBytePair: "de")
+        let source = OneShotIndependentEventSource()
+        let transport = SubscribeRoundTripTransport()
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: FixedTransportFactory(transport: transport),
+            independentEventByteStreamProvider: { _ in try await source.makeStream() }
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: try ticket(route: route, deviceSuffix: "006")
+        )
+        let request = try MobileCoreRPCClient.requestData(
+            method: "mobile.events.subscribe",
+            params: [
+                "stream_id": "events",
+                "topics": ["terminal.updated"],
+            ]
+        )
+
+        _ = try await client.sendRequest(request)
+        await source.finishFirstStream()
+        #expect(await pollUntil { await client.session.independentEventReader == nil })
+
+        do {
+            let responseData = try await client.sendRequest(
+                request,
+                timeoutNanoseconds: 500_000_000
+            )
+            let response = try MobileEventSubscribeResponse.decode(responseData)
+            #expect(response.eventTransport == "control_v1")
+        } catch {
+            Issue.record("A repeated subscription must retain budget for the control RPC: \(error)")
+        }
+
+        #expect(await source.observedRequestCount() == 1)
+        #expect(
+            await transport.recordedEventTransports()
+                == ["iroh_server_events_v1", nil]
+        )
+        await client.disconnect()
+    }
+
     private func irohRoute(hexBytePair: String) throws -> CmxAttachRoute {
         try CmxAttachRoute(
             id: "iroh",
@@ -280,6 +325,26 @@ private actor IndependentEventSource {
     }
 }
 
+private actor OneShotIndependentEventSource {
+    private let first = IndependentEventSource()
+    private var requestCount = 0
+
+    func makeStream() async throws -> CmxIndependentEventByteStream {
+        requestCount += 1
+        if requestCount == 1 {
+            return await first.makeStream()
+        }
+        try await Task.sleep(nanoseconds: 60_000_000_000)
+        throw IndependentEventTestError.closed
+    }
+
+    func finishFirstStream() async {
+        await first.finish(throwing: IndependentEventTestError.closed)
+    }
+
+    func observedRequestCount() -> Int { requestCount }
+}
+
 private actor NeverConnectedTransport: CmxByteTransport {
     func connect() async throws {}
     func receive() async throws -> Data? { nil }
@@ -301,7 +366,7 @@ private actor CloseTrackingNeverConnectedTransport: CmxByteTransport {
 private actor SubscribeRoundTripTransport: CmxByteTransport {
     private var replies: [Data] = []
     private var waiter: CheckedContinuation<Data?, Never>?
-    private var eventTransport: String?
+    private var eventTransports: [String?] = []
     private var closed = false
 
     func connect() async throws {}
@@ -321,7 +386,8 @@ private actor SubscribeRoundTripTransport: CmxByteTransport {
             JSONSerialization.jsonObject(with: payload) as? [String: Any]
         )
         let params = request["params"] as? [String: Any]
-        eventTransport = params?["event_transport"] as? String
+        let eventTransport = params?["event_transport"] as? String
+        eventTransports.append(eventTransport)
         let response = try JSONSerialization.data(withJSONObject: [
             "id": request["id"] ?? NSNull(),
             "ok": true,
@@ -346,6 +412,8 @@ private actor SubscribeRoundTripTransport: CmxByteTransport {
     }
 
     func recordedEventTransport() -> String? {
-        eventTransport
+        eventTransports.last ?? nil
     }
+
+    func recordedEventTransports() -> [String?] { eventTransports }
 }
