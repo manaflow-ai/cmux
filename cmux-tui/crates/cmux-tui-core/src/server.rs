@@ -2285,13 +2285,24 @@ fn handle_command(
     writer: &MessageWriter,
 ) -> anyhow::Result<Value> {
     match cmd {
-        Command::Identify => Ok(json!({
-            "app": "cmux-tui",
-            "version": env!("CARGO_PKG_VERSION"),
-            "protocol": PROTOCOL_VERSION,
-            "session": mux.session,
-            "pid": std::process::id(),
-        })),
+        Command::Identify => {
+            let mut identity = json!({
+                "app": "cmux-tui",
+                "version": env!("CARGO_PKG_VERSION"),
+                "protocol": PROTOCOL_VERSION,
+                "session": mux.session,
+                "pid": std::process::id(),
+            });
+            if let Some(commit) =
+                option_env!("CMUX_TUI_BUILD_COMMIT").or(option_env!("CMUX_MUX_BUILD_COMMIT"))
+            {
+                identity["build_commit"] = json!(commit);
+            }
+            if let Some(commit) = option_env!("CMUX_TUI_GHOSTTY_COMMIT") {
+                identity["ghostty_commit"] = json!(commit);
+            }
+            Ok(identity)
+        }
         Command::Ping => Ok(json!({
             "ok": true,
             "version": env!("CARGO_PKG_VERSION"),
