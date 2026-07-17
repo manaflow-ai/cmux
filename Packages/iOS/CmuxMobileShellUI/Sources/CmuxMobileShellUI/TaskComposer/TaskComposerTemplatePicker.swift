@@ -5,6 +5,8 @@ import SwiftUI
 
 /// Selects the agent command while keeping template management visually secondary.
 struct TaskComposerTemplatePicker: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     let templates: [MobileTaskTemplate]
     let selectedTemplateID: MobileTaskTemplate.ID?
     let isDisabled: Bool
@@ -16,6 +18,7 @@ struct TaskComposerTemplatePicker: View {
             HStack {
                 Text(L10n.string("mobile.taskComposer.agent", defaultValue: "Agent"))
                     .font(.headline)
+                    .accessibilityIdentifier("MobileTaskComposerRoute")
                 Spacer()
                 Button(action: editTemplates) {
                     Label(
@@ -28,7 +31,7 @@ struct TaskComposerTemplatePicker: View {
                 .buttonStyle(.plain)
                 .frame(minWidth: 44, minHeight: 46)
                 .contentShape(Rectangle())
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.accentColor)
                 .disabled(isDisabled)
                 .accessibilityIdentifier("MobileTaskComposerEditTemplatesButton")
             }
@@ -59,6 +62,7 @@ struct TaskComposerTemplatePicker: View {
                     .padding(.vertical, 2)
                 }
                 .contentMargins(.horizontal, 1, for: .scrollContent)
+                .frame(height: dynamicTypeSize.isAccessibilitySize ? 64 : 52)
             }
         }
     }

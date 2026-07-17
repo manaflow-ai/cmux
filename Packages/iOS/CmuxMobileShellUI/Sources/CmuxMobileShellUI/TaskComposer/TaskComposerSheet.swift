@@ -150,49 +150,42 @@ struct TaskComposerSheet: View {
                 Color(uiColor: .systemGroupedBackground)
                     .ignoresSafeArea()
 
-                LinearGradient(
+                RadialGradient(
                     colors: [
-                        Color.accentColor.opacity(0.12),
-                        Color.accentColor.opacity(0.035),
+                        Color.accentColor.opacity(0.2),
+                        Color.accentColor.opacity(0.055),
                         .clear,
                     ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
+                    center: .topLeading,
+                    startRadius: 8,
+                    endRadius: 430
                 )
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
 
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 22) {
-                        TaskComposerHero()
-                        TaskComposerTemplatePicker(
-                            templates: templates,
-                            selectedTemplateID: selectedTemplateID,
-                            isDisabled: submissionPhase.disablesRequestEditing,
-                            selectTemplate: selectTemplateFromPicker,
-                            editTemplates: presentTemplateEditor
-                        )
+                VStack(spacing: 0) {
+                    launchRoute
+                        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                        .frame(maxWidth: 680)
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 14)
+                        .padding(.bottom, 10)
+
+                    ScrollView {
                         TaskComposerPromptCard(
                             prompt: promptBinding,
                             placeholder: promptPlaceholder,
-                            isDisabled: submissionPhase.disablesRequestEditing
-                        )
-                        TaskComposerContextSection(
-                            machines: machines,
-                            selectedMacDeviceID: selectedMacDeviceID,
-                            directory: directory,
                             isDisabled: submissionPhase.disablesRequestEditing,
-                            selectMachine: selectMachine,
-                            selectDirectory: { isDirectoryPickerPresented = true }
+                            template: selectedTemplate
                         )
+                        .frame(maxWidth: 680)
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 20)
                     }
-                    .frame(maxWidth: 680)
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, 20)
-                    .padding(.top, 28)
-                    .padding(.bottom, 28)
+                    .scrollDismissesKeyboard(.interactively)
                 }
-                .scrollDismissesKeyboard(.interactively)
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 TaskComposerPrimaryAction(
@@ -247,6 +240,13 @@ struct TaskComposerSheet: View {
                             macDeviceID: selectedMacDeviceID,
                             query: query
                         )
+                    },
+                    listMac: { path, offset in
+                        await store.listTaskDirectories(
+                            macDeviceID: selectedMacDeviceID,
+                            path: path,
+                            offset: offset
+                        )
                     }
                 )
                 .presentationDetents([.large])
@@ -274,6 +274,71 @@ struct TaskComposerSheet: View {
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         .interactiveDismissDisabled(submissionPhase.locksDismissal)
+    }
+
+    private var launchRoute: some View {
+        VStack(spacing: 10) {
+            TaskComposerTemplatePicker(
+                templates: templates,
+                selectedTemplateID: selectedTemplateID,
+                isDisabled: submissionPhase.disablesRequestEditing,
+                selectTemplate: selectTemplateFromPicker,
+                editTemplates: presentTemplateEditor
+            )
+
+            launchRouteDivider
+
+            TaskComposerContextSection(
+                machines: machines,
+                selectedMacDeviceID: selectedMacDeviceID,
+                directory: directory,
+                isDisabled: submissionPhase.disablesRequestEditing,
+                selectMachine: selectMachine,
+                selectDirectory: { isDirectoryPickerPresented = true }
+            )
+        }
+        .padding(12)
+        .background { launchRouteBackground }
+        .overlay {
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+        }
+        .shadow(color: Color.black.opacity(0.055), radius: 18, y: 8)
+    }
+
+    private var launchRouteDivider: some View {
+        Rectangle()
+            .fill(
+                LinearGradient(
+                    colors: [
+                        .clear,
+                        Color.accentColor.opacity(0.32),
+                        Color.primary.opacity(0.08),
+                        .clear,
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
+            .frame(height: 1)
+            .accessibilityHidden(true)
+    }
+
+    private var launchRouteBackground: some View {
+        RoundedRectangle(cornerRadius: 26, style: .continuous)
+            .fill(.regularMaterial)
+            .overlay {
+                LinearGradient(
+                    colors: [
+                        Color.accentColor.opacity(0.11),
+                        .clear,
+                        Color.primary.opacity(0.025),
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+            }
     }
 
     var selectedTemplate: MobileTaskTemplate? {
@@ -424,7 +489,12 @@ struct TaskComposerSheet: View {
         guard store.persistTaskComposerDraft(
             snapshot.draft,
             ifSessionGeneration: sessionGeneration
-        ) else { return }
+        ) else {
+            let message = Self.draftPersistenceFailureMessage
+            failureText = message
+            announceFailure(message)
+            return
+        }
         submissionPhase = .preparing
         activeSubmissionSnapshot = snapshot
         failureText = nil
@@ -450,15 +520,15 @@ struct TaskComposerSheet: View {
                 // this same draft with a fresh ID, but UI recovery still gates
                 // sending it until refresh and explicit confirmation.
                 submissionIdentity.rotate()
-                guard store.persistTaskComposerDraft(
+                _ = store.persistTaskComposerDraft(
                     draftSnapshot(),
                     ifSessionGeneration: sessionGeneration
-                ) else { return }
+                )
             } else {
-                guard store.persistTaskComposerDraft(
+                _ = store.persistTaskComposerDraft(
                     snapshot.draft,
                     ifSessionGeneration: sessionGeneration
-                ) else { return }
+                )
             }
             let message = Self.failureMessage(failure)
             failureText = message

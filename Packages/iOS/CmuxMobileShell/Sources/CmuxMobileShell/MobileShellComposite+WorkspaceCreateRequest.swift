@@ -102,6 +102,20 @@ extension MobileShellComposite {
                 MobileCoreRPCClient.requestData(method: "workspace.create", params: params)
             )
             let response = try MobileSyncWorkspaceListResponse.decode(resultData)
+            let createdWorkspace: MobileWorkspacePreview.ID?
+            if spec != nil {
+                guard let createdWorkspaceID = response.createdWorkspaceID,
+                      !createdWorkspaceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                      response.workspaces.contains(where: { $0.id == createdWorkspaceID }) else {
+                    return .failure(.rejected(hostDisplayName: context.hostDisplayName))
+                }
+                createdWorkspace = MobileWorkspacePreview.ID(rawValue: createdWorkspaceID)
+            } else {
+                // Legacy workspace creates predate `created_workspace_id`. Keep
+                // accepting their list response, while spec creates require the
+                // exact created workspace so callers can navigate reliably.
+                createdWorkspace = response.createdWorkspaceID.map(MobileWorkspacePreview.ID.init(rawValue:))
+            }
             switch WorkspaceCreatePinnedContext.postResponseDisposition(
                 operationID: spec?.operationID,
                 isCancelled: Task.isCancelled,
@@ -119,7 +133,6 @@ extension MobileShellComposite {
                 break
             }
             applyRemoteWorkspaceList(response, mergeExistingWorkspaces: true)
-            let createdWorkspace = response.createdWorkspaceID.map(MobileWorkspacePreview.ID.init(rawValue:))
             if let createdWorkspace {
                 setSelectedWorkspaceID(
                     rowWorkspaceID(

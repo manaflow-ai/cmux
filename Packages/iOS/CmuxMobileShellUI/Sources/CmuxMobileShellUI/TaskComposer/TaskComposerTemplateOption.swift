@@ -6,10 +6,10 @@ import SwiftUI
 struct TaskComposerTemplateOption: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(MobileDisplaySettings.self) private var displaySettings
-    @ScaledMetric(relativeTo: .caption) private var cardWidth: CGFloat = 86
-    @ScaledMetric(relativeTo: .caption) private var cardHeight: CGFloat = 78
-    @ScaledMetric(relativeTo: .caption) private var iconDiameter: CGFloat = 40
-    @ScaledMetric(relativeTo: .caption) private var iconSize: CGFloat = 22
+    @ScaledMetric(relativeTo: .caption) private var cardWidth: CGFloat = 91
+    @ScaledMetric(relativeTo: .caption) private var cardHeight: CGFloat = 48
+    @ScaledMetric(relativeTo: .caption) private var iconDiameter: CGFloat = 29
+    @ScaledMetric(relativeTo: .caption) private var iconSize: CGFloat = 17
 
     let template: MobileTaskTemplate
     let isSelected: Bool
@@ -33,7 +33,7 @@ struct TaskComposerTemplateOption: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 8) {
+            HStack(spacing: 7) {
                 ZStack(alignment: .topTrailing) {
                     Circle()
                         .fill(
@@ -53,35 +53,34 @@ struct TaskComposerTemplateOption: View {
                         .frame(width: resolvedIconDiameter, height: resolvedIconDiameter)
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
-                            .font(.caption.weight(.semibold))
+                            .font(.system(size: 10, weight: .bold))
                             .symbolRenderingMode(.palette)
                             .foregroundStyle(.white, Color.accentColor)
-                            .offset(x: 4, y: -3)
+                            .offset(x: 3, y: -2)
                             .accessibilityHidden(true)
                     }
                 }
 
                 Text(template.name)
-                    .font(.caption.weight(.semibold))
+                    .font(.caption2.weight(.semibold))
                     .foregroundStyle(isSelected ? Color.accentColor : .primary)
-                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
-                    .multilineTextAlignment(.center)
-                    .minimumScaleFactor(0.78)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
             }
             .dynamicTypeSize(...DynamicTypeSize.accessibility1)
             .frame(width: resolvedCardWidth, height: resolvedCardHeight)
             .background(
-                isSelected ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.045),
-                in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+                isSelected ? Color.accentColor.opacity(0.13) : Color.primary.opacity(0.038),
+                in: Capsule()
             )
             .overlay {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                Capsule()
                     .stroke(
-                        isSelected ? Color.accentColor.opacity(0.6) : Color.primary.opacity(0.075),
-                        lineWidth: isSelected ? 1.5 : 1
+                        isSelected ? Color.accentColor.opacity(0.62) : Color.primary.opacity(0.065),
+                        lineWidth: isSelected ? 1.25 : 1
                     )
             }
-            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
@@ -91,19 +90,19 @@ struct TaskComposerTemplateOption: View {
     }
 
     private var resolvedCardWidth: CGFloat {
-        min(cardWidth, dynamicTypeSize.isAccessibilitySize ? 118 : 96)
+        min(cardWidth, dynamicTypeSize.isAccessibilitySize ? 122 : 98)
     }
 
     private var resolvedCardHeight: CGFloat {
-        min(cardHeight, dynamicTypeSize.isAccessibilitySize ? 108 : 88)
+        min(cardHeight, dynamicTypeSize.isAccessibilitySize ? 60 : 52)
     }
 
     private var resolvedIconDiameter: CGFloat {
-        min(iconDiameter, dynamicTypeSize.isAccessibilitySize ? 52 : 44)
+        min(iconDiameter, dynamicTypeSize.isAccessibilitySize ? 34 : 31)
     }
 
     private var resolvedIconSize: CGFloat {
-        min(iconSize, dynamicTypeSize.isAccessibilitySize ? 28 : 24)
+        min(iconSize, dynamicTypeSize.isAccessibilitySize ? 20 : 18)
     }
 
     private var resolvedShellIconVariant: TaskComposerShellIconVariant {

@@ -5,6 +5,7 @@ import Foundation
 import Testing
 @testable import CmuxMobileShellUI
 
+@MainActor
 @Suite struct TaskComposerFailureMessageTests {
     @Test func invalidWorkingDirectoryUsesActionableLocalizedDefault() {
         let message = TaskComposerSheet.failureMessage(
@@ -20,6 +21,13 @@ import Testing
         )
 
         #expect(message == "The Mac could not safely reserve this task.")
+    }
+
+    @Test func localDraftPersistenceFailureExplainsHowToRecover() {
+        #expect(
+            TaskComposerSheet.draftPersistenceFailureMessage
+                == "cmux couldn’t save this draft safely. Reopen the composer and try again."
+        )
     }
 
     @Test func completedOperationExplainsHowToRecover() {

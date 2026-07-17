@@ -13803,6 +13803,8 @@ class TerminalController {
             result = v2MobileWorkspaceList(params: request.params)
         case "mobile.directory.search":
             result = await v2MobileDirectorySearch(params: request.params)
+        case "mobile.directory.list":
+            result = await v2MobileDirectoryList(params: request.params)
         case "workspace.create":
             result = await v2MobileWorkspaceCreate(params: request.params)
         case "mobile.terminal.create", "terminal.create":

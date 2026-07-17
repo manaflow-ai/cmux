@@ -1,9 +1,8 @@
 import Foundation
 
 extension TerminalController {
-    /// Searches real directories on the Mac for the iOS task composer. The
-    /// filesystem service performs bounded off-main indexing; this main-actor
-    /// boundary only validates the request and snapshots open-workspace paths.
+    /// Searches indexed directories across mounted volumes for the iOS task
+    /// composer and reports the filesystem coverage limits on the wire.
     func v2MobileDirectorySearch(params: [String: Any]) async -> V2CallResult {
         guard let rawQuery = params["query"] as? String else {
             return .err(code: "invalid_params", message: "Missing query", data: nil)
@@ -14,19 +13,20 @@ extension TerminalController {
         }
         let seedPaths = mobileDirectorySearchSeedPaths()
         do {
-            let directories = try await MobileTaskDirectorySearchService.shared.search(
+            // Construct per request until the controller composition root can
+            // inject the stateless service without colliding with its refactor.
+            let result = try await MobileTaskDirectorySearchService().search(
                 query: query,
                 seedPaths: seedPaths
             )
-            return .ok(["directories": directories])
-        } catch MobileTaskDirectorySearchService.SearchError.indexTimedOut {
-            return .err(
-                code: "request_timeout",
-                message: "Directory search index timed out",
-                data: nil
-            )
-        } catch MobileTaskDirectorySearchService.SearchError.busy {
-            return .err(code: "busy", message: "Directory search is busy", data: nil)
+            return .ok([
+                "directories": result.directories,
+                "search_scope": result.scope.rawValue,
+                "gathering_complete": result.gatheringComplete,
+                "filesystem_complete": result.filesystemComplete,
+                "truncated": result.truncated,
+                "indexed_match_count": result.indexedMatchCount,
+            ])
         } catch is CancellationError {
             return .err(code: "cancelled", message: "Directory search was cancelled", data: nil)
         } catch {

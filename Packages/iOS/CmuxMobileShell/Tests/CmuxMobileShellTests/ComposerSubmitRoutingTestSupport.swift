@@ -65,6 +65,8 @@ actor RoutingHostRouter {
     private var workspaceCreateError: (code: String?, message: String)?
     private var workspaceCreateResponseCreatedWorkspaceID: String? = "workspace-created"
     private var workspaceCreateResponseIncludesCreatedWorkspace = true
+    private(set) var directoryListRequests: [(path: String, offset: Int, limit: Int)] = []
+    private var directoryListError: (code: String?, message: String)?
     private var directorySearchError: (code: String?, message: String)?
     private var holdFirstWorkspaceCreate = false
     private var firstWorkspaceCreateHeld = false
@@ -128,6 +130,10 @@ actor RoutingHostRouter {
         directorySearchError = (code, message)
     }
 
+    func setDirectoryListError(code: String?, message: String) {
+        directoryListError = (code, message)
+    }
+
     func setHostCapabilities(_ capabilities: [String]) {
         hostCapabilities = capabilities
     }
@@ -154,6 +160,9 @@ actor RoutingHostRouter {
     func recordedPasteImages() -> [PasteImageRecord] { pasteImages }
     func recordedPastes() -> [PasteRecord] { pastes }
     func recordedDirectorySearchQueries() -> [String] { directorySearchQueries }
+    func recordedDirectoryListRequests() -> [(path: String, offset: Int, limit: Int)] {
+        directoryListRequests
+    }
     func recordedDismisses() -> [(notificationIDs: [String], clientID: String?)] { dismisses }
 
     /// Sendable extract of the request fields the router needs, pulled off the
@@ -173,6 +182,9 @@ actor RoutingHostRouter {
         var initialEnv: [String: String]?
         var operationID: String?
         var query: String?
+        var directoryPath: String?
+        var directoryOffset: Int?
+        var directoryLimit: Int?
     }
 
     func response(_ info: RequestInfo) async -> Data? {
@@ -291,6 +303,47 @@ actor RoutingHostRouter {
                     "/Users/test/Dev/Manaflow/cmuxterm-hq",
                 ],
             ])
+        case "mobile.directory.list":
+            let path = info.directoryPath ?? ""
+            let offset = info.directoryOffset ?? 0
+            let limit = info.directoryLimit ?? 50
+            directoryListRequests.append((path, offset, limit))
+            if let directoryListError {
+                return try? Self.errorFrame(
+                    id: id,
+                    code: directoryListError.code,
+                    message: directoryListError.message
+                )
+            }
+            let allEntries: [[String: Any]] = [
+                [
+                    "name": ".hidden",
+                    "path": "/Users/test/.hidden",
+                    "is_hidden": true,
+                    "is_package": false,
+                    "is_symbolic_link": false,
+                    "is_readable": true,
+                ],
+                [
+                    "name": "Projects",
+                    "path": "/Users/test/Projects",
+                    "is_hidden": false,
+                    "is_package": false,
+                    "is_symbolic_link": false,
+                    "is_readable": true,
+                ],
+            ]
+            let boundedOffset = min(max(offset, 0), allEntries.count)
+            let end = min(boundedOffset + max(limit, 0), allEntries.count)
+            return try? Self.resultFrame(id: id, result: [
+                "current_path": "/Users/test",
+                "parent_path": "/Users",
+                "entries": Array(allEntries[boundedOffset..<end]),
+                "offset": boundedOffset,
+                "limit": limit,
+                "total_count": allEntries.count,
+                "next_offset": end < allEntries.count ? end : NSNull() as Any,
+            ])
         case "terminal.paste_image":
             let surfaceID = info.surfaceID ?? ""
             let format = info.imageFormat ?? ""
@@ -402,7 +455,10 @@ private actor RoutingTransport: CmxByteTransport {
                 initialCommand: params?["initial_command"] as? String,
                 initialEnv: params?["initial_env"] as? [String: String],
                 operationID: params?["operation_id"] as? String,
-                query: params?["query"] as? String
+                query: params?["query"] as? String,
+                directoryPath: params?["path"] as? String,
+                directoryOffset: params?["offset"] as? Int,
+                directoryLimit: params?["limit"] as? Int
             )
             Task { [router, weak self] in
                 guard let response = await router.response(info) else {

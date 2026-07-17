@@ -7675,6 +7675,31 @@
         }
       }
     },
+    "mobile.taskComposer.directoryPicker.browse.computer": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Computer"}},"ja":{"stringUnit":{"state":"translated","value":"コンピュータ"}}}},
+    "mobile.taskComposer.directoryPicker.browse.empty.message": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"You can still use this folder for the new workspace."}},"ja":{"stringUnit":{"state":"translated","value":"このフォルダは新しいワークスペースにそのまま使用できます。"}}}},
+    "mobile.taskComposer.directoryPicker.browse.empty.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No Subfolders"}},"ja":{"stringUnit":{"state":"translated","value":"サブフォルダはありません"}}}},
+    "mobile.taskComposer.directoryPicker.browse.failure.access.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Folder Access Needed"}},"ja":{"stringUnit":{"state":"translated","value":"フォルダへのアクセスが必要です"}}}},
+    "mobile.taskComposer.directoryPicker.browse.failure.generic": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The Mac could not list this folder. Try again."}},"ja":{"stringUnit":{"state":"translated","value":"Macでこのフォルダの一覧を取得できませんでした。もう一度お試しください。"}}}},
+    "mobile.taskComposer.directoryPicker.browse.failure.invalid": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Choose another location and try again."}},"ja":{"stringUnit":{"state":"translated","value":"別の場所を選択して、もう一度お試しください。"}}}},
+    "mobile.taskComposer.directoryPicker.browse.failure.missing": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This folder moved or no longer exists. Choose another location."}},"ja":{"stringUnit":{"state":"translated","value":"このフォルダは移動されたか、存在しません。別の場所を選択してください。"}}}},
+    "mobile.taskComposer.directoryPicker.browse.failure.permission": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Allow cmux to access this location on the Mac, then retry."}},"ja":{"stringUnit":{"state":"translated","value":"Macでcmuxにこの場所へのアクセスを許可してから、もう一度お試しください。"}}}},
+    "mobile.taskComposer.directoryPicker.browse.failure.timeout": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This folder took too long to load. Check the Mac or network volume, then retry."}},"ja":{"stringUnit":{"state":"translated","value":"このフォルダの読み込みに時間がかかりすぎました。Macまたはネットワークボリュームを確認して、もう一度お試しください。"}}}},
+    "mobile.taskComposer.directoryPicker.browse.failure.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Couldn’t Open Folder"}},"ja":{"stringUnit":{"state":"translated","value":"フォルダを開けませんでした"}}}},
+    "mobile.taskComposer.directoryPicker.browse.failure.unreadable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The Mac can see this folder but cannot read its contents."}},"ja":{"stringUnit":{"state":"translated","value":"Macはこのフォルダを認識していますが、内容を読み取れません。"}}}},
+    "mobile.taskComposer.directoryPicker.browse.failure.update.message": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Install the latest cmux on the Mac to browse every accessible folder."}},"ja":{"stringUnit":{"state":"translated","value":"Macのcmuxを最新版に更新すると、アクセス可能なすべてのフォルダを参照できます。"}}}},
+    "mobile.taskComposer.directoryPicker.browse.failure.update.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Update cmux on This Mac"}},"ja":{"stringUnit":{"state":"translated","value":"このMacのcmuxを更新してください"}}}},
+    "mobile.taskComposer.directoryPicker.browse.home": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Home"}},"ja":{"stringUnit":{"state":"translated","value":"ホーム"}}}},
+    "mobile.taskComposer.directoryPicker.browse.loading": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Loading folders…"}},"ja":{"stringUnit":{"state":"translated","value":"フォルダを読み込み中…"}}}},
+    "mobile.taskComposer.directoryPicker.browse.more": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Show More"}},"ja":{"stringUnit":{"state":"translated","value":"さらに表示"}}}},
+    "mobile.taskComposer.directoryPicker.browse.open.hint": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Shows the folders inside this folder."}},"ja":{"stringUnit":{"state":"translated","value":"このフォルダ内のフォルダを表示します。"}}}},
+    "mobile.taskComposer.directoryPicker.browse.parent": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Parent Folder"}},"ja":{"stringUnit":{"state":"translated","value":"親フォルダ"}}}},
+    "mobile.taskComposer.directoryPicker.browse.useFormat": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Use “%@”"}},"ja":{"stringUnit":{"state":"translated","value":"“%@”を使用"}}}},
+    "mobile.taskComposer.directoryPicker.search.coverage": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Search checks indexed folders across mounted volumes. Browse to reach unindexed or restricted locations."}},"ja":{"stringUnit":{"state":"translated","value":"検索では、マウントされたボリューム内のインデックス登録済みフォルダを確認します。インデックス未登録またはアクセス制限のある場所は、参照して探してください。"}}}},
+    "mobile.taskComposer.directoryPicker.search.empty.message": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Browse the Mac to reach folders outside its search index."}},"ja":{"stringUnit":{"state":"translated","value":"Macを参照すると、検索インデックス外のフォルダに移動できます。"}}}},
+    "mobile.taskComposer.directoryPicker.search.empty.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No Indexed Matches"}},"ja":{"stringUnit":{"state":"translated","value":"インデックス内に一致する項目はありません"}}}},
+    "mobile.taskComposer.directoryPicker.search.limited": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This Mac returned limited search results. Browse to reach every accessible folder."}},"ja":{"stringUnit":{"state":"translated","value":"このMacから返された検索結果は限定されています。アクセス可能なすべてのフォルダは参照して探せます。"}}}},
+    "mobile.taskComposer.directoryPicker.search.partial": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The Mac search index did not finish in time. Refine your search or retry."}},"ja":{"stringUnit":{"state":"translated","value":"Macの検索インデックスが時間内に完了しませんでした。検索語を絞るか、もう一度お試しください。"}}}},
+    "mobile.taskComposer.directoryPicker.search.truncated": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"More indexed folders match. Refine your search to see them."}},"ja":{"stringUnit":{"state":"translated","value":"一致するインデックス登録済みフォルダがさらにあります。検索語を絞り込んでください。"}}}},
     "mobile.taskComposer.directoryPicker.empty.message": {
       "extractionState": "manual",
       "localizations": {
@@ -7744,19 +7769,20 @@
         "ja": { "stringUnit": { "state": "translated", "value": "このMacに再接続してから、もう一度お試しください。" } }
       }
     },
+    "mobile.taskComposer.directoryPicker.failure.unsupported": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Update cmux on this Mac to search its folders. You can still choose a recent location."}},"ja":{"stringUnit":{"state":"translated","value":"このMacのフォルダを検索するにはcmuxを更新してください。最近使った場所は引き続き選べます。"}}}},
     "mobile.taskComposer.directoryPicker.hint": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opens a searchable list of folders from this Mac."
+            "value": "Browses and searches folders on this Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このMacのフォルダを検索できるリストを開きます。"
+            "value": "このMac上のフォルダを参照、検索します。"
           }
         }
       }
@@ -8012,6 +8038,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "別のワークスペース操作がまだ完了していません。"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.failure.draftPersistence": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux couldn’t save this draft safely. Reopen the composer and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この下書きを安全に保存できませんでした。タスク作成画面を開き直して、もう一度お試しください。"
           }
         }
       }

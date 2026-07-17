@@ -82,13 +82,15 @@ struct TaskComposerPrimaryAction: View {
                             ProgressView()
                         } else if let templateIcon {
                             TaskTemplateIcon(value: templateIcon, size: 18)
+                                .frame(width: 28, height: 28)
+                                .background(Color.white.opacity(0.14), in: Circle())
                         }
                         Text(isSubmitting ? progressTitle : actionTitle)
                             .fontWeight(.semibold)
                             .lineLimit(1)
                             .minimumScaleFactor(0.82)
                         if !isSubmitting {
-                            Image(systemName: "arrow.up.right")
+                            Image(systemName: "paperplane.fill")
                                 .font(.subheadline.weight(.bold))
                                 .accessibilityHidden(true)
                         }
@@ -106,7 +108,8 @@ struct TaskComposerPrimaryAction: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
-                    .lineLimit(2)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity)
                     .accessibilityIdentifier("MobileTaskComposerActionCaption")
@@ -118,10 +121,19 @@ struct TaskComposerPrimaryAction: View {
         .dynamicTypeSize(...DynamicTypeSize.accessibility1)
         .frame(maxWidth: 680)
         .padding(.horizontal, 20)
-        .padding(.top, 12)
-        .padding(.bottom, 8)
+        .padding(.top, 8)
+        .padding(.bottom, 6)
         .frame(maxWidth: .infinity)
-        .background(.bar)
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .top) {
+            LinearGradient(
+                colors: [.clear, Color.accentColor.opacity(0.24), .clear],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(height: 1)
+            .accessibilityHidden(true)
+        }
         .animation(.snappy(duration: 0.22), value: isEnabled)
         .sensoryFeedback(.impact(weight: .light), trigger: isSubmitting) { oldValue, newValue in
             !oldValue && newValue

@@ -169,8 +169,8 @@ final class cmuxUITests: XCTestCase {
         }
     }
 
-    /// The composer is a prompt-first launch surface: the prompt receives focus
-    /// immediately, while the hero and personalized action remain available.
+    /// The composer keeps the launch route visible while the prompt receives
+    /// focus, so the user can verify the agent, Mac, and folder while typing.
     @MainActor
     func testTaskComposerOpensFocusedWithPersonalizedLaunchAction() throws {
         let app = launchApp(mockData: false, environment: [
@@ -179,8 +179,15 @@ final class cmuxUITests: XCTestCase {
         defer { app.terminate() }
 
         XCTAssertTrue(app.textFields["MobileTaskComposerPrompt"].waitForExistence(timeout: 8))
-        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 3))
-        XCTAssertTrue(app.descendants(matching: .any)["MobileTaskComposerHero"].exists)
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.descendants(matching: .any)["MobileTaskComposerRoute"].exists)
+        let machine = app.buttons["MobileTaskComposerMachineMenu"]
+        let directory = app.buttons["MobileTaskComposerDirectory"]
+        XCTAssertTrue(machine.exists)
+        XCTAssertTrue(directory.exists)
+        XCTAssertLessThanOrEqual(machine.frame.maxY, keyboard.frame.minY)
+        XCTAssertLessThanOrEqual(directory.frame.maxY, keyboard.frame.minY)
         XCTAssertEqual(app.buttons["MobileTaskComposerCreateButton"].label, "Start Claude")
 
         let attachment = XCTAttachment(screenshot: app.screenshot())
@@ -214,6 +221,19 @@ final class cmuxUITests: XCTestCase {
             120,
             "Agent cards must remain scannable instead of scaling into full-width panels"
         )
+        let route = app.staticTexts["MobileTaskComposerRoute"]
+        let machine = app.buttons["MobileTaskComposerMachineMenu"]
+        let directory = app.buttons["MobileTaskComposerDirectory"]
+        XCTAssertTrue(route.waitForExistence(timeout: 3))
+        XCTAssertTrue(machine.waitForExistence(timeout: 3))
+        XCTAssertTrue(directory.waitForExistence(timeout: 3))
+        XCTAssertGreaterThanOrEqual(
+            route.frame.minY,
+            app.navigationBars["New Task"].frame.maxY,
+            "Prompt focus must not scroll the launch route behind the navigation title"
+        )
+        XCTAssertLessThanOrEqual(machine.frame.maxY, prompt.frame.minY)
+        XCTAssertLessThanOrEqual(directory.frame.maxY, prompt.frame.minY)
         let keyboard = app.keyboards.firstMatch
         XCTAssertTrue(keyboard.waitForExistence(timeout: 3))
         let create = app.buttons["MobileTaskComposerCreateButton"]
@@ -454,6 +474,11 @@ final class cmuxUITests: XCTestCase {
         let search = app.searchFields["Search folders"]
         XCTAssertTrue(search.waitForExistence(timeout: 8))
         try typeText("mobile-root", into: search, in: app)
+        XCTAssertTrue(
+            app.staticTexts[
+                "Search checks indexed folders across mounted volumes. Browse to reach unindexed or restricted locations."
+            ].waitForExistence(timeout: 3)
+        )
         let root = app.buttons["mobile-root"]
         let sources = app.buttons["Sources"]
         XCTAssertTrue(root.waitForExistence(timeout: 5))
@@ -467,6 +492,35 @@ final class cmuxUITests: XCTestCase {
         let selectedPath = app.staticTexts["MobileTaskComposerSelectedDirectory"]
         XCTAssertTrue(selectedPath.waitForExistence(timeout: 4))
         XCTAssertEqual(selectedPath.label, "/Users/ui/mobile-root/Sources")
+    }
+
+    /// Empty search is a real filesystem browser. Hidden folders, packages,
+    /// symlinked directories, root navigation, and current-folder selection
+    /// must all remain available instead of collapsing to recent suggestions.
+    @MainActor
+    func testTaskComposerDirectoryBrowserShowsEveryDirectoryKindAndSelectsCurrentFolder() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_DIRECTORY_PICKER_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileTaskDirectoryBrowseCurrent"]
+                .waitForExistence(timeout: 8)
+        )
+        XCTAssertTrue(app.buttons["MobileTaskDirectoryBrowseComputer"].exists)
+        XCTAssertTrue(app.buttons[".hidden"].exists)
+        XCTAssertTrue(app.buttons["Projects.app"].exists)
+        XCTAssertTrue(app.buttons["mobile-link"].exists)
+
+        tap(app.buttons["mobile-root"], in: app)
+        XCTAssertTrue(app.buttons["Sources"].waitForExistence(timeout: 4))
+        tap(app.buttons["MobileTaskDirectoryBrowseUseCurrent"], in: app)
+
+        let selectedPath = app.staticTexts["MobileTaskComposerSelectedDirectory"]
+        XCTAssertTrue(selectedPath.waitForExistence(timeout: 4))
+        XCTAssertEqual(selectedPath.label, "/Users/ui/mobile-root")
     }
 
     /// The production editor must persist add, edit, and delete mutations in

@@ -396,6 +396,24 @@ struct MobileHostAuthorizationTests {
         let error = MobileHostService.ticketAuthorizationError(ticket: ticket, request: request)
         #expect(error == nil)
     }
+    @Test func testAttachTicketAcceptsMacDirectoryListForPairedDevice() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
+        let request = MobileHostRPCRequest(
+            id: "directory-list",
+            method: "mobile.directory.list",
+            params: [
+                "path": "~",
+                "offset": 0,
+                "limit": 50,
+            ],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+        let error = MobileHostService.ticketAuthorizationError(ticket: ticket, request: request)
+        #expect(error == nil)
+    }
     @Test func testTerminalScopedAttachTicketAcceptsScopedWorkspaceList() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
         let request = MobileHostRPCRequest(

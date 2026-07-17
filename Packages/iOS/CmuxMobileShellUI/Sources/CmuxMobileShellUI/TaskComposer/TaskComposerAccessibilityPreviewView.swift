@@ -1,5 +1,6 @@
 #if os(iOS) && DEBUG
 import CmuxMobilePairedMac
+import CmuxMobileRPC
 import CmuxMobileShell
 import Foundation
 import SwiftUI
@@ -68,7 +69,8 @@ public struct TaskComposerAccessibilityPreviewView: View {
                         candidates: [],
                         selectedPath: selectedDirectory ?? "~",
                         select: { selectedDirectory = $0 },
-                        searchMac: Self.searchPreviewDirectories
+                        searchMac: Self.searchPreviewDirectories,
+                        listMac: Self.listPreviewDirectories
                     )
                 } else {
                     TaskComposerSheet(
@@ -124,13 +126,81 @@ public struct TaskComposerAccessibilityPreviewView: View {
 
     private static func searchPreviewDirectories(
         _ query: String
-    ) async -> Result<[String], MobileTaskDirectorySearchFailure> {
+    ) async -> Result<MobileTaskDirectorySearchResponse, MobileTaskDirectorySearchFailure> {
         let paths = [
             "/Users/ui/mobile-root",
             "/Users/ui/mobile-root/Sources",
             "/Users/ui/mobile-root-archive",
         ]
-        return .success(paths.filter { $0.localizedCaseInsensitiveContains(query) })
+        let matches = paths.filter { $0.localizedCaseInsensitiveContains(query) }
+        return .success(MobileTaskDirectorySearchResponse(
+            directories: matches,
+            searchScope: .allIndexedVolumes,
+            gatheringComplete: true,
+            filesystemComplete: false,
+            truncated: false,
+            indexedMatchCount: matches.count
+        ))
+    }
+
+    private static func listPreviewDirectories(
+        _ requestedPath: String,
+        _ offset: Int
+    ) async -> Result<MobileTaskDirectoryListResponse, MobileTaskDirectoryListFailure> {
+        let currentPath: String
+        let parentPath: String?
+        let specs: [(String, String, Bool, Bool, Bool, Bool)]
+        switch requestedPath {
+        case "~", "/Users/ui":
+            currentPath = "/Users/ui"
+            parentPath = "/Users"
+            specs = [
+                (".hidden", "/Users/ui/.hidden", true, false, false, true),
+                ("Projects.app", "/Users/ui/Projects.app", false, true, false, true),
+                ("mobile-link", "/Users/ui/mobile-link", false, false, true, true),
+                ("mobile-root", "/Users/ui/mobile-root", false, false, false, true),
+            ]
+        case "/":
+            currentPath = "/"
+            parentPath = nil
+            specs = [
+                ("Users", "/Users", false, false, false, true),
+                ("Volumes", "/Volumes", false, false, false, true),
+            ]
+        case "/Users/ui/mobile-root":
+            currentPath = requestedPath
+            parentPath = "/Users/ui"
+            specs = [
+                ("Sources", "/Users/ui/mobile-root/Sources", false, false, false, true),
+            ]
+        default:
+            currentPath = requestedPath
+            parentPath = URL(fileURLWithPath: requestedPath).deletingLastPathComponent().path
+            specs = []
+        }
+
+        let entries = specs.compactMap { spec in
+            MobileTaskDirectoryListEntry(
+                name: spec.0,
+                path: spec.1,
+                isHidden: spec.2,
+                isPackage: spec.3,
+                isSymbolicLink: spec.4,
+                isReadable: spec.5
+            )
+        }
+        guard let response = MobileTaskDirectoryListResponse(
+            currentPath: currentPath,
+            parentPath: parentPath,
+            entries: Array(entries.dropFirst(offset)),
+            offset: offset,
+            limit: 50,
+            totalCount: entries.count,
+            nextOffset: nil
+        ) else {
+            return .failure(.rejected)
+        }
+        return .success(response)
     }
 }
 

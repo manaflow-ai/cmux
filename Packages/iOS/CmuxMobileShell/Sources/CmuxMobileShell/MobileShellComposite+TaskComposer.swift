@@ -1,10 +1,12 @@
 internal import CmuxMobilePairedMac
-internal import CmuxMobileRPC
+public import CmuxMobileRPC
 public import CmuxMobileShellModel
 internal import Foundation
 
 /// A user-actionable failure returned by task-composer directory search.
 public enum MobileTaskDirectorySearchFailure: Error, Equatable, Sendable {
+    /// The selected Mac predates task-composer directory search.
+    case unsupported
     /// The selected Mac could not be reached.
     case unavailable
     /// The Mac did not finish directory search before its deadline.
@@ -18,14 +20,18 @@ public enum MobileTaskDirectorySearchFailure: Error, Equatable, Sendable {
 }
 
 extension MobileShellComposite {
-    /// Returns real Mac directories matching a task-composer query. Older Macs
-    /// degrade to the local open/recent suggestions without surfacing an error.
+    /// Returns matching Mac directories with explicit index and filesystem coverage.
     public func searchTaskDirectories(
         macDeviceID: String,
         query rawQuery: String
-    ) async -> Result<[String], MobileTaskDirectorySearchFailure> {
+    ) async -> Result<MobileTaskDirectorySearchResponse, MobileTaskDirectorySearchFailure> {
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return .success([]) }
+        guard !query.isEmpty else {
+            return .success(MobileTaskDirectorySearchResponse(
+                directories: [],
+                searchScope: .contextualCandidatesOnly
+            ))
+        }
         if macDeviceID != foregroundMacDeviceID || remoteClient == nil {
             guard await switchToMac(macDeviceID: macDeviceID) else { return .failure(.unavailable) }
         }
@@ -33,7 +39,7 @@ extension MobileShellComposite {
               let client = remoteClient else { return .failure(.cancelled) }
         // The last learned capability set can be stale after a tagged Mac
         // relaunch. This optional read is safe to probe; genuinely older Macs
-        // return an RPC error and fall back to contextual suggestions below.
+        // return an RPC error and the UI keeps its contextual suggestions.
         do {
             let request = try MobileCoreRPCClient.requestData(
                 method: "mobile.directory.search",
@@ -43,17 +49,22 @@ extension MobileShellComposite {
             guard !Task.isCancelled, foregroundMacDeviceID == macDeviceID else {
                 return .failure(.cancelled)
             }
-            return .success(try MobileTaskDirectorySearchResponse.decode(data).directories)
+            return .success(try MobileTaskDirectorySearchResponse.decode(data))
         } catch let error as MobileShellConnectionError {
             switch error {
-            case let .rpcError(code, _) where code == "method_not_found":
-                return .success([])
+            case let .rpcError(code, _) where [
+                "method_not_found",
+                "unknown_method",
+                "unsupported_method",
+            ].contains(code?.lowercased() ?? ""):
+                return .failure(.unsupported)
             case .requestTimedOut,
                  .rpcError("request_timeout", _):
                 return .failure(.timedOut)
             case .authorizationFailed,
                  .accountMismatch,
                  .rpcError("unauthorized", _),
+                 .rpcError("forbidden", _),
                  .rpcError("account_mismatch", _):
                 return .failure(.authorizationRequired)
             case .rpcError("cancelled", _):

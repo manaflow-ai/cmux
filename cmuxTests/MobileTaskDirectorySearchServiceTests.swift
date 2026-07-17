@@ -8,8 +8,9 @@ import Testing
 #endif
 
 @Suite struct MobileTaskDirectorySearchServiceTests {
-    @Test func advertisesAndDispatchesDirectorySearch() async {
+    @Test func dispatchRejectsAnEmptyDirectoryQuery() async {
         #expect(MobileHostService.mobileHostCapabilities.contains("workspace.directory_search.v1"))
+        #expect(MobileHostService.mobileHostCapabilities.contains("workspace.directory_search.v2"))
 
         let request = MobileHostRPCRequest(
             id: "directory-search",
@@ -17,7 +18,9 @@ import Testing
             params: ["query": ""],
             auth: nil
         )
+
         let result = await TerminalController.shared.mobileHostHandleRPC(request)
+
         guard case let .failure(error) = result else {
             return #expect(Bool(false), "An empty directory query must be rejected")
         }
@@ -42,417 +45,137 @@ import Testing
         #expect(fuzzy.prefix(2).contains("/Users/test/Dev/Manaflow/cmuxterm-hq"))
     }
 
-    @Test func scansARealHierarchyWithoutDescendingIntoDependencyTrees() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-directory-search-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(
-            at: root.appendingPathComponent("Dev/Manaflow/cmuxterm-hq", isDirectory: true),
-            withIntermediateDirectories: true
-        )
-        try FileManager.default.createDirectory(
-            at: root.appendingPathComponent("Dev/node_modules/hidden-project", isDirectory: true),
-            withIntermediateDirectories: true
-        )
+    @MainActor
+    @Test func metadataPredicateMatchesDirectoryTypeTreesAcrossPathTokens() {
+        let predicate = MobileTaskDirectoryMetadataQueryRunner.makePredicate(query: "Manaflow cmux")
+
+        #expect(predicate.evaluate(with: [
+            NSMetadataItemContentTypeTreeKey: ["public.item", "public.directory"],
+            NSMetadataItemFSNameKey: "cmuxterm-hq",
+            NSMetadataItemPathKey: "/Users/test/Dev/Manaflow/cmuxterm-hq",
+        ]))
+        #expect(!predicate.evaluate(with: [
+            NSMetadataItemContentTypeTreeKey: ["public.item", "public.data"],
+            NSMetadataItemFSNameKey: "cmuxterm-hq",
+            NSMetadataItemPathKey: "/Users/test/Dev/Manaflow/cmuxterm-hq",
+        ]))
+    }
+
+    @Test func mergesContextualAndIndexedMatchesWithoutEarlyReturningOneExactPath() async throws {
         let service = MobileTaskDirectorySearchService(
-            homeDirectory: root,
-            configuration: .init(maximumDirectories: 200, maximumDepth: 6, cacheLifetime: 30)
+            homeDirectory: URL(fileURLWithPath: "/Users/test", isDirectory: true),
+            metadataSearchOperation: { _, _, _ in
+                MobileTaskDirectoryMetadataQueryRunner.Snapshot(
+                    paths: [
+                        "/Users/test/Dev/cmux",
+                        "/Volumes/External/cmux",
+                    ],
+                    gatheringComplete: true,
+                    totalMatchCount: 2,
+                    truncated: false
+                )
+            },
+            directoryExists: { _ in true }
         )
 
-        let matches = try await service.search(query: "cmuxterm", seedPaths: [])
-        #expect(matches.count == 1)
-        #expect(matches.first?.hasSuffix("/Dev/Manaflow/cmuxterm-hq") == true)
-        #expect(matches.first.map(FileManager.default.fileExists(atPath:)) == true)
-        #expect(try await service.search(query: "hidden-project", seedPaths: []).isEmpty)
+        let result = try await service.search(
+            query: "cmux",
+            seedPaths: ["/Users/test/Open/cmux"]
+        )
+
+        #expect(Set(result.directories) == Set([
+            "/Users/test/Open/cmux",
+            "/Users/test/Dev/cmux",
+            "/Volumes/External/cmux",
+        ]))
+        #expect(result.scope == .allIndexedVolumes)
+        #expect(result.gatheringComplete)
+        #expect(!result.filesystemComplete)
+        #expect(!result.truncated)
+        #expect(result.indexedMatchCount == 2)
     }
 
-    @Test func filesystemInspectionStopsAtItsIndependentEntryBudget() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-directory-budget-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        for index in 0..<32 {
-            try FileManager.default.createDirectory(
-                at: root.appendingPathComponent("candidate-\(index)", isDirectory: true),
-                withIntermediateDirectories: true
-            )
-        }
+    @Test func reportsPartialAndTruncatedIndexedCoverage() async throws {
         let service = MobileTaskDirectorySearchService(
-            homeDirectory: root,
-            configuration: .init(
-                maximumDirectories: 200,
-                maximumDepth: 6,
-                cacheLifetime: 30,
-                maximumFilesystemEntries: 1
-            )
+            configuration: .init(maximumMetadataResults: 3, maximumWireResults: 2),
+            metadataSearchOperation: { _, _, _ in
+                MobileTaskDirectoryMetadataQueryRunner.Snapshot(
+                    paths: [
+                        "/Volumes/A/project",
+                        "/Volumes/B/project",
+                        "/Volumes/C/project",
+                    ],
+                    gatheringComplete: false,
+                    totalMatchCount: 100,
+                    truncated: true
+                )
+            },
+            directoryExists: { _ in true }
         )
 
-        #expect(try await service.search(query: "candidate", seedPaths: []).isEmpty)
+        let result = try await service.search(query: "project", seedPaths: [])
+
+        #expect(result.directories.count == 2)
+        #expect(result.scope == .allIndexedVolumes)
+        #expect(!result.gatheringComplete)
+        #expect(!result.filesystemComplete)
+        #expect(result.truncated)
+        #expect(result.indexedMatchCount == 100)
     }
 
-    @Test func seededHomeDirectorySurvivesGlobalEntryBudget() async throws {
-        let home = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-seeded-home-\(UUID().uuidString)", isDirectory: true)
-        let project = home.appendingPathComponent(
-            "Dev/Manaflow/cmuxterm-hq/worktrees/feat-ios-task-composer",
-            isDirectory: true
-        )
-        defer { try? FileManager.default.removeItem(at: home) }
-        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+    @Test func metadataUnavailabilityFallsBackWithExplicitContextOnlyCoverage() async throws {
         let service = MobileTaskDirectorySearchService(
-            homeDirectory: home,
-            configuration: .init(
-                maximumDirectories: 200,
-                maximumDepth: 6,
-                cacheLifetime: 30,
-                maximumFilesystemEntries: 1
-            )
+            homeDirectory: URL(fileURLWithPath: "/Users/test", isDirectory: true),
+            metadataSearchOperation: { _, _, _ in
+                throw MobileTaskDirectoryMetadataQueryRunner.QueryError.unavailable
+            },
+            directoryExists: { _ in true }
         )
 
-        let matches = try await service.search(
-            query: "feat-ios-task-composer",
-            seedPaths: [project.path]
+        let result = try await service.search(
+            query: "project",
+            seedPaths: ["/Users/test/Open/project"]
         )
 
-        #expect(matches == [project.standardizedFileURL.path])
+        #expect(result.directories == ["/Users/test/Open/project"])
+        #expect(result.scope == .contextualCandidatesOnly)
+        #expect(!result.gatheringComplete)
+        #expect(!result.filesystemComplete)
+        #expect(!result.truncated)
+        #expect(result.indexedMatchCount == 0)
     }
 
-    @Test func matchingSeedBypassesColdIndexBuild() async throws {
-        let home = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-seed-fast-path-\(UUID().uuidString)", isDirectory: true)
-        let project = home.appendingPathComponent("Dev/seeded-project", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: home) }
-        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
-        let builder = ImmediateDirectoryIndexBuilder()
+    @Test func concurrentClientsDoNotCancelEachOthersSearches() async {
         let service = MobileTaskDirectorySearchService(
-            homeDirectory: home,
-            configuration: .init(maximumDirectories: 200, maximumDepth: 6, cacheLifetime: 30),
-            indexBuilder: { _, _ in await builder.run() }
+            metadataSearchOperation: { query, _, _ in
+                await Task.yield()
+                return MobileTaskDirectoryMetadataQueryRunner.Snapshot(
+                    paths: ["/Volumes/Projects/\(query)"],
+                    gatheringComplete: true,
+                    totalMatchCount: 1,
+                    truncated: false
+                )
+            },
+            directoryExists: { _ in true }
         )
 
-        let matches = try await service.search(query: "seeded-project", seedPaths: [project.path])
-
-        #expect(matches == [project.standardizedFileURL.path])
-        #expect(await builder.count == 0)
-    }
-
-    @Test func exactProjectRootOutranksMatchingSeedDescendant() async throws {
-        let fixture = try Self.makeFreshLaunchDirectoryFixture()
-        let seededDescendant = fixture.project.appendingPathComponent("web", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: fixture.home) }
-        try FileManager.default.createDirectory(at: seededDescendant, withIntermediateDirectories: true)
-        let service = MobileTaskDirectorySearchService(
-            homeDirectory: fixture.home,
-            configuration: .init(
-                maximumDirectories: 200,
-                maximumDepth: 6,
-                cacheLifetime: 0,
-                maximumFilesystemEntries: 36,
-                indexBuildTimeout: .seconds(60)
-            )
-        )
-
-        let matches = try await service.search(
-            query: "feat-ios-task-composer",
-            seedPaths: [seededDescendant.path]
-        )
-
-        #expect(matches == [fixture.project.standardizedFileURL.path])
-    }
-
-    @Test func freshLaunchFindsDeepProjectWithinEntryBudget() async throws {
-        let fixture = try Self.makeFreshLaunchDirectoryFixture()
-        defer { try? FileManager.default.removeItem(at: fixture.home) }
-        let service = MobileTaskDirectorySearchService(
-            homeDirectory: fixture.home,
-            configuration: .init(
-                maximumDirectories: 200,
-                maximumDepth: 6,
-                cacheLifetime: 0,
-                maximumFilesystemEntries: 36,
-                indexBuildTimeout: .seconds(60)
-            )
-        )
-
-        let matches = try await service.search(
-            query: "feat-ios-task-composer",
-            seedPaths: [fixture.home.path]
-        )
-
-        #expect(matches == [fixture.project.standardizedFileURL.path])
-    }
-
-    @Test func freshLaunchStrongMatchDoesNotWaitForColdGlobalIndex() async throws {
-        let fixture = try Self.makeFreshLaunchDirectoryFixture()
-        defer { try? FileManager.default.removeItem(at: fixture.home) }
-        let builder = ReleasableDirectoryIndexBuilder()
-        let service = MobileTaskDirectorySearchService(
-            homeDirectory: fixture.home,
-            configuration: .init(
-                maximumDirectories: 200,
-                maximumDepth: 6,
-                cacheLifetime: 0,
-                maximumFilesystemEntries: 36,
-                indexBuildTimeout: .seconds(1)
-            ),
-            indexBuilder: { _, _ in await builder.run() },
-            deadlineSleep: { _ in await builder.waitForCount(1) }
-        )
-
-        var matches: [String]?
-        var searchError: (any Error)?
-        do {
-            matches = try await service.search(
-                query: "feat-ios-task-composer",
-                seedPaths: [fixture.home.path]
-            )
-        } catch {
-            searchError = error
-        }
-        await builder.release()
-
-        #expect(searchError == nil)
-        #expect(matches == [fixture.project.standardizedFileURL.path])
-    }
-
-    @Test func removingAnExternalSeedDoesNotReuseItsCachedPaths() async throws {
-        let base = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-directory-roots-\(UUID().uuidString)", isDirectory: true)
-        let home = base.appendingPathComponent("home", isDirectory: true)
-        let external = base.appendingPathComponent("external", isDirectory: true)
-        let project = external.appendingPathComponent("removed-root-project", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: base) }
-        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
-        let service = MobileTaskDirectorySearchService(
-            homeDirectory: home,
-            configuration: .init(maximumDirectories: 200, maximumDepth: 6, cacheLifetime: 30)
-        )
-        let initialMatches = try await service.search(query: "removed-root-project", seedPaths: [project.path])
-        #expect(
-            initialMatches.contains { $0.hasSuffix("/external/removed-root-project") },
-            "Initial matches: \(initialMatches)"
-        )
-        #expect(try await service.search(query: "removed-root-project", seedPaths: []).isEmpty)
-    }
-
-    @Test func cancelledRankStopsBeforeReturningStaleResults() async {
-        let paths = (0..<12_000).map { "/Users/test/Dev/project-\($0)" }
-        let task = Task.detached {
-            do { try await Task.sleep(for: .seconds(60)) } catch {}
-            return MobileTaskDirectorySearchService.rank(paths: paths, query: "project", limit: 64)
-        }
-        task.cancel()
-
-        #expect(await task.value.isEmpty)
-    }
-
-    @Test func newerQueryCancelsAndDrainsPriorRankBeforeStarting() async throws {
-        let ranker = ControlledDirectoryRanker()
-        let service = MobileTaskDirectorySearchService(
-            configuration: .init(maximumDirectories: 1, maximumDepth: 0, cacheLifetime: 30),
-            indexBuilder: { _, _ in [] },
-            rankOperation: { _, query, _ in await ranker.run(query: query) }
-        )
-        let first = Task { try await service.search(query: "first", seedPaths: []) }
-        await ranker.waitForCount(1)
-        let second = Task { try await service.search(query: "second", seedPaths: []) }
-        await ranker.waitForCount(2)
-
-        #expect((try await first.value).isEmpty)
-        #expect(try await second.value == ["latest"])
-        #expect(await ranker.maximumActiveCount == 1)
-    }
-
-    @Test func timedOutIndexBuildIsQuarantinedAtConfiguredCapacity() async {
-        let builder = ControlledDirectoryIndexBuilder()
-        let deadlines = ControlledDirectorySearchDeadlines()
-        let service = MobileTaskDirectorySearchService(
-            configuration: .init(
-                maximumDirectories: 1,
-                maximumDepth: 0,
-                cacheLifetime: 30,
-                maximumFilesystemEntries: 1,
-                indexBuildTimeout: .seconds(1),
-                maximumConcurrentIndexBuilds: 1
-            ),
-            indexBuilder: { _, _ in await builder.run() },
-            deadlineSleep: { _ in await deadlines.suspendUntilFired() }
-        )
-        let first = Task {
-            await Self.searchError(from: service, query: "first")
-        }
-        await builder.waitForCount(1)
-        await deadlines.waitForCount(1)
-        await deadlines.fireAll()
-
-        #expect(await first.value == .indexTimedOut)
-        #expect(await Self.searchError(from: service, query: "second") == .busy)
-        #expect(await builder.count == 1)
-        await builder.complete()
-    }
-
-    @Test func filesystemRootNeverNormalizesToDotDot() {
-        let root = MobileTaskDirectorySearchService.parentSearchRoot(
-            for: URL(fileURLWithPath: "/", isDirectory: true)
-        )
-
-        #expect(root.path == "/")
-    }
-
-    private static func searchError(
-        from service: MobileTaskDirectorySearchService,
-        query: String
-    ) async -> MobileTaskDirectorySearchService.SearchError? {
-        do {
-            _ = try await service.search(query: query, seedPaths: [])
-            return nil
-        } catch let error as MobileTaskDirectorySearchService.SearchError {
-            return error
-        } catch {
-            return nil
-        }
-    }
-
-    private static func makeFreshLaunchDirectoryFixture() throws -> (home: URL, project: URL) {
-        let home = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-fresh-search-\(UUID().uuidString)", isDirectory: true)
-        let project = home.appendingPathComponent(
-            "Dev/Manaflow/cmuxterm-hq/worktrees/feat-ios-task-composer",
-            isDirectory: true
-        )
-        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
-        for index in 0..<24 {
-            try FileManager.default.createDirectory(
-                at: home.appendingPathComponent("noise-\(index)", isDirectory: true),
-                withIntermediateDirectories: true
-            )
-        }
-        return (home, project)
-    }
-}
-
-private actor ImmediateDirectoryIndexBuilder {
-    private(set) var count = 0
-
-    func run() -> [MobileTaskDirectorySearchService.SearchablePath] {
-        count += 1
-        return []
-    }
-}
-
-private actor ReleasableDirectoryIndexBuilder {
-    private(set) var count = 0
-    private var released = false
-    private var continuation: CheckedContinuation<[MobileTaskDirectorySearchService.SearchablePath], Never>?
-    private var countWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
-
-    func run() async -> [MobileTaskDirectorySearchService.SearchablePath] {
-        count += 1
-        resumeCountWaiters()
-        if released { return [] }
-        return await withCheckedContinuation { continuation in
-            if released {
-                continuation.resume(returning: [])
-            } else {
-                self.continuation = continuation
+        let results = await withTaskGroup(
+            of: MobileTaskDirectorySearchResult?.self,
+            returning: [MobileTaskDirectorySearchResult?].self
+        ) { group in
+            for index in 0..<16 {
+                group.addTask {
+                    try? await service.search(query: "project-\(index)", seedPaths: [])
+                }
             }
+            var values: [MobileTaskDirectorySearchResult?] = []
+            for await value in group {
+                values.append(value)
+            }
+            return values
         }
-    }
 
-    func waitForCount(_ expected: Int) async {
-        if count >= expected { return }
-        await withCheckedContinuation { countWaiters.append((expected, $0)) }
-    }
-
-    func release() {
-        released = true
-        continuation?.resume(returning: [])
-        continuation = nil
-    }
-
-    private func resumeCountWaiters() {
-        let ready = countWaiters.filter { count >= $0.0 }
-        countWaiters.removeAll { count >= $0.0 }
-        for waiter in ready { waiter.1.resume() }
-    }
-}
-
-private actor ControlledDirectoryRanker {
-    private(set) var count = 0
-    private(set) var activeCount = 0
-    private(set) var maximumActiveCount = 0
-    private var countWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
-
-    func run(query: String) async -> [String] {
-        count += 1
-        activeCount += 1
-        maximumActiveCount = max(maximumActiveCount, activeCount)
-        resumeCountWaiters()
-        defer { activeCount -= 1 }
-        if query == "first" {
-            try? await Task.sleep(for: .seconds(60))
-            return []
-        }
-        return ["latest"]
-    }
-
-    func waitForCount(_ expected: Int) async {
-        if count >= expected { return }
-        await withCheckedContinuation { countWaiters.append((expected, $0)) }
-    }
-
-    private func resumeCountWaiters() {
-        let ready = countWaiters.filter { count >= $0.0 }
-        countWaiters.removeAll { count >= $0.0 }
-        for waiter in ready { waiter.1.resume() }
-    }
-}
-
-private actor ControlledDirectoryIndexBuilder {
-    private(set) var count = 0
-    private var continuation: CheckedContinuation<[MobileTaskDirectorySearchService.SearchablePath], Never>?
-    private var countWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
-
-    func run() async -> [MobileTaskDirectorySearchService.SearchablePath] {
-        count += 1
-        let ready = countWaiters.filter { count >= $0.0 }
-        countWaiters.removeAll { count >= $0.0 }
-        for waiter in ready { waiter.1.resume() }
-        return await withCheckedContinuation { continuation = $0 }
-    }
-
-    func waitForCount(_ expected: Int) async {
-        if count >= expected { return }
-        await withCheckedContinuation { countWaiters.append((expected, $0)) }
-    }
-
-    func complete() {
-        continuation?.resume(returning: [])
-        continuation = nil
-    }
-}
-
-private actor ControlledDirectorySearchDeadlines {
-    private var count = 0
-    private var continuations: [CheckedContinuation<Void, Never>] = []
-    private var countWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
-
-    func suspendUntilFired() async {
-        count += 1
-        let ready = countWaiters.filter { count >= $0.0 }
-        countWaiters.removeAll { count >= $0.0 }
-        for waiter in ready { waiter.1.resume() }
-        await withCheckedContinuation { continuations.append($0) }
-    }
-
-    func waitForCount(_ expected: Int) async {
-        if count >= expected { return }
-        await withCheckedContinuation { countWaiters.append((expected, $0)) }
-    }
-
-    func fireAll() {
-        let pending = continuations
-        continuations = []
-        for continuation in pending { continuation.resume() }
+        #expect(results.count == 16)
+        #expect(results.allSatisfy { $0?.directories.count == 1 })
     }
 }
