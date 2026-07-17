@@ -1123,7 +1123,7 @@ impl ClientRegistry {
         self.clients.lock().unwrap().remove(&client)
     }
 
-    fn contains(&self, client: u64) -> bool {
+    pub(crate) fn contains(&self, client: u64) -> bool {
         self.clients.lock().unwrap().contains_key(&client)
     }
 
@@ -2230,7 +2230,8 @@ fn handle_command(
                 }
                 if exclusive {
                     (
-                        mux.use_only_client_size(target),
+                        mux.use_only_client_size(target)
+                            .ok_or_else(|| anyhow::anyhow!("unknown client {target}"))?,
                         mux.control_clients.client_ids().into_iter().collect::<Vec<_>>(),
                     )
                 } else {
