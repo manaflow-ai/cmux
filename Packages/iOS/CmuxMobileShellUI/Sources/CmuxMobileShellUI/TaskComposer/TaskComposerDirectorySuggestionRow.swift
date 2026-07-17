@@ -2,6 +2,8 @@
 import SwiftUI
 
 struct TaskComposerDirectorySuggestionRow: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     let displayPath: TaskComposerDirectoryDisplayPath
     let sourceLabel: String
     let context: String?
@@ -23,30 +25,47 @@ struct TaskComposerDirectorySuggestionRow: View {
                 Text(displayPath.name)
                     .font(.body.weight(.semibold))
                     .foregroundStyle(.primary)
-                    .lineLimit(1)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 if let parentPath = displayPath.parentPath {
                     Text(parentPath)
                         .font(.system(.caption, design: .monospaced))
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
                         .truncationMode(.middle)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
-                HStack(spacing: 5) {
-                    Text(sourceLabel)
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.tint)
-                        .lineLimit(1)
-                    if let context {
-                        Text(verbatim: "·")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                            .accessibilityHidden(true)
-                        Text(context)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                if dynamicTypeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(sourceLabel)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.tint)
+                        if let context {
+                            Text(context)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                } else {
+                    HStack(spacing: 5) {
+                        Text(sourceLabel)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.tint)
                             .lineLimit(1)
+                        if let context {
+                            Text(verbatim: "·")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                                .accessibilityHidden(true)
+                            Text(context)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
                     }
                 }
             }
