@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use cmux_tui_cdp::{
     CDP_EVENT_QUEUE_CAPACITY, CdpClient, CdpEvent, CdpKeyEvent, Chrome, ChromeLaunchOptions,
-    TargetCreated, discover_browser_ws_url, resolve_browser_ws_url,
+    TargetCreated, TargetInfo, discover_browser_ws_url, resolve_browser_ws_url,
 };
 
 use crate::platform;
@@ -231,18 +231,34 @@ struct Routes {
 struct SurfaceRoute {
     tx: SyncSender<CdpEvent>,
     closed: AtomicBool,
+    latest_target_info: Mutex<Option<TargetInfo>>,
+    target_info_relay_running: AtomicBool,
 }
 
 impl SurfaceRoute {
     fn new(tx: SyncSender<CdpEvent>) -> Self {
-        Self { tx, closed: AtomicBool::new(false) }
+        Self {
+            tx,
+            closed: AtomicBool::new(false),
+            latest_target_info: Mutex::new(None),
+            target_info_relay_running: AtomicBool::new(false),
+        }
     }
 
     /// Returns true when the route must be removed from the runtime maps.
-    fn deliver(&self, event: CdpEvent) -> bool {
+    fn deliver(self: &Arc<Self>, event: CdpEvent) -> bool {
         if self.closed.load(Ordering::Acquire) {
             return true;
         }
+        let event = match event {
+            CdpEvent::TargetInfoChanged(info)
+                if self.target_info_relay_running.load(Ordering::Acquire) =>
+            {
+                self.queue_latest_target_info(info);
+                return false;
+            }
+            event => event,
+        };
         match self.tx.try_send(event) {
             Ok(()) => false,
             Err(TrySendError::Disconnected(_)) => true,
@@ -250,6 +266,12 @@ impl SurfaceRoute {
             // full, dropping a frame keeps the shared CDP reader responsive;
             // a later frame will be delivered after the surface catches up.
             Err(TrySendError::Full(CdpEvent::ScreencastFrame(_))) => false,
+            // Title/navigation state is latest-wins. Relay the newest value
+            // outside the shared reader instead of killing an active surface.
+            Err(TrySendError::Full(CdpEvent::TargetInfoChanged(info))) => {
+                self.queue_latest_target_info(info);
+                false
+            }
             Err(TrySendError::Full(_)) => {
                 self.close("CDP surface event queue overflow".to_string());
                 true
@@ -257,10 +279,47 @@ impl SurfaceRoute {
         }
     }
 
+    fn queue_latest_target_info(self: &Arc<Self>, info: TargetInfo) {
+        *self.latest_target_info.lock().unwrap() = Some(info);
+        if self
+            .target_info_relay_running
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return;
+        }
+        let route = self.clone();
+        let _ =
+            std::thread::Builder::new().name("browser-target-info-relay".into()).spawn(move || {
+                loop {
+                    let next = route.latest_target_info.lock().unwrap().take();
+                    if let Some(info) = next {
+                        if route.tx.send(CdpEvent::TargetInfoChanged(info)).is_err() {
+                            route.closed.store(true, Ordering::Release);
+                            return;
+                        }
+                        continue;
+                    }
+
+                    route.target_info_relay_running.store(false, Ordering::Release);
+                    if route.latest_target_info.lock().unwrap().is_some()
+                        && route
+                            .target_info_relay_running
+                            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                            .is_ok()
+                    {
+                        continue;
+                    }
+                    return;
+                }
+            });
+    }
+
     fn close(&self, reason: String) {
         if self.closed.swap(true, Ordering::AcqRel) {
             return;
         }
+        self.latest_target_info.lock().unwrap().take();
         let event = CdpEvent::Closed(reason);
         match self.tx.try_send(event) {
             Ok(()) | Err(TrySendError::Disconnected(_)) => {}

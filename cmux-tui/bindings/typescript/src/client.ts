@@ -540,6 +540,8 @@ export class CmuxClient {
       stream.close();
       throw new CmuxCommandError(response.error || "unknown error", response.id, response);
     }
+    const terminalError = streamError ?? stream.error;
+    if (terminalError) throw terminalError;
     return stream;
   }
 

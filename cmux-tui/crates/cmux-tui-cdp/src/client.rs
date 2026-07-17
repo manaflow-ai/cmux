@@ -526,8 +526,11 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
     match method {
         "Page.screencastFrame" => {
             if let Some(target_session) = session_id.as_deref() {
+                let Some(ack_id) = params.get("sessionId").and_then(|value| value.as_u64()) else {
+                    return;
+                };
+                ack_screencast_frame(inner, target_session, ack_id);
                 let Some(frame) = screencast_frame(&params, target_session) else { return };
-                ack_screencast_frame(inner, target_session, frame.ack_id);
                 let _ = inner.events.send(CdpEvent::ScreencastFrame(frame));
             }
         }
