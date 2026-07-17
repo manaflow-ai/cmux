@@ -486,7 +486,29 @@ final class BrowserWebExtensionsManager: NSObject {
         } else {
             pendingActionInvocations.removeValue(forKey: key)
         }
-        context.performAction(for: tabAdapter)
+        if context.webExtension.hasBackgroundContent {
+            // Event-page and service-worker extensions can suspend between
+            // actions. Warm the background immediately before opening the
+            // popup so runtime.connect() observes its registered listeners.
+            context.loadBackgroundContent { [weak self, weak context, weak tabAdapter] error in
+                guard let self,
+                      !self.isShutDown,
+                      let context,
+                      self.loadedContexts.contains(where: { $0 === context }),
+                      let tabAdapter,
+                      self.tabAdapters[panel.id] === tabAdapter else {
+                    return
+                }
+                if let error {
+                    self.backgroundLoadErrors[context.uniqueIdentifier] = error
+                } else {
+                    self.backgroundLoadErrors.removeValue(forKey: context.uniqueIdentifier)
+                }
+                context.performAction(for: tabAdapter)
+            }
+        } else {
+            context.performAction(for: tabAdapter)
+        }
         return true
     }
 
