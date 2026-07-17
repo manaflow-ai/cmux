@@ -338,7 +338,7 @@ jobs:
             rm -rf "$cache_path"
           fi
 
-      - name: Archive unsigned nightly app and debug symbols
+      - name: Archive unsigned nightly app
         run: |
           set -euo pipefail
           products="build-universal/Build/Products/Release"
@@ -346,11 +346,7 @@ jobs:
             echo "Built app not found at $products/cmux.app" >&2
             exit 1
           fi
-          payload=("cmux.app")
-          while IFS= read -r dsym; do
-            payload+=("$(basename "$dsym")")
-          done < <(find "$products" -maxdepth 1 -name '*.dSYM' -print | sort)
-          tar -C "$products" -czf "$RUNNER_TEMP/cmux-nightly-unsigned.tar.gz" "${payload[@]}"
+          tar -C "$products" -czf "$RUNNER_TEMP/cmux-nightly-unsigned.tar.gz" cmux.app
 
       - name: Upload unsigned nightly app
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -359,6 +355,20 @@ jobs:
           path: ${{ runner.temp }}/cmux-nightly-unsigned.tar.gz
           if-no-files-found: error
           retention-days: 1
+
+      - name: Upload dSYMs to Sentry
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: manaflow
+          SENTRY_PROJECT: cmuxterm-macos
+        run: |
+          if [ -z "${SENTRY_AUTH_TOKEN:-}" ]; then
+            echo "SENTRY_AUTH_TOKEN not set, skipping dSYM upload"
+            exit 0
+          fi
+          SENTRY_CLI="$(./scripts/ensure-sentry-cli.sh)"
+          "$SENTRY_CLI" debug-files upload --include-sources \
+            build-universal/Build/Products/Release/
 
   build-sign-notarize-nightly:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app]
@@ -763,20 +773,6 @@ jobs:
             "build-universal/Build/Products/Release/cmux NIGHTLY.app" \
             "cmux-nightly-macos.dmg" \
             "$NIGHTLY_DMG_IMMUTABLE"
-
-      - name: Upload dSYMs to Sentry
-        env:
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SENTRY_ORG: manaflow
-          SENTRY_PROJECT: cmuxterm-macos
-        run: |
-          if [ -z "$SENTRY_AUTH_TOKEN" ]; then
-            echo "SENTRY_AUTH_TOKEN not set, skipping dSYM upload"
-            exit 0
-          fi
-          SENTRY_CLI="$(./scripts/ensure-sentry-cli.sh)"
-          "$SENTRY_CLI" debug-files upload --include-sources \
-            build-universal/Build/Products/Release/
 
       - name: Generate Sparkle appcasts (nightly)
         env:
