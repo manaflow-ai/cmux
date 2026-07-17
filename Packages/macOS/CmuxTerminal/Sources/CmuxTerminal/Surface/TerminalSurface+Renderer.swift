@@ -217,12 +217,9 @@ extension TerminalSurface {
         ))
     }
 
-    /// Updates the view's frame fence after the worker accepts initialization.
+    /// Updates the view's frame fence after the worker or this mirror becomes ready.
     @MainActor
-    public func renderWorkerDidInitialize(
-        workerGeneration: UInt64,
-        processIdentifier: Int32
-    ) {
+    public func renderWorkerDidBecomeReady(workerGeneration: UInt64) {
         guard renderMirrorDescriptor != nil else { return }
         surfaceView.updateRemoteRendererWorkerGeneration(workerGeneration)
     }

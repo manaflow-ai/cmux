@@ -183,16 +183,22 @@ final class GhosttyRenderRuntimeBridge: TerminalRenderWorkerRouting, @unchecked 
     private func observeEvents(
         _ events: AsyncStream<GhosttyRenderWorkerClientEvent>
     ) async {
+        var activeWorkerGeneration: UInt64?
         for await event in events {
             switch event {
-            case let .initialized(workerGeneration, processIdentifier):
-                Task { @MainActor in
+            case let .initialized(workerGeneration, _):
+                activeWorkerGeneration = workerGeneration
+                await MainActor.run {
                     for case let surface as TerminalSurface in GhosttyApp.terminalSurfaceRegistry.allSurfaces() {
-                        surface.renderWorkerDidInitialize(
-                            workerGeneration: workerGeneration,
-                            processIdentifier: processIdentifier
-                        )
+                        surface.renderWorkerDidBecomeReady(workerGeneration: workerGeneration)
                     }
+                }
+            case let .surfaceCreated(surfaceID, _):
+                guard let activeWorkerGeneration else { continue }
+                await MainActor.run {
+                    guard let surface = GhosttyApp.terminalSurfaceRegistry.surface(id: surfaceID)
+                        as? TerminalSurface else { return }
+                    surface.renderWorkerDidBecomeReady(workerGeneration: activeWorkerGeneration)
                 }
             case let .resynchronizationRequired(surfaceID, surfaceGeneration):
                 Task { @MainActor in
@@ -204,13 +210,18 @@ final class GhosttyRenderRuntimeBridge: TerminalRenderWorkerRouting, @unchecked 
                     self.enqueueRenderCommand(command)
                 }
             case let .workerExited(workerGeneration):
-                Task { @MainActor in
+                if activeWorkerGeneration == workerGeneration {
+                    activeWorkerGeneration = nil
+                }
+                await MainActor.run {
                     for case let surface as TerminalSurface in GhosttyApp.terminalSurfaceRegistry.allSurfaces() {
                         surface.renderWorkerDidExit(workerGeneration: workerGeneration)
                     }
                 }
-            case .surfaceCreated, .outputApplied, .failure:
+            case .outputApplied:
                 break
+            case let .failure(message):
+                cmuxDebugLog("ghostty render worker: \(message)")
             }
         }
     }
