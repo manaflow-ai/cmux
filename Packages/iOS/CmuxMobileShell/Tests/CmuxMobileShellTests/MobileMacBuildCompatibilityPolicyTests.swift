@@ -81,6 +81,94 @@ import Testing
         ).allSatisfy { $0.macDeviceID != "other-mac" })
     }
 
+    @Test func scopedStoreKeepsUnclaimedLegacyRowsMigratable() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let raw = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired.sqlite3")
+        )
+        let originalRoute = try CmxAttachRoute(
+            id: "legacy",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.1", port: 22)
+        )
+        let updatedRoute = try CmxAttachRoute(
+            id: "legacy-updated",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.2", port: 22)
+        )
+        try await raw.upsert(
+            macDeviceID: "legacy-mac",
+            displayName: "Legacy",
+            routes: [originalRoute],
+            instanceTag: nil,
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date(timeIntervalSince1970: 1)
+        )
+        let scoped = MobileMacBuildCompatibilityPolicy
+            .development(expectedInstanceTag: "icap")
+            .scoping(raw)
+
+        #expect(try await scoped.loadAll(
+            stackUserID: "user-1", teamID: "team-a"
+        ).map(\.macDeviceID) == ["legacy-mac"])
+        let updated = try await scoped.upsertRoutesIfAuthorized(
+            macDeviceID: "legacy-mac",
+            displayName: "Legacy",
+            routes: [updatedRoute],
+            condition: .unclaimed,
+            markActive: nil,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date(timeIntervalSince1970: 2)
+        )
+
+        #expect(updated)
+        #expect(try await raw.loadAll(
+            stackUserID: "user-1", teamID: "team-a"
+        ).first?.routes == [updatedRoute])
+    }
+
+    @Test func scopedRemoveAllPreservesIncompatibleRows() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let raw = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired.sqlite3")
+        )
+        let route = try CmxAttachRoute(
+            id: "test",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.1", port: 22)
+        )
+        for tag in ["icap", "tsmig"] {
+            try await raw.upsert(
+                macDeviceID: "shared-mac",
+                displayName: tag,
+                routes: [route],
+                instanceTag: tag,
+                markActive: false,
+                stackUserID: "user-1",
+                teamID: "team-a",
+                now: Date()
+            )
+        }
+        let scoped = MobileMacBuildCompatibilityPolicy
+            .development(expectedInstanceTag: "icap")
+            .scoping(raw)
+
+        try await scoped.removeAll()
+
+        #expect(try await raw.loadAll(
+            stackUserID: nil, teamID: nil
+        ).compactMap(\.instanceTag) == ["tsmig"])
+    }
+
     @Test func officialStoreKeepsStableAndNightlyButRejectsDevelopment() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

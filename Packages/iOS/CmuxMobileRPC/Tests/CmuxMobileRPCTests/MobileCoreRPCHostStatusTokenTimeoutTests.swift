@@ -94,7 +94,7 @@ import Testing
         #expect(try await transport.sentRequests().isEmpty)
     }
 
-    @Test func hostStatusReusesTokenThatJustAuthorizedWorkspaceList() async throws {
+    @Test func separateHostStatusRequestDoesNotReuseImplicitAuthorizationState() async throws {
         let statusTokenProviderStarted = AsyncFlag()
         let transport = ImmediateResponseRecordingTransport()
         let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59131)
@@ -103,10 +103,9 @@ import Testing
             stackAccessTokenProvider: { "workspace-token" },
             stackAccessTokenForStatusProvider: {
                 await statusTokenProviderStarted.set()
-                try? await Task.sleep(nanoseconds: 60 * 1_000_000_000)
-                return nil
+                return "status-token"
             },
-            rpcRequestTimeoutNanoseconds: 100_000_000
+            rpcRequestTimeoutNanoseconds: 60 * 1_000_000_000
         )
         let ticket = try CmxAttachTicket(
             workspaceID: "workspace-main",
@@ -140,8 +139,8 @@ import Testing
 
         let sent = try await transport.sentRequests()
         #expect(sent.map(\.method) == ["workspace.list", "mobile.host.status"])
-        #expect(sent.map(\.stackAccessToken) == ["workspace-token", "workspace-token"])
-        #expect(!(await statusTokenProviderStarted.isSet()))
+        #expect(sent.map(\.stackAccessToken) == ["workspace-token", "status-token"])
+        #expect(await statusTokenProviderStarted.isSet())
     }
 }
 
