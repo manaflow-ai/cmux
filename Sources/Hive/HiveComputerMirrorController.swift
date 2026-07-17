@@ -31,6 +31,9 @@ final class HiveComputerMirrorController {
         var terminalsByRemoteID: [String: HiveRemoteTerminalSession] = [:]
         /// Local display-tab panel id per remote terminal id.
         var panelIdByRemoteTerminalID: [String: UUID] = [:]
+        /// Remote terminal ids per remote workspace id (repaint scoping and
+        /// dead-terminal pruning).
+        var terminalIDsByRemoteWorkspaceID: [String: [String]] = [:]
     }
 
     private var mirrorsByDeviceID: [String: DeviceMirror] = [:]
@@ -44,11 +47,16 @@ final class HiveComputerMirrorController {
 
     /// Repaints a mirror workspace's terminals from their cached full frames
     /// and re-requests replays. Called when the workspace is selected so a
-    /// surface that realized after its replay landed still paints.
+    /// surface that realized after its replay landed still paints. Scoped to
+    /// the selected workspace's terminals only (a device-wide repaint storms
+    /// replays on every click).
     func workspaceSelected(_ workspaceId: UUID) {
-        for mirror in mirrorsByDeviceID.values
-        where mirror.workspaceIdByRemoteID.values.contains(workspaceId) {
-            for (_, terminal) in mirror.terminalsByRemoteID {
+        for mirror in mirrorsByDeviceID.values {
+            guard let remoteWorkspaceID = mirror.workspaceIdByRemoteID
+                .first(where: { $0.value == workspaceId })?.key else { continue }
+            let terminalIDs = mirror.terminalIDsByRemoteWorkspaceID[remoteWorkspaceID] ?? []
+            for terminalID in terminalIDs {
+                guard let terminal = mirror.terminalsByRemoteID[terminalID] else { continue }
                 if let cached = terminal.lastFullFrameBytes {
                     terminal.frameBytesHandler?(cached)
                 }
@@ -137,14 +145,38 @@ final class HiveComputerMirrorController {
 
         let remoteIDs = Set(workspaces.map(\.id))
         // Remove mirrors whose remote workspace vanished (closed on host, or
-        // the user closed the local mirror workspace themselves).
+        // the user closed the local mirror workspace themselves), and stop
+        // their terminal streams so dead surface ids don't keep replaying.
         for (remoteID, workspaceId) in mirror.workspaceIdByRemoteID {
             let locallyClosed = tabManager.workspacesById[workspaceId] == nil
             guard locallyClosed || !remoteIDs.contains(remoteID) else { continue }
             mirror.workspaceIdByRemoteID.removeValue(forKey: remoteID)
+            for terminalID in mirror.terminalIDsByRemoteWorkspaceID[remoteID] ?? [] {
+                mirror.terminalsByRemoteID.removeValue(forKey: terminalID)?.detach()
+                mirror.panelIdByRemoteTerminalID.removeValue(forKey: terminalID)
+            }
+            mirror.terminalIDsByRemoteWorkspaceID.removeValue(forKey: remoteID)
             if let workspace = tabManager.workspacesById[workspaceId] {
                 tabManager.closeWorkspace(workspace)
             }
+        }
+        // Prune terminals that vanished from surviving remote workspaces.
+        for remote in workspaces {
+            guard let workspaceId = mirror.workspaceIdByRemoteID[remote.id],
+                  let workspace = tabManager.workspacesById[workspaceId] else { continue }
+            let liveTerminalIDs = Set(remote.terminals.map(\.id))
+            var kept: [String] = []
+            for terminalID in mirror.terminalIDsByRemoteWorkspaceID[remote.id] ?? [] {
+                if liveTerminalIDs.contains(terminalID) {
+                    kept.append(terminalID)
+                    continue
+                }
+                mirror.terminalsByRemoteID.removeValue(forKey: terminalID)?.detach()
+                if let panelId = mirror.panelIdByRemoteTerminalID.removeValue(forKey: terminalID) {
+                    _ = workspace.removeRemoteTmuxDisplayPane(panelId)
+                }
+            }
+            mirror.terminalIDsByRemoteWorkspaceID[remote.id] = kept
         }
 
         for remote in workspaces {
@@ -214,9 +246,10 @@ final class HiveComputerMirrorController {
                     _ = self
                 }
             ) else { continue }
-            // Scale the remote grid to fill the local pane (font-fitted),
-            // instead of the fixed-pixel legacy cap.
-            panel.surface.manualIOFontFitEnabled = true
+            // Font-fitted fill is disabled until the fit path supports
+            // manual surfaces reliably (post-merge it produced blank panes);
+            // the legacy cap renders at remote size, which always paints.
+            panel.surface.manualIOFontFitEnabled = false
             // The remote grid is authoritative for the mirror surface's cell
             // dimensions; adopt them whenever they change so replay/patch rows
             // land on the layout they were produced for.
@@ -239,6 +272,7 @@ final class HiveComputerMirrorController {
             terminalSession.attach()
             mirror.terminalsByRemoteID[terminal.id] = terminalSession
             mirror.panelIdByRemoteTerminalID[terminal.id] = panel.id
+            mirror.terminalIDsByRemoteWorkspaceID[remote.id, default: []].append(terminal.id)
         }
     }
 }
