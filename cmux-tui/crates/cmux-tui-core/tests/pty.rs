@@ -1276,6 +1276,8 @@ fn tree_event_modes_receive_delta_or_exact_coarse_fallback() {
     assert_eq!(delta["event"], "workspace-added");
     assert_eq!(delta["workspace"], delta["entity"]["id"]);
     assert_eq!(delta["index"], 0);
+    assert_eq!(delta["workspace_revision"], 1);
+    assert!(delta["entity"]["key"].as_str().is_some_and(|key| key.len() == 36));
     assert_eq!(delta["entity"]["name"], "delta");
     assert!(
         delta["entity"]["screens"][0]["panes"][0]["tabs"]
@@ -1286,6 +1288,63 @@ fn tree_event_modes_receive_delta_or_exact_coarse_fallback() {
     );
 
     mux.close_surface(surface);
+    cmux_tui_core::server::cleanup(&sock_path);
+}
+
+#[test]
+fn create_empty_workspace_is_visible_and_materialized_in_place() {
+    let mux = Mux::new(unique_session("test-empty-workspace"), shell_opts("sleep 30"));
+    let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
+    let commands = connect(&sock_path);
+    let mut writer = commands.try_clone_box().unwrap();
+    let mut reader = BufReader::new(commands);
+    let key = "018f6e21-7b70-7e70-8000-000000000042";
+
+    let created = socket_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "create-workspace",
+            "name": "from-gui",
+            "key": key,
+        }),
+    );
+    assert_eq!(created["ok"], true, "create-workspace failed: {created}");
+    assert_eq!(created["data"]["key"], key);
+    assert_eq!(created["data"]["workspace_revision"], 1);
+    let workspace = created["data"]["workspace"].as_u64().unwrap();
+
+    let snapshot = socket_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({"id": 2, "cmd": "list-workspaces"}),
+    );
+    assert_eq!(snapshot["data"]["workspace_revision"], 1);
+    assert_eq!(snapshot["data"]["workspaces"][0]["id"], workspace);
+    assert_eq!(snapshot["data"]["workspaces"][0]["key"], key);
+    assert!(snapshot["data"]["workspaces"][0]["screens"].as_array().unwrap().is_empty());
+
+    let tab = socket_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({"id": 3, "cmd": "new-tab", "cols": 80, "rows": 24}),
+    );
+    assert_eq!(tab["ok"], true, "new-tab failed: {tab}");
+    let snapshot = socket_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({"id": 4, "cmd": "list-workspaces"}),
+    );
+    assert_eq!(snapshot["data"]["workspaces"].as_array().unwrap().len(), 1);
+    assert_eq!(snapshot["data"]["workspaces"][0]["id"], workspace);
+    assert_eq!(snapshot["data"]["workspace_revision"], 1);
+    assert_eq!(
+        snapshot["data"]["workspaces"][0]["screens"][0]["panes"][0]["tabs"][0]["surface"],
+        tab["data"]["surface"]
+    );
+
+    mux.close_workspace(workspace);
     cmux_tui_core::server::cleanup(&sock_path);
 }
 

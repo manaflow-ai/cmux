@@ -155,6 +155,10 @@ pub struct Screen {
 #[derive(Debug)]
 pub struct Workspace {
     pub id: WorkspaceId,
+    /// Stable external identity used by detached frontends. Unlike `id`, this
+    /// survives snapshot/reconciliation boundaries and is safe to persist in
+    /// a frontend's richer layout state.
+    pub key: String,
     pub name: String,
     pub screens: Vec<Screen>,
     pub active_screen: usize,
@@ -170,6 +174,9 @@ impl Workspace {
 /// closures.
 pub struct State {
     pub workspaces: Vec<Workspace>,
+    /// Monotonic version of the ordered workspace registry. Pane, screen, and
+    /// tab-only mutations do not advance this counter.
+    pub workspace_revision: u64,
     pub active_workspace: usize,
     pub panes: HashMap<PaneId, Pane>,
     pub surfaces: HashMap<SurfaceId, Arc<Surface>>,

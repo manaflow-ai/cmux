@@ -281,6 +281,15 @@ enum Command {
         #[serde(default)]
         rows: Option<u16>,
     },
+    /// Create a registry entry without implicitly spawning a terminal.
+    CreateWorkspace {
+        #[serde(default)]
+        name: Option<String>,
+        /// Optional frontend-generated stable key. When absent, the mux
+        /// generates a UUIDv4 key and returns it.
+        #[serde(default)]
+        key: Option<String>,
+    },
     /// New screen in a workspace (default: the active one).
     NewScreen {
         #[serde(default)]
@@ -1697,9 +1706,11 @@ fn workspaces_json(
         .chain(state.surfaces.keys().copied());
     let short_ids = assign_short_ids(ids);
     json!({
+        "workspace_revision": state.workspace_revision,
         "workspaces": state.workspaces.iter().enumerate().map(|(i, ws)| {
             json!({
                 "id": ws.id,
+                "key": ws.key,
                 "short_id": short_ids.get(&ws.id).cloned().unwrap_or_default(),
                 "name": ws.name,
                 "active": i == state.active_workspace,
@@ -1722,7 +1733,8 @@ pub(crate) fn tree_entity_json(
     match kind {
         TreeDeltaKind::WorkspaceAdded
         | TreeDeltaKind::WorkspaceClosed
-        | TreeDeltaKind::WorkspaceRenamed => workspaces
+        | TreeDeltaKind::WorkspaceRenamed
+        | TreeDeltaKind::WorkspaceMoved => workspaces
             .iter()
             .find(|workspace| workspace.get("id").and_then(Value::as_u64) == Some(id))
             .cloned(),
@@ -1776,6 +1788,9 @@ fn tree_delta_json(delta: &TreeDelta) -> Value {
     }
     if let Some(index) = delta.index {
         value["index"] = json!(index);
+    }
+    if let Some(revision) = delta.workspace_revision {
+        value["workspace_revision"] = json!(revision);
     }
     value
 }
@@ -2585,6 +2600,15 @@ fn handle_command(
         Command::NewWorkspace { name, cols, rows } => {
             let surface = mux.new_workspace(name, optional_surface_size(cols, rows))?;
             Ok(json!({ "surface": surface.id }))
+        }
+        Command::CreateWorkspace { name, key } => {
+            let placement = mux.create_empty_workspace(name, key)?;
+            Ok(json!({
+                "workspace": placement.workspace,
+                "key": placement.key,
+                "index": placement.index,
+                "workspace_revision": placement.revision,
+            }))
         }
         Command::NewScreen { workspace, cols, rows } => {
             let surface = mux.new_screen(workspace, optional_surface_size(cols, rows))?;

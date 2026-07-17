@@ -110,12 +110,14 @@ pub struct VtStateResult {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Tree {
+    pub workspace_revision: u64,
     pub workspaces: Vec<Workspace>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Workspace {
     pub id: u64,
+    pub key: String,
     pub name: String,
     pub active: bool,
     pub screens: Vec<Screen>,

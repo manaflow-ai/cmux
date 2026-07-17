@@ -113,6 +113,7 @@ pub enum TreeDeltaKind {
     WorkspaceAdded,
     WorkspaceClosed,
     WorkspaceRenamed,
+    WorkspaceMoved,
     ScreenAdded,
     ScreenClosed,
     ScreenRenamed,
@@ -129,6 +130,7 @@ impl TreeDeltaKind {
             Self::WorkspaceAdded => "workspace-added",
             Self::WorkspaceClosed => "workspace-closed",
             Self::WorkspaceRenamed => "workspace-renamed",
+            Self::WorkspaceMoved => "workspace-moved",
             Self::ScreenAdded => "screen-added",
             Self::ScreenClosed => "screen-closed",
             Self::ScreenRenamed => "screen-renamed",
@@ -150,6 +152,9 @@ pub struct TreeDelta {
     pub surface: Option<SurfaceId>,
     pub index: Option<usize>,
     pub entity: Value,
+    /// Present for ordered workspace-registry mutations. Consumers can apply
+    /// only the exact next revision and refetch after a gap.
+    pub workspace_revision: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -278,6 +283,14 @@ pub struct RunPlacement {
     pub workspace: WorkspaceId,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspacePlacement {
+    pub workspace: WorkspaceId,
+    pub key: String,
+    pub index: usize,
+    pub revision: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AppliedPane {
     pub pane: PaneId,
@@ -373,6 +386,7 @@ impl Mux {
         Arc::new(Mux {
             state: Mutex::new(State {
                 workspaces: Vec::new(),
+                workspace_revision: 0,
                 active_workspace: 0,
                 panes: HashMap::new(),
                 surfaces: HashMap::new(),
@@ -418,6 +432,36 @@ impl Mux {
 
     fn next_notification_id(&self) -> u64 {
         self.next_notification_id.fetch_add(1, Ordering::Relaxed)
+    }
+
+    fn new_workspace_key() -> anyhow::Result<String> {
+        let mut bytes = [0u8; 16];
+        getrandom::fill(&mut bytes)
+            .map_err(|_| anyhow::anyhow!("operating system randomness unavailable"))?;
+        // RFC 9562 UUIDv4 version and variant bits. Keeping the formatter
+        // local avoids making stable workspace identity depend on a UUID
+        // library at the protocol boundary.
+        bytes[6] = (bytes[6] & 0x0f) | 0x40;
+        bytes[8] = (bytes[8] & 0x3f) | 0x80;
+        Ok(format!(
+            "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+            bytes[0],
+            bytes[1],
+            bytes[2],
+            bytes[3],
+            bytes[4],
+            bytes[5],
+            bytes[6],
+            bytes[7],
+            bytes[8],
+            bytes[9],
+            bytes[10],
+            bytes[11],
+            bytes[12],
+            bytes[13],
+            bytes[14],
+            bytes[15]
+        ))
     }
 
     pub fn subscribe(&self) -> MuxEventReceiver {
@@ -1175,6 +1219,7 @@ impl Mux {
         name: Option<String>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
+        let workspace_key = Self::new_workspace_key()?;
         let surface = self.spawn_surface(None, size)?;
         let (pane_id, pane) = self.make_pane(surface.id);
         let screen_id = self.next_id();
@@ -1186,6 +1231,7 @@ impl Mux {
             state.panes.insert(pane_id, pane);
             state.workspaces.push(Workspace {
                 id: ws_id,
+                key: workspace_key,
                 name,
                 screens: vec![Screen {
                     id: screen_id,
@@ -1197,6 +1243,8 @@ impl Mux {
                 active_screen: 0,
             });
             state.active_workspace = state.workspaces.len() - 1;
+            state.workspace_revision = state.workspace_revision.saturating_add(1);
+            let workspace_revision = state.workspace_revision;
             let index = state.workspaces.len() - 1;
             let entity = crate::server::tree_entity_json(
                 &state,
@@ -1213,11 +1261,69 @@ impl Mux {
                 surface: None,
                 index: Some(index),
                 entity,
+                workspace_revision: Some(workspace_revision),
             }
         };
         self.emit(MuxEvent::TreeDelta(delta));
         self.reap_if_dead(&surface);
         Ok(surface)
+    }
+
+    /// Add an ordered workspace-registry entry without creating a PTY,
+    /// screen, or pane. Detached GUI frontends use this when a user creates
+    /// an empty workspace in Chrome.
+    pub fn create_empty_workspace(
+        &self,
+        name: Option<String>,
+        key: Option<String>,
+    ) -> anyhow::Result<WorkspacePlacement> {
+        let key = match key {
+            Some(key) if key.trim().is_empty() => anyhow::bail!("workspace key cannot be empty"),
+            Some(key) => key,
+            None => Self::new_workspace_key()?,
+        };
+        let ws_id = self.next_id();
+        let notifications = self.surface_notifications();
+        let (placement, delta) = {
+            let mut state = self.state.lock().unwrap();
+            if state.workspaces.iter().any(|workspace| workspace.key == key) {
+                anyhow::bail!("workspace key already exists: {key}");
+            }
+            let name = name.unwrap_or_else(|| format!("{}", state.workspaces.len() + 1));
+            state.workspaces.push(Workspace {
+                id: ws_id,
+                key: key.clone(),
+                name,
+                screens: Vec::new(),
+                active_screen: 0,
+            });
+            state.active_workspace = state.workspaces.len() - 1;
+            state.workspace_revision = state.workspace_revision.saturating_add(1);
+            let index = state.workspaces.len() - 1;
+            let revision = state.workspace_revision;
+            let entity = crate::server::tree_entity_json(
+                &state,
+                &notifications,
+                TreeDeltaKind::WorkspaceAdded,
+                ws_id,
+            )
+            .expect("new empty workspace is present in tree snapshot");
+            (
+                WorkspacePlacement { workspace: ws_id, key, index, revision },
+                TreeDelta {
+                    kind: TreeDeltaKind::WorkspaceAdded,
+                    workspace: ws_id,
+                    screen: None,
+                    pane: None,
+                    surface: None,
+                    index: Some(index),
+                    entity,
+                    workspace_revision: Some(revision),
+                },
+            )
+        };
+        self.emit(MuxEvent::TreeDelta(delta));
+        Ok(placement)
     }
 
     pub fn run_command_surface(
@@ -1230,6 +1336,7 @@ impl Mux {
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<RunPlacement> {
         if new_workspace {
+            let workspace_key = Self::new_workspace_key()?;
             let surface = self.spawn_surface_with_command(cwd, size, Some(argv))?;
             if let Some(name) = name.as_ref() {
                 surface.set_name(Some(name.clone()));
@@ -1245,6 +1352,7 @@ impl Mux {
                 state.panes.insert(pane_id, pane);
                 state.workspaces.push(Workspace {
                     id: ws_id,
+                    key: workspace_key,
                     name: workspace_name,
                     screens: vec![Screen {
                         id: screen_id,
@@ -1256,6 +1364,8 @@ impl Mux {
                     active_screen: 0,
                 });
                 state.active_workspace = state.workspaces.len() - 1;
+                state.workspace_revision = state.workspace_revision.saturating_add(1);
+                let workspace_revision = state.workspace_revision;
                 let index = state.workspaces.len() - 1;
                 let entity = crate::server::tree_entity_json(
                     &state,
@@ -1272,6 +1382,7 @@ impl Mux {
                     surface: None,
                     index: Some(index),
                     entity,
+                    workspace_revision: Some(workspace_revision),
                 }
             };
             self.emit(MuxEvent::TreeDelta(delta));
@@ -1344,6 +1455,7 @@ impl Mux {
                 surface: Some(surface.id),
                 index: Some(index),
                 entity,
+                workspace_revision: None,
             };
             (placement, delta)
         };
@@ -1412,6 +1524,7 @@ impl Mux {
                         surface: None,
                         index: Some(index),
                         entity,
+                        workspace_revision: None,
                     })
                 }
                 None => {
@@ -1439,9 +1552,9 @@ impl Mux {
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
         // Resolve and validate the target before spawning a child.
-        let target = {
+        let (target, empty_workspace) = {
             let state = self.state.lock().unwrap();
-            match pane {
+            let target = match pane {
                 Some(id) => {
                     if !state.panes.contains_key(&id) {
                         anyhow::bail!("unknown pane {id}");
@@ -1449,9 +1562,19 @@ impl Mux {
                     Some(id)
                 }
                 None => state.active_pane(),
-            }
+            };
+            let empty_workspace = target
+                .is_none()
+                .then(|| state.workspaces.get(state.active_workspace))
+                .flatten()
+                .filter(|workspace| workspace.screens.is_empty())
+                .map(|workspace| workspace.id);
+            (target, empty_workspace)
         };
         let Some(target) = target else {
+            if let Some(workspace) = empty_workspace {
+                return self.new_screen(Some(workspace), size);
+            }
             return self.new_workspace(None, size);
         };
 
@@ -1485,6 +1608,7 @@ impl Mux {
                         surface: Some(surface.id),
                         index: Some(index),
                         entity,
+                        workspace_revision: None,
                     })
                 }
                 None => {
@@ -1525,6 +1649,7 @@ impl Mux {
             }
         };
         let Some(target) = target else {
+            let workspace_key = Self::new_workspace_key()?;
             let surface = self.spawn_browser_surface(url, size);
             let (pane_id, pane) = self.make_pane(surface.id);
             let screen_id = self.next_id();
@@ -1536,6 +1661,7 @@ impl Mux {
                 state.panes.insert(pane_id, pane);
                 state.workspaces.push(Workspace {
                     id: ws_id,
+                    key: workspace_key,
                     name,
                     screens: vec![Screen {
                         id: screen_id,
@@ -1547,6 +1673,8 @@ impl Mux {
                     active_screen: 0,
                 });
                 state.active_workspace = state.workspaces.len() - 1;
+                state.workspace_revision = state.workspace_revision.saturating_add(1);
+                let workspace_revision = state.workspace_revision;
                 let index = state.workspaces.len() - 1;
                 let entity = crate::server::tree_entity_json(
                     &state,
@@ -1563,6 +1691,7 @@ impl Mux {
                     surface: None,
                     index: Some(index),
                     entity,
+                    workspace_revision: Some(workspace_revision),
                 }
             };
             self.emit(MuxEvent::TreeDelta(delta));
@@ -1599,6 +1728,7 @@ impl Mux {
                         surface: Some(surface.id),
                         index: Some(index),
                         entity,
+                        workspace_revision: None,
                     })
                 }
                 None => {
@@ -1684,6 +1814,7 @@ impl Mux {
                             surface: Some(surface.id),
                             index: Some(index),
                             entity,
+                            workspace_revision: None,
                         })
                     })();
                     BrowserSurfaceAttach::Attached(delta)
@@ -1764,6 +1895,7 @@ impl Mux {
                     surface: None,
                     index: Some(screen_pane_index(&state, changed_screen.unwrap(), pane_id)),
                     entity,
+                    workspace_revision: None,
                 });
             } else {
                 state.surfaces.remove(&surface.id);
@@ -1788,9 +1920,21 @@ impl Mux {
         let (removed, changed_screens, empty, delta) = {
             let mut state = self.state.lock().unwrap();
             let changed_screen = surface_screen_id(&state, target);
-            let delta = close_surface_delta(&state, &notifications, target);
+            let mut delta = close_surface_delta(&state, &notifications, target);
+            let removed = remove_surface(&mut state, target);
+            if removed.is_some()
+                && matches!(
+                    delta.as_ref().map(|delta| delta.kind),
+                    Some(TreeDeltaKind::WorkspaceClosed)
+                )
+            {
+                state.workspace_revision = state.workspace_revision.saturating_add(1);
+                if let Some(delta) = delta.as_mut() {
+                    delta.workspace_revision = Some(state.workspace_revision);
+                }
+            }
             (
-                remove_surface(&mut state, target),
+                removed,
                 changed_screen.into_iter().collect::<Vec<_>>(),
                 state.workspaces.is_empty(),
                 delta,
@@ -1815,7 +1959,7 @@ impl Mux {
 
     /// Close every surface in `tabs` (helper for pane/screen/workspace
     /// close). Emits events outside the lock.
-    fn close_surfaces(&self, tabs: Vec<SurfaceId>, delta: TreeDelta) {
+    fn close_surfaces(&self, tabs: Vec<SurfaceId>, mut delta: TreeDelta) {
         let (removed, changed_screens, empty) = {
             let mut state = self.state.lock().unwrap();
             let changed_screens = unique_screen_ids(
@@ -1826,6 +1970,10 @@ impl Mux {
                 if let Some(surface) = remove_surface(&mut state, surface) {
                     removed.push(surface);
                 }
+            }
+            if !removed.is_empty() && delta.kind == TreeDeltaKind::WorkspaceClosed {
+                state.workspace_revision = state.workspace_revision.saturating_add(1);
+                delta.workspace_revision = Some(state.workspace_revision);
             }
             (removed, changed_screens, state.workspaces.is_empty())
         };
@@ -1884,7 +2032,7 @@ impl Mux {
     /// Close a workspace and every screen/pane/tab in it.
     pub fn close_workspace(&self, target: WorkspaceId) -> bool {
         let notifications = self.surface_notifications();
-        let (tabs, delta) = {
+        let (tabs, mut delta) = {
             let state = self.state.lock().unwrap();
             let Some(ws) = state.workspaces.iter().find(|ws| ws.id == target) else {
                 return false;
@@ -1898,6 +2046,30 @@ impl Mux {
                     .expect("live workspace has a close delta"),
             )
         };
+        if tabs.is_empty() {
+            let empty = {
+                let mut state = self.state.lock().unwrap();
+                let Some(index) =
+                    state.workspaces.iter().position(|workspace| workspace.id == target)
+                else {
+                    return false;
+                };
+                let active_id =
+                    state.workspaces.get(state.active_workspace).map(|workspace| workspace.id);
+                state.workspaces.remove(index);
+                state.active_workspace = active_id
+                    .and_then(|id| state.workspaces.iter().position(|workspace| workspace.id == id))
+                    .unwrap_or_else(|| state.workspaces.len().saturating_sub(1));
+                state.workspace_revision = state.workspace_revision.saturating_add(1);
+                delta.workspace_revision = Some(state.workspace_revision);
+                state.workspaces.is_empty()
+            };
+            self.emit(MuxEvent::TreeDelta(delta));
+            if empty {
+                self.emit(MuxEvent::Empty);
+            }
+            return true;
+        }
         self.close_surfaces(tabs, delta);
         true
     }
@@ -1909,6 +2081,8 @@ impl Mux {
             match state.workspaces.iter_mut().find(|ws| ws.id == target) {
                 Some(ws) => {
                     ws.name = name;
+                    state.workspace_revision = state.workspace_revision.saturating_add(1);
+                    let workspace_revision = state.workspace_revision;
                     let entity = crate::server::tree_entity_json(
                         &state,
                         &notifications,
@@ -1924,6 +2098,7 @@ impl Mux {
                         surface: None,
                         index: None,
                         entity,
+                        workspace_revision: Some(workspace_revision),
                     })
                 }
                 None => None,
@@ -1981,6 +2156,7 @@ impl Mux {
                     surface: Some(target),
                     index: None,
                     entity,
+                    workspace_revision: None,
                 })
             })()
         };
@@ -2018,6 +2194,7 @@ impl Mux {
                 surface: None,
                 index: None,
                 entity,
+                workspace_revision: None,
             }
         };
         self.emit(MuxEvent::TreeDelta(renamed));
@@ -2188,6 +2365,7 @@ impl Mux {
         layout: &LayoutSpec,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<AppliedLayout> {
+        let new_workspace_key = Self::new_workspace_key()?;
         {
             let state = self.state.lock().unwrap();
             if let Some(id) = workspace
@@ -2235,11 +2413,13 @@ impl Mux {
                     let ws_id = self.next_id();
                     state.workspaces.push(Workspace {
                         id: ws_id,
+                        key: new_workspace_key,
                         name: "1".into(),
                         screens: vec![screen],
                         active_screen: 0,
                     });
                     state.active_workspace = 0;
+                    state.workspace_revision = state.workspace_revision.saturating_add(1);
                     created_workspace = Some(ws_id);
                     ws_id
                 }
@@ -2272,6 +2452,7 @@ impl Mux {
                     surface: None,
                     index: Some(index),
                     entity,
+                    workspace_revision: Some(state.workspace_revision),
                 }
             } else {
                 let index = state
@@ -2297,6 +2478,7 @@ impl Mux {
                     surface: None,
                     index: Some(index),
                     entity,
+                    workspace_revision: None,
                 }
             }
         };
@@ -2361,9 +2543,13 @@ impl Mux {
         let active_at = self.next_active_at();
         let moved = {
             let mut state = self.state.lock().unwrap();
+            let workspace_count = state.workspaces.len();
             let moved = move_tab_in_state(&mut state, surface, pane, index);
             if moved {
                 stamp_pane(&mut state, pane, active_at);
+                if state.workspaces.len() != workspace_count {
+                    state.workspace_revision = state.workspace_revision.saturating_add(1);
+                }
             }
             moved
         };
@@ -2375,7 +2561,8 @@ impl Mux {
 
     /// Reorder a workspace. The active workspace follows the moved entry.
     pub fn move_workspace(&self, workspace: WorkspaceId, index: usize) -> bool {
-        let moved = {
+        let notifications = self.surface_notifications();
+        let delta = {
             let mut state = self.state.lock().unwrap();
             let Some(old_idx) = state.workspaces.iter().position(|ws| ws.id == workspace) else {
                 return false;
@@ -2391,12 +2578,32 @@ impl Mux {
             state.active_workspace = active_id
                 .and_then(|id| state.workspaces.iter().position(|ws| ws.id == id))
                 .unwrap_or_else(|| state.workspaces.len().saturating_sub(1));
-            true
+            state.workspace_revision = state.workspace_revision.saturating_add(1);
+            let workspace_revision = state.workspace_revision;
+            let entity = crate::server::tree_entity_json(
+                &state,
+                &notifications,
+                TreeDeltaKind::WorkspaceMoved,
+                workspace,
+            )
+            .expect("moved workspace is present in tree snapshot");
+            Some(TreeDelta {
+                kind: TreeDeltaKind::WorkspaceMoved,
+                workspace,
+                screen: None,
+                pane: None,
+                surface: None,
+                index: Some(new_idx),
+                entity,
+                workspace_revision: Some(workspace_revision),
+            })
         };
-        if moved {
-            self.emit(MuxEvent::TreeChanged);
+        if let Some(delta) = delta {
+            self.emit(MuxEvent::TreeDelta(delta));
+            true
+        } else {
+            false
         }
-        moved
     }
 
     /// Select a tab within a pane (default: the active pane) by index or
@@ -2597,6 +2804,7 @@ fn close_surface_delta(
             surface: Some(surface),
             index: Some(tab_index),
             entity,
+            workspace_revision: None,
         });
     }
     close_pane_delta(state, notifications, pane_id)
@@ -2623,6 +2831,7 @@ fn close_pane_delta(
             surface: None,
             index: Some(panes.iter().position(|candidate| *candidate == pane)?),
             entity,
+            workspace_revision: None,
         });
     }
     close_screen_delta(state, notifications, screen.id)
@@ -2652,6 +2861,7 @@ fn close_screen_delta(
             surface: None,
             index: Some(si),
             entity,
+            workspace_revision: None,
         });
     }
     close_workspace_delta(state, notifications, workspace.id)
@@ -2677,6 +2887,7 @@ fn close_workspace_delta(
         surface: None,
         index: Some(index),
         entity,
+        workspace_revision: None,
     })
 }
 
@@ -3175,6 +3386,7 @@ mod tests {
         *mux.state.lock().unwrap() = State {
             workspaces: vec![Workspace {
                 id: 1,
+                key: "00000000-0000-4000-8000-000000000001".into(),
                 name: "1".into(),
                 screens: vec![Screen {
                     id: 1,
@@ -3195,6 +3407,7 @@ mod tests {
                 }],
                 active_screen: 0,
             }],
+            workspace_revision: 1,
             active_workspace: 0,
             panes: HashMap::from([
                 (p1, Pane { id: p1, name: None, tabs: vec![1], active_tab: 0, active_at: 1 }),
@@ -3693,8 +3906,66 @@ mod tests {
     }
 
     #[test]
+    fn empty_workspace_registry_has_stable_keys_revisions_and_close() {
+        let mux = test_mux();
+        let events = mux.subscribe();
+        let key = "018f6e21-7b70-7e70-8000-000000000001".to_string();
+        let first = mux
+            .create_empty_workspace(Some("empty".into()), Some(key.clone()))
+            .expect("create empty workspace");
+        assert_eq!(first.key, key);
+        assert_eq!(first.index, 0);
+        assert_eq!(first.revision, 1);
+        mux.with_state(|state| {
+            assert_eq!(state.workspace_revision, 1);
+            assert_eq!(state.workspaces.len(), 1);
+            assert_eq!(state.workspaces[0].key, key);
+            assert!(state.workspaces[0].screens.is_empty());
+        });
+        let MuxEvent::TreeDelta(added) = events.recv().expect("workspace-added delta") else {
+            panic!("expected workspace-added delta");
+        };
+        assert_eq!(added.kind, TreeDeltaKind::WorkspaceAdded);
+        assert_eq!(added.workspace_revision, Some(1));
+        assert_eq!(added.entity["key"], key);
+
+        assert!(
+            mux.create_empty_workspace(None, Some(first.key.clone()))
+                .expect_err("duplicate stable key must fail")
+                .to_string()
+                .contains("already exists")
+        );
+        assert!(mux.close_workspace(first.workspace));
+        mux.with_state(|state| {
+            assert!(state.workspaces.is_empty());
+            assert_eq!(state.workspace_revision, 2);
+        });
+        let MuxEvent::TreeDelta(closed) = events.recv().expect("workspace-closed delta") else {
+            panic!("expected workspace-closed delta");
+        };
+        assert_eq!(closed.kind, TreeDeltaKind::WorkspaceClosed);
+        assert_eq!(closed.workspace_revision, Some(2));
+        assert!(matches!(events.recv().expect("empty event"), MuxEvent::Empty));
+    }
+
+    #[test]
+    fn new_tab_materializes_selected_empty_workspace() {
+        let mux = test_mux();
+        let placement = mux.create_empty_workspace(Some("gui".into()), None).unwrap();
+        let surface = mux.new_tab(None, None, Some((80, 24))).unwrap();
+        mux.with_state(|state| {
+            assert_eq!(state.workspaces.len(), 1);
+            assert_eq!(state.workspaces[0].id, placement.workspace);
+            assert_eq!(state.workspaces[0].screens.len(), 1);
+            assert_eq!(state.pane_of(surface.id), state.active_pane());
+            assert_eq!(state.workspace_revision, 1);
+        });
+    }
+
+    #[test]
     fn move_workspace_reorders_and_tracks_active_workspace() {
         let mux = test_mux();
+        let events = mux.subscribe();
         mux.new_workspace(Some("one".into()), None).unwrap();
         mux.new_workspace(Some("two".into()), None).unwrap();
         mux.new_workspace(Some("three".into()), None).unwrap();
@@ -3702,6 +3973,16 @@ mod tests {
             mux.with_state(|s| (s.workspaces[0].id, s.workspaces[1].id, s.workspaces[2].id));
 
         assert!(mux.move_workspace(ws3, 0));
+        let mut deltas = events.try_iter().filter_map(|event| match event {
+            MuxEvent::TreeDelta(delta) => Some(delta),
+            _ => None,
+        });
+        let moved = deltas
+            .find(|delta| delta.kind == TreeDeltaKind::WorkspaceMoved)
+            .expect("workspace-moved delta");
+        assert_eq!(moved.workspace, ws3);
+        assert_eq!(moved.index, Some(0));
+        assert_eq!(moved.workspace_revision, Some(4));
         mux.with_state(|s| {
             assert_eq!(
                 s.workspaces.iter().map(|ws| ws.id).collect::<Vec<_>>(),

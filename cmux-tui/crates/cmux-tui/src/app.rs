@@ -10381,9 +10381,11 @@ mod tests {
             tabs.push(tab(active_surface));
         }
         TreeView {
+            workspace_revision: 0,
             active_workspace: 0,
             workspaces: vec![WorkspaceView {
                 id: 4,
+                key: "00000000-0000-4000-8000-000000000004".to_string(),
                 short_id: "000004".to_string(),
                 name: "work".to_string(),
                 active_screen: 0,
@@ -10573,9 +10575,11 @@ mod tests {
 
     fn notify_tree(surface: u64, unread: bool) -> TreeView {
         TreeView {
+            workspace_revision: 0,
             active_workspace: 0,
             workspaces: vec![WorkspaceView {
                 id: 4,
+                key: "00000000-0000-4000-8000-000000000004".to_string(),
                 short_id: "000004".to_string(),
                 name: "work".to_string(),
                 active_screen: 0,
