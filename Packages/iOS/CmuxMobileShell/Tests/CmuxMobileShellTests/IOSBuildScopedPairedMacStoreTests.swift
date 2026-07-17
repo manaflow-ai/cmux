@@ -118,7 +118,7 @@ import Testing
         #expect(rows.first?.teamID == nil)
     }
 
-    @Test func authenticatedTaggedRowSupersedesMatchingLegacyPeerOnly() async throws {
+    @Test func buildScopeHidesSiblingTagAndMatchingLegacyPeer() async throws {
         let (inner, directory) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: directory) }
         let feature = IOSBuildScopedPairedMacStore(
@@ -159,10 +159,10 @@ import Testing
 
         let rows = try await feature.loadAll(stackUserID: "user-1", teamID: "team-a")
 
-        #expect(rows.map(\.instanceTag) == ["feature", "other"])
+        #expect(rows.map(\.instanceTag) == ["feature"])
     }
 
-    @Test func newerTeamlessSiblingTagDoesNotReplaceActiveSelectedTag() async throws {
+    @Test func newerTeamlessSiblingTagIsNotVisibleOrActive() async throws {
         let (inner, directory) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: directory) }
         let feature = IOSBuildScopedPairedMacStore(
@@ -193,15 +193,11 @@ import Testing
         let rows = try await feature.loadAll(
             stackUserID: "user-1", teamID: "team-a"
         )
-        #expect(rows.count == 2)
+        #expect(rows.count == 1)
         let selected = try #require(rows.first { $0.instanceTag == "feature-a" })
-        let fallback = try #require(rows.first { $0.instanceTag == "feature-b" })
         #expect(selected.teamID == "team-a")
         #expect(selected.routes == [try route("10.0.0.1")])
         #expect(selected.isActive)
-        #expect(fallback.teamID == nil)
-        #expect(fallback.routes == [try route("10.0.0.2")])
-        #expect(!fallback.isActive)
         #expect(try await feature.activeMac(
             stackUserID: "user-1", teamID: "team-a"
         )?.instanceTag == "feature-a")
