@@ -760,6 +760,30 @@ struct BrowserWebNotificationTests {
         #expect(store.notifications.isEmpty)
     }
 
+    @Test func nativePermissionSnapshotRespectsTheLiveForwardingSetting() throws {
+        let setting = SettingCatalog().browser.forwardWebNotifications
+        let defaults = UserDefaults.standard
+        let previousSetting = defaults.object(forKey: setting.userDefaultsKey)
+        let adapter = BrowserWebNotificationNativeAdapter.shared
+        let dataStore = WKWebsiteDataStore.nonPersistent()
+        let profileID = UUID()
+        let origin = try #require(URL(string: "https://example.com"))
+        let repository = BrowserProfileStore.shared.notificationPermissions
+        let previousDecision = repository.decision(for: origin, profileID: profileID)
+        defer {
+            adapter.setProfileForTesting(nil, on: dataStore)
+            repository.setDecision(previousDecision, for: origin, profileID: profileID)
+            if let previousSetting { defaults.set(previousSetting, forKey: setting.userDefaultsKey) }
+            else { defaults.removeObject(forKey: setting.userDefaultsKey) }
+        }
+
+        adapter.setProfileForTesting(profileID, on: dataStore)
+        repository.setDecision(.allowed, for: origin, profileID: profileID)
+        setting.set(false, in: defaults)
+
+        #expect(adapter.notificationPermissions(for: dataStore).isEmpty)
+    }
+
     @Test func nativeForegroundDeliveryUsesOnlyTheNotificationsSecurityOrigin() async throws {
         let setting = SettingCatalog().browser.forwardWebNotifications
         let defaults = UserDefaults.standard
@@ -833,6 +857,42 @@ struct BrowserWebNotificationTests {
         #expect(openedURL?.absoluteString == "http://localhost:4317")
     }
 
+    @Test func clearingWebsiteNotificationReleasesPersistentClickPayload() throws {
+        let store = TerminalNotificationStore.shared
+        let adapter = BrowserWebNotificationNativeAdapter.shared
+        let dataStore = WKWebsiteDataStore.nonPersistent()
+        let origin = try #require(URL(string: "https://example.com"))
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        store.configureNotificationRemovalHandlerForTesting { notificationIDs in
+            adapter.removePersistentClickRegistrations(notificationIDs: notificationIDs)
+        }
+        defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            store.resetNotificationRemovalHandlerForTesting()
+            adapter.resetNativeDeliveryTestingState()
+        }
+
+        let notificationID = store.addGlobalWebsiteNotification(
+            title: "Background",
+            subtitle: "example.com",
+            body: "Ready",
+            origin: origin
+        )
+        adapter.registerPersistentClickForTesting(
+            notificationID: notificationID,
+            dataStore: dataStore,
+            dictionary: ["serialized": String(repeating: "x", count: 4_096)],
+            origin: origin
+        )
+        #expect(adapter.hasPersistentClickRegistrationForTesting(notificationID))
+
+        store.remove(id: notificationID)
+
+        #expect(!adapter.hasPersistentClickRegistrationForTesting(notificationID))
+    }
+
     @Test func websiteClickMarksReadOnlyWhenTheActionIsAccepted() throws {
         let store = TerminalNotificationStore.shared
         let adapter = BrowserWebNotificationNativeAdapter.shared
@@ -895,10 +955,13 @@ struct BrowserWebNotificationTests {
             origin: origin
         )
 
-        #expect(appDelegate.handleWebsiteNotificationResponseForTesting(
+        appDelegate.handleNotificationResponseForTesting(
             actionIdentifier: UNNotificationDefaultActionIdentifier,
-            requestIdentifier: notificationID.uuidString
-        ))
+            requestIdentifier: notificationID.uuidString,
+            userInfo: [
+                TerminalNotificationStore.websiteDisplayOriginUserInfoKey: origin.absoluteString,
+            ]
+        )
         #expect(store.notifications.first(where: { $0.id == notificationID })?.isRead == true)
     }
 
