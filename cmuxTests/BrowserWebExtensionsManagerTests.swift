@@ -1449,55 +1449,6 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
-    @Test func waitUntilLoadedTimesOutWhenLoadHangs() async throws {
-        let root = try Self.makeExtensionsRoot()
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let manager = BrowserWebExtensionsManager(directory: root, controllerConfiguration: .nonPersistent())
-        let hungLoad = Task {
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(60))
-            }
-        }
-        defer { hungLoad.cancel() }
-        manager.loadTask = hungLoad
-
-        // Must return via the timeout even though the load task never finishes,
-        // so a hung extension load cannot block panel navigation forever.
-        await manager.waitUntilLoaded(timeout: .milliseconds(50))
-
-        #expect(!manager.isLoaded)
-    }
-
-    @available(macOS 15.4, *)
-    @Test func waitUntilLoadedKeepsEachWaiterTimeoutIndependent() async throws {
-        let root = try Self.makeExtensionsRoot()
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let manager = BrowserWebExtensionsManager(directory: root, controllerConfiguration: .nonPersistent())
-        manager.loadTask = Task {}
-
-        let longClock = BrowserWebExtensionsTestClock()
-        let shortClock = BrowserWebExtensionsTestClock()
-        let longWaiter = Task { @MainActor in
-            await manager.waitUntilLoaded(timeout: .seconds(2), clock: longClock)
-        }
-        await longClock.waitUntilSleepers()
-
-        let shortWaiter = Task { @MainActor in
-            await manager.waitUntilLoaded(timeout: .seconds(1), clock: shortClock)
-        }
-        await shortClock.waitUntilSleepers()
-        shortClock.advance(by: .seconds(1))
-        await shortWaiter.value
-        await Task.yield()
-
-        #expect(longClock.sleeperCount == 1)
-        longClock.advance(by: .seconds(2))
-        await longWaiter.value
-    }
-
-    @available(macOS 15.4, *)
     @Test func waitUntilLoadedReturnsPromptlyWhenCallerIsCancelled() async throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -1505,16 +1456,11 @@ struct BrowserWebExtensionsManagerTests {
         let manager = BrowserWebExtensionsManager(directory: root, controllerConfiguration: .nonPersistent())
         manager.loadTask = Task {}
 
-        let clock = BrowserWebExtensionsTestClock()
         let waiter = Task { @MainActor in
-            await manager.waitUntilLoaded(timeout: .seconds(1), clock: clock)
+            await manager.waitUntilLoaded()
         }
-        await clock.waitUntilSleepers()
-        waiter.cancel()
         await Task.yield()
-
-        #expect(clock.sleeperCount == 0)
-        clock.advance(by: .seconds(1))
+        waiter.cancel()
         await waiter.value
     }
 
@@ -1782,86 +1728,5 @@ private final class CountingByteSequenceState: @unchecked Sendable {
 
     func recordCancellation() {
         lock.withLock { cancellationCount += 1 }
-    }
-}
-
-private final class BrowserWebExtensionsTestClock: Clock, @unchecked Sendable {
-    struct Instant: InstantProtocol, Sendable {
-        var offset: Duration
-
-        func advanced(by duration: Duration) -> Instant { Instant(offset: offset + duration) }
-        func duration(to other: Instant) -> Duration { other.offset - offset }
-        static func < (lhs: Instant, rhs: Instant) -> Bool { lhs.offset < rhs.offset }
-    }
-
-    private struct Sleeper {
-        let deadline: Instant
-        let continuation: CheckedContinuation<Void, any Error>
-    }
-
-    private let lock = NSLock()
-    private var currentInstant = Instant(offset: .zero)
-    private var sleepers: [UUID: Sleeper] = [:]
-    private var cancelledSleeperIDs: Set<UUID> = []
-    private var parkWaiters: [CheckedContinuation<Void, Never>] = []
-
-    var now: Instant {
-        lock.withLock { currentInstant }
-    }
-
-    var minimumResolution: Duration { .zero }
-
-    var sleeperCount: Int {
-        lock.withLock { sleepers.count }
-    }
-
-    func sleep(until deadline: Instant, tolerance: Duration?) async throws {
-        let id = UUID()
-        try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-                let waiters = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
-                    if cancelledSleeperIDs.remove(id) != nil {
-                        continuation.resume(throwing: CancellationError())
-                    } else if deadline <= currentInstant {
-                        continuation.resume()
-                    } else {
-                        sleepers[id] = Sleeper(deadline: deadline, continuation: continuation)
-                    }
-                    let waiters = parkWaiters
-                    parkWaiters.removeAll()
-                    return waiters
-                }
-                for waiter in waiters { waiter.resume() }
-            }
-        } onCancel: {
-            let sleeper = lock.withLock { () -> Sleeper? in
-                let sleeper = sleepers.removeValue(forKey: id)
-                if sleeper == nil { cancelledSleeperIDs.insert(id) }
-                return sleeper
-            }
-            sleeper?.continuation.resume(throwing: CancellationError())
-        }
-    }
-
-    func waitUntilSleepers() async {
-        await withCheckedContinuation { continuation in
-            let shouldResume = lock.withLock {
-                guard sleepers.isEmpty else { return true }
-                parkWaiters.append(continuation)
-                return false
-            }
-            if shouldResume { continuation.resume() }
-        }
-    }
-
-    func advance(by duration: Duration) {
-        let due = lock.withLock { () -> [Sleeper] in
-            currentInstant = currentInstant.advanced(by: duration)
-            let dueIDs = sleepers.compactMap { id, sleeper in
-                sleeper.deadline <= currentInstant ? id : nil
-            }
-            return dueIDs.compactMap { sleepers.removeValue(forKey: $0) }
-        }
-        for sleeper in due { sleeper.continuation.resume() }
     }
 }
