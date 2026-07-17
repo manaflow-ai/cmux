@@ -405,7 +405,7 @@ final class SharedLiveAgentIndex {
             requestForkAvailabilityRefresh(validating: probeKey, fallbackSnapshot: fallbackSnapshot)
             return false
         }
-        guard let snapshot = fallbackSnapshot ?? index.snapshot(workspaceId: workspaceId, panelId: panelId) else {
+        guard (fallbackSnapshot ?? index.snapshot(workspaceId: workspaceId, panelId: panelId)) != nil else {
             if let validatedAt = validatedMissingForkPanels[panelKey],
                dateProvider().timeIntervalSince(validatedAt) < Self.minEventReloadInterval {
                 return true
@@ -413,7 +413,7 @@ final class SharedLiveAgentIndex {
             requestForkAvailabilityRefresh(validating: probeKey)
             return false
         }
-        guard let validationKey = validatedForkPanelKey(for: panelKey) ?? (fallbackSnapshot == nil ? nil : panelKey) else {
+        guard validatedForkPanelKey(for: panelKey) != nil || fallbackSnapshot != nil else {
             requestForkAvailabilityRefresh(validating: probeKey, fallbackSnapshot: fallbackSnapshot)
             return false
         }

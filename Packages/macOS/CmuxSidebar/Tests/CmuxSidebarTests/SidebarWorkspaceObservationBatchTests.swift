@@ -54,8 +54,10 @@ struct SidebarWorkspaceObservationBatchTests {
         await clock.waitUntilSleepers()
         #expect(await changes.next() == [firstWorkspaceId, secondWorkspaceId])
         clock.advance(by: .seconds(1))
-        await Task.yield()
-        #expect(clock.sleeperCount() == 0)
+
+        let thirdWorkspaceId = UUID()
+        await batch.record(thirdWorkspaceId)
+        #expect(await changes.next() == [thirdWorkspaceId])
 
         await batch.cancel()
     }
