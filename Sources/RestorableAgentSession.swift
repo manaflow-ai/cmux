@@ -4,7 +4,7 @@ import CMUXAgentLaunch
 import Darwin
 import os
 
-nonisolated enum TerminalStartupShellQuoting {
+enum TerminalStartupShellQuoting {
     static func singleQuoted(_ value: String) -> String {
         if value.utf8.contains(where: { $0 >= 0x80 }) {
             return asciiPrintfCommandSubstitution(for: value)
@@ -35,7 +35,7 @@ fileprivate func shellSingleQuoted(_ value: String) -> String {
     TerminalStartupShellQuoting.singleQuoted(value)
 }
 
-nonisolated enum TerminalStartupWorkingDirectoryPrefix {
+enum TerminalStartupWorkingDirectoryPrefix {
     static func optionalChangeDirectoryPrefix(for workingDirectory: String?) -> String? {
         guard let workingDirectory = normalized(workingDirectory) else { return nil }
         let quoted = TerminalStartupShellQuoting.singleQuoted(workingDirectory)
@@ -942,6 +942,17 @@ struct RestorableAgentSessionIndex: Sendable {
         let kind: RestorableAgentKind
     }
 
+    private struct PanelIDKindKey: Hashable {
+        let panelId: UUID
+        let kind: RestorableAgentKind
+    }
+
+    private struct PanelIDKindCandidate {
+        let panelKey: PanelKey
+        let entry: Entry
+        let isAmbiguous: Bool
+    }
+
     private let entriesByPanel: [PanelKey: Entry]
     private let entriesByPanelId: [UUID: Entry]
 
@@ -1015,26 +1026,26 @@ struct RestorableAgentSessionIndex: Sendable {
         )
     }
 
-    static func loadIncludingProcessDetectedSnapshots(homeDirectory: String = NSHomeDirectory(), fileManager: FileManager = .default, snapshotStore: CmuxTopProcessSnapshotStore = .shared) async -> RestorableAgentSessionIndex {
-        let processSnapshot = await snapshotStore.snapshot(
-            requirements: [.processDetails, .cmuxScope],
-            maximumAge: 3, consumer: .processDetectedResume
-        )
-        return await Task.detached(priority: .utility) {
+    static func loadIncludingProcessDetectedSnapshots(
+        homeDirectory: String = NSHomeDirectory(),
+        fileManager: FileManager = .default
+    ) async -> RestorableAgentSessionIndex {
+        await Task.detached(priority: .utility) {
             loadIncludingProcessDetectedSnapshotsSynchronously(
                 homeDirectory: homeDirectory,
-                fileManager: fileManager, processSnapshot: processSnapshot
+                fileManager: fileManager
             )
         }.value
     }
 
-    static func loadIncludingProcessDetectedSnapshotsSynchronously(homeDirectory: String, fileManager: FileManager, processSnapshot: CmuxTopProcessSnapshot) -> RestorableAgentSessionIndex {
+    static func loadIncludingProcessDetectedSnapshotsSynchronously(
+        homeDirectory: String = NSHomeDirectory(),
+        fileManager: FileManager = .default
+    ) -> RestorableAgentSessionIndex {
         let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
         let detectedSnapshots = processDetectedSnapshots(
             registry: registry,
-            fileManager: fileManager,
-            processSnapshot: processSnapshot,
-            capturedAt: processSnapshot.sampledAt.timeIntervalSince1970
+            fileManager: fileManager
         )
         return load(
             homeDirectory: homeDirectory,
@@ -1074,6 +1085,7 @@ struct RestorableAgentSessionIndex: Sendable {
             }
         var hookCandidatesBySession: [SessionKey: Entry] = [:]
         var hookCandidatesByPanelAndKind: [PanelKindKey: Entry] = [:]
+        var hookCandidatesByPanelIdAndKind: [PanelIDKindKey: PanelIDKindCandidate] = [:]
 
         for (kind, registration) in hookKinds {
             let fileURL = kind.hookStoreFileURL(homeDirectory: homeDirectory)
@@ -1129,6 +1141,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
                 let sessionKey = SessionKey(kind: kind, sessionId: normalizedSessionId)
                 let panelKindKey = PanelKindKey(panelKey: key, kind: kind)
+                let panelIDKindKey = PanelIDKindKey(panelId: panelId, kind: kind)
                 let liveProcessID = liveScopedProcessID(
                     for: effectiveRecord,
                     kind: kind,
@@ -1152,6 +1165,25 @@ struct RestorableAgentSessionIndex: Sendable {
                     incoming: entry
                 ) {
                     hookCandidatesByPanelAndKind[panelKindKey] = entry
+                }
+                if let existingPanelIDCandidate = hookCandidatesByPanelIdAndKind[panelIDKindKey] {
+                    let shouldReplace = shouldReplaceHookEntry(
+                        existing: existingPanelIDCandidate.entry,
+                        incoming: entry
+                    )
+                    hookCandidatesByPanelIdAndKind[panelIDKindKey] = PanelIDKindCandidate(
+                        panelKey: shouldReplace ? key : existingPanelIDCandidate.panelKey,
+                        entry: shouldReplace ? entry : existingPanelIDCandidate.entry,
+                        isAmbiguous: existingPanelIDCandidate.isAmbiguous ||
+                            existingPanelIDCandidate.panelKey != key ||
+                            existingPanelIDCandidate.entry.snapshot.sessionId != entry.snapshot.sessionId
+                    )
+                } else {
+                    hookCandidatesByPanelIdAndKind[panelIDKindKey] = PanelIDKindCandidate(
+                        panelKey: key,
+                        entry: entry,
+                        isAmbiguous: false
+                    )
                 }
                 if shouldReplaceHookEntry(
                     existing: hookCandidatesBySession[sessionKey],
@@ -1183,6 +1215,17 @@ struct RestorableAgentSessionIndex: Sendable {
             let sameKindPanelCandidate = hookCandidatesByPanelAndKind[
                 PanelKindKey(panelKey: key, kind: detected.snapshot.kind)
             ]
+            let sameKindPanelIDCandidate = hookCandidatesByPanelIdAndKind[
+                PanelIDKindKey(panelId: key.panelId, kind: detected.snapshot.kind)
+            ]
+            // Panel-only restore is safe only when this surface/kind maps back to exactly one
+            // old workspace/session pair. Stale hook stores can otherwise reuse a surface id
+            // across old workspaces, or record multiple sessions for the same old workspace and
+            // surface after an agent restart. In either case, shouldReplaceHookEntry would pick
+            // one session by recency, so the panel-only fallback must stay ambiguous.
+            let sameKindStablePanelCandidate = sameKindPanelCandidate ?? (
+                sameKindPanelIDCandidate?.isAmbiguous == false ? sameKindPanelIDCandidate?.entry : nil
+            )
             if detected.sessionIDSource == .forkParentFallback,
                let panelCandidate = sameKindPanelCandidate,
                Self.hookCandidateRepresentsDetectedProcess(
@@ -1196,6 +1239,13 @@ struct RestorableAgentSessionIndex: Sendable {
                 // A nested fork process inside another agent's pane must not displace
                 // that pane's hook-backed identity.
                 continue
+            } else if detected.sessionIDSource == .inferredLatestSessionFile,
+                      let panelCandidate = sameKindStablePanelCandidate {
+                // Latest-file detection is ambiguous when multiple panels or restored workspaces share a
+                // cwd. Prefer the hook-store identity for this stable panel/surface while still carrying
+                // live process evidence for the restored panel. The workspace UUID can rotate during
+                // session restore, but the surface id is intentionally reused on the normal restore path.
+                resolved[key] = processDetectedEntry(snapshot: panelCandidate.snapshot, lifecycle: panelCandidate.lifecycle, updatedAt: panelCandidate.updatedAt, detected: detected)
             } else if let existing = Self.matchingHookEntry(
                 for: detected.snapshot,
                 resolved: resolved[key],
@@ -1205,11 +1255,6 @@ struct RestorableAgentSessionIndex: Sendable {
                 ]
             ) {
                 resolved[key] = processDetectedEntry(snapshot: detected.snapshot, lifecycle: existing.lifecycle, updatedAt: existing.updatedAt, detected: detected)
-            } else if detected.sessionIDSource == .inferredLatestSessionFile,
-                      let panelCandidate = sameKindPanelCandidate {
-                // Latest-file detection is ambiguous when multiple panels share a cwd; preserve the exact
-                // hook-store identity while still carrying live process evidence for this panel.
-                resolved[key] = processDetectedEntry(snapshot: panelCandidate.snapshot, lifecycle: panelCandidate.lifecycle, updatedAt: panelCandidate.updatedAt, detected: detected)
             } else {
                 resolved[key] = processDetectedEntry(snapshot: detected.snapshot, lifecycle: nil, updatedAt: 0, detected: detected)
             }

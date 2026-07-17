@@ -1,5 +1,6 @@
-import CmuxControlSocket
+@testable import CmuxControlSocket
 import Darwin
+import Dispatch
 import Foundation
 import os
 import Testing
@@ -127,6 +128,67 @@ struct ControlClientLineReaderTests {
         // proves the poll is consulted before the blocking read.
         let reader = ControlClientLineReader(socket: pair.readEnd)
         #expect(reader.nextLine(shouldContinueReading: { false }) == nil)
+    }
+
+    @Test func authorizationRevocationStopsIdleReaderWithoutPeerTraffic() throws {
+        let pair = try SocketPairFixture()
+        let revocationSignal = SocketAuthorizationRevocationSignal()
+        let enteredBlockingRead = DispatchSemaphore(value: 0)
+        let finished = DispatchSemaphore(value: 0)
+        let readEnd = pair.readEnd
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let reader = ControlClientLineReader(
+                socket: readEnd,
+                authorizationRevocationSignal: revocationSignal
+            )
+            _ = reader.nextLine {
+                enteredBlockingRead.signal()
+                return true
+            }
+            finished.signal()
+        }
+
+        #expect(enteredBlockingRead.wait(timeout: .now() + 1.0) == .success)
+        revocationSignal.revoke()
+
+        let stoppedAfterRevocation = finished.wait(timeout: .now() + 1.0)
+        if stoppedAfterRevocation != .success {
+            pair.closeWriteEnd()
+            _ = finished.wait(timeout: .now() + 1.0)
+        }
+        #expect(stoppedAfterRevocation == .success)
+    }
+
+    @Test func configuredReceiveTimeoutStillStopsIdleReader() throws {
+        let pair = try SocketPairFixture()
+        var timeout = timeval(tv_sec: 0, tv_usec: 50_000)
+        let configured = withUnsafePointer(to: &timeout) { pointer in
+            setsockopt(
+                pair.readEnd,
+                SOL_SOCKET,
+                SO_RCVTIMEO,
+                pointer,
+                socklen_t(MemoryLayout<timeval>.size)
+            )
+        }
+        #expect(configured == 0)
+        guard configured == 0 else { return }
+
+        let finished = DispatchSemaphore(value: 0)
+        let readEnd = pair.readEnd
+        DispatchQueue.global(qos: .userInitiated).async {
+            let reader = ControlClientLineReader(socket: readEnd)
+            _ = reader.nextLine(shouldContinueReading: { true })
+            finished.signal()
+        }
+
+        let stoppedAfterTimeout = finished.wait(timeout: .now() + 1.0)
+        if stoppedAfterTimeout != .success {
+            pair.closeWriteEnd()
+            _ = finished.wait(timeout: .now() + 1.0)
+        }
+        #expect(stoppedAfterTimeout == .success)
     }
 
     @Test func discardsTrailingBytesWithoutNewlineAtEOF() throws {

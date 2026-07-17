@@ -1448,7 +1448,7 @@ enum TextBoxSubmit {
             }
         }
 
-        let submitKey = isClaude && containsNewline ? "ctrl+enter" : TextBoxTerminalKey.returnKey.rawValue
+        let submitKey = TextBoxAgentDetection.composedPromptSubmitKey(containsNewline: containsNewline, context: terminalAgentContext)
         if isClaude, containsImageAttachment(inputParts) {
             return claudeSequentialImageDispatchEvents(from: inputParts, submitKey: submitKey)
         }
@@ -2778,7 +2778,7 @@ struct TextBoxInputContainer: View {
         }
         TextBoxSubmit.sendEvents(
             submitPlan.events,
-            via: surface,
+            via: surface
         ) { completionContext in
             guard completionContext.didSubmit else {
                 if submitPlan.launchContextCommand != nil {

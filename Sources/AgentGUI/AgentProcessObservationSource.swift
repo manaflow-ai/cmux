@@ -83,8 +83,9 @@ final class AgentProcessObservationSource {
     #endif
 
     private nonisolated static func captureObservations() async -> [ProcessObservation] {
-        let snapshot = await CmuxTopProcessSnapshotStore.shared.snapshot(
-            requirements: [.processDetails, .cmuxScope],
+        let snapshot = CmuxTopProcessSnapshot.captureCached(
+            includeProcessDetails: true,
+            includeCMUXScope: true,
             maximumAge: 1
         )
         return snapshot.cmuxScopedProcesses().compactMap { process in

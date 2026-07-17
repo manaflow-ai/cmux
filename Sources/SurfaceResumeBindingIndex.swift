@@ -1,6 +1,6 @@
 import Foundation
 
-nonisolated struct SurfaceResumeBindingIndex: Sendable {
+struct SurfaceResumeBindingIndex: Sendable {
     static let empty = SurfaceResumeBindingIndex(bindingsByPanel: [:])
 
     typealias PanelKey = RestorableAgentSessionIndex.PanelKey
@@ -24,22 +24,18 @@ nonisolated struct SurfaceResumeBindingIndex: Sendable {
         bindingsByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)] ?? bindingsByPanelId[panelId]
     }
 
+    static func loadProcessDetectedBindingsSynchronously(
+        fileManager: FileManager = .default
+    ) -> SurfaceResumeBindingIndex {
+        let detectedBindings = processDetectedTmuxBindings(fileManager: fileManager)
+        return SurfaceResumeBindingIndex(bindingsByPanel: detectedBindings.mapValues(\.binding))
+    }
+
     static func loadIncludingProcessDetectedBindings(
-        fileManager: FileManager = .default,
-        snapshotStore: CmuxTopProcessSnapshotStore = .shared
+        fileManager: FileManager = .default
     ) async -> SurfaceResumeBindingIndex {
-        let processSnapshot = await snapshotStore.snapshot(
-            requirements: [.processDetails, .cmuxScope],
-            maximumAge: 3,
-            consumer: .processDetectedResume
-        )
-        return await Task.detached(priority: .utility) {
-            let detectedBindings = processDetectedTmuxBindings(
-                fileManager: fileManager,
-                processSnapshot: processSnapshot,
-                capturedAt: processSnapshot.sampledAt.timeIntervalSince1970
-            )
-            return SurfaceResumeBindingIndex(bindingsByPanel: detectedBindings.mapValues(\.binding))
+        await Task.detached(priority: .utility) {
+            loadProcessDetectedBindingsSynchronously(fileManager: fileManager)
         }.value
     }
 }

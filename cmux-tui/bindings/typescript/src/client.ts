@@ -29,16 +29,20 @@ import type {
   Json,
   JsonObject,
   ListAgentsResult,
+  ListClientsResult,
   NotificationLevel,
   NotifyResult,
   PaneDirection,
   PaneNeighborResult,
   PingResult,
   ProcessInfoResult,
+  ReadScrollbackResult,
   ReadScreenResult,
   ReloadConfigResult,
+  ResizeSurfaceResult,
   ReportAgentResult,
   RunResult,
+  RenderAttachEvent,
   SidebarPluginResult,
   SplitDirection,
   SubscribeEvent,
@@ -70,7 +74,17 @@ export type NewScreenOptions = CmuxRequestParams<"new-screen">;
 export type SplitOptions = Omit<CmuxRequestParams<"split">, "pane" | "dir">;
 export type SelectOptions = CmuxRequestParams<"select-screen">;
 export type SelectTabOptions = CmuxRequestParams<"select-tab">;
-export interface SendOptions { text?: string | null; bytes?: string | Uint8Array | null }
+export interface SendOptions {
+  text?: string | null;
+  /** Standard base64-encoded raw bytes sent in the wire `bytes` field. */
+  base64?: string | null;
+  /** @deprecated Use `base64`, or pass text for UTF-8 input. */
+  bytes?: string | Uint8Array | null;
+  /** Request bracketed-paste wrapping when terminal mode 2004 is enabled. */
+  paste?: boolean;
+}
+export interface SubscribeOptions { treeEvents?: "coarse" | "deltas" }
+export interface AttachSurfaceOptions { mode?: "bytes" | "render" }
 
 interface PendingResponse {
   resolve: (response: CmuxResponse<unknown>) => void;
@@ -273,7 +287,8 @@ export class CmuxClient {
   private readonly router: MessageRouter;
   private readonly streamTransportFactory?: () => Transport;
   private nextRequestId = 1;
-  private protocol: number | null = null;
+  private identifiedProtocol: number | null = null;
+  private sharedSubscriptionActive = false;
 
   constructor(options: CmuxClientOptions) {
     this.transport = options.transport;
@@ -316,11 +331,19 @@ export class CmuxClient {
 
   async identify(): Promise<IdentifyResult> {
     const result = await this.request("identify");
-    this.protocol = result.protocol;
+    this.identifiedProtocol = result.protocol;
     return result;
   }
 
+  /** The protocol reported by the latest `identify()`, or null before identification. */
+  get protocol(): number | null { return this.identifiedProtocol; }
+
   ping(): Promise<PingResult> { return this.request("ping"); }
+  setClientInfo(name?: string, kind?: string): Promise<EmptyResult> {
+    return this.request("set-client-info", { name, kind });
+  }
+  listClients(): Promise<ListClientsResult> { return this.request("list-clients"); }
+  detachClient(client: Id): Promise<EmptyResult> { return this.request("detach-client", { client }); }
   reloadConfig(): Promise<ReloadConfigResult> { return this.request("reload-config"); }
   setWindowTitle(title: string): Promise<EmptyResult> { return this.request("set-window-title", { title }); }
   clearWindowTitle(): Promise<EmptyResult> { return this.request("clear-window-title"); }
@@ -331,11 +354,15 @@ export class CmuxClient {
   }
 
   async send(surface: Id, options: SendOptions = {}): Promise<EmptyResult> {
-    const bytes = options.bytes instanceof Uint8Array ? encodeBase64(options.bytes) : options.bytes;
-    return this.request("send", { surface, text: options.text, bytes });
+    const legacyBytes = options.bytes instanceof Uint8Array ? encodeBase64(options.bytes) : options.bytes;
+    const bytes = "base64" in options ? options.base64 : legacyBytes;
+    return this.request("send", { surface, text: options.text, bytes, paste: options.paste });
   }
 
   readScreen(surface: Id): Promise<ReadScreenResult> { return this.request("read-screen", { surface }); }
+  readScrollback(surface: Id, start: number, count: number): Promise<ReadScrollbackResult> {
+    return this.request("read-scrollback", { surface, start, count });
+  }
   sidebarPlugin(cols: number, rows: number, relaunch?: boolean | null): Promise<SidebarPluginResult> {
     return this.request("sidebar-plugin", { cols, rows, relaunch });
   }
@@ -372,8 +399,9 @@ export class CmuxClient {
   renameSurface(surface: Id, name: string): Promise<EmptyResult> { return this.request("rename-surface", { surface, name }); }
   renameScreen(screen: Id, name: string): Promise<EmptyResult> { return this.request("rename-screen", { screen, name }); }
   renameWorkspace(workspace: Id, name: string): Promise<EmptyResult> { return this.request("rename-workspace", { workspace, name }); }
-  resizeSurface(surface: Id, cols: number, rows: number): Promise<EmptyResult> {
-    return this.request("resize-surface", { surface, cols, rows });
+  async resizeSurface(surface: Id, cols: number, rows: number): Promise<ResizeSurfaceResult> {
+    const result = await this.request("resize-surface", { surface, cols, rows });
+    return { ...result, accepted: result.accepted ?? true };
   }
   focusPane(pane: Id): Promise<EmptyResult> { return this.request("focus-pane", { pane }); }
   selectTab(options: SelectTabOptions = {}): Promise<EmptyResult> { return this.request("select-tab", options); }
@@ -383,24 +411,53 @@ export class CmuxClient {
   moveWorkspace(workspace: Id, index: number): Promise<EmptyResult> { return this.request("move-workspace", { workspace, index }); }
   scrollSurface(surface: Id, delta: number): Promise<EmptyResult> { return this.request("scroll-surface", { surface, delta }); }
 
-  async subscribe(options: CmuxRequestParams<"subscribe"> = {}): Promise<CmuxStream<SubscribeEvent>> {
+  async subscribe(options: SubscribeOptions = {}): Promise<CmuxStream<SubscribeEvent>> {
     return this.openStream(
-      { cmd: "subscribe", ...options },
+      { cmd: "subscribe", tree_events: options.treeEvents },
       (event) => event as SubscribeEvent,
-      (event, dedicated) => dedicated || !this.attachOnlyEvent(event.event),
+      (event, dedicated) => dedicated
+        || (!this.attachOnlyEvent(event.event) && !this.isSurfaceOverflow(event)),
+      (event) => event.event === "overflow" && !this.isSurfaceOverflow(event),
+      true,
     );
   }
 
-  async attachSurface(surface: Id): Promise<CmuxStream<DecodedAttachEvent>> {
-    const protocol = this.protocol ?? (await this.identify()).protocol;
-    if (protocol > 6 || (protocol > 5 && !this.allowProtocolV6Attach)) {
-      throw new CmuxProtocolError(`unsupported attach protocol ${protocol}`);
+  attachSurface(surface: Id, options?: { mode?: "bytes" }): Promise<CmuxStream<DecodedAttachEvent>>;
+  attachSurface(surface: Id, options: { mode: "render" }): Promise<CmuxStream<RenderAttachEvent>>;
+  attachSurface(
+    surface: Id,
+    options: AttachSurfaceOptions,
+  ): Promise<CmuxStream<DecodedAttachEvent> | CmuxStream<RenderAttachEvent>>;
+  async attachSurface(
+    surface: Id,
+    options: AttachSurfaceOptions = {},
+  ): Promise<CmuxStream<DecodedAttachEvent> | CmuxStream<RenderAttachEvent>> {
+    const mode = options.mode ?? "bytes";
+    const protocol = this.identifiedProtocol ?? (await this.identify()).protocol;
+    if (mode === "render" && protocol < 7) {
+      throw new CmuxProtocolError(
+        `render attach requires protocol 7 or newer; server reported protocol ${protocol}`,
+      );
+    }
+    if (mode === "bytes" && protocol > 5 && !this.allowProtocolV6Attach) {
+      throw new CmuxProtocolError(`byte attach for protocol ${protocol} is disabled`);
+    }
+    const request: CmuxRequest = options.mode === undefined
+      ? { cmd: "attach-surface", surface }
+      : { cmd: "attach-surface", surface, mode };
+    if (mode === "render") {
+      return this.openStream(
+        request,
+        (event) => event as RenderAttachEvent,
+        (event, dedicated) => dedicated || this.matchesAttachEvent(event, surface, mode),
+        (event) => event.event === "detached" || this.isSurfaceOverflow(event, surface),
+      );
     }
     return this.openStream(
-      { cmd: "attach-surface", surface },
+      request,
       (event) => this.decodeAttachEvent(event as AttachEvent),
-      (event, dedicated) => dedicated || this.matchesAttachEvent(event, surface),
-      (event) => event.event === "detached",
+      (event, dedicated) => dedicated || this.matchesAttachEvent(event, surface, mode),
+      (event) => event.event === "detached" || this.isSurfaceOverflow(event, surface),
     );
   }
 
@@ -435,8 +492,17 @@ export class CmuxClient {
     map: (event: UnknownEvent) => T,
     accept: (event: UnknownEvent, dedicated: boolean) => boolean,
     terminal: (event: T) => boolean = () => false,
+    exclusiveSharedSubscription = false,
   ): Promise<CmuxStream<T>> {
     const dedicated = this.streamTransportFactory !== undefined;
+    if (exclusiveSharedSubscription && !dedicated) {
+      if (this.sharedSubscriptionActive) {
+        throw new CmuxProtocolError(
+          "concurrent subscriptions require streamTransportFactory",
+        );
+      }
+      this.sharedSubscriptionActive = true;
+    }
     const transport = this.streamTransportFactory?.() ?? this.transport;
     const router = dedicated ? new MessageRouter(transport) : this.router;
     let eventSubscription: Unsubscribe = () => undefined;
@@ -444,6 +510,9 @@ export class CmuxClient {
     const stream = new CmuxStream<T>(this.timeoutMs, () => {
       eventSubscription();
       terminalSubscription();
+      if (exclusiveSharedSubscription && !dedicated) {
+        this.sharedSubscriptionActive = false;
+      }
       if (dedicated) transport.close();
     });
     eventSubscription = router.onEvent((event) => {
@@ -489,13 +558,38 @@ export class CmuxClient {
     }
   }
 
-  private matchesAttachEvent(event: UnknownEvent, surface: Id): boolean {
+  private matchesAttachEvent(event: UnknownEvent, surface: Id, mode: "bytes" | "render"): boolean {
+    // colors-changed is scoped by its attach connection and intentionally has
+    // no surface field in protocol v6. Protocol v7 includes the surface id.
+    if (event.event === "colors-changed") {
+      return mode === "bytes" && (!("surface" in event) || event.surface === surface);
+    }
     if (!("surface" in event) || event.surface !== surface) return false;
-    return this.attachOnlyEvent(event.event) || event.event === "scroll-changed";
+    if (event.event === "detached" || event.event === "scroll-changed"
+      || this.isSurfaceOverflow(event, surface)) return true;
+    return mode === "render"
+      ? event.event === "render-state" || event.event === "render-delta"
+      : event.event === "vt-state" || event.event === "output" || event.event === "resized";
+  }
+
+  private isSurfaceOverflow(
+    event: { event: string; scope?: unknown; surface?: unknown },
+    surface?: Id,
+  ): boolean {
+    return event.event === "overflow"
+      && event.scope === "surface"
+      && "surface" in event
+      && (surface === undefined || event.surface === surface);
   }
 
   private attachOnlyEvent(event: string): boolean {
-    return event === "vt-state" || event === "output" || event === "resized" || event === "detached";
+    return event === "vt-state"
+      || event === "output"
+      || event === "resized"
+      || event === "colors-changed"
+      || event === "render-state"
+      || event === "render-delta"
+      || event === "detached";
   }
 
   private dropUndefined(value: Record<string, unknown>): JsonObject {

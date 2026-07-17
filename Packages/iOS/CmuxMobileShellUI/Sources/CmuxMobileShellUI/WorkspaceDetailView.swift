@@ -69,7 +69,7 @@ struct WorkspaceDetailView: View {
         content
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
             .navigationTitle(systemNavigationTitle)
-            .mobileTerminalNavigationChrome()
+            .mobileTerminalNavigationChrome(theme: store.activeTerminalTheme)
             .toolbar { workspaceDetailToolbar }
             .onChange(of: selectedTerminalID) { _, _ in
                 syncTerminalPickerRows(includeTitleChanges: true)
@@ -175,7 +175,7 @@ struct WorkspaceDetailView: View {
                 .font(.headline)
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .foregroundStyle(TerminalPalette.foreground)
+                .foregroundStyle(store.activeTerminalTheme.terminalChromeForegroundColor)
         } else {
             WorkspaceToolbarTitleView(title: workspace.name, subtitle: selectedToolbarSubtitle)
         }
@@ -199,12 +199,14 @@ struct WorkspaceDetailView: View {
                     // composer owns or intentionally withholds the keyboard.
                     autoFocusOnWindowAttach: shouldAutoFocus,
                     isComposerActive: store.isComposerPresented,
+                    terminalTheme: store.activeTerminalTheme,
+                    terminalConfigTheme: store.activeTerminalConfigTheme,
                     // Drives the live recolor: when the synced theme changes the
                     // shell bumps this, and the representable rebuilds the runtime
                     // config + recolors the mounted surface in place (background,
                     // letterbox, default cell colors) without a remount, so
                     // scrollback survives a theme change.
-                    themeGeneration: store.terminalThemeGeneration,
+                    configThemeGeneration: store.terminalConfigThemeGeneration,
                     composerSubmitAction: agentGUIComposerSubmitAction,
                     onComposerChromeHeightChange: { height in
                         Task { @MainActor in
@@ -222,7 +224,7 @@ struct WorkspaceDetailView: View {
                 //
                 // The theme is NOT folded into the identity: a theme change recolors
                 // the live surface in place (config rebuild + view recolor driven by
-                // `themeGeneration`), so remounting would only throw away scrollback
+                // `configThemeGeneration`), so remounting would only throw away scrollback
                 // for no visual benefit.
                 .id(terminalID)
                 .onAppear {
@@ -238,11 +240,11 @@ struct WorkspaceDetailView: View {
                 // Keep the grid clear of the Dynamic Island and nav bar.
                 .padding(.top, terminalTopPadding)
             } else {
-                TerminalPalette.background
+                store.activeTerminalTheme.terminalBackgroundColor
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
             #else
-            TerminalPalette.background
+            store.activeTerminalTheme.terminalBackgroundColor
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             #endif
         }
@@ -255,7 +257,11 @@ struct WorkspaceDetailView: View {
         .overlay {
             // Show a reconnecting/offline state instead of a black terminal.
             if connectionStatus != .connected {
-                TerminalDisconnectedOverlay(status: connectionStatus, host: host) {
+                TerminalDisconnectedOverlay(
+                    status: connectionStatus,
+                    host: host,
+                    theme: store.activeTerminalTheme
+                ) {
                     Task {
                         if let macDeviceID = workspace.macDeviceID,
                            !macDeviceID.isEmpty,
@@ -286,15 +292,15 @@ struct WorkspaceDetailView: View {
         )
         .background {
             // Fill under translucent chrome with the terminal's own color.
-            TerminalPalette.background
+            store.activeTerminalTheme.terminalBackgroundColor
                 .ignoresSafeArea(.container, edges: [.horizontal, .top, .bottom])
         }
         #else
-        .background(TerminalPalette.background)
+        .background(store.activeTerminalTheme.terminalBackgroundColor)
         #endif
         #if !os(iOS)
         .navigationTitle(systemNavigationTitle)
-        .mobileTerminalNavigationChrome()
+        .mobileTerminalNavigationChrome(theme: store.activeTerminalTheme)
         .toolbar {
             ToolbarItem {
                 terminalToolbarButtons
@@ -341,7 +347,7 @@ struct WorkspaceDetailView: View {
             Label(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"), systemImage: "plus.square.on.square")
                 .labelStyle(.iconOnly)
         }
-        .foregroundStyle(TerminalPalette.foreground)
+        .foregroundStyle(store.activeTerminalTheme.terminalChromeForegroundColor)
         .disabled(!canCreateWorkspace)
         .accessibilityIdentifier("MobileTerminalNewWorkspaceButton")
     }
@@ -369,7 +375,8 @@ struct WorkspaceDetailView: View {
                     #endif
                 },
                 sendFeedback: openFeedbackComposerFromMenu
-            )
+            ),
+            terminalTheme: store.activeTerminalTheme
         )
         .equatable()
         .simultaneousGesture(TapGesture().onEnded { syncTerminalPickerRows(includeTitleChanges: true) })

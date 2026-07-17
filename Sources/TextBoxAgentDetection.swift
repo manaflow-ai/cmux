@@ -78,6 +78,10 @@ enum TextBoxAgentDetection: CaseIterable {
         claudeCode.matches(context: context)
     }
 
+    static func composedPromptSubmitKey(containsNewline: Bool, context: String) -> String {
+        isClaudeCode(context: context) && containsNewline ? "ctrl+enter" : "return"
+    }
+
     static func boundedLaunchCommandContext(from rawCommand: String) -> String? {
         let command = rawCommand.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !command.isEmpty else { return nil }

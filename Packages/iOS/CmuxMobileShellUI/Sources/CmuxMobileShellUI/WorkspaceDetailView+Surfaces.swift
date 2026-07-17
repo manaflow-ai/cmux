@@ -26,7 +26,7 @@ extension WorkspaceDetailView {
                 .accessibilityHidden(surface != .terminal)
             if surface == .browser, let browser = activeBrowser {
                 browserContent(browser)
-                    .background(TerminalPalette.background)
+                    .background(store.activeTerminalTheme.terminalBackgroundColor)
             }
             if isAgentGUIVisible,
                let engine = store.agentSyncEngine,
@@ -35,7 +35,7 @@ extension WorkspaceDetailView {
                     engine: engine,
                     sessionID: availability.sessionID,
                     bottomChromeHeight: transcriptBottomChromeHeight,
-                    terminalTheme: TerminalThemeStore.current,
+                    terminalTheme: store.activeTerminalTheme,
                     terminalThemeGeneration: store.terminalThemeGeneration,
                     density: displaySettings.transcriptDensity,
                     onShowTerminal: { guiModeSelected = false }

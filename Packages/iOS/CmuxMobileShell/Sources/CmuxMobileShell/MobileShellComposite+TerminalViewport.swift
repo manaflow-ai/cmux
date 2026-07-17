@@ -216,24 +216,6 @@ extension MobileShellComposite {
         return replayBarrierToken
     }
 
-    /// Begins a replay barrier while recording whether it replaces
-    /// undelivered queued output, an in-flight replay (including the
-    /// cold-attach replay), or an existing barrier. `beginTerminalReplayBarrier`
-    /// discards all three, so the replacement is marked as dropped output:
-    /// every resolution path (resize replay, without-resize replay, empty
-    /// response retry) then replays authoritative state instead of clearing
-    /// the barrier with the replaced work lost.
-    private func beginTerminalReplayBarrierCarryingReplacedWork(surfaceID: String) -> UUID {
-        let owesReplacementReplay = !(terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle ?? true)
-            || terminalReplaySurfaceIDsInFlight.contains(surfaceID)
-            || terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil
-        let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
-        if owesReplacementReplay {
-            terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
-        }
-        return replayBarrierToken
-    }
-
     private func finishPrearmedTerminalViewportBarrierWithoutResize(
         surfaceID: String,
         token: UUID?,

@@ -310,7 +310,7 @@ Browser subcommands:
 | `browser wait` | Wait for selector, text, URL, load state, or JS predicate. |
 | `browser click`, `browser dblclick`, `browser hover`, `browser focus`, `browser check`, `browser uncheck`, `browser scroll-into-view` | Run element interaction. |
 | `browser type`, `browser fill` | Type into or set an input. |
-| `browser press`, `browser key`, `browser keydown`, `browser keyup` | Send keyboard input. |
+| `browser press`, `browser key`, `browser keydown`, `browser keyup` | Send keyboard input as `--key <key>` or positional `<key>` using Playwright/W3C names such as `Enter`, `Tab`, `Escape`, `ArrowLeft`, and `Space`. `Space`, `Spacebar`, and `space` emit DOM key `" "` with code `"Space"`; raw `--key ' '` is also accepted. |
 | `browser select` | Select an option. |
 | `browser scroll` | Scroll page or element. |
 | `browser screenshot` | Save a screenshot. |
@@ -329,7 +329,8 @@ Browser subcommands:
 | `browser highlight` | Highlight an element. |
 | `browser state` | Save or load browser state. |
 | `browser addinitscript`, `browser addscript`, `browser addstyle` | Inject scripts or CSS. |
-| `browser viewport` | Set viewport size. |
+| `browser viewport <width> <height>` | Emulate an exact logical viewport from 1×1 through 4096×4096 CSS pixels. WKWebView aspect-fits the page inside its current pane without resizing the pane or changing focus; screenshots use the emulated dimensions. |
+| `browser viewport reset` | Restore native viewport sizing so the page follows its pane dimensions. |
 | `browser geolocation`, `browser geo` | Set geolocation. |
 | `browser offline` | Toggle offline state. |
 | `browser trace` | Start or stop trace capture. |
@@ -337,6 +338,27 @@ Browser subcommands:
 | `browser screencast` | Start or stop screencast. |
 | `browser input`, `browser input_mouse`, `browser input_keyboard`, `browser input_touch` | Send low-level input. |
 | `browser identify` | Identify browser surface context. |
+
+`browser viewport` changes the selected browser surface only. On WKWebView, the
+requested logical size becomes `window.innerWidth`/`window.innerHeight` and the
+page is uniformly scaled to fit inside the existing pane. The pane layout and
+other surfaces do not move. Visible screenshots are normalized to exactly those
+CSS-pixel dimensions, independent of the display backing scale. JSON results
+report `mode`, effective `width` and `height`, displayed size, `scale`,
+`presentation`, and `pane_resized`. `reset` reports the actual native CSS
+viewport, including the current page zoom.
+
+cmux bounds the combined viewport and page-zoom render geometry to 8192 points
+per dimension and 33,554,432 points of area. If the current zoom would exceed
+that bound, `browser.viewport.set` leaves the current viewport unchanged and
+returns `invalid_params` with
+`reason: viewport_zoom_render_geometry_too_large`, `requested_page_zoom`, and
+`maximum_page_zoom`. While emulation is active, browser zoom commands also stop
+at that maximum. A visible attached browser inspector owns the same layout;
+close or detach it before changing the viewport. In that state the v2 method
+returns `invalid_state` with `reason: attached_browser_inspector`. Opening or
+redocking an attached inspector while emulation is active resets the viewport to
+native sizing before WebKit takes ownership of the split geometry.
 
 Hook subcommands:
 
@@ -350,6 +372,8 @@ Hook subcommands:
 | `hooks codex <event>` | Handle Codex hook events. `codex install-hooks` remains as the main-compatibility installer alias. |
 | `hooks feed --source <agent>` | Convert agent hook events into Feed context. |
 | `hooks <agent> <event>` | Generic hook surface for `grok`, `opencode`, `pi`, `amp`, `cursor`, `gemini`, `kimi`, `rovodev`, `copilot`, `codebuddy`, `factory`, and `qoder`. |
+
+Kimi hook setup targets `${KIMI_SHARE_DIR:-~/.kimi}/config.toml`. Setup and uninstall also remove only cmux's marker-delimited block from the legacy `${KIMI_CODE_HOME:-~/.kimi-code}/config.toml` path.
 
 Right sidebar commands:
 

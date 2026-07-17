@@ -5,6 +5,7 @@
 //! rendered from this crate matches what a real Ghostty surface would show.
 
 mod key;
+mod mouse;
 mod render;
 mod terminal;
 
@@ -12,8 +13,16 @@ mod terminal;
 pub use ghostty_vt_sys as sys;
 
 pub use key::{KeyAction, KeyEncoder, KeyInput, Mods, key_input_from_chord};
-pub use render::{Cell, ColorSpec, CursorInfo, CursorShape, Dirty, RenderState};
-pub use terminal::{Callbacks, NotifyFn, PtyWriteFn, Rgb, Screen, Scrollbar, Terminal};
+pub use mouse::{MouseAction, MouseButton, MouseEncoder, MouseEncoders, MouseInput};
+pub use render::{
+    ATTR_BLINK, ATTR_BOLD, ATTR_FAINT, ATTR_INVERSE, ATTR_INVISIBLE, ATTR_ITALIC,
+    ATTR_STRIKETHROUGH, Cell, CellWidth, ColorSpec, CursorInfo, CursorShape, Dirty, RenderFrame,
+    RenderState, StyledRun, UnderlineStyle, rows_to_runs,
+};
+pub use terminal::{
+    Callbacks, NotifyFn, PtyWriteFn, Rgb, Screen, Scrollbar, Terminal, parse_color,
+    parse_palette_entry,
+};
 
 pub(crate) fn check(result: ghostty_vt_sys::GhosttyResult) -> std::result::Result<(), Error> {
     match result {
