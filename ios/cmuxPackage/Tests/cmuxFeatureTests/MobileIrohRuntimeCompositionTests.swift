@@ -212,15 +212,15 @@ struct MobileIrohRuntimeCompositionTests {
 
         let isolated = await catalog.liveMacCandidates(
             preferredTag: "lane-a",
-            exactTagOnly: true
+            compatibleWith: .development(expectedInstanceTag: "lane-a")
         )
         #expect(isolated.map(\.instanceTag) == ["lane-a"])
 
-        let productionCompatible = await catalog.liveMacCandidates(
+        let official = await catalog.liveMacCandidates(
             preferredTag: "lane-a",
-            exactTagOnly: false
+            compatibleWith: .official
         )
-        #expect(productionCompatible.map(\.instanceTag) == ["lane-a", "default", "lane-b"])
+        #expect(official.map(\.instanceTag) == ["default"])
     }
 
     @Test
