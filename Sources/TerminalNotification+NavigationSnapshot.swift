@@ -19,7 +19,7 @@ extension TerminalNotification {
     }
 
     private var websiteClickTarget: NotificationNavWebsiteClickTarget? {
-        guard case .website(_, let displayOrigin, true) = source else { return nil }
+        guard case .website(let displayOrigin) = source else { return nil }
         return NotificationNavWebsiteClickTarget(displayOrigin: displayOrigin)
     }
 }

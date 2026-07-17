@@ -383,11 +383,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         in webView: WKWebView,
         decisionHandler: @escaping (Bool) -> Void
     ) {
-        var components = URLComponents()
-        components.scheme = securityOrigin.protocol
-        components.host = securityOrigin.host
-        if securityOrigin.port != 0 { components.port = securityOrigin.port }
-        guard let openerPanel, let origin = components.url else {
+        guard let openerPanel, let origin = securityOrigin.canonicalURL else {
             decisionHandler(false)
             return
         }

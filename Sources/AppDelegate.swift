@@ -16323,7 +16323,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 || actionIdentifier == TerminalNotificationStore.actionShowIdentifier,
               let id = UUID(uuidString: requestIdentifier),
               let notification = notificationStore?.notifications.first(where: { $0.id == id }),
-              case .website(_, let displayOrigin, true) = notification.source else {
+              case .website(let displayOrigin) = notification.source else {
             return false
         }
         return notificationNavigation.openWebsiteNotification(

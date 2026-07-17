@@ -53,18 +53,28 @@ public final class BrowserNotificationPermissionRepository {
         }
     }
 
+    /// Returns the allowed and denied origin sets for a profile in one load.
+    public func origins(for profileID: UUID) -> (allowed: Set<String>, denied: Set<String>) {
+        var allowed = Set<String>()
+        var denied = Set<String>()
+        for (origin, decision) in loadMap()[profileID.uuidString] ?? [:] {
+            switch decision {
+            case .allowed: allowed.insert(origin)
+            case .denied: denied.insert(origin)
+            case .prompt: break
+            }
+        }
+        return (allowed, denied)
+    }
+
     /// Returns all allowed origins for a profile.
     public func allowedOrigins(for profileID: UUID) -> Set<String> {
-        Set((loadMap()[profileID.uuidString] ?? [:]).compactMap { key, value in
-            value == .allowed ? key : nil
-        })
+        origins(for: profileID).allowed
     }
 
     /// Returns all denied origins for a profile.
     public func deniedOrigins(for profileID: UUID) -> Set<String> {
-        Set((loadMap()[profileID.uuidString] ?? [:]).compactMap { key, value in
-            value == .denied ? key : nil
-        })
+        origins(for: profileID).denied
     }
 
     /// Moves an older decision to the exact current security origin when the
@@ -117,8 +127,10 @@ public final class BrowserNotificationPermissionRepository {
     }
 
     private func mutateMap(_ body: (inout [String: [String: BrowserNotificationPermissionDecision]]) -> Void) {
-        var map = loadMap()
+        let original = loadMap()
+        var map = original
         body(&map)
+        guard map != original else { return }
         if map.isEmpty {
             defaults.removeObject(forKey: Self.defaultsKey)
         } else if let data = try? JSONEncoder().encode(map) {

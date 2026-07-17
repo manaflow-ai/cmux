@@ -249,7 +249,7 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
         fallbackDisplayOrigin: URL,
         markStoredNotificationRead: Bool
     ) -> Bool {
-        guard Self.isHTTPDisplayOrigin(fallbackDisplayOrigin),
+        guard NotificationNavWebsiteClickTarget.isValidDisplayOrigin(fallbackDisplayOrigin),
               let websiteClickRouting,
               websiteClickRouting.openWebsiteNotification(
                   id: id,
@@ -259,19 +259,6 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
         }
         if markStoredNotificationRead { store.markRead(id: id) }
         return true
-    }
-
-    private static func isHTTPDisplayOrigin(_ url: URL) -> Bool {
-        guard let scheme = url.scheme?.lowercased(),
-              scheme == "http" || scheme == "https" else {
-            return false
-        }
-        return url.host?.isEmpty == false
-            && url.user == nil
-            && url.password == nil
-            && url.query == nil
-            && url.fragment == nil
-            && (url.path.isEmpty || url.path == "/")
     }
 
     /// Opens a notification response from the OS notification center by first

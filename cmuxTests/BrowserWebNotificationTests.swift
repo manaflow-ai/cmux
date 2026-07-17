@@ -717,20 +717,18 @@ struct BrowserWebNotificationTests {
             store.resetNotificationDeliveryHandlerForTesting()
         }
 
-        let profileID = UUID()
         let origin = try #require(URL(string: "https://example.com"))
         let id = store.addGlobalWebsiteNotification(
             title: "Background",
             subtitle: "example.com",
             body: "Ready",
-            profileID: profileID,
             origin: origin
         )
         let notification = try #require(store.notifications.first(where: { $0.id == id }))
         #expect(notification.target == .global)
         #expect(notification.tabId == TerminalNotification.globalTargetSentinel)
         #expect(notification.paneFlash == false)
-        #expect(notification.source == .website(profileID: profileID, origin: origin, isBackground: true))
+        #expect(notification.source == .website(origin: origin))
     }
 
     @Test func persistentDeliveryRespectsTheLiveForwardingSetting() throws {
@@ -840,7 +838,6 @@ struct BrowserWebNotificationTests {
         let adapter = BrowserWebNotificationNativeAdapter.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let originalStore = appDelegate.notificationStore
-        let profileID = UUID()
         let origin = try #require(URL(string: "https://example.com"))
         store.replaceNotificationsForTesting([])
         store.configureNotificationDeliveryHandlerForTesting { _, _ in }
@@ -856,7 +853,6 @@ struct BrowserWebNotificationTests {
             title: "Rejected",
             subtitle: "example.com",
             body: "Ready",
-            profileID: profileID,
             origin: origin
         )
         let rejected = try #require(store.notifications.first(where: { $0.id == rejectedID }))
@@ -868,7 +864,6 @@ struct BrowserWebNotificationTests {
             title: "Accepted",
             subtitle: "example.com",
             body: "Ready",
-            profileID: profileID,
             origin: origin
         )
         let accepted = try #require(store.notifications.first(where: { $0.id == acceptedID }))
@@ -882,7 +877,6 @@ struct BrowserWebNotificationTests {
         let adapter = BrowserWebNotificationNativeAdapter.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let originalStore = appDelegate.notificationStore
-        let profileID = UUID()
         let origin = try #require(URL(string: "https://example.com"))
         store.replaceNotificationsForTesting([])
         store.configureNotificationDeliveryHandlerForTesting { _, _ in }
@@ -898,7 +892,6 @@ struct BrowserWebNotificationTests {
             title: "OS click",
             subtitle: "example.com",
             body: "Ready",
-            profileID: profileID,
             origin: origin
         )
 

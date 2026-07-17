@@ -36,9 +36,8 @@ private typealias SetProviderFunction = @convention(c) (
 private typealias DidShowFunction = @convention(c) (UnsafeRawPointer?, UInt64) -> Void
 private typealias GetNotificationIDFunction = @convention(c) (UnsafeRawPointer?) -> UInt64
 private typealias GetNotificationBooleanFunction = @convention(c) (UnsafeRawPointer?) -> Bool
-private typealias CopyNotificationStringFunction = @convention(c) (UnsafeRawPointer?) -> UnsafeRawPointer?
+private typealias CopyWKStringFunction = @convention(c) (UnsafeRawPointer?) -> UnsafeRawPointer?
 private typealias GetNotificationSecurityOriginFunction = @convention(c) (UnsafeRawPointer?) -> UnsafeRawPointer?
-private typealias CopySecurityOriginStringFunction = @convention(c) (UnsafeRawPointer?) -> UnsafeRawPointer?
 private typealias StringMaximumSizeFunction = @convention(c) (UnsafeRawPointer?) -> Int
 private typealias StringGetUTF8Function = @convention(c) (UnsafeRawPointer?, UnsafeMutablePointer<CChar>?, Int) -> Int
 private typealias ReleaseFunction = @convention(c) (UnsafeRawPointer?) -> Void
@@ -87,10 +86,10 @@ final class BrowserWebNotificationNativeAdapter {
     private let didShow: DidShowFunction?
     private let notificationID: GetNotificationIDFunction?
     private let notificationIsPersistent: GetNotificationBooleanFunction?
-    private let copyTitle: CopyNotificationStringFunction?
-    private let copyBody: CopyNotificationStringFunction?
+    private let copyTitle: CopyWKStringFunction?
+    private let copyBody: CopyWKStringFunction?
     private let notificationSecurityOrigin: GetNotificationSecurityOriginFunction?
-    private let copySecurityOriginString: CopySecurityOriginStringFunction?
+    private let copySecurityOriginString: CopyWKStringFunction?
     private let stringMaximumSize: StringMaximumSizeFunction?
     private let stringGetUTF8: StringGetUTF8Function?
     private let release: ReleaseFunction?
@@ -146,7 +145,7 @@ final class BrowserWebNotificationNativeAdapter {
     }
 
     func register(webView: WKWebView, profileID: UUID, panel: BrowserPanel) {
-        guard SettingCatalog().browser.forwardWebNotifications.value(in: .standard) else { return }
+        guard BrowserWebNotificationSettings.isForwardingEnabled else { return }
         compactDeadRegistrations()
         dataStoreProfiles[ObjectIdentifier(webView.configuration.websiteDataStore)] = profileID
         installDataStoreDelegate(on: webView.configuration.websiteDataStore)
@@ -181,16 +180,16 @@ final class BrowserWebNotificationNativeAdapter {
 
     func notificationPermissions(for dataStore: WKWebsiteDataStore) -> [String: NSNumber] {
         guard let profileID = dataStoreProfiles[ObjectIdentifier(dataStore)] else { return [:] }
-        let repository = BrowserProfileStore.shared.notificationPermissions
+        let origins = BrowserProfileStore.shared.notificationPermissions.origins(for: profileID)
         var result: [String: NSNumber] = [:]
-        for origin in repository.allowedOrigins(for: profileID) { result[origin] = true }
-        for origin in repository.deniedOrigins(for: profileID) { result[origin] = false }
+        for origin in origins.allowed { result[origin] = true }
+        for origin in origins.denied { result[origin] = false }
         return result
     }
 
     func showPersistentNotification(_ notification: NSObject, from dataStore: WKWebsiteDataStore) {
-        guard SettingCatalog().browser.forwardWebNotifications.value(in: .standard),
-              let profileID = dataStoreProfiles[ObjectIdentifier(dataStore)],
+        guard BrowserWebNotificationSettings.isForwardingEnabled,
+              dataStoreProfiles[ObjectIdentifier(dataStore)] != nil,
               let title = Self.stringProperty("title", on: notification),
               let originString = Self.stringProperty("origin", on: notification),
               let origin = URL(string: originString) else {
@@ -198,7 +197,7 @@ final class BrowserWebNotificationNativeAdapter {
         }
         let body = Self.stringProperty("body", on: notification) ?? ""
         let displayOrigin = Self.displayOrigin(for: origin)
-        let notificationID = deliverGlobal(title: title, body: body, origin: displayOrigin, profileID: profileID)
+        let notificationID = deliverGlobal(title: title, body: body, displayOrigin: displayOrigin)
         if let dictionary = Self.dictionaryProperty("dictionaryRepresentation", on: notification) {
             persistentClicks[notificationID] = PersistentClickRegistration(
                 dataStore: dataStore,
@@ -315,14 +314,14 @@ final class BrowserWebNotificationNativeAdapter {
 
     private func show(page: UnsafeRawPointer?, notification: UnsafeRawPointer?) {
         guard let notification,
-              let title = copiedString(using: copyTitle, notification: notification) else {
+              let title = copiedString(using: copyTitle, from: notification) else {
             return
         }
-        let body = copiedString(using: copyBody, notification: notification) ?? ""
+        let body = copiedString(using: copyBody, from: notification) ?? ""
         let id = notificationID?(notification) ?? 0
         let persistent = notificationIsPersistent?(notification) ?? false
         let securityOrigin = notificationSecurityOrigin?(notification)
-            .flatMap { copiedSecurityOriginString(using: copySecurityOriginString, securityOrigin: $0) }
+            .flatMap { copiedString(using: copySecurityOriginString, from: $0) }
             .flatMap(URL.init(string:))
 
         if let page, let registration = registrations[Self.key(page)], let panel = registration.panel {
@@ -339,39 +338,20 @@ final class BrowserWebNotificationNativeAdapter {
     }
 
     @discardableResult
-    private func deliverGlobal(title: String, body: String, origin: URL, profileID: UUID) -> UUID {
-        let displayOrigin = Self.displayOrigin(for: origin)
-        return TerminalNotificationStore.shared.addGlobalWebsiteNotification(
+    private func deliverGlobal(title: String, body: String, displayOrigin: URL) -> UUID {
+        TerminalNotificationStore.shared.addGlobalWebsiteNotification(
             title: title,
-            subtitle: displayOrigin.host ?? origin.host ?? "",
+            subtitle: displayOrigin.host ?? "",
             body: body,
-            profileID: profileID,
             origin: displayOrigin
         )
     }
 
     private func copiedString(
-        using copy: CopyNotificationStringFunction?,
-        notification: UnsafeRawPointer
+        using copy: CopyWKStringFunction?,
+        from object: UnsafeRawPointer
     ) -> String? {
-        guard let stringRef = copy?(notification),
-              let stringMaximumSize,
-              let stringGetUTF8 else {
-            return nil
-        }
-        defer { release?(stringRef) }
-        let capacity = stringMaximumSize(stringRef)
-        guard capacity > 0 else { return "" }
-        var buffer = [CChar](repeating: 0, count: capacity)
-        guard stringGetUTF8(stringRef, &buffer, capacity) > 0 else { return nil }
-        return String(cString: buffer)
-    }
-
-    private func copiedSecurityOriginString(
-        using copy: CopySecurityOriginStringFunction?,
-        securityOrigin: UnsafeRawPointer
-    ) -> String? {
-        guard let stringRef = copy?(securityOrigin) else { return nil }
+        guard let stringRef = copy?(object) else { return nil }
         defer { release?(stringRef) }
         guard let stringMaximumSize, let stringGetUTF8 else { return nil }
         let capacity = stringMaximumSize(stringRef)

@@ -53,7 +53,7 @@ final class BrowserWebNotificationMessageHandler: NSObject, WKScriptMessageHandl
             }
 
             if body["type"] as? String == "permission" {
-                guard let originURL = Self.originURL(origin) else {
+                guard let originURL = origin.canonicalURL else {
                     replyHandler("denied", nil)
                     return
                 }
@@ -64,7 +64,7 @@ final class BrowserWebNotificationMessageHandler: NSObject, WKScriptMessageHandl
             }
 
             if body["type"] as? String == "status" {
-                guard let originURL = Self.originURL(origin) else {
+                guard let originURL = origin.canonicalURL else {
                     replyHandler("denied", nil)
                     return
                 }
@@ -79,7 +79,7 @@ final class BrowserWebNotificationMessageHandler: NSObject, WKScriptMessageHandl
                 return
             }
 
-            guard let originURL = Self.originURL(origin),
+            guard let originURL = origin.canonicalURL,
                   permissionDecision(originURL) == .allowed else {
                 replyHandler(nil, "permission_denied")
                 return
@@ -101,13 +101,5 @@ final class BrowserWebNotificationMessageHandler: NSObject, WKScriptMessageHandl
             onPayload(payload, webViewInstanceID)
             replyHandler("ok", nil)
         }
-    }
-
-    private static func originURL(_ origin: WKSecurityOrigin) -> URL? {
-        var components = URLComponents()
-        components.scheme = origin.protocol
-        components.host = origin.host
-        if origin.port != 0 { components.port = origin.port }
-        return components.url
     }
 }

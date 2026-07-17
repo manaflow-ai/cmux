@@ -6,6 +6,16 @@ import Foundation
 import ObjectiveC
 import WebKit
 
+/// Cached settings gate for website-notification forwarding, read on
+/// per-notification and per-webview paths without rebuilding the catalog.
+enum BrowserWebNotificationSettings {
+    static let forwardWebNotifications = SettingCatalog().browser.forwardWebNotifications
+
+    static var isForwardingEnabled: Bool {
+        forwardWebNotifications.value(in: .standard)
+    }
+}
+
 private final class BrowserWebNotificationBridgeConfiguration: NSObject {
     let token: String
     let profileID: UUID
@@ -180,12 +190,11 @@ extension BrowserPanel {
         on configuration: WKWebViewConfiguration,
         profileID: UUID
     ) {
-        let setting = SettingCatalog().browser.forwardWebNotifications
-        guard setting.value(in: .standard),
+        guard BrowserWebNotificationSettings.isForwardingEnabled,
               BrowserWebNotificationNativeAdapter.shared.shouldInstallForegroundFallback else {
             return
         }
-        let permissionRepository = BrowserProfileStore.shared.notificationPermissions
+        let permissionOrigins = BrowserProfileStore.shared.notificationPermissions.origins(for: profileID)
         let bridge = BrowserWebNotificationBridgeConfiguration(token: UUID().uuidString, profileID: profileID)
         objc_setAssociatedObject(
             configuration.userContentController,
@@ -197,8 +206,8 @@ extension BrowserPanel {
             WKUserScript(
                 source: webNotificationBridgeScriptSource(
                     token: bridge.token,
-                    allowedOrigins: permissionRepository.allowedOrigins(for: profileID),
-                    deniedOrigins: permissionRepository.deniedOrigins(for: profileID)
+                    allowedOrigins: permissionOrigins.allowed,
+                    deniedOrigins: permissionOrigins.denied
                 ),
                 injectionTime: .atDocumentStart,
                 forMainFrameOnly: true,
@@ -295,7 +304,7 @@ extension BrowserPanel {
         in webView: WKWebView,
         reply: @escaping (Bool) -> Void
     ) {
-        guard SettingCatalog().browser.forwardWebNotifications.value(in: .standard) else {
+        guard BrowserWebNotificationSettings.isForwardingEnabled else {
             reply(false)
             return
         }
@@ -308,7 +317,10 @@ extension BrowserPanel {
         case .denied:
             reply(false)
         case .prompt:
-            let originKey = BrowserNotificationPermissionRepository.canonicalOrigin(origin) ?? origin.absoluteString
+            guard let originKey = BrowserNotificationPermissionRepository.canonicalOrigin(origin) else {
+                reply(false)
+                return
+            }
             let displayOrigin = BrowserNotificationPermissionRepository.canonicalOrigin(displayOriginURL)
                 ?? displayOriginURL.absoluteString
             if pendingWebNotificationPermissionReplies[originKey] != nil {
@@ -336,7 +348,7 @@ extension BrowserPanel {
                 for reply in replies { reply(allowed) }
             }
             webNotificationPermissionAlertPresenter(alert, webView, { response in
-                let settingIsEnabled = SettingCatalog().browser.forwardWebNotifications.value(in: .standard)
+                let settingIsEnabled = BrowserWebNotificationSettings.isForwardingEnabled
                 finish(settingIsEnabled && response == .alertFirstButtonReturn, settingIsEnabled)
             }, {
                 finish(false, false)
@@ -347,7 +359,7 @@ extension BrowserPanel {
     private func webNotificationPermissionDecision(
         for rawOrigin: URL
     ) -> BrowserNotificationPermissionDecision {
-        guard SettingCatalog().browser.forwardWebNotifications.value(in: .standard) else {
+        guard BrowserWebNotificationSettings.isForwardingEnabled else {
             return .denied
         }
         let repository = BrowserProfileStore.shared.notificationPermissions
@@ -375,8 +387,7 @@ extension BrowserPanel {
         fromWebViewInstanceID instanceID: UUID
     ) {
         guard instanceID == webViewInstanceID else { return }
-        let setting = SettingCatalog().browser.forwardWebNotifications
-        guard setting.value(in: .standard) else { return }
+        guard BrowserWebNotificationSettings.isForwardingEnabled else { return }
 
         let rawOrigin = URL(string: "https://\(payload.hostname)")
         let displayHost = (Self.remoteProxyDisplayURL(for: rawOrigin) ?? rawOrigin)?.host ?? payload.hostname
@@ -385,7 +396,7 @@ extension BrowserPanel {
 
     /// Handles a foreground notification delivered by WebKit's native provider.
     func handleNativeWebNotification(title: String, body: String, securityOrigin: URL? = nil) {
-        guard SettingCatalog().browser.forwardWebNotifications.value(in: .standard) else { return }
+        guard BrowserWebNotificationSettings.isForwardingEnabled else { return }
         // The active page may have navigated since WebKit created the
         // notification. Never substitute webView.url when the notification's
         // own security origin is unavailable, because that misattributes it.

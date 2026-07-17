@@ -974,7 +974,6 @@ final class TerminalNotificationStore: ObservableObject {
         title: String,
         subtitle: String,
         body: String,
-        profileID: UUID,
         origin: URL
     ) -> UUID {
         let notification = TerminalNotification(
@@ -988,7 +987,7 @@ final class TerminalNotificationStore: ObservableObject {
             createdAt: Date(),
             isRead: false,
             paneFlash: false,
-            source: .website(profileID: profileID, origin: origin, isBackground: true),
+            source: .website(origin: origin),
             target: .global
         )
         notifications.insert(notification, at: 0)
@@ -1847,7 +1846,7 @@ final class TerminalNotificationStore: ObservableObject {
         let retargetsToLiveSurfaceOwner = notification.retargetsToLiveSurfaceOwner
         let clickActionUserInfo = notification.clickAction?.userInfo ?? [:]
         let websiteDisplayOrigin: String? = {
-            guard case .website(_, let displayOrigin, true) = notification.source else { return nil }
+            guard case .website(let displayOrigin) = notification.source else { return nil }
             return displayOrigin.absoluteString
         }()
         let categoryIdentifier = Self.categoryIdentifier
