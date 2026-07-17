@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import os
+import shutil
 import stat
 import subprocess
 import sys
@@ -45,12 +45,7 @@ def test_archive_round_trip_preserves_package_executables(tmp_path: Path) -> Non
     # GitHub artifact transfer may normalize the outer file mode. The archive
     # must still restore executable package entries after download.
     archive.chmod(0o644)
-    for root, dirs, files in os.walk(packages, topdown=False):
-        for name in files:
-            Path(root, name).unlink()
-        for name in dirs:
-            Path(root, name).rmdir()
-    packages.rmdir()
+    shutil.rmtree(packages)
 
     extracted = run_helper("extract", "--archive", archive, "--out", tmp_path)
     assert extracted.returncode == 0, extracted.stderr

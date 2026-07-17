@@ -86,7 +86,7 @@ def extract_archive(archive_path: Path, out_dir: Path) -> None:
 
     with tarfile.open(archive_path, "r:gz") as archive:
         members = validated_members(archive)
-        archive.extractall(out_dir, members=members)
+        archive.extractall(out_dir, members=members, filter="tar")
     verify_executables(packages_dir)
 
 
