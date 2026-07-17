@@ -11,6 +11,7 @@ struct TaskComposerPrimaryAction: View {
     let templateIcon: String?
     let actionTitle: String
     let progressTitle: String
+    let caption: String
     let failureText: String?
     let completedOperationRecovery: TaskComposerCompletedOperationRecovery?
     let action: () -> Void
@@ -99,16 +100,12 @@ struct TaskComposerPrimaryAction: View {
                 .accessibilityHint(TaskComposerSheet.createAccessibilityHint)
                 .accessibilityIdentifier("MobileTaskComposerCreateButton")
 
-                Text(
-                    L10n.string(
-                        "mobile.taskComposer.action.caption",
-                        defaultValue: "Creates a workspace and sends your prompt immediately."
-                    )
-                )
+                Text(caption)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
+                .accessibilityIdentifier("MobileTaskComposerActionCaption")
             }
         }
         .frame(maxWidth: 680)
@@ -117,6 +114,7 @@ struct TaskComposerPrimaryAction: View {
         .padding(.bottom, 8)
         .frame(maxWidth: .infinity)
         .background(.bar)
+        .animation(.snappy(duration: 0.22), value: isEnabled)
         .sensoryFeedback(.impact(weight: .light), trigger: isSubmitting) { oldValue, newValue in
             !oldValue && newValue
         }

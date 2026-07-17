@@ -4,6 +4,11 @@ import SwiftUI
 
 /// One agent/template choice in the horizontal launch selector.
 struct TaskComposerTemplateOption: View {
+    @ScaledMetric(relativeTo: .caption) private var cardWidth: CGFloat = 86
+    @ScaledMetric(relativeTo: .caption) private var cardHeight: CGFloat = 78
+    @ScaledMetric(relativeTo: .caption) private var iconDiameter: CGFloat = 40
+    @ScaledMetric(relativeTo: .caption) private var iconSize: CGFloat = 22
+
     let template: MobileTaskTemplate
     let isSelected: Bool
     let isDisabled: Bool
@@ -15,9 +20,9 @@ struct TaskComposerTemplateOption: View {
                 ZStack(alignment: .topTrailing) {
                     Circle()
                         .fill(isSelected ? Color.accentColor.opacity(0.16) : Color.primary.opacity(0.055))
-                        .frame(width: 40, height: 40)
-                    TaskTemplateIcon(value: template.icon, size: 22)
-                        .frame(width: 40, height: 40)
+                        .frame(width: iconDiameter, height: iconDiameter)
+                    TaskTemplateIcon(value: template.icon, size: iconSize)
+                        .frame(width: iconDiameter, height: iconDiameter)
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.caption.weight(.semibold))
@@ -34,7 +39,7 @@ struct TaskComposerTemplateOption: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.78)
             }
-            .frame(width: 86, height: 78)
+            .frame(width: cardWidth, height: cardHeight)
             .background(
                 isSelected ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.045),
                 in: RoundedRectangle(cornerRadius: 18, style: .continuous)

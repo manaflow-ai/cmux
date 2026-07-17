@@ -7396,6 +7396,40 @@
         }
       }
     },
+    "mobile.taskComposer.action.promptRequiredFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add a prompt to put %@ to work."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロンプトを入力すると%@を起動できます。"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.action.shellCaption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opens a workspace with an interactive shell."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対話型シェルでワークスペースを開きます。"
+          }
+        }
+      }
+    },
     "mobile.taskComposer.agent": {
       "extractionState": "manual",
       "localizations": {

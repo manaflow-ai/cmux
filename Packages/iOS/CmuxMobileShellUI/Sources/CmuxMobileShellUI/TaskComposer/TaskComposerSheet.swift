@@ -197,10 +197,11 @@ struct TaskComposerSheet: View {
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 TaskComposerPrimaryAction(
                     isSubmitting: submissionPhase.showsProgress,
-                    isEnabled: selectedTemplate != nil && selectedMachine != nil,
+                    isEnabled: selectedMachine != nil && canLaunchSelectedTemplate,
                     templateIcon: selectedTemplate?.icon,
                     actionTitle: primaryActionTitle,
                     progressTitle: primaryActionProgressTitle,
+                    caption: primaryActionCaption,
                     failureText: failureText,
                     completedOperationRecovery: completedOperationRecovery,
                     action: startSubmission,
@@ -287,6 +288,12 @@ struct TaskComposerSheet: View {
         machines.first { $0.macDeviceID == selectedMacDeviceID }
     }
 
+    private var canLaunchSelectedTemplate: Bool {
+        guard let selectedTemplate else { return false }
+        return selectedTemplate.isPlainShell
+            || !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     private var promptPlaceholder: String {
         guard let selectedTemplate else {
             return L10n.string(
@@ -338,6 +345,34 @@ struct TaskComposerSheet: View {
                 defaultValue: "Starting %@…"
             ),
             selectedTemplate.name
+        )
+    }
+
+    private var primaryActionCaption: String {
+        guard let selectedTemplate else {
+            return L10n.string(
+                "mobile.taskComposer.action.caption",
+                defaultValue: "Creates a workspace and sends your prompt immediately."
+            )
+        }
+        if selectedTemplate.isPlainShell {
+            return L10n.string(
+                "mobile.taskComposer.action.shellCaption",
+                defaultValue: "Opens a workspace with an interactive shell."
+            )
+        }
+        guard canLaunchSelectedTemplate else {
+            return String(
+                format: L10n.string(
+                    "mobile.taskComposer.action.promptRequiredFormat",
+                    defaultValue: "Add a prompt to put %@ to work."
+                ),
+                selectedTemplate.name
+            )
+        }
+        return L10n.string(
+            "mobile.taskComposer.action.caption",
+            defaultValue: "Creates a workspace and sends your prompt immediately."
         )
     }
 
