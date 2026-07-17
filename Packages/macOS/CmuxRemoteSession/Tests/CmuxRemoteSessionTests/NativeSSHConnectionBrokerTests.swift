@@ -61,6 +61,32 @@ struct NativeSSHConnectionBrokerTests {
         #expect(recorder.requests.isEmpty)
     }
 
+    @Test("Unresolved cmux templates remain unowned until ssh -G resolves them")
+    func unresolvedTemplatesAreNotOwned() {
+        let recorder = CleanupRequestRecorder()
+        let broker = makeBroker(cleanupRecorder: recorder)
+        let templateOptions = sharingOptions.mergingDefaults(into: [])
+        let first = configuration(
+            owner: UUID(),
+            destination: "first-alias",
+            sshOptions: templateOptions
+        )
+        let second = configuration(
+            owner: UUID(),
+            destination: "second-alias",
+            sshOptions: templateOptions
+        )
+
+        let firstLease = broker.retainWorkspace(first)
+        let secondLease = broker.retainWorkspace(second)
+        #expect(firstLease.sshControlMasterLeaseGeneration == nil)
+        #expect(secondLease.sshControlMasterLeaseGeneration == nil)
+
+        broker.releaseWorkspace(firstLease)
+        broker.releaseWorkspace(secondLease)
+        #expect(recorder.requests.isEmpty)
+    }
+
     @Test("A stale configuration cannot release its replacement lease")
     func staleConfigurationCannotReleaseReplacement() {
         let recorder = CleanupRequestRecorder()
@@ -135,7 +161,11 @@ struct NativeSSHConnectionBrokerTests {
 
     @Test("Cleanup reuses the shared path without negotiating a replacement master")
     func cleanupArgumentsAreReuseOnly() {
-        let configuration = configuration(owner: UUID(), port: 2222)
+        let configuration = configuration(
+            owner: UUID(),
+            port: 2222,
+            sshOptions: sharingOptions.mergingDefaults(into: [])
+        )
         let arguments = RemoteControlMasterCleanup().cleanupArguments(configuration: configuration)
 
         #expect(arguments.prefix(4) == ["-o", "BatchMode=yes", "-o", "ControlMaster=no"])
@@ -200,8 +230,24 @@ struct NativeSSHConnectionBrokerTests {
         let gate = AsyncLatch()
         let events = AsyncEventLog()
         let broker = makeBroker()
-        let first = configuration(owner: UUID(), destination: "alice@first.example.test")
-        let second = configuration(owner: UUID(), destination: "alice@second.example.test")
+        let first = configuration(
+            owner: UUID(),
+            destination: "alice@first.example.test",
+            sshOptions: [
+                "ControlMaster=auto",
+                "ControlPersist=600",
+                "ControlPath=/tmp/cmux-ssh-501-0123456789abcdef0123456789abcdef01234567",
+            ]
+        )
+        let second = configuration(
+            owner: UUID(),
+            destination: "alice@second.example.test",
+            sshOptions: [
+                "ControlMaster=auto",
+                "ControlPersist=600",
+                "ControlPath=/tmp/cmux-ssh-501-89abcdef0123456789abcdef0123456789abcdef",
+            ]
+        )
 
         let firstTask = Task { @MainActor in
             try await broker.withConnectionAttempt(for: first) {
@@ -290,7 +336,7 @@ struct NativeSSHConnectionBrokerTests {
             destination: destination,
             port: port,
             identityFile: nil,
-            sshOptions: sshOptions ?? sharingOptions.mergingDefaults(into: []),
+            sshOptions: sshOptions ?? resolvedOwnedSSHOptions,
             localProxyPort: nil,
             relayPort: relayPort,
             relayID: "relay-id",
