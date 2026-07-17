@@ -8374,16 +8374,22 @@ final class GhosttySurfaceScrollView: NSView {
         )
     }
 
-    func releaseOwnedPortalHost(hostId: ObjectIdentifier, reason: String) {
+    func releaseOwnedPortalHost(hostId: ObjectIdentifier, instanceSerial: UInt64, reason: String) {
         surfaceView.terminalSurface?.releasePortalHostIfOwned(
             hostId: hostId,
+            instanceSerial: instanceSerial,
             reason: reason
         )
     }
 
-    func prepareOwnedPortalHostForTransientReattach(hostId: ObjectIdentifier, reason: String) {
+    func prepareOwnedPortalHostForTransientReattach(
+        hostId: ObjectIdentifier,
+        instanceSerial: UInt64,
+        reason: String
+    ) {
         surfaceView.terminalSurface?.preparePortalHostReplacementIfOwned(
             hostId: hostId,
+            instanceSerial: instanceSerial,
             reason: reason
         )
     }
@@ -12183,6 +12189,46 @@ struct GhosttyTerminalView: NSViewRepresentable {
         return !hostedViewHasSuperview
     }
 
+    /// What an update may do to the hosted view's immediate visible/active
+    /// state.
+    enum ImmediateHostedStateAction: Equatable {
+        /// The owner with a live binding applies both flags.
+        case applyVisibleAndActive
+        /// A bound host that lost the lease may still un-show its own
+        /// surface — and nothing more. Active/focus state stays
+        /// ownership-gated.
+        case hideOnly
+        /// A non-owner that is not bound must not touch the hosted view.
+        case deferred
+    }
+
+    /// The complete immediate visible/active apply decision.
+    ///
+    /// Hiding never needs lease ownership or a live binding generation.
+    /// Ownership gates SHOWING and re-anchoring; the host a hosted view is
+    /// currently bound to is the only one that can un-show it, owner or not.
+    /// Gating the hide on the claim leaves a deselected tab's surface on
+    /// screen whenever ownership flips without a rebind: the bound host's
+    /// visible=false updates defer forever and the hidden tab draws over the
+    /// selected one.
+    static func immediateHostedStateAction(
+        hostOwnsPortal: Bool,
+        portalBindingLive: Bool,
+        desiredVisibleInUI: Bool,
+        hostedViewHasSuperview: Bool,
+        isBoundToCurrentHost: Bool
+    ) -> ImmediateHostedStateAction {
+        if portalBindingLive, hostOwnsPortal, shouldApplyImmediateHostedStateUpdate(
+            desiredVisibleInUI: desiredVisibleInUI,
+            hostedViewHasSuperview: hostedViewHasSuperview,
+            isBoundToCurrentHost: isBoundToCurrentHost
+        ) {
+            return .applyVisibleAndActive
+        }
+        if !desiredVisibleInUI, isBoundToCurrentHost { return .hideOnly }
+        return .deferred
+    }
+
     enum HostCallbackPortalGeometrySynchronizationAction<Window> {
         case skip
         case synchronizeWithoutLayoutFlush(Window)
@@ -12477,16 +12523,21 @@ struct GhosttyTerminalView: NSViewRepresentable {
         let isBoundToCurrentHost = hostContainer.map { host in
             TerminalWindowPortalRegistry.isHostedView(hostedView, boundTo: host)
         } ?? true
-        let shouldApplyImmediateHostedState = hostOwnsPortalNow && Self.shouldApplyImmediateHostedStateUpdate(
+        let immediateStateAction = Self.immediateHostedStateAction(
+            hostOwnsPortal: hostOwnsPortalNow,
+            portalBindingLive: portalBindingStillLive(),
             desiredVisibleInUI: isVisibleInUI,
             hostedViewHasSuperview: hostedView.superview != nil,
             isBoundToCurrentHost: isBoundToCurrentHost
         )
 
-        if portalBindingStillLive() && shouldApplyImmediateHostedState {
+        switch immediateStateAction {
+        case .applyVisibleAndActive:
             hostedView.setVisibleInUI(isVisibleInUI)
             hostedView.setActive(isActive)
-        } else {
+        case .hideOnly:
+            hostedView.setVisibleInUI(false)
+        case .deferred:
             // Preserve portal entry visibility while a stale host is still receiving SwiftUI updates.
             // The currently bound host remains authoritative for immediate visible/active state.
 #if DEBUG
@@ -12534,6 +12585,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
             host.onGeometryChanged = nil
             hostedView?.prepareOwnedPortalHostForTransientReattach(
                 hostId: ObjectIdentifier(host),
+                instanceSerial: host.instanceSerial,
                 reason: "dismantle"
             )
         }
