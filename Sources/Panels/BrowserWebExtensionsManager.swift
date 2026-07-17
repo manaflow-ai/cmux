@@ -880,8 +880,9 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
     }
 
     // Required manifest permissions were granted at explicit installation.
-    // Runtime calls request optional access, which cmux denies without opening
-    // a modal alert. A future inline permission surface can selectively grant it.
+    // Every runtime request is optional or redundant, so deny it without
+    // presenting a sheet. A future inline permission surface can selectively
+    // grant additional access without interrupting the user.
     func webExtensionController(
         _ controller: WKWebExtensionController,
         promptForPermissions permissions: Set<WKWebExtension.Permission>,
@@ -889,7 +890,7 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
         for extensionContext: WKWebExtensionContext,
         completionHandler: @escaping (Set<WKWebExtension.Permission>, Date?) -> Void
     ) {
-        completionHandler(permissions.intersection(extensionContext.webExtension.requestedPermissions), nil)
+        completionHandler([], nil)
     }
 
     func webExtensionController(
@@ -899,9 +900,7 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
         for extensionContext: WKWebExtensionContext,
         completionHandler: @escaping (Set<URL>, Date?) -> Void
     ) {
-        let declared = extensionContext.webExtension.allRequestedMatchPatterns
-        let allowed = urls.filter { url in declared.contains { $0.matches(url) } }
-        completionHandler(allowed, nil)
+        completionHandler([], nil)
     }
 
     func webExtensionController(
@@ -911,9 +910,7 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
         for extensionContext: WKWebExtensionContext,
         completionHandler: @escaping (Set<WKWebExtension.MatchPattern>, Date?) -> Void
     ) {
-        let declared = extensionContext.webExtension.allRequestedMatchPatterns
-        let allowed = matchPatterns.filter { requested in declared.contains { $0.matches(requested) } }
-        completionHandler(allowed, nil)
+        completionHandler([], nil)
     }
 
     private func orderedWindowAdapters() -> [BrowserWebExtensionWindowAdapter] {
