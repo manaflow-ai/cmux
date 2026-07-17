@@ -198,25 +198,32 @@ struct WorkspaceRemoteConfigurationValueTests {
         #expect(firstRoute.durableTransportTrustKey != secondRoute.durableTransportTrustKey)
 
         let firstBrokerSession = WorkspaceRemoteWebSocketDaemonEndpoint(
-            url: "wss://broker.example/session-a",
+            url: "wss://tenant@broker.example/session-a",
             headers: [:],
             token: "token-a",
             sessionId: "session-a",
             expiresAtUnix: 100
         )
         let refreshedBrokerSession = WorkspaceRemoteWebSocketDaemonEndpoint(
-            url: "WSS://BROKER.EXAMPLE:443/session-b",
+            url: "WSS://tenant@BROKER.EXAMPLE:443/session-b",
             headers: [:],
             token: "token-b",
             sessionId: "session-b",
             expiresAtUnix: 200
         )
         let otherBrokerSession = WorkspaceRemoteWebSocketDaemonEndpoint(
-            url: "wss://other-broker.example/session-c",
+            url: "wss://tenant@other-broker.example/session-c",
             headers: [:],
             token: "token-c",
             sessionId: "session-c",
             expiresAtUnix: 300
+        )
+        let otherAccountSession = WorkspaceRemoteWebSocketDaemonEndpoint(
+            url: "wss://other-tenant@broker.example/session-d",
+            headers: [:],
+            token: "token-d",
+            sessionId: "session-d",
+            expiresAtUnix: 400
         )
         let firstWebSocket = makeConfiguration(
             transport: .websocket,
@@ -239,9 +246,17 @@ struct WorkspaceRemoteConfigurationValueTests {
             ownerWorkspaceID: UUID(),
             daemonWebSocketEndpoint: otherBrokerSession
         )
+        let otherAccountWebSocket = makeConfiguration(
+            transport: .websocket,
+            destination: "cloud-vm",
+            managedCloudVMID: "vm-1",
+            ownerWorkspaceID: UUID(),
+            daemonWebSocketEndpoint: otherAccountSession
+        )
 
         #expect(firstWebSocket.durableTransportTrustKey == refreshedWebSocket.durableTransportTrustKey)
         #expect(firstWebSocket.durableTransportTrustKey != otherBrokerWebSocket.durableTransportTrustKey)
+        #expect(firstWebSocket.durableTransportTrustKey != otherAccountWebSocket.durableTransportTrustKey)
 
         let firstUnmanagedWebSocket = makeConfiguration(
             transport: .websocket,
@@ -258,6 +273,31 @@ struct WorkspaceRemoteConfigurationValueTests {
             firstUnmanagedWebSocket.durableTransportTrustKey
                 != refreshedUnmanagedWebSocket.durableTransportTrustKey
         )
+
+        let firstBlankSession = makeConfiguration(
+            transport: .websocket,
+            destination: "cloud-vm",
+            daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint(
+                url: "wss://broker.example/projects/first/rpc",
+                headers: [:],
+                token: "token-e",
+                sessionId: "   ",
+                expiresAtUnix: 500
+            )
+        )
+        let secondBlankSession = makeConfiguration(
+            transport: .websocket,
+            destination: "cloud-vm",
+            daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint(
+                url: "wss://broker.example/projects/second/rpc",
+                headers: [:],
+                token: "token-f",
+                sessionId: "",
+                expiresAtUnix: 600
+            )
+        )
+
+        #expect(firstBlankSession.durableTransportTrustKey != secondBlankSession.durableTransportTrustKey)
     }
 
     @Test("hasSamePersistentPTYIdentity requires preserve on both sides and a matching slot")
