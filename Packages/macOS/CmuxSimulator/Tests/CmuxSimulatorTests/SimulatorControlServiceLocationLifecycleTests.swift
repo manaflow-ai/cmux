@@ -149,13 +149,44 @@ struct SimulatorControlServiceLocationLifecycleTests {
             coordinate: SimulatorLocationCoordinate(latitude: 40, longitude: -73)
         )
         await oldSleeper.advance()
-        for _ in 0..<200 { await Task.yield() }
-        try await oldService.stopLocationRoute(deviceID: deviceID)
+        await eventually {
+            await oldService.activeLocationRoutes[deviceID] == nil
+        }
 
         #expect(await oldCommands.arguments().count == 1)
         #expect(await newCommands.arguments() == [
             ["simctl", "location", deviceID, "set", "40.0,-73.0"],
         ])
+        #expect(await oldService.activeLocationRoutes[deviceID] == nil)
+        #expect(await oldService.locationRouteInitialCoordinates[deviceID] == nil)
+        #expect(await oldService.locationRouteTokens[deviceID] == nil)
+    }
+
+    @Test("Losing route ownership reports failure and clears stale local state")
+    func lostOwnershipFailsPause() async throws {
+        let deviceID = UUID().uuidString
+        let scope = SimulatorLocationOwnershipScope()
+        let oldService = SimulatorControlService(
+            commands: LocationLifecycleCommandRunner(),
+            locationOwnershipScope: scope
+        )
+        let newService = SimulatorControlService(
+            commands: LocationLifecycleCommandRunner(),
+            locationOwnershipScope: scope
+        )
+
+        try await oldService.startLocationRoute(deviceID: deviceID, route: Self.route())
+        try await newService.setLocation(
+            deviceID: deviceID,
+            coordinate: SimulatorLocationCoordinate(latitude: 40, longitude: -73)
+        )
+
+        do {
+            try await oldService.pauseLocationRoute(deviceID: deviceID)
+            Issue.record("Expected lost location ownership to fail explicitly")
+        } catch let error as SimulatorControlError {
+            #expect(error.code == "location_route_ownership_lost")
+        }
         #expect(await oldService.activeLocationRoutes[deviceID] == nil)
         #expect(await oldService.locationRouteInitialCoordinates[deviceID] == nil)
         #expect(await oldService.locationRouteTokens[deviceID] == nil)

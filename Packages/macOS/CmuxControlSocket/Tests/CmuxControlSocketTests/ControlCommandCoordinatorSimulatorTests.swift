@@ -37,6 +37,26 @@ struct ControlCommandCoordinatorSimulatorTests {
         #expect(cancelled.isMarked)
     }
 
+    @Test("Caller deadlines cannot shorten externally mutating operations")
+    func callerDeadlineRejectsMutation() {
+        let context = FakeSimulatorControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        guard case let .err(code, _, _) = coordinator.handleSocketWorkerV2(
+            request("simulator.rotate", [
+                "orientation": .string("landscape_left"),
+                "operation_timeout_seconds": .double(0.1),
+            ]),
+            context: context
+        ) else {
+            Issue.record("Expected a shortened mutation deadline to be rejected")
+            return
+        }
+
+        #expect(code == "invalid_params")
+        #expect(context.lastOperation == nil)
+    }
+
     @Test("Text receipt cancels queued input when its deadline expires")
     func textReceiptCancelsTimedOutInput() {
         let receipt = ControlSimulatorCompletionReceipt(cancellationJoinTimeout: 0)
