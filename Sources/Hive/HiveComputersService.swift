@@ -54,9 +54,16 @@ final class HiveComputersService {
     /// offers Open on paired rows) or auth is not configured.
     func makeViewerSession(deviceID: String) async -> HiveRemoteMacSession? {
         guard let auth, let directory else { return nil }
-        guard let computer = directory.computers.first(where: { $0.deviceID == deviceID }) else {
-            return nil
+        var computer = directory.computers.first(where: { $0.deviceID == deviceID })
+        if computer == nil {
+            // On a fresh launch the directory is empty until something (the
+            // Settings pane, the scope picker) refreshes it. An open request
+            // arriving first — relaunch restore, `hive.open` RPC — must not
+            // fail on that ordering; load the pairings/registry and re-check.
+            await directory.refresh()
+            computer = directory.computers.first(where: { $0.deviceID == deviceID })
         }
+        guard let computer else { return nil }
         // Prefer the freshest routes: a live online instance's advertised set,
         // falling back to whatever the pairing/registry row carries.
         guard let best = computer.bestPairingRoutes else { return nil }

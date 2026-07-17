@@ -65,6 +65,36 @@ extension TerminalController: ControlMobileHostContext {
         bridgeMobileResult(v2ChatSessionsDump())
     }
 
+    func controlHiveOpen(params: [String: JSONValue]) -> ControlCallResult {
+        let foundation = foundationParams(params)
+        guard let deviceID = foundation["device_id"] as? String, !deviceID.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing device_id", data: nil)
+        }
+        // Same shared action path as the Settings "Open" button and the
+        // sidebar scope picker; presentation happens asynchronously.
+        HiveComputerMirrorController.presentViewer(deviceID: deviceID)
+        return .ok(.object(["started": .bool(true)]))
+    }
+
+    func controlHiveRenderProbe() -> ControlCallResult {
+        var lines: [String] = []
+        let contexts = AppDelegate.shared.map { Array($0.mainWindowContexts.values) } ?? []
+        for context in contexts {
+            let windowKey = context.window?.isKeyWindow == true ? 1 : 0
+            for workspace in context.tabManager.tabs {
+                for (panelId, panel) in workspace.panels {
+                    guard let terminal = panel as? TerminalPanel else { continue }
+                    lines.append(
+                        "window=\(context.windowId.uuidString.prefix(8)) key=\(windowKey) "
+                        + "workspace=\"\(workspace.title)\" panel=\(panelId.uuidString.prefix(8)) "
+                        + terminal.surface.rendererDebugSummary()
+                    )
+                }
+            }
+        }
+        return .ok(.object(["surfaces": .array(lines.map { .string($0) })]))
+    }
+
     /// Reconstructs the legacy `[String: Any]` params from the coordinator's
     /// typed params. This is the exact inverse of the dispatcher's
     /// `request.params.mapValues { $0.foundationObject }`, so the legacy body
