@@ -4208,9 +4208,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// Runs `navigation` only after the shared web-extension load finishes so
     /// a webview's first page load never races extension content-script
-    /// injection. Synchronous when extensions are loaded or absent, keeping
-    /// common-case navigation timing unchanged; `waitUntilLoaded`'s timeout
-    /// bounds the deferral when a load is in flight.
+    /// injection. Synchronous when extensions are loaded or absent.
     func runWhenWebExtensionsLoaded(_ navigation: @escaping @MainActor () -> Void) {
         cancelPendingWebExtensionNavigation()
         if #available(macOS 15.4, *),

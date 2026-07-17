@@ -50,6 +50,12 @@ final class BrowserWebExtensionsManager: NSObject {
         case waiting(CheckedContinuation<Void, Never>)
     }
 
+    enum NotificationKey {
+        static let panelID = "panelID"
+        static let profileID = "profileID"
+        static let item = "item"
+    }
+
     /// Fixed controller identifier so extension storage (`browser.storage`,
     /// declarativeNetRequest state) persists across launches.
     private static let controllerIdentifier = UUID(uuidString: "3B7D2A9E-5C41-4F8A-B6D0-9E2C7A51F3D8")!
@@ -174,23 +180,13 @@ final class BrowserWebExtensionsManager: NSObject {
         loadTask = Task { await loadExtensions() }
     }
 
-    /// Suspends until the in-flight extension load finishes, bounded by
-    /// `timeout` so a hung or pathologically slow load degrades to navigating
-    /// without extensions instead of blocking every panel's first navigation
-    /// forever. Returns immediately when loading already finished or never
-    /// started.
-    func waitUntilLoaded(
-        timeout: Duration = .seconds(5),
-        clock: any Clock<Duration> = ContinuousClock()
-    ) async {
+    /// Suspends until the in-flight extension load finishes. Callers can cancel
+    /// their own wait, but readiness never falls back to an elapsed-time guess:
+    /// first navigation starts only after every approved context is registered.
+    func waitUntilLoaded() async {
         guard !isLoaded, loadTask != nil else { return }
         let waiterID = UUID()
         loadWaiters[waiterID] = .pendingRegistration
-        let timeoutTask = Task { @MainActor [weak self] in
-            try? await clock.sleep(for: timeout, tolerance: nil)
-            guard !Task.isCancelled else { return }
-            self?.resumeLoadWaiter(waiterID)
-        }
         await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 guard loadWaiters[waiterID] != nil else {
@@ -204,12 +200,10 @@ final class BrowserWebExtensionsManager: NSObject {
                 self?.resumeLoadWaiter(waiterID)
             }
         }
-        timeoutTask.cancel()
     }
 
-    /// UI presentation waits for the actual load task. Navigation uses the
-    /// bounded waiter above so a slow extension never blocks page navigation,
-    /// while the manager and toolbar cannot get stuck with a stale loading copy.
+    /// UI presentation waits for the same manager-owned readiness invariant as
+    /// navigation and installation.
     func waitUntilPresentationReady() async {
         await loadTask?.value
     }
@@ -349,7 +343,7 @@ final class BrowserWebExtensionsManager: NSObject {
         NotificationCenter.default.post(
             name: .browserWebExtensionActionDidChange,
             object: context.uniqueIdentifier,
-            userInfo: [BrowserWebExtensionNotificationKey.profileID: profileID ?? NSNull()]
+            userInfo: [NotificationKey.profileID: profileID ?? NSNull()]
         )
     }
 
@@ -879,9 +873,9 @@ final class BrowserWebExtensionsManager: NSObject {
                     name: .browserWebExtensionActionDidChange,
                     object: key.extensionIdentifier,
                     userInfo: [
-                        BrowserWebExtensionNotificationKey.panelID: key.panelID ?? NSNull(),
-                        BrowserWebExtensionNotificationKey.profileID: self.profileID ?? NSNull(),
-                        BrowserWebExtensionNotificationKey.item: item,
+                        NotificationKey.panelID: key.panelID ?? NSNull(),
+                        NotificationKey.profileID: self.profileID ?? NSNull(),
+                        NotificationKey.item: item,
                     ]
                 )
             }
@@ -1052,12 +1046,6 @@ extension Notification.Name {
     static let browserWebExtensionActionDidChange = Notification.Name(
         "cmux.browserWebExtensionActionDidChange"
     )
-}
-
-enum BrowserWebExtensionNotificationKey {
-    static let panelID = "panelID"
-    static let profileID = "profileID"
-    static let item = "item"
 }
 
 private struct BrowserWebExtensionApprovalValidationError: LocalizedError {
