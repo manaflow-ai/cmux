@@ -168,16 +168,9 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     assert_eq!(zoom_json["zoomed_pane"].as_u64(), Some(pane1));
 
     let marker = format!("cmux_cli_marker_{}", std::process::id());
-    let marker_suffix = std::process::id().to_string();
     let send = cli(
         &server,
-        &[
-            "send",
-            "--surface",
-            &surface.to_string(),
-            "--text",
-            &format!("printf 'cmux_cli_marker_%s\\n' '{marker_suffix}'\n"),
-        ],
+        &["send", "--surface", &surface.to_string(), "--text", &format!("echo {marker}\r")],
     );
     assert_success(&send);
     assert!(send.stdout.is_empty(), "mutating commands should be quiet on success");

@@ -3426,7 +3426,7 @@ mod tests {
         let target_writer = test_writer();
         let initiator =
             mux.control_clients.register(ClientTransport::Unix, initiator_writer.clone());
-        let target = mux.control_clients.register(ClientTransport::Unix, target_writer.clone());
+        let target = mux.control_clients.register(ClientTransport::Unix, target_writer);
 
         handle_command(
             &mux,

@@ -136,48 +136,6 @@ fn draw_box(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool) {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::client_border_label;
-    use crate::session::{ClientInfo, ClientSizeInfo};
-
-    fn client(id: u64, surface: u64, size: Option<(u16, u16)>) -> ClientInfo {
-        ClientInfo {
-            client: id,
-            transport: "unix".to_string(),
-            name: None,
-            kind: Some("tui".to_string()),
-            connected_seconds: 0,
-            attached: vec![surface],
-            sizes: vec![ClientSizeInfo {
-                surface,
-                cols: size.map(|size| size.0),
-                rows: size.map(|size| size.1),
-            }],
-            is_self: id == 1,
-            size_participating: true,
-        }
-    }
-
-    #[test]
-    fn attached_but_hidden_client_does_not_show_on_pane_border() {
-        let clients = vec![client(1, 9, Some((80, 24))), client(2, 9, None)];
-        assert_eq!(client_border_label(&clients, 9), None);
-    }
-
-    #[test]
-    fn client_button_shows_shared_minimum_after_all_sizes_arrive() {
-        let clients = vec![client(1, 9, Some((120, 30))), client(2, 9, Some((80, 40)))];
-        assert_eq!(client_border_label(&clients, 9).as_deref(), Some(" 2 clients · 80×30 min "));
-    }
-
-    #[test]
-    fn client_visible_on_another_tab_does_not_show_on_this_pane_border() {
-        let clients = vec![client(1, 9, Some((120, 30))), client(2, 10, Some((80, 40)))];
-        assert_eq!(client_border_label(&clients, 9), None);
-    }
-}
-
 /// The top border row: `┌` + tabs + `+` + `─...─` + `┐`, with `‹`/`›`
 /// overflow arrows when the tabs don't fit. Always visible so a new tab
 /// is always one click away.
@@ -548,4 +506,46 @@ fn push_resize_hits(app: &mut App, area: &PaneArea) {
         ));
     }
     app.hits.extend(hits);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::client_border_label;
+    use crate::session::{ClientInfo, ClientSizeInfo};
+
+    fn client(id: u64, surface: u64, size: Option<(u16, u16)>) -> ClientInfo {
+        ClientInfo {
+            client: id,
+            transport: "unix".to_string(),
+            name: None,
+            kind: Some("tui".to_string()),
+            connected_seconds: 0,
+            attached: vec![surface],
+            sizes: vec![ClientSizeInfo {
+                surface,
+                cols: size.map(|size| size.0),
+                rows: size.map(|size| size.1),
+            }],
+            is_self: id == 1,
+            size_participating: true,
+        }
+    }
+
+    #[test]
+    fn attached_but_hidden_client_does_not_show_on_pane_border() {
+        let clients = vec![client(1, 9, Some((80, 24))), client(2, 9, None)];
+        assert_eq!(client_border_label(&clients, 9), None);
+    }
+
+    #[test]
+    fn client_button_shows_shared_minimum_after_all_sizes_arrive() {
+        let clients = vec![client(1, 9, Some((120, 30))), client(2, 9, Some((80, 40)))];
+        assert_eq!(client_border_label(&clients, 9).as_deref(), Some(" 2 clients · 80×30 min "));
+    }
+
+    #[test]
+    fn client_visible_on_another_tab_does_not_show_on_this_pane_border() {
+        let clients = vec![client(1, 9, Some((120, 30))), client(2, 10, Some((80, 40)))];
+        assert_eq!(client_border_label(&clients, 9), None);
+    }
 }

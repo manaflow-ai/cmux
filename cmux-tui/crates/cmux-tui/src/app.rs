@@ -2296,8 +2296,10 @@ fn preserve_client_view(previous: &TreeView, next: &mut TreeView, follow: &mut C
         .workspaces
         .iter()
         .position(|workspace| !previous_workspace_ids.contains(&workspace.id));
-    if follow.workspace && added_workspace.is_some() {
-        next.active_workspace = added_workspace.unwrap();
+    if follow.workspace
+        && let Some(added_workspace) = added_workspace
+    {
+        next.active_workspace = added_workspace;
         follow.workspace = false;
     } else if let Some(active) = previous.active_workspace().map(|workspace| workspace.id)
         && let Some(index) = next.workspaces.iter().position(|workspace| workspace.id == active)
@@ -2317,8 +2319,10 @@ fn preserve_client_view(previous: &TreeView, next: &mut TreeView, follow: &mut C
             .screens
             .iter()
             .position(|screen| !previous_screen_ids.contains(&screen.id));
-        if follow.screens.contains(&previous_workspace.id) && added_screen.is_some() {
-            next_workspace.active_screen = added_screen.unwrap();
+        if follow.screens.contains(&previous_workspace.id)
+            && let Some(added_screen) = added_screen
+        {
+            next_workspace.active_screen = added_screen;
             follow.screens.remove(&previous_workspace.id);
         } else if let Some(active) =
             previous_workspace.screens.get(previous_workspace.active_screen).map(|screen| screen.id)
@@ -2341,8 +2345,10 @@ fn preserve_client_view(previous: &TreeView, next: &mut TreeView, follow: &mut C
                 .iter()
                 .find(|pane| !previous_panes.contains(&pane.id))
                 .map(|pane| pane.id);
-            if follow.panes.contains(&previous_screen.id) && added_pane.is_some() {
-                next_screen.active_pane = added_pane.unwrap();
+            if follow.panes.contains(&previous_screen.id)
+                && let Some(added_pane) = added_pane
+            {
+                next_screen.active_pane = added_pane;
                 follow.panes.remove(&previous_screen.id);
             } else if next_screen.panes.iter().any(|pane| pane.id == previous_screen.active_pane) {
                 next_screen.active_pane = previous_screen.active_pane;
@@ -2358,8 +2364,10 @@ fn preserve_client_view(previous: &TreeView, next: &mut TreeView, follow: &mut C
                     previous_pane.tabs.iter().map(|tab| tab.surface).collect::<HashSet<_>>();
                 let added_tab =
                     next_pane.tabs.iter().position(|tab| !previous_surfaces.contains(&tab.surface));
-                if follow.tabs.contains(&previous_pane.id) && added_tab.is_some() {
-                    next_pane.active_tab = added_tab.unwrap();
+                if follow.tabs.contains(&previous_pane.id)
+                    && let Some(added_tab) = added_tab
+                {
+                    next_pane.active_tab = added_tab;
                     follow.tabs.remove(&previous_pane.id);
                 } else if let Some(active) = previous_pane.active_surface()
                     && let Some(index) = next_pane.tabs.iter().position(|tab| tab.surface == active)
