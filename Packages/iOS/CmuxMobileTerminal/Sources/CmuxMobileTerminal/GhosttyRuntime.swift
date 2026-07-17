@@ -45,100 +45,33 @@ public final class GhosttyRuntime {
 
     private static var backendInitialized = false
     private static var sharedResult: Result<GhosttyRuntime, Error>?
-    /// The theme value already baked into the live runtime's config. Guards
-    /// against redundant work when ``applyLiveThemeIfRunning()`` fires once per
-    /// mounted surface for a single theme change: only the first call for a new
-    /// theme value rebuilds the config and refreshes surfaces; the rest no-op.
-    /// Seeded in ``init()`` to the theme the config was first built from, so the
-    /// first mount after a change does not rebuild a config that already matches.
-    private static var lastAppliedTheme: TerminalTheme = .monokai
     private static var clipboardReader: @MainActor () -> String? = { UIPasteboard.general.string }
     private static var clipboardWriter: @MainActor (String?) -> Void = { UIPasteboard.general.string = $0 }
+    private let fileManager: FileManager
+    private let iOSConfigRootURL: URL
 
-    /// Replaces the theme used when the runtime builds its config and the theme
-    /// the surrounding terminal chrome blends with, then pushes the new colors to
-    /// the live runtime so an already-running app/surface recolors in place. Pass
-    /// `nil`, an invalid theme, or an incomplete palette to fall back to Monokai.
-    ///
-    /// Unlike a bare ``TerminalThemeStore`` write, this also rebuilds the shared
-    /// `ghostty_config_t` and calls `ghostty_app_update_config` /
-    /// `ghostty_surface_update_config`, so the Metal renderer's default
-    /// background/foreground/palette follow the new theme without recreating the
-    /// runtime. Safe to call before or after ``shared()`` is first built: before,
-    /// it just seeds the store; after, it live-applies.
-    public static func setTheme(_ theme: TerminalTheme?) {
-        TerminalThemeStore.set(theme)
-        applyLiveThemeIfRunning()
-    }
-
-    /// The theme the runtime will apply (or has applied) to its config.
-    public static var currentTheme: TerminalTheme { TerminalThemeStore.current }
-
-    /// The active theme's background as a `UIColor`, for the surrounding chrome
-    /// and the surface's own view background (the area behind/around the cells).
-    /// Sourcing the local background from the synced theme — not from the
-    /// once-built `ghostty_config_t` — is what lets a theme change recolor the
-    /// background of a running surface. Falls back to Monokai's background when
-    /// the stored theme's background cannot be parsed.
-    public static var currentBackgroundUIColor: UIColor {
-        backgroundUIColor(for: TerminalThemeStore.current)
-    }
-
-    static func backgroundUIColor(for theme: TerminalTheme) -> UIColor {
-        guard let rgb = TerminalTheme.rgbComponents(theme.background)
-            ?? TerminalTheme.rgbComponents(TerminalTheme.monokai.background) else {
-            return UIColor(red: 0x27 / 255.0, green: 0x28 / 255.0, blue: 0x22 / 255.0, alpha: 1)
+    func applyTheme(
+        _ configTheme: TerminalTheme,
+        to surfaceView: GhosttySurfaceView
+    ) {
+        guard let surface = surfaceView.surface,
+              let newConfig = makeThemeConfig(configTheme) else { return }
+        let surfaceBits = Int(bitPattern: surface)
+        let configBits = Int(bitPattern: newConfig)
+        surfaceView.outputQueue.async {
+            guard let surface = ghostty_surface_t(bitPattern: surfaceBits),
+                  let config = ghostty_config_t(bitPattern: configBits) else { return }
+            ghostty_surface_update_theme_config(surface, config)
+            ghostty_config_free(config)
         }
-        return UIColor(
-            red: CGFloat(rgb.red) / 255.0,
-            green: CGFloat(rgb.green) / 255.0,
-            blue: CGFloat(rgb.blue) / 255.0,
-            alpha: 1
-        )
     }
 
-    /// Rebuilds the shared config from the current ``TerminalThemeStore`` and
-    /// pushes it to the live app and every registered surface, then refreshes the
-    /// local view background of each surface. No-op when the runtime has not been
-    /// built yet (the next ``shared()`` reads the store directly).
-    ///
-    /// Public so a consumer that updated the store through another path (the iOS
-    /// shell writes ``TerminalThemeStore`` directly to avoid linking GhosttyKit)
-    /// can drive the live recolor once it observes a theme change.
-    public static func applyLiveThemeIfRunning() {
-        guard case .success(let runtime)? = sharedResult else { return }
-        // One theme-generation bump drives an `updateUIView` on every mounted
-        // representable, so this can be called N times for a single change.
-        // rebuildConfigFromStore + refreshAllSurfacesForThemeChange already
-        // touch the whole app and every registered surface, so doing it once is
-        // enough; skip the redundant rebuilds by keying on the theme value.
-        let current = TerminalThemeStore.current
-        guard current != lastAppliedTheme else { return }
-        lastAppliedTheme = current
-        runtime.rebuildConfigFromStore()
-        GhosttySurfaceView.refreshAllSurfacesForThemeChange()
-    }
-
-    /// Rebuilds `self.config` from the current theme store and feeds it to the
-    /// live `ghostty_app_t` (and, transitively, the surfaces) so the renderer's
-    /// default colors and palette match the new theme. The old config is freed
-    /// after the app has adopted the new one.
-    func rebuildConfigFromStore() {
-        guard let app else { return }
-        let newConfig = ghostty_config_new()
-        Self.loadConfig(newConfig)
+    func makeThemeConfig(_ configTheme: TerminalTheme) -> ghostty_config_t? {
+        guard let baseConfig = config,
+              let newConfig = ghostty_config_clone(baseConfig) else { return nil }
+        applyGhosttyiOSTheme(configTheme.validatedOrDefault(), to: newConfig)
         ghostty_config_finalize(newConfig)
-        ghostty_app_update_config(app, newConfig)
-        for box in GhosttySurfaceView.registeredSurfaceViews.values {
-            if let surface = box.value?.surface {
-                ghostty_surface_update_config(surface, newConfig)
-            }
-        }
-        let oldConfig = config
-        config = newConfig
-        if let oldConfig {
-            ghostty_config_free(oldConfig)
-        }
+        return newConfig
     }
 
     // libghostty handles are opaque C pointers (typedef `void *`). They
@@ -165,11 +98,24 @@ public final class GhosttyRuntime {
         }
     }
 
-    init() throws {
-        try Self.initializeBackendIfNeeded()
+    init(
+        fileManager: FileManager = FileManager(),
+        iOSConfigRootURL: URL? = nil
+    ) throws {
+        self.fileManager = fileManager
+        self.iOSConfigRootURL = iOSConfigRootURL
+            ?? fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? fileManager.temporaryDirectory
+        if !Self.backendInitialized {
+            let result = ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv)
+            guard result == GHOSTTY_SUCCESS else {
+                throw RuntimeError.backendInitFailed(code: result)
+            }
+            Self.backendInitialized = true
+        }
 
         let config = ghostty_config_new()
-        Self.loadConfig(config)
+        loadGhosttyConfig(config)
         ghostty_config_finalize(config)
 
         #if DEBUG
@@ -227,10 +173,6 @@ public final class GhosttyRuntime {
 
         self.config = config
         self.app = app
-        // The config above was built from the current theme (loadConfig reads
-        // TerminalThemeStore), so record it as applied; a follow-up
-        // applyLiveThemeIfRunning for the same theme is then a no-op.
-        Self.lastAppliedTheme = TerminalThemeStore.current
     }
 
     deinit {
@@ -246,95 +188,6 @@ public final class GhosttyRuntime {
         guard let app else { return }
         MobileDebugLog.anchormux("runtime.tick")
         ghostty_app_tick(app)
-    }
-
-    private static func initializeBackendIfNeeded() throws {
-        guard !backendInitialized else { return }
-        let result = ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv)
-        guard result == GHOSTTY_SUCCESS else {
-            throw RuntimeError.backendInitFailed(code: result)
-        }
-        backendInitialized = true
-    }
-
-    private static func loadConfig(_ config: ghostty_config_t?) {
-        guard let config else { return }
-        #if os(iOS)
-        Self.setupiOSConfigEnvironment()
-        Self.ensureDefaultiOSConfig()
-        ghostty_config_load_default_files(config)
-        Self.applyiOSDefaults(config)
-        #else
-        ghostty_config_load_default_files(config)
-        #endif
-    }
-
-    private static func setupiOSConfigEnvironment() {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory
-        setenv("XDG_CONFIG_HOME", appSupport.path, 0)
-        if let env = getenv("XDG_CONFIG_HOME") {
-            log.debug("XDG_CONFIG_HOME=\(String(cString: env), privacy: .public)")
-        }
-    }
-
-    private static func applyiOSDefaults(_ config: ghostty_config_t) {
-        // scrollback-limit: bound the mirror surface's local scrollback page
-        // memory (ghostty defaults to 10MB per surface). On iOS the user-facing
-        // scroll path forwards to the Mac's real surface, so local scrollback
-        // exists only to feed local reads (the "View as Text" copy sheet's
-        // GHOSTTY_POINT_SCREEN read). 2MB comfortably covers that sheet's
-        // 5000-line budget while keeping the worst-case read (which runs on
-        // the serial output queue) and per-surface memory phone-sized.
-        let defaults = """
-        scrollback-limit = 2000000
-        font-family = Menlo
-        font-size = 10
-        window-padding-balance = false
-        window-padding-y = 0
-        cursor-style = bar
-        cursor-style-blink = true
-        \(TerminalThemeStore.current.ghosttyColorDirectives)
-        """
-        let tmpFile = FileManager.default.temporaryDirectory.appendingPathComponent("ghostty-ios-config-\(ProcessInfo.processInfo.processIdentifier)")
-        do {
-            try defaults.write(to: tmpFile, atomically: true, encoding: .utf8)
-            tmpFile.path.withCString { path in
-                ghostty_config_load_file(config, path)
-            }
-            try FileManager.default.removeItem(at: tmpFile)
-        } catch {
-            log.error("applyiOSDefaults: failed to write config: \(error.localizedDescription, privacy: .public)")
-        }
-
-        var bgColor = ghostty_config_color_s()
-        let bgKey2 = "background"
-        let hasBg = ghostty_config_get(config, &bgColor, bgKey2, UInt(bgKey2.lengthOfBytes(using: .utf8)))
-        log.debug("applyiOSDefaults: bg get=\(hasBg, privacy: .public) r=\(bgColor.r, privacy: .public) g=\(bgColor.g, privacy: .public) b=\(bgColor.b, privacy: .public)")
-    }
-
-    private static func ensureDefaultiOSConfig() {
-        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return }
-        let configDir = appSupport.appendingPathComponent("ghostty", isDirectory: true)
-        let configFile = configDir.appendingPathComponent("config", isDirectory: false)
-        guard !FileManager.default.fileExists(atPath: configFile.path) else { return }
-
-        let defaultConfig = """
-        font-family = Menlo
-        font-size = 10
-        window-padding-balance = false
-        window-padding-y = 0
-        cursor-style = bar
-        cursor-style-blink = true
-        \(TerminalThemeStore.current.ghosttyColorDirectives)
-        """
-
-        do {
-            try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
-            try defaultConfig.write(to: configFile, atomically: true, encoding: .utf8)
-        } catch {
-            log.error("ensureDefaultiOSConfig: failed: \(error.localizedDescription, privacy: .public)")
-        }
     }
 
     nonisolated static func iOSConfigURLs(
@@ -566,6 +419,106 @@ public final class GhosttyRuntime {
     static func resetClipboardHandlersForTesting() {
         clipboardReader = { UIPasteboard.general.string }
         clipboardWriter = { UIPasteboard.general.string = $0 }
+    }
+}
+
+private extension GhosttyRuntime {
+    func loadGhosttyConfig(
+        _ config: ghostty_config_t?,
+        theme: TerminalTheme = .monokai
+    ) {
+        guard let config else { return }
+        #if os(iOS)
+        setupGhosttyiOSConfigEnvironment()
+        ensureDefaultGhosttyiOSConfig(theme: theme)
+        ghostty_config_load_default_files(config)
+        applyGhosttyiOSDefaults(config, theme: theme)
+        #else
+        ghostty_config_load_default_files(config)
+        #endif
+    }
+
+    func setupGhosttyiOSConfigEnvironment() {
+        setenv("XDG_CONFIG_HOME", iOSConfigRootURL.path, 0)
+        if let env = getenv("XDG_CONFIG_HOME") {
+            log.debug("XDG_CONFIG_HOME=\(String(cString: env), privacy: .public)")
+        }
+    }
+
+    func applyGhosttyiOSDefaults(_ config: ghostty_config_t, theme: TerminalTheme) {
+        // The phone scrolls the authoritative Mac surface. Local scrollback exists
+        // only for bounded local text reads, so cap it below Ghostty's 10MB default.
+        let defaults = """
+        scrollback-limit = 2000000
+        font-family = Menlo
+        font-size = 10
+        window-padding-balance = false
+        window-padding-y = 0
+        cursor-style = bar
+        cursor-style-blink = true
+        \(theme.ghosttyColorDirectives)
+        """
+        loadInlineGhosttyiOSConfig(defaults, path: "/__cmux_ios__/defaults.conf", into: config)
+
+        var background = ghostty_config_color_s()
+        let key = "background"
+        let found = ghostty_config_get(config, &background, key, UInt(key.lengthOfBytes(using: .utf8)))
+        log.debug("applyiOSDefaults: bg get=\(found, privacy: .public) r=\(background.r, privacy: .public) g=\(background.g, privacy: .public) b=\(background.b, privacy: .public)")
+    }
+
+    func applyGhosttyiOSTheme(_ theme: TerminalTheme, to config: ghostty_config_t) {
+        // Each surface mirrors the Mac theme. Clear optional colors inherited
+        // from the phone config before applying the remote values.
+        let directives = """
+        bold-color =
+        cursor-text =
+        \(theme.ghosttyColorDirectives)
+        """
+        loadInlineGhosttyiOSConfig(
+            directives,
+            path: "/__cmux_ios__/theme.conf",
+            into: config
+        )
+    }
+
+    func loadInlineGhosttyiOSConfig(
+        _ contents: String,
+        path syntheticPath: String,
+        into config: ghostty_config_t
+    ) {
+        contents.withCString { contentsPointer in
+            syntheticPath.withCString { path in
+                ghostty_config_load_string(
+                    config,
+                    contentsPointer,
+                    UInt(contents.lengthOfBytes(using: .utf8)),
+                    path
+                )
+            }
+        }
+    }
+
+    func ensureDefaultGhosttyiOSConfig(theme: TerminalTheme) {
+        let configDirectory = iOSConfigRootURL.appendingPathComponent("ghostty", isDirectory: true)
+        let configFile = configDirectory.appendingPathComponent("config", isDirectory: false)
+        guard !fileManager.fileExists(atPath: configFile.path) else { return }
+
+        let defaultConfig = """
+        font-family = Menlo
+        font-size = 10
+        window-padding-balance = false
+        window-padding-y = 0
+        cursor-style = bar
+        cursor-style-blink = true
+        \(theme.ghosttyColorDirectives)
+        """
+
+        do {
+            try fileManager.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+            try defaultConfig.write(to: configFile, atomically: true, encoding: .utf8)
+        } catch {
+            log.error("ensureDefaultiOSConfig: failed: \(error.localizedDescription, privacy: .public)")
+        }
     }
 }
 

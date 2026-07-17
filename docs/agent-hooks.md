@@ -33,7 +33,7 @@ Supported agent names are `codex`, `grok`, `opencode`, `pi`, `omp`, `campfire`, 
 | CodeBuddy | `codebuddy` | `~/.codebuddy/settings.json` | `codebuddy --resume <id>` | PreToolUse |
 | Factory | `droid` | `~/.factory/settings.json` | `droid --resume <id>` | PreToolUse |
 | Qoder | `qodercli` | `~/.qoder/settings.json` | `qodercli --resume <id>` | PreToolUse |
-| Kimi Code | `kimi` | `~/.kimi-code/config.toml` | not yet | PreToolUse, PostToolUse, PermissionRequest |
+| Kimi Code | `kimi` | `~/.kimi/config.toml` | not yet | PreToolUse, PostToolUse |
 
 OpenCode also supports project-local Feed installation:
 
@@ -145,7 +145,7 @@ and browser state. Restored agent terminals stay idle until you resume them manu
 | Cursor CLI | none | `CMUX_CURSOR_HOOKS_DISABLED=1` |
 | Gemini | none | `CMUX_GEMINI_HOOKS_DISABLED=1` |
 | Kiro CLI | `KIRO_HOME` | `CMUX_KIRO_HOOKS_DISABLED=1` |
-| Kimi Code | `KIMI_CODE_HOME` | `CMUX_KIMI_HOOKS_DISABLED=1` |
+| Kimi Code | `KIMI_SHARE_DIR` | `CMUX_KIMI_HOOKS_DISABLED=1` |
 | Rovo Dev | none | `CMUX_ROVODEV_HOOKS_DISABLED=1` |
 | Copilot | `COPILOT_HOME` | `CMUX_COPILOT_HOOKS_DISABLED=1` |
 | CodeBuddy | `CODEBUDDY_CONFIG_DIR` | `CMUX_CODEBUDDY_HOOKS_DISABLED=1` |
@@ -161,6 +161,8 @@ Campfire ships this integration natively: current campfire versions include a bu
 Kiro stores hooks inside agent configuration files. The cmux installer creates or updates a `cmux` agent config with lifecycle, tool, and completion hooks; merge the generated `hooks` block into another Kiro agent config if you want the same cmux notifications on that agent.
 
 Kiro Feed verbosity follows **Settings > Automation > Kiro Notification Level** or `automation.kiroNotificationLevel` in `cmux.json`. `minimal` keeps actionable approval cards only, `standard` also keeps mutating tool events, and `verbose` keeps every Kiro tool event.
+
+Kimi Code reads its main config from `${KIMI_SHARE_DIR:-~/.kimi}/config.toml`. During setup and uninstall, cmux also removes its marker-delimited block from the obsolete `${KIMI_CODE_HOME:-~/.kimi-code}/config.toml` location while preserving all unrelated TOML and third-party hooks.
 
 ## Troubleshooting
 

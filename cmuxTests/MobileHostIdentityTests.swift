@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxSettings
 import Foundation
 import Testing
@@ -10,6 +11,25 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct MobileHostIdentityTests {
+    @Test func appInstanceTagDistinguishesReleaseChannelsAndTaggedDevBuilds() {
+        #expect(MobileHostIdentity.instanceTag(
+            environment: [:],
+            bundleIdentifier: "com.cmuxterm.app"
+        ) == "default")
+        #expect(MobileHostIdentity.instanceTag(
+            environment: [:],
+            bundleIdentifier: "com.cmuxterm.app.nightly"
+        ) == "nightly")
+        #expect(MobileHostIdentity.instanceTag(
+            environment: [:],
+            bundleIdentifier: "com.cmuxterm.app.staging"
+        ) == "staging")
+        #expect(MobileHostIdentity.instanceTag(
+            environment: ["CMUX_TAG": "future-one"],
+            bundleIdentifier: "com.cmuxterm.app.debug.future-one"
+        ) == "future-one")
+    }
+
     @Test func authenticatedStatusIncludesAuthoritativeInstanceTag() {
         let previousTag = ProcessInfo.processInfo.environment["CMUX_TAG"]
         setenv("CMUX_TAG", "future-one", 1)
@@ -21,13 +41,15 @@ struct MobileHostIdentityTests {
             }
         }
 
-        let payload = MobileHostService.identityStatusPayload(routesPayload: [])
+        let payload = MobileHostService.identityStatusPayload(routes: [])
         #expect(payload["mac_instance_tag"] as? String == "future-one")
+        #expect(!(payload["terminal_theme_revision_epoch"] as? String ?? "").isEmpty)
     }
 
     @Test func publicStatusOmitsInstanceTag() {
-        let payload = MobileHostService.publicStatusPayload(routesPayload: [])
+        let payload = MobileHostService.publicStatusPayload(routes: [])
         #expect(payload["mac_instance_tag"] == nil)
+        #expect(payload["terminal_theme_revision_epoch"] == nil)
     }
 
     @Test func taggedDebugBuildSuffixesPairingDisplayName() throws {
@@ -215,5 +237,77 @@ struct MobileHostIdentityTests {
         #expect(MobileHostIdentity.deviceID(defaults: defaults, sharedIDURL: sharedIDURL) == fallbackID)
         #expect(defaults.string(forKey: "mobileHost.deviceID") == fallbackID)
         #expect(try String(contentsOf: sharedIDURL, encoding: .utf8) == fallbackID)
+    }
+
+    @Test func testMobileHostRouteDisclosureSeparatesAuthenticatedAndPublicHints() throws {
+        let now = Date()
+        let privateAddress = "100.64.1.2:49152"
+        let endpointID = String(repeating: "a", count: 64)
+        let iroh = try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(
+                identity: CmxIrohPeerIdentity(
+                    endpointID: endpointID
+                ),
+                pathHints: [
+                    try CmxIrohPathHint(
+                        kind: .directAddress,
+                        value: privateAddress,
+                        source: .tailscale,
+                        privacyScope: .privateNetwork,
+                        observedAt: now,
+                        expiresAt: now.addingTimeInterval(300),
+                        networkProfile: CmxIrohNetworkProfileKey(
+                            source: .tailscale,
+                            profileID: String(repeating: "a", count: 64)
+                        )
+                    ),
+                    try CmxIrohPathHint(
+                        kind: .relayURL,
+                        value: "https://relay.example.test/",
+                        source: .native,
+                        privacyScope: .publicInternet
+                    ),
+                ]
+            )
+        )
+        let tailscale = try CmxAttachRoute(
+            id: "tailscale",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.1.2", port: 49152)
+        )
+        let websocketURL = "wss://private.example.test/connect?token=secret"
+        let websocket = try CmxAttachRoute(
+            id: "websocket",
+            kind: .websocket,
+            endpoint: .url(websocketURL)
+        )
+
+        let authenticatedPayload = MobileHostService.identityStatusPayload(
+            routes: [iroh, tailscale, websocket],
+            now: now
+        )
+        let authenticated = try #require(authenticatedPayload["routes"] as? [[String: Any]])
+        #expect(authenticated.count == 3)
+        let authenticatedEndpoint = try #require(
+            authenticated.first?["endpoint"] as? [String: Any]
+        )
+        let authenticatedHints = try #require(
+            authenticatedEndpoint["path_hints"] as? [[String: Any]]
+        )
+        #expect(authenticatedHints.count == 2)
+        #expect(authenticatedHints.contains { $0["value"] as? String == privateAddress })
+        #expect(authenticatedHints.contains { $0["network_profile"] != nil })
+
+        let publicPayload = MobileHostService.publicStatusPayload(
+            routes: [iroh, tailscale, websocket],
+            now: now
+        )
+        let publicRoutes = try #require(publicPayload["routes"] as? [[String: Any]])
+        #expect(publicRoutes.isEmpty)
+        #expect(!String(describing: publicPayload).contains(endpointID))
+        #expect(!String(describing: publicRoutes).contains(privateAddress))
+        #expect(!String(describing: publicRoutes).contains(websocketURL))
     }
 }

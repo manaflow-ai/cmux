@@ -1344,33 +1344,6 @@ final class TextBoxMentionCompletionPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
-@MainActor
-protocol TextBoxSubmitSurfaceControlling: AnyObject {
-    var clipboardReadGeneration: Int { get }
-    var textBoxSubmitObservationWindow: NSWindow? { get }
-    var textBoxSubmitTerminalSurface: TerminalSurface? { get }
-
-    func visibleText() -> String?
-    @discardableResult
-    func sendKeyText(_ text: String) -> Bool
-    @discardableResult
-    func sendText(_ text: String) -> Bool
-    @discardableResult
-    func sendNamedKey(_ keyName: String) -> TerminalSurface.NamedKeySendResult
-    @discardableResult
-    func performBindingAction(_ action: String) -> Bool
-}
-
-extension TerminalSurface: TextBoxSubmitSurfaceControlling {
-    var textBoxSubmitObservationWindow: NSWindow? {
-        hostedView.window
-    }
-
-    var textBoxSubmitTerminalSurface: TerminalSurface? {
-        self
-    }
-}
-
 private extension TerminalSurface.NamedKeySendResult {
     var acceptedForTextBoxSubmit: Bool {
         switch self {
@@ -1475,7 +1448,7 @@ enum TextBoxSubmit {
             }
         }
 
-        let submitKey = isClaude && containsNewline ? "ctrl+enter" : TextBoxTerminalKey.returnKey.rawValue
+        let submitKey = TextBoxAgentDetection.composedPromptSubmitKey(containsNewline: containsNewline, context: terminalAgentContext)
         if isClaude, containsImageAttachment(inputParts) {
             return claudeSequentialImageDispatchEvents(from: inputParts, submitKey: submitKey)
         }
@@ -2292,7 +2265,7 @@ private final class TextBoxSubmitEventRunner {
         )
 #endif
 
-        let handled = surface.performBindingAction("paste_from_clipboard")
+        let handled = surface.performExplicitInputBindingAction("paste_from_clipboard")
 #if DEBUG
         cmuxDebugLog("textbox.submit.pasteFile.binding id=\(id.uuidString.prefix(5)) handled=\(handled ? 1 : 0)")
 #endif
@@ -2805,7 +2778,7 @@ struct TextBoxInputContainer: View {
         }
         TextBoxSubmit.sendEvents(
             submitPlan.events,
-            via: surface,
+            via: surface
         ) { completionContext in
             guard completionContext.didSubmit else {
                 if submitPlan.launchContextCommand != nil {

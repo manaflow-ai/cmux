@@ -50,11 +50,25 @@ cmux browser <surface> eval '<js>'
 cmux browser <surface> click|dblclick|hover|focus <selector-or-ref>
 cmux browser <surface> fill <selector-or-ref> [text]   # empty text clears
 cmux browser <surface> type <selector-or-ref> <text>
-cmux browser <surface> press|keydown|keyup <key>
+cmux browser <surface> press|key|keydown|keyup [--key <key> | <key>]
 cmux browser <surface> select <selector-or-ref> <value>
 cmux browser <surface> check|uncheck <selector-or-ref>
 cmux browser <surface> scroll [--selector <css>] [--dx <n>] [--dy <n>]
 ```
+
+### Design Mode
+
+```bash
+cmux browser design-mode enable --surface <surface>
+cmux browser design-mode status --surface <surface> --json
+cmux browser design-mode disable --surface <surface>
+```
+
+Design mode lets a user select page elements and copy their DOM, style, URL, and screenshot context for pasting into an agent. CLI enable/disable never moves application focus or copies context automatically.
+
+Keyboard names follow Playwright/W3C conventions, including `Enter`, `Tab`,
+`Escape`, `ArrowLeft`, and `Space`. `Space`, `Spacebar`, and `space` all emit
+DOM key `" "` with code `"Space"`; use `--key ' '` to pass the raw DOM key.
 
 ### Wait
 
@@ -92,9 +106,32 @@ cmux browser <surface> download wait --timeout-ms 10000
 - Prefer short handles in outputs by default (`surface:N`, `pane:N`, `workspace:N`, `window:N`).
 - Use `--id-format both` only when a UUID must be logged/exported.
 
+## WKWebView Viewport Emulation
+
+Set an exact logical viewport after opening a browser surface:
+
+```bash
+cmux browser surface:7 viewport 1280 720
+cmux browser surface:7 screenshot --out /tmp/desktop.png
+cmux browser surface:7 viewport reset
+```
+
+The requested dimensions are limited to 1...4096 CSS pixels. cmux changes
+`window.innerWidth` and `window.innerHeight`, then aspect-fits the page inside
+the existing pane. It does not resize the pane, move other surfaces, or change
+focus. Visible-viewport screenshots use the emulated dimensions. The JSON result
+includes the logical and displayed dimensions, scale, presentation mode, and
+whether the pane was resized. Screenshot PNG dimensions are exact CSS pixels on
+both Retina and non-Retina displays. Combined viewport/page-zoom geometry is
+bounded; unsupported combinations leave the viewport unchanged and return
+`invalid_params` with `reason: viewport_zoom_render_geometry_too_large` and
+`maximum_page_zoom`. Close or detach an attached browser inspector before setting
+or resetting the viewport; the command otherwise returns `invalid_state` with
+`reason: attached_browser_inspector`. Opening or redocking an attached inspector
+while emulation is active resets the viewport to native sizing.
+
 ## Known WKWebView Gaps (`not_supported`)
 
-- `browser.viewport.set`
 - `browser.geolocation.set`
 - `browser.offline.set`
 - `browser.trace.start|stop`

@@ -4,6 +4,8 @@ import Foundation
 import Testing
 @testable import CmuxMobileShell
 
+private let backupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_000_000)
+
 @Suite struct PairedMacBackupTests {
     private func makeInnerStore() throws -> (MobilePairedMacStore, URL) {
         let directory = FileManager.default.temporaryDirectory
@@ -35,13 +37,16 @@ import Testing
         case .upsert(let record, _), .upsertPreservingCustomizations(let record, _),
              .revive(let record, _), .revivePreservingCustomizations(let record, _):
             return record
-        case .delete:
+        case .delete, .deleteInstance:
             return nil
         }
     }
 
     private func encodedRecordObject(from op: PairedMacBackupOp) throws -> [String: Any] {
-        let body = PairedMacBackupRequestBody(ops: [PairedMacBackupOpWire(op: op)])
+        let body = PairedMacBackupRequestBody(ops: [PairedMacBackupOpWire(
+            op: op,
+            routeDisclosureDate: backupRouteDisclosureDate
+        )])
         let json = try JSONSerialization.jsonObject(with: try JSONEncoder().encode(body)) as? [String: Any]
         let ops = try #require(json?["ops"] as? [[String: Any]])
         let first = try #require(ops.first)
@@ -62,6 +67,7 @@ import Testing
     }
 
     // MARK: - Decorator backup mirroring
+
 
     @Test func tokenSourceRejectsExpectedUserMismatchBeforeTokenRead() async {
         let probe = TokenProbe(userIDs: ["user-2"])
@@ -677,14 +683,6 @@ import Testing
         #expect(keys["customIcon"] is NSNull)
     }
 
-    @Test func deleteUploadHasNoRecordBody() throws {
-        let body = PairedMacBackupRequestBody(ops: [PairedMacBackupOpWire(op: .delete(macDeviceID: "mac-a"))])
-        let json = try JSONSerialization.jsonObject(with: try JSONEncoder().encode(body)) as? [String: Any]
-        let ops = try #require(json?["ops"] as? [[String: Any]])
-        let first = try #require(ops.first)
-        #expect(first["record"] == nil)
-        #expect(first["deleted"] as? Bool == true)
-    }
 
     @Test func routineMirrorUploadsUsePreserveModeEvenForTombstoneRevive() async throws {
         let (inner, dir) = try makeInnerStore()

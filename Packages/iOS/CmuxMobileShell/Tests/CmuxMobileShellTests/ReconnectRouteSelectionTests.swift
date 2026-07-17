@@ -12,7 +12,7 @@ import Testing
 /// dials the phone's own loopback and silently fails to connect.
 @MainActor
 @Suite struct ReconnectRouteSelectionTests {
-    private func loopback(_ port: Int = 50906) throws -> CmxAttachRoute {
+    func loopback(_ port: Int = 50906) throws -> CmxAttachRoute {
         try CmxAttachRoute(
             id: "debug_loopback",
             kind: .debugLoopback,
@@ -21,12 +21,26 @@ import Testing
         )
     }
 
-    private func tailscale(_ port: Int = 50906) throws -> CmxAttachRoute {
+    func tailscale(_ port: Int = 50906) throws -> CmxAttachRoute {
         try CmxAttachRoute(
             id: "tailscale",
             kind: .tailscale,
             endpoint: .hostPort(host: "100.82.214.112", port: port),
             priority: 10
+        )
+    }
+
+    func iroh(priority: Int = -10_000) throws -> CmxAttachRoute {
+        try CmxAttachRoute(
+            id: "iroh-personal",
+            kind: .iroh,
+            endpoint: .peer(
+                identity: CmxIrohPeerIdentity(
+                    endpointID: String(repeating: "a", count: 64)
+                ),
+                pathHints: []
+            ),
+            priority: priority
         )
     }
 
@@ -39,14 +53,16 @@ import Testing
         #expect(pick?.0 == "100.82.214.112") // tailscale, not the phone's 127.0.0.1
     }
 
-    @Test func physicalDeviceFallsBackToLoopbackWhenItIsTheOnlyRoute() throws {
-        // The on-device XCUITest mock host serves a real listener on 127.0.0.1.
+    @Test func physicalDeviceRejectsLoopbackWhenItIsTheOnlyRoute() throws {
+        // A stale backup can contain only the Mac's debug loopback route. On a
+        // real phone that address names the phone, so reconnect must fail closed
+        // instead of dialing a local port that can never reach the Mac.
         let pick = MobileShellComposite.firstReconnectHostPortRoute(
             [try loopback()],
             supportedKinds: [.debugLoopback, .tailscale],
             preferNonLoopback: true
         )
-        #expect(pick?.0 == "127.0.0.1")
+        #expect(pick == nil)
     }
 
     @Test func simulatorKeepsLoopbackPriorityOrder() throws {
@@ -84,16 +100,17 @@ import Testing
         #expect(candidates.map { $0.host } == ["100.82.214.112"])
     }
 
-    @Test func physicalDeviceCandidatesUseLoopbackOnlyAsSoleSupportedRoute() throws {
-        // The on-device XCUITest mock host serves a real listener on 127.0.0.1
-        // and advertises no other route.
+    @Test func physicalDeviceCandidatesRejectSoleLoopbackRoute() throws {
+        // Candidate iteration must enforce the same fail-closed rule as the
+        // single-route helper, otherwise a later caller can reintroduce the bad
+        // physical-device dial even when the preferred-route helper is correct.
         let candidates = MobileShellComposite.reconnectHostPortRoutes(
             [try loopback()],
             supportedKinds: [.debugLoopback, .tailscale],
             preferNonLoopback: true
         )
 
-        #expect(candidates.map { $0.host } == ["127.0.0.1"])
+        #expect(candidates.isEmpty)
     }
 
     @Test func reconnectCandidatesDeduplicateEndpoints() throws {
@@ -112,6 +129,16 @@ import Testing
 
         #expect(candidates.count == 1)
         #expect(candidates.first?.routeID == "duplicate")
+    }
+
+    @Test func rawReconnectCandidatesAreUnavailableForIrohCapablePairing() throws {
+        let candidates = MobileShellComposite.reconnectHostPortRoutes(
+            [try tailscale(), try iroh()],
+            supportedKinds: [.iroh, .tailscale],
+            preferNonLoopback: true
+        )
+
+        #expect(candidates.isEmpty)
     }
 
     private func magicDNS(_ port: Int = 50906) throws -> CmxAttachRoute {
@@ -170,7 +197,8 @@ import Testing
 
         let merged = MobileShellComposite.mergedReconnectRoutes(
             ticketRoutes: [connected],
-            storedRoutes: [stale, connected]
+            storedRoutes: [stale, connected],
+            at: .distantPast
         )
 
         #expect(merged.map { $0.id }.contains(stale.id))
@@ -204,6 +232,46 @@ import Testing
         #expect(connected)
         #expect(store.connectionState == .connected)
         #expect(factory.attemptedPorts() == [51000, 51001, 51001])
+    }
+
+    @Test func connectionPoolRecordsFallbackRouteThatActuallyConnected() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let factory = RouteRecordingTransportFactory(
+            router: router,
+            box: box,
+            failingPorts: [51000]
+        )
+        let runtime = LivenessTestRuntime(
+            transportFactory: factory,
+            now: { clock.now },
+            supportedRouteKinds: [.debugLoopback]
+        )
+        let store = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(suiteName: "pairing-pool-route-\(UUID().uuidString)")!
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal",
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
+            routes: [
+                try loopbackRoute(id: "stale", port: 51000),
+                try loopbackRoute(id: "good", port: 51001),
+            ],
+            expiresAt: clock.now.addingTimeInterval(3600)
+        )
+
+        let result = await store.connectPairingURLResult(try attachURL(for: ticket))
+
+        #expect(result == .connected)
+        #expect(store.activeRoute?.id == "good")
+        #expect(store.pooledRouteForTesting(macDeviceID: "test-mac")?.id == "good")
     }
 
     @Test func supersededReconnectGenerationAbortsRouteIteration() async throws {
@@ -246,6 +314,56 @@ import Testing
         #expect(!firstConnected)
         #expect(secondConnected)
         #expect(factory.attemptedPorts() == [51000, 51001, 51001])
+    }
+
+    @Test func supersededSuccessfulRouteClosesItsUnadoptedTransport() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        await router.holdWorkspaceListRequest(number: 1)
+        let factory = SupersededTransportFactory(router: router)
+        let runtime = LivenessTestRuntime(
+            transportFactory: factory,
+            now: { clock.now },
+            supportedRouteKinds: [.debugLoopback]
+        )
+        let store = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(
+                suiteName: "pairing-superseded-close-\(UUID().uuidString)"
+            )!
+        )
+        let route = try loopbackRoute(id: "live", port: 51001)
+        let ticket = try CmxAttachTicket(
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal",
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            macPairingCompatibilityVersion: CmxMobileDefaults
+                .pairingCompatibilityVersion,
+            routes: [route],
+            expiresAt: clock.now.addingTimeInterval(3_600)
+        )
+
+        let first = Task { @MainActor in
+            try? await store.connect(ticket: ticket)
+        }
+        #expect(await router.waitForCount(of: "workspace.list", atLeast: 1))
+
+        let second = Task { @MainActor in
+            try? await store.connect(ticket: ticket)
+        }
+        #expect(await router.waitForCount(of: "workspace.list", atLeast: 2))
+        _ = await second.value
+        await router.releaseAllHeld()
+        _ = await first.value
+
+        let transports = factory.createdTransports()
+        #expect(transports.count == 2)
+        #expect(await transports.first?.observedCloseCount() == 1)
+        #expect(await transports.last?.observedCloseCount() == 0)
+        await store.remoteClient?.disconnect()
     }
 
     @Test func sameDeviceTagSwitchFailureRestoresLiveInstanceRoute() async throws {
@@ -333,7 +451,7 @@ import Testing
         )
     }
 
-    private func makeReconnectStore(
+    func makeReconnectStore(
         routes: [CmxAttachRoute],
         runtime: any MobileSyncRuntime
     ) async throws -> MobileShellComposite {
@@ -359,115 +477,4 @@ import Testing
         return store
     }
 
-    private func makePairedMacStore() throws -> (MobilePairedMacStore, URL) {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let store = try MobilePairedMacStore(
-            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
-        )
-        return (store, directory)
-    }
-}
-
-private enum RouteRecordingTransportError: Error {
-    case routeFailed
-}
-
-private final class RouteRecordingTransportFactory: CmxByteTransportFactory, @unchecked Sendable {
-    private let router: LivenessHostRouter
-    private let box: TransportBox
-    private let failingPorts: Set<Int>
-    private let holdFirstFailingPort: Int?
-    private let lock = NSLock()
-    private var attempts: [Int] = []
-    private var heldConnectConsumed = false
-    private var heldConnectReleased = false
-    private var heldConnectWaiters: [CheckedContinuation<Void, Never>] = []
-
-    init(
-        router: LivenessHostRouter,
-        box: TransportBox,
-        failingPorts: Set<Int>,
-        holdFirstFailingPort: Int? = nil
-    ) {
-        self.router = router
-        self.box = box
-        self.failingPorts = failingPorts
-        self.holdFirstFailingPort = holdFirstFailingPort
-    }
-
-    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
-        guard case let .hostPort(_, port) = route.endpoint else {
-            throw RouteRecordingTransportError.routeFailed
-        }
-        let shouldHold = lock.withLock {
-            attempts.append(port)
-            if port == holdFirstFailingPort, !heldConnectConsumed {
-                heldConnectConsumed = true
-                return true
-            }
-            return false
-        }
-        if shouldHold {
-            return HeldFailingConnectTransport(factory: self)
-        }
-        if failingPorts.contains(port) {
-            throw RouteRecordingTransportError.routeFailed
-        }
-        let transport = LivenessTransport(router: router)
-        box.set(transport)
-        return transport
-    }
-
-    func attemptedPorts() -> [Int] {
-        lock.withLock { attempts }
-    }
-
-    func releaseHeldConnect() {
-        let waiters = lock.withLock {
-            heldConnectReleased = true
-            let waiters = heldConnectWaiters
-            heldConnectWaiters = []
-            return waiters
-        }
-        for waiter in waiters {
-            waiter.resume()
-        }
-    }
-
-    func waitUntilHeldConnectReleased() async {
-        let shouldWait = lock.withLock {
-            guard !heldConnectReleased else { return false }
-            return true
-        }
-        guard shouldWait else { return }
-        await withCheckedContinuation { continuation in
-            let resumeImmediately = lock.withLock {
-                guard !heldConnectReleased else { return true }
-                heldConnectWaiters.append(continuation)
-                return false
-            }
-            if resumeImmediately {
-                continuation.resume()
-            }
-        }
-    }
-}
-
-private actor HeldFailingConnectTransport: CmxByteTransport {
-    private let factory: RouteRecordingTransportFactory
-
-    init(factory: RouteRecordingTransportFactory) {
-        self.factory = factory
-    }
-
-    func connect() async throws {
-        await factory.waitUntilHeldConnectReleased()
-        throw RouteRecordingTransportError.routeFailed
-    }
-
-    func receive() async throws -> Data? { nil }
-    func send(_ data: Data) async throws {}
-    func close() async {}
 }
