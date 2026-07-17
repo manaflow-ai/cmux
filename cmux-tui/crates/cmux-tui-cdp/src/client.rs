@@ -3,8 +3,8 @@ use std::io::{Read, Write};
 use std::mem::size_of;
 use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{Receiver, Sender, SyncSender, TryRecvError, channel};
-use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::sync::mpsc::{Receiver, Sender, SyncSender, TryRecvError, TrySendError, channel};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
@@ -87,6 +87,7 @@ struct Inner {
     outbound: Sender<Outbound>,
     pending: Mutex<HashMap<u64, Sender<Result<Value, String>>>>,
     events: Arc<EventQueue>,
+    event_output: SyncSender<CdpEvent>,
     next_id: AtomicU64,
     closed: AtomicBool,
     timeout: Duration,
@@ -94,7 +95,6 @@ struct Inner {
 
 struct EventQueue {
     state: Mutex<EventQueueState>,
-    ready: Condvar,
 }
 
 #[derive(Default)]
@@ -106,7 +106,7 @@ struct EventQueueState {
 
 impl EventQueue {
     fn new() -> Self {
-        Self { state: Mutex::new(EventQueueState::default()), ready: Condvar::new() }
+        Self { state: Mutex::new(EventQueueState::default()) }
     }
 
     fn push(&self, event: CdpEvent) -> Result<(), ()> {
@@ -138,23 +138,25 @@ impl EventQueue {
             state.events.push_back(event);
             state.retained_bytes = retained_bytes;
         }
-        self.ready.notify_one();
         Ok(())
     }
 
-    fn recv(&self) -> Option<CdpEvent> {
+    fn drain_into(&self, output: &SyncSender<CdpEvent>) -> Result<(), ()> {
         let mut state = self.state.lock().unwrap();
-        loop {
-            if let Some(event) = state.events.pop_front() {
-                state.retained_bytes =
-                    state.retained_bytes.saturating_sub(cdp_event_retained_bytes(&event));
-                return Some(event);
+        while let Some(event) = state.events.pop_front() {
+            let event_bytes = cdp_event_retained_bytes(&event);
+            state.retained_bytes = state.retained_bytes.saturating_sub(event_bytes);
+            match output.try_send(event) {
+                Ok(()) => {}
+                Err(TrySendError::Full(event)) => {
+                    state.events.push_front(event);
+                    state.retained_bytes = state.retained_bytes.saturating_add(event_bytes);
+                    return Ok(());
+                }
+                Err(TrySendError::Disconnected(_)) => return Err(()),
             }
-            if state.closed {
-                return None;
-            }
-            state = self.ready.wait(state).unwrap();
         }
+        Ok(())
     }
 
     fn close(&self, reason: &str) {
@@ -166,7 +168,6 @@ impl EventQueue {
         state.retained_bytes = reason.len();
         state.events.push_back(CdpEvent::Closed(reason.to_string()));
         state.closed = true;
-        self.ready.notify_one();
     }
 }
 
@@ -212,16 +213,20 @@ fn cdp_event_retained_bytes(event: &CdpEvent) -> usize {
 }
 
 fn json_retained_bytes(value: &Value) -> usize {
+    let base = size_of::<Value>();
     match value {
-        Value::Null => 0,
-        Value::Bool(_) => size_of::<bool>(),
-        Value::Number(_) => size_of::<serde_json::Number>(),
-        Value::String(value) => value.len(),
-        Value::Array(values) => values
-            .iter()
-            .fold(0usize, |bytes, value| bytes.saturating_add(json_retained_bytes(value))),
-        Value::Object(values) => values.iter().fold(0usize, |bytes, (key, value)| {
-            bytes.saturating_add(key.len()).saturating_add(json_retained_bytes(value))
+        Value::Null | Value::Bool(_) | Value::Number(_) => base,
+        Value::String(value) => base.saturating_add(value.capacity()),
+        Value::Array(values) => values.iter().fold(
+            base.saturating_add(values.capacity().saturating_mul(size_of::<Value>())),
+            |bytes, value| bytes.saturating_add(json_retained_bytes(value)),
+        ),
+        Value::Object(values) => values.iter().fold(base, |bytes, (key, value)| {
+            bytes
+                .saturating_add(size_of::<String>())
+                .saturating_add(size_of::<Value>())
+                .saturating_add(key.capacity())
+                .saturating_add(json_retained_bytes(value))
         }),
     }
 }
@@ -261,14 +266,14 @@ impl CdpClient {
             inner: Arc::new(Inner {
                 outbound: outbound_tx,
                 pending: Mutex::new(HashMap::new()),
-                events: event_queue.clone(),
+                events: event_queue,
+                event_output: events,
                 next_id: AtomicU64::new(1),
                 closed: AtomicBool::new(false),
                 timeout: Duration::from_secs(30),
             }),
         };
         client.spawn_reader(ws, outbound_rx)?;
-        client.spawn_event_dispatcher(event_queue, events)?;
         Ok(client)
     }
 
@@ -280,21 +285,6 @@ impl CdpClient {
         let weak = Arc::downgrade(&self.inner);
         std::thread::Builder::new().name("cmux-tui-cdp-reader".into()).spawn(move || {
             reader_loop(&weak, ws, &outbound);
-        })?;
-        Ok(())
-    }
-
-    fn spawn_event_dispatcher(
-        &self,
-        events: Arc<EventQueue>,
-        output: SyncSender<CdpEvent>,
-    ) -> anyhow::Result<()> {
-        std::thread::Builder::new().name("cmux-tui-cdp-events".into()).spawn(move || {
-            while let Some(event) = events.recv() {
-                if output.send(event).is_err() {
-                    break;
-                }
-            }
         })?;
         Ok(())
     }
@@ -612,6 +602,10 @@ pub fn discover_browser_ws_url(ports: &[u16]) -> Option<String> {
 fn reader_loop(weak: &Weak<Inner>, mut ws: WebSocket<TcpStream>, outbound: &Receiver<Outbound>) {
     loop {
         let Some(inner) = weak.upgrade() else { break };
+        if inner.events.drain_into(&inner.event_output).is_err() {
+            close_inner(&inner, "CDP event receiver closed");
+            break;
+        }
         if inner.closed.load(Ordering::Acquire) {
             break;
         }
@@ -629,6 +623,7 @@ fn reader_loop(weak: &Weak<Inner>, mut ws: WebSocket<TcpStream>, outbound: &Rece
             }
             Ok(Message::Close(_)) => {
                 close_inner(&inner, "CDP socket closed");
+                let _ = inner.events.drain_into(&inner.event_output);
                 break;
             }
             Ok(Message::Ping(_)) | Ok(Message::Pong(_)) | Ok(Message::Frame(_)) => {}
@@ -642,6 +637,7 @@ fn reader_loop(weak: &Weak<Inner>, mut ws: WebSocket<TcpStream>, outbound: &Rece
             }
             Err(e) => {
                 close_inner(&inner, &format!("CDP socket error: {e}"));
+                let _ = inner.events.drain_into(&inner.event_output);
                 break;
             }
         }
@@ -1257,6 +1253,7 @@ mod tests {
 
         let result = result_rx.recv_timeout(Duration::from_millis(200));
         let retained_event = event_rx.recv_timeout(Duration::from_millis(200));
+        drop(client);
         stop_tx.send(()).unwrap();
         server.join().unwrap();
         call.join().unwrap();
@@ -1310,6 +1307,7 @@ mod tests {
 
         let result = result_rx.recv_timeout(Duration::from_millis(200));
         let retained_event = event_rx.recv_timeout(Duration::from_millis(200));
+        drop(client);
         stop_tx.send(()).unwrap();
         server.join().unwrap();
         call.join().unwrap();

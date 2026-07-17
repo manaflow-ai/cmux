@@ -261,6 +261,10 @@ impl SurfaceRoute {
                     *queued = CdpEvent::ScreencastFrame(frame);
                 } else if state.events.len() < CDP_EVENT_QUEUE_CAPACITY {
                     state.events.push_back(CdpEvent::ScreencastFrame(frame));
+                } else {
+                    fail_surface_route(&mut state, "CDP surface event queue overflow");
+                    self.ready.notify_one();
+                    return true;
                 }
             }
             CdpEvent::TargetInfoChanged(info) => {

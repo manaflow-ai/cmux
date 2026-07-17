@@ -63,6 +63,11 @@ jobs:
             echo "release tag $tag is not an ancestor of protected main" >&2
             exit 1
           }
+          if [[ "$release_sha" != "$GITHUB_SHA" ]]; then
+            echo "release tag $tag resolves to $release_sha, but npm provenance would identify workflow commit $GITHUB_SHA" >&2
+            echo "Dispatch from main only while the release tag points at the current main commit." >&2
+            exit 1
+          fi
           {
             echo "tag=$tag"
             echo "release_sha=$release_sha"
