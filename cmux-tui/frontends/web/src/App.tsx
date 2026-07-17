@@ -22,6 +22,7 @@ export default function App() {
       <ConnectScreen
         connecting={connection.status === "connecting"}
         error={connection.error}
+        pairing={connection.pairing}
         onConnect={connection.connect}
       />
     );
@@ -74,7 +75,6 @@ export default function App() {
       />
       <TerminalPane
         client={connection.client}
-        clients={connection.clients}
         screen={connection.active}
         onSelectTab={connection.selectTab}
         onNewTab={connection.mutations.newTab}
@@ -90,13 +90,10 @@ export default function App() {
       <StatusBar
         workspace={activeWorkspace}
         session={connection.info?.session ?? null}
-        clients={connection.clients}
         onSelectScreen={connection.selectScreen}
         onNewScreen={connection.mutations.newScreen}
         onCloseScreen={connection.mutations.closeScreen}
         onRenameScreen={connection.mutations.renameScreen}
-        onRefreshClients={connection.refreshClients}
-        onDetachClient={connection.mutations.detachClient}
       />
       <Toasts toasts={connection.toasts} onDismiss={connection.dismissToast} />
     </main>

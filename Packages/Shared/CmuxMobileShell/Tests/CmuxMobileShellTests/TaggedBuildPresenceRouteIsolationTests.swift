@@ -181,7 +181,7 @@ import Testing
         #expect(await pairedStore.currentUpsertCount() == 1)
         #expect(try await storedRoutes(in: pairedStore) == [defaultRoute])
         let recoveryRan = try await pollUntil(attempts: 50) {
-            store.connectionRecoveryFailed
+            store.isRecoveringConnection || store.connectionRecoveryFailed
         }
         #expect(recoveryRan)
     }

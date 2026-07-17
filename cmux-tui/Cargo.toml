@@ -45,6 +45,7 @@ uds_windows = "1.2"
 regex = "1"
 bindgen = "0.72"
 smallvec = "1"
+getrandom = "0.3"
 
 [profile.release]
 lto = "thin"

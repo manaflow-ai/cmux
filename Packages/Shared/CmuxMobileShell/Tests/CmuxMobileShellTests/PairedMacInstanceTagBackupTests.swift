@@ -28,7 +28,7 @@ import Testing
         case .upsert(let record, _), .upsertPreservingCustomizations(let record, _),
              .revive(let record, _), .revivePreservingCustomizations(let record, _):
             return record
-        case .delete:
+        case .delete, .deleteInstance:
             return nil
         }
     }
@@ -61,6 +61,40 @@ import Testing
         let uploaded = uploadedRecord(from: first)
         #expect(uploaded?.instanceTag == "feature-a")
         #expect(try encodedRecordObject(from: first)["instanceTagWriteMode"] == nil)
+    }
+
+    @Test func deletingOneTaggedInstanceKeepsAndBacksUpItsSibling() async throws {
+        let (inner, directory) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let backup = FakeBackup()
+        let store = BackingUpPairedMacStore(inner: inner, backup: backup)
+
+        for tag in ["stable", "nightly"] {
+            try await store.upsert(
+                macDeviceID: "mac-a",
+                displayName: "Studio",
+                routes: [try route()],
+                instanceTag: tag,
+                markActive: tag == "nightly",
+                stackUserID: "user-1",
+                now: Date()
+            )
+        }
+        try await store.remove(
+            macDeviceID: "mac-a",
+            instanceTag: "stable",
+            stackUserID: "user-1",
+            teamID: nil
+        )
+
+        let remaining = try await inner.loadAll(stackUserID: "user-1", teamID: nil)
+        #expect(remaining.map(\.instanceTag) == ["nightly"])
+        #expect(await backup.uploadedOps().contains {
+            if case .deleteInstance(let macDeviceID, let instanceTag) = $0 {
+                return macDeviceID == "mac-a" && instanceTag == "stable"
+            }
+            return false
+        })
     }
 
     @Test func restoreAppliesInstanceTagFromBackup() async throws {

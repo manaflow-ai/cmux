@@ -4703,6 +4703,123 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         }
     }
 
+    // Process state before the first test of this suite ran. The shared app
+    // host owns real windows, portals, and terminal surfaces of its own, so
+    // the last-slot leak check compares against this baseline, not zero.
+    static var suiteBaselineWindowNumbers: Set<Int>?
+    static var suiteBaselinePortalCount = 0
+    static var suiteBaselineRuntimeSurfaceCount = 0
+
+    override func setUp() {
+        super.setUp()
+        // Leaked cross-test state in this suite has produced livelocks (a
+        // SwiftUI reentrant-layout loop inside one CA commit) that hang the
+        // app host until CI's job timeout. Bound each test so a wedge fails
+        // in minutes with a report instead. XCTest rounds the allowance up
+        // to the nearest minute.
+        executionTimeAllowance = 60
+        if Self.suiteBaselineWindowNumbers == nil {
+            Self.suiteBaselineWindowNumbers = Set(NSApp.windows.map(\.windowNumber))
+            Self.suiteBaselinePortalCount = TerminalWindowPortalRegistry.debugPortalCount()
+            Self.suiteBaselineRuntimeSurfaceCount =
+                GhosttyApp.terminalSurfaceRegistry.diagnosticSnapshot().runtimeSurfaceCount
+        }
+    }
+
+    // Everything a test creates that can outlive it is tracked here and torn
+    // down deterministically. All ~20 tests share one app host with the tests
+    // that follow them; anything left alive participates in later tests'
+    // layout, display, and teardown passes.
+    var trackedWindows: [NSWindow] = []
+    var trackedPortals: [WindowTerminalPortal] = []
+    var trackedSurfaces: [TerminalSurface] = []
+
+    override func tearDown() {
+        // Global flags first: a failed assertion can skip a test's own reset,
+        // and latched interactive state changes every later test's sync path.
+        // (Window-live-resize is now instance-scoped on each portal, so it
+        // dies with the portal and needs no global reset.)
+        TerminalWindowPortalRegistry.resetInteractiveGeometryStateForTesting()
+
+        // Free native runtimes synchronously. The deinit path frees them on a
+        // background coordinator, and a shell still writing output would keep
+        // the io threads (and the tee callback) running into the next test.
+        for surface in trackedSurfaces.reversed() {
+            surface.releaseSurfaceForTesting()
+        }
+        trackedSurfaces.removeAll()
+
+        // Directly-created portals never see willCloseNotification; tear them
+        // down explicitly so their observers, host view, and hosted views go.
+        for portal in trackedPortals {
+            portal.tearDown()
+        }
+        trackedPortals.removeAll()
+
+        // close() posts willCloseNotification, which also prunes any
+        // registry-owned portal for the window.
+        for window in trackedWindows {
+            window.close()
+        }
+        trackedWindows.removeAll()
+
+        // Let queued coalesced portal passes fire as no-ops now rather than
+        // inside a later test's layout pass.
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertLessThanOrEqual(
+            TerminalWindowPortalRegistry.debugPortalCount(),
+            Self.suiteBaselinePortalCount,
+            "This test leaked a registry portal past its window's teardown"
+        )
+        super.tearDown()
+    }
+
+    /// Every window a test creates goes through here. The appearance
+    /// animation from makeKeyAndOrderFront runs as a blocking NSAnimation on
+    /// a background queue thread; leaked ones commit CA transactions
+    /// concurrently with the main thread's display cycle for the rest of the
+    /// run (every wedge sample of this suite carried two such threads).
+    /// Tests don't need the animation, and tearDown needs a reference it can
+    /// close without over-releasing.
+    @discardableResult
+    func trackTestWindow<W: NSWindow>(_ window: W) -> W {
+        window.animationBehavior = .none
+        window.isReleasedWhenClosed = false
+        trackedWindows.append(window)
+        return window
+    }
+
+    func makeTestWindow(
+        contentRect: NSRect,
+        styleMask: NSWindow.StyleMask = [.titled, .closable]
+    ) -> NSWindow {
+        trackTestWindow(NSWindow(
+            contentRect: contentRect,
+            styleMask: styleMask,
+            backing: .buffered,
+            defer: false
+        ))
+    }
+
+    func makeTrackedPortal(window: NSWindow) -> WindowTerminalPortal {
+        let portal = WindowTerminalPortal(window: window)
+        trackedPortals.append(portal)
+        return portal
+    }
+
+    func makeTrackedTerminalSurface() -> TerminalSurface {
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        trackedSurfaces.append(surface)
+        return surface
+    }
+
     func realizeWindowLayout(_ window: NSWindow) {
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
@@ -4716,17 +4833,36 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         DispatchQueue.main.async {
             expectation.fulfill()
         }
-        XCTWaiter().wait(for: [expectation], timeout: 1.0)
+        // Generous timeout: the shared app host can hold seconds of unrelated
+        // main-queue work; a silently timed-out drain would let assertions run
+        // before the portal's queued sync pass.
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [expectation], timeout: 10.0),
+            .completed,
+            "Expected the main queue to drain"
+        )
+    }
+
+    /// Runs the main runloop until `condition` holds or `timeout` elapses.
+    /// Prefer this over fixed-interval runloop spins: the shared app host can
+    /// queue arbitrary amounts of unrelated main-queue work ahead of a test's
+    /// async blocks.
+    func waitUntil(timeout: TimeInterval, condition: () -> Bool) -> Bool {
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
+        while ProcessInfo.processInfo.systemUptime < deadline {
+            if condition() {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        return condition()
     }
 
     func testPortalHostInstallsAboveContentViewForVisibility() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240)
         )
-        let portal = WindowTerminalPortal(window: window)
+        let portal = makeTrackedPortal(window: window)
         _ = portal.viewAtWindowPoint(NSPoint(x: 1, y: 1))
 
         guard let contentView = window.contentView,
@@ -4749,17 +4885,14 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
     }
 
     func testTerminalPortalHostStaysBelowBrowserPortalHostWhenBothAreInstalled() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320)
         )
         defer { window.orderOut(nil) }
         realizeWindowLayout(window)
 
         let browserPortal = WindowBrowserPortal(window: window)
-        let terminalPortal = WindowTerminalPortal(window: window)
+        let terminalPortal = makeTrackedPortal(window: window)
         _ = browserPortal.webViewAtWindowPoint(NSPoint(x: 1, y: 1))
         _ = terminalPortal.viewAtWindowPoint(NSPoint(x: 1, y: 1))
 
@@ -4798,11 +4931,8 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
 
     func testRegistryPrunesPortalWhenWindowCloses() {
         let baseline = TerminalWindowPortalRegistry.debugPortalCount()
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240)
         )
 
         _ = TerminalWindowPortalRegistry.viewAtWindowPoint(NSPoint(x: 1, y: 1), in: window)
@@ -4813,13 +4943,10 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
     }
 
     func testPruneDeadEntriesDetachesAnchorlessHostedView() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 300)
         )
-        let portal = WindowTerminalPortal(window: window)
+        let portal = makeTrackedPortal(window: window)
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
             return
@@ -4843,21 +4970,44 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         contentView.addSubview(anchor2)
         portal.bind(hostedView: hosted2, to: anchor2, visibleInUI: true)
 
+        // Contract: an entry that is still visibleInUI is NOT pruned when its
+        // anchor detaches — SwiftUI/AppKit briefly detach/rehome anchor hosts
+        // during tab drag/reorder churn, and pruning there caused permanent
+        // terminal render loss (the entry is kept so a follow-up bind/sync can
+        // reattach it). The queued sync pass must still hide the anchorless
+        // hosted view so it cannot draw or hit-test at a stale location.
+        XCTAssertEqual(
+            portal.debugEntryCount(), 2,
+            "A visible entry with a vanished anchor should be kept for drag-churn recovery"
+        )
+        drainMainQueue()
+        drainMainQueue()
+        XCTAssertTrue(
+            hosted1.isHidden,
+            "An anchorless hosted view should be hidden by the queued sync pass"
+        )
+
+        // Once the entry is no longer visible in the UI, prune must drop it and
+        // detach the hosted view from the portal host.
+        portal.updateEntryVisibility(forHostedId: ObjectIdentifier(hosted1), visibleInUI: false)
+        portal.bind(hostedView: hosted2, to: anchor2, visibleInUI: true)
+
         XCTAssertEqual(portal.debugEntryCount(), 1, "Only the live anchored hosted view should remain tracked")
-        XCTAssertEqual(portal.debugHostedSubviewCount(), 1, "Stale anchorless hosted views should be detached from hostView")
+        XCTAssertEqual(
+            portal.debugStats().terminalSubviewCount, 1,
+            "Stale anchorless hosted views should be detached from hostView"
+        )
+        XCTAssertNil(hosted1.superview, "The pruned hosted view must leave the portal host view")
     }
 
     func testDeferredSyncHidesVisibleHostedViewAfterAnchorDisappears() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320)
         )
         defer { window.orderOut(nil) }
         realizeWindowLayout(window)
 
-        let portal = WindowTerminalPortal(window: window)
+        let portal = makeTrackedPortal(window: window)
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
             return
@@ -4891,12 +5041,19 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         portal.bind(hostedView: activeHosted, to: activeAnchor, visibleInUI: true)
         portal.synchronizeHostedViewForAnchor(activeAnchor)
 
+        // Contract: outside an interactive drag, anchor syncs coalesce into a
+        // queued portal pass instead of running a synchronous full-portal
+        // sync (each anchor callback used to force hierarchy layout plus a
+        // sync of every hosted view, which kept the display cycle busy under
+        // churn). The stale hosted view must be hidden — and its hit-test
+        // region cleared — once that queued pass has run. Two drains cover
+        // the coalesced schedule's two main-queue hops.
+        drainMainQueue()
+        drainMainQueue()
         XCTAssertTrue(
             retiredHosted.isHidden,
-            "A visible hosted terminal whose anchor vanished should hide as soon as the replacement anchor sync runs"
+            "A visible hosted terminal whose anchor vanished should hide once the coalesced anchor sync pass runs"
         )
-        // Drain the queued full-sync turn so the portal clears any stale hit-test region left by the rebind.
-        drainMainQueue()
 
         let activeWindowPoint = activeAnchor.convert(
             NSPoint(x: activeAnchor.bounds.midX, y: activeAnchor.bounds.midY),
@@ -4913,13 +5070,13 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
     }
 
     func testSynchronizeReusesInstalledTargetWithoutRepeatedContentViewLookup() {
-        let window = ContentViewCountingWindow(
+        let window = trackTestWindow(ContentViewCountingWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
-        )
-        let portal = WindowTerminalPortal(window: window)
+        ))
+        let portal = makeTrackedPortal(window: window)
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
             return
@@ -4945,13 +5102,10 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
     }
 
     func testTerminalViewAtWindowPointResolvesPortalHostedSurface() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 300)
         )
-        let portal = WindowTerminalPortal(window: window)
+        let portal = makeTrackedPortal(window: window)
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
             return
@@ -4974,13 +5128,10 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
     }
 
     func testVisibilityTransitionBringsHostedViewToFront() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 300)
         )
-        let portal = WindowTerminalPortal(window: window)
+        let portal = makeTrackedPortal(window: window)
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
             return
@@ -5015,13 +5166,10 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
     }
 
     func testPriorityIncreaseBringsHostedViewToFrontWithoutVisibilityToggle() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 300)
         )
-        let portal = WindowTerminalPortal(window: window)
+        let portal = makeTrackedPortal(window: window)
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
             return
@@ -5055,15 +5203,12 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
     }
 
     func testHiddenPortalDefersRevealUntilFrameHasUsableSize() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 700, height: 420),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 420)
         )
         defer { window.orderOut(nil) }
 
-        let portal = WindowTerminalPortal(window: window)
+        let portal = makeTrackedPortal(window: window)
         realizeWindowLayout(window)
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
@@ -5079,14 +5224,25 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         portal.bind(hostedView: hosted, to: anchor, visibleInUI: true)
         XCTAssertFalse(hosted.isHidden, "Healthy geometry should be visible")
 
+        // Contract: outside an interactive drag, synchronizeHostedViewForAnchor
+        // coalesces into a queued portal pass rather than syncing synchronously
+        // (synchronous full-portal syncs per anchor callback kept the display
+        // cycle busy under churn). Each hide/defer-reveal/reveal decision below
+        // therefore lands once the queued pass runs; two drains cover the
+        // coalesced schedule's two main-queue hops.
+
         // Collapse to a tiny frame first.
         anchor.frame = NSRect(x: 160.5, y: 1037.0, width: 79.0, height: 0.0)
         portal.synchronizeHostedViewForAnchor(anchor)
+        drainMainQueue()
+        drainMainQueue()
         XCTAssertTrue(hosted.isHidden, "Tiny geometry should hide the portal-hosted terminal")
 
         // Then restore to a non-zero but still too-small frame. It should remain hidden.
         anchor.frame = NSRect(x: 160.9, y: 1026.5, width: 93.6, height: 10.3)
         portal.synchronizeHostedViewForAnchor(anchor)
+        drainMainQueue()
+        drainMainQueue()
         XCTAssertTrue(
             hosted.isHidden,
             "Portal should defer reveal until geometry reaches a usable size"
@@ -5095,15 +5251,14 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         // Once the frame is large enough again, reveal should resume.
         anchor.frame = NSRect(x: 40, y: 40, width: 180, height: 40)
         portal.synchronizeHostedViewForAnchor(anchor)
+        drainMainQueue()
+        drainMainQueue()
         XCTAssertFalse(hosted.isHidden, "Portal should unhide after geometry is usable")
     }
 
     func testScheduledExternalGeometrySyncRefreshesAncestorLayoutShift() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 700, height: 420),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 420)
         )
         defer {
             NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
@@ -5121,12 +5276,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         let anchor = NSView(frame: NSRect(x: 24, y: 28, width: 72, height: 56))
         shiftedContainer.addSubview(anchor)
 
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
+        let surface = makeTrackedTerminalSurface()
         let hosted = surface.hostedView
         TerminalWindowPortalRegistry.bind(
             hostedView: hosted,
@@ -5173,23 +5323,15 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
     }
 
     func testScheduledExternalGeometrySyncWaitsForQueuedLayoutShift() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 700, height: 420),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 420)
         )
         defer {
             NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
             window.orderOut(nil)
         }
 
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
+        let surface = makeTrackedTerminalSurface()
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
             return
@@ -5217,21 +5359,32 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             "Initial hit-testing should resolve the portal-hosted terminal at its original window position"
         )
 
-        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
+        // Contract: the non-immediate schedule is the "wait" under test — its
+        // coalesced pass takes an extra main-queue hop, so a layout mutation
+        // queued on the same turn (below) lands BEFORE the pass reads
+        // geometry. Dispatch FIFO makes this deterministic: hop one runs
+        // before the shift block, so the pass itself is enqueued after it.
+        // (forceImmediate: true is the opposite contract — flush now for drag
+        // responsiveness — and is covered by
+        // testScheduledExternalGeometrySyncKeepsDragDrivenResizeResponsive.)
+        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window, forceImmediate: false)
         DispatchQueue.main.async {
             shiftedContainer.frame.origin.x += 72
             contentView.layoutSubtreeIfNeeded()
             window.displayIfNeeded()
         }
 
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-        let shiftedAnchorFrameInWindow = anchor.convert(anchor.bounds, to: nil)
-        XCTAssertGreaterThan(
-            shiftedAnchorFrameInWindow.minX,
-            originalAnchorFrameInWindow.minX + 1,
+        // The shared app host can queue unrelated main-queue work ahead of the
+        // shift block, so wait for the shift to land instead of spinning the
+        // runloop for a fixed interval.
+        XCTAssertTrue(
+            waitUntil(timeout: 5.0) {
+                anchor.convert(anchor.bounds, to: nil).minX > originalAnchorFrameInWindow.minX + 1
+            },
             "The queued layout shift should move the anchor to the right"
         )
+
+        let shiftedAnchorFrameInWindow = anchor.convert(anchor.bounds, to: nil)
         XCTAssertGreaterThan(
             shiftedAnchorFrameInWindow.maxX,
             originalAnchorFrameInWindow.maxX + 1,
@@ -5245,8 +5398,10 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             x: (originalAnchorFrameInWindow.maxX + shiftedAnchorFrameInWindow.maxX) / 2,
             y: shiftedAnchorFrameInWindow.midY
         )
-        XCTAssertNil(
-            TerminalWindowPortalRegistry.terminalViewAtWindowPoint(retiredStaleWindowPoint, in: window),
+        XCTAssertTrue(
+            waitUntil(timeout: 5.0) {
+                TerminalWindowPortalRegistry.terminalViewAtWindowPoint(retiredStaleWindowPoint, in: window) == nil
+            },
             "The queued external sync should wait until the later layout shift settles, clearing the stale portal location"
         )
         XCTAssertNotNil(
@@ -5256,23 +5411,15 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
     }
 
     func testScheduledExternalGeometrySyncKeepsDragDrivenResizeResponsive() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 700, height: 420),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 420)
         )
         defer {
             NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
             window.orderOut(nil)
         }
 
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
+        let surface = makeTrackedTerminalSurface()
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
             return
@@ -5301,9 +5448,9 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             "Initial hit-testing should resolve the portal-hosted terminal at its original window position"
         )
 
-        TerminalWindowPortalRegistry.beginInteractiveGeometryResize()
+        TerminalWindowPortalRegistry.beginInteractiveGeometryResize(in: window)
         defer {
-            TerminalWindowPortalRegistry.endInteractiveGeometryResize()
+            TerminalWindowPortalRegistry.endInteractiveGeometryResize(in: window)
         }
 
         do {
@@ -5340,23 +5487,15 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
     }
 
     func testDragDrivenSidebarResizeDoesNotScheduleLateSecondTerminalResize() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 760, height: 420),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 760, height: 420)
         )
         defer {
             NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
             window.orderOut(nil)
         }
 
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
+        let surface = makeTrackedTerminalSurface()
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
             return
@@ -5380,9 +5519,9 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         realizeWindowLayout(window)
         let originalHostedFrame = hosted.frame
 
-        TerminalWindowPortalRegistry.beginInteractiveGeometryResize()
+        TerminalWindowPortalRegistry.beginInteractiveGeometryResize(in: window)
         defer {
-            TerminalWindowPortalRegistry.endInteractiveGeometryResize()
+            TerminalWindowPortalRegistry.endInteractiveGeometryResize(in: window)
         }
 
         shiftedContainer.frame.origin.x += 72
@@ -5422,41 +5561,234 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
-    func testWindowScopedExternalGeometrySyncDoesNotRefreshOtherWindows() {
-        let firstWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 700, height: 420),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
+    func testInteractiveGeometryResizeEndFlushesFinalTerminalSize() {
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 760, height: 420)
+        )
+        let surface = makeTrackedTerminalSurface()
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let container = NSView(frame: NSRect(x: 40, y: 60, width: 420, height: 220))
+        contentView.addSubview(container)
+        let anchor = NSView(frame: container.bounds)
+        container.addSubview(anchor)
+
+        TerminalWindowPortalRegistry.bind(
+            hostedView: surface.hostedView,
+            to: anchor,
+            visibleInUI: true,
+            expectedSurfaceId: surface.id,
+            expectedGeneration: surface.portalBindingGeneration()
+        )
+        TerminalWindowPortalRegistry.synchronizeForAnchor(anchor)
+        realizeWindowLayout(window)
+        let initialPixelSize = surface.debugCurrentPixelSize()
+        XCTAssertGreaterThan(initialPixelSize.width, 0)
+
+        // With frame notifications disabled, only the interaction zero
+        // crossing can discover and apply this final geometry.
+        anchor.postsFrameChangedNotifications = false
+        TerminalWindowPortalRegistry.beginInteractiveGeometryResize(in: window)
+        var interactionIsActive = true
+        defer {
+            if interactionIsActive {
+                TerminalWindowPortalRegistry.endInteractiveGeometryResize(in: window)
+            }
+        }
+        anchor.frame.size.width -= 120
+        XCTAssertEqual(surface.debugCurrentPixelSize().width, initialPixelSize.width)
+
+        TerminalWindowPortalRegistry.endInteractiveGeometryResize(in: window)
+        interactionIsActive = false
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertLessThan(
+            surface.debugCurrentPixelSize().width,
+            initialPixelSize.width,
+            "Ending the resize interaction should flush the final exact terminal width"
+        )
+    }
+
+    func testInteractiveGeometryResizeIsScopedToOwningWindow() {
+        let firstWindow = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 760, height: 420)
         )
         defer {
             NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: firstWindow)
             firstWindow.orderOut(nil)
         }
-
-        let secondWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 700, height: 420),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
+        let secondWindow = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 760, height: 420)
         )
         defer {
             NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: secondWindow)
             secondWindow.orderOut(nil)
         }
 
-        let firstSurface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
+        let firstSurface = makeTrackedTerminalSurface()
+        let secondSurface = makeTrackedTerminalSurface()
+        guard let firstContentView = firstWindow.contentView,
+              let secondContentView = secondWindow.contentView else {
+            XCTFail("Expected content views")
+            return
+        }
+
+        let firstAnchor = NSView(frame: NSRect(x: 40, y: 60, width: 420, height: 220))
+        firstContentView.addSubview(firstAnchor)
+        let secondAnchor = NSView(frame: NSRect(x: 40, y: 60, width: 420, height: 220))
+        secondContentView.addSubview(secondAnchor)
+        TerminalWindowPortalRegistry.bind(
+            hostedView: firstSurface.hostedView,
+            to: firstAnchor,
+            visibleInUI: true,
+            expectedSurfaceId: firstSurface.id,
+            expectedGeneration: firstSurface.portalBindingGeneration()
         )
-        let secondSurface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
+        TerminalWindowPortalRegistry.bind(
+            hostedView: secondSurface.hostedView,
+            to: secondAnchor,
+            visibleInUI: true,
+            expectedSurfaceId: secondSurface.id,
+            expectedGeneration: secondSurface.portalBindingGeneration()
         )
+        TerminalWindowPortalRegistry.synchronizeForAnchor(firstAnchor)
+        TerminalWindowPortalRegistry.synchronizeForAnchor(secondAnchor)
+        realizeWindowLayout(firstWindow)
+        realizeWindowLayout(secondWindow)
+        for _ in 0..<4 { drainMainQueue() }
+
+        let initialFirstWidth = firstSurface.debugCurrentPixelSize().width
+        let initialSecondWidth = secondSurface.debugCurrentPixelSize().width
+        XCTAssertGreaterThan(initialFirstWidth, 0)
+        XCTAssertGreaterThan(initialSecondWidth, 0)
+
+        firstAnchor.postsFrameChangedNotifications = false
+        secondAnchor.postsFrameChangedNotifications = false
+        let outerInteractionOwner = NSObject()
+        let nestedInteractionOwner = NSObject()
+        TerminalWindowPortalRegistry.beginInteractiveGeometryResize(
+            owner: outerInteractionOwner,
+            in: firstWindow
+        )
+        TerminalWindowPortalRegistry.beginInteractiveGeometryResize(
+            owner: nestedInteractionOwner,
+            in: firstWindow
+        )
+        var outerInteractionIsActive = true
+        var nestedInteractionIsActive = true
+        defer {
+            if outerInteractionIsActive {
+                TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: outerInteractionOwner)
+            }
+            if nestedInteractionIsActive {
+                TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: nestedInteractionOwner)
+            }
+        }
+
+        XCTAssertTrue(TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: firstWindow))
+        XCTAssertFalse(TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: secondWindow))
+        firstAnchor.frame.size.width -= 120
+        secondAnchor.frame.size.width -= 120
+
+        TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: outerInteractionOwner)
+        outerInteractionIsActive = false
+        XCTAssertTrue(
+            TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: firstWindow),
+            "Nested resize ownership should keep the window coalescing until every owner ends"
+        )
+        TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: nestedInteractionOwner)
+        nestedInteractionIsActive = false
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertLessThan(
+            firstSurface.debugCurrentPixelSize().width,
+            initialFirstWidth,
+            "Drag end should flush the owning window's final terminal width"
+        )
+        XCTAssertEqual(
+            secondSurface.debugCurrentPixelSize().width,
+            initialSecondWidth,
+            "One window's drag end must not flush unrelated terminal portals"
+        )
+
+        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(
+            for: secondWindow,
+            forceImmediate: false
+        )
+        drainMainQueue()
+        drainMainQueue()
+        XCTAssertLessThan(
+            secondSurface.debugCurrentPixelSize().width,
+            initialSecondWidth,
+            "The unrelated window should still adopt its geometry when explicitly synchronized"
+        )
+    }
+
+    func testDockDividerLifecycleScopesTerminalResizeToHostingWindow() {
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 760, height: 420)
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let store = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        let panel = TerminalPanel(workspaceId: store.workspaceId)
+        store.panels[panel.id] = panel
+        defer { store.closeAllPanels() }
+        let anchor = NSView(frame: NSRect(x: 40, y: 60, width: 420, height: 220))
+        contentView.addSubview(anchor)
+        TerminalWindowPortalRegistry.bind(
+            hostedView: panel.hostedView,
+            to: anchor,
+            visibleInUI: true,
+            expectedSurfaceId: panel.surface.id,
+            expectedGeneration: panel.surface.portalBindingGeneration()
+        )
+        TerminalWindowPortalRegistry.synchronizeForAnchor(anchor)
+        realizeWindowLayout(window)
+
+        store.bonsplitController.noteDividerDragSession(true)
+        XCTAssertTrue(
+            TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window),
+            "Dock split drags should enter the same window-scoped terminal resize transaction"
+        )
+        store.bonsplitController.noteDividerDragSession(false)
+        XCTAssertFalse(
+            TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window),
+            "Dock drag end should balance the terminal resize transaction"
+        )
+    }
+
+    func testWindowScopedExternalGeometrySyncDoesNotRefreshOtherWindows() {
+        let firstWindow = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 420)
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: firstWindow)
+            firstWindow.orderOut(nil)
+        }
+
+        let secondWindow = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 420)
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: secondWindow)
+            secondWindow.orderOut(nil)
+        }
+
+        let firstSurface = makeTrackedTerminalSurface()
+        let secondSurface = makeTrackedTerminalSurface()
 
         guard let firstContentView = firstWindow.contentView,
               let secondContentView = secondWindow.contentView else {
@@ -5492,6 +5824,16 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         TerminalWindowPortalRegistry.synchronizeForAnchor(secondAnchor)
         realizeWindowLayout(firstWindow)
         realizeWindowLayout(secondWindow)
+        // Settle every coalesced sync pass queued by bind/realize before
+        // mutating geometry: the anchor syncs above coalesce into queued
+        // passes (plus a possible follow-up hop when a flush folded them into
+        // an immediate request), and a leftover pass running after the shift
+        // below would legitimately refresh its own window — making it
+        // impossible to attribute the refresh to the window-scoped sync this
+        // test is about.
+        for _ in 0..<8 {
+            drainMainQueue()
+        }
 
         let originalFirstFrameInWindow = firstAnchor.convert(firstAnchor.bounds, to: nil)
         let originalSecondFrameInWindow = secondAnchor.convert(secondAnchor.bounds, to: nil)
@@ -5552,6 +5894,72 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         XCTAssertNotNil(
             TerminalWindowPortalRegistry.terminalViewAtWindowPoint(retiredSecondPoint, in: secondWindow),
             "Unrelated windows should retain their stale geometry until their own sync runs"
+        )
+    }
+
+    /// Runs last (XCTest orders a class's tests alphabetically) and asserts
+    /// the suite returned the process to its pre-suite state. Every test here
+    /// shares one app host with the tests after it, so state that outlives a
+    /// test participates in later tests' layout and teardown passes. The
+    /// full-suite failure signatures — a SwiftUI reentrant-layout livelock
+    /// under realizeWindowLayout, a teardown hang inside removePortal, and an
+    /// io-reader crash in the PTY output tee — all trace back to state left
+    /// behind: dropped TerminalSurfaces whose native frees and io threads
+    /// were still in flight, and portal windows never closed.
+    func testZZLeakCheckSuiteLeavesNoLingeringPortalTestState() async {
+        // Give queued coalesced portal passes the main-queue turns they were
+        // already promised; what's left after this has no owner to clean it.
+        // (Yield instead of a blocking XCTWaiter: this test is async on the
+        // main actor, and a blocking wait here would starve the very queue
+        // it's draining.)
+        for _ in 0..<8 {
+            await Task.yield()
+        }
+
+        XCTAssertLessThanOrEqual(
+            TerminalWindowPortalRegistry.debugPortalCount(),
+            Self.suiteBaselinePortalCount,
+            "Earlier tests left window portals registered after their windows went away"
+        )
+
+        let baselineWindows = Self.suiteBaselineWindowNumbers ?? []
+        let leakedPortalWindows = NSApp.windows.filter { window in
+            guard !baselineWindows.contains(window.windowNumber) else { return false }
+            guard let container = window.contentView?.superview else { return false }
+            return container.subviews.contains { $0 is WindowTerminalHostView }
+        }
+        XCTAssertTrue(
+            leakedPortalWindows.isEmpty,
+            "Earlier tests left live portal windows behind: "
+                + leakedPortalWindows
+                    .map { "#\($0.windowNumber) \(Int($0.frame.width))x\(Int($0.frame.height))" }
+                    .joined(separator: ", ")
+        )
+
+        let runtimeSurfaceCount =
+            GhosttyApp.terminalSurfaceRegistry.diagnosticSnapshot().runtimeSurfaceCount
+        XCTAssertLessThanOrEqual(
+            runtimeSurfaceCount,
+            Self.suiteBaselineRuntimeSurfaceCount,
+            "Earlier tests dropped live TerminalSurfaces without releasing them: "
+                + "\(runtimeSurfaceCount - Self.suiteBaselineRuntimeSurfaceCount) native runtime "
+                + "surface(s) still alive — their io threads and queued frees race the next tests"
+        )
+
+        // A dropped (not released) TerminalSurface unregisters from the
+        // surface registry in deinit, so the count above can look clean while
+        // the native free — and the surface's io threads — are still in
+        // flight on the teardown coordinator. That in-flight window is
+        // exactly what raced later tests, so assert it is empty too.
+        let pendingTeardowns = await GhosttyApp
+            .terminalSurfaceRuntimeDependencies
+            .runtimeTeardown
+            .debugPendingTeardownCount
+        XCTAssertEqual(
+            pendingTeardowns,
+            0,
+            "Earlier tests left \(pendingTeardowns) native surface free(s) in flight; "
+                + "release test surfaces synchronously instead of dropping them"
         )
     }
 }

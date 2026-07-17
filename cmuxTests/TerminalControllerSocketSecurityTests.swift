@@ -1473,6 +1473,55 @@ final class TerminalControllerSocketSecurityTests {
         XCTAssertEqual(error["code"] as? String, "browser_disabled")
     }
 
+    @Test func browserZoomSetReportsRenderLimitDetailsForOversizedViewportCombination() throws {
+        let manager = TabManager()
+        defer {
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            TerminalController.shared.setActiveTabManager(nil)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let browserPanel = try XCTUnwrap(workspace.newBrowserSurface(
+            inPane: pane,
+            focus: true,
+            creationPolicy: .restoration
+        ))
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let viewportResponse = try handleV2Request(
+            method: "browser.viewport.set",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": browserPanel.id.uuidString,
+                "width": 4_096,
+                "height": 4_096,
+            ]
+        )
+        XCTAssertEqual(viewportResponse["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(viewportResponse)")
+        XCTAssertTrue(browserPanel.setPageZoomFactor(1.4))
+
+        let response = try handleV2Request(
+            method: "browser.zoom.set",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": browserPanel.id.uuidString,
+                "direction": "in",
+            ]
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(response)")
+        let error = try XCTUnwrap(response["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? String, "invalid_params")
+        let data = try XCTUnwrap(error["data"] as? [String: Any])
+        XCTAssertEqual(data["reason"] as? String, "viewport_zoom_render_geometry_too_large")
+        let requestedPageZoom = try XCTUnwrap(data["requested_page_zoom"] as? Double)
+        let maximumPageZoom = try XCTUnwrap(data["maximum_page_zoom"] as? Double)
+        #expect(abs(requestedPageZoom - 1.5) < 0.000_001)
+        #expect(abs(maximumPageZoom - 2.0.squareRoot()) < 0.000_001)
+        #expect(abs(browserPanel.currentPageZoomFactor() - 1.4) < 0.000_001)
+    }
+
     @Test func testLegacyCloseSurfaceCommandRecordsRecentlyClosedHistory() throws {
         ClosedItemHistoryStore.shared.removeAll()
         defer {

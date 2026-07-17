@@ -12149,9 +12149,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         workspace.focusPanel(browserPanel.id)
-        if webView.superview == nil {
-            webView.frame = window.contentView?.bounds ?? .zero
-            window.contentView?.addSubview(webView)
+        if webView.cmuxBrowserViewportAttachmentSuperview == nil,
+           let contentView = window.contentView {
+            let presentationView = webView.cmuxBrowserViewportPresentationView
+            contentView.addSubview(presentationView)
+            webView.cmuxApplyBrowserViewportLayout(in: contentView.bounds)
         }
         window.makeKeyAndOrderFront(nil)
         XCTAssertTrue(window.makeFirstResponder(webView), file: file, line: line)

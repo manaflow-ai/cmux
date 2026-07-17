@@ -12,9 +12,39 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `366c801e0`. It advances the previous cmux pin
-`b4b6d69c8` with wrap-aware URL matching across semantic soft wraps. The commit
-is reachable from fork `main` through the merged
+Current cmux pinned fork head: `bb30526cd`. It advances the previous cmux pin
+`b4b6d69c8` through the already-merged theme, render-grid, and wrap-aware URL
+updates, then preserves authoritative sprite-font shaping runs. The commit is
+reachable from fork `main` through the merged
+https://github.com/manaflow-ai/ghostty/pull/120.
+The corresponding universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-bb30526cdab8f5fb08ae43e404e3aacc40d3ffc3-crashsubdir-cmux-crash-v1
+and pinned in `scripts/ghosttykit-checksums.txt`.
+
+### Authoritative sprite-font shaping runs
+
+- Commits:
+  - `a6ca2cca0` (test: preserve sprite runs inside text)
+  - `20d11e519` (font/shaper: preserve authoritative sprite runs)
+  - `bb30526cd` (merge Ghostty PR #120 into fork `main`)
+- Files:
+  - `src/font/shaper/coretext.zig`
+  - `src/font/shaper/run.zig`
+- Summary:
+  - Keeps special sprite-font resolutions in their own shaping runs even when
+    a surrounding text font also contains the bidi-neutral codepoint.
+  - Uses one coalescing predicate for both visual run-boundary discovery and
+    logical run construction, so the two phases cannot disagree about whether
+    a special glyph belongs to the surrounding text font.
+  - Covers a box-drawing sprite between ordinary text runs. The test-only
+    commit absorbs the trailing border into the text run; the fix restores
+    separate sprite/text/sprite runs.
+  - Conflict note: future bidi or shaper changes must preserve special-font
+    resolver results as authoritative. Special fonts bypass CoreText and
+    HarfBuzz shaping and render their own glyphs.
+
+The previous documented pin `366c801e0` added wrap-aware URL matching across
+semantic soft wraps and is reachable from fork `main` through the merged
 https://github.com/manaflow-ai/ghostty/pull/118.
 The corresponding universal ReleaseFast GhosttyKit archive is published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-366c801e066c37695c2d9be4a6567662bd763ad0-crashsubdir-cmux-crash-v1

@@ -85,6 +85,14 @@ public protocol MobilePairedMacStoring: Sendable {
     ///   - teamID: Stack team this activation belongs to, if any.
     func setActive(macDeviceID: String, stackUserID: String?, teamID: String?) async throws
 
+    /// Mark one exact tagged Mac app instance active.
+    func setActive(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws
+
     /// Clear the active pairing for one visible owner scope.
     /// - Parameters:
     ///   - stackUserID: Owning Stack Auth user, if any.
@@ -112,6 +120,18 @@ public protocol MobilePairedMacStoring: Sendable {
         now: Date
     ) async throws
 
+    /// Set customizations on one exact tagged Mac app instance.
+    func setCustomization(
+        macDeviceID: String,
+        instanceTag: String?,
+        customName: String?,
+        customColor: String?,
+        customIcon: String?,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws
+
     /// Remove a single paired Mac in one owner scope.
     /// - Parameters:
     ///   - macDeviceID: Mac to forget.
@@ -119,11 +139,69 @@ public protocol MobilePairedMacStoring: Sendable {
     ///   - teamID: Stack team this pairing belongs to, if any.
     func remove(macDeviceID: String, stackUserID: String?, teamID: String?) async throws
 
+    /// Remove one exact tagged Mac app instance.
+    func remove(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws
+
     /// Remove all paired Macs.
     func removeAll() async throws
 }
 
 extension MobilePairedMacStoring {
+    /// Compatibility fallback for stores that predate tagged row identity.
+    public func setActive(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {
+        try await setActive(
+            macDeviceID: macDeviceID,
+            stackUserID: stackUserID,
+            teamID: teamID
+        )
+    }
+
+    /// Compatibility fallback for stores that predate tagged row identity.
+    public func setCustomization(
+        macDeviceID: String,
+        instanceTag: String?,
+        customName: String?,
+        customColor: String?,
+        customIcon: String?,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws {
+        try await setCustomization(
+            macDeviceID: macDeviceID,
+            customName: customName,
+            customColor: customColor,
+            customIcon: customIcon,
+            stackUserID: stackUserID,
+            teamID: teamID,
+            now: now
+        )
+    }
+
+    /// Compatibility fallback for stores that predate tagged row identity.
+    public func remove(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {
+        try await remove(
+            macDeviceID: macDeviceID,
+            stackUserID: stackUserID,
+            teamID: teamID
+        )
+    }
+
     /// In-memory/test fallback. Production SQLite and scope decorators override
     /// this with one atomic storage operation.
     @discardableResult
@@ -189,6 +267,7 @@ extension MobilePairedMacStoring {
         )
         try await setCustomization(
             macDeviceID: macDeviceID,
+            instanceTag: existing?.instanceTag,
             customName: customName,
             customColor: customColor,
             customIcon: customIcon,

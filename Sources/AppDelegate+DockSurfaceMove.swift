@@ -115,29 +115,26 @@ extension AppDelegate {
 
         guard let detached = detachSurfaceFromContainer(source) else { return false }
 
-        guard destinationDock.attachDetachedSurface(
-            detached,
-            inPane: target.pane,
-            atIndex: target.index,
-            focus: true
-        ) != nil else {
+        let attachedPanelId: UUID?
+        if let split = target.split {
+            attachedPanelId = destinationDock.attachDetachedSurface(
+                detached,
+                bySplitting: target.pane,
+                orientation: split.orientation,
+                insertFirst: split.insertFirst,
+                focus: true
+            )
+        } else {
+            attachedPanelId = destinationDock.attachDetachedSurface(
+                detached,
+                inPane: target.pane,
+                atIndex: target.index,
+                focus: true
+            )
+        }
+        guard attachedPanelId != nil else {
             reattachSurfaceToContainer(detached, source)
             return false
-        }
-
-        if let split = target.split,
-           let movedTabId = destinationDock.surfaceId(forPanelId: detached.panelId) {
-            // Not wrapped in `withProgrammaticDockSplit`: this moves the just-attached
-            // tab out of `target.pane` to form the split, which can leave `target.pane`
-            // holding only Bonsplit's placeholder "Empty" tab (when it was empty before
-            // the drop). Letting `didSplitPane` run repairs that placeholder-only pane
-            // into a real terminal (and is a no-op when the pane still has a surface).
-            _ = destinationDock.bonsplitController.splitPane(
-                target.pane,
-                orientation: split.orientation,
-                movingTab: movedTabId,
-                insertFirst: split.insertFirst
-            )
         }
         destinationDock.scheduleDockPortalReconcile(reason: "dock.moveSurfaceIntoDock")
 

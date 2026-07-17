@@ -272,6 +272,11 @@ struct CmuxConfigExecutor {
             displayTitle: displayTitle,
             configPath: configPath
         )
+        let content = CmuxAlertContent(
+            flattenedText: alert.informativeText,
+            separatingScrollableDetails: sanitizeForDisplay(command)
+        )
+        content.apply(to: alert, presentingWindow: presentingWindow)
         alert.beginSheetModal(for: presentingWindow) { response in
             completion(handleConfirmDialogResponse(response, descriptor: descriptor))
         }
@@ -288,6 +293,11 @@ struct CmuxConfigExecutor {
             displayTitle: displayTitle,
             configPath: configPath
         )
+        let content = CmuxAlertContent(
+            flattenedText: alert.informativeText,
+            separatingScrollableDetails: sanitizeForDisplay(command)
+        )
+        content.apply(to: alert, presentingWindow: nil)
         return handleConfirmDialogResponse(alert.runModal(), descriptor: descriptor)
     }
 

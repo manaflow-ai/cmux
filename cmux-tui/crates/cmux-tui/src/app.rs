@@ -16,8 +16,8 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use cmux_tui_core::{
-    BrowserSource, BrowserStatus, MuxEvent, PaneId, Rect, SplitDir, SplitEdge, SurfaceId,
-    SurfaceKind, WorkspaceId, layout_screen, split_for_pane_edge, split_sides,
+    BrowserSource, BrowserStatus, MuxEvent, PairingChallenge, PaneId, Rect, SplitDir, SplitEdge,
+    SurfaceId, SurfaceKind, WorkspaceId, layout_screen, split_for_pane_edge, split_sides,
 };
 use crossterm::ExecutableCommand;
 use crossterm::event::{
@@ -683,6 +683,10 @@ impl OrderedSession {
 
     fn tree(&self) -> TreeView {
         self.inner.tree()
+    }
+
+    fn respond_pairing(&self, request: u64, approve: bool) -> anyhow::Result<()> {
+        self.inner.respond_pairing(request, approve)
     }
 
     pub(crate) fn surface(&self, id: SurfaceId) -> Option<SurfaceHandle> {
@@ -1618,12 +1622,34 @@ impl MenuAction {
     }
 }
 
+/// One row in a context menu. Separators divide related action groups and
+/// are skipped by keyboard and mouse selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuItem {
+    Action(MenuAction),
+    Separator,
+}
+
+impl MenuItem {
+    pub fn action(self) -> Option<MenuAction> {
+        match self {
+            MenuItem::Action(action) => Some(action),
+            MenuItem::Separator => None,
+        }
+    }
+
+    pub fn label(self) -> Option<&'static str> {
+        self.action().map(|action| action.label())
+    }
+}
+
 /// Right-click context menu overlay. The rect includes the border chrome;
-/// items get a one-cell padding column on each side inside that border
-/// (no extra rows above/below), and the hover/selection highlight spans
-/// the full inner row including those padding cells.
+/// action rows get a one-cell padding column on each side inside that border,
+/// groups are divided by separator rows, and the hover/selection highlight
+/// spans the full inner row including those padding cells.
 pub struct ContextMenu {
-    pub items: Vec<MenuAction>,
+    pub items: Vec<MenuItem>,
+    all_items: Vec<MenuItem>,
     pub selected: usize,
     right_press: (u16, u16),
     right_drag_moved: bool,
@@ -1636,13 +1662,22 @@ impl ContextMenu {
     /// Horizontal padding between the menu edge and the item labels.
     pub const PAD: u16 = 1;
 
-    fn at(x: u16, y: u16, items: Vec<MenuAction>) -> Self {
-        let label_w = items.iter().map(|i| i.label().len()).max().unwrap_or(0) as u16;
+    fn at(x: u16, y: u16, groups: Vec<Vec<MenuAction>>) -> Self {
+        let mut items = Vec::new();
+        for group in groups.into_iter().filter(|group| !group.is_empty()) {
+            if !items.is_empty() {
+                items.push(MenuItem::Separator);
+            }
+            items.extend(group.into_iter().map(MenuItem::Action));
+        }
+        let label_w =
+            items.iter().filter_map(|item| item.label()).map(str::len).max().unwrap_or(0) as u16;
         // One space of inner padding either side of the label, plus the
         // one-cell padding column on each side, plus the border.
         let width = label_w + 2 + Self::PAD * 2 + 2;
         let height = items.len() as u16 + 2;
         ContextMenu {
+            all_items: items.clone(),
             items,
             selected: 0,
             right_press: (x, y),
@@ -1663,8 +1698,90 @@ impl ContextMenu {
             return None;
         }
         let row = (y - self.rect.y - 1) as usize;
-        (row < self.items.len()).then_some(row)
+        self.items.get(row)?.action().map(|_| row)
     }
+
+    fn selected_action(&self) -> Option<MenuAction> {
+        self.items.get(self.selected).and_then(|item| item.action())
+    }
+
+    /// Keep every action row visible when separators are the only reason the
+    /// menu exceeds the available height. Full grouping returns after a resize.
+    pub fn fit_to_rows(&mut self, max_rows: usize) {
+        let selected_action = self.selected_action();
+        let action_count = self.all_items.iter().filter(|item| item.action().is_some()).count();
+        let mut separator_budget = max_rows.saturating_sub(action_count);
+        self.items = self
+            .all_items
+            .iter()
+            .copied()
+            .filter(|item| match item {
+                MenuItem::Action(_) => true,
+                MenuItem::Separator if separator_budget > 0 => {
+                    separator_budget -= 1;
+                    true
+                }
+                MenuItem::Separator => false,
+            })
+            .collect();
+        self.selected = selected_action
+            .and_then(|action| self.items.iter().position(|item| item.action() == Some(action)))
+            .or_else(|| self.items.iter().position(|item| item.action().is_some()))
+            .unwrap_or(0);
+        self.rect.height = self.items.len() as u16 + 2;
+    }
+
+    fn select_previous(&mut self) {
+        if let Some(index) = self
+            .items
+            .get(..self.selected)
+            .and_then(|items| items.iter().rposition(|item| item.action().is_some()))
+        {
+            self.selected = index;
+        }
+    }
+
+    fn select_next(&mut self) {
+        let start = self.selected.saturating_add(1);
+        if let Some(offset) = self
+            .items
+            .get(start..)
+            .and_then(|items| items.iter().position(|item| item.action().is_some()))
+        {
+            self.selected += offset + 1;
+        }
+    }
+}
+
+fn pane_context_menu_groups(
+    pane: PaneId,
+    is_browser: bool,
+    external_browser: bool,
+) -> Vec<Vec<MenuAction>> {
+    let mut browser_actions = Vec::new();
+    if is_browser {
+        browser_actions.extend([
+            MenuAction::BrowserBack(pane),
+            MenuAction::BrowserForward(pane),
+            MenuAction::BrowserReload(pane),
+            MenuAction::BrowserEditUrl(pane),
+            MenuAction::BrowserCopyUrl(pane),
+        ]);
+        if external_browser {
+            browser_actions.push(MenuAction::BrowserActivate(pane));
+        }
+    }
+    vec![
+        vec![MenuAction::RenameTab(pane), MenuAction::CloseTab(pane)],
+        vec![MenuAction::NewTab(pane), MenuAction::NewBrowserTab(pane)],
+        browser_actions,
+        vec![
+            MenuAction::SplitRight(pane),
+            MenuAction::SplitDown(pane),
+            MenuAction::ClosePane(pane),
+        ],
+        vec![MenuAction::CopyTabId(pane), MenuAction::CopyPaneId(pane)],
+    ]
 }
 
 /// What a committed rename prompt applies to.
@@ -1689,6 +1806,19 @@ pub struct Prompt {
     pub clear: Rect,
     pub ok: Rect,
     pub cancel: Rect,
+}
+
+pub struct PairingDialog {
+    pub challenge: PairingChallenge,
+    pub rect: Rect,
+    pub approve: Rect,
+    pub deny: Rect,
+}
+
+impl PairingDialog {
+    fn new(challenge: PairingChallenge) -> Self {
+        Self { challenge, rect: Rect::default(), approve: Rect::default(), deny: Rect::default() }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1881,6 +2011,8 @@ pub struct App {
     pub hover: Option<(u16, u16)>,
     pub menu: Option<ContextMenu>,
     pub prompt: Option<Prompt>,
+    pub pairing_dialog: Option<PairingDialog>,
+    pairing_queue: VecDeque<PairingChallenge>,
     pub omnibar: Option<OmnibarState>,
     pub toast: Option<Toast>,
     pub(crate) shake_frames: u8,
@@ -2192,6 +2324,8 @@ pub fn run(
         hover: None,
         menu: None,
         prompt: None,
+        pairing_dialog: None,
+        pairing_queue: VecDeque::new(),
         omnibar: None,
         toast: None,
         shake_frames: 0,
@@ -3204,6 +3338,29 @@ impl App {
                     Ok(RenderAction::Paint)
                 }
             }
+            AppEvent::Mux(MuxEvent::PairingRequested(challenge)) => {
+                let duplicate = self
+                    .pairing_dialog
+                    .as_ref()
+                    .is_some_and(|dialog| dialog.challenge.id == challenge.id)
+                    || self.pairing_queue.iter().any(|queued| queued.id == challenge.id);
+                if !duplicate {
+                    if self.pairing_dialog.is_none() {
+                        self.pairing_dialog = Some(PairingDialog::new(challenge));
+                    } else {
+                        self.pairing_queue.push_back(challenge);
+                    }
+                }
+                Ok(RenderAction::Draw)
+            }
+            AppEvent::Mux(MuxEvent::PairingResolved { request }) => {
+                self.pairing_queue.retain(|challenge| challenge.id != request);
+                if self.pairing_dialog.as_ref().is_some_and(|dialog| dialog.challenge.id == request)
+                {
+                    self.pairing_dialog = self.pairing_queue.pop_front().map(PairingDialog::new);
+                }
+                Ok(RenderAction::Draw)
+            }
             AppEvent::Mux(_) => Ok(RenderAction::Draw),
             AppEvent::BrowserResizeFailed(failure) => {
                 self.status_message = Some(format!(
@@ -3386,7 +3543,9 @@ impl App {
             AppEvent::Input(Event::Paste(text)) => {
                 self.status_message = None;
                 self.reassert_visible_surface_sizes();
-                if let Some(prompt) = self.prompt.as_mut() {
+                if self.pairing_dialog.is_some() {
+                    Ok(RenderAction::Draw)
+                } else if let Some(prompt) = self.prompt.as_mut() {
                     prompt.input.insert_str(&text);
                     Ok(RenderAction::Draw)
                 } else if let Some(state) = self.omnibar.as_mut() {
@@ -3854,6 +4013,9 @@ impl App {
             return Ok(RenderAction::None);
         }
         self.status_message = None;
+        if self.pairing_dialog.is_some() {
+            return self.handle_pairing_key(key);
+        }
         if self.prompt.is_some() {
             return self.handle_prompt_key(key);
         }
@@ -4028,6 +4190,33 @@ impl App {
         Ok(RenderAction::Draw)
     }
 
+    fn resolve_pairing(&mut self, approve: bool) {
+        let Some(dialog) = self.pairing_dialog.take() else { return };
+        if let Err(error) = self.session.respond_pairing(dialog.challenge.id, approve) {
+            self.status_message = Some(error.to_string());
+        }
+        self.pairing_dialog = self.pairing_queue.pop_front().map(PairingDialog::new);
+    }
+
+    fn handle_pairing_key(&mut self, key: KeyEvent) -> anyhow::Result<RenderAction> {
+        match key.code {
+            KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => self.resolve_pairing(true),
+            KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => self.resolve_pairing(false),
+            _ => {}
+        }
+        Ok(RenderAction::Draw)
+    }
+
+    fn handle_pairing_click(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
+        let Some(dialog) = self.pairing_dialog.as_ref() else { return Ok(RenderAction::None) };
+        if dialog.approve.contains(x, y) {
+            self.resolve_pairing(true);
+        } else if dialog.deny.contains(x, y) || !dialog.rect.contains(x, y) {
+            self.resolve_pairing(false);
+        }
+        Ok(RenderAction::Draw)
+    }
+
     /// Clicks while the rename dialog is open: OK commits, Cancel (or a
     /// click outside the dialog) dismisses; clicks inside are swallowed.
     fn handle_prompt_click(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
@@ -4107,15 +4296,15 @@ impl App {
                 Ok(RenderAction::Draw)
             }
             KeyCode::Up => {
-                menu.selected = menu.selected.saturating_sub(1);
+                menu.select_previous();
                 Ok(RenderAction::Draw)
             }
             KeyCode::Down => {
-                menu.selected = (menu.selected + 1).min(menu.items.len().saturating_sub(1));
+                menu.select_next();
                 Ok(RenderAction::Draw)
             }
             KeyCode::Enter => {
-                let action = menu.items[menu.selected];
+                let Some(action) = menu.selected_action() else { return Ok(RenderAction::Draw) };
                 self.menu = None;
                 self.activate_menu(action)?;
                 Ok(RenderAction::Draw)
@@ -5568,6 +5757,9 @@ impl App {
     /// Whether the cell is over something clickable (any hit, a menu row,
     /// or a dialog button): these render the hand pointer.
     fn is_clickable(&self, x: u16, y: u16) -> bool {
+        if let Some(dialog) = &self.pairing_dialog {
+            return dialog.approve.contains(x, y) || dialog.deny.contains(x, y);
+        }
         if let Some(prompt) = &self.prompt {
             return prompt.ok.contains(x, y)
                 || prompt.cancel.contains(x, y)
@@ -5706,8 +5898,9 @@ impl App {
         if plain_open_click {
             self.menu = Some(menu);
         } else if let Some(item) = menu.item_at(x, y) {
-            let action = menu.items[item];
-            self.activate_menu(action)?;
+            if let Some(action) = menu.items[item].action() {
+                self.activate_menu(action)?;
+            }
         } else {
             self.menu = Some(menu);
         }
@@ -5723,6 +5916,9 @@ impl App {
         self.selection = None;
         self.drag = None;
 
+        if self.pairing_dialog.is_some() {
+            return self.handle_pairing_click(x, y);
+        }
         // An open rename dialog captures the click.
         if self.prompt.is_some() {
             return self.handle_prompt_click(x, y);
@@ -5732,7 +5928,9 @@ impl App {
         // the border chrome keep it open without activating.
         if let Some(menu) = self.menu.take() {
             if let Some(item) = menu.item_at(x, y) {
-                self.activate_menu(menu.items[item])?;
+                if let Some(action) = menu.items[item].action() {
+                    self.activate_menu(action)?;
+                }
             } else if menu.rect.contains(x, y) {
                 self.menu = Some(menu); // padding click: keep it open
             }
@@ -6052,7 +6250,7 @@ impl App {
         if text.is_empty() {
             return;
         }
-        if let SurfaceHandle::Local(local) = &surface {
+        if let SurfaceHandle::Local(local, _) = &surface {
             local.set_selection_text(Some(text.clone()));
         }
         self.copy_text_to_clipboard(&text);
@@ -6250,9 +6448,8 @@ impl App {
                     x,
                     y,
                     vec![
-                        MenuAction::RenameWorkspace(id),
-                        MenuAction::CopyWorkspaceId(id),
-                        MenuAction::CloseWorkspace(id),
+                        vec![MenuAction::RenameWorkspace(id), MenuAction::CloseWorkspace(id)],
+                        vec![MenuAction::CopyWorkspaceId(id)],
                     ],
                 ));
                 return;
@@ -6261,38 +6458,21 @@ impl App {
                 self.menu = Some(ContextMenu::at(
                     x,
                     y,
-                    vec![MenuAction::RenameScreen(id), MenuAction::CloseScreen(id)],
+                    vec![vec![MenuAction::RenameScreen(id), MenuAction::CloseScreen(id)]],
                 ));
                 return;
             }
             _ => {}
         }
         if let Some(area) = self.pane_area_at(x, y) {
-            let mut items = Vec::new();
-            if self.surface_kind(area.surface) == Some(SurfaceKind::Browser) {
-                items.extend([
-                    MenuAction::BrowserBack(area.pane),
-                    MenuAction::BrowserForward(area.pane),
-                    MenuAction::BrowserReload(area.pane),
-                    MenuAction::BrowserEditUrl(area.pane),
-                    MenuAction::BrowserCopyUrl(area.pane),
-                ]);
-                if self.browser_source(area.surface) == Some(BrowserSource::External) {
-                    items.push(MenuAction::BrowserActivate(area.pane));
-                }
-            }
-            items.extend([
-                MenuAction::RenameTab(area.pane),
-                MenuAction::CopyTabId(area.pane),
-                MenuAction::CopyPaneId(area.pane),
-                MenuAction::NewTab(area.pane),
-                MenuAction::NewBrowserTab(area.pane),
-                MenuAction::SplitRight(area.pane),
-                MenuAction::SplitDown(area.pane),
-                MenuAction::CloseTab(area.pane),
-                MenuAction::ClosePane(area.pane),
-            ]);
-            self.menu = Some(ContextMenu::at(x, y, items));
+            let is_browser = self.surface_kind(area.surface) == Some(SurfaceKind::Browser);
+            let external_browser =
+                self.browser_source(area.surface) == Some(BrowserSource::External);
+            self.menu = Some(ContextMenu::at(
+                x,
+                y,
+                pane_context_menu_groups(area.pane, is_browser, external_browser),
+            ));
         }
     }
 
@@ -6568,14 +6748,14 @@ fn browser_key_mapping(
 #[cfg(test)]
 mod tests {
     use super::{
-        App, AppEvent, BACKGROUND_REFRESH_RETRIES, DeferredInput, Drag, ForwardMuxOutcome,
-        MuxTitleIngress, OrderedSession, PaneArea, PendingSessionMutation,
-        PendingSessionMutationState, PtyFailureIngress, PtyMousePressResult, RenderAction,
-        Selection, SessionCompletion, SessionCompletionAction, SidebarPluginSyncClaim,
-        SidebarPluginSyncState, SurfaceResizeDecision, SurfaceResizeOwnership,
-        browser_content_size_for_rect, browser_hover_forward_allowed, forward_mux_event,
-        forward_mux_events, pane_parts_for_rect, record_surface_resize_dispatch_result,
-        sidebar_plugin_status_settles_passive_claim,
+        App, AppEvent, BACKGROUND_REFRESH_RETRIES, ContextMenu, DeferredInput, Drag,
+        ForwardMuxOutcome, MenuAction, MenuItem, MuxTitleIngress, OrderedSession, PaneArea,
+        PendingSessionMutation, PendingSessionMutationState, PtyFailureIngress,
+        PtyMousePressResult, RenderAction, Selection, SessionCompletion, SessionCompletionAction,
+        SidebarPluginSyncClaim, SidebarPluginSyncState, SurfaceResizeDecision,
+        SurfaceResizeOwnership, browser_content_size_for_rect, browser_hover_forward_allowed,
+        forward_mux_event, forward_mux_events, pane_context_menu_groups, pane_parts_for_rect,
+        record_surface_resize_dispatch_result, sidebar_plugin_status_settles_passive_claim,
     };
     use std::collections::{HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
@@ -6608,6 +6788,110 @@ mod tests {
 
     fn settled(outcome: super::SessionMutationOutcome) -> AppEvent {
         AppEvent::SessionMutationSettled { outcome, routing: false }
+    }
+
+    #[test]
+    fn pane_context_menu_groups_current_tab_creation_layout_and_ids() {
+        let pane = 7;
+        let menu = ContextMenu::at(10, 5, pane_context_menu_groups(pane, false, false));
+
+        assert_eq!(
+            menu.items,
+            vec![
+                MenuItem::Action(MenuAction::RenameTab(pane)),
+                MenuItem::Action(MenuAction::CloseTab(pane)),
+                MenuItem::Separator,
+                MenuItem::Action(MenuAction::NewTab(pane)),
+                MenuItem::Action(MenuAction::NewBrowserTab(pane)),
+                MenuItem::Separator,
+                MenuItem::Action(MenuAction::SplitRight(pane)),
+                MenuItem::Action(MenuAction::SplitDown(pane)),
+                MenuItem::Action(MenuAction::ClosePane(pane)),
+                MenuItem::Separator,
+                MenuItem::Action(MenuAction::CopyTabId(pane)),
+                MenuItem::Action(MenuAction::CopyPaneId(pane)),
+            ]
+        );
+    }
+
+    #[test]
+    fn context_menu_selection_and_hit_testing_skip_separators() {
+        let mut menu = ContextMenu::at(
+            10,
+            5,
+            vec![
+                vec![MenuAction::RenameTab(7), MenuAction::CloseTab(7)],
+                Vec::new(),
+                vec![MenuAction::NewTab(7)],
+            ],
+        );
+
+        assert_eq!(menu.item_at(10, 5), Some(0));
+        assert_eq!(menu.item_at(10, 7), None);
+        assert_eq!(menu.item_at(10, 8), Some(3));
+        assert_eq!(menu.selected_action(), Some(MenuAction::RenameTab(7)));
+
+        menu.select_next();
+        assert_eq!(menu.selected_action(), Some(MenuAction::CloseTab(7)));
+        menu.select_next();
+        assert_eq!(menu.selected_action(), Some(MenuAction::NewTab(7)));
+        menu.select_next();
+        assert_eq!(menu.selected_action(), Some(MenuAction::NewTab(7)));
+        menu.select_previous();
+        assert_eq!(menu.selected_action(), Some(MenuAction::CloseTab(7)));
+
+        menu.selected = usize::MAX;
+        menu.select_previous();
+        menu.select_next();
+        assert_eq!(menu.selected, usize::MAX);
+        assert_eq!(menu.selected_action(), None);
+
+        let mut empty = ContextMenu::at(10, 5, Vec::new());
+        empty.select_previous();
+        empty.select_next();
+        assert_eq!(empty.selected_action(), None);
+    }
+
+    #[test]
+    fn browser_context_menu_keeps_browser_actions_in_their_own_group() {
+        let pane = 7;
+        let groups = pane_context_menu_groups(pane, true, true);
+
+        assert_eq!(
+            groups[2],
+            vec![
+                MenuAction::BrowserBack(pane),
+                MenuAction::BrowserForward(pane),
+                MenuAction::BrowserReload(pane),
+                MenuAction::BrowserEditUrl(pane),
+                MenuAction::BrowserCopyUrl(pane),
+                MenuAction::BrowserActivate(pane),
+            ]
+        );
+    }
+
+    #[test]
+    fn context_menu_drops_only_overflowing_separators_and_restores_them_after_resize() {
+        let pane = 7;
+        let mut menu = ContextMenu::at(10, 5, pane_context_menu_groups(pane, true, true));
+        menu.selected = menu
+            .items
+            .iter()
+            .position(|item| item.action() == Some(MenuAction::CopyPaneId(pane)))
+            .unwrap();
+
+        assert_eq!(menu.items.len(), 19);
+        assert_eq!(menu.items.iter().filter(|item| **item == MenuItem::Separator).count(), 4);
+        menu.fit_to_rows(18);
+        assert_eq!(menu.items.len(), 18);
+        assert_eq!(menu.items.iter().filter(|item| **item == MenuItem::Separator).count(), 3);
+        assert_eq!(menu.selected_action(), Some(MenuAction::CopyPaneId(pane)));
+        assert_eq!(menu.rect.height, 20);
+
+        menu.fit_to_rows(19);
+        assert_eq!(menu.items.len(), 19);
+        assert_eq!(menu.items.iter().filter(|item| **item == MenuItem::Separator).count(), 4);
+        assert_eq!(menu.selected_action(), Some(MenuAction::CopyPaneId(pane)));
     }
 
     #[test]
@@ -7035,7 +7319,7 @@ mod tests {
         let mux = Mux::new("motion-enqueue-rollback-test", SurfaceOptions::default());
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
         surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1003h\x1b[?1006h"));
-        let handle = SurfaceHandle::Local(surface.clone());
+        let handle = SurfaceHandle::Local(surface.clone(), mux.clone());
         let mut app = test_app(Session::Local(mux.clone()));
         let input = test_mouse_motion();
 
@@ -7064,7 +7348,7 @@ mod tests {
         let mux = Mux::new("motion-cancel-rollback-test", SurfaceOptions::default());
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
         surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1003h\x1b[?1006h"));
-        let handle = SurfaceHandle::Local(surface.clone());
+        let handle = SurfaceHandle::Local(surface.clone(), mux.clone());
         let mut app = test_app(Session::Local(mux.clone()));
         let input = test_mouse_motion();
 
@@ -9356,6 +9640,8 @@ mod tests {
             hover: None,
             menu: None,
             prompt: None,
+            pairing_dialog: None,
+            pairing_queue: VecDeque::new(),
             omnibar: None,
             toast: None,
             shake_frames: 0,

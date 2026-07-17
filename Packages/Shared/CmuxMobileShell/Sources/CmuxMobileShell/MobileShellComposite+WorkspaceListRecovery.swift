@@ -40,11 +40,12 @@ extension MobileShellComposite {
     /// offline/disconnected state. Pull-to-refresh and the offline status row's
     /// Reconnect button both call this.
     public func reconnectOrRefresh() async {
-        if connectionState == .connected {
+        let listStatus = workspaceListConnectionStatus
+        if connectionState == .connected, listStatus == .connected {
             await refreshWorkspaces()
             return
         }
-        if workspaceListConnectionStatus == .connected {
+        if listStatus == .connected {
             if let macDeviceID = workspaceListConnectedRefreshTargetMacDeviceID(),
                await switchToMac(macDeviceID: macDeviceID) {
                 await refreshWorkspaces()
@@ -53,7 +54,16 @@ extension MobileShellComposite {
             await refreshSecondaryMacWorkspaces()
             return
         }
-        if let macDeviceID = workspaceListReconnectTargetMacDeviceID(),
+        let reconnectTargetMacDeviceID = workspaceListReconnectTargetMacDeviceID()
+        if connectionState == .connected {
+            // The live event stream can fail before the RPC client's transport
+            // closes. In that state the workspace list correctly renders the
+            // unavailable banner, but `connectionState` still says connected.
+            // Tear down that stale client so `switchToMac` cannot take its
+            // already-connected fast path and skip the user's explicit redial.
+            disconnectLiveConnection()
+        }
+        if let macDeviceID = reconnectTargetMacDeviceID,
            await switchToMac(macDeviceID: macDeviceID) {
             return
         }

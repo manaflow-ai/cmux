@@ -24,7 +24,7 @@ extension MobileShellComposite {
             let key = mac.dialEndpointKey(
                 supportedKinds: supportedKinds,
                 preferNonLoopback: preferNonLoopback
-            ) ?? "device:\(mac.macDeviceID)"
+            ) ?? "device:\(mac.id)"
             orderByKey[key] = min(orderByKey[key] ?? index, index)
             guard let existing = selectedByKey[key] else {
                 selectedByKey[key] = mac
@@ -77,20 +77,20 @@ extension MobileShellComposite {
         supportedKinds: [CmxAttachTransportKind],
         preferNonLoopback: Bool
     ) -> [String: [String]] {
-        var groupKeyByMacID: [String: String] = [:]
+        var groupKeyByPairingID: [String: String] = [:]
         var idsByGroupKey: [String: [String]] = [:]
         for mac in macs {
             let key = mac.dialEndpointKey(
                 supportedKinds: supportedKinds,
                 preferNonLoopback: preferNonLoopback
-            ) ?? "device:\(mac.macDeviceID)"
-            groupKeyByMacID[mac.macDeviceID] = key
+            ) ?? "device:\(mac.id)"
+            groupKeyByPairingID[mac.id] = key
             idsByGroupKey[key, default: []].append(mac.macDeviceID)
         }
 
         var result: [String: [String]] = [:]
-        for (macID, groupKey) in groupKeyByMacID {
-            result[macID] = idsByGroupKey[groupKey] ?? [macID]
+        for (pairingID, groupKey) in groupKeyByPairingID {
+            result[pairingID] = idsByGroupKey[groupKey] ?? []
         }
         return result
     }
@@ -112,7 +112,7 @@ private extension MobilePairedMac {
             preferNonLoopback: preferNonLoopback
         )
         if case let .peer(identity, _)? = reconnectRoutes.first?.endpoint {
-            return "iroh:\(identity.endpointID):name:\(displayName.lowercased())"
+            return "iroh:\(identity.endpointID):name:\(displayName.lowercased()):instance:\(instanceTag ?? "")"
         }
         guard let (host, port) = MobileShellComposite.firstReconnectHostPortRoute(
             reconnectRoutes,
@@ -121,7 +121,7 @@ private extension MobilePairedMac {
         ), let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
             return nil
         }
-        return "host:\(normalizedHost.lowercased()):\(port):name:\(displayName.lowercased())"
+        return "host:\(normalizedHost.lowercased()):\(port):name:\(displayName.lowercased()):instance:\(instanceTag ?? "")"
     }
 
     func mergingCustomization(from other: MobilePairedMac) -> MobilePairedMac {

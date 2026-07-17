@@ -34,14 +34,16 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             XCTAssertEqual(workspace.focusedPanelId, browserPanel.id)
             XCTAssertFalse(workspace.bonsplitController.isSplitZoomed)
 
-            var didAttachForTest = false
-            if browserPanel.webView.superview == nil {
-                browserPanel.webView.frame = window.contentView?.bounds ?? .zero
-                window.contentView?.addSubview(browserPanel.webView)
-                didAttachForTest = true
+            var attachedPresentationView: NSView?
+            if browserPanel.webView.cmuxBrowserViewportAttachmentSuperview == nil,
+               let contentView = window.contentView {
+                let presentationView = browserPanel.webView.cmuxBrowserViewportPresentationView
+                contentView.addSubview(presentationView)
+                browserPanel.webView.cmuxApplyBrowserViewportLayout(in: contentView.bounds)
+                attachedPresentationView = presentationView
             }
             defer {
-                if didAttachForTest { browserPanel.webView.removeFromSuperview() }
+                attachedPresentationView?.removeFromSuperview()
             }
 
             window.makeKeyAndOrderFront(nil)

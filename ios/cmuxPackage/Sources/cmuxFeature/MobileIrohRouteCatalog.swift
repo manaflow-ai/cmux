@@ -11,7 +11,6 @@ import Foundation
 /// discovered device. A lifecycle scope prevents a delayed callback from a
 /// signed-out or prior account runtime from repopulating the current catalog.
 public actor MobileIrohRouteCatalog {
-    static let maximumBindingCount = 32
     static let preferredRoutePriority = -10_000
 
     private var activeScope: UInt64?
@@ -57,7 +56,7 @@ public actor MobileIrohRouteCatalog {
 
         let pairableMacs = bindings.filter {
             $0.platform == .mac && $0.pairingEnabled
-        }.prefix(Self.maximumBindingCount)
+        }.prefix(CmxIrohDiscoveryResponse.maximumBindingCount)
         let endpointCounts = Dictionary(
             grouping: pairableMacs,
             by: \CmxIrohBrokerBinding.endpointID

@@ -25,5 +25,10 @@ enum RemoteTmuxControlCommandKind: Equatable {
     case paneRects(Int, Int)
     /// One command in an atomically-enqueued `swap-window` mirror reorder.
     case windowReorder(isLast: Bool)
+    /// A command whose block resolution the sender observes (see
+    /// ``RemoteTmuxControlConnection/sendTracked(_:completion:)``): the token
+    /// keys a completion that fires `true` on `%end`, `false` on `%error` or
+    /// when the stream resets before the block arrives.
+    case tracked(UUID)
     case other
 }

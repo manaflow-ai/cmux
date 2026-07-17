@@ -52,7 +52,7 @@ function WorkspaceRow({ workspace, onSelect, onNewScreen, onClose, onRename }: W
         if (event.key === "Enter" || event.key === " ") event.currentTarget.click();
       }}
     >
-      <span className="workspace-rail" aria-hidden="true" />
+      <span className="workspace-rail" aria-hidden="true">▎</span>
       <span className="workspace-name">
         {rename?.kind === "workspace" && rename.id === workspace.id ? (
           <InlineRename
@@ -151,8 +151,8 @@ export function Sidebar({
               onRename={onRenameWorkspace}
             />
           ))}
+          <button className="new-workspace" onClick={onNewWorkspace} type="button">+ {t("newWorkspace")}</button>
         </div>
-        <button className="new-workspace" onClick={onNewWorkspace} type="button">+ {t("newWorkspace")}</button>
       </nav>
     </aside>
   );

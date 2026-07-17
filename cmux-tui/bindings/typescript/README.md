@@ -24,7 +24,9 @@ Attach payloads are decoded to `Uint8Array`, which xterm.js accepts directly.
 import { Terminal } from "@xterm/xterm";
 import { CmuxClient, WebSocketTransport } from "cmux";
 const terminal = new Terminal();
-const transport = new WebSocketTransport("ws://127.0.0.1:9000/api/v1/ws");
+const transport = new WebSocketTransport("ws://127.0.0.1:9000/api/v1/ws", {
+  onPairingChallenge: ({ code }) => showCode(code),
+});
 const client = new CmuxClient({ transport });
 const info = await client.identify();
 console.log(`cmux protocol ${info.protocol}`);
@@ -43,9 +45,10 @@ void (async () => {
 await client.send(surface, { bytes: new TextEncoder().encode("ls\r") });
 ```
 
-For a server started with `--ws-token`, pass the token to the transport. It
-sends the required authentication preamble as the first frame, before any
-queued protocol request:
+Without `authToken`, the transport requests a short-lived pairing code and
+holds protocol requests until a trusted TUI approves it. The approval issues a
+credential through `onPairingCredential` for reconnects. For automation, a
+server started with `--ws-token` accepts that static token instead:
 
 ```ts
 const transport = new WebSocketTransport("ws://127.0.0.1:7681", {

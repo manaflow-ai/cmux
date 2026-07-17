@@ -1,24 +1,34 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { listComments } from "./bridge";
 import type { DiffCommentRecord } from "./types";
 
 /**
- * Loads persisted comments once on mount when the native bridge is available
- * (repoRoot is null otherwise). Mirrors the started-ref pattern used by
- * `useRenderDiff`/`usePendingReplacement` in App.tsx.
+ * Loads persisted comments for the active repository. Cleanup invalidates an
+ * older load so a slow response cannot overwrite comments after a repo switch.
  */
 export function useCommentsBootstrap(
   repoRoot: string | null,
   onLoaded: (comments: DiffCommentRecord[]) => void,
 ): void {
-  const started = useRef(false);
   useEffect(() => {
-    if (started.current || repoRoot == null) {
+    onLoaded([]);
+    if (repoRoot == null) {
       return;
     }
-    started.current = true;
+    let active = true;
     listComments(repoRoot)
-      .then((comments) => onLoaded(comments))
-      .catch((error) => console.warn("cmux diff comments load failed", error));
+      .then((comments) => {
+        if (active) {
+          onLoaded(comments);
+        }
+      })
+      .catch((error) => {
+        if (active) {
+          console.warn("cmux diff comments load failed", error);
+        }
+      });
+    return () => {
+      active = false;
+    };
   }, [onLoaded, repoRoot]);
 }

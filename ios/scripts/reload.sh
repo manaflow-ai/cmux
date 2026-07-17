@@ -213,7 +213,7 @@ fi
 # isolated CMUX_PORT; production-auth builds retain the production origin.
 # CMUX_IOS_API_BASE_URL is the explicit escape hatch for a physical device or
 # another reachable development host.
-CMUX_IOS_API_BASE_URL_VALUE="${CMUX_IOS_API_BASE_URL:-}"
+CMUX_IOS_API_BASE_URL_VALUE="${CMUX_IOS_API_BASE_URL:-${CMUX_DEV_API_BASE_URL:-}}"
 if [[ -z "$CMUX_IOS_API_BASE_URL_VALUE" ]]; then
   if [[ "$PROD_AUTH" -eq 1 ]]; then
     CMUX_IOS_API_BASE_URL_VALUE="https://cmux.com"

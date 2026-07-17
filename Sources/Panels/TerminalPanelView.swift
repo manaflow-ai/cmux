@@ -6,6 +6,7 @@ import CmuxAppKitSupportUI
 import CmuxTestSupport
 import CmuxTerminal
 import CmuxFoundation
+import CmuxSettings
 
 /// View for rendering a terminal panel
 struct TerminalPanelView: View {
@@ -14,10 +15,15 @@ struct TerminalPanelView: View {
     private var notificationPaneRingEnabled = NotificationPaneRingSettings.defaultEnabled
     @AppStorage(TerminalTextBoxInputSettings.maxLinesKey)
     private var textBoxMaxLines = TerminalTextBoxInputSettings.defaultMaxLines
+    @AppStorage(SessionContentWidthSettings.maxWidthKey)
+    private var storedSessionContentMaximumWidth = SessionContentWidthSettings.noMaximumWidth
+    @AppStorage(SessionContentWidthSettings.alignmentKey)
+    private var storedSessionContentAlignment = SessionContentAlignment.center.rawValue
     @State private var terminalFontSize = GhosttyConfig.load(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).fontSize
     let paneId: PaneID
     let isFocused: Bool
     let isVisibleInUI: Bool
+    var portalPaneOwnershipResolver: (@MainActor () -> Bool)? = nil
     let portalPriority: Int
     let isSplit: Bool
     let appearance: PanelAppearance
@@ -71,6 +77,8 @@ struct TerminalPanelView: View {
                 paneId: paneId,
                 isActive: isFocused,
                 isVisibleInUI: isVisibleInUI,
+                ownershipGeneration: panel.portalHostOwnershipGeneration,
+                isCurrentPaneOwner: currentPortalPaneOwner,
                 portalZPriority: portalPriority,
                 showsInactiveOverlay: isSplit && !isFocused,
                 showsUnreadNotificationRing: hasUnreadNotification && notificationPaneRingEnabled,
@@ -78,6 +86,7 @@ struct TerminalPanelView: View {
                 inactiveOverlayOpacity: appearance.unfocusedOverlayOpacity,
                 searchState: panel.searchState,
                 reattachToken: panel.viewReattachToken,
+                sessionContentWidthPresentation: sessionContentWidthPresentation,
                 onFocus: { _ in
                     panel.terminalDidBecomeFocused()
                     onFocus()
@@ -143,12 +152,38 @@ struct TerminalPanelView: View {
                         panel.preserveTextBoxContentForUnmount(from: view)
                     }
                 )
+                .sessionContentWidth(fillsHeight: false)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: appearance.contentBackgroundColor))
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
             terminalFontSize = GhosttyConfig.load(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).fontSize
         }
+    }
+
+    private var sessionContentWidthPresentation: SessionContentWidthPresentation {
+        SessionContentWidthPresentation(
+            storedMaximumWidth: storedSessionContentMaximumWidth,
+            storedAlignment: storedSessionContentAlignment
+        )
+    }
+
+    @MainActor
+    private func currentPortalPaneOwner() -> Bool {
+        if let portalPaneOwnershipResolver {
+            return portalPaneOwnershipResolver()
+        }
+        guard let app = AppDelegate.shared,
+              let manager = app.tabManagerFor(tabId: panel.workspaceId),
+              let workspace = manager.tabs.first(where: { $0.id == panel.workspaceId }),
+              let livePanel = workspace.panels[panel.id],
+              livePanel === panel,
+              let currentPane = workspace.paneId(forPanelId: panel.id),
+              currentPane.id == paneId.id,
+              let tabId = workspace.surfaceIdFromPanelId(panel.id) else {
+            return false
+        }
+        return workspace.bonsplitController.selectedTab(inPane: currentPane)?.id == tabId
     }
 
     private var effectiveTerminalAgentContext: String {

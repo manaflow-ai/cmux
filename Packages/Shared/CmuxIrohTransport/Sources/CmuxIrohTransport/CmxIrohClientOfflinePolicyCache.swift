@@ -4,7 +4,7 @@ public import Foundation
 
 /// Stores a bounded set of signed pair authorities for connectivity-only fallback.
 public actor CmxIrohClientOfflinePolicyCache {
-    public static let maximumTargetCount = 32
+    public static let maximumTargetCount = CmxIrohDiscoveryResponse.maximumBindingCount
     private static let storageAccount = "active-client-policies"
 
     private let secureStore: any CmxIrohSecureCredentialStoring

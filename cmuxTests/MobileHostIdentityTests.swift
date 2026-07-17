@@ -11,6 +11,25 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct MobileHostIdentityTests {
+    @Test func appInstanceTagDistinguishesReleaseChannelsAndTaggedDevBuilds() {
+        #expect(MobileHostIdentity.instanceTag(
+            environment: [:],
+            bundleIdentifier: "com.cmuxterm.app"
+        ) == "default")
+        #expect(MobileHostIdentity.instanceTag(
+            environment: [:],
+            bundleIdentifier: "com.cmuxterm.app.nightly"
+        ) == "nightly")
+        #expect(MobileHostIdentity.instanceTag(
+            environment: [:],
+            bundleIdentifier: "com.cmuxterm.app.staging"
+        ) == "staging")
+        #expect(MobileHostIdentity.instanceTag(
+            environment: ["CMUX_TAG": "future-one"],
+            bundleIdentifier: "com.cmuxterm.app.debug.future-one"
+        ) == "future-one")
+    }
+
     @Test func authenticatedStatusIncludesAuthoritativeInstanceTag() {
         let previousTag = ProcessInfo.processInfo.environment["CMUX_TAG"]
         setenv("CMUX_TAG", "future-one", 1)
@@ -24,11 +43,13 @@ struct MobileHostIdentityTests {
 
         let payload = MobileHostService.identityStatusPayload(routes: [])
         #expect(payload["mac_instance_tag"] as? String == "future-one")
+        #expect(!(payload["terminal_theme_revision_epoch"] as? String ?? "").isEmpty)
     }
 
     @Test func publicStatusOmitsInstanceTag() {
         let payload = MobileHostService.publicStatusPayload(routes: [])
         #expect(payload["mac_instance_tag"] == nil)
+        #expect(payload["terminal_theme_revision_epoch"] == nil)
     }
 
     @Test func taggedDebugBuildSuffixesPairingDisplayName() throws {

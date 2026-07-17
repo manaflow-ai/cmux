@@ -189,11 +189,10 @@ public actor CmxIrohHostRuntime {
                 throw CmxIrohHostRuntimeError.invalidLocalBinding
             }
 
-            let policy = try await resolvePolicy(
+            let policy = try await resolveInitialPolicy(
                 supervisor: supervisor,
                 expectedEndpointID: endpointID,
-                revision: revision,
-                allowCachedFallback: true
+                revision: revision
             )
             try requireCurrent(revision)
 

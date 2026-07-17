@@ -44,6 +44,9 @@ let package = Package(
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
                 .enableUpcomingFeature("InternalImportsByDefault"),
+            ],
+            linkerSettings: [
+                .linkedLibrary("c++"),
             ]
         ),
         // Test-only stand-in for the @_silgen_name libghostty symbol bound by

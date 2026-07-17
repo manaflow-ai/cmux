@@ -86,6 +86,11 @@ final class RemoteTmuxControlConnection {
     /// never come.
     var activityQueryCompletions: [UUID: ([Int: PaneForegroundState]?) -> Void] = [:]
     var newWindowCompletions: [UUID: (Int?) -> Void] = [:]
+    /// Completions for ``sendTracked(_:completion:)`` blocks, keyed by the
+    /// `.tracked` token in the FIFO. Guaranteed exactly one edge each: `%end`,
+    /// `%error`, or a stream reset (``failPendingTrackedSends()``) — callers
+    /// build protocol-anchored state machines on that guarantee.
+    var trackedSendCompletions: [UUID: (Bool) -> Void] = [:]
 
     private var process: Process?
     var stdinWriter: RemoteTmuxControlPipeWriter?
@@ -154,6 +159,11 @@ final class RemoteTmuxControlConnection {
     /// retry of a size the server never saw — a claim wedged at attach
     /// stayed wedged for the connection's lifetime.
     var sentWindowSizes: [Int: (Int, Int)] = [:]
+    /// Re-arms spent against a window whose %layout-change size keeps
+    /// disagreeing with a claim the sent ledger says was delivered. Reset
+    /// on agreement and on a new claim value; see
+    /// ``reassertWindowClaimIfLayoutDisagrees(windowId:layoutColumns:layoutRows:)``.
+    var windowClaimParityRearmsSpent: [Int: Int] = [:]
     /// The most recent window a size was requested for — the deterministic
     /// choice when the old-server fallback must replay one size session-wide.
     var lastSizeRequestWindowId: Int?
@@ -189,6 +199,10 @@ final class RemoteTmuxControlConnection {
     /// ``scheduleAttachRedrawKickIfNeeded()`` for why attach needs a redraw kick.
     var pendingAttachRedrawKick = false
     var attachRedrawKickTask: Task<Void, Never>?
+    /// Per-window mid-session redraw kicks, keyed by window id. Each window
+    /// owns its own shrink→restore task so a second window's kick cannot
+    /// cancel the first window's restore and strand it at the shrunk size.
+    var perWindowRedrawKickTasks: [Int: Task<Void, Never>] = [:]
     /// Gap between the kick's shrink push and its restore push. Must exceed tmux's
     /// pane-resize coalescing (~250 ms), otherwise the two pushes collapse into a
     /// net-zero size change and no SIGWINCH is ever delivered.
@@ -244,6 +258,32 @@ final class RemoteTmuxControlConnection {
     /// its pane, the running command changing) — the same moments native
     /// tmux redraws its own header row.
     static let headerSubscriptionPrefix = "cmux_hdr_"
+
+    /// Per-WINDOW subscription to `pane-border-status`, the one layout input tmux
+    /// changes with no notification of its own.
+    ///
+    /// Turning the option on or off resizes and moves every pane touching the
+    /// configured edge (measured on tmux 3.7: a 12-row pane at top 0 becomes an
+    /// 11-row pane at top 1) while the window's LAYOUT STRING is unchanged — the
+    /// string does not encode the title row — so tmux emits no `%layout-change`.
+    /// Pane heights come from the rects fetch that a `%layout-change` drives, so
+    /// without this subscription the published tree keeps the pre-toggle heights
+    /// until some unrelated layout event happens to refresh it, and every
+    /// edge-touching pane renders a row off from what tmux actually holds.
+    /// tmux pushes the value once on subscribe and again on every change, for
+    /// hidden windows as well as the current one (both verified on 3.7), so the
+    /// mirror learns the change on an event instead of polling for it.
+    static let borderStatusSubscriptionPrefix = "cmux_border_"
+
+    /// The last `pane-border-status` value each window's subscription reported.
+    /// The initial push needs no refetch (the attach's own rects fetch is already
+    /// current); only a CHANGE means the published heights went stale.
+    var borderStatusByWindow: [Int: String] = [:]
+
+    /// Windows whose `pane-border-status` subscription this client has issued.
+    /// Subscriptions belong to the CLIENT, so a reconnect drops them all and the
+    /// reseed's restage must issue them again (see ``reseedAfterReconnect()``).
+    var borderStatusSubscribedWindows: Set<Int> = []
 
     /// `ESC[?1049h` — enter the alternate screen, emitted to a mirror surface when
     /// the remote pane is on the alternate screen (see ``capturePane(paneId:)``).
@@ -334,6 +374,7 @@ final class RemoteTmuxControlConnection {
         failPendingActivityQueries()
         failPendingNewWindowRequests()
         failPendingWindowReorderVerifications()
+        failPendingTrackedSends()
         attachBlockDrained = false
         stderrBuffer = ""
         preControlOutputBuffer = ""
@@ -464,6 +505,7 @@ final class RemoteTmuxControlConnection {
         failPendingActivityQueries()
         failPendingNewWindowRequests()
         failPendingWindowReorderVerifications()
+        failPendingTrackedSends()
         reconnectTask?.cancel()
         reconnectTask = nil
         resetWindowListRequestCoalescing()
@@ -480,6 +522,8 @@ final class RemoteTmuxControlConnection {
         windowSizeDebounceTasks.removeAll()
         attachRedrawKickTask?.cancel()
         attachRedrawKickTask = nil
+        for task in perWindowRedrawKickTasks.values { task.cancel() }
+        perWindowRedrawKickTasks.removeAll()
         pendingAttachRedrawKick = false
     }
 
@@ -513,8 +557,11 @@ final class RemoteTmuxControlConnection {
         #if DEBUG
         // Sizing sends were invisible: every claimed-vs-layout wedge was
         // debugged by inference about what tmux was told. Log the exact
-        // command so the send side is evidence, not conjecture.
-        if command.hasPrefix("refresh-client") {
+        // command so the send side is evidence, not conjecture. `capture-pane`
+        // is here for the same reason — it is how a grown pane's late-granted
+        // cells get refilled (see repaintPaneVisibleScreen), so "did the repaint
+        // fire?" must be answerable from the log rather than argued.
+        if command.hasPrefix("refresh-client") || command.hasPrefix("capture-pane") {
             cmuxDebugLog("remote.send state=\(connectionState) \(command)")
         }
         #endif
@@ -634,8 +681,17 @@ final class RemoteTmuxControlConnection {
         failPendingActivityQueries()
         failPendingNewWindowRequests()
         failPendingWindowReorderVerifications()
+        failPendingTrackedSends()
         resetWindowListRequestCoalescing()
         cancelSizingFollowUps()
+        // Subscriptions belong to the dying client, so forget them HERE, not in
+        // the reseed: the reconnect's list-windows restage is what re-issues them
+        // (see stagePendingLayout), and that restage runs BEFORE
+        // reseedAfterReconnect — clearing there would let every surviving window
+        // skip its resubscribe and leave `pane-border-status` unwatched for the
+        // rest of the connection's life.
+        borderStatusSubscribedWindows.removeAll()
+        borderStatusByWindow.removeAll()
         pendingPostAttachAction = nil
         teardownProcessHandles()
         reconnectAttemptCount = 0
@@ -753,6 +809,12 @@ final class RemoteTmuxControlConnection {
             removeWindowSizeClaim(windowId: id)
             windowSizeDebounceTasks[id]?.cancel()
             windowSizeDebounceTasks[id] = nil
+            // Drop the dead window's border-status watch (tmux releases a dead
+            // window's subscriptions too; this keeps the client's set tidy across
+            // window churn and lets a reused @id resubscribe).
+            if borderStatusSubscribedWindows.remove(id) != nil {
+                unsubscribeWindowBorderStatus(windowId: id)
+            }
             // Release the closed window's per-pane/per-window diagnostic state so
             // it doesn't accumulate across window churn.
             if let closing = windowsByID[id] {
@@ -823,6 +885,39 @@ final class RemoteTmuxControlConnection {
                 if paneHeaderLabels[paneId] != label {
                     paneHeaderLabels[paneId] = label
                     observers.notifyTopologyChanged()
+                }
+            } else if name.hasPrefix(Self.borderStatusSubscriptionPrefix),
+                      let windowId = Int(name.dropFirst(Self.borderStatusSubscriptionPrefix.count)) {
+                // `pane-border-status` changed: every pane touching the configured
+                // edge just resized (and top-edge panes moved down) with no
+                // %layout-change to announce it, so the published heights are now
+                // stale. Re-read the topology — list-windows restages each window
+                // and its rects fetch republishes the real geometry, which is the
+                // same path a genuine layout event takes. Only a CHANGE refetches:
+                // tmux pushes the value once on subscribe, and that initial push
+                // rides alongside an attach whose rects fetch is already current.
+                let status = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                let previous = borderStatusByWindow.updateValue(status, forKey: windowId)
+                // What to compare the push against. tmux pushes the value once on
+                // subscribe, and that first push is NOT automatically a baseline:
+                // it arrives up to a second later (tmux coalesces subscription
+                // evaluation), so the option can change between the rects fetch and
+                // the push, and treating it as a baseline would swallow exactly the
+                // change this subscription exists to catch. A published window's
+                // placement came from its own rects reply, so it is the truth to
+                // compare the first push against. With no published tree yet the
+                // in-flight rects fetch still carries the truth, so the push is a
+                // baseline for real.
+                let baseline: String? = previous
+                    ?? (windowsByID[windowId] != nil
+                        ? (windowTitleRowPlacements[windowId]?.rawValue ?? "off")
+                        : nil)
+                if let baseline, baseline != status {
+                    record("border-status @\(windowId) \(baseline)->\(status)")
+                    #if DEBUG
+                    cmuxDebugLog("remote.border.change @\(windowId) \(baseline)->\(status) refetching")
+                    #endif
+                    requestWindows()
                 }
             }
         case let .commandResult(_, lines, isError):

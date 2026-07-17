@@ -235,6 +235,42 @@ import Testing
         #expect(store.workspaceListReconnectTargetMacDeviceID() == "mac-b")
     }
 
+    @Test func secondaryAggregationKeepsOneConnectionPerPhysicalMacWithTaggedSiblings() async throws {
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [
+                    try Self.pairedMac(
+                        id: "mac-a",
+                        displayName: "Desk Mac",
+                        host: "100.82.214.112",
+                        port: 50_901,
+                        lastSeenAt: Date(timeIntervalSince1970: 20),
+                        isActive: true,
+                        instanceTag: "feature-a"
+                    ),
+                    try Self.pairedMac(
+                        id: "mac-a",
+                        displayName: "Desk Mac",
+                        host: "100.82.214.112",
+                        port: 50_902,
+                        lastSeenAt: Date(timeIntervalSince1970: 10),
+                        isActive: false,
+                        instanceTag: "feature-b"
+                    ),
+                ],
+            ],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" }
+        )
+
+        #expect(await store.secondaryAggregationCandidateMacIDs() == ["mac-a"])
+    }
+
     @Test func workspaceListReconnectUsesSingleUnavailableWorkspaceOwner() async throws {
         let pairedStore = DelayedTeamPairedMacStore(
             recordsByTeam: [
@@ -410,6 +446,7 @@ import Testing
         customColor: String? = nil,
         customIcon: String? = nil,
         routes: [CmxAttachRoute]? = nil,
+        instanceTag: String? = nil,
         teamID: String? = "team-a"
     ) throws -> MobilePairedMac {
         MobilePairedMac(
@@ -423,7 +460,8 @@ import Testing
             teamID: teamID,
             customName: customName,
             customColor: customColor,
-            customIcon: customIcon
+            customIcon: customIcon,
+            instanceTag: instanceTag
         )
     }
 }

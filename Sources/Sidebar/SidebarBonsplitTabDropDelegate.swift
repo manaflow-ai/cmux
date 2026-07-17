@@ -8,7 +8,7 @@ struct SidebarBonsplitTabDropDelegate: DropDelegate {
     let bonsplitSourceWorkspaceId: @MainActor (UUID) -> UUID?
     let moveBonsplitTabToWorkspace: @MainActor (BonsplitTabDragPayload.Transfer, UUID) -> Bool
     let syncSidebarSelectionAfterDrop: @MainActor () -> Void
-    @Binding var selectedTabIds: Set<UUID>
+    let selectTargetAfterDrop: @MainActor () -> Void
 
     func validateDrop(info: DropInfo) -> Bool {
         guard isEnabled else { return false }
@@ -36,7 +36,7 @@ struct SidebarBonsplitTabDropDelegate: DropDelegate {
             return false
         }
 
-        selectedTabIds = [targetWorkspaceId]
+        selectTargetAfterDrop()
         syncSidebarSelectionAfterDrop()
         return true
     }

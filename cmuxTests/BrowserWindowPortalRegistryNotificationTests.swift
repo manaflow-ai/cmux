@@ -86,7 +86,9 @@ struct BrowserWindowPortalRegistryNotificationTests {
             "Repeated hidden-state updates should not post duplicate registry-change notifications"
         )
 
-        let slot = try #require(webView.superview as? WindowBrowserSlotView)
+        let slot = try #require(
+            webView.cmuxBrowserViewportAttachmentSuperview as? WindowBrowserSlotView
+        )
         #expect(!slot.isHidden)
 
         BrowserWindowPortalRegistry.hide(webView: webView, source: "unitTest")
@@ -222,7 +224,9 @@ struct BrowserWindowPortalRegistryNotificationTests {
             )
         )
 
-        let slot = try #require(webView.superview as? WindowBrowserSlotView)
+        let slot = try #require(
+            webView.cmuxBrowserViewportAttachmentSuperview as? WindowBrowserSlotView
+        )
         #expect(BrowserWindowPortalRegistry.debugSnapshot(for: webView) != nil)
         #expect(slot.browserPortalTestSearchOverlayView != nil)
         #expect(hasOmnibarSuggestionsOverlay(in: slot))

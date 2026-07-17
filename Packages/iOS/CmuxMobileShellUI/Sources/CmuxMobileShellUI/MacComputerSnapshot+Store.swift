@@ -33,16 +33,25 @@ extension MacComputerSnapshot {
             )
             let presence: DeviceTreePresence? = summary
                 .map { $0.online ? .online : .offline(lastSeenAt: $0.lastSeenAt) }
+            let connectionStatus = connectionStatuses[mac.macDeviceID]
+            let exactConnectionStatus = connectionStatus == .connected
+                && store.connectedMacDeviceID == mac.macDeviceID
+                && mac.instanceTag != nil
+                && store.connectedMacInstanceTag != mac.instanceTag
+                ? nil
+                : connectionStatus
             return MacComputerSnapshot(
                 deviceId: mac.macDeviceID,
+                instanceTag: mac.instanceTag,
                 title: buildScope?.computerDisplayName(mac.resolvedName) ?? mac.resolvedName,
                 platform: "mac",
                 colorIndex: aliases.compactMap { colorIndex[$0] }.first,
                 customColor: mac.customColor,
                 customIcon: mac.customIcon,
-                connectionStatus: connectionStatuses[mac.macDeviceID],
+                connectionStatus: exactConnectionStatus,
                 presence: presence,
-                buildLabel: summary?.buildLabel,
+                buildLabel: summary?.buildLabel
+                    ?? MacBuildChannel().label(bundleID: nil, tag: mac.instanceTag),
                 routeDescription: CmxAttachRoute.deviceTreeRouteDescription(for: mac.routes),
                 lastSeenAt: mac.lastSeenAt,
                 workspaceCount: store.workspaceCount(for: mac.macDeviceID),

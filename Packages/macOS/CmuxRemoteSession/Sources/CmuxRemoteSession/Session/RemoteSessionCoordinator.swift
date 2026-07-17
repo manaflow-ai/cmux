@@ -209,16 +209,16 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         }
     }
 
-    /// Stops the session: tears down the relay, releases the proxy lease,
-    /// fails parked PTY-bridge starts, and publishes cleared state.
-    /// Synchronous when already on the coordinator queue.
-    public func stop() {
+    /// Stops the session with the requested ownership scope; synchronous on the coordinator queue.
+    ///
+    /// - Parameter cleanupScope: The ownership scope released by this stop.
+    public func stop(cleanupScope: RemoteRelayCleanupScope = .persistentSlot) {
         if DispatchQueue.getSpecific(key: queueKey) != nil {
-            stopAllLocked()
+            _ = stopAllLocked(cleanupScope: cleanupScope)
             return
         }
         queue.async { [self] in
-            stopAllLocked()
+            _ = stopAllLocked(cleanupScope: cleanupScope)
         }
     }
 
@@ -234,43 +234,6 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
                 surfaceAliases: surfaceAliases
             )
         }
-    }
-
-    func stopAllLocked() {
-        debugLog("remote.session.stop \(debugConfigSummary())")
-        isStopping = true
-        cancelReconnectRetryLocked()
-        reconnectRetryCount = 0
-        consecutiveUnreachableProbeCount = 0
-        reconnectSuspended = false
-        reachabilityProbeGeneration &+= 1
-        cancelReverseRelayRestartLocked()
-        cancelRemotePortScanCoalesceLocked()
-        stopReverseRelayLocked()
-        remotePortScanGeneration &+= 1
-        remotePortScanBurstTask?.cancel()
-        remotePortScanBurstTask = nil
-        remotePortScanBurstActive = false
-        remotePortScanActiveReason = nil
-        remotePortScanPendingReason = nil
-        remotePortScanTTYNames.removeAll()
-        remotePortScanSnapshot.reset()
-        stopRemotePortPollingLocked()
-        remotePortPollState.reset()
-        keepPolledRemotePortsUntilTTYScan = false
-        bootstrapRemoteTTYResolved = false
-        cancelBootstrapRemoteTTYRetryLocked()
-        bootstrapRemoteTTYFetchInFlight = false
-        bootstrapRemoteTTYRetryCount = 0
-        failPendingPTYBridgeStartsLocked("remote daemon is not ready")
-
-        releaseProxyLeaseLocked()
-        proxyEndpoint = nil
-        daemonReady = false
-        daemonBootstrapVersion = nil
-        daemonRemotePath = nil
-        publishProxyEndpoint(nil)
-        publishPortsSnapshotLocked()
     }
 
     func beginConnectionAttemptLocked() {

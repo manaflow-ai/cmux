@@ -21,8 +21,17 @@ extension BackingUpPairedMacStore {
         } else {
             existing = []
         }
+        let instanceTag: String?
+        switch condition {
+        case .matchingInstanceTag(let expectedInstanceTag):
+            instanceTag = expectedInstanceTag
+        case .unclaimed:
+            instanceTag = nil
+        }
         let previousActive = markActive == true ? existing.first(where: \.isActive) : nil
-        let existedBeforeWrite = existing.contains { $0.macDeviceID == macDeviceID }
+        let existedBeforeWrite = existing.contains {
+            $0.macDeviceID == macDeviceID && $0.instanceTag == instanceTag
+        }
         let wrote = try await inner.upsertRoutesIfAuthorized(
             macDeviceID: macDeviceID,
             displayName: displayName,
@@ -38,11 +47,13 @@ extension BackingUpPairedMacStore {
         lastSignedInAccount = account
         let allowsTombstoneRevive = await clearPendingDelete(
             macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
             account: account,
             teamID: team
         ) || (markActive == true && !existedBeforeWrite)
         await uploadCurrentRecord(
             macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
             account: account,
             teamID: team,
             includesCustomizations: false,
@@ -51,9 +62,13 @@ extension BackingUpPairedMacStore {
         )
         if markActive == true,
            let previousActive,
-           previousActive.macDeviceID != macDeviceID {
+           previousActive.id != MobilePairedMac.pairingID(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+           ) {
             await uploadCurrentRecord(
                 macDeviceID: previousActive.macDeviceID,
+                instanceTag: previousActive.instanceTag,
                 account: account,
                 teamID: team,
                 includesCustomizations: false,

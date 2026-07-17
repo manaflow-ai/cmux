@@ -1,6 +1,6 @@
 public import CmuxSettings
 internal import Dispatch
-internal import Foundation
+public import Foundation
 internal import os
 
 /// The cmux control-socket listener: path reservation, bind/listen lifecycle,
@@ -73,6 +73,7 @@ public final class SocketControlServer {
         var listenerReadSourceSuspended = false
         var socketPathMonitorSource: (any DispatchSourceFileSystemObject)?
         var accessMode: SocketControlMode = .cmuxOnly
+        var configuredPreferredSocketPath: String?
     }
 
     /// Sendable snapshot of the listener state, published to the read mirror
@@ -89,6 +90,7 @@ public final class SocketControlServer {
         let listenerStartInProgress: Bool
         let socketPathLockHeld: Bool
         let accessMode: SocketControlMode
+        let configuredPreferredSocketPath: String?
     }
 
     /// The accept path's own state: the consecutive-failure streak (legacy
@@ -129,6 +131,9 @@ public final class SocketControlServer {
     nonisolated let events: SocketControlServerEvents
     /// Recovery-delay clock (accept-source resume backoff).
     public nonisolated let recoveryClock: any SocketRecoveryClock
+    private let authorizationObserverBag: SocketAuthorizationObserverBag
+    private nonisolated let connectionAuthorizationState: SocketConnectionAuthorizationState
+    private nonisolated let effectivePasswordProvider: @Sendable () -> String?
 
     /// Accepted, configured client connections, in accept order.
     ///
@@ -158,6 +163,13 @@ public final class SocketControlServer {
     ///     continuous clock.
     ///   - maximumBufferedConnections: Maximum accepted connections waiting
     ///     for the stream consumer. New connections are closed when full.
+    ///   - notificationCenter: Source of authorization-secret change
+    ///     notifications. The composition root supplies the process-wide
+    ///     center; tests can inject an isolated center.
+    ///   - effectivePasswordProvider: Reads the password currently enforced by
+    ///     password mode. Called outside authorization-state lock sections.
+    ///   - authorizationChangeSignals: Out-of-band signals for authoritative
+    ///     password-file changes that do not post an in-process notification.
     ///   - events: Host callback seam.
     public init(
         initialSocketPath: String = SocketControlSettings.stableDefaultSocketPath,
@@ -165,6 +177,9 @@ public final class SocketControlServer {
         listenerPolicy: SocketListenerPolicy = SocketListenerPolicy(),
         recoveryClock: any SocketRecoveryClock = SystemSocketRecoveryClock(),
         maximumBufferedConnections: Int = 32,
+        notificationCenter: NotificationCenter,
+        effectivePasswordProvider: @escaping @Sendable () -> String? = { nil },
+        authorizationChangeSignals: AsyncStream<Void>? = nil,
         events: SocketControlServerEvents
     ) {
         let initialState = ListenerState(socketPath: initialSocketPath)
@@ -174,11 +189,73 @@ public final class SocketControlServer {
         self.transport = transport
         self.listenerPolicy = listenerPolicy
         self.recoveryClock = recoveryClock
+        self.authorizationObserverBag = SocketAuthorizationObserverBag(
+            notificationCenter: notificationCenter
+        )
+        self.connectionAuthorizationState = SocketConnectionAuthorizationState()
+        self.effectivePasswordProvider = effectivePasswordProvider
         self.events = events
         (self.connections, self.connectionsContinuation) =
             AsyncStream<ControlConnection>.makeStream(
                 bufferingPolicy: .bufferingOldest(max(0, maximumBufferedConnections))
             )
+        startObservingAuthorizationChanges(authorizationChangeSignals: authorizationChangeSignals)
+    }
+
+    private func startObservingAuthorizationChanges(
+        authorizationChangeSignals: AsyncStream<Void>?
+    ) {
+        let notificationCenter = authorizationObserverBag.notificationCenter
+        let socketPasswordKeyID = SettingCatalog().automation.socketPassword.id
+        let tokens = [
+            notificationCenter.addObserver(
+                forName: SocketControlPasswordStore.didChangeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.refreshConnectionAuthorizations(source: "password_store")
+                }
+            },
+            notificationCenter.addObserver(
+                forName: SecretFileStore.didChangeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                guard notification.userInfo?[SecretFileStore.changedKeyIDKey] as? String
+                    == socketPasswordKeyID else { return }
+                MainActor.assumeIsolated {
+                    self?.refreshConnectionAuthorizations(source: "secret_store")
+                }
+            },
+        ]
+        let changeTask = authorizationChangeSignals.map { signals in
+            Task.detached { [weak self] in
+                for await _ in signals {
+                    guard !Task.isCancelled else { break }
+                    self?.refreshConnectionAuthorizations(source: "password_file")
+                }
+            }
+        }
+        authorizationObserverBag.install(tokens, changeTask: changeTask)
+    }
+
+    /// Refreshes the effective password and invalidates accepted connections
+    /// only when password mode's authoritative credential actually changed.
+    nonisolated func refreshConnectionAuthorizations(source: String) {
+        guard connectionAuthorizationState.accessMode.requiresPasswordAuth else {
+            return
+        }
+        guard let generation = connectionAuthorizationState.refreshEffectivePassword(
+            effectivePasswordProvider()
+        ) else { return }
+        events.breadcrumb(
+            "socket.listener.authorization.invalidated",
+            socketListenerEventData(
+                stage: "authorization",
+                extra: ["generation": generation.number, "source": source]
+            )
+        )
     }
 
     /// Runs `body` with exclusive access to the listener state and publishes
@@ -204,7 +281,8 @@ public final class SocketControlServer {
             reservedStartupSocketPath: state.reservedStartupSocketPath,
             listenerStartInProgress: state.listenerStartInProgress,
             socketPathLockHeld: state.socketPathLockFD >= 0,
-            accessMode: state.accessMode
+            accessMode: state.accessMode,
+            configuredPreferredSocketPath: state.configuredPreferredSocketPath
         )
     }
 
@@ -216,9 +294,38 @@ public final class SocketControlServer {
         listenerStateSnapshot().isRunning
     }
 
+    /// Whether accept recovery has parked a listener restart that has not yet been claimed.
+    public nonisolated var hasPendingAcceptLoopRearm: Bool {
+        listenerStateSnapshot().pendingRearmGeneration != nil
+    }
+
     /// The access mode of the current (or most recently started) listener.
     public nonisolated var accessMode: SocketControlMode {
-        listenerStateSnapshot().accessMode
+        connectionAuthorizationState.accessMode
+    }
+
+    /// Generation attached to newly accepted clients for policy revocation.
+    public nonisolated var connectionAuthorizationGeneration: UInt64 {
+        connectionAuthorizationState.currentGeneration.number
+    }
+
+    /// Whether an accepted connection still belongs to the live access policy.
+    public nonisolated func isConnectionAuthorizationCurrent(_ generation: UInt64) -> Bool {
+        return connectionAuthorizationState.isCurrent(generation)
+    }
+
+    /// Whether a connection's generation and authenticated password revision
+    /// still belong to the live access policy. This is an in-memory hot path;
+    /// provider I/O happens only at configuration and out-of-band change events.
+    public nonisolated func isConnectionAuthorizationCurrent(
+        _ generation: UInt64,
+        passwordAuthorization: SocketPasswordAuthorization
+    ) -> Bool {
+        connectionAuthorizationState.permitsContinuation(
+            generation: generation,
+            authenticatedPasswordFingerprint:
+                passwordAuthorization.authenticatedCredentialFingerprint
+        )
     }
 
     /// The listener's current socket path, regardless of lifecycle phase.
@@ -281,6 +388,31 @@ public final class SocketControlServer {
 
     nonisolated func listenerStateSnapshot() -> ListenerStateSnapshot {
         stateMirror.withLock { $0 }
+    }
+
+    nonisolated func configureConnectionAuthorization(accessMode: SocketControlMode) {
+        connectionAuthorizationState.configure(
+            accessMode: accessMode,
+            effectivePassword: accessMode.requiresPasswordAuth
+                ? effectivePasswordProvider()
+                : nil
+        )
+    }
+
+    nonisolated func activateConnectionAuthorizations() {
+        connectionAuthorizationState.setRunning(true)
+    }
+
+    nonisolated func deactivateConnectionAuthorizations() {
+        connectionAuthorizationState.setRunning(false)
+    }
+
+    nonisolated func acceptedConnectionAuthorization() -> (
+        generation: UInt64,
+        revocationSignal: SocketAuthorizationRevocationSignal
+    ) {
+        let generation = connectionAuthorizationState.currentGeneration
+        return (generation.number, generation.revocationSignal)
     }
 
     // MARK: - Telemetry helpers

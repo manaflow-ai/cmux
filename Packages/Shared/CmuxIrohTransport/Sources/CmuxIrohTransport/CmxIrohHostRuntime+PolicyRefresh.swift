@@ -2,18 +2,76 @@ import CMUXMobileCore
 import Foundation
 
 extension CmxIrohHostRuntime {
+    func resolveInitialPolicy(
+        supervisor: CmxIrohEndpointSupervisor,
+        expectedEndpointID: CmxIrohPeerIdentity,
+        revision: UInt64
+    ) async throws -> ResolvedPolicy {
+        try await revokePendingBeforeRegistration()
+        try requireCurrent(revision)
+        var failureCount = 0
+        while true {
+            try requireCurrent(revision)
+            do {
+                return try await resolvePolicyAfterPendingRevocations(
+                    supervisor: supervisor,
+                    expectedEndpointID: expectedEndpointID,
+                    revision: revision,
+                    allowCachedFallback: true
+                )
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                try requireCurrent(revision)
+                guard CmxIrohTrustBrokerClientError
+                    .retriesInitialActivation(error) else {
+                    throw error
+                }
+                let delay = registrationRetrySchedule.delay(
+                    failureCount: failureCount,
+                    retryAfterSeconds: (error as? CmxIrohTrustBrokerClientError)?
+                        .retryAfterSeconds,
+                    jitterUnitInterval: registrationRetryJitter()
+                )
+                failureCount = min(failureCount + 1, 20)
+                let deadline = registrationClock.now().addingTimeInterval(delay)
+                // This bounded broker backoff is the intended delay; the
+                // lifecycle-owned start task cancels the injected clock sleep.
+                try await registrationClock.sleep(until: deadline)
+            }
+        }
+    }
+
     func resolvePolicy(
         supervisor: CmxIrohEndpointSupervisor,
         expectedEndpointID: CmxIrohPeerIdentity,
         revision: UInt64,
         allowCachedFallback: Bool
     ) async throws -> ResolvedPolicy {
+        try await revokePendingBeforeRegistration()
+        try requireCurrent(revision)
+        return try await resolvePolicyAfterPendingRevocations(
+            supervisor: supervisor,
+            expectedEndpointID: expectedEndpointID,
+            revision: revision,
+            allowCachedFallback: allowCachedFallback
+        )
+    }
+
+    private func revokePendingBeforeRegistration() async throws {
         try await pendingRevocations.revokePending(
             accountID: configuration.accountID,
             beforeRegisteringTag: configuration.tag,
             using: broker
         )
-        try requireCurrent(revision)
+    }
+
+    private func resolvePolicyAfterPendingRevocations(
+        supervisor: CmxIrohEndpointSupervisor,
+        expectedEndpointID: CmxIrohPeerIdentity,
+        revision: UInt64,
+        allowCachedFallback: Bool
+    ) async throws -> ResolvedPolicy {
         let endpoint = try await supervisor.activeEndpoint()
         let address = await endpoint.address()
         guard address.identity == expectedEndpointID else {

@@ -6,6 +6,7 @@ export interface ScreenView {
   id: Id;
   workspaceId: Id;
   label: string;
+  statusLabel?: string;
   active: boolean;
   pane: LivePane | null;
   tab: Tab | null;
@@ -59,7 +60,7 @@ export function treeToViewModel(
       name: workspace.name,
       active: workspaceSelected,
       subtitle,
-      screens: workspace.screens.map((screen) => {
+      screens: workspace.screens.map((screen, screenIndex) => {
         const screenSelected = workspaceSelected && screen.id === selection.selectedScreenId;
         const pane = livePane(screen, screenSelected ? selection.selectedPaneId : null);
         const tab = pane?.tabs[pane.active_tab] ?? null;
@@ -68,6 +69,7 @@ export function treeToViewModel(
           id: screen.id,
           workspaceId: workspace.id,
           label: screen.name || tab?.name || tab?.title || `#${screen.id}`,
+          statusLabel: screen.name || String(screenIndex + 1),
           active: screenSelected,
           pane,
           tab,

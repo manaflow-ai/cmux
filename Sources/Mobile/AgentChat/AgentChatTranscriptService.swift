@@ -73,7 +73,7 @@ final class AgentChatTranscriptService {
         guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID) else {
             return nil
         }
-        return surface.mobileRenderGridFrame(stateSeq: 0, full: true)?.rows
+        return surface.mobileRenderGridFrame(stateSeq: 0, full: true, includeTheme: false)?.rows
     }
 
     /// A `(session, surface)` resume re-bind cmux authored during session

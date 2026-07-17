@@ -8,6 +8,7 @@ import {
   type Id,
   type IdentifyResult,
   type NotificationEvent,
+  type PairingChallenge,
   type TitleChangedEvent,
   type Tree,
 } from "cmux/browser";
@@ -29,7 +30,7 @@ export interface ConnectionConfig {
 
 export interface Toast extends NotificationEvent {}
 
-type ConnectionStatus = "idle" | "connecting" | "connected" | "reconnecting" | "error";
+type ConnectionStatus = "idle" | "connecting" | "pairing" | "connected" | "reconnecting" | "error";
 
 interface ConnectionState {
   status: ConnectionStatus;
@@ -39,6 +40,7 @@ interface ConnectionState {
   clients: ClientInfo[];
   error: string | null;
   reconnect: ReconnectState | null;
+  pairing: PairingChallenge | null;
 }
 
 const initialState: ConnectionState = {
@@ -49,6 +51,7 @@ const initialState: ConnectionState = {
   clients: [],
   error: null,
   reconnect: null,
+  pairing: null,
 };
 
 export function useCmuxClient() {
@@ -59,6 +62,7 @@ export function useCmuxClient() {
   const [selection, dispatchSelection] = useReducer(localSelectionReducer, initialLocalSelectionState);
   const refreshRef = useRef<(() => Promise<Tree | null>) | null>(null);
   const localToastId = useRef(-1);
+  const pairingCredential = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     if (!config) return;
@@ -115,7 +119,20 @@ export function useCmuxClient() {
       titleReconciler = new SurfaceTitleReconciler();
       let dropHandled = false;
       let canReconnect = false;
-      const transport = new WebSocketTransport(config.url, { authToken: config.token });
+      const transport = new WebSocketTransport(config.url, {
+        authToken: config.token ?? pairingCredential.current,
+        onPairingChallenge: (pairing) => {
+          if (!cancelled) {
+            setState((current) => ({ ...current, status: "pairing", pairing, error: null }));
+          }
+        },
+        onPairingCredential: (credential) => {
+          pairingCredential.current = credential;
+        },
+        onAuthenticationRejected: () => {
+          if (!config.token) pairingCredential.current = undefined;
+        },
+      });
       const client = new CmuxClient({ transport });
       activeClient = client;
 
@@ -129,6 +146,7 @@ export function useCmuxClient() {
           client: null,
           error: null,
           reconnect: step,
+          pairing: null,
         }));
         retryTimer = setTimeout(() => void start(true, step.attempt), step.delayMs);
       };
@@ -154,7 +172,16 @@ export function useCmuxClient() {
         // A successful (re)connect resets the retry baseline so the next drop
         // starts from the first backoff step, not the cap.
         previousAttempt = 0;
-        setState({ status: "connected", client, info, tree, clients, error: null, reconnect: null });
+        setState({
+          status: "connected",
+          client,
+          info,
+          tree,
+          clients,
+          error: null,
+          reconnect: null,
+          pairing: null,
+        });
         dispatchSelection({ type: "tree-updated", snapshot: selectionSnapshot(tree) });
 
         void (async () => {
@@ -201,8 +228,7 @@ export function useCmuxClient() {
             if (
               event.event === "client-attached"
               || event.event === "client-changed"
-              // Presence sizes feed the foreign-size hint; refresh them when
-              // a surface is resized so the owning client is named correctly.
+              // Keep the client viewport list current after a shared resize.
               || event.event === "surface-resized"
             ) {
               await refreshClients();
@@ -230,12 +256,19 @@ export function useCmuxClient() {
             clients: [],
             error: error instanceof Error ? error.message : String(error),
             reconnect: null,
+            pairing: null,
           });
         }
       }
     };
 
-    setState((current) => ({ ...current, status: "connecting", error: null, reconnect: null }));
+    setState((current) => ({
+      ...current,
+      status: "connecting",
+      error: null,
+      reconnect: null,
+      pairing: null,
+    }));
     void start(false);
     return () => {
       cancelled = true;
@@ -248,6 +281,7 @@ export function useCmuxClient() {
 
   const connect = useCallback((next: ConnectionConfig) => {
     dispatchSelection({ type: "reset" });
+    pairingCredential.current = undefined;
     setConfig({ ...next, token: next.token || undefined });
   }, []);
 

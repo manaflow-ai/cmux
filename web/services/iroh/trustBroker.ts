@@ -19,7 +19,8 @@ import {
   type PairGrantPeer,
 } from "./crypto";
 import {
-  deviceLimitOverrideAllowed,
+  bindingQuotaForUser,
+  challengeQuotaForUser,
   IrohTrustBrokerConfig,
   IrohTrustBrokerConfigLive,
   type IrohTrustBrokerConfigShape,
@@ -202,6 +203,7 @@ export function makeIrohTrustBroker(
         nonceHash: nonceHash(nonce),
         now,
         expiresAt: new Date(now.getTime() + IROH_CHALLENGE_LIFETIME_MS),
+        challengeQuota: challengeQuotaForUser(config, userId),
       });
       return {
         challenge_id: challenge.id,
@@ -245,7 +247,7 @@ export function makeIrohTrustBroker(
           ),
         },
         now,
-        deviceLimitOverrideAllowed: deviceLimitOverrideAllowed(config, userId),
+        bindingQuota: bindingQuotaForUser(config, userId),
       });
 
       // New registration is already committed before relay minting starts.

@@ -21,6 +21,7 @@ base64.workspace = true
 libc.workspace = true
 regex.workspace = true
 tungstenite.workspace = true
+getrandom.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 uds_windows.workspace = true

@@ -65,11 +65,6 @@ export function DocsSidebar({
 
   return (
     <>
-      <DocsVersionPicker
-        channel={channel}
-        releaseLabel={releaseLabel}
-        nightlyLabel={nightlyLabel}
-      />
       <DocsSearch onNavigate={onNavigate} />
       <nav className="space-y-0.5" data-pagefind-ignore="all">
         {navItems.map((entry) => {
@@ -107,6 +102,11 @@ export function DocsSidebar({
           );
         })}
       </nav>
+      <DocsVersionPicker
+        channel={channel}
+        releaseLabel={releaseLabel}
+        nightlyLabel={nightlyLabel}
+      />
     </>
   );
 }

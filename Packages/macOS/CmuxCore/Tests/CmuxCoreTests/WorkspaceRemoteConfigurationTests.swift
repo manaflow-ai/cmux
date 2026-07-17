@@ -189,6 +189,66 @@ struct WorkspaceRemoteConfigurationValueTests {
         #expect(!a.hasSamePersistentPTYIdentity(as: differentRelay))
     }
 
+    @Test("remote relay namespace follows the remote endpoint and relay port")
+    func remoteRelayNamespace() {
+        let base = makeConfiguration(
+            destination: "user@host",
+            port: 2222,
+            identityFile: "/tmp/key-a",
+            sshOptions: ["ProxyJump=bastion-a"],
+            relayPort: 7000,
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "slot-a",
+            managedCloudVMID: "vm-a"
+        )
+        let conservativeMatch = makeConfiguration(
+            destination: " user@host ",
+            port: 2222,
+            identityFile: "/tmp/key-b",
+            sshOptions: ["ProxyJump=bastion-b"],
+            relayPort: 7000,
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "slot-b",
+            managedCloudVMID: "vm-a"
+        )
+
+        #expect(base.hasSameRemoteRelayNamespace(as: conservativeMatch))
+        #expect(!base.hasSameRemoteRelayNamespace(as: makeConfiguration(
+            destination: "user@host",
+            port: 2222,
+            relayPort: 7001,
+            managedCloudVMID: "vm-a"
+        )))
+        #expect(!base.hasSameRemoteRelayNamespace(as: makeConfiguration(
+            destination: "user@other",
+            port: 2222,
+            relayPort: 7000,
+            managedCloudVMID: "vm-a"
+        )))
+        #expect(!base.hasSameRemoteRelayNamespace(as: makeConfiguration(
+            destination: "user@host",
+            port: 22,
+            relayPort: 7000,
+            managedCloudVMID: "vm-a"
+        )))
+        #expect(!base.hasSameRemoteRelayNamespace(as: makeConfiguration(
+            transport: .websocket,
+            destination: "user@host",
+            port: 2222,
+            relayPort: 7000,
+            managedCloudVMID: "vm-a"
+        )))
+        #expect(!base.hasSameRemoteRelayNamespace(as: makeConfiguration(
+            destination: "user@host",
+            port: 2222,
+            relayPort: 7000,
+            managedCloudVMID: "vm-b"
+        )))
+        #expect(!makeConfiguration(relayPort: 0).hasSameRemoteRelayNamespace(
+            as: makeConfiguration(relayPort: 0)
+        ))
+    }
+
     @Test("managed Cloud VM persistent identity ignores local owner workspace")
     func managedCloudPersistentIdentityIgnoresOwnerWorkspace() {
         let ownerA = UUID()

@@ -87,4 +87,5 @@ final class WorkspaceRemoteSessionHostAdapter: RemoteSessionHosting, @unchecked 
             workspace.applyBootstrapRemoteTTY(ttyName)
         }
     }
+
 }

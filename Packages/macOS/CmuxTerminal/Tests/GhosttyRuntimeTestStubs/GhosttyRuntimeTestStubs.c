@@ -1,5 +1,19 @@
 #include "include/GhosttyRuntimeTestStubs.h"
+#include <stdlib.h>
 #include <string.h>
+#include <strings.h>
+
+typedef struct {
+    uint8_t r;
+    uint8_t g;
+    uint8_t b;
+} GhosttyRuntimeTestColor;
+
+typedef struct {
+    GhosttyRuntimeTestColor foreground;
+    bool has_foreground;
+    uint32_t diagnostics_count;
+} GhosttyRuntimeTestConfig;
 
 static bool cmux_test_needs_confirm_quit = false;
 static uint64_t cmux_test_foreground_pid = 0;
@@ -20,6 +34,51 @@ void cmux_test_ghostty_runtime_stubs_set_close_state(bool needs_confirm, uint64_
 bool ghostty_surface_clear_selection(void *surface) {
     (void)surface;
     return false;
+}
+
+void *ghostty_config_new(void) {
+    return calloc(1, sizeof(GhosttyRuntimeTestConfig));
+}
+
+void ghostty_config_free(void *config) {
+    free(config);
+}
+
+void ghostty_config_load_string(
+    void *raw_config,
+    const char *contents,
+    uintptr_t contents_len,
+    const char *path
+) {
+    (void)contents_len;
+    (void)path;
+    GhosttyRuntimeTestConfig *config = raw_config;
+    const char *value = strchr(contents, '=');
+    if (config == NULL || value == NULL) return;
+    do { value++; } while (*value == ' ' || *value == '\t');
+
+    if (strcasecmp(value, "black") == 0) {
+        config->foreground = (GhosttyRuntimeTestColor){0, 0, 0};
+        config->has_foreground = true;
+        return;
+    }
+
+    config->diagnostics_count = 1;
+}
+
+bool ghostty_config_get(
+    void *raw_config,
+    void *raw_value,
+    const char *key,
+    uintptr_t key_len
+) {
+    GhosttyRuntimeTestConfig *config = raw_config;
+    if (config == NULL || raw_value == NULL || !config->has_foreground ||
+        key_len != strlen("foreground") || strncmp(key, "foreground", key_len) != 0) {
+        return false;
+    }
+    *(GhosttyRuntimeTestColor *)raw_value = config->foreground;
+    return true;
 }
 
 void ghostty_config_diagnostics_count(void) {}
@@ -55,6 +114,7 @@ void ghostty_surface_read_screen_tail_vt(void) {}
 void ghostty_surface_read_text(void) {}
 void ghostty_surface_refresh(void) {}
 void ghostty_surface_render_grid_json(void) {}
+void ghostty_surface_render_grid_json_with_theme(void) {}
 void ghostty_surface_set_content_scale(void) {}
 void ghostty_surface_set_display_id(void) {}
 void ghostty_surface_set_focus(void) {}

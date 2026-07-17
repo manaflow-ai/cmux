@@ -154,6 +154,7 @@ struct TerminalComposerView: View {
 
     var body: some View {
         composerSurface
+        .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
         // The field is pinned edge-to-edge inside the surface's composer band, so its
         // outer size is locked to the band height and cannot report its own growth.
         // The field's height is driven solely by its content, so ask the host to
@@ -285,7 +286,9 @@ struct TerminalComposerView: View {
             HStack(alignment: .bottom, spacing: 8) {
                 MobileComposerIconButton(
                     systemImage: "paperclip",
-                    foregroundStyle: AnyShapeStyle(TerminalPalette.foreground.opacity(0.7)),
+                    foregroundStyle: AnyShapeStyle(
+                        store.activeTerminalTheme.terminalChromeForegroundColor.opacity(0.78)
+                    ),
                     size: controlHeight,
                     accessibilityIdentifier: "MobileComposerAttach",
                     accessibilityLabel: L10n.string("mobile.composer.attach", defaultValue: "Attach Photo")
@@ -325,7 +328,7 @@ struct TerminalComposerView: View {
                     // transcript; the mic toggle and send stay live (send
                     // hard-cancels dictation -> idle, re-enabling the field).
                     .disabled(dictation.locksComposerField)
-                    .foregroundStyle(TerminalPalette.foreground)
+                    .foregroundStyle(store.activeTerminalTheme.terminalForegroundColor)
                     // 6pt container padding + 3pt here keeps the text's 9pt inset
                     // from the round-7 layout, and bottom-aligns the single-line text
                     // with the inline button's circle.
@@ -338,13 +341,19 @@ struct TerminalComposerView: View {
                     } label: {
                         Image(systemName: "arrow.up")
                             .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(canSend ? .white : TerminalPalette.foreground.opacity(0.35))
+                            .foregroundStyle(
+                                canSend
+                                    ? .white
+                                    : store.activeTerminalTheme.terminalForegroundColor.opacity(0.35)
+                            )
                             .frame(width: inlineSendDiameter, height: inlineSendDiameter)
                             .background(
                                 Circle().fill(
                                     canSend
                                         ? AnyShapeStyle(Color.accentColor)
-                                        : AnyShapeStyle(TerminalPalette.foreground.opacity(0.12))
+                                        : AnyShapeStyle(
+                                            store.activeTerminalTheme.terminalForegroundColor.opacity(0.12)
+                                        )
                                 )
                             )
                     }
@@ -383,7 +392,9 @@ struct TerminalComposerView: View {
             systemImage: "mic",
             activeSystemImage: "mic.fill",
             isActive: listening,
-            foregroundStyle: listening ? AnyShapeStyle(Color.red) : AnyShapeStyle(TerminalPalette.foreground.opacity(0.7)),
+            foregroundStyle: listening
+                ? AnyShapeStyle(Color.red)
+                : AnyShapeStyle(store.activeTerminalTheme.terminalChromeForegroundColor.opacity(0.78)),
             size: controlHeight,
             pulsesWhenActive: true,
             isDisabled: !dictation.isAvailable,
@@ -411,7 +422,10 @@ struct TerminalComposerView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 ForEach(pendingAttachments) { attachment in
-                    AttachmentChip(thumbnail: thumbnailCache.image(for: attachment.id)) {
+                    AttachmentChip(
+                        thumbnail: thumbnailCache.image(for: attachment.id),
+                        theme: store.activeTerminalTheme
+                    ) {
                         store.removePendingAttachment(id: attachment.id, forTerminalID: terminalID)
                         thumbnailCache.remove(attachment.id)
                         requestHeightRemeasure()
@@ -779,6 +793,7 @@ final class AttachmentThumbnailCache {
 /// the view body never decodes the full encoded `Data` on a re-render.
 private struct AttachmentChip: View {
     let thumbnail: UIImage?
+    let theme: TerminalTheme
     let onRemove: () -> Void
 
     private let side: CGFloat = 56
@@ -790,7 +805,7 @@ private struct AttachmentChip: View {
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(TerminalPalette.foreground.opacity(0.15), lineWidth: 1)
+                        .strokeBorder(theme.terminalForegroundColor.opacity(0.15), lineWidth: 1)
                 )
 
             Button(action: onRemove) {
@@ -814,10 +829,10 @@ private struct AttachmentChip: View {
                 .scaledToFill()
         } else {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(TerminalPalette.foreground.opacity(0.12))
+                .fill(theme.terminalForegroundColor.opacity(0.12))
                 .overlay(
                     Image(systemName: "photo")
-                        .foregroundStyle(TerminalPalette.foreground.opacity(0.5))
+                        .foregroundStyle(theme.terminalForegroundColor.opacity(0.5))
                 )
         }
     }

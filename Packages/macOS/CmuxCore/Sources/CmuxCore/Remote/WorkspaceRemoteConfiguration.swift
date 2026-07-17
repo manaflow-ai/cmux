@@ -246,6 +246,25 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             && daemonWebSocketEndpoint?.proxyBrokerKeyComponent == other.daemonWebSocketEndpoint?.proxyBrokerKeyComponent
     }
 
+    /// True when `other` addresses the same remote CLI relay metadata namespace.
+    ///
+    /// Relay metadata lives under `$HOME/.cmux/relay/<relayPort>` on the remote
+    /// transport endpoint. This comparison intentionally ignores persistent
+    /// slots, SSH options, and credentials: those inputs may change while still
+    /// reaching the same remote account, so treating that case as shared avoids
+    /// starting a replacement that could overwrite incompletely cleaned metadata.
+    ///
+    /// - Parameter other: The remote configuration to compare.
+    /// - Returns: `true` when both configurations address the same relay metadata namespace.
+    public func hasSameRemoteRelayNamespace(as other: WorkspaceRemoteConfiguration) -> Bool {
+        guard let relayPort, relayPort > 0, relayPort == other.relayPort else { return false }
+        return transport == other.transport
+            && destination.trimmingCharacters(in: .whitespacesAndNewlines)
+                == other.destination.trimmingCharacters(in: .whitespacesAndNewlines)
+            && port == other.port
+            && managedCloudVMID == other.managedCloudVMID
+    }
+
     /// Returns a copy scoped to the local workspace that owns this remote
     /// configuration. Remote CLI bridges use this to reject cross-workspace
     /// requests before they reach the app control socket.

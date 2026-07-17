@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import UIKit
 
 /// Transient, centered HUD shown while the user pinch-zooms the terminal.
@@ -33,18 +34,20 @@ final class MobileTerminalZoomControlOverlay: UIView {
     }
 
     private let titleLabel = UILabel()
+    private let titleChip = UIVisualEffectView()
+    private var actionButtons: [UIButton] = []
+    private let style: ButtonStyle
 
     init(style: ButtonStyle = MobileTerminalZoomControlOverlay.defaultStyle) {
+        self.style = style
         super.init(frame: .zero)
         // No panel behind the buttons: the overlay itself is transparent and
         // each button is a standalone control, so the terminal stays visible.
 
         titleLabel.font = .monospacedDigitSystemFont(ofSize: 13, weight: .semibold)
-        titleLabel.textColor = .white
         titleLabel.textAlignment = .center
         // The readout sits in its own small glass chip (matching the buttons) so
         // it stays clearly legible over any terminal content.
-        let titleChip = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterialDark))
         titleChip.layer.cornerRadius = 9
         titleChip.layer.cornerCurve = .continuous
         titleChip.clipsToBounds = true
@@ -84,6 +87,7 @@ final class MobileTerminalZoomControlOverlay: UIView {
             style: style
         )
         builtInButton.addTarget(self, action: #selector(handleRestore), for: .touchUpInside)
+        actionButtons = [resetButton, saveButton, builtInButton]
 
         let stack = UIStackView(arrangedSubviews: [titleRow, resetButton, saveButton, builtInButton])
         stack.axis = .vertical
@@ -101,6 +105,7 @@ final class MobileTerminalZoomControlOverlay: UIView {
             stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
             stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
         ])
+        applyTheme(.monokai)
     }
 
     required init?(coder: NSCoder) {
@@ -114,6 +119,28 @@ final class MobileTerminalZoomControlOverlay: UIView {
             localized: "terminal.zoom.current_size",
             defaultValue: "\(value) pt"
         )
+    }
+
+    /// Recolors this transient terminal control for the active surface theme.
+    func applyTheme(_ theme: TerminalTheme) {
+        let background = theme.terminalBackgroundUIColor
+        let foreground = background.terminalReadableForeground
+        let isLight = background.terminalPrefersDarkForeground
+        titleLabel.textColor = foreground
+        titleChip.effect = UIBlurEffect(style: isLight ? .systemThinMaterialLight : .systemThinMaterialDark)
+        for button in actionButtons {
+            var config = button.configuration
+            config?.baseForegroundColor = foreground
+            if style == .glass {
+                var background = UIBackgroundConfiguration.clear()
+                background.visualEffect = UIBlurEffect(
+                    style: isLight ? .systemThinMaterialLight : .systemThinMaterialDark
+                )
+                background.cornerRadius = 11
+                config?.background = background
+            }
+            button.configuration = config
+        }
     }
 
     /// The production style, overridable in DEBUG via `CMUX_UITEST_ZOOM_STYLE`

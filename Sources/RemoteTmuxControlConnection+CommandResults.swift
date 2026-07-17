@@ -37,6 +37,10 @@ extension RemoteTmuxControlConnection {
                let completion = newWindowCompletions.removeValue(forKey: token) {
                 completion(nil)
             }
+            if case let .tracked(token) = kind,
+               let completion = trackedSendCompletions.removeValue(forKey: token) {
+                completion(false)
+            }
             // A rejected per-window size normally means the server predates
             // the '@id:WxH' form: degrade to session-wide sizing, visibly.
             // But a "can't find window" error is about ONE dead window (it
@@ -333,6 +337,8 @@ extension RemoteTmuxControlConnection {
             break
         case let .windowReorder(isLast):
             completeWindowReorderCommand(isLast: isLast, failed: false)
+        case let .tracked(token):
+            trackedSendCompletions.removeValue(forKey: token)?(true)
         case .other:
             break
         }

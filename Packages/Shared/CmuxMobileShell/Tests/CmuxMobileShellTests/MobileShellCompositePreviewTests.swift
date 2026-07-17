@@ -133,6 +133,37 @@ import Testing
         #expect(store.registryDevices.map(\.deviceId) == ["device-b"])
     }
 
+    @Test func teamChangeRestartsDisconnectedStoredMacReconnectInNewScope() async throws {
+        let team = MutableTeamID("team-a")
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [try Self.pairedMac(id: "mac-a", teamID: "team-a")],
+                "team-b": [try Self.pairedMac(id: "mac-b", teamID: "team-b")],
+            ],
+            blockedTeams: ["team-a"]
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { await team.value },
+            forgottenMacStore: InMemoryPairedMacForgottenStore()
+        )
+
+        let staleReconnect = Task {
+            await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+        }
+        await pairedStore.waitUntilLoadStarted(teamID: "team-a")
+
+        await team.set("team-b")
+        store.currentTeamDidChange()
+        await pairedStore.release(teamID: "team-a")
+        _ = await staleReconnect.value
+        for _ in 0..<10 { await Task.yield() }
+
+        #expect(await pairedStore.didStartLoad(teamID: "team-b"))
+    }
+
     @Test func createWorkspaceSelectsNewWorkspaceAndTerminal() {
         let store = MobileShellComposite.preview()
         store.signIn()

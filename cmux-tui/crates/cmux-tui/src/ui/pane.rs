@@ -308,14 +308,12 @@ fn draw_content(
         .render_states
         .entry(area.surface)
         .or_insert_with(|| RenderState::new().expect("render state alloc"));
-    if surface.snapshot(rs).is_err() {
-        return None;
-    }
-    rs.set_clean();
+    let render = surface.render_frame(rs).ok()?;
 
-    let cursor = super::terminal_grid::draw_render_state(frame, rect, rs, &theme, |col, row| {
-        selection.is_some_and(|s| s.contains_viewport(col, row, selection_offset))
-    });
+    let cursor =
+        super::terminal_grid::draw_render_frame(frame, rect, &render, &theme, |col, row| {
+            selection.is_some_and(|s| s.contains_viewport(col, row, selection_offset))
+        });
     focused.then_some(cursor).flatten()
 }
 

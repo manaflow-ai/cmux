@@ -14,9 +14,10 @@ import type {
 import { ATTACH_RECOVERY_STABLE_MS, attachRecoveryDelay } from "../lib/attachRecovery";
 import { debounce } from "../lib/debounce";
 import { t } from "../i18n";
-import { isForeignSmaller, nextFitSize, type TerminalSize } from "../lib/fit";
+import { nextFitSize, type TerminalSize } from "../lib/fit";
 import { colorsToCursorOptionsPatch, colorsToThemePatch } from "../lib/terminalColors";
 import { terminalTheme } from "../lib/terminalTheme";
+import { tryLoadWebglRenderer } from "../lib/webglRenderer";
 
 interface AttachedTerminalOptions {
   client: CmuxClient | null;
@@ -27,11 +28,6 @@ interface AttachedTerminalOptions {
 export function useAttachedTerminal({ client, surface, onError }: AttachedTerminalOptions) {
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   const [focused, setFocused] = useState(false);
-  const [foreignSizeState, setForeignSizeState] = useState<{
-    client: CmuxClient;
-    surface: Id;
-    size: TerminalSize;
-  } | null>(null);
   const terminalRef = useCallback((node: HTMLDivElement | null) => setHost(node), []);
 
   useEffect(() => {
@@ -51,6 +47,7 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
     const fit = new FitAddon();
     terminal.loadAddon(fit);
     terminal.open(host);
+    const webgl = tryLoadWebglRenderer(terminal);
 
     const handleFocusIn = () => setFocused(true);
     const handleFocusOut = () => {
@@ -62,38 +59,19 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
     host.addEventListener("focusin", handleFocusIn);
     host.addEventListener("focusout", handleFocusOut);
     host.addEventListener("touchend", focusOnTouch, { passive: true });
+    let stream: Awaited<ReturnType<CmuxClient["attachSurface"]>> | null = null;
+    let reportedFit: TerminalSize | null = null;
 
-    // tmux window-size=latest: false after a foreign size is applied, so the
-    // next local keystroke claims the surface back to this pane's fit. The
-    // flag makes the claim one applyFit per divergence, not one per key.
-    let sizeClaimed = true;
-    const publishForeignSize = (size: TerminalSize | null) => {
-      setForeignSizeState((current) => {
-        if (size === null) return current === null ? current : null;
-        if (
-          current?.client === client
-          && current.surface === surface
-          && current.size.cols === size.cols
-          && current.size.rows === size.rows
-        ) return current;
-        return { client, surface, size };
-      });
-    };
-    const updateForeignSize = (current: TerminalSize, proposed: TerminalSize | undefined) => {
-      publishForeignSize(isForeignSmaller(current, proposed) ? current : null);
-    };
     const applyFit = () => {
-      if (cancelled) return;
-      sizeClaimed = true;
-      const current = { cols: terminal.cols, rows: terminal.rows };
+      if (cancelled || stream === null) return;
       const proposed = fit.proposeDimensions();
-      const next = nextFitSize(current, proposed);
-      // A local fit is the size claim, including a no-op when the current
-      // terminal already matches the pane.
-      publishForeignSize(null);
+      const next = nextFitSize(reportedFit, proposed);
       if (!next) return;
-      terminal.resize(next.cols, next.rows);
-      void client.resizeSurface(surface, next.cols, next.rows).catch(onError);
+      reportedFit = next;
+      void client.resizeSurface(surface, next.cols, next.rows).catch((error) => {
+        if (reportedFit?.cols === next.cols && reportedFit.rows === next.rows) reportedFit = null;
+        onError(error);
+      });
     };
     const sendResize = debounce(applyFit, 100);
     const observer = new ResizeObserver(sendResize);
@@ -102,7 +80,6 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
     window.visualViewport?.addEventListener("scroll", sendResize);
     sendResize();
     const input = terminal.onData((text) => {
-      if (!sizeClaimed) applyFit();
       void client.send(surface, { text }).catch(onError);
     });
     const applyColors = (colors: DecodedVtStateEvent["colors"] | DecodedColorsChangedEvent) => {
@@ -118,7 +95,6 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
       const cursorPatch = colorsToCursorOptionsPatch(colors);
       if (cursorPatch !== null) Object.assign(terminal.options, cursorPatch);
     };
-    let stream: Awaited<ReturnType<CmuxClient["attachSurface"]>> | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let stableTimer: ReturnType<typeof setTimeout> | undefined;
     let wakeRetry: (() => void) | null = null;
@@ -160,10 +136,8 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
               applyColors(replay.colors);
               terminal.resize(replay.cols, replay.rows);
               terminal.write(replay.data);
-              updateForeignSize({ cols: replay.cols, rows: replay.rows }, fit.proposeDimensions());
-              // Attaching is our interaction: fit the replayed surface to this
-              // pane and push it (latest-interaction-wins). Foreign `resized`
-              // events below are accepted as-is, so clients do not ping-pong sizes.
+              // Publish this viewport once attached. The server combines it
+              // with every other viewer and returns the shared minimum size.
               applyFit();
               terminal.options.disableStdin = false;
               if (stableTimer !== undefined) clearTimeout(stableTimer);
@@ -178,9 +152,6 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
               terminal.reset();
               terminal.resize(resized.cols, resized.rows);
               terminal.write(resized.data);
-              updateForeignSize({ cols: resized.cols, rows: resized.rows }, fit.proposeDimensions());
-              // Could be our own echo; applyFit no-ops in that case.
-              sizeClaimed = false;
             } else if (event.event === "colors-changed") {
               applyColors(event as DecodedColorsChangedEvent);
             } else if (event.event === "overflow") {
@@ -227,15 +198,12 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
       if (stableTimer !== undefined) clearTimeout(stableTimer);
       wakeRetry?.();
       stream?.close();
+      webgl?.dispose();
       terminal.dispose();
       stage?.style.removeProperty("--surface-background");
       setFocused(false);
-      publishForeignSize(null);
     };
   }, [client, host, onError, surface]);
 
-  const foreignSize = host !== null && foreignSizeState?.client === client && foreignSizeState.surface === surface
-    ? foreignSizeState.size
-    : null;
-  return { terminalRef, focused, foreignSize };
+  return { terminalRef, focused };
 }

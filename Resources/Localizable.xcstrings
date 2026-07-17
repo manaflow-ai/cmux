@@ -834,6 +834,23 @@
         }
       }
     },
+    "about.licenses.correspondingSource": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Corresponding source for this build"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このビルドの対応するソースコード"
+          }
+        }
+      }
+    },
     "about.licenses.notFound": {
       "extractionState": "manual",
       "localizations": {
@@ -949,6 +966,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "找不到授權條款檔案。"
+          }
+        }
+      }
+    },
+    "about.licenses.projectHeading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Project License"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux プロジェクトライセンス"
+          }
+        }
+      }
+    },
+    "about.licenses.projectSource": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Project source"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロジェクトのソースコード"
           }
         }
       }
@@ -32681,6 +32732,91 @@
         }
       }
     },
+    "browser.viewport.error.attachedBrowserInspector": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close or detach the browser inspector before changing the browser viewport"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザのビューポートを変更する前にブラウザインスペクタを閉じるか切り離してください"
+          }
+        }
+      }
+    },
+    "browser.viewport.error.dimensionsOutOfRange": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viewport dimensions must be between 1 and 4096"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビューポートの寸法は 1 から 4096 の範囲で指定してください"
+          }
+        }
+      }
+    },
+    "browser.viewport.error.elementFullscreen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exit browser element fullscreen before changing the browser viewport"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザのビューポートを変更する前に、ブラウザの要素フルスクリーンを終了してください"
+          }
+        }
+      }
+    },
+    "browser.viewport.error.renderGeometryTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viewport and page zoom exceed browser render limits"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビューポートとページズームがブラウザのレンダリング上限を超えています"
+          }
+        }
+      }
+    },
+    "browser.viewport.error.requiresIntegerDimensions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.viewport.set requires integer width and height"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.viewport.set には整数の width と height が必要です"
+          }
+        }
+      }
+    },
     "canvas.commandScrollHint": {
       "extractionState": "manual",
       "localizations": {
@@ -33157,6 +33293,40 @@
         }
       }
     },
+    "cli.browser.error.viewportRequiresSizeOrReset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser viewport requires: <width> <height> | reset"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser viewport には <width> <height> または reset が必要です"
+          }
+        }
+      }
+    },
+    "cli.browser.error.viewportResetAdditionalArguments": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser viewport reset does not accept additional arguments"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser viewport reset は追加の引数を受け付けません"
+          }
+        }
+      }
+    },
     "cli.browser.help.keyboardNaming": {
       "extractionState": "manual",
       "localizations": {
@@ -33170,6 +33340,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "名前付きキーは Playwright/W3C の名前に従います。Space、Spacebar、space は DOM key \" \" と code \"Space\" を送信し、--key ' ' では生の DOM key を渡せます。"
+          }
+        }
+      }
+    },
+    "cli.browser.help.viewportEmulationDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emulate an exact 1...4096 CSS-pixel viewport inside the pane without resizing it"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインのサイズを変更せず、正確な 1...4096 CSS ピクセルのビューポートをエミュレートします"
+          }
+        }
+      }
+    },
+    "cli.browser.help.viewportPresentationDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The page is aspect-fitted in the existing pane; reset restores native pane sizing"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ページは既存のペイン内にアスペクトフィットされ、reset でペイン本来のサイズに戻ります"
+          }
+        }
+      }
+    },
+    "cli.browser.help.viewportRenderLimitDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oversized viewport and page-zoom combinations return structured render-limit details"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "大きすぎるビューポートとページズームの組み合わせでは、レンダリング上限の詳細が構造化形式で返されます"
+          }
+        }
+      }
+    },
+    "cli.browser.help.viewportUsage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "viewport <width> <height> | reset"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "viewport <width> <height> | reset"
           }
         }
       }
@@ -37367,6 +37605,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ hooks installed at %@"
+          }
+        }
+      }
+    },
+    "cli.hooks.kimi.legacyCleanupWarning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warning: cmux hooks are active at %@, but cmux could not remove its legacy hook block from %@. Check that path and re-run `cmux hooks setup kimi` to finish cleanup."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "警告: cmux hooks は %@ で有効ですが、従来の hook ブロックを %@ から削除できませんでした。そのパスを確認し、`cmux hooks setup kimi` を再実行してクリーンアップを完了してください。"
+          }
+        }
+      }
+    },
+    "cli.hooks.kimi.legacyUninstallWarning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warning: cmux could not remove its legacy hook block from %@. Check that path and re-run `cmux hooks uninstall kimi` to finish cleanup."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "警告: 従来の hook ブロックを %@ から削除できませんでした。そのパスを確認し、`cmux hooks uninstall kimi` を再実行してクリーンアップを完了してください。"
           }
         }
       }
@@ -89261,6 +89533,40 @@
         }
       }
     },
+    "diffViewer.binaryFile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Binary file"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バイナリファイル"
+          }
+        }
+      }
+    },
+    "diffViewer.modeChange": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mode {old} → {new}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モード {old} → {new}"
+          }
+        }
+      }
+    },
     "diffViewer.additions": {
       "extractionState": "manual",
       "localizations": {
@@ -90757,6 +91063,131 @@
           "stringUnit": {
             "state": "translated",
             "value": "Filter branches"
+          }
+        }
+      }
+    },
+    "diffViewer.branchPickerGenerateFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر إنشاء الفرق. اختر فرعًا لإعادة المحاولة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije moguće generisati razliku. Odaberite granu da pokušate ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke generere diffen. Vælg en gren for at prøve igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Diff konnte nicht erstellt werden. Wähle einen Branch, um es erneut zu versuchen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not generate the diff. Choose a branch to retry."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo generar la diferencia. Elige una rama para volver a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de générer le diff. Choisissez une branche pour réessayer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile generare il diff. Scegli un branch per riprovare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "差分を生成できませんでした。ブランチを選択して再試行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចបង្កើតភាពខុសគ្នាបានទេ។ ជ្រើសរើសសាខាដើម្បីព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "차이를 생성할 수 없습니다. 다시 시도할 브랜치를 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke generere diffen. Velg en gren for å prøve igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się wygenerować różnic. Wybierz gałąź, aby spróbować ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível gerar o diff. Escolha uma branch para tentar novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось создать diff. Выберите ветку, чтобы повторить попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สร้าง diff ไม่สำเร็จ เลือกสาขาเพื่อลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fark oluşturulamadı. Yeniden denemek için bir dal seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося створити diff. Виберіть гілку, щоб повторити спробу."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法生成差异。请选择一个分支重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法產生差異。請選擇分支後重試。"
           }
         }
       }
@@ -102908,6 +103339,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "ワークスペースのエージェントスピナー"
+          }
+        }
+      }
+    },
+    "featureFlags.workspaceTodoControls.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows Add Checklist Item and workspace completion status controls."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チェックリスト項目の追加とワークスペースの完了ステータス操作を表示します。"
+          }
+        }
+      }
+    },
+    "featureFlags.workspaceTodoControls.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace todo controls"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースTodo操作"
           }
         }
       }
@@ -156467,6 +156932,57 @@
         }
       }
     },
+    "settings.betaFeatures.workspaceTodoControls": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace Todo Controls"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース Todo コントロール"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.workspaceTodoControls.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keeps workspace todo summaries read-only unless remote rollout enables the controls."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートロールアウトでコントロールが有効になるまで、ワークスペース Todo の概要を読み取り専用にします。"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.workspaceTodoControls.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows Add Checklist Item and workspace status controls."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「チェックリスト項目を追加」とワークスペースのステータスコントロールを表示します。"
+          }
+        }
+      }
+    },
     "settings.betaFeatures.workspaceTodosChecklistStyle": {
       "extractionState": "manual",
       "localizations": {
@@ -177662,6 +178178,23 @@
         }
       }
     },
+    "settings.search.alias.setting.betaFeatures.workspace-todo-controls": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.beta.workspaceTodos.controls.enabled workspace todo todos task status checklist add item controls beta"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.beta.workspaceTodos.controls.enabled ワークスペース Todo Todos タスク ステータス チェックリスト 追加 項目 コントロール ベータ"
+          }
+        }
+      }
+    },
     "settings.search.alias.setting.browser.ask-where-to-save-downloads": {
       "extractionState": "manual",
       "localizations": {
@@ -180979,6 +181512,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "sidebarAppearance.tintOpacity alpha transparency intensity blend 色調不透明度"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.terminal.session-content-alignment": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.sessionContentAlignment terminal agent chat left center right alignment position"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.sessionContentAlignment ターミナル エージェントチャット 左 中央 右 配置 位置"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.terminal.session-content-width": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.sessionContentMaxWidth terminal agent chat max width readable line length points pt narrow wide"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.sessionContentMaxWidth ターミナル エージェントチャット 最大幅 読みやすい 行長 ポイント pt 狭い 広い"
           }
         }
       }
@@ -186783,6 +187350,176 @@
           "stringUnit": {
             "state": "translated",
             "value": "ライブ端末数の上限を超えると、アイドル状態のバックグラウンドエージェント端末を休止できます。"
+          }
+        }
+      }
+    },
+    "settings.terminal.sessionContentAlignment": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session Content Alignment"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッションコンテンツの配置"
+          }
+        }
+      }
+    },
+    "settings.terminal.sessionContentAlignment.center": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Center"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中央"
+          }
+        }
+      }
+    },
+    "settings.terminal.sessionContentAlignment.left": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Left"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左"
+          }
+        }
+      }
+    },
+    "settings.terminal.sessionContentAlignment.right": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Right"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右"
+          }
+        }
+      }
+    },
+    "settings.terminal.sessionContentAlignment.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Places width-capped content within the pane."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "幅を制限したコンテンツをペイン内に配置します。"
+          }
+        }
+      }
+    },
+    "settings.terminal.sessionContentWidth": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session Content Width"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッションコンテンツの幅"
+          }
+        }
+      }
+    },
+    "settings.terminal.sessionContentWidth.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal and agent chat content uses the full pane width."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルとエージェントチャットのコンテンツはペインの全幅を使います。"
+          }
+        }
+      }
+    },
+    "settings.terminal.sessionContentWidth.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal and agent chat content wraps within this width. Narrow panes still use all available space."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルとエージェントチャットのコンテンツはこの幅内で折り返します。狭いペインでは利用可能な幅をすべて使います。"
+          }
+        }
+      }
+    },
+    "settings.terminal.sessionContentWidth.toggle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limit session content width"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッションコンテンツの幅を制限"
+          }
+        }
+      }
+    },
+    "settings.terminal.sessionContentWidth.unit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pt"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pt"
           }
         }
       }
@@ -203195,6 +203932,125 @@
         }
       }
     },
+    "sidebar.checklist.attachmentUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを利用できません"
+          }
+        }
+      }
+    },
+    "sidebar.checklist.attachImages": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attach Images…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像を添付…"
+          }
+        }
+      }
+    },
+    "sidebar.checklist.attachImages.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attach"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添付"
+          }
+        }
+      }
+    },
+    "sidebar.checklist.attachments.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 image attached"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1件の画像が添付されています"
+          }
+        }
+      }
+    },
+    "sidebar.checklist.attachments.noneAccessibility": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No images attached. Attach images."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添付画像はありません。画像を添付してください。"
+          }
+        }
+      }
+    },
+    "sidebar.checklist.attachments.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld images attached"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld件の画像が添付されています"
+          }
+        }
+      }
+    },
+    "sidebar.checklist.attachmentsTooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manage images"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像を管理"
+          }
+        }
+      }
+    },
     "sidebar.checklist.checkTooltip": {
       "extractionState": "manual",
       "localizations": {
@@ -203208,6 +204064,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "完了にする"
+          }
+        }
+      }
+    },
+    "sidebar.checklist.openAttachment": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開く"
           }
         }
       }
@@ -203361,6 +204234,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "削除"
+          }
+        }
+      }
+    },
+    "sidebar.checklist.removeAttachment": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove Attachment"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添付を削除"
           }
         }
       }
@@ -209807,6 +210697,40 @@
         }
       }
     },
+    "sidebar.status.compactLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステータス: %@"
+          }
+        }
+      }
+    },
+    "sidebar.status.compactTooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change workspace status"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースのステータスを変更"
+          }
+        }
+      }
+    },
     "sidebar.status.done": {
       "extractionState": "manual",
       "localizations": {
@@ -211554,6 +212478,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux おやすみモードのロックを解除"
+          }
+        }
+      }
+    },
+    "socket.client.accessDenied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Access denied - only processes started inside cmux can connect"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクセスが拒否されました。cmux 内で起動されたプロセスのみ接続できます"
+          }
+        }
+      }
+    },
+    "socket.client.verificationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to verify client process"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クライアントプロセスを確認できません"
           }
         }
       }
@@ -216564,13 +217522,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A process wants cmux to keep this resume command for the current terminal:\n\n%@\n\nWorking directory: %@"
+            "value": "A process wants cmux to keep this resume command for the current terminal:\n\nWorking directory: %@\n\n%@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "プロセスが現在のターミナルにこの復元コマンドを保持しようとしています:\n\n%@\n\n作業ディレクトリ: %@"
+            "value": "プロセスが現在のターミナルにこの復元コマンドを保持しようとしています:\n\n作業ディレクトリ: %@\n\n%@"
           }
         }
       }
@@ -216598,13 +217556,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux is restoring a terminal with this resume command:\n\n%@\n\nWorking directory: %@"
+            "value": "cmux is restoring a terminal with this resume command:\n\nWorking directory: %@\n\n%@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux はこの復元コマンドでターミナルを復元しようとしています:\n\n%@\n\n作業ディレクトリ: %@"
+            "value": "cmux はこの復元コマンドでターミナルを復元しようとしています:\n\n作業ディレクトリ: %@\n\n%@"
           }
         }
       }
@@ -233810,40 +234768,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "チェックリスト完了"
-          }
-        }
-      }
-    },
-    "workspace.todo.notification.doneBody": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This workspace's status is now done."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このワークスペースのステータスが完了になりました。"
-          }
-        }
-      }
-    },
-    "workspace.todo.notification.doneTitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Workspace marked done"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペースを完了にしました"
           }
         }
       }

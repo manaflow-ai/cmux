@@ -135,6 +135,7 @@ extension TerminalSurface {
             registry.unregisterRuntimeSurface(surface, ownerId: id)
             self.surface = nil
             activePortalHostLease = nil
+            portalHostAuthority = nil
             recordTeardownRequest(reason: reason)
             markPortalLifecycleClosed(reason: reason)
 #if DEBUG
@@ -263,18 +264,19 @@ extension TerminalSurface {
 
 #if DEBUG
         if let freeSurface = Self.runtimeSurfaceFreeOverrideForTesting {
+            // Transport manualIOContext and teeLease through the request too:
+            // the coordinator releases all callback userdata only after the
+            // native free, which is what joins ghostty's IO threads.
             runtimeTeardown.enqueueRuntimeTeardown(
                 id: id,
                 workspaceId: tabId,
                 reason: "teardown",
                 surface: surfaceToFree,
                 callbackContext: callbackContext,
+                manualIOContext: manualIOContext,
+                byteTeeLease: teeLease,
                 freeSurface: freeSurface
             )
-            // The teardown coordinator releases callbackContext; manualIOContext
-            // and teeLease are not transported through the request, so release them here.
-            manualIOContext?.release()
-            teeLease?.release()
             return
         }
 #endif
@@ -312,6 +314,7 @@ extension TerminalSurface {
         }
         surface = nil
         activePortalHostLease = nil
+        portalHostAuthority = nil
         pendingSocketInputQueue.removeAll(keepingCapacity: false)
         pendingSocketInputBytes = 0
         desiredFocusState = false
@@ -332,18 +335,19 @@ extension TerminalSurface {
 
 #if DEBUG
         if let freeSurface = Self.runtimeSurfaceFreeOverrideForTesting {
+            // Transport manualIOContext and teeLease through the request too:
+            // the coordinator releases all callback userdata only after the
+            // native free, which is what joins ghostty's IO threads.
             runtimeTeardown.enqueueRuntimeTeardown(
                 id: id,
                 workspaceId: tabId,
                 reason: reason,
                 surface: surfaceToFree,
                 callbackContext: callbackContext,
+                manualIOContext: manualIOContext,
+                byteTeeLease: teeLease,
                 freeSurface: freeSurface
             )
-            // The teardown coordinator releases callbackContext; manualIOContext
-            // and teeLease are not transported through the request, so release them here.
-            manualIOContext?.release()
-            teeLease?.release()
             return
         }
 #endif

@@ -22,5 +22,5 @@ fi
 while IFS= read -r suite; do
   [ -n "$suite" ] || continue
   echo "swift test $package_path --filter $suite"
-  swift test --package-path "$package_path" --filter "$suite"
-done <<< "$suite_list"
+  swift test --package-path "$package_path" --filter "$suite" </dev/null
+done < <(printf '%s\n' "$suite_list")

@@ -7,7 +7,7 @@ struct SidebarBonsplitWorkspaceRowDropModifier: ViewModifier {
     let bonsplitSourceWorkspaceId: @MainActor (UUID) -> UUID?
     let moveBonsplitTabToWorkspace: @MainActor (BonsplitTabDragPayload.Transfer, UUID) -> Bool
     let syncSidebarSelectionAfterDrop: @MainActor () -> Void
-    @Binding var selectedTabIds: Set<UUID>
+    let selectTargetAfterDrop: @MainActor () -> Void
 
     func body(content: Content) -> some View {
         let delegate = SidebarBonsplitTabDropDelegate(
@@ -16,7 +16,7 @@ struct SidebarBonsplitWorkspaceRowDropModifier: ViewModifier {
             bonsplitSourceWorkspaceId: bonsplitSourceWorkspaceId,
             moveBonsplitTabToWorkspace: moveBonsplitTabToWorkspace,
             syncSidebarSelectionAfterDrop: syncSidebarSelectionAfterDrop,
-            selectedTabIds: $selectedTabIds
+            selectTargetAfterDrop: selectTargetAfterDrop
         )
         return content.onDrop(of: BonsplitTabDragPayload.dropContentTypes, delegate: delegate)
     }

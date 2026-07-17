@@ -304,7 +304,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertNoThrow(try "127.0.0.1:64008".write(to: socketAddrURL, atomically: true, encoding: .utf8))
         XCTAssertNoThrow(try "auth".write(to: authURL, atomically: true, encoding: .utf8))
         XCTAssertNoThrow(try "daemon".write(to: daemonPathURL, atomically: true, encoding: .utf8))
-        XCTAssertNoThrow(try "slot".write(to: slotURL, atomically: true, encoding: .utf8))
         XCTAssertNoThrow(try "ttys001".write(to: ttyURL, atomically: true, encoding: .utf8))
         defer { try? fileManager.removeItem(at: home) }
 
@@ -314,7 +313,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 "HOME=\(home.path)",
                 "/bin/sh",
                 "-c",
-                RemoteSessionCoordinator.remoteRelayMetadataCleanupScript(relayPort: 64008),
+                RemoteSessionCoordinator.remoteRelayMetadataCleanupScript(relayPort: 64008, persistentDaemonSlot: nil),
             ],
             timeout: 5
         )
@@ -342,7 +341,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertNoThrow(try "127.0.0.1:64010".write(to: socketAddrURL, atomically: true, encoding: .utf8))
         XCTAssertNoThrow(try "auth".write(to: authURL, atomically: true, encoding: .utf8))
         XCTAssertNoThrow(try "daemon".write(to: daemonPathURL, atomically: true, encoding: .utf8))
-        XCTAssertNoThrow(try "slot".write(to: slotURL, atomically: true, encoding: .utf8))
         XCTAssertNoThrow(try "ttys002".write(to: ttyURL, atomically: true, encoding: .utf8))
         defer { try? fileManager.removeItem(at: home) }
 
@@ -352,7 +350,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 "HOME=\(home.path)",
                 "/bin/sh",
                 "-c",
-                RemoteSessionCoordinator.remoteRelayMetadataCleanupScript(relayPort: 64009),
+                RemoteSessionCoordinator.remoteRelayMetadataCleanupScript(relayPort: 64009, persistentDaemonSlot: nil),
             ],
             timeout: 5
         )

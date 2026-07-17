@@ -54,7 +54,7 @@ struct DeviceTreeView: View {
                             MacComputerRow(
                                 computer: computer,
                                 requestRemove: requestComputerRemoval,
-                                isConfirmingRemove: removalConfirmationBinding(for: computer.deviceId),
+                                isConfirmingRemove: removalConfirmationBinding(for: computer.id),
                                 confirmRemove: { _ in confirmComputerRemoval() }
                             )
                         }
@@ -70,8 +70,14 @@ struct DeviceTreeView: View {
                 }
             }
             .listStyle(.insetGrouped)
-            .navigationDestination(for: String.self) { deviceId in
-                MacComputerDetailView(store: store, macDeviceID: deviceId)
+            .navigationDestination(for: String.self) { pairingID in
+                if let computer = computers.first(where: { $0.id == pairingID }) {
+                    MacComputerDetailView(
+                        store: store,
+                        macDeviceID: computer.deviceId,
+                        instanceTag: computer.instanceTag
+                    )
+                }
             }
             .navigationTitle(L10n.string("mobile.computers.title", defaultValue: "Computers"))
             .navigationBarTitleDisplayMode(.inline)
@@ -143,8 +149,8 @@ struct DeviceTreeView: View {
         }
     }
 
-    private func requestComputerRemoval(_ deviceID: String) {
-        computerPendingRemovalID = deviceID
+    private func requestComputerRemoval(_ pairingID: String) {
+        computerPendingRemovalID = pairingID
     }
 
     private func removalConfirmationBinding(for deviceID: String) -> Binding<Bool> {
@@ -161,12 +167,16 @@ struct DeviceTreeView: View {
     }
 
     private func confirmComputerRemoval() {
-        guard let deviceID = computerPendingRemovalID else {
+        guard let pairingID = computerPendingRemovalID,
+              let computer = computers.first(where: { $0.id == pairingID }) else {
             return
         }
         computerPendingRemovalID = nil
         Task {
-            await store.forgetMac(macDeviceID: deviceID)
+            await store.forgetMac(
+                macDeviceID: computer.deviceId,
+                instanceTag: computer.instanceTag
+            )
             await reload()
         }
     }

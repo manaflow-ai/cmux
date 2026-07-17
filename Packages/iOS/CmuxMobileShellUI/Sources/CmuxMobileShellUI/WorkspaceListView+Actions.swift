@@ -71,6 +71,35 @@ extension WorkspaceListView {
         }
     }
 
+    #if os(iOS)
+    var requestWorkspaceRename: ((CmuxMobileShellModel.MobileWorkspacePreview.ID) -> Void)? {
+        guard renameWorkspace != nil else { return nil }
+        return { workspacePendingRenameID = $0 }
+    }
+
+    var workspaceRenameIsPresented: Binding<Bool> {
+        Binding(
+            get: { workspacePendingRenameID != nil },
+            set: { isPresented in
+                if !isPresented {
+                    workspacePendingRenameID = nil
+                }
+            }
+        )
+    }
+
+    var workspaceCloseConfirmationIsPresented: Binding<Bool> {
+        Binding(
+            get: { workspacePendingCloseID != nil },
+            set: { isPresented in
+                if !isPresented {
+                    workspacePendingCloseID = nil
+                }
+            }
+        )
+    }
+    #endif
+
     func closeConfirmationBinding(for workspaceID: CmuxMobileShellModel.MobileWorkspacePreview.ID) -> Binding<Bool> {
         Binding(
             get: { workspacePendingCloseID == workspaceID },

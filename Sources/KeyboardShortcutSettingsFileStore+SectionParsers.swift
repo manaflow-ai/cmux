@@ -38,6 +38,17 @@ extension CmuxSettingsFileStore {
     ) {
         if let rawTodos = beta["workspaceTodos"], let todos = rawTodos as? [String: Any] {
             let betaKeys = BetaFeaturesCatalogSection()
+            if let controls = todos["controls"] as? [String: Any] {
+                if let enabled = jsonBool(controls["enabled"]) {
+                    snapshot.managedUserDefaults[
+                        betaKeys.workspaceTodoControls.userDefaultsKey
+                    ] = .bool(enabled)
+                } else if controls.keys.contains("enabled") {
+                    logInvalid("sidebar.beta.workspaceTodos.controls.enabled", sourcePath: sourcePath)
+                }
+            } else if todos.keys.contains("controls") {
+                logInvalid("sidebar.beta.workspaceTodos.controls", sourcePath: sourcePath)
+            }
             if let raw = jsonString(todos["checklistStyle"]) {
                 if let style = WorkspaceTodoChecklistStyle.decodeFromJSON(raw) {
                     snapshot.managedUserDefaults[

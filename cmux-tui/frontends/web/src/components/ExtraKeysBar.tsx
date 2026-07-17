@@ -5,9 +5,10 @@ import { encodeCtrlKey } from "../lib/mobile";
 interface ExtraKeysBarProps {
   visible: boolean;
   onSend(text: string): void;
+  onKey?(key: string): void;
 }
 
-export function ExtraKeysBar({ visible, onSend }: ExtraKeysBarProps) {
+export function ExtraKeysBar({ visible, onSend, onKey }: ExtraKeysBarProps) {
   const [ctrlActive, setCtrlActive] = useState(false);
   if (!visible) return null;
 
@@ -15,12 +16,17 @@ export function ExtraKeysBar({ visible, onSend }: ExtraKeysBarProps) {
     onSend(text);
     setCtrlActive(false);
   };
+  const sendKey = (key: string, fallback: string) => {
+    if (onKey === undefined) onSend(fallback);
+    else onKey(key);
+    setCtrlActive(false);
+  };
   const keepTerminalFocus = (event: React.PointerEvent<HTMLButtonElement>) => event.preventDefault();
 
   return (
     <div className="extra-keys" role="toolbar" aria-label={t("extraKeys")}>
-      <button type="button" onPointerDown={keepTerminalFocus} onClick={() => send("\u001b")}>{t("keyEscape")}</button>
-      <button type="button" onPointerDown={keepTerminalFocus} onClick={() => send("\t")}>{t("keyTab")}</button>
+      <button type="button" onPointerDown={keepTerminalFocus} onClick={() => sendKey("escape", "\u001b")}>{t("keyEscape")}</button>
+      <button type="button" onPointerDown={keepTerminalFocus} onClick={() => sendKey("tab", "\t")}>{t("keyTab")}</button>
       <button
         className={ctrlActive ? "active" : ""}
         type="button"
@@ -46,14 +52,13 @@ export function ExtraKeysBar({ visible, onSend }: ExtraKeysBarProps) {
       ))}
       {!ctrlActive && (
         <>
-          <button type="button" aria-label={t("keyLeft")} onPointerDown={keepTerminalFocus} onClick={() => send("\u001b[D")}>←</button>
-          <button type="button" aria-label={t("keyDown")} onPointerDown={keepTerminalFocus} onClick={() => send("\u001b[B")}>↓</button>
-          <button type="button" aria-label={t("keyUp")} onPointerDown={keepTerminalFocus} onClick={() => send("\u001b[A")}>↑</button>
-          <button type="button" aria-label={t("keyRight")} onPointerDown={keepTerminalFocus} onClick={() => send("\u001b[C")}>→</button>
+          <button type="button" aria-label={t("keyLeft")} onPointerDown={keepTerminalFocus} onClick={() => sendKey("left", "\u001b[D")}>←</button>
+          <button type="button" aria-label={t("keyDown")} onPointerDown={keepTerminalFocus} onClick={() => sendKey("down", "\u001b[B")}>↓</button>
+          <button type="button" aria-label={t("keyUp")} onPointerDown={keepTerminalFocus} onClick={() => sendKey("up", "\u001b[A")}>↑</button>
+          <button type="button" aria-label={t("keyRight")} onPointerDown={keepTerminalFocus} onClick={() => sendKey("right", "\u001b[C")}>→</button>
           <button type="button" onPointerDown={keepTerminalFocus} onClick={() => send("\u0002")}>{t("keyPrefix")}</button>
         </>
       )}
     </div>
   );
 }
-

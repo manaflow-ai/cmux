@@ -178,9 +178,52 @@ enum MobileHostIdentity {
     }
 
     /// Canonical app-instance tag used by registry and presence. This is the
-    /// same launch tag that owns the tagged socket and bundle identity.
+    /// same launch tag or release channel that owns the socket and bundle
+    /// identity.
     static func instanceTag() -> String {
-        SocketControlSettings.launchTag() ?? "default"
+        instanceTag(
+            environment: ProcessInfo.processInfo.environment,
+            bundleIdentifier: Bundle.main.bundleIdentifier
+        )
+    }
+
+    /// Resolves the app-instance tag from explicit launch metadata first, then
+    /// from the bundle channel. Stable keeps the historical `"default"` tag;
+    /// Nightly and Staging must be distinct now that every app bundle on one
+    /// Mac intentionally shares the same physical device identifier.
+    static func instanceTag(
+        environment: [String: String],
+        bundleIdentifier: String?
+    ) -> String {
+        if let launchTag = SocketControlSettings.launchTag(environment: environment) {
+            return launchTag
+        }
+
+        let normalizedBundleID = bundleIdentifier?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() ?? ""
+        let releaseCandidateBundleID = stableBundleIdentifier + ".rc"
+        if normalizedBundleID == releaseCandidateBundleID {
+            return "rc"
+        }
+        if normalizedBundleID.hasPrefix(releaseCandidateBundleID + ".") {
+            let suffix = String(normalizedBundleID.dropFirst(releaseCandidateBundleID.count + 1))
+            return SocketPathMarkerFiles.sanitizeSocketSlug(suffix) ?? "rc"
+        }
+
+        switch SocketPathMarkerFiles.variant(
+            bundleIdentifier: normalizedBundleID,
+            environment: environment
+        ) {
+        case .stable:
+            return "default"
+        case .nightly(let slug):
+            return slug ?? "nightly"
+        case .staging(let slug):
+            return slug ?? "staging"
+        case .dev(let slug):
+            return slug ?? "dev"
+        }
     }
 
     /// Returns the longest whole-character prefix that fits a UTF-16 wire limit.

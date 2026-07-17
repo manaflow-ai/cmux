@@ -520,16 +520,14 @@ struct DockSocketLifecycleTests {
                     #expect(urlResult["workspace_id"] as? String == windowId.uuidString)
                     #expect(urlResult["surface_id"] as? String == dockSurfaceId.uuidString)
 
-                    let navigateResult = try await v2ResultOnSocketWorker(
-                        method: "browser.navigate",
-                        params: [
+                    await #expect(throws: (any Error).self) {
+                        try await v2ResultOnSocketWorker(method: "browser.navigate", params: [
                             "workspace_id": windowId.uuidString,
                             "surface_id": dockSurfaceId.uuidString,
                             "url": "about:blank",
-                        ]
-                    )
-                    #expect(navigateResult["workspace_id"] as? String == windowId.uuidString)
-                    #expect(navigateResult["surface_id"] as? String == dockSurfaceId.uuidString)
+                            "expected_url": "https://stale.invalid",
+                        ])
+                    }
 
                     let appDelegate = try #require(AppDelegate.shared)
                     let secondManager = TabManager(autoWelcomeIfNeeded: false)
