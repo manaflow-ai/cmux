@@ -2156,6 +2156,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             return await performMacSwitch(
                 macDeviceID: macDeviceID,
+                instanceTag: instanceTag,
                 pairedMacStore: pairedMacStore,
                 switchAttemptID: switchAttemptID,
                 liveForegroundRestoreBaseline: liveForegroundRestoreBaseline
@@ -2167,6 +2168,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func performMacSwitch(
         macDeviceID: String,
+        instanceTag: String?,
         pairedMacStore: any MobilePairedMacStoring,
         switchAttemptID: UUID,
         liveForegroundRestoreBaseline: MobilePairedMac?
