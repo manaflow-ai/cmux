@@ -61,34 +61,15 @@ extension AppDelegate {
     /// owns a pane. Used by the portal drop target to route a tab dropped on a
     /// Dock pane to the Dock's own controller instead of the workspace's.
     func dockForPane(_ paneId: PaneID) -> DockSplitStore? {
-        if let windowDock = windowDockContainingPane(paneId.id) {
-            return windowDock
-        }
-        for context in mainWindowContexts.values {
-            for workspace in context.tabManager.tabs {
-                if let dock = workspace._dockSplit, dock.containsPane(paneId.id) {
-                    return dock
-                }
-            }
-        }
-        return nil
+        DockSplitStore.liveStores.first(where: { $0.containsPane(paneId.id) })
     }
 
     /// Finds a Dock-hosted source for a Bonsplit tab (ignoring workspace panes).
     /// Used by `moveBonsplitTab` to route a Dock→main-area drop.
     func locateDockSurface(tabId: UUID) -> (dock: DockSplitStore, panelId: UUID)? {
         let bonsplitTabId = TabID(uuid: tabId)
-        // Per-window Docks first (they have no owning workspace), then each
-        // workspace's local Dock.
-        for windowDock in existingWindowDocks {
-            if let panel = windowDock.panel(for: bonsplitTabId) {
-                return (windowDock, panel.id)
-            }
-        }
-        for context in mainWindowContexts.values {
-            for workspace in context.tabManager.tabs {
-                guard let dock = workspace._dockSplit,
-                      let panel = dock.panel(for: bonsplitTabId) else { continue }
+        for dock in DockSplitStore.liveStores {
+            if let panel = dock.panel(for: bonsplitTabId) {
                 return (dock, panel.id)
             }
         }

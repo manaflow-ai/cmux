@@ -1,15 +1,18 @@
 import AppKit
 import SwiftUI
 
-final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
+/// Hosts SwiftUI inside a window whose frame belongs to the user or explicit
+/// window management. SwiftUI content measurement must never resize the host.
+class UserSizedWindowHostingView<Content: View>: NSHostingView<Content> {
     private let zeroSafeAreaLayoutGuide = NSLayoutGuide()
+    private let minimumContentSize: NSSize
 
     override var safeAreaInsets: NSEdgeInsets { NSEdgeInsetsZero }
     override var safeAreaRect: NSRect { bounds }
     override var safeAreaLayoutGuide: NSLayoutGuide { zeroSafeAreaLayoutGuide }
     override var mouseDownCanMoveWindow: Bool { false }
-    override var fittingSize: NSSize { CmuxMainWindow.minimumContentSize }
-    override var intrinsicContentSize: NSSize { CmuxMainWindow.minimumContentSize }
+    override var fittingSize: NSSize { minimumContentSize }
+    override var intrinsicContentSize: NSSize { minimumContentSize }
 
     /// Lets a click on an interactive titlebar control (the sidebar toggle, the
     /// right-sidebar mode bar, the session-index header controls, etc.) both
@@ -65,7 +68,8 @@ final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
         super.setFrameSize(size)
     }
 
-    required init(rootView: Content) {
+    init(rootView: Content, minimumContentSize: NSSize) {
+        self.minimumContentSize = minimumContentSize
         super.init(rootView: rootView)
         // Belt with the suspenders above: keep the hosting view from creating
         // any content-derived sizing constraints either.
@@ -79,7 +83,22 @@ final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
         ])
     }
 
+    required convenience init(rootView: Content) {
+        self.init(rootView: rootView, minimumContentSize: .zero)
+    }
+
     deinit {}
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+
+final class MainWindowHostingView<Content: View>: UserSizedWindowHostingView<Content> {
+    required init(rootView: Content) {
+        super.init(rootView: rootView, minimumContentSize: CmuxMainWindow.minimumContentSize)
+    }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {

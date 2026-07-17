@@ -990,6 +990,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     @Published private(set) var isSaving = false
     @Published private(set) var focusFlashToken = 0
     @Published private(set) var previewMode: FilePreviewMode
+    let presentation: FilePreviewPresentation
 
     let nativeViewSessions = FilePreviewNativeViewSessions()
 
@@ -999,6 +1000,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     private var textLoadGeneration = 0
     private var saveGeneration = 0
     private var activeSaveGeneration: Int?
+    private var autosaveRequested = false
     weak var textView: NSTextView?
     let focusCoordinator: FilePreviewFocusCoordinator
     private let textLoader: @Sendable (URL) async -> FilePreviewTextLoader.Result
@@ -1010,6 +1012,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     init(
         workspaceId: UUID,
         filePath: String,
+        presentation: FilePreviewPresentation = .file,
         textLoader: @escaping @Sendable (URL) async -> FilePreviewTextLoader.Result = { url in
             await FilePreviewTextLoader.load(url: url)
         }
@@ -1017,7 +1020,8 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         self.id = UUID()
         self.workspaceId = workspaceId
         self.filePath = filePath
-        self.displayTitle = URL(fileURLWithPath: filePath).lastPathComponent
+        self.presentation = presentation
+        self.displayTitle = presentation.displayTitle ?? URL(fileURLWithPath: filePath).lastPathComponent
         self.textLoader = textLoader
         let fileURL = URL(fileURLWithPath: filePath)
         let initialPreviewMode = FilePreviewKindResolver.initialMode(for: fileURL)
@@ -1040,6 +1044,9 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     }
 
     func close() {
+        if presentation.autosavesTextChanges {
+            requestAutosave()
+        }
         nativeViewSessions.closeAll()
         textView = nil
         focusCoordinator.unregisterAll()
@@ -1140,6 +1147,43 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         guard textContent != nextContent else { return }
         textContent = nextContent
         isDirty = nextContent != originalTextContent
+        if presentation.autosavesTextChanges {
+            requestAutosave()
+        }
+    }
+
+    /// Replaces an autosaving note from a synchronous control-socket mutation.
+    /// The write completes before the command replies, and the live editor is
+    /// updated in the same main-actor transaction.
+    func replaceAutosavedTextContent(_ nextContent: String) throws {
+        guard presentation.autosavesTextChanges, previewMode == .text else { return }
+        guard let data = nextContent.data(using: textEncoding) else {
+            throw CocoaError(.fileWriteInapplicableStringEncoding)
+        }
+        textLoadGeneration += 1
+        if isSaving {
+            // The in-flight write may land after this synchronous one. Its
+            // autosave continuation must write this newer editor value again.
+            autosaveRequested = true
+        }
+        try data.write(to: fileURL, options: .atomic)
+        textView?.string = nextContent
+        textContent = nextContent
+        originalTextContent = nextContent
+        isDirty = false
+        isFileUnavailable = false
+    }
+
+    private func requestAutosave() {
+        autosaveRequested = true
+        guard !isSaving else { return }
+        autosaveRequested = false
+        guard let task = saveTextContent() else { return }
+        Task { [weak self] in
+            await task.value
+            guard let self, self.autosaveRequested || self.isDirty else { return }
+            self.requestAutosave()
+        }
     }
 
     private func prepareContentForPreviewMode() {
@@ -1299,7 +1343,7 @@ struct FilePreviewPanelView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if panel.previewMode != .pdf {
+            if panel.previewMode != .pdf, !panel.presentation.hidesFileHeader {
                 header
                 Divider()
             }

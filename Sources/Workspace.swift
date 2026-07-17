@@ -137,6 +137,7 @@ extension Workspace {
             layout: layout,
             layoutMode: layoutMode.rawValue,
             canvasPanes: canvasSessionPaneSnapshots(),
+            floatingDocks: floatingDockSessionSnapshots(),
             panels: panelSnapshots,
             statusEntries: statusSnapshots,
             logEntries: logSnapshots,
@@ -234,6 +235,7 @@ extension Workspace {
         isPinned = snapshot.isPinned
         groupId = snapshot.groupId
         restoreTodoState(from: snapshot)
+        restoreFloatingDocks(from: snapshot.floatingDocks)
 
         // Status entries and agent PIDs are ephemeral runtime state tied to running
         // processes (e.g. claude_code "Running"). Don't restore them across app
@@ -625,7 +627,10 @@ extension Workspace {
             terminalSnapshot = nil
             browserSnapshot = nil
             markdownSnapshot = nil
-            filePreviewSnapshot = SessionFilePreviewPanelSnapshot(filePath: filePreviewPanel.filePath)
+            filePreviewSnapshot = SessionFilePreviewPanelSnapshot(
+                filePath: filePreviewPanel.filePath,
+                noteTitle: filePreviewPanel.presentation.noteTitle
+            )
             rightSidebarToolSnapshot = nil
             agentSessionSnapshot = nil
             projectSnapshot = nil
@@ -1621,6 +1626,7 @@ extension Workspace {
                   let filePreviewPanel = newFilePreviewSurface(
                     inPane: paneId,
                     filePath: filePath,
+                    presentation: snapshot.filePreview?.noteTitle.map(FilePreviewPresentation.note) ?? .file,
                     focus: false
                   ) else {
                 return nil
@@ -2036,6 +2042,10 @@ final class Workspace: Identifiable, ObservableObject {
     /// (and so reading it during teardown does not lazily create one).
     private(set) var _dockSplit: DockSplitStore?
 
+    /// Window-like Bonsplit containers scoped to this workspace.
+    /// Mutated by the shared lifecycle methods in `Workspace+FloatingDocks`.
+    var floatingDocks: [WorkspaceFloatingDock] = []
+
     /// The right-sidebar Dock for this workspace: its own Bonsplit tree of
     /// terminal/browser panels, separate from the main-area `bonsplitController`.
     /// Created on first access so workspaces that never open the Dock pay nothing.
@@ -2045,14 +2055,7 @@ final class Workspace: Identifiable, ObservableObject {
             workspaceId: id,
             baseDirectoryProvider: { [weak self] in self?.currentDirectory },
             remoteBrowserSettingsProvider: { [weak self] in
-                guard let self else { return .local }
-                return DockRemoteBrowserSettings(
-                    proxyEndpoint: self.remoteProxyEndpoint,
-                    bypassRemoteProxy: false,
-                    isRemoteWorkspace: self.isRemoteWorkspace,
-                    remoteWebsiteDataStoreIdentifier: self.isRemoteWorkspace ? self.id : nil,
-                    remoteStatus: self.browserRemoteWorkspaceStatusSnapshot()
-                )
+                self?.dockRemoteBrowserSettingsSnapshot() ?? .local
             }
         )
         _dockSplit = store
@@ -3867,10 +3870,21 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
+    func dockRemoteBrowserSettingsSnapshot() -> DockRemoteBrowserSettings {
+        DockRemoteBrowserSettings(
+            proxyEndpoint: remoteProxyEndpoint,
+            bypassRemoteProxy: false,
+            isRemoteWorkspace: isRemoteWorkspace,
+            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace ? id : nil,
+            remoteStatus: browserRemoteWorkspaceStatusSnapshot()
+        )
+    }
+
     func applyBrowserRemoteWorkspaceStatusToPanels() {
         let snapshot = browserRemoteWorkspaceStatusSnapshot()
         for panel in panels.values { (panel as? BrowserPanel)?.setRemoteWorkspaceStatus(snapshot) }
         _dockSplit?.applyRemoteWorkspaceStatus(snapshot)
+        floatingDocks.forEach { $0.store.applyRemoteWorkspaceStatus(snapshot) }
     }
 
     // MARK: - Panel Access
@@ -6524,6 +6538,7 @@ final class Workspace: Identifiable, ObservableObject {
             (panel as? BrowserPanel)?.setRemoteProxyEndpoint(endpoint)
         }
         _dockSplit?.applyRemoteProxyEndpointUpdate(endpoint)
+        floatingDocks.forEach { $0.store.applyRemoteProxyEndpointUpdate(endpoint) }
         applyBrowserRemoteWorkspaceStatusToPanels()
     }
 
@@ -8406,6 +8421,7 @@ final class Workspace: Identifiable, ObservableObject {
     func newFilePreviewSurface(
         inPane paneId: PaneID,
         filePath: String,
+        presentation: FilePreviewPresentation = .file,
         focus: Bool? = nil,
         targetIndex: Int? = nil
     ) -> FilePreviewPanel? {
@@ -8413,7 +8429,11 @@ final class Workspace: Identifiable, ObservableObject {
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
 
-        let filePreviewPanel = FilePreviewPanel(workspaceId: id, filePath: filePath)
+        let filePreviewPanel = FilePreviewPanel(
+            workspaceId: id,
+            filePath: filePath,
+            presentation: presentation
+        )
         panels[filePreviewPanel.id] = filePreviewPanel
         panelTitles[filePreviewPanel.id] = filePreviewPanel.displayTitle
 
@@ -8675,6 +8695,8 @@ final class Workspace: Identifiable, ObservableObject {
         // Tear down the right-sidebar Dock's own panels (terminals/browsers) too,
         // but only if the Dock was ever opened for this workspace.
         _dockSplit?.closeAllPanels()
+        floatingDocks.forEach { $0.close() }
+        floatingDocks.removeAll()
     }
 
     /// Close a panel.
