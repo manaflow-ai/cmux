@@ -1428,6 +1428,8 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
                 return String(localized: "command.cmuxConfig.defaultClaudeCodeTitle", defaultValue: "Claude Code")
             case .opencode:
                 return String(localized: "command.cmuxConfig.defaultOpenCodeTitle", defaultValue: "OpenCode")
+            case .codePuppy:
+                return String(localized: "command.cmuxConfig.defaultCodePuppyTitle", defaultValue: "Code Puppy")
             case .custom(let name):
                 return name
             }
