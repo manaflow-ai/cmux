@@ -2917,6 +2917,45 @@ mod tests {
     }
 
     #[test]
+    fn all_excluded_viewers_fall_back_to_their_shared_minimum() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+
+        mux.resize_surface_for_client(surface.id, 1, 120, 40).unwrap();
+        mux.resize_surface_for_client(surface.id, 2, 80, 50).unwrap();
+        assert_eq!(surface.size(), (80, 40));
+
+        assert!(mux.set_client_size_participation(1, false));
+        assert_eq!(surface.size(), (80, 50));
+        assert!(mux.set_client_size_participation(2, false));
+
+        // tmux's ignore-size flag is only effective while at least one
+        // size-capable client is not ignored. If every viewer is ignored,
+        // they all participate again so the shared grid remains defined.
+        assert_eq!(surface.size(), (80, 40));
+    }
+
+    #[test]
+    fn excluding_last_participant_recalculates_other_visible_surfaces() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, None).unwrap();
+        let second = mux.new_workspace(None, None).unwrap();
+
+        mux.resize_surface_for_client(first.id, 1, 120, 40).unwrap();
+        mux.resize_surface_for_client(second.id, 2, 80, 25).unwrap();
+        assert!(mux.set_client_size_participation(2, false));
+
+        // Keep the ignored client's report current without applying it while
+        // another size-capable client still participates elsewhere.
+        mux.resize_surface_for_client(second.id, 2, 60, 20).unwrap();
+        assert_eq!(second.size(), (80, 25));
+
+        assert!(mux.set_client_size_participation(1, false));
+        assert_eq!(first.size(), (120, 40));
+        assert_eq!(second.size(), (60, 20));
+    }
+
+    #[test]
     fn in_process_tui_is_listed_as_local_client_zero() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
