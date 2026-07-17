@@ -2201,6 +2201,80 @@ mod tests {
     }
 
     #[test]
+    fn stalled_surface_route_does_not_block_shared_cdp_reader() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (flood_tx, flood_rx) = mpsc::channel();
+        let (sent_tx, sent_rx) = mpsc::channel();
+        let (reply_tx, reply_rx) = mpsc::channel();
+        let (stop_tx, stop_rx) = mpsc::channel();
+        let server = thread::Builder::new()
+            .name("browser-surface-backpressure-fake-cdp".into())
+            .spawn(move || {
+                let (stream, _) = listener.accept().unwrap();
+                let mut ws = accept(stream).unwrap();
+                let request = read_ws_json(&mut ws);
+                assert_eq!(request["method"], "Target.setDiscoverTargets");
+                write_ws_json(&mut ws, json!({"id": request["id"], "result": {}}));
+                flood_rx.recv().unwrap();
+                for index in 0..=(cmux_tui_cdp::CDP_EVENT_QUEUE_CAPACITY + 1) {
+                    write_ws_json(
+                        &mut ws,
+                        json!({
+                            "method": "Target.targetInfoChanged",
+                            "params": {
+                                "targetInfo": {
+                                    "targetId": "target-stalled",
+                                    "type": "page",
+                                    "title": format!("title-{index}"),
+                                    "url": "https://example.test"
+                                }
+                            }
+                        }),
+                    );
+                }
+                sent_tx.send(()).unwrap();
+                reply_rx.recv().unwrap();
+                write_ws_json(
+                    &mut ws,
+                    json!({
+                        "id": 2,
+                        "result": {"userAgent": "Mozilla/5.0 Chrome/136.0 Safari/537.36"}
+                    }),
+                );
+                let _ = stop_rx.recv();
+            })
+            .unwrap();
+
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::External,
+        )
+        .unwrap();
+        let (stalled_tx, _stalled_rx) = mpsc::sync_channel(0);
+        runtime.register("target-stalled", "session-stalled", stalled_tx);
+        flood_tx.send(()).unwrap();
+        sent_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        thread::sleep(Duration::from_millis(50));
+
+        let client = runtime.client.clone();
+        let (version_tx, version_rx) = mpsc::channel();
+        let version_call = thread::spawn(move || {
+            version_tx.send(client.browser_version()).unwrap();
+        });
+        thread::sleep(Duration::from_millis(20));
+        reply_tx.send(()).unwrap();
+        let version = version_rx.recv_timeout(Duration::from_millis(200));
+        stop_tx.send(()).unwrap();
+        runtime.shutdown();
+        server.join().unwrap();
+        drop(_stalled_rx);
+        version_call.join().unwrap();
+        assert!(version.is_ok(), "stalled surface blocked the shared CDP reader: {version:?}");
+    }
+
+    #[test]
     fn external_runtime_does_not_query_or_override_user_agent() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();

@@ -31,6 +31,15 @@ test("stream fails closed at the default buffered-event cap", async () => {
   assert.equal(cleanups, 1);
 });
 
+test("async iteration reports buffered-event overflow before the first pull", async () => {
+  const stream = new CmuxStream<{ event: string }>(100, () => undefined, 1);
+  stream.push({ event: "first" });
+  stream.push({ event: "overflow" });
+
+  const iterator = stream[Symbol.asyncIterator]();
+  await assert.rejects(() => iterator.next(), /stream event buffer overflow/);
+});
+
 test("attachSurface rejects oversized encoded data before decoding", async () => {
   const main = new ScriptedTransport((request, transport) => {
     transport.emit({
