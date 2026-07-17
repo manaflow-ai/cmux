@@ -111,6 +111,25 @@ extension ReconnectRouteSelectionTests {
         await blockedRefresh.value
     }
 
+    @Test func signOutCancelsInFlightIrohRecoveryOwner() async throws {
+        let fixture = try await makeRecoveryOwnerFixture(heldConnectAttempts: [2])
+        defer { fixture.release() }
+
+        #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        let first = try #require(fixture.box.get())
+        await first.close()
+
+        #expect(await fixture.factory.waitForAttemptCount(2))
+        #expect(fixture.store.connectionRecoveryOwner.isActive)
+
+        fixture.store.signOut()
+
+        #expect(fixture.store.connectionRecoveryOwner.phase == .idle)
+        #expect(fixture.store.connectionRecoveryOwner.task == nil)
+        #expect(!fixture.store.isRecoveringConnection)
+    }
+
     @Test func authenticatedPresenceRetriesFailedEarlyIrohRedial() async throws {
         let fixture = try await makeRecoveryOwnerFixture()
         defer { fixture.release() }
