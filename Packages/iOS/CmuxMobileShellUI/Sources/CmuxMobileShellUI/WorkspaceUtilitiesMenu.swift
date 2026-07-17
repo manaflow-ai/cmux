@@ -1,9 +1,11 @@
+import CMUXMobileCore
 import CmuxMobileSupport
 import SwiftUI
 
 /// Workspace-level utilities that remain in the top-right toolbar.
 struct WorkspaceUtilitiesMenu: View {
     let showsViewAsText: Bool
+    let terminalTheme: TerminalTheme
     let openTextSheet: () -> Void
     let copyDebugLogs: () -> Void
     let sendFeedback: () -> Void
@@ -40,7 +42,7 @@ struct WorkspaceUtilitiesMenu: View {
         } label: {
             Image(systemName: "ellipsis.circle")
         }
-        .foregroundStyle(TerminalPalette.foreground)
+        .foregroundStyle(terminalTheme.terminalChromeForegroundColor)
         .accessibilityLabel(
             L10n.string("mobile.workspace.utilitiesMenu", defaultValue: "Workspace Utilities")
         )

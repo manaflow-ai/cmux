@@ -73,6 +73,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// The composer toggle, pinned in the container (not the scrollable stack) so
     /// it is always reachable regardless of the button row's scroll position.
     private weak var composerButton: UIButton?
+    private weak var accessoryArrowNub: TerminalArrowNubView?
     /// The armed/sticky modifier state machine, extracted into the testable
     /// ``TerminalInputModifierState`` reducer. This view is now a dumb
     /// first-responder that forwards taps into the reducer and reads its state
@@ -234,19 +235,14 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         inputDelegate?.textDidChange(self)
     }
 
-    /// The input accessory bar fill, taken from the active terminal theme's
-    /// background so the bar blends with the live terminal under any theme.
-    private static var themeBarColor: UIColor {
-        guard let rgb = TerminalTheme.rgbComponents(TerminalThemeStore.current.background) else {
-            return UIColor(red: 0x27 / 255.0, green: 0x28 / 255.0, blue: 0x22 / 255.0, alpha: 1)
+    var terminalTheme: TerminalTheme = .monokai {
+        didSet {
+            guard terminalTheme != oldValue else { return }
+            refreshThemeColors()
         }
-        return UIColor(
-            red: CGFloat(rgb.red) / 255.0,
-            green: CGFloat(rgb.green) / 255.0,
-            blue: CGFloat(rgb.blue) / 255.0,
-            alpha: 1
-        )
     }
+    private var themeBarColor: UIColor { terminalTheme.terminalBackgroundUIColor }
+    private var themeChromeColor: UIColor { themeBarColor.terminalReadableForeground }
     private static let accessoryHorizontalInset: CGFloat = 16
     private static let accessoryButtonFont = UIFont.systemFont(ofSize: 14, weight: .medium)
     /// One shared SF Symbol config for every icon on the bar (paste, zoom,
@@ -306,7 +302,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// hug their icon tightly; the taller capsule supplies the tap area that a
     /// wider button used to.
     private static let accessoryButtonMinWidth: CGFloat = 32
-    private static let accessoryButtonNormalBackground = UIColor(white: 0.35, alpha: 1)
+    private var accessoryButtonNormalBackground: UIColor { themeChromeColor.withAlphaComponent(0.14) }
     private var accessoryBackgroundLeadingConstraint: NSLayoutConstraint?
     private var accessoryBackgroundTrailingConstraint: NSLayoutConstraint?
     private var accessoryDismissLeadingConstraint: NSLayoutConstraint?
@@ -314,12 +310,11 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// The fill behind the input accessory bar, kept so a live theme change can
     /// recolor it from the new theme's background.
     private weak var accessoryBarBackgroundView: UIView?
-
-    /// Re-applies the active theme's background to the input accessory bar fill.
-    /// Called on a live theme change so the bar blends with the recolored
-    /// terminal instead of keeping the old theme's color.
     func refreshThemeColors() {
-        accessoryBarBackgroundView?.backgroundColor = Self.themeBarColor
+        accessoryBarBackgroundView?.backgroundColor = themeBarColor
+        dismissButton?.tintColor = themeChromeColor.withAlphaComponent(0.78)
+        accessoryArrowNub?.applyTheme(background: themeBarColor, foreground: themeChromeColor)
+        refreshAccessoryButtonStyles()
     }
 
     private lazy var terminalAccessoryToolbar: UIView = {
@@ -331,14 +326,14 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         container.frame = CGRect(x: 0, y: 0, width: 0, height: Self.dockedButtonRowHeight)
 
         let backgroundView = UIView()
-        backgroundView.backgroundColor = Self.themeBarColor
+        backgroundView.backgroundColor = themeBarColor
         backgroundView.translatesAutoresizingMaskIntoConstraints = false
         self.accessoryBarBackgroundView = backgroundView
 
         // Pinned keyboard dismiss button on the left
         let dismissButton = UIButton(type: .system)
         dismissButton.setImage(UIImage(systemName: "keyboard.chevron.compact.down", withConfiguration: Self.accessoryButtonSymbolConfig), for: .normal)
-        dismissButton.tintColor = UIColor(white: 0.7, alpha: 1)
+        dismissButton.tintColor = themeChromeColor.withAlphaComponent(0.78)
         dismissButton.addTarget(self, action: #selector(handleHideKeyboard), for: .touchUpInside)
         dismissButton.accessibilityIdentifier = "terminal.inputAccessory.hideKeyboard"
         dismissButton.accessibilityLabel = String(localized: "terminal.input_accessory.hideKeyboard", defaultValue: "Hide Keyboard")
@@ -365,6 +360,8 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
 
         // Arrow nub for directional pad
         let nub = TerminalArrowNubView()
+        nub.applyTheme(background: themeBarColor, foreground: themeChromeColor)
+        accessoryArrowNub = nub
         nub.onArrowKey = { [weak self] action in
             self?.handleNubArrow(action)
         }
@@ -643,6 +640,9 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// button's armed/sticky style. Split out of ``updateModifierLabels(isMacRemote:)``
     /// so a configuration-driven rebuild can re-apply it without toggling the flag.
     private func applyModifierPresentation() {
+        if let button = composerButton as? AccessoryActionButton {
+            applyAccessoryButtonStyle(button, item: button.item, armed: false, sticky: false)
+        }
         guard let stack = accessoryStackView else { return }
         // Restyle every visible button for the current remote (built-in titles
         // depend on `isMacRemote`) and its armed/sticky state. Custom actions
@@ -658,6 +658,13 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
                 sticky = false
             }
             applyAccessoryButtonStyle(button, item: button.item, armed: armed, sticky: sticky)
+        }
+        let tint = themeChromeColor.withAlphaComponent(0.72)
+        for case let button as UIButton in stack.arrangedSubviews where !(button is AccessoryActionButton) {
+            var configuration = button.configuration
+            configuration?.baseForegroundColor = tint
+            button.configuration = configuration
+            button.tintColor = tint
         }
         // Disarm command state if switching away from Mac remote (clears a
         // sticky lock too, matching the legacy unconditional setter).
@@ -948,10 +955,10 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         var config = UIButton.Configuration.plain()
         config.image = UIImage(systemName: "chevron.down.square")
         config.preferredSymbolConfigurationForImage = Self.accessoryButtonSymbolConfig
-        config.baseForegroundColor = UIColor(white: 0.7, alpha: 1)
+        config.baseForegroundColor = themeChromeColor.withAlphaComponent(0.72)
         config.contentInsets = Self.accessoryButtonContentInsets
         button.configuration = config
-        button.tintColor = UIColor(white: 0.7, alpha: 1)
+        button.tintColor = themeChromeColor.withAlphaComponent(0.72)
         button.heightAnchor.constraint(equalToConstant: Self.accessoryButtonHeight).isActive = true
         button.widthAnchor.constraint(equalToConstant: Self.accessoryButtonMinWidth).isActive = true
         return button
@@ -975,10 +982,10 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         var config = UIButton.Configuration.plain()
         config.image = UIImage(systemName: "slider.horizontal.3")
         config.preferredSymbolConfigurationForImage = Self.accessoryButtonSymbolConfig
-        config.baseForegroundColor = UIColor(white: 0.7, alpha: 1)
+        config.baseForegroundColor = themeChromeColor.withAlphaComponent(0.72)
         config.contentInsets = Self.accessoryButtonContentInsets
         button.configuration = config
-        button.tintColor = UIColor(white: 0.7, alpha: 1)
+        button.tintColor = themeChromeColor.withAlphaComponent(0.72)
         button.heightAnchor.constraint(equalToConstant: Self.accessoryButtonHeight).isActive = true
         button.widthAnchor.constraint(equalToConstant: Self.accessoryButtonMinWidth).isActive = true
         return button
@@ -996,7 +1003,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         armed: Bool,
         sticky: Bool
     ) {
-        var config = Self.accessoryButtonConfiguration(armed: armed, sticky: sticky)
+        var config = accessoryButtonConfiguration(armed: armed, sticky: sticky)
         let symbolName: String?
         let title: String
         switch item {
@@ -1031,8 +1038,8 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         config.contentInsets = Self.accessoryButtonContentInsets
         button.configuration = config
         if let actionButton = button as? AccessoryActionButton {
-            // On iOS 26 the armed and sticky states share the same
-            // prominent-glass blue fill, so the double-tap *lock* is
+            actionButton.stickyLockBorderColor = UIColor.systemBlue.terminalReadableForeground
+            // On iOS 26 the armed and sticky states share the same prominent-glass blue fill, so the double-tap *lock* is
             // distinguished by a white capsule border drawn over the glass (see
             // ``AccessoryActionButton/isStickyLocked``). On earlier OSes the
             // flat style already renders the locked white stroke through the
@@ -1046,12 +1053,14 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         }
     }
 
-    private static func accessoryButtonConfiguration(armed: Bool, sticky: Bool) -> UIButton.Configuration {
+    private func accessoryButtonConfiguration(armed: Bool, sticky: Bool) -> UIButton.Configuration {
+        let activeBackground = UIColor.systemBlue
+        let activeForeground = activeBackground.terminalReadableForeground
         if #available(iOS 26.0, *) {
             var config: UIButton.Configuration = (armed || sticky) ? .prominentGlass() : .glass()
-            config.baseForegroundColor = .white
+            config.baseForegroundColor = armed || sticky ? activeForeground : themeChromeColor
             if armed || sticky {
-                config.baseBackgroundColor = .systemBlue
+                config.baseBackgroundColor = activeBackground
             }
             return config
         }
@@ -1059,16 +1068,16 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         var background = UIBackgroundConfiguration.clear()
         if sticky {
             background.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.85)
-            background.strokeColor = .white
+            background.strokeColor = activeForeground
             background.strokeWidth = 2
         } else if armed {
-            background.backgroundColor = .systemBlue
+            background.backgroundColor = activeBackground
         } else {
             background.backgroundColor = accessoryButtonNormalBackground
         }
-        background.cornerRadius = accessoryButtonCornerRadius
+        background.cornerRadius = Self.accessoryButtonCornerRadius
         config.background = background
-        config.baseForegroundColor = .white
+        config.baseForegroundColor = armed || sticky ? activeForeground : themeChromeColor
         return config
     }
 
@@ -1224,20 +1233,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     }
 
     private func refreshAccessoryButtonStyles() {
-        guard let stack = accessoryStackView else { return }
-        for case let button as AccessoryActionButton in stack.arrangedSubviews {
-            // Only built-in modifier keys arm; custom actions always render normal.
-            let armed: Bool
-            let sticky: Bool
-            if case let .builtin(action) = button.item {
-                armed = isAccessoryActionArmed(action)
-                sticky = isAccessoryActionSticky(action)
-            } else {
-                armed = false
-                sticky = false
-            }
-            applyAccessoryButtonStyle(button, item: button.item, armed: armed, sticky: sticky)
-        }
+        applyModifierPresentation()
     }
 
     private func emitCommittedText(_ committedText: String, source: String) {
