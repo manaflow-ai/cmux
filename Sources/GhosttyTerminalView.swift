@@ -8195,7 +8195,6 @@ final class GhosttySurfaceScrollView: NSView {
     private static let scrollToBottomThreshold: CGFloat = 5.0
     private var isActive = true
     private var lastFocusRefreshAt: CFTimeInterval = 0
-    private var lastRequestedPortalOcclusionVisible: Bool?
     private var activeDropZone: DropZone?
     private var pendingDropZone: DropZone?
     private var sessionContentWidthPresentation = SessionContentWidthPresentation.disabled
@@ -9910,10 +9909,10 @@ final class GhosttySurfaceScrollView: NSView {
         }
         surfaceView.setVisibleInUI(visible)
         isHidden = !visible
-        if wasVisible != visible, lastRequestedPortalOcclusionVisible != visible {
-            lastRequestedPortalOcclusionVisible = visible
-            surfaceView.terminalSurface?.setOcclusion(visible)
-        }
+        // Unconditional: setOcclusion is a cheap mailbox push and the renderer
+        // deduplicates. Gating on a local cache risks permanent desync if
+        // terminalSurface is nil during a visibility transition.
+        surfaceView.terminalSurface?.setOcclusion(visible)
 #if DEBUG
         if wasVisible != visible {
             let transition = "\(wasVisible ? 1 : 0)->\(visible ? 1 : 0)"
