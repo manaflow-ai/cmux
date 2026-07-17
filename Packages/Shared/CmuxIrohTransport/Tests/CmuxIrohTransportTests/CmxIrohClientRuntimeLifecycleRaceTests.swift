@@ -1,8 +1,69 @@
 import CMUXMobileCore
+import Foundation
 import Testing
 @testable import CmuxIrohTransport
 
 extension CmxIrohClientRuntimeTests {
+    @Test("foreground recovery owns the registration lane while the endpoint is unbound")
+    func foregroundRecoverySerializesRegistrationAcrossEndpointReplacement() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let staleEndpoint = ClientRuntimeBlockingCloseEndpoint(
+            identity: fixture.endpointID
+        )
+        let replacementEndpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let factory = TestIrohEndpointFactory(
+            endpoints: [staleEndpoint, replacementEndpoint]
+        )
+        let broker = TestIrohClientBroker(
+            binding: fixture.binding,
+            discovery: fixture.discovery,
+            relay: fixture.relayResponse()
+        )
+        let configuration = CmxIrohClientRuntimeConfiguration(
+            accountID: fixture.configuration.accountID,
+            deviceID: fixture.configuration.deviceID,
+            appInstanceID: fixture.configuration.appInstanceID,
+            tag: fixture.configuration.tag,
+            displayName: fixture.configuration.displayName,
+            identity: fixture.configuration.identity,
+            capabilities: fixture.configuration.capabilities,
+            managedRelayURLs: fixture.configuration.managedRelayURLs,
+            endpointRelayProfile: .unavailableCustomOverride
+        )
+        let runtime = try CmxIrohClientRuntime(
+            factory: factory,
+            broker: broker,
+            configuration: configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { fixture.now }
+        )
+        try await runtime.start()
+        await staleEndpoint.setHealthy(false)
+
+        let foreground = Task { try await runtime.didBecomeActive() }
+        await staleEndpoint.waitForCloseStart()
+        await runtime.handleSupervisorNetworkChange(
+            revision: await runtime.lifecycleRevision
+        )
+        if let concurrentRefresh = await runtime.registrationRefreshTask {
+            _ = try? await concurrentRefresh.value
+        }
+        await staleEndpoint.releaseClose()
+
+        switch await foreground.result {
+        case .success:
+            break
+        case .failure(let error):
+            Issue.record("foreground recovery was superseded by its own refresh: \(error)")
+        }
+        #expect(await runtime.snapshot().state == .active)
+        #expect(await factory.observedConfigurations().count == 2)
+        #expect(await broker.observedRegistrations().count == 2)
+        #expect(await staleEndpoint.observedCloseCallCount() == 1)
+        await runtime.stop()
+        await runtime.supervisor.deactivate()
+    }
+
     @Test
     func stoppedStartupCannotPublishDiscoveryGenerationAfterBindingHandlerResumes() async throws {
         let fixture = try ClientRuntimeTestFixture()
@@ -245,6 +306,69 @@ extension CmxIrohClientRuntimeTests {
         #expect(await runtime.snapshot().state == .inactive)
         #expect(await endpoint.observedCloseCallCount() == 1)
     }
+}
+
+private actor ClientRuntimeBlockingCloseEndpoint: CmxIrohEndpoint {
+    private let peerIdentity: CmxIrohPeerIdentity
+    private let healthStream: AsyncStream<CmxIrohEndpointHealthEvent>
+    private let healthContinuation: AsyncStream<CmxIrohEndpointHealthEvent>.Continuation
+    private var healthy = true
+    private var closeCallCount = 0
+    private var closeStarted = false
+    private var closeStartWaiters: [CheckedContinuation<Void, Never>] = []
+    private var closeRelease: CheckedContinuation<Void, Never>?
+
+    init(identity: CmxIrohPeerIdentity) {
+        peerIdentity = identity
+        let health = AsyncStream<CmxIrohEndpointHealthEvent>.makeStream()
+        healthStream = health.stream
+        healthContinuation = health.continuation
+    }
+
+    func identity() -> CmxIrohPeerIdentity { peerIdentity }
+
+    func address() -> CmxIrohEndpointAddress {
+        CmxIrohEndpointAddress(identity: peerIdentity, pathHints: [])
+    }
+
+    func connect(
+        to _: CmxIrohEndpointAddress,
+        alpn _: Data
+    ) async throws -> any CmxIrohConnection {
+        throw TestIrohTransportError.unsupported
+    }
+
+    func accept() async throws -> (any CmxIrohConnection)? { nil }
+
+    func replaceRelays(_: [CmxIrohRelayConfiguration]) {}
+
+    func healthEvents() -> AsyncStream<CmxIrohEndpointHealthEvent> { healthStream }
+
+    func isHealthy() -> Bool { healthy }
+
+    func close() async {
+        closeCallCount += 1
+        closeStarted = true
+        let waiters = closeStartWaiters
+        closeStartWaiters.removeAll(keepingCapacity: false)
+        for waiter in waiters { waiter.resume() }
+        await withCheckedContinuation { closeRelease = $0 }
+        healthContinuation.finish()
+    }
+
+    func setHealthy(_ value: Bool) { healthy = value }
+
+    func waitForCloseStart() async {
+        if closeStarted { return }
+        await withCheckedContinuation { closeStartWaiters.append($0) }
+    }
+
+    func releaseClose() {
+        closeRelease?.resume()
+        closeRelease = nil
+    }
+
+    func observedCloseCallCount() -> Int { closeCallCount }
 }
 
 private actor ClientRuntimeBindingHandlerGate {
