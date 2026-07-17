@@ -24,7 +24,8 @@ General app preferences from Settings > App.
 | `app.iMessageMode` | boolean | `false` | Move a workspace to the top and show the submitted message when sending an agent prompt. |
 | `app.sendAnonymousTelemetry` | boolean | `true` | Allow anonymous telemetry. |
 | `app.warnBeforeQuit` | boolean | `true` | Show a confirmation before quitting cmux. |
-| `app.warnBeforeClosingTab` | boolean | `true` | Show a confirmation before closing a tab. |
+| `app.warnBeforeClosingTab` | boolean | `false` | Show a confirmation before closing a tab. |
+| `app.terminalCloseGracePeriodSeconds` | number | `5` | Keep a terminal alive briefly so Command-Shift-T can restore it. Set to 0 to close immediately. |
 | `app.renameSelectsExistingName` | boolean | `true` | Select the current name when opening rename flows. |
 | `app.commandPaletteSearchesAllSurfaces` | boolean | `false` | Search every surface in the command palette switcher instead of only the active workspace. |
 

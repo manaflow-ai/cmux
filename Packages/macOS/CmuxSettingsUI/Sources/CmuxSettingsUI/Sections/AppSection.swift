@@ -58,6 +58,7 @@ public struct AppSection: View {
     @State private var telemetry: DefaultsValueModel<Bool>
     @State private var confirmQuit: DefaultsValueModel<ConfirmQuitMode>
     @State private var warnCloseTab: DefaultsValueModel<Bool>
+    @State private var terminalCloseGracePeriod: DefaultsValueModel<Double>
     @State private var warnCloseX: DefaultsValueModel<Bool>
     @State private var hideCloseButton: DefaultsValueModel<Bool>
     @State private var renameSelects: DefaultsValueModel<Bool>
@@ -110,6 +111,7 @@ public struct AppSection: View {
         _telemetry = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.sendAnonymousTelemetry))
         _confirmQuit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.confirmQuitMode))
         _warnCloseTab = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingTab))
+        _terminalCloseGracePeriod = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.terminalCloseGracePeriodSeconds))
         _warnCloseX = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingTabXButton))
         _hideCloseButton = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.hideTabCloseButton))
         _renameSelects = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.renameSelectsExistingName))
@@ -136,7 +138,7 @@ public struct AppSection: View {
             mainCard
         }
         .task {
-            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
+            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, telemetry, confirmQuit, warnCloseTab, terminalCloseGracePeriod, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
             if languageAtAppear == nil { languageAtAppear = language.current }; if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
         }
     }
@@ -712,11 +714,41 @@ public struct AppSection: View {
                 String(localized: "settings.app.warnBeforeClosingTab", defaultValue: "Warn Before Closing Tab"),
                 subtitle: warnCloseTab.current
                     ? String(localized: "settings.app.warnBeforeClosingTab.subtitleOn", defaultValue: "Show a confirmation before closing a tab.")
-                    : String(localized: "settings.app.warnBeforeClosingTab.subtitleOff", defaultValue: "Tabs close immediately without confirmation.")
+                    : String(localized: "settings.app.warnBeforeClosingTab.subtitleOff", defaultValue: "Terminals close without confirmation and remain available briefly for Command-Shift-T.")
             ) {
                 Toggle("", isOn: Binding(get: { warnCloseTab.current }, set: { warnCloseTab.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("app.terminalCloseGracePeriodSeconds"),
+                String(localized: "settings.app.terminalCloseGracePeriod", defaultValue: "Terminal Close Grace Period"),
+                subtitle: String(localized: "settings.app.terminalCloseGracePeriod.subtitle", defaultValue: "Keep closed terminals alive for Command-Shift-T. Set to 0 to close immediately."),
+                controlWidth: Self.columnWidth
+            ) {
+                HStack(spacing: 8) {
+                    Text(String(
+                        format: String(localized: "settings.app.terminalCloseGracePeriod.value", defaultValue: "%.0f s"),
+                        terminalCloseGracePeriod.current
+                    ))
+                    .cmuxFont(.body, design: .monospaced)
+                    .monospacedDigit()
+                    .frame(width: 56, alignment: .trailing)
+                    Stepper(
+                        "",
+                        value: Binding(
+                            get: { terminalCloseGracePeriod.current },
+                            set: { terminalCloseGracePeriod.set($0) }
+                        ),
+                        in: 0...60,
+                        step: 1
+                    )
+                    .labelsHidden()
+                }
+                .disabled(warnCloseTab.current)
+                .accessibilityIdentifier("SettingsTerminalCloseGracePeriodStepper")
             }
             SettingsCardDivider()
 

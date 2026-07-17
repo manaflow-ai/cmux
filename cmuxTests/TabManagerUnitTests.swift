@@ -1595,12 +1595,32 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         )
     }
 
-    func testCloseCurrentPanelWarnBeforeClosingTabDefaultsToEnabledWhenUnset() throws {
+    func testCloseCurrentPanelWarnBeforeClosingTabDefaultsToDisabledWhenUnset() throws {
         try assertCloseCurrentPanelConfirmation(
             warnBeforeClosingTab: nil,
-            expectedPromptCount: 1,
-            expectedPanelClosed: false
+            expectedPromptCount: 0,
+            expectedPanelClosed: true
         )
+    }
+
+    func testCloseCurrentPanelRestoresSameLiveTerminalDuringGracePeriod() throws {
+        try withCloseTabConfig(warnBeforeClosingTab: false, terminalCloseGracePeriodSeconds: 60) {
+            let manager = TabManager()
+            guard let workspace = manager.selectedWorkspace,
+                  let paneId = workspace.bonsplitController.focusedPaneId,
+                  let panelId = workspace.focusedPanelId,
+                  let terminal = workspace.terminalPanel(for: panelId),
+                  workspace.newTerminalSurface(inPane: paneId, focus: false) != nil else {
+                XCTFail("Expected workspace with two terminal surfaces")
+                return
+            }
+            workspace.focusPanel(panelId)
+
+            manager.closeCurrentPanelWithConfirmation()
+            XCTAssertNil(workspace.panels[panelId])
+            XCTAssertTrue(UndoableTerminalCloseStore.shared.restoreMostRecent())
+            XCTAssertTrue(workspace.panels[panelId] === terminal)
+        }
     }
 
     func testTabCloseButtonWarningHonorsCmuxJSON() throws {
@@ -2216,6 +2236,7 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         warnBeforeClosingTab: Bool? = nil,
         warnBeforeClosingTabXButton: Bool? = nil,
         hideTabCloseButton: Bool? = nil,
+        terminalCloseGracePeriodSeconds: Double = 0,
         run: () throws -> Void
     ) throws {
         let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
@@ -2223,16 +2244,19 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         let originalWarnBeforeClosingTab = defaults.object(forKey: AppCatalogSection().warnBeforeClosingTab.userDefaultsKey)
         let originalWarnBeforeClosingTabXButton = defaults.object(forKey: AppCatalogSection().warnBeforeClosingTabXButton.userDefaultsKey)
         let originalHideTabCloseButton = defaults.object(forKey: AppCatalogSection().hideTabCloseButton.userDefaultsKey)
+        let originalGracePeriod = defaults.object(forKey: AppCatalogSection().terminalCloseGracePeriodSeconds.userDefaultsKey)
         let originalBackups = defaults.object(forKey: settingsFileBackupsDefaultsKey)
         defaults.removeObject(forKey: AppCatalogSection().warnBeforeClosingTab.userDefaultsKey)
         defaults.removeObject(forKey: AppCatalogSection().warnBeforeClosingTabXButton.userDefaultsKey)
         defaults.removeObject(forKey: AppCatalogSection().hideTabCloseButton.userDefaultsKey)
+        defaults.removeObject(forKey: AppCatalogSection().terminalCloseGracePeriodSeconds.userDefaultsKey)
         defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
         defer {
             KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
             restore(originalWarnBeforeClosingTab, forKey: AppCatalogSection().warnBeforeClosingTab.userDefaultsKey, defaults: defaults)
             restore(originalWarnBeforeClosingTabXButton, forKey: AppCatalogSection().warnBeforeClosingTabXButton.userDefaultsKey, defaults: defaults)
             restore(originalHideTabCloseButton, forKey: AppCatalogSection().hideTabCloseButton.userDefaultsKey, defaults: defaults)
+            restore(originalGracePeriod, forKey: AppCatalogSection().terminalCloseGracePeriodSeconds.userDefaultsKey, defaults: defaults)
             if let originalBackups {
                 defaults.set(originalBackups, forKey: settingsFileBackupsDefaultsKey)
             } else {
@@ -2252,6 +2276,7 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
             warnBeforeClosingTab.map { #"    "warnBeforeClosingTab": \#($0)"# },
             warnBeforeClosingTabXButton.map { #"    "warnBeforeClosingTabXButton": \#($0)"# },
             hideTabCloseButton.map { #"    "hideTabCloseButton": \#($0)"# },
+            #"    "terminalCloseGracePeriodSeconds": \#(terminalCloseGracePeriodSeconds)"#,
         ].compactMap { $0 }
         let appBody = settingLines.isEmpty ? "" : "\n\(settingLines.joined(separator: ",\n"))\n  "
         try """
@@ -2267,6 +2292,52 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         )
 
         try run()
+    }
+}
+
+@MainActor
+final class UndoableTerminalCloseStoreTests: XCTestCase {
+    func testRestoresMostRecentCloseAndExpiresOlderClose() {
+        let store = UndoableTerminalCloseStore()
+        var events: [String] = []
+        let olderID = store.stage(
+            gracePeriod: 60,
+            restore: { events.append("restore older"); return true },
+            finalize: { events.append("finalize older") }
+        )
+        _ = store.stage(
+            gracePeriod: 60,
+            restore: { events.append("restore newer"); return true },
+            finalize: { events.append("finalize newer") }
+        )
+
+        XCTAssertEqual(store.pendingCount, 2)
+        XCTAssertTrue(store.restoreMostRecent())
+        XCTAssertEqual(events, ["restore newer"])
+        XCTAssertEqual(store.pendingCount, 1)
+
+        guard let olderID else {
+            XCTFail("Expected staged close identifier")
+            return
+        }
+        store.expire(id: olderID)
+        XCTAssertEqual(events, ["restore newer", "finalize older"])
+        XCTAssertEqual(store.pendingCount, 0)
+    }
+
+    func testZeroGracePeriodFinalizesImmediately() {
+        let store = UndoableTerminalCloseStore()
+        var finalized = false
+
+        let id = store.stage(
+            gracePeriod: 0,
+            restore: { XCTFail("Zero-grace close must not be restorable"); return false },
+            finalize: { finalized = true }
+        )
+
+        XCTAssertNil(id)
+        XCTAssertTrue(finalized)
+        XCTAssertEqual(store.pendingCount, 0)
     }
 }
 

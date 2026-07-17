@@ -54,6 +54,7 @@ struct SettingsRowAnchorResolutionTests {
         "app.reorderOnNotification",
         "app.sendAnonymousTelemetry",
         "app.warnBeforeClosingTab",
+        "app.terminalCloseGracePeriodSeconds",
         "app.warnBeforeClosingTabXButton",
         "app.workspaceInheritWorkingDirectory",
         "automation.claudeBinaryPath",

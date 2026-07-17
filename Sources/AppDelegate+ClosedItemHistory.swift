@@ -1,5 +1,63 @@
 import AppKit
 
+@MainActor
+final class UndoableTerminalCloseStore {
+    static let shared = UndoableTerminalCloseStore()
+
+    private struct PendingClose {
+        let id: UUID
+        let restore: @MainActor () -> Bool
+        let finalize: @MainActor () -> Void
+        var expirationTask: Task<Void, Never>?
+    }
+
+    private var pendingCloses: [PendingClose] = []
+
+    @discardableResult
+    func stage(
+        gracePeriod: TimeInterval,
+        restore: @escaping @MainActor () -> Bool,
+        finalize: @escaping @MainActor () -> Void
+    ) -> UUID? {
+        guard gracePeriod > 0 else {
+            finalize()
+            return nil
+        }
+
+        let id = UUID()
+        pendingCloses.append(PendingClose(id: id, restore: restore, finalize: finalize))
+        let task = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(gracePeriod))
+            guard !Task.isCancelled else { return }
+            self?.expire(id: id)
+        }
+        pendingCloses[pendingCloses.count - 1].expirationTask = task
+        return id
+    }
+
+    @discardableResult
+    func restoreMostRecent() -> Bool {
+        guard var pending = pendingCloses.popLast() else { return false }
+        pending.expirationTask?.cancel()
+        pending.expirationTask = nil
+        guard pending.restore() else {
+            pending.finalize()
+            return false
+        }
+        return true
+    }
+
+    func expire(id: UUID) {
+        guard let index = pendingCloses.firstIndex(where: { $0.id == id }) else { return }
+        var pending = pendingCloses.remove(at: index)
+        pending.expirationTask?.cancel()
+        pending.expirationTask = nil
+        pending.finalize()
+    }
+
+    var pendingCount: Int { pendingCloses.count }
+}
+
 extension AppDelegate {
     func clearRecentlyClosedHistory(preferredTabManager: TabManager? = nil) {
         ClosedItemHistoryStore.shared.removeAll()
@@ -26,6 +84,10 @@ extension AppDelegate {
         preferredTabManager: TabManager? = nil,
         shouldActivate: Bool = true
     ) -> Bool {
+        if UndoableTerminalCloseStore.shared.restoreMostRecent() {
+            return true
+        }
+
         var failedStoreRecordIds: Set<UUID> = []
         let restoreStoreItem: (Date?) -> Bool = { cutoff in
             ClosedItemHistoryStore.shared.restoreFirstRestorable(
