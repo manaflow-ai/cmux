@@ -4,6 +4,8 @@ public struct MobileTerminalReorderIntent: Equatable, Sendable {
     public let terminalID: MobileTerminalPreview.ID
     /// The pane that owns both source and destination.
     public let paneID: MobilePanePreview.ID
+    /// The exact pane-local terminal order used to resolve the destination.
+    public let expectedTerminalIDs: [MobileTerminalPreview.ID]
     /// The destination insertion index expected by the Mac.
     public let targetIndex: Int
 
@@ -24,6 +26,7 @@ public struct MobileTerminalReorderIntent: Equatable, Sendable {
         }
         self.terminalID = terminalID
         self.paneID = pane.id
+        self.expectedTerminalIDs = pane.terminalIDs
         self.targetIndex = sourceIndex < destinationIndex ? destinationIndex - 1 : destinationIndex
     }
 }

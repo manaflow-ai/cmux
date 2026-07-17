@@ -176,6 +176,62 @@ import Testing
 }
 
 @MainActor
+@Test func reorderSerializesExactPreMovePaneTerminalOrder() async throws {
+    let router = RoutingHostRouter()
+    let capabilities = MobileWorkspaceActionCapabilities(
+        supportsTerminalReorderActions: true
+    )
+    let store = try await makeRoutingConnectedStore(
+        router: router,
+        connectionState: .connected,
+        workspaceActionCapabilities: capabilities
+    )
+    let workspace = try #require(store.workspaces.first)
+    let pane = try #require(workspace.resolvedPanes.first)
+    let terminalID = try #require(pane.terminalIDs.first)
+    let intent = try #require(MobileTerminalReorderIntent(
+        terminalID: terminalID,
+        sourceIndex: 0,
+        destinationIndex: pane.terminalIDs.count,
+        pane: pane
+    ))
+    let reservation = try #require(store.terminalReorderGate.reserve(
+        workspaceID: workspace.id,
+        paneID: pane.id
+    ))
+
+    let result = await store.reorderTerminal(
+        workspaceID: workspace.id,
+        intent: intent,
+        reservation: reservation
+    )
+
+    guard case .success = result else {
+        Issue.record("Expected reorder RPC to succeed, got \(result)")
+        return
+    }
+    #expect(
+        await router.recordedTerminalReorderExpectedTerminalIDs()
+            == pane.terminalIDs.map(\.rawValue)
+    )
+}
+
+@MainActor
+@Test func newClientRequiresTerminalReorderV2Capability() {
+    let v1Only = MobileShellComposite.workspaceActionCapabilities(
+        from: ["terminal.reorder.v1"],
+        allowsMacScopedMutations: true
+    )
+    let v2Only = MobileShellComposite.workspaceActionCapabilities(
+        from: ["terminal.reorder.v2"],
+        allowsMacScopedMutations: true
+    )
+
+    #expect(!v1Only.supportsTerminalReorderActions)
+    #expect(v2Only.supportsTerminalReorderActions)
+}
+
+@MainActor
 @Test func rejectedCloseReleasesItsReservation() async throws {
     let store = MobileShellComposite.preview()
     let reservation = try #require(store.terminalReorderGate.reserve(

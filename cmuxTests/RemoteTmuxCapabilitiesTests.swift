@@ -58,6 +58,7 @@ import Testing
 
         #expect(MobileHostService.mobileHostCapabilities.contains("terminal.close.v1"))
         #expect(MobileHostService.mobileHostCapabilities.contains("terminal.reorder.v1"))
+        #expect(MobileHostService.mobileHostCapabilities.contains("terminal.reorder.v2"))
     }
 
     /// Requests without a host must fail a network-free guard, never dispatch as

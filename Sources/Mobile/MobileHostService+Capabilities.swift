@@ -28,6 +28,7 @@ extension MobileHostService {
             "terminal.create_in_pane.v1",
             "terminal.close.v1",
             "terminal.reorder.v1",
+            "terminal.reorder.v2",
             "terminal.artifact.v1",
             "workspace.actions.v1",
             "workspace.read_state.v1",

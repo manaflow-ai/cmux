@@ -179,6 +179,35 @@ extension TerminalController {
               let targetIndex = v2Int(params, "index"), targetIndex >= 0 else {
             return .err(code: "invalid_params", message: "Missing terminal reorder target", data: nil)
         }
+        let expectedTerminalIDs: [UUID]?
+        if let rawExpectedTerminalIDs = params["expected_terminal_ids"] {
+            guard let rawIDs = rawExpectedTerminalIDs as? [String], !rawIDs.isEmpty else {
+                return .err(
+                    code: "invalid_params",
+                    message: "Expected terminal order must be a non-empty UUID list",
+                    data: nil
+                )
+            }
+            var parsedIDs: [UUID] = []
+            var seenIDs: Set<UUID> = []
+            parsedIDs.reserveCapacity(rawIDs.count)
+            for rawID in rawIDs {
+                guard let terminalID = UUID(uuidString: rawID),
+                      seenIDs.insert(terminalID).inserted else {
+                    return .err(
+                        code: "invalid_params",
+                        message: "Expected terminal order must contain unique UUIDs",
+                        data: nil
+                    )
+                }
+                parsedIDs.append(terminalID)
+            }
+            expectedTerminalIDs = parsedIDs
+        } else {
+            // Legacy iOS clients negotiate terminal.reorder.v1 and do not send
+            // an order precondition. New clients require v2 before exposing the action.
+            expectedTerminalIDs = nil
+        }
         guard let tabManager = v2ResolveTabManager(params: params),
               let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }),
               let paneID = workspace.paneId(forPanelId: surfaceID),
@@ -189,7 +218,15 @@ extension TerminalController {
         let panePanelIDs = workspace.bonsplitController.tabs(inPane: paneID).compactMap {
             workspace.panelIdFromSurfaceId($0.id)
         }
-        let terminalIDs = Set(panePanelIDs.filter { workspace.terminalPanel(for: $0) != nil })
+        let orderedTerminalIDs = panePanelIDs.filter { workspace.terminalPanel(for: $0) != nil }
+        if let expectedTerminalIDs, expectedTerminalIDs != orderedTerminalIDs {
+            return .err(
+                code: "stale_state",
+                message: "Terminal order changed before the reorder could be applied",
+                data: nil
+            )
+        }
+        let terminalIDs = Set(orderedTerminalIDs)
         let resolver = MobileTerminalReorderIndexResolver(
             panePanelIDs: panePanelIDs,
             terminalPanelIDs: terminalIDs,

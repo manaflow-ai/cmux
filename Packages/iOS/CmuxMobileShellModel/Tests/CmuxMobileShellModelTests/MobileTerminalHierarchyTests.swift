@@ -60,6 +60,7 @@ import Testing
         pane: pane
     )
     #expect(downward?.targetIndex == 1)
+    #expect(downward?.expectedTerminalIDs == pane.terminalIDs)
     #expect(MobileTerminalReorderIntent(
         terminalID: "terminal-a",
         sourceIndex: 0,

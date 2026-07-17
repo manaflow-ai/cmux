@@ -84,6 +84,7 @@ extension MobileShellComposite {
         params["surface_id"] = intent.terminalID.rawValue
         params["pane_id"] = intent.paneID.rawValue
         params["index"] = intent.targetIndex
+        params["expected_terminal_ids"] = intent.expectedTerminalIDs.map(\.rawValue)
         return await sendWorkspaceMutation(
             method: "terminal.reorder",
             params: params,

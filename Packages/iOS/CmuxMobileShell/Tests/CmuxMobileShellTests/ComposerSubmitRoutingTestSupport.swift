@@ -106,6 +106,7 @@ actor RoutingHostRouter {
     private var usesNilPaneIDCloseFallbackFixture = false
     private var closedTerminalIDs: Set<String> = []
     private var terminalReorderCount = 0
+    private var terminalReorderExpectedTerminalIDs: [String]?
     private var terminalCloseReachedWaiters: [CheckedContinuation<Void, Never>] = []
     private var holdFirstWorkspaceCreate = false
     private var firstWorkspaceCreateHeld = false
@@ -239,6 +240,9 @@ actor RoutingHostRouter {
     func recordedWorkspaceMutationMethods() -> [String] { workspaceMutationMethods }
     func recordedTerminalCloseCount() -> Int { terminalCloseCount }
     func recordedTerminalReorderCount() -> Int { terminalReorderCount }
+    func recordedTerminalReorderExpectedTerminalIDs() -> [String]? {
+        terminalReorderExpectedTerminalIDs
+    }
     func recordedTerminalCreateCount() -> Int { terminalCreateCount }
     func recordedTerminalCreateWorkspaceIDs() -> [String?] { terminalCreateWorkspaceIDs }
     func recordedHeldTerminalCreateCount() -> Int { heldTerminalCreateCount }
@@ -259,6 +263,7 @@ actor RoutingHostRouter {
         var clientID: String?
         var groupID: String?
         var workspaceID: String?
+        var expectedTerminalIDs: [String]?
     }
 
     func response(_ info: RequestInfo) async -> Data? {
@@ -398,6 +403,7 @@ actor RoutingHostRouter {
             return try? Self.resultFrame(id: id, result: [:])
         case "terminal.reorder":
             terminalReorderCount += 1
+            terminalReorderExpectedTerminalIDs = info.expectedTerminalIDs
             return try? Self.resultFrame(id: id, result: [:])
         case "terminal.paste_image":
             let surfaceID = info.surfaceID ?? ""
