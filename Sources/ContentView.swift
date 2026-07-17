@@ -10508,8 +10508,8 @@ struct VerticalTabsSidebar: View {
     }
 
     private func workspaceScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
-        // FLAG(sidebar-appkit-list-experiment): the AppKit NSTableView sidebar
-        // is opt-in while it soaks; default stays on the SwiftUI list.
+        // The AppKit NSTableView sidebar is the default. The feature flag stays
+        // available as an explicit remote-false rollback to the SwiftUI list.
         Group {
             if CmuxFeatureFlags.shared.isAppKitSidebarListEnabled {
                 AnyView(appKitWorkspaceScrollArea(renderContext: renderContext))
