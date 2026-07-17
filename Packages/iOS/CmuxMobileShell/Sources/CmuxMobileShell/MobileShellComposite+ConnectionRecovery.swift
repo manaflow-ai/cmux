@@ -80,6 +80,9 @@ extension MobileShellComposite {
             }
             self.recoveryInFlight = false
             self.isRecoveringConnection = false
+            // A network change that arrived during this recovery parked itself
+            // behind the in-flight flags; run it now or it stays pending.
+            self.drainPendingNetworkRecoveryIfIdle()
         }
     }
 
@@ -236,7 +239,7 @@ extension MobileShellComposite {
             )
             for route in candidates {
                 guard ifStillCurrent?() ?? true else { return false }
-                await connectManualHost(
+                let result = await connectManualHost(
                     name: name,
                     host: route.host,
                     port: route.port,
@@ -247,11 +250,11 @@ extension MobileShellComposite {
                     pendingMacSwitchAttemptID: pendingMacSwitchAttemptID,
                     ifStillCurrent: ifStillCurrent
                 )
-                if connectionState == .connected,
-                   remoteClient != nil,
-                   foregroundMacDeviceID == pairedMacDeviceID {
-                    break
-                }
+                // Only a plain failure moves on to the next candidate. A
+                // pending user approval owns this attempt's continuation:
+                // dialing the next candidate would rotate the pairing attempt,
+                // supersede the queued trust warning, and strand the approval.
+                guard result == .failed else { break }
             }
         }
 
