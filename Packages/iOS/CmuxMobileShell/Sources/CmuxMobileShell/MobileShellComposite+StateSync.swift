@@ -77,6 +77,13 @@ extension MobileShellComposite {
     }
 
     private func runStateSyncFetch(client: MobileCoreRPCClient) async {
+        // Currency check BEFORE the send, not only after: a negotiation task
+        // scheduled for a listener generation that has since been replaced
+        // must not touch its stale client at all — `sendRequest` on a
+        // torn-down session would redial that client's route underneath the
+        // replacement connection (an extra transport dial the reconnect
+        // paths never asked for).
+        guard remoteClient === client, connectionState == .connected, !Task.isCancelled else { return }
         let params: [String: Any]
         do {
             params = try MobileSyncFrameJSON.jsonObject(from: stateSyncMirror.fetchRequest)
