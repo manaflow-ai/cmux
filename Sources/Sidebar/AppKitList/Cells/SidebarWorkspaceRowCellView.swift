@@ -88,33 +88,32 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
     var currentModelForMeasurement: SidebarWorkspaceRowModel? { model }
 
-    /// Paints the selected-row background instantly on press; the next
-    /// authoritative configure() repaints the full selected treatment (or
-    /// reverts if the selection did not land).
+    /// Paints the FULL selected treatment instantly on press by applying a
+    /// selection-flipped copy of the model — every selection-derived color
+    /// (background, title, secondary text, notification preview, badges)
+    /// flips with the highlight instead of trailing in with the terminal
+    /// swap. The stored model stays authoritative; the next configure()
+    /// reconciles (or reverts if the selection did not land).
     func showOptimisticSelectionHighlight() {
         guard let model, !model.isActive else { return }
-        let palette = SidebarRowPalette(model: model)
-        backgroundView.layer?.backgroundColor = palette.selectedBackground.cgColor
-        titleView.textColor = palette.selectedForeground(1.0)
+        var optimistic = model
+        optimistic.isActive = true
+        optimistic.isMultiSelected = false
+        applyModel(optimistic)
+        needsLayout = true
     }
 
-    /// Counterpart for the row selection is LEAVING: repaints the normal
-    /// (deselected) treatment instantly so old and new selection never show
+    /// Counterpart for the row selection is LEAVING: applies the full
+    /// deselected treatment instantly so old and new selection never show
     /// together while the authoritative render sits behind the terminal-view
     /// swap. configure() reconciles right after.
     func showOptimisticDeselection() {
         guard let model, model.isActive || model.isMultiSelected else { return }
-        let style = sidebarWorkspaceRowBackgroundStyle(
-            activeTabIndicatorStyle: model.settings.activeTabIndicatorStyle,
-            isActive: false,
-            isMultiSelected: false,
-            customColorHex: model.snapshot.customColorHex,
-            colorScheme: SidebarRowPalette(model: model).colorScheme,
-            sidebarSelectionColorHex: model.settings.selectionColorHex
-        )
-        applyBackgroundStyle(style)
-        backgroundView.layer?.borderWidth = 0
-        titleView.textColor = .labelColor
+        var optimistic = model
+        optimistic.isActive = false
+        optimistic.isMultiSelected = false
+        applyModel(optimistic)
+        needsLayout = true
     }
 
     /// True when a press at this view should not repaint selection (the
