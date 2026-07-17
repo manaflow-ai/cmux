@@ -5,6 +5,16 @@ extension SimulatorPaneCoordinator {
     /// Starts ordered command delivery, event observation, and device discovery.
     /// Calling this method more than once is harmless.
     public func start() async {
+        await start(activatingSelectedDevice: true)
+    }
+
+    /// Starts discovery and worker event delivery without activating the
+    /// persisted or default device before an explicit selection request.
+    public func prepareForExplicitDeviceSelection() async {
+        await start(activatingSelectedDevice: false)
+    }
+
+    private func start(activatingSelectedDevice: Bool) async {
         if let startupTask {
             await waitForPaneOwnedTask(startupTask)
             return
@@ -12,7 +22,7 @@ extension SimulatorPaneCoordinator {
         guard !closed, !started else { return }
         let task = Task<Void, Never> { @MainActor [weak self] in
             guard let self else { return }
-            await self.runStartup()
+            await self.runStartup(activatingSelectedDevice: activatingSelectedDevice)
         }
         startupTask = task
         await waitForPaneOwnedTask(task)
@@ -76,7 +86,7 @@ extension SimulatorPaneCoordinator {
         }
     }
 
-    private func runStartup() async {
+    private func runStartup(activatingSelectedDevice: Bool) async {
         guard !closed, !started else { return }
         started = true
         startOutgoingDelivery()
@@ -87,7 +97,7 @@ extension SimulatorPaneCoordinator {
             if !closed { started = false }
             return
         }
-        if status == .idle, let selectedDeviceID {
+        if activatingSelectedDevice, status == .idle, let selectedDeviceID {
             selectDevice(id: selectedDeviceID)
         }
     }

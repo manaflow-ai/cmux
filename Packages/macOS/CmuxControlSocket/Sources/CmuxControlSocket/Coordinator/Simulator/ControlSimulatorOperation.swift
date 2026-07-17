@@ -46,4 +46,17 @@ public enum ControlSimulatorOperation: Sendable, Equatable {
     case accessibility
     /// Reads metadata for the frontmost simulated application.
     case foregroundApplication
+
+    /// Whether success changes state outside the requesting socket operation.
+    public var commitsExternalMutation: Bool {
+        switch self {
+        case .context, .eventLog, .cameraStatus, .permissionsRead,
+             .interfaceStatus, .accessibility, .foregroundApplication:
+            false
+        case .selectDevice, .recover, .gesture, .hardwareButton, .rotate,
+             .coreAnimation, .memoryWarning, .tools, .cameraConfigure,
+             .cameraSwitch, .cameraMirror, .permissionsSet, .interfaceSet:
+            true
+        }
+    }
 }

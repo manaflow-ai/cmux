@@ -146,6 +146,11 @@ extension ControlCommandCoordinator {
                 "operation_timeout_seconds must be between 0.1 and 550"
             )
         }
+        if requestedTimeout != nil, operation.commitsExternalMutation {
+            return invalidSimulatorOperation(
+                "operation_timeout_seconds is available only for read-only operations"
+            )
+        }
         guard let context else {
             return simulatorNoActiveWindow()
         }

@@ -169,9 +169,7 @@ extension SimulatorControlService {
                 )
             )
         }
-        guard let token = await currentOwnedLocationRouteToken(deviceID: deviceID) else {
-            return
-        }
+        let token = try await requireOwnedLocationRouteToken(deviceID: deviceID)
         let elapsed = max(0, now().timeIntervalSince(startedAt))
         let pausedRoute = remainingRoute(route, after: elapsed)
         let coordinate = pausedRoute.waypoints[0]
@@ -215,9 +213,7 @@ extension SimulatorControlService {
                 )
             )
         }
-        guard let token = await currentOwnedLocationRouteToken(deviceID: deviceID) else {
-            return
-        }
+        let token = try await requireOwnedLocationRouteToken(deviceID: deviceID)
         let initialCoordinate = locationRouteInitialCoordinates[deviceID] ?? route.waypoints[0]
         if route.waypoints.count < 2 {
             activeLocationRoutes.removeValue(forKey: deviceID)
@@ -252,9 +248,7 @@ extension SimulatorControlService {
             discardLocalLocationRoute(deviceID: deviceID)
             return
         }
-        guard let token = await currentOwnedLocationRouteToken(deviceID: deviceID) else {
-            return
-        }
+        let token = try await requireOwnedLocationRouteToken(deviceID: deviceID)
         let rollbackState = locationRollbackState(activeLocationRoutes[deviceID])
         cancelLocationLifecycle(deviceID: deviceID)
         activeLocationRoutes.removeValue(forKey: deviceID)
@@ -498,22 +492,28 @@ extension SimulatorControlService {
         do {
             try await mutationGate.withLocks([.location(deviceIdentifier: deviceID)]) {
                 guard !Task.isCancelled,
-                      await locationOwnershipRegistry.isCurrent(
-                          token,
-                          deviceIdentifier: deviceID
-                      ),
                       locationRouteTokens[deviceID] == token,
                       case let .running(activeRoute, _) = activeLocationRoutes[deviceID],
                       activeRoute == route else { return }
+                guard await locationOwnershipRegistry.isCurrent(
+                    token,
+                    deviceIdentifier: deviceID
+                ) else {
+                    discardLocalLocationRoute(deviceID: deviceID)
+                    return
+                }
                 try await runLocationRouteCommand(deviceID: deviceID, route: route)
                 guard !Task.isCancelled,
-                      await locationOwnershipRegistry.isCurrent(
-                          token,
-                          deviceIdentifier: deviceID
-                      ),
                       locationRouteTokens[deviceID] == token,
                       case let .running(currentRoute, _) = activeLocationRoutes[deviceID],
                       currentRoute == route else { return }
+                guard await locationOwnershipRegistry.isCurrent(
+                    token,
+                    deviceIdentifier: deviceID
+                ) else {
+                    discardLocalLocationRoute(deviceID: deviceID)
+                    return
+                }
                 activeLocationRoutes[deviceID] = .running(route: route, startedAt: now())
                 scheduleLocationLifecycle(deviceID: deviceID, route: route, token: token)
             }
@@ -546,12 +546,19 @@ extension SimulatorControlService {
         else { throw CancellationError() }
     }
 
-    private func currentOwnedLocationRouteToken(deviceID: String) async -> UUID? {
+    private func requireOwnedLocationRouteToken(deviceID: String) async throws -> UUID {
         guard let token = locationRouteTokens[deviceID],
               await locationOwnershipRegistry.isCurrent(token, deviceIdentifier: deviceID)
         else {
             discardLocalLocationRoute(deviceID: deviceID)
-            return nil
+            throw SimulatorControlError(
+                code: "location_route_ownership_lost",
+                arguments: ["simctl", "location", deviceID],
+                message: String(
+                    localized: "simulator.control.locationRouteOwnershipLost",
+                    defaultValue: "Another client replaced this device's location route."
+                )
+            )
         }
         return token
     }

@@ -62,7 +62,11 @@ extension TerminalController {
     ) async {
         do {
             if !operation.isIdentityRead {
-                await coordinator.start()
+                if case .selectDevice = operation {
+                    await coordinator.prepareForExplicitDeviceSelection()
+                } else {
+                    await coordinator.start()
+                }
             }
             try Task.checkCancellation()
             if !operation.isAvailableWithoutStreaming {
@@ -541,16 +545,4 @@ extension ControlSimulatorOperation {
         }
     }
 
-    /// Whether a successful worker or UI result has changed externally visible state.
-    var commitsExternalMutation: Bool {
-        switch self {
-        case .context, .eventLog, .cameraStatus, .permissionsRead,
-             .interfaceStatus, .accessibility, .foregroundApplication:
-            false
-        case .selectDevice, .recover, .gesture, .hardwareButton, .rotate,
-             .coreAnimation, .memoryWarning, .tools, .cameraConfigure,
-             .cameraSwitch, .cameraMirror, .permissionsSet, .interfaceSet:
-            true
-        }
-    }
 }

@@ -271,6 +271,25 @@ struct SimulatorPaneCoordinatorTests {
         #expect(await client.activations().last?.id == "pad")
     }
 
+    @Test("Explicit startup never activates the persisted or default device first")
+    func explicitStartupActivatesOnlyRequestedDevice() async throws {
+        let client = SimulatorPaneClientSpy(devices: [
+            Self.device(id: "phone", family: .iPhone, state: .booted),
+            Self.device(id: "pad", family: .iPad, state: .shutdown),
+        ])
+        let coordinator = SimulatorPaneCoordinator(
+            client: client,
+            preferredDeviceID: "phone"
+        )
+
+        await coordinator.prepareForExplicitDeviceSelection()
+        #expect(await client.activations().isEmpty)
+
+        try await coordinator.selectDeviceAndWait(id: "pad")
+
+        #expect(await client.activations().map(\.id) == ["pad"])
+    }
+
     @Test("Context readiness waits for a dormant selected device to stream")
     func contextReadinessWaitsForActivation() async throws {
         let client = SimulatorPaneClientSpy(
