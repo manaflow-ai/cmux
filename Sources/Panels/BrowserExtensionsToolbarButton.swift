@@ -7,12 +7,36 @@ struct BrowserExtensionsToolbarButton: View {
     let hitSize: CGFloat
     let loadSnapshot: @MainActor () async -> BrowserWebExtensionsPresentationSnapshot
     let openManager: @MainActor () -> Bool
-    let performAction: @MainActor (String) -> Bool
+    let performAction: @MainActor (String, NSView?) -> Bool
 
     @State private var snapshot = BrowserWebExtensionsPresentationSnapshot.loading
     @State private var isLoadingPresentation = false
+    @State private var managerAnchorHolder = BrowserExtensionActionAnchorHolder()
 
     var body: some View {
+        HStack(spacing: 0) {
+            ForEach(snapshot.extensions.filter { $0.hasAction }) { item in
+                BrowserExtensionToolbarActionButton(
+                    item: item,
+                    iconPointSize: iconPointSize,
+                    hitSize: hitSize,
+                    performAction: performAction
+                )
+            }
+
+            managerButton
+        }
+        .task {
+            await refreshSnapshot()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .browserWebExtensionActionDidChange)) { _ in
+            Task { @MainActor in
+                await refreshSnapshot()
+            }
+        }
+    }
+
+    private var managerButton: some View {
         Button {
             if isPresented {
                 isPresented = false
@@ -21,7 +45,7 @@ struct BrowserExtensionsToolbarButton: View {
             guard !isLoadingPresentation else { return }
             isLoadingPresentation = true
             Task { @MainActor in
-                snapshot = await loadSnapshot()
+                await refreshSnapshot()
                 isLoadingPresentation = false
                 isPresented = true
             }
@@ -36,6 +60,7 @@ struct BrowserExtensionsToolbarButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(OmnibarAddressButtonStyle())
+        .background(BrowserExtensionActionAnchorReader(holder: managerAnchorHolder))
         .disabled(isLoadingPresentation)
         .frame(width: hitSize, height: hitSize, alignment: .center)
         .safeHelp(String(localized: "browser.extensions.title", defaultValue: "Extensions"))
@@ -47,10 +72,79 @@ struct BrowserExtensionsToolbarButton: View {
                 openManager: openManager,
                 performAction: { identifier in
                     isPresented = false
-                    return performAction(identifier)
+                    return performAction(identifier, managerAnchorHolder.view)
                 }
             )
         }
+    }
+
+    @MainActor
+    private func refreshSnapshot() async {
+        snapshot = await loadSnapshot()
+    }
+}
+
+@MainActor
+private final class BrowserExtensionActionAnchorHolder {
+    weak var view: NSView?
+}
+
+private struct BrowserExtensionActionAnchorReader: NSViewRepresentable {
+    let holder: BrowserExtensionActionAnchorHolder
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        holder.view = view
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        holder.view = nsView
+    }
+}
+
+private struct BrowserExtensionToolbarActionButton: View {
+    let item: BrowserWebExtensionsPresentationSnapshot.Item
+    let iconPointSize: CGFloat
+    let hitSize: CGFloat
+    let performAction: @MainActor (String, NSView?) -> Bool
+
+    @State private var anchorHolder = BrowserExtensionActionAnchorHolder()
+
+    var body: some View {
+        Button {
+            _ = performAction(item.id, anchorHolder.view)
+        } label: {
+            ZStack(alignment: .topTrailing) {
+                BrowserExtensionIcon(
+                    data: item.iconData,
+                    fallbackSystemName: "puzzlepiece.extension",
+                    fallbackColor: .secondary
+                )
+                .frame(width: iconPointSize + 3, height: iconPointSize + 3)
+
+                if !item.badgeText.isEmpty {
+                    Text(item.badgeText)
+                        .font(.system(size: 8, weight: .semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.65)
+                        .padding(.horizontal, 3)
+                        .frame(minWidth: 10, maxWidth: 20, minHeight: 10)
+                        .background(Capsule().fill(Color.accentColor))
+                        .foregroundStyle(.white)
+                        .offset(x: 5, y: -4)
+                }
+            }
+            .frame(width: hitSize, height: hitSize, alignment: .center)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(OmnibarAddressButtonStyle())
+        .background(BrowserExtensionActionAnchorReader(holder: anchorHolder))
+        .disabled(!item.isActionEnabled)
+        .opacity(item.isActionEnabled ? 1 : 0.45)
+        .safeHelp(item.name)
+        .accessibilityLabel(item.name)
+        .accessibilityIdentifier("BrowserExtensionToolbarAction-\(item.id)")
     }
 }
 
@@ -495,7 +589,7 @@ private struct BrowserExtensionsReadyList: View {
                 Text(
                     String(
                         localized: "browser.extensions.empty.detail",
-                        defaultValue: "Add an unpacked Safari Web Extension or .zip file to the extensions folder."
+                        defaultValue: "Use Add Extension to install an unpacked Safari Web Extension or .zip file."
                     )
                 )
                 .font(.caption)

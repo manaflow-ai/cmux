@@ -13674,13 +13674,54 @@ struct CMUXCLI {
 
         if subcommand == "extensions" {
             let verb = browserActionVerbArgs().first?.lowercased() ?? "show"
-            guard verb == "show" else {
-                throw CLIError(message: "Unsupported browser extensions subcommand: \(verb) (expected: show)")
+            var params = try optionalSurfaceParams()
+            let (extensionOpt, _) = parseOption(subArgs, name: "--extension")
+            let (webViewOpt, _) = parseOption(subArgs, name: "--webview")
+            let (scriptOpt, _) = parseOption(subArgs, name: "--script")
+            if let extensionOpt { params["extension_id"] = extensionOpt }
+            if let webViewOpt { params["webview_id"] = webViewOpt }
+
+            let method: String
+            switch verb {
+            case "show", "manage":
+                method = "browser.extensions.show"
+            case "list":
+                method = "browser.extensions.list"
+            case "add", "install":
+                let positional = browserActionVerbArgs()
+                guard positional.count >= 2 else {
+                    throw CLIError(message: "browser extensions add requires a folder or ZIP path")
+                }
+                let rawPath = positional.dropFirst().joined(separator: " ")
+                params["path"] = URL(
+                    fileURLWithPath: (rawPath as NSString).expandingTildeInPath
+                ).standardizedFileURL.path
+                method = "browser.extensions.add"
+            case "errors":
+                method = "browser.extensions.errors"
+            case "webviews":
+                method = "browser.extensions.webviews"
+            case "eval":
+                guard let extensionOpt, !extensionOpt.isEmpty else {
+                    throw CLIError(message: "browser extensions eval requires --extension <id-or-name>")
+                }
+                guard let scriptOpt, !scriptOpt.isEmpty else {
+                    throw CLIError(message: "browser extensions eval requires --script <javascript>")
+                }
+                params["script"] = scriptOpt
+                method = "browser.extensions.eval"
+            case "console":
+                guard let extensionOpt, !extensionOpt.isEmpty else {
+                    throw CLIError(message: "browser extensions console requires --extension <id-or-name>")
+                }
+                method = "browser.extensions.console"
+            default:
+                throw CLIError(
+                    message: "Unsupported browser extensions subcommand: \(verb) " +
+                        "(expected: show, list, add, errors, webviews, eval, console)"
+                )
             }
-            let payload = try client.sendV2(
-                method: "browser.extensions.show",
-                params: try optionalSurfaceParams()
-            )
+            let payload = try client.sendV2(method: method, params: params)
             output(payload, fallback: "OK")
             return
         }
@@ -16941,6 +16982,12 @@ struct CMUXCLI {
               react-grab toggle [--surface <id>] [--return-to <terminal-surface>]
               devtools toggle|console [--surface <id>]
               extensions show [--surface <id>]
+              extensions list
+              extensions add <folder-or-zip>
+              extensions errors [--extension <id-or-name>]
+              extensions webviews [--extension <id-or-name>]
+              extensions eval --extension <id-or-name> [--webview <id>] --script <javascript>
+              extensions console --extension <id-or-name>
               focus-mode enter|exit|toggle [--surface <id>]
               zoom in|out|reset [--surface <id>]
               url|get-url
@@ -35361,6 +35408,12 @@ export default CMUXSessionRestore;
           browser react-grab toggle [--surface <id>] [--return-to <terminal-surface>]
           browser devtools toggle|console [--surface <id>]
           browser extensions show [--surface <id>]
+          browser extensions list
+          browser extensions add <folder-or-zip>
+          browser extensions errors [--extension <id-or-name>]
+          browser extensions webviews [--extension <id-or-name>]
+          browser extensions eval --extension <id-or-name> [--webview <id>] --script <javascript>
+          browser extensions console --extension <id-or-name>
           browser focus-mode enter|exit|toggle [--surface <id>]
           browser zoom in|out|reset [--surface <id>]
           browser history clear --force   (clears the default profile's history; mirrors the View menu)

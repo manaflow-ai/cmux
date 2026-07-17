@@ -211,6 +211,7 @@ struct BrowserWebExtensionsManagerTests {
         try "// no-op".write(to: dir.appendingPathComponent("content.js"), atomically: true, encoding: .utf8)
 
         let manager = BrowserWebExtensionsManager(directory: root, controllerConfiguration: .nonPersistent())
+        try await manager.approveInstalledCandidate(dir)
         await manager.loadExtensions()
 
         #expect(manager.loadErrors.isEmpty)
@@ -258,6 +259,7 @@ struct BrowserWebExtensionsManagerTests {
         try Self.makeIconPNG().write(to: directory.appendingPathComponent("icon.png"))
         let manager = BrowserWebExtensionsManager(directory: root, controllerConfiguration: .nonPersistent())
 
+        try await manager.approveInstalledCandidate(directory)
         await manager.loadExtensions()
 
         let item = try #require(manager.presentationSnapshot().extensions.first)
@@ -322,6 +324,9 @@ struct BrowserWebExtensionsManagerTests {
             controllerConfiguration: .nonPersistent()
         )
 
+        try await manager.approveInstalledCandidate(alphaDirectory)
+        try await manager.approveInstalledCandidate(betaDirectory)
+        try await manager.approveInstalledCandidate(iconless)
         await manager.loadExtensions()
 
         let itemsByName = Dictionary(
@@ -379,6 +384,7 @@ struct BrowserWebExtensionsManagerTests {
         try "// no-op".write(to: dir.appendingPathComponent("content.js"), atomically: true, encoding: .utf8)
 
         let manager = BrowserWebExtensionsManager(directory: root, controllerConfiguration: .nonPersistent())
+        try await manager.approveInstalledCandidate(dir)
         await manager.loadExtensions()
 
         #expect(manager.loadErrors.isEmpty)
@@ -426,6 +432,7 @@ struct BrowserWebExtensionsManagerTests {
         try "// no-op".write(to: dir.appendingPathComponent("content.js"), atomically: true, encoding: .utf8)
 
         let manager = BrowserWebExtensionsManager(directory: root, controllerConfiguration: .nonPersistent())
+        try await manager.approveInstalledCandidate(dir)
         manager.startLoading()
         await manager.waitUntilLoaded()
 
@@ -514,6 +521,7 @@ struct BrowserWebExtensionsManagerTests {
         try "// no-op".write(to: dir.appendingPathComponent("content.js"), atomically: true, encoding: .utf8)
 
         let manager = BrowserWebExtensionsManager(directory: root, controllerConfiguration: .nonPersistent())
+        try await manager.approveInstalledCandidate(dir)
         await manager.loadExtensions()
         let context = try #require(manager.loadedContexts.first)
 
@@ -541,6 +549,8 @@ struct BrowserWebExtensionsManagerTests {
         try "// no-op".write(to: dir.appendingPathComponent("content.js"), atomically: true, encoding: .utf8)
 
         let manager = BrowserWebExtensionsManager(directory: root, controllerConfiguration: .nonPersistent())
+        try await manager.approveInstalledCandidate(broken)
+        try await manager.approveInstalledCandidate(dir)
         await manager.loadExtensions()
 
         #expect(manager.loadErrors.count == 1)

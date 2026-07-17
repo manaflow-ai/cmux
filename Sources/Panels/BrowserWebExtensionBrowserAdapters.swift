@@ -28,6 +28,77 @@ final class BrowserWebExtensionTabAdapter: NSObject, WKWebExtensionTab {
     func title(for context: WKWebExtensionContext) -> String? {
         panel?.displayTitle
     }
+
+    func url(for context: WKWebExtensionContext) -> URL? {
+        panel?.currentURLForTabDuplication
+    }
+
+    func isLoadingComplete(for context: WKWebExtensionContext) -> Bool {
+        guard let panel else { return true }
+        return !panel.isLoading
+    }
+
+    func isMuted(for context: WKWebExtensionContext) -> Bool {
+        panel?.isMuted ?? false
+    }
+
+    func isSelected(for context: WKWebExtensionContext) -> Bool {
+        guard let panel, let workspace = windowAdapter?.workspace else { return false }
+        return workspace.focusedPanelId == panel.id
+    }
+
+    func activate(
+        for context: WKWebExtensionContext,
+        completionHandler: @escaping (Error?) -> Void
+    ) {
+        guard let panel, let workspace = windowAdapter?.workspace else {
+            completionHandler(BrowserWebExtensionAdapterError.tabUnavailable)
+            return
+        }
+        workspace.focusPanel(panel.id)
+        completionHandler(nil)
+    }
+
+    func setSelected(
+        _ selected: Bool,
+        for context: WKWebExtensionContext,
+        completionHandler: @escaping (Error?) -> Void
+    ) {
+        guard selected else {
+            completionHandler(nil)
+            return
+        }
+        activate(for: context, completionHandler: completionHandler)
+    }
+
+    func reload(
+        fromOrigin: Bool,
+        for context: WKWebExtensionContext,
+        completionHandler: @escaping (Error?) -> Void
+    ) {
+        if fromOrigin {
+            panel?.hardReload()
+        } else {
+            panel?.reload()
+        }
+        completionHandler(nil)
+    }
+
+    func goBack(
+        for context: WKWebExtensionContext,
+        completionHandler: @escaping (Error?) -> Void
+    ) {
+        panel?.goBack()
+        completionHandler(nil)
+    }
+
+    func goForward(
+        for context: WKWebExtensionContext,
+        completionHandler: @escaping (Error?) -> Void
+    ) {
+        panel?.goForward()
+        completionHandler(nil)
+    }
 }
 
 @available(macOS 15.4, *)
@@ -78,5 +149,17 @@ final class BrowserWebExtensionWindowAdapter: NSObject, WKWebExtensionWindow {
     func compactTabs() -> [BrowserWebExtensionTabAdapter] {
         tabAdapters.removeAll { $0.panel == nil }
         return tabAdapters.filter { $0.panel?.internalPage == nil }
+    }
+}
+
+@available(macOS 15.4, *)
+private enum BrowserWebExtensionAdapterError: LocalizedError {
+    case tabUnavailable
+
+    var errorDescription: String? {
+        String(
+            localized: "browser.extensions.error.tabUnavailable",
+            defaultValue: "The browser tab is no longer available."
+        )
     }
 }

@@ -11,13 +11,30 @@ import WebKit
 /// `manifest.json` at its root. Manager installs load immediately; entries added
 /// outside cmux are discovered at app launch.
 ///
-/// Installing an extension into the directory is treated as consent: every
-/// permission, host match pattern, and content-script match pattern the manifest
-/// requests is granted at load, and runtime requests for optional permissions
-/// are granted without prompting.
+/// Installing an extension into the directory is treated as consent for required
+/// manifest permissions and match patterns. Optional runtime requests are denied
+/// without showing a disruptive modal prompt.
 @available(macOS 15.4, *)
 @MainActor
 final class BrowserWebExtensionsManager: NSObject {
+    private final class PendingActionInvocation {
+        weak var anchorView: NSView?
+        let panelID: UUID
+
+        init(anchorView: NSView?, panelID: UUID) {
+            self.anchorView = anchorView
+            self.panelID = panelID
+        }
+    }
+
+    private final class WeakPopupWebView {
+        weak var webView: WKWebView?
+
+        init(_ webView: WKWebView) {
+            self.webView = webView
+        }
+    }
+
     private enum LoadWaiter {
         case pendingRegistration
         case waiting(CheckedContinuation<Void, Never>)
@@ -38,12 +55,25 @@ final class BrowserWebExtensionsManager: NSObject {
     private(set) var loadErrors: [(url: URL, error: any Error)] = []
     private var tabAdapters: [UUID: BrowserWebExtensionTabAdapter] = [:]
     private var windowAdapters: [UUID: BrowserWebExtensionWindowAdapter] = [:]
-    private var pendingActionAnchors: [String: NSView] = [:]
+    private var pendingActionInvocations: [String: PendingActionInvocation] = [:]
+    private var popupWebViews: [String: WeakPopupWebView] = [:]
+    private var backgroundLoadErrors: [String: any Error] = [:]
 
     init(directory: URL, controllerConfiguration: WKWebExtensionController.Configuration? = nil) {
         self.directory = directory
         let configuration = controllerConfiguration
             ?? WKWebExtensionController.Configuration(identifier: Self.controllerIdentifier)
+#if DEBUG
+        configuration.webViewConfiguration.userContentController.addUserScript(
+            WKUserScript(
+                source: BrowserPanel.telemetryHookBootstrapScriptSource
+                    + "\n"
+                    + Self.extensionTelemetryBootstrapScriptSource,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true
+            )
+        )
+#endif
         self.controller = WKWebExtensionController(configuration: configuration)
         super.init()
         controller.delegate = self
@@ -105,6 +135,13 @@ final class BrowserWebExtensionsManager: NSObject {
         timeoutTask.cancel()
     }
 
+    /// UI presentation waits for the actual load task. Navigation uses the
+    /// bounded waiter above so a slow extension never blocks page navigation,
+    /// while the manager and toolbar cannot get stuck with a stale loading copy.
+    func waitUntilPresentationReady() async {
+        await loadTask?.value
+    }
+
     private func resumeLoadWaiter(_ id: UUID) {
         guard let waiter = loadWaiters.removeValue(forKey: id) else { return }
         if case let .waiting(continuation) = waiter {
@@ -127,7 +164,13 @@ final class BrowserWebExtensionsManager: NSObject {
             isLoaded = true
             resumeLoadWaiters()
         }
-        let candidates = await directoryRepository.candidateURLs(in: directory)
+        let candidates: [URL]
+        do {
+            candidates = try await directoryRepository.approvedCandidateURLs(in: directory)
+        } catch {
+            loadErrors.append((url: directory, error: error))
+            return
+        }
         guard !Task.isCancelled else { return }
         for url in candidates {
             guard !Task.isCancelled else { return }
@@ -159,13 +202,18 @@ final class BrowserWebExtensionsManager: NSObject {
         let destination = try await directoryRepository.installCandidate(from: source, into: directory)
         do {
             let context = try await loadExtension(at: destination)
+            try await directoryRepository.approveCandidate(at: destination, in: directory)
             return BrowserWebExtensionInstallReceipt(
                 name: context.webExtension.displayName ?? destination.deletingPathExtension().lastPathComponent
             )
         } catch {
-            await directoryRepository.removeInstalledCandidate(at: destination)
+            await directoryRepository.removeInstalledCandidate(at: destination, from: directory)
             throw error
         }
+    }
+
+    func approveInstalledCandidate(_ candidate: URL) async throws {
+        try await directoryRepository.approveCandidate(at: candidate, in: directory)
     }
 
     func installCatalogExtension(_ entry: BrowserWebExtensionCatalogEntry) async throws -> BrowserWebExtensionInstallReceipt {
@@ -195,6 +243,7 @@ final class BrowserWebExtensionsManager: NSObject {
     }
 
     func unregister(panelID: UUID) {
+        pendingActionInvocations = pendingActionInvocations.filter { $0.value.panelID != panelID }
         guard let tabAdapter = tabAdapters.removeValue(forKey: panelID) else { return }
         controller.didCloseTab(tabAdapter, windowIsClosing: false)
         guard let windowAdapter = tabAdapter.windowAdapter else { return }
@@ -206,13 +255,21 @@ final class BrowserWebExtensionsManager: NSObject {
     }
 
     @discardableResult
-    func performAction(uniqueIdentifier: String, in panel: BrowserPanel) -> Bool {
+    func performAction(
+        uniqueIdentifier: String,
+        in panel: BrowserPanel,
+        anchorView: NSView?
+    ) -> Bool {
         guard let context = loadedContexts.first(where: { $0.uniqueIdentifier == uniqueIdentifier }),
               let tabAdapter = tabAdapters[panel.id],
-              Self.definesAction(context.webExtension) else {
+              let action = context.action(for: tabAdapter),
+              action.isEnabled else {
             return false
         }
-        pendingActionAnchors[context.uniqueIdentifier] = panel.webView
+        pendingActionInvocations[context.uniqueIdentifier] = PendingActionInvocation(
+            anchorView: anchorView,
+            panelID: panel.id
+        )
         context.performAction(for: tabAdapter)
         return true
     }
@@ -223,22 +280,52 @@ final class BrowserWebExtensionsManager: NSObject {
         // Stable identifier derived from the install-directory name so
         // per-extension storage survives relaunches.
         context.uniqueIdentifier = "cmux-browser-extension-\(url.lastPathComponent)"
+#if DEBUG
         context.isInspectable = true
+        context.inspectionName = context.webExtension.displayName ?? url.lastPathComponent
+#endif
         grantRequestedPermissions(in: context, for: webExtension)
         try controller.load(context)
         loadedContexts.append(context)
+        NotificationCenter.default.post(
+            name: .browserWebExtensionActionDidChange,
+            object: context.uniqueIdentifier
+        )
+        if webExtension.hasBackgroundContent {
+            context.loadBackgroundContent { [weak self, weak context] error in
+                guard let self, let context else { return }
+                if let error {
+                    self.backgroundLoadErrors[context.uniqueIdentifier] = error
+#if DEBUG
+                    cmuxDebugLog(
+                        "browser.extensions.background-failed name=\(context.webExtension.displayName ?? context.uniqueIdentifier) " +
+                        "error=\(error)"
+                    )
+#endif
+                } else {
+                    self.backgroundLoadErrors.removeValue(forKey: context.uniqueIdentifier)
+                }
+            }
+        }
         return context
     }
 
-    func presentationSnapshot() -> BrowserWebExtensionsPresentationSnapshot {
-        BrowserWebExtensionsPresentationSnapshot(
+    func presentationSnapshot(for panelID: UUID? = nil) -> BrowserWebExtensionsPresentationSnapshot {
+        let tabAdapter = panelID.flatMap { tabAdapters[$0] }
+        return BrowserWebExtensionsPresentationSnapshot(
             state: isLoaded ? .ready : .loading,
             extensions: loadedContexts.map { context in
-                BrowserWebExtensionsPresentationSnapshot.Item(
+                let action = tabAdapter.flatMap { context.action(for: $0) }
+                return BrowserWebExtensionsPresentationSnapshot.Item(
                     id: context.uniqueIdentifier,
                     name: context.webExtension.displayName ?? context.uniqueIdentifier,
                     hasAction: Self.definesAction(context.webExtension),
-                    iconData: Self.presentationIconData(for: context.webExtension)
+                    isActionEnabled: action?.isEnabled ?? Self.definesAction(context.webExtension),
+                    badgeText: action?.badgeText ?? "",
+                    iconData: Self.presentationIconData(
+                        for: action,
+                        webExtension: context.webExtension
+                    )
                 )
             },
             failures: loadErrors.map { failure in
@@ -251,6 +338,186 @@ final class BrowserWebExtensionsManager: NSObject {
             directoryPath: directory.path
         )
     }
+
+    func diagnosticPayload(matching identifier: String? = nil) -> [String: Any] {
+        compactPopupWebViews()
+        return [
+            "extensions": matchingContexts(identifier).map { context in
+                let identifier = context.uniqueIdentifier
+                let backgroundError: Any = backgroundLoadErrors[identifier]
+                    .map { String(describing: $0) as Any } ?? NSNull()
+                return [
+                    "id": identifier,
+                    "name": context.webExtension.displayName ?? identifier,
+                    "version": context.webExtension.version ?? "",
+                    "errors": context.errors.map(Self.errorPayload),
+                    "background_error": backgroundError,
+                    "has_popup_webview": popupWebViews[identifier]?.webView != nil,
+                    "inspectable": context.isInspectable,
+                ] as [String: Any]
+            },
+            "load_errors": loadErrors.map { failure in
+                [
+                    "entry": failure.url.lastPathComponent,
+                    "message": failure.error.localizedDescription,
+                ]
+            },
+        ]
+    }
+
+    func webViewPayload(matching identifier: String? = nil) -> [String: Any] {
+        compactPopupWebViews()
+        return [
+            "webviews": matchingContexts(identifier).compactMap { context -> [String: Any]? in
+                guard let webView = popupWebViews[context.uniqueIdentifier]?.webView else { return nil }
+                return [
+                    "id": popupWebViewIdentifier(for: context),
+                    "extension_id": context.uniqueIdentifier,
+                    "extension_name": context.webExtension.displayName ?? context.uniqueIdentifier,
+                    "kind": "popup",
+                    "url": webView.url?.absoluteString ?? "",
+                    "title": webView.title ?? "",
+                    "loading": webView.isLoading,
+                ]
+            }
+        ]
+    }
+
+    func evaluateJavaScript(
+        _ script: String,
+        matching identifier: String,
+        webViewIdentifier: String? = nil
+    ) async throws -> [String: Any] {
+#if !DEBUG
+        throw BrowserWebExtensionDiagnosticsError.debugBuildRequired
+#else
+        compactPopupWebViews()
+        guard let context = matchingContexts(identifier).first else {
+            throw BrowserWebExtensionDiagnosticsError.extensionNotFound(identifier)
+        }
+        let expectedWebViewIdentifier = popupWebViewIdentifier(for: context)
+        if let webViewIdentifier, webViewIdentifier != expectedWebViewIdentifier {
+            throw BrowserWebExtensionDiagnosticsError.webViewNotFound(webViewIdentifier)
+        }
+        guard let webView = popupWebViews[context.uniqueIdentifier]?.webView else {
+            throw BrowserWebExtensionDiagnosticsError.popupNotOpen(
+                context.webExtension.displayName ?? context.uniqueIdentifier
+            )
+        }
+        let value = try await webView.evaluateJavaScript(script)
+        return [
+            "extension_id": context.uniqueIdentifier,
+            "webview_id": expectedWebViewIdentifier,
+            "value": Self.jsonSafeValue(value),
+        ]
+#endif
+    }
+
+    func consolePayload(matching identifier: String) async throws -> [String: Any] {
+        try await evaluateJavaScript(
+            """
+            (() => ({
+              console: Array.isArray(window.__cmuxExtensionConsoleLog)
+                ? window.__cmuxExtensionConsoleLog.slice()
+                : (Array.isArray(window.__cmuxConsoleLog) ? window.__cmuxConsoleLog.slice() : []),
+              errors: Array.isArray(window.__cmuxExtensionErrorLog)
+                ? window.__cmuxExtensionErrorLog.slice()
+                : (Array.isArray(window.__cmuxErrorLog) ? window.__cmuxErrorLog.slice() : [])
+            }))()
+            """,
+            matching: identifier
+        )
+    }
+
+    private func matchingContexts(_ identifier: String?) -> [WKWebExtensionContext] {
+        guard let identifier, !identifier.isEmpty else { return loadedContexts }
+        let folded = identifier.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        return loadedContexts.filter { context in
+            if context.uniqueIdentifier == identifier { return true }
+            let name = context.webExtension.displayName ?? ""
+            return name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current) == folded
+        }
+    }
+
+    private func popupWebViewIdentifier(for context: WKWebExtensionContext) -> String {
+        "popup:\(context.uniqueIdentifier)"
+    }
+
+    private func compactPopupWebViews() {
+        popupWebViews = popupWebViews.filter { $0.value.webView != nil }
+    }
+
+    private static func jsonSafeValue(_ value: Any?) -> Any {
+        guard let value else { return NSNull() }
+        if JSONSerialization.isValidJSONObject([value]) { return value }
+        return String(describing: value)
+    }
+
+    private static func errorPayload(_ error: any Error) -> [String: Any] {
+        let nsError = error as NSError
+        return [
+            "domain": nsError.domain,
+            "code": nsError.code,
+            "message": nsError.localizedDescription,
+            "failure_reason": nsError.localizedFailureReason ?? "",
+            "user_info": nsError.userInfo.mapValues { String(describing: $0) },
+        ]
+    }
+
+#if DEBUG
+    private static let extensionTelemetryBootstrapScriptSource = """
+    (() => {
+      if (window.__cmuxExtensionConsoleInstalled) return;
+      window.__cmuxExtensionConsoleInstalled = true;
+      window.__cmuxExtensionConsoleLog = [];
+      window.__cmuxExtensionErrorLog = [];
+      const describe = (value) => {
+        if (value instanceof Error) {
+          return { name: value.name, message: value.message, stack: value.stack || "" };
+        }
+        if (value && typeof value === 'object') {
+          try { return JSON.parse(JSON.stringify(value)); }
+          catch (_) {
+            try { return Object.fromEntries(Object.getOwnPropertyNames(value).map(k => [k, String(value[k])])); }
+            catch (_) { return String(value); }
+          }
+        }
+        return value;
+      };
+      for (const level of ['log', 'info', 'warn', 'error', 'debug']) {
+        const previous = console[level];
+        console[level] = function(...args) {
+          window.__cmuxExtensionConsoleLog.push({
+            level,
+            arguments: args.map(describe),
+            timestamp_ms: Date.now()
+          });
+          if (window.__cmuxExtensionConsoleLog.length > 512) {
+            window.__cmuxExtensionConsoleLog.splice(0, window.__cmuxExtensionConsoleLog.length - 512);
+          }
+          return previous.apply(this, args);
+        };
+      }
+      window.addEventListener('error', event => {
+        window.__cmuxExtensionErrorLog.push({
+          message: event.message || '',
+          source: event.filename || '',
+          line: event.lineno || 0,
+          column: event.colno || 0,
+          error: describe(event.error),
+          timestamp_ms: Date.now()
+        });
+      });
+      window.addEventListener('unhandledrejection', event => {
+        window.__cmuxExtensionErrorLog.push({
+          message: 'Unhandled promise rejection',
+          reason: describe(event.reason),
+          timestamp_ms: Date.now()
+        });
+      });
+    })();
+    """
+#endif
 
     private func grantRequestedPermissions(in context: WKWebExtensionContext, for webExtension: WKWebExtension) {
         for permission in webExtension.requestedPermissions {
@@ -267,9 +534,14 @@ final class BrowserWebExtensionsManager: NSObject {
             || webExtension.manifest["page_action"] != nil
     }
 
-    private static func presentationIconData(for webExtension: WKWebExtension) -> Data? {
+    private static func presentationIconData(
+        for action: WKWebExtension.Action?,
+        webExtension: WKWebExtension
+    ) -> Data? {
         let size = CGSize(width: 32, height: 32)
-        guard let image = webExtension.actionIcon(for: size) ?? webExtension.icon(for: size),
+        guard let image = action?.icon(for: size)
+                ?? webExtension.actionIcon(for: size)
+                ?? webExtension.icon(for: size),
               let tiffData = image.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiffData) else {
             return nil
@@ -301,20 +573,34 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
         completionHandler: @escaping ((any Error)?) -> Void
     ) {
         guard let popover = action.popupPopover,
-              let anchor = pendingActionAnchors.removeValue(forKey: extensionContext.uniqueIdentifier) else {
+              let invocation = pendingActionInvocations.removeValue(forKey: extensionContext.uniqueIdentifier),
+              let anchor = invocation.anchorView,
+              anchor.window != nil else {
             completionHandler(BrowserWebExtensionActionError.missingPopupAnchor)
             return
         }
-        let anchorRect = NSRect(x: anchor.bounds.maxX - 1, y: anchor.bounds.maxY - 1, width: 1, height: 1)
-        popover.show(relativeTo: anchorRect, of: anchor, preferredEdge: .maxY)
+        popover.behavior = .transient
+        popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxY)
+        if let webView = action.popupWebView {
+            popupWebViews[extensionContext.uniqueIdentifier] = WeakPopupWebView(webView)
+        }
         completionHandler(nil)
     }
 
-    // Runtime permission requests are granted without prompting, but only for
-    // what the manifest declares (`permissions`/`host_permissions` plus
-    // `optional_permissions`/`optional_host_permissions`); installing the
-    // extension is the consent gate for exactly that declared set. Anything
-    // outside the manifest is denied.
+    func webExtensionController(
+        _ controller: WKWebExtensionController,
+        didUpdate action: WKWebExtension.Action,
+        forExtensionContext context: WKWebExtensionContext
+    ) {
+        NotificationCenter.default.post(
+            name: .browserWebExtensionActionDidChange,
+            object: context.uniqueIdentifier
+        )
+    }
+
+    // Required manifest permissions were granted at explicit installation.
+    // Runtime calls request optional access, which cmux denies without opening
+    // a modal alert. A future inline permission surface can selectively grant it.
     func webExtensionController(
         _ controller: WKWebExtensionController,
         promptForPermissions permissions: Set<WKWebExtension.Permission>,
@@ -322,9 +608,7 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
         for extensionContext: WKWebExtensionContext,
         completionHandler: @escaping (Set<WKWebExtension.Permission>, Date?) -> Void
     ) {
-        let declared = extensionContext.webExtension.requestedPermissions
-            .union(extensionContext.webExtension.optionalPermissions)
-        completionHandler(permissions.intersection(declared), nil)
+        completionHandler(permissions.intersection(extensionContext.webExtension.requestedPermissions), nil)
     }
 
     func webExtensionController(
@@ -334,7 +618,7 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
         for extensionContext: WKWebExtensionContext,
         completionHandler: @escaping (Set<URL>, Date?) -> Void
     ) {
-        let declared = Self.declaredMatchPatterns(of: extensionContext.webExtension)
+        let declared = extensionContext.webExtension.allRequestedMatchPatterns
         let allowed = urls.filter { url in declared.contains { $0.matches(url) } }
         completionHandler(allowed, nil)
     }
@@ -346,14 +630,9 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
         for extensionContext: WKWebExtensionContext,
         completionHandler: @escaping (Set<WKWebExtension.MatchPattern>, Date?) -> Void
     ) {
-        let declared = Self.declaredMatchPatterns(of: extensionContext.webExtension)
+        let declared = extensionContext.webExtension.allRequestedMatchPatterns
         let allowed = matchPatterns.filter { requested in declared.contains { $0.matches(requested) } }
         completionHandler(allowed, nil)
-    }
-
-    private static func declaredMatchPatterns(of webExtension: WKWebExtension) -> Set<WKWebExtension.MatchPattern> {
-        webExtension.allRequestedMatchPatterns
-            .union(webExtension.optionalPermissionMatchPatterns)
     }
 
     private func orderedWindowAdapters() -> [BrowserWebExtensionWindowAdapter] {
@@ -367,6 +646,12 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
     }
 }
 
+extension Notification.Name {
+    static let browserWebExtensionActionDidChange = Notification.Name(
+        "cmux.browserWebExtensionActionDidChange"
+    )
+}
+
 @available(macOS 15.4, *)
 private enum BrowserWebExtensionActionError: LocalizedError {
     case missingPopupAnchor
@@ -376,5 +661,26 @@ private enum BrowserWebExtensionActionError: LocalizedError {
             localized: "browser.extensions.action.unavailable",
             defaultValue: "The extension action could not be shown."
         )
+    }
+}
+
+@available(macOS 15.4, *)
+private enum BrowserWebExtensionDiagnosticsError: LocalizedError {
+    case extensionNotFound(String)
+    case webViewNotFound(String)
+    case popupNotOpen(String)
+    case debugBuildRequired
+
+    var errorDescription: String? {
+        switch self {
+        case .extensionNotFound(let identifier):
+            return "Extension not found: \(identifier)"
+        case .webViewNotFound(let identifier):
+            return "Extension webview not found: \(identifier)"
+        case .popupNotOpen(let name):
+            return "Open the \(name) extension popup before accessing its webview."
+        case .debugBuildRequired:
+            return "Extension JavaScript inspection is available only in cmux development builds."
+        }
     }
 }

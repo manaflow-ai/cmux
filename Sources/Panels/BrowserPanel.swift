@@ -7590,7 +7590,7 @@ extension BrowserPanel {
 
     func browserWebExtensionsPresentationSnapshot() async -> BrowserWebExtensionsPresentationSnapshot {
         guard let browserServices else { return .unsupported }
-        return await browserServices.webExtensionsPresentationSnapshot()
+        return await browserServices.webExtensionsPresentationSnapshot(for: id)
     }
 
     func installBrowserWebExtension(from source: URL) async throws -> BrowserWebExtensionInstallReceipt {
@@ -7604,8 +7604,12 @@ extension BrowserPanel {
     }
 
     @discardableResult
-    func performBrowserWebExtensionAction(uniqueIdentifier: String) -> Bool {
-        browserServices?.performWebExtensionAction(uniqueIdentifier: uniqueIdentifier, in: self) ?? false
+    func performBrowserWebExtensionAction(uniqueIdentifier: String, anchorView: NSView? = nil) -> Bool {
+        browserServices?.performWebExtensionAction(
+            uniqueIdentifier: uniqueIdentifier,
+            in: self,
+            anchorView: anchorView
+        ) ?? false
     }
 
     func noteWebViewFocused() {

@@ -1209,6 +1209,17 @@ class TerminalController {
             return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
         case "browser.download.wait":
             return v2Result(id: request.id, v2BrowserDownloadWaitOnSocketWorker(params: request.params))
+        case "browser.extensions.list", "browser.extensions.add", "browser.extensions.errors",
+             "browser.extensions.webviews", "browser.extensions.eval", "browser.extensions.console":
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 120) { [weak self] in
+                guard let self else {
+                    return .err(code: "unavailable", message: "Browser extension service is unavailable", data: nil)
+                }
+                return await self.v2BrowserExtensionsCommand(
+                    method: request.method,
+                    params: request.params
+                )
+            }
         case "browser.navigate", "browser.back", "browser.forward", "browser.reload",
              "browser.snapshot", "browser.eval", "browser.wait", "browser.screenshot",
              "browser.click", "browser.dblclick", "browser.hover", "browser.focus",
@@ -2447,6 +2458,13 @@ class TerminalController {
             "browser.reload",
             "browser.react_grab.toggle",
             "browser.devtools.toggle",
+            "browser.extensions.show",
+            "browser.extensions.list",
+            "browser.extensions.add",
+            "browser.extensions.errors",
+            "browser.extensions.webviews",
+            "browser.extensions.eval",
+            "browser.extensions.console",
             "browser.console.show",
             "browser.focus_mode.set",
             "browser.zoom.set",
@@ -8158,6 +8176,69 @@ class TerminalController {
             ))
         }
         return result
+    }
+
+    private nonisolated func v2BrowserExtensionsCommand(
+        method: String,
+        params: [String: Any]
+    ) async -> V2CallResult {
+        if let error = v2MainSync({
+            self.v2RejectUnresolvedHandles(
+                params,
+                ["surface_id", "workspace_id", "window_id"]
+            )
+        }) {
+            return error
+        }
+        guard let browserServices = v2MainSync({
+            self.v2ResolveTabManager(params: params)?.browserServices
+        }) else {
+            return .err(code: "unavailable", message: "Browser extension service is unavailable", data: nil)
+        }
+
+        do {
+            let identifier = params["extension_id"] as? String
+            switch method {
+            case "browser.extensions.list":
+                return .ok(try await browserServices.webExtensionDiagnostics())
+            case "browser.extensions.add":
+                guard let path = params["path"] as? String, !path.isEmpty else {
+                    return .err(code: "invalid_request", message: "Missing extension path", data: nil)
+                }
+                let source = URL(fileURLWithPath: path).standardizedFileURL
+                let receipt = try await browserServices.installWebExtension(from: source)
+                return .ok(["installed": true, "name": receipt.name, "source": source.path])
+            case "browser.extensions.errors":
+                return .ok(try await browserServices.webExtensionDiagnostics(matching: identifier))
+            case "browser.extensions.webviews":
+                return .ok(try await browserServices.webExtensionWebViews(matching: identifier))
+            case "browser.extensions.eval":
+                guard let identifier, !identifier.isEmpty else {
+                    return .err(code: "invalid_request", message: "Missing extension identifier", data: nil)
+                }
+                guard let script = params["script"] as? String, !script.isEmpty else {
+                    return .err(code: "invalid_request", message: "Missing JavaScript", data: nil)
+                }
+                return .ok(try await browserServices.evaluateWebExtensionJavaScript(
+                    script,
+                    matching: identifier,
+                    webViewIdentifier: params["webview_id"] as? String
+                ))
+            case "browser.extensions.console":
+                guard let identifier, !identifier.isEmpty else {
+                    return .err(code: "invalid_request", message: "Missing extension identifier", data: nil)
+                }
+                return .ok(try await browserServices.webExtensionConsole(matching: identifier))
+            default:
+                return .err(code: "method_not_found", message: "Unsupported extension command", data: nil)
+            }
+        } catch {
+            return .err(
+                code: "extension_error",
+                message: error.localizedDescription,
+                data: ["method": method]
+            )
+        }
     }
 
     private func v2BrowserConsoleShow(params: [String: Any]) -> V2CallResult {

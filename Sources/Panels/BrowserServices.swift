@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 /// Process-wide browser services owned by the app composition root and injected
@@ -30,13 +31,15 @@ final class BrowserServices {
         BrowserPrewarmedWebViewPool.shared.configure(browserServices: self)
     }
 
-    func webExtensionsPresentationSnapshot() async -> BrowserWebExtensionsPresentationSnapshot {
+    func webExtensionsPresentationSnapshot(
+        for panelID: UUID? = nil
+    ) async -> BrowserWebExtensionsPresentationSnapshot {
         guard #available(macOS 15.4, *), let webExtensionsManager else {
             return .unsupported
         }
         webExtensionsManager.startLoading()
-        await webExtensionsManager.waitUntilLoaded()
-        return webExtensionsManager.presentationSnapshot()
+        await webExtensionsManager.waitUntilPresentationReady()
+        return webExtensionsManager.presentationSnapshot(for: panelID)
     }
 
     func installWebExtension(from source: URL) async throws -> BrowserWebExtensionInstallReceipt {
@@ -53,6 +56,50 @@ final class BrowserServices {
         return try await webExtensionsManager.installCatalogExtension(entry)
     }
 
+    func webExtensionDiagnostics(matching identifier: String? = nil) async throws -> [String: Any] {
+        guard #available(macOS 15.4, *), let webExtensionsManager else {
+            throw BrowserWebExtensionServiceError.unsupported
+        }
+        webExtensionsManager.startLoading()
+        await webExtensionsManager.waitUntilPresentationReady()
+        return webExtensionsManager.diagnosticPayload(matching: identifier)
+    }
+
+    func webExtensionWebViews(matching identifier: String? = nil) async throws -> [String: Any] {
+        guard #available(macOS 15.4, *), let webExtensionsManager else {
+            throw BrowserWebExtensionServiceError.unsupported
+        }
+        webExtensionsManager.startLoading()
+        await webExtensionsManager.waitUntilPresentationReady()
+        return webExtensionsManager.webViewPayload(matching: identifier)
+    }
+
+    func evaluateWebExtensionJavaScript(
+        _ script: String,
+        matching identifier: String,
+        webViewIdentifier: String? = nil
+    ) async throws -> [String: Any] {
+        guard #available(macOS 15.4, *), let webExtensionsManager else {
+            throw BrowserWebExtensionServiceError.unsupported
+        }
+        webExtensionsManager.startLoading()
+        await webExtensionsManager.waitUntilPresentationReady()
+        return try await webExtensionsManager.evaluateJavaScript(
+            script,
+            matching: identifier,
+            webViewIdentifier: webViewIdentifier
+        )
+    }
+
+    func webExtensionConsole(matching identifier: String) async throws -> [String: Any] {
+        guard #available(macOS 15.4, *), let webExtensionsManager else {
+            throw BrowserWebExtensionServiceError.unsupported
+        }
+        webExtensionsManager.startLoading()
+        await webExtensionsManager.waitUntilPresentationReady()
+        return try await webExtensionsManager.consolePayload(matching: identifier)
+    }
+
     func registerBrowserPanel(_ panel: BrowserPanel, workspace: Workspace) {
         guard #available(macOS 15.4, *), let webExtensionsManager else { return }
         webExtensionsManager.register(panel: panel, workspace: workspace)
@@ -63,9 +110,17 @@ final class BrowserServices {
         webExtensionsManager.unregister(panelID: id)
     }
 
-    func performWebExtensionAction(uniqueIdentifier: String, in panel: BrowserPanel) -> Bool {
+    func performWebExtensionAction(
+        uniqueIdentifier: String,
+        in panel: BrowserPanel,
+        anchorView: NSView?
+    ) -> Bool {
         guard #available(macOS 15.4, *), let webExtensionsManager else { return false }
-        return webExtensionsManager.performAction(uniqueIdentifier: uniqueIdentifier, in: panel)
+        return webExtensionsManager.performAction(
+            uniqueIdentifier: uniqueIdentifier,
+            in: panel,
+            anchorView: anchorView
+        )
     }
 
     private static var defaultExtensionDirectory: URL {

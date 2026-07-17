@@ -1363,7 +1363,12 @@ struct BrowserPanelView: View {
             hitSize: addressBarButtonSize,
             loadSnapshot: { await panel.browserWebExtensionsPresentationSnapshot() },
             openManager: { panel.openBrowserExtensionsManager() != nil },
-            performAction: { panel.performBrowserWebExtensionAction(uniqueIdentifier: $0) }
+            performAction: { identifier, anchorView in
+                panel.performBrowserWebExtensionAction(
+                    uniqueIdentifier: identifier,
+                    anchorView: anchorView
+                )
+            }
         )
     }
 
