@@ -27,4 +27,3 @@ public struct CmuxWorkspaceSnapshot: Sendable, Equatable {
         self.screens = screens
     }
 }
-

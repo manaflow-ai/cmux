@@ -8,4 +8,3 @@ public enum CmuxFrontendEvent: Sendable, Equatable {
     /// An ordered event for the one currently attached surface.
     case terminal(CmuxAttachEvent)
 }
-
