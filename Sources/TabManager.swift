@@ -2375,12 +2375,11 @@ class TabManager: ObservableObject {
         content: CmuxAlertContent? = nil
     ) -> NSApplication.ModalResponse {
         // Presentation (activate + sheet-on-main-window, else app-modal) is
-        // shared with every other cmux dialog via `runCmuxModalAlert`. This
+        // shared with every other cmux dialog via `NSAlert.runCmuxModal`. This
         // wrapper only adds the close-confirmation-specific UITest telemetry,
         // recorded from the presenter's actual path so the label can never
         // disagree with how the alert was really shown.
-        return runCmuxModalAlert(
-            alert,
+        return alert.runCmuxModal(
             presentingWindow: closeConfirmationPresentingWindow(),
             content: content
         ) { presentation in
@@ -2406,7 +2405,7 @@ class TabManager: ObservableObject {
     }
 
     private func closeConfirmationPresentingWindow() -> NSWindow? {
-        cmuxMainWindowForModalPresentation(preferring: window)
+        NSApp.cmuxMainWindowForModalPresentation(preferring: window)
     }
 
     private struct CloseOtherTabsInFocusedPanePlan {

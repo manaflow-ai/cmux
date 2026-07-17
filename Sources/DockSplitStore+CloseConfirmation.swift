@@ -188,6 +188,6 @@ extension DockSplitStore {
         let content = scrollableDetails.map {
             CmuxAlertContent(flattenedText: message, separatingScrollableDetails: $0)
         } ?? CmuxAlertContent(informativeText: message)
-        return runCmuxModalAlert(alert, content: content) == .alertFirstButtonReturn
+        return alert.runCmuxModal(content: content) == .alertFirstButtonReturn
     }
 }

@@ -57,6 +57,12 @@ struct CmuxAlertContent: Equatable, Sendable {
                 return
             }
 
+            guard !informativeText.isEmpty else {
+                alert.informativeText = ""
+                alert.accessoryView = flattenedMeasurement
+                return
+            }
+
             let summaryMeasurement = CmuxAlertScrollableDetailsView(
                 text: informativeText,
                 visibleFrame: visibleFrame

@@ -270,7 +270,7 @@ final class CmuxTaskManagerModel {
         if let cancelButton = alert.buttons.dropFirst().first {
             cancelButton.keyEquivalent = "\u{1b}"
         }
-        return runCmuxModalAlert(alert, content: content) == .alertFirstButtonReturn
+        return alert.runCmuxModal(content: content) == .alertFirstButtonReturn
     }
 
     private func processGroupTargetLabel(_ processGroupId: Int) -> String {

@@ -46,6 +46,21 @@ struct CmuxAlertContentTests {
         #expect(scrollView.frame.height <= 200)
     }
 
+    @Test @MainActor func explicitlyScrollableTextUsesBoundedContent() throws {
+        let text = String(repeating: "1234, 5678, 9012\n", count: 80)
+        let content = CmuxAlertContent.scrollingAll(text)
+        let alert = NSAlert()
+
+        content.apply(to: alert, visibleFrame: NSRect(x: 0, y: 0, width: 1024, height: 500))
+
+        let scrollView = try #require(alert.accessoryView as? CmuxAlertScrollableDetailsView)
+        let textView = try #require(scrollView.documentView as? NSTextView)
+        #expect(alert.informativeText.isEmpty)
+        #expect(textView.string == text)
+        #expect(scrollView.isContentHeightCapped)
+        #expect(scrollView.frame.height <= 200)
+    }
+
     @Test @MainActor func shortStructuredTextKeepsNativeAlertLayout() {
         let details = "• Workspace 1\n• Workspace 2"
         let flattenedText = "This will close 2 workspaces:\n\(details)"
