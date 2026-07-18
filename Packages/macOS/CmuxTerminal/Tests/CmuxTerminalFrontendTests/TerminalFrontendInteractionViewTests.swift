@@ -160,7 +160,7 @@ import Testing
             view.markedRange().length
                 == TerminalFrontendInteractionView.maximumMarkedTextUTF16Length
         )
-        guard case .preedit(let preedit?) = runtime.mutations.last else {
+        guard case .preedit(let preedit?)? = runtime.mutations.last else {
             Issue.record("Expected a bounded preedit mutation")
             return
         }
@@ -302,7 +302,7 @@ import Testing
 
         #expect(runtime.mutations.count == 1)
         #expect(view.lastIngressResult == .rejected(.queueFull))
-        guard case .input(.key(let key)) = runtime.mutations.first else {
+        guard case .input(.key(let key))? = runtime.mutations.first else {
             Issue.record("Expected one rejected key press")
             return
         }
