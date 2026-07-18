@@ -130,6 +130,17 @@ protocol TerminalBackendSessionServing: Sendable {
         surfaceID: SurfaceID,
         ownerGeneration: UInt64
     ) async throws -> Data
+    func claimFrontendNativeBrowser(
+        surfaceID: SurfaceID,
+        requestID: UUID,
+        sourceURL: URL?
+    ) async throws -> BackendFrontendNativeBrowserClaimReceipt
+    func updateFrontendNativeBrowserSource(
+        surfaceID: SurfaceID,
+        ownerGeneration: UInt64,
+        requestID: UUID,
+        sourceURL: URL
+    ) async throws -> BackendFrontendNativeBrowserSourceReceipt
     func splitPane(
         expectation: BackendTopologyMutationExpectation,
         paneID: PaneID,
@@ -150,6 +161,10 @@ protocol TerminalBackendSessionServing: Sendable {
     func closePane(
         expectation: BackendTopologyMutationExpectation,
         paneID: PaneID
+    ) async throws -> BackendTopologyMutationReceipt
+    func closeSurface(
+        expectation: BackendTopologyMutationExpectation,
+        surfaceID: SurfaceID
     ) async throws -> BackendTopologyMutationReceipt
     func closeWorkspace(
         expectation: BackendTopologyMutationExpectation,
@@ -565,6 +580,30 @@ extension TerminalBackendSessionServing {
         throw BackendProtocolError.notConnected
     }
 
+    func claimFrontendNativeBrowser(
+        surfaceID: SurfaceID,
+        requestID: UUID,
+        sourceURL: URL?
+    ) async throws -> BackendFrontendNativeBrowserClaimReceipt {
+        _ = surfaceID
+        _ = requestID
+        _ = sourceURL
+        throw BackendProtocolError.notConnected
+    }
+
+    func updateFrontendNativeBrowserSource(
+        surfaceID: SurfaceID,
+        ownerGeneration: UInt64,
+        requestID: UUID,
+        sourceURL: URL
+    ) async throws -> BackendFrontendNativeBrowserSourceReceipt {
+        _ = surfaceID
+        _ = ownerGeneration
+        _ = requestID
+        _ = sourceURL
+        throw BackendProtocolError.notConnected
+    }
+
     func splitPane(
         expectation: BackendTopologyMutationExpectation,
         paneID: PaneID,
@@ -607,6 +646,15 @@ extension TerminalBackendSessionServing {
     ) async throws -> BackendTopologyMutationReceipt {
         _ = expectation
         _ = paneID
+        throw BackendProtocolError.notConnected
+    }
+
+    func closeSurface(
+        expectation: BackendTopologyMutationExpectation,
+        surfaceID: SurfaceID
+    ) async throws -> BackendTopologyMutationReceipt {
+        _ = expectation
+        _ = surfaceID
         throw BackendProtocolError.notConnected
     }
 

@@ -1119,7 +1119,37 @@ public actor BackendCanonicalSession {
         )
     }
 
-    /// Creates one daemon-owned browser in a new canonical workspace.
+    /// Claims one canonical frontend-native browser for this connection.
+    public func claimFrontendNativeBrowser(
+        surfaceID: SurfaceID,
+        requestID: UUID,
+        sourceURL: URL? = nil
+    ) async throws -> BackendFrontendNativeBrowserClaimReceipt {
+        try requireConnected()
+        return try await client.claimFrontendNativeBrowser(
+            surfaceID: surfaceID,
+            requestID: requestID,
+            sourceURL: sourceURL
+        )
+    }
+
+    /// Updates one connection-owned browser source without changing topology.
+    public func updateFrontendNativeBrowserSource(
+        surfaceID: SurfaceID,
+        ownerGeneration: UInt64,
+        requestID: UUID,
+        sourceURL: URL
+    ) async throws -> BackendFrontendNativeBrowserSourceReceipt {
+        try requireConnected()
+        return try await client.updateFrontendNativeBrowserSource(
+            surfaceID: surfaceID,
+            ownerGeneration: ownerGeneration,
+            requestID: requestID,
+            sourceURL: sourceURL
+        )
+    }
+
+    /// Creates one frontend-native browser in a new canonical workspace.
     public func newBrowserWorkspace(
         expectation: BackendTopologyMutationExpectation,
         workspaceID: WorkspaceID,
@@ -1141,7 +1171,7 @@ public actor BackendCanonicalSession {
         )
     }
 
-    /// Creates one daemon-owned browser tab in a stable canonical pane.
+    /// Creates one frontend-native browser tab in a stable canonical pane.
     public func newBrowserTab(
         expectation: BackendTopologyMutationExpectation,
         paneID: PaneID,
@@ -1161,7 +1191,7 @@ public actor BackendCanonicalSession {
         )
     }
 
-    /// Creates one daemon-owned browser in a new pane next to a stable pane.
+    /// Creates one frontend-native browser in a new pane next to a stable pane.
     public func splitBrowserPane(
         expectation: BackendTopologyMutationExpectation,
         paneID: PaneID,
@@ -1240,6 +1270,17 @@ public actor BackendCanonicalSession {
     ) async throws -> BackendTopologyMutationReceipt {
         try requireCanonicalTopologyMutation(expectation, command: "canonical-close-pane")
         return try await client.canonicalClosePane(expectation: expectation, paneID: paneID)
+    }
+
+    public func closeSurface(
+        expectation: BackendTopologyMutationExpectation,
+        surfaceID: SurfaceID
+    ) async throws -> BackendTopologyMutationReceipt {
+        try requireCanonicalTopologyMutation(expectation, command: "canonical-close-surface")
+        return try await client.canonicalCloseSurface(
+            expectation: expectation,
+            surfaceID: surfaceID
+        )
     }
 
     public func closeWorkspace(

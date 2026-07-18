@@ -10,7 +10,8 @@ actor TerminalBackendClientCoordinator:
     TerminalBackendClient,
     TerminalBackendProjectionStateServing,
     TerminalBackendTopologyMutating,
-    TerminalBackendExternalTerminalServing
+    TerminalBackendExternalTerminalServing,
+    TerminalBackendFrontendNativeBrowserServing
 {
     typealias ReadinessProvider = @Sendable () async throws -> BackendServiceBootstrapResult
     typealias SessionFactory = @Sendable (BackendServiceReadiness) -> any TerminalBackendSessionServing
@@ -495,6 +496,34 @@ actor TerminalBackendClientCoordinator:
         )
     }
 
+    func claimFrontendNativeBrowser(
+        surfaceID: SurfaceID,
+        requestID: UUID,
+        sourceURL: URL?
+    ) async throws -> BackendFrontendNativeBrowserClaimReceipt {
+        let connection = try await connectedSession()
+        return try await connection.session.claimFrontendNativeBrowser(
+            surfaceID: surfaceID,
+            requestID: requestID,
+            sourceURL: sourceURL
+        )
+    }
+
+    func updateFrontendNativeBrowserSource(
+        surfaceID: SurfaceID,
+        ownerGeneration: UInt64,
+        requestID: UUID,
+        sourceURL: URL
+    ) async throws -> BackendFrontendNativeBrowserSourceReceipt {
+        let connection = try await connectedSession()
+        return try await connection.session.updateFrontendNativeBrowserSource(
+            surfaceID: surfaceID,
+            ownerGeneration: ownerGeneration,
+            requestID: requestID,
+            sourceURL: sourceURL
+        )
+    }
+
     func splitPane(
         requestID: UUID,
         surfaceID: SurfaceID,
@@ -569,6 +598,22 @@ actor TerminalBackendClientCoordinator:
             receipt: { $0 }
         ) { session, expectation in
             try await session.closePane(expectation: expectation, paneID: paneID)
+        }
+    }
+
+    func closeSurface(
+        requestID: UUID,
+        _ surfaceID: SurfaceID
+    ) async throws -> BackendTopologyMutationReceipt {
+        try await performCanonicalTopologyMutation(
+            command: "canonical-close-surface",
+            requestID: requestID,
+            receipt: { $0 }
+        ) { session, expectation in
+            try await session.closeSurface(
+                expectation: expectation,
+                surfaceID: surfaceID
+            )
         }
     }
 

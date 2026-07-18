@@ -45,6 +45,22 @@ struct TopologyWireContractTests {
         #expect(surface.browserEndpoint?.frontendProjection == .required)
     }
 
+    @Test("frontend-native endpoint carries mode but no private source URL")
+    func frontendNativeBrowserEndpointContract() throws {
+        let endpoint = CanonicalBrowserEndpoint(
+            transport: .frontendNativeV1,
+            frontendProjection: .required
+        )
+        let encoded = try JSONEncoder().encode(endpoint)
+        let wire = try #require(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+
+        #expect(wire["transport"] as? String == "frontend-native-v1")
+        #expect(wire["source_url"] == nil)
+        #expect(wire["ephemeral_url"] == nil)
+    }
+
     @Test("delta event decodes typed targets and complete replacement")
     func deltaContract() throws {
         let event = try JSONDecoder().decode(BackendServerEvent.self, from: Data(deltaJSON.utf8))

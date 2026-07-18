@@ -9,6 +9,10 @@ public struct CanonicalBrowserEndpoint: Codable, Equatable, Sendable {
     public enum Transport: String, Codable, Equatable, Sendable {
         /// `attach-surface` browser state plus ordered base64 PNG frame events.
         case cmuxdPNGFrameStreamV1 = "cmuxd-png-frame-stream-v1"
+
+        /// Canonical placement whose WKWebView runtime is owned by the frontend.
+        /// URLs travel only over a private, connection-bound claim channel.
+        case frontendNativeV1 = "frontend-native-v1"
     }
 
     /// How cmuxd obtained the browser runtime.

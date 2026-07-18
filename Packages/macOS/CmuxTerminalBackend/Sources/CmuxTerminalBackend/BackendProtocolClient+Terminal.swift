@@ -334,7 +334,47 @@ public extension BackendProtocolClient {
         ).egress
     }
 
-    /// Creates one exactly identified daemon-owned browser in a new workspace.
+    /// Claims one frontend-native browser placement for this exact connection.
+    func claimFrontendNativeBrowser(
+        surfaceID: SurfaceID,
+        requestID: UUID,
+        sourceURL: URL?
+    ) async throws -> BackendFrontendNativeBrowserClaimReceipt {
+        var parameters: [String: BackendJSONValue] = [
+            "surface_uuid": .string(surfaceID.description),
+            "request_id": .string(requestID.uuidString.lowercased()),
+        ]
+        if let sourceURL {
+            parameters["source_url"] = .string(sourceURL.absoluteString)
+        }
+        return try await call(
+            command: "claim-frontend-native-browser",
+            parameters: parameters,
+            as: BackendFrontendNativeBrowserClaimReceipt.self
+        )
+    }
+
+    /// Replaces the retained source for one exact connection-owned generation.
+    /// The daemon keeps this value in memory only and never publishes it in topology.
+    func updateFrontendNativeBrowserSource(
+        surfaceID: SurfaceID,
+        ownerGeneration: UInt64,
+        requestID: UUID,
+        sourceURL: URL
+    ) async throws -> BackendFrontendNativeBrowserSourceReceipt {
+        try await call(
+            command: "update-frontend-native-browser-source",
+            parameters: [
+                "surface_uuid": .string(surfaceID.description),
+                "owner_generation": .unsignedInteger(ownerGeneration),
+                "request_id": .string(requestID.uuidString.lowercased()),
+                "source_url": .string(sourceURL.absoluteString),
+            ],
+            as: BackendFrontendNativeBrowserSourceReceipt.self
+        )
+    }
+
+    /// Creates one exactly identified frontend-native browser in a new workspace.
     func canonicalNewBrowserWorkspace(
         expectation: BackendTopologyMutationExpectation,
         workspaceID: WorkspaceID,
@@ -348,6 +388,9 @@ public extension BackendProtocolClient {
         parameters["workspace_uuid"] = .string(workspaceID.description)
         parameters["surface_uuid"] = .string(surfaceID.description)
         parameters["url"] = .string(url.absoluteString)
+        parameters["transport"] = .string(
+            CanonicalBrowserEndpoint.Transport.frontendNativeV1.rawValue
+        )
         if let name { parameters["name"] = .string(name) }
         if let columns { parameters["cols"] = .unsignedInteger(UInt64(columns)) }
         if let rows { parameters["rows"] = .unsignedInteger(UInt64(rows)) }
@@ -358,7 +401,7 @@ public extension BackendProtocolClient {
         )
     }
 
-    /// Creates one exactly identified daemon-owned browser tab in a stable pane.
+    /// Creates one exactly identified frontend-native browser tab in a stable pane.
     func canonicalNewBrowserTab(
         expectation: BackendTopologyMutationExpectation,
         paneID: PaneID,
@@ -371,6 +414,9 @@ public extension BackendProtocolClient {
         parameters["pane_uuid"] = .string(paneID.description)
         parameters["surface_uuid"] = .string(surfaceID.description)
         parameters["url"] = .string(url.absoluteString)
+        parameters["transport"] = .string(
+            CanonicalBrowserEndpoint.Transport.frontendNativeV1.rawValue
+        )
         if let columns { parameters["cols"] = .unsignedInteger(UInt64(columns)) }
         if let rows { parameters["rows"] = .unsignedInteger(UInt64(rows)) }
         return try await call(
@@ -380,7 +426,7 @@ public extension BackendProtocolClient {
         )
     }
 
-    /// Creates one exactly identified daemon-owned browser in a new adjacent pane.
+    /// Creates one exactly identified frontend-native browser in a new adjacent pane.
     func canonicalSplitBrowserPane(
         expectation: BackendTopologyMutationExpectation,
         paneID: PaneID,
@@ -397,6 +443,9 @@ public extension BackendProtocolClient {
         parameters["dir"] = .string(direction.rawValue)
         parameters["ratio"] = .number(Double(initialRatio))
         parameters["url"] = .string(url.absoluteString)
+        parameters["transport"] = .string(
+            CanonicalBrowserEndpoint.Transport.frontendNativeV1.rawValue
+        )
         if let columns { parameters["cols"] = .unsignedInteger(UInt64(columns)) }
         if let rows { parameters["rows"] = .unsignedInteger(UInt64(rows)) }
         return try await call(
@@ -461,6 +510,20 @@ public extension BackendProtocolClient {
         parameters["pane_uuid"] = .string(paneID.description)
         return try await call(
             command: "canonical-close-pane",
+            parameters: parameters,
+            as: BackendTopologyMutationReceipt.self
+        )
+    }
+
+    /// Closes one canonical surface while preserving any sibling tabs and pane.
+    func canonicalCloseSurface(
+        expectation: BackendTopologyMutationExpectation,
+        surfaceID: SurfaceID
+    ) async throws -> BackendTopologyMutationReceipt {
+        var parameters = expectation.jsonParameters
+        parameters["surface_uuid"] = .string(surfaceID.description)
+        return try await call(
+            command: "canonical-close-surface",
             parameters: parameters,
             as: BackendTopologyMutationReceipt.self
         )

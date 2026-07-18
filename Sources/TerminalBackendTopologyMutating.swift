@@ -102,6 +102,10 @@ protocol TerminalBackendTopologyMutating: Sendable {
     ) async throws -> BackendSurfacePlacement
 
     func closePane(requestID: UUID, _ paneID: PaneID) async throws -> BackendTopologyMutationReceipt
+    func closeSurface(
+        requestID: UUID,
+        _ surfaceID: SurfaceID
+    ) async throws -> BackendTopologyMutationReceipt
     func closeWorkspace(
         requestID: UUID,
         _ workspaceID: WorkspaceID
@@ -179,4 +183,20 @@ protocol TerminalBackendExternalTerminalServing: Sendable {
         surfaceID: SurfaceID,
         ownerGeneration: UInt64
     ) async throws -> Data
+}
+
+/// Connection-owned private state for browser runtimes hosted by AppKit.
+protocol TerminalBackendFrontendNativeBrowserServing: Sendable {
+    func claimFrontendNativeBrowser(
+        surfaceID: SurfaceID,
+        requestID: UUID,
+        sourceURL: URL?
+    ) async throws -> BackendFrontendNativeBrowserClaimReceipt
+
+    func updateFrontendNativeBrowserSource(
+        surfaceID: SurfaceID,
+        ownerGeneration: UInt64,
+        requestID: UUID,
+        sourceURL: URL
+    ) async throws -> BackendFrontendNativeBrowserSourceReceipt
 }
