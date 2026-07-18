@@ -278,4 +278,68 @@ struct BackendOnlyRendererWorkerTransitionTests {
             _ = try floor.record(invalidation)
         }
     }
+
+    @MainActor
+    @Test("renderer listener survives a coalesced false-event-true visibility burst")
+    func rendererListenerSurvivesCoalescedVisibility() async throws {
+        let events = AsyncStream<BackendRendererLifecycleEvent>.makeStream(
+            bufferingPolicy: .bufferingOldest(4)
+        )
+        let observations = AsyncStream<BackendRendererLifecycleEvent>.makeStream(
+            bufferingPolicy: .bufferingOldest(4)
+        )
+        let ended = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        var observationIterator = observations.stream.makeAsyncIterator()
+        var endedIterator = ended.stream.makeAsyncIterator()
+        let listener = BackendOnlyRendererEventListener()
+        listener.start(
+            events: events.stream,
+            receive: { event in
+                observations.continuation.yield(event)
+            },
+            onEnd: {
+                ended.continuation.yield(())
+            }
+        )
+
+        var visible = true
+        visible = false
+        let second = try configInvalidation(revision: 2, digestByte: "b")
+        events.continuation.yield(.configInvalidated(second))
+        guard case .configInvalidated(let hiddenEvent)? = await observationIterator.next() else {
+            Issue.record("listener stopped on the transient hidden state")
+            return
+        }
+        #expect(!visible)
+        #expect(hiddenEvent == second)
+
+        visible = true
+        let third = try configInvalidation(revision: 3, digestByte: "c")
+        events.continuation.yield(.configInvalidated(third))
+        guard case .configInvalidated(let visibleEvent)? = await observationIterator.next() else {
+            Issue.record("listener did not survive the re-show")
+            return
+        }
+        #expect(visible)
+        #expect(visibleEvent == third)
+        #expect(listener.isActive)
+
+        events.continuation.finish()
+        _ = await endedIterator.next()
+        #expect(!listener.isActive)
+    }
+
+    private func configInvalidation(
+        revision: UInt64,
+        digestByte: String
+    ) throws -> BackendRendererConfigInvalidated {
+        try BackendRendererConfigInvalidated(
+            revision: revision,
+            digest: BackendRendererConfigDigest(
+                validating: String(repeating: digestByte, count: 64)
+            ),
+            reason: "ghostty-config-reloaded",
+            defaultColors: [:]
+        )
+    }
 }
