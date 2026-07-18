@@ -103,6 +103,12 @@ extension TerminalController {
         axis: String,
         targetPixels: CGFloat
     ) -> (splitId: UUID, oldPosition: CGFloat, newPosition: CGFloat)? {
+        if workspace.panels.values.contains(where: { $0 is TerminalPanel }),
+           let mutationCoordinator = workspace.terminalClientComposition.terminalBackendTopologyMutationCoordinator,
+           !workspace.isApplyingCanonicalTopologyProjection {
+            mutationCoordinator.reject(.changeSplitRatio)
+            return nil
+        }
         guard targetPixels > 0 else { return nil }
         let orientationName: String
         switch axis.lowercased() {

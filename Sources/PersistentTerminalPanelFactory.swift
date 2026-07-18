@@ -13,19 +13,22 @@ final class PersistentTerminalPanelFactory: TerminalPanelCreating {
     private let launchResolver: TerminalSurfaceLaunchResolver
     private let presentationRegistry: TerminalBackendPresentationRegistry
     private let renderConfigSource: TerminalBackendRenderConfigSource
+    private let topologyAuthorizationGate: TerminalBackendTopologyAuthorizationGate
 
     init(
         dependencies: TerminalSurfaceRuntimeDependencies,
         backendClient: any TerminalBackendClient,
         launchResolver: TerminalSurfaceLaunchResolver,
         presentationRegistry: TerminalBackendPresentationRegistry,
-        renderConfigSource: TerminalBackendRenderConfigSource
+        renderConfigSource: TerminalBackendRenderConfigSource,
+        topologyAuthorizationGate: TerminalBackendTopologyAuthorizationGate
     ) {
         self.dependencies = dependencies
         self.backendClient = backendClient
         self.launchResolver = launchResolver
         self.presentationRegistry = presentationRegistry
         self.renderConfigSource = renderConfigSource
+        self.topologyAuthorizationGate = topologyAuthorizationGate
     }
 
     func makeTerminalPanel(_ request: TerminalPanelCreationRequest) -> TerminalPanel {
@@ -46,7 +49,8 @@ final class PersistentTerminalPanelFactory: TerminalPanelCreating {
             launchRequest: launchRequest,
             presentationRegistry: presentationRegistry,
             renderConfigSource: renderConfigSource,
-            presentationConfigOverrides: rendererConfigOverrides(for: request)
+            presentationConfigOverrides: rendererConfigOverrides(for: request),
+            topologyAuthorizationGate: topologyAuthorizationGate
         )
         let panel = TerminalPanel(
             request: request,

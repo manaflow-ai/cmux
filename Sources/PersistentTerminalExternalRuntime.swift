@@ -26,6 +26,7 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
     private let renderConfigSource: TerminalBackendRenderConfigSource?
     private let presentationConfigOverrides: Data
     private let clipboardWriter: (String) -> Void
+    private let topologyAuthorizationGate: TerminalBackendTopologyAuthorizationGate?
     private var baseRenderConfigRevision: UInt64
     private var baseRenderConfig: Data
     private var backendDefaultConfig = Data()
@@ -71,6 +72,7 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         resolvedConfigRevision: UInt64 = 0,
         resolvedConfig: Data = Data(),
         queueCapacity: Int = 256,
+        topologyAuthorizationGate: TerminalBackendTopologyAuthorizationGate? = nil,
         clipboardWriter: @escaping (String) -> Void = { text in
             GhosttyApp.terminalPasteboard.writeString(
                 text,
@@ -86,6 +88,7 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         self.presentationRegistry = presentationRegistry
         self.renderConfigSource = renderConfigSource
         self.presentationConfigOverrides = presentationConfigOverrides
+        self.topologyAuthorizationGate = topologyAuthorizationGate
         self.clipboardWriter = clipboardWriter
         if let current = renderConfigSource?.current {
             self.baseRenderConfigRevision = current.revision
@@ -245,7 +248,16 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         }
         if let bindingTask { return try await bindingTask.value }
         let client = client
+        let topologyAuthorizationGate = topologyAuthorizationGate
         let task = Task<TerminalBackendTerminalBinding, any Error> { @MainActor in
+            if let topologyAuthorizationGate {
+                try await topologyAuthorizationGate.waitUntilAuthorized(
+                    TerminalBackendTopologyPlacement(
+                        workspaceID: launchRequest.workspaceID,
+                        surfaceID: launchRequest.surfaceID
+                    )
+                )
+            }
             let request: TerminalBackendTerminalRequest
             if let resolvedRequest {
                 request = resolvedRequest

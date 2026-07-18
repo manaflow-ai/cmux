@@ -5,6 +5,11 @@ extension TabManager {
     /// Equalize splits - not directly supported by bonsplit.
     func equalizeSplits(tabId: UUID) -> Bool {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
+        if tab.panels.values.contains(where: { $0 is TerminalPanel }),
+           let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator,
+           !tab.isApplyingCanonicalTopologyProjection {
+            return mutationCoordinator.reject(.changeSplitRatio)
+        }
 
         let result = equalizeSplitsOnce(in: tab)
         if result.foundSplit {

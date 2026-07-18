@@ -667,6 +667,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     weak var sidebarState: SidebarState?
     private(set) var terminalClientComposition: TerminalClientComposition?
     private var terminalBackendServiceModel: TerminalBackendServiceModel?
+    private var terminalBackendTopologyCoordinator: TerminalBackendTopologyCoordinator?
 
     /// Notification jump/open navigation, extracted into `CmuxNotifications`. `AppDelegate` is the
     /// composition root: it conforms to every seam (see `AppDelegate+NotificationNavSeams.swift`)
@@ -1268,6 +1269,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         terminalBackendServiceModel.start()
+        terminalBackendTopologyCoordinator?.start()
         StartupBreadcrumbLog.append(
             "appDelegate.terminalBackend.bootstrap",
             fields: ["status": "scheduled"]
@@ -2074,11 +2076,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         settingsRuntime: SettingsRuntime,
         auth: MacAuthComposition,
         terminalClientComposition: TerminalClientComposition? = nil,
-        terminalBackendServiceModel: TerminalBackendServiceModel? = nil
+        terminalBackendServiceModel: TerminalBackendServiceModel? = nil,
+        terminalBackendTopologyCoordinator: TerminalBackendTopologyCoordinator? = nil
     ) {
         self.tabManager = tabManager
         self.terminalClientComposition = terminalClientComposition ?? tabManager.terminalClientComposition
         self.terminalBackendServiceModel = terminalBackendServiceModel
+        self.terminalBackendTopologyCoordinator = terminalBackendTopologyCoordinator
         self.settingsRuntime = settingsRuntime
         self.notificationStore = notificationStore
         self.sidebarState = sidebarState
@@ -3416,6 +3420,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func completeSessionRestoreOperation(isManualReopen: Bool) {
         startupSessionSnapshot = nil
         isApplyingSessionRestore = false
+        terminalBackendTopologyCoordinator?.startupRestoreDidFinish()
         if isScreenChangeCaptureSuppressed {
             // A display change arrived mid-restore and its reconcile pass was
             // skipped. Queue it now that restore is done
@@ -4638,6 +4643,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let didApplyStartupSessionRestore = attemptStartupSessionRestoreIfNeeded(primaryWindow: window)
+        if tabManager === self.tabManager, !isApplyingSessionRestore {
+            terminalBackendTopologyCoordinator?.startupRestoreDidFinish()
+        }
         if Self.shouldSaveSessionSnapshotAfterMainWindowRegistration(
             isTerminatingApp: isTerminatingApp,
             didApplyStartupSessionRestore: didApplyStartupSessionRestore,
@@ -4843,6 +4851,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             cmuxDebugLog("surface.move.fail panel=\(panelId.uuidString.prefix(5)) reason=destinationWorkspaceMissing elapsedMs=\(elapsedMs(since: moveStart))")
 #endif
             return false
+        }
+        if let terminalPanel = sourceWorkspace.panels[panelId] as? TerminalPanel,
+           let mutationCoordinator = sourceWorkspace.terminalClientComposition
+               .terminalBackendTopologyMutationCoordinator {
+            if destinationWorkspace.id == sourceWorkspace.id {
+                return mutationCoordinator.reject(splitTarget == nil ? .moveTab : .splitPane)
+            }
+            return mutationCoordinator.requestReparent(terminalPanel, to: destinationWorkspace.id)
         }
 #if DEBUG
         cmuxDebugLog(

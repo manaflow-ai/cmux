@@ -6,7 +6,7 @@ import Foundation
 /// Async service seam between a main-actor terminal façade and the trusted daemon session.
 protocol TerminalBackendClient: Sendable {
     func rendererEvents() async -> AsyncStream<TerminalBackendRendererEvent>
-    func canonicalSnapshots() async -> AsyncStream<TopologySnapshot>
+    func canonicalSnapshots() async throws -> AsyncStream<TopologySnapshot>
 
     func ensureTerminal(
         _ request: TerminalBackendTerminalRequest

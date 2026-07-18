@@ -7,6 +7,11 @@ import Foundation
 extension Workspace {
 
     func applyCustomLayout(_ layout: CmuxLayoutNode, baseCwd: String, setupCommand: String? = nil) {
+        if let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator,
+           !isApplyingCanonicalTopologyProjection {
+            mutationCoordinator.reject(.splitPane)
+            return
+        }
         guard let rootPaneId = bonsplitController.allPaneIds.first else { return }
 
         var leaves: [(paneId: PaneID, surfaces: [CmuxSurfaceDefinition])] = []

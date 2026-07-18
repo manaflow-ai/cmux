@@ -592,6 +592,33 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         }
     }
 
+    /// Requests an authoritative cross-workspace move without mutating Swift topology first.
+    @MainActor
+    public func requestCanonicalReparent(
+        to workspaceID: UUID
+    ) -> TerminalExternalIngressResult {
+        guard let externalRuntime else {
+            return .rejected(.unsupported)
+        }
+        return externalRuntime.enqueue(.reparent(workspaceID: workspaceID))
+    }
+
+    /// Requests authoritative terminal closure without removing the projected Swift panel first.
+    @MainActor
+    public func requestCanonicalClose() -> TerminalExternalIngressResult {
+        guard let externalRuntime else {
+            return .rejected(.unsupported)
+        }
+        if externalCanonicalCloseRequested {
+            return .rejected(.processExited)
+        }
+        let result = externalRuntime.enqueue(.closeCanonicalTerminal)
+        if result.accepted {
+            externalCanonicalCloseRequested = true
+        }
+        return result
+    }
+
     /// Moves this surface between focus-routing placements (workspace ↔
     /// right-sidebar dock) and keeps the surface registry's record in sync.
     /// Used when a live terminal is dragged across containers so it is not

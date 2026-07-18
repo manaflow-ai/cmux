@@ -89,6 +89,7 @@ struct cmuxApp: App {
     /// injected into AppDelegate and the auth-consuming services.
     private let authComposition: MacAuthComposition
     private let terminalClientComposition: TerminalClientComposition
+    private let terminalBackendTopologyCoordinator: TerminalBackendTopologyCoordinator?
     @State private var terminalBackendServiceModel: TerminalBackendServiceModel? = nil
     @StateObject private var tabManager: TabManager
     @StateObject private var notificationStore = TerminalNotificationStore.shared
@@ -281,17 +282,27 @@ struct cmuxApp: App {
             )
             terminalClientComposition = .persistent(
                 backendClient: backendClient,
-                dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies
+                dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies,
+                topologyFailureReporter: { message in
+                    terminalBackendServiceModel.reportTopologyFailure(message)
+                }
             )
         } else {
             terminalClientComposition = .embedded()
         }
         self.terminalClientComposition = terminalClientComposition
-        _tabManager = StateObject(
-            wrappedValue: TabManager(
-                terminalClientComposition: terminalClientComposition
-            )
+        let tabManager = TabManager(
+            terminalClientComposition: terminalClientComposition
         )
+        _tabManager = StateObject(wrappedValue: tabManager)
+        let terminalBackendTopologyCoordinator = TerminalBackendTopologyCoordinator(
+            composition: terminalClientComposition,
+            projector: tabManager,
+            failureReporter: { message in
+                terminalBackendServiceModel.reportTopologyFailure(message)
+            }
+        )
+        self.terminalBackendTopologyCoordinator = terminalBackendTopologyCoordinator
         StartupBreadcrumbLog.append("app.init.tabManager.complete")
         // Migrate legacy and old-format socket mode values to the new enum.
         if let stored = defaults.string(forKey: SocketControlSettings.appStorageKey) {
@@ -326,7 +337,8 @@ struct cmuxApp: App {
             settingsRuntime: settingsRuntime,
             auth: authComposition,
             terminalClientComposition: terminalClientComposition,
-            terminalBackendServiceModel: terminalBackendServiceModel
+            terminalBackendServiceModel: terminalBackendServiceModel,
+            terminalBackendTopologyCoordinator: terminalBackendTopologyCoordinator
         )
         StartupBreadcrumbLog.append("app.init.delegate.configured")
     }

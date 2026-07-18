@@ -11,6 +11,7 @@ final class TerminalBackendServiceModel {
     private var bootstrapTask: Task<Void, Never>?
 
     private(set) var state: BackendServiceRuntimeState
+    private(set) var topologyFailureMessage: String?
 
     init(coordinator: BackendServiceBootstrapCoordinator) {
         self.coordinator = coordinator
@@ -18,7 +19,13 @@ final class TerminalBackendServiceModel {
     }
 
     var guidanceMenuTitle: String? {
-        switch state {
+        if topologyFailureMessage != nil {
+            return String(
+                localized: "terminalBackend.status.topologyUnavailable",
+                defaultValue: "Terminal layout unavailable"
+            )
+        }
+        return switch state {
         case .requiresApproval:
             String(
                 localized: "terminalBackend.status.approvalRequired",
@@ -35,7 +42,10 @@ final class TerminalBackendServiceModel {
     }
 
     var guidanceMessage: String? {
-        switch state {
+        if let topologyFailureMessage {
+            return topologyFailureMessage
+        }
+        return switch state {
         case .requiresApproval:
             String(
                 localized: "terminalBackend.guidance.approvalRequired",
@@ -103,6 +113,10 @@ final class TerminalBackendServiceModel {
             _ = try? await coordinator.ensureRegistered()
             self?.bootstrapTask = nil
         }
+    }
+
+    func reportTopologyFailure(_ message: String?) {
+        topologyFailureMessage = message
     }
 
     func openSystemSettingsLoginItems() {

@@ -426,6 +426,15 @@ extension TerminalController: ControlPaneContext {
         guard let paneUUID else {
             return .noFocusedPane
         }
+        if ws.panels.values.contains(where: { $0 is TerminalPanel }),
+           let mutationCoordinator = ws.terminalClientComposition.terminalBackendTopologyMutationCoordinator,
+           !ws.isApplyingCanonicalTopologyProjection {
+            mutationCoordinator.reject(.changeSplitRatio)
+            return .localResizeUnavailable(
+                paneID: paneUUID,
+                message: mutationCoordinator.rejectionMessage(for: .changeSplitRatio)
+            )
+        }
         if let remote = controlRemoteTmuxPaneResize(workspace: ws, tabManager: tabManager, inputs: inputs) {
             return remote
         }

@@ -11,6 +11,9 @@ extension TabManager {
         source: Workspace.CustomTitleSource = .user,
         propagateToRemoteTmux: Bool = true
     ) -> Bool {
+        if let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator {
+            return mutationCoordinator.reject(.renameWorkspace)
+        }
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return false }
         let previousDisplayTitle = resolvedWorkspaceDisplayTitle(for: tabs[index])
             .trimmingCharacters(in: .whitespacesAndNewlines)

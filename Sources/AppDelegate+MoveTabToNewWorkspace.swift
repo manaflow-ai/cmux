@@ -91,6 +91,12 @@ extension AppDelegate {
               sourceWorkspace.panels.count > 1 else {
             return nil
         }
+        if sourcePanel is TerminalPanel,
+           let mutationCoordinator = sourceWorkspace.terminalClientComposition.terminalBackendTopologyMutationCoordinator,
+           !sourceWorkspace.isApplyingCanonicalTopologyProjection {
+            mutationCoordinator.reject(.createWorkspace)
+            return nil
+        }
 
         let targetManager = destinationManager ?? source.tabManager
         let hasExplicitTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false

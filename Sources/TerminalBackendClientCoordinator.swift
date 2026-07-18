@@ -86,7 +86,8 @@ actor TerminalBackendClientCoordinator: TerminalBackendClient {
         }
     }
 
-    func canonicalSnapshots() -> AsyncStream<TopologySnapshot> {
+    func canonicalSnapshots() async throws -> AsyncStream<TopologySnapshot> {
+        _ = try await connectedSession()
         let identifier = UUID()
         return AsyncStream(bufferingPolicy: .bufferingNewest(8)) { continuation in
             snapshotContinuations[identifier] = continuation

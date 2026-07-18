@@ -151,6 +151,11 @@ extension Workspace {
 
     @discardableResult
     func restoreSessionSnapshot(_ snapshot: SessionWorkspaceSnapshot, excludingStableIdentities: Set<UUID> = []) -> [UUID: UUID] {
+        let previousCanonicalProjectionState = isApplyingCanonicalTopologyProjection
+        if terminalClientComposition.terminalBackendTopologyMutationCoordinator != nil {
+            isApplyingCanonicalTopologyProjection = true
+        }
+        defer { isApplyingCanonicalTopologyProjection = previousCanonicalProjectionState }
         let previousSuppressClosedPanelHistory = suppressClosedPanelHistory
         suppressClosedPanelHistory = true
         defer { suppressClosedPanelHistory = previousSuppressClosedPanelHistory }
@@ -2153,6 +2158,9 @@ final class Workspace: Identifiable, ObservableObject {
         get { splitLayout.isProgrammaticSplit }
         set { splitLayout.isProgrammaticSplit = newValue }
     }
+    /// Allows the canonical topology projector to use local Bonsplit construction
+    /// APIs while all user-initiated terminal structure changes remain fail-closed.
+    var isApplyingCanonicalTopologyProjection = false
     private var debugStressPreloadSelectionDepth = 0
 
     /// Last terminal panel used as an inheritance source (typically last focused terminal).
@@ -2900,6 +2908,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     init(
+        id: UUID = UUID(),
         title: String = "Terminal",
         workingDirectory: String? = nil,
         portOrdinal: Int = 0,
@@ -2918,10 +2927,12 @@ final class Workspace: Identifiable, ObservableObject {
         initialDetachedSurface: DetachedSurfaceTransfer? = nil,
         sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>? = nil,
         sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel? = nil,
-        terminalClientComposition: TerminalClientComposition? = nil
+        terminalClientComposition: TerminalClientComposition? = nil,
+        initialTerminalSurfaceID: UUID? = nil,
+        initialTerminalPaneID: UUID? = nil
     ) {
         let terminalClientComposition = terminalClientComposition ?? .embedded()
-        self.id = UUID()
+        self.id = id
         self.terminalClientComposition = terminalClientComposition
         self.sessionRestorePolicy = sessionRestorePolicy ?? Self.makeSessionRestorePolicyService()
         self.sidebarProcessTitleObservation = sidebarProcessTitleObservation ?? WorkspaceSidebarProcessTitleObservationModel()
@@ -2955,14 +2966,18 @@ final class Workspace: Identifiable, ObservableObject {
             allowSplits: true,
             allowCloseTabs: !CloseTabWarningStore(defaults: closeTabWarningDefaults).hidesTabCloseButton,
             allowCloseLastPane: false,
-            allowTabReordering: true,
-            allowCrossPaneTabMove: true,
+            allowTabReordering: terminalClientComposition.terminalBackendTopologyMutationCoordinator == nil,
+            allowCrossPaneTabMove: terminalClientComposition.terminalBackendTopologyMutationCoordinator == nil,
+            allowDividerResizing: terminalClientComposition.terminalBackendTopologyMutationCoordinator == nil,
             autoCloseEmptyPanes: true,
             contentViewLifecycle: .keepAllAlive,
             newTabPosition: .current,
             appearance: appearance
         )
-        self.bonsplitController = BonsplitController(configuration: config)
+        self.bonsplitController = BonsplitController(
+            configuration: config,
+            initialPaneID: initialTerminalPaneID.map(PaneID.init(id:))
+        )
         paneTree.attach(host: self)
         surfaceList.attach(tree: self)
         bonsplitController.contextMenuShortcuts = Self.buildContextMenuShortcuts()
@@ -3045,6 +3060,7 @@ final class Workspace: Identifiable, ObservableObject {
             let terminalPanel = terminalClientComposition.terminalPanelFactory.makeTerminalPanel(
                 TerminalPanelCreationRequest(
                     origin: .workspaceInitial,
+                    id: initialTerminalSurfaceID ?? UUID(),
                     workspaceId: id,
                     context: GHOSTTY_SURFACE_CONTEXT_TAB,
                     configTemplate: resolvedConfigTemplate,
@@ -4078,6 +4094,11 @@ final class Workspace: Identifiable, ObservableObject {
     @discardableResult
     func setPanelCustomTitle(panelId: UUID, title: String?, source: CustomTitleSource = .user) -> Bool {
         guard panels[panelId] != nil else { return false }
+        if panels[panelId] is TerminalPanel,
+           let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator,
+           !isApplyingCanonicalTopologyProjection {
+            return mutationCoordinator.reject(.renameSurface)
+        }
         let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let previous = panelCustomTitles[panelId]
         if source == .auto {
@@ -6938,6 +6959,8 @@ final class Workspace: Identifiable, ObservableObject {
         initialDividerPosition: CGFloat? = nil,
         remotePTYSessionID: String? = nil,
         suppressWorkspaceRemoteStartupCommand: Bool = false,
+        restoredSurfaceId: UUID? = nil,
+        restoredPaneId: UUID? = nil,
         allowTextBoxFocusDefault: Bool = true
     ) -> TerminalPanel? {
         return newTerminalSplitOutcome(
@@ -6952,6 +6975,8 @@ final class Workspace: Identifiable, ObservableObject {
             initialDividerPosition: initialDividerPosition,
             remotePTYSessionID: remotePTYSessionID,
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
+            restoredSurfaceId: restoredSurfaceId,
+            restoredPaneId: restoredPaneId,
             allowTextBoxFocusDefault: allowTextBoxFocusDefault
         ).panel
     }
@@ -6972,8 +6997,15 @@ final class Workspace: Identifiable, ObservableObject {
         initialDividerPosition: CGFloat? = nil,
         remotePTYSessionID: String? = nil,
         suppressWorkspaceRemoteStartupCommand: Bool = false,
+        restoredSurfaceId: UUID? = nil,
+        restoredPaneId: UUID? = nil,
         allowTextBoxFocusDefault: Bool = true
     ) -> TerminalPanelCreationOutcome {
+        if terminalClientComposition.terminalBackendTopologyMutationCoordinator != nil,
+           !isApplyingCanonicalTopologyProjection {
+            terminalClientComposition.terminalBackendTopologyMutationCoordinator?.reject(.splitPane)
+            return .failed
+        }
         // In a remote tmux mirror workspace a split means "split the mirrored
         // tmux pane": route it to the remote and let the resulting
         // %layout-change render the new pane (one source of truth). NEVER
@@ -7004,6 +7036,8 @@ final class Workspace: Identifiable, ObservableObject {
             initialDividerPosition: initialDividerPosition,
             remotePTYSessionID: remotePTYSessionID,
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
+            restoredSurfaceId: restoredSurfaceId,
+            restoredPaneId: restoredPaneId,
             allowTextBoxFocusDefault: allowTextBoxFocusDefault
         ) else { return .failed }
         return .created(panel)
@@ -7021,6 +7055,8 @@ final class Workspace: Identifiable, ObservableObject {
         initialDividerPosition: CGFloat?,
         remotePTYSessionID: String?,
         suppressWorkspaceRemoteStartupCommand: Bool,
+        restoredSurfaceId: UUID?,
+        restoredPaneId: UUID?,
         allowTextBoxFocusDefault: Bool
     ) -> TerminalPanel? {
 #if DEBUG
@@ -7049,7 +7085,7 @@ final class Workspace: Identifiable, ObservableObject {
         let remoteTerminalStartupCommand = suppressWorkspaceRemoteStartupCommand ? nil : remoteTerminalStartupCommand()
         let startupCommand = explicitInitialCommand ?? remoteTerminalStartupCommand
         let remoteStartupCommandForEnvironment = explicitInitialCommand == nil ? remoteTerminalStartupCommand : nil
-        let newPanelID = UUID()
+        let newPanelID = restoredSurfaceId ?? UUID()
         let requestedRemotePTYSessionID = normalizedRemotePTYSessionID(remotePTYSessionID)
         let effectiveRemotePTYSessionID = requestedRemotePTYSessionID
             ?? ((remoteStartupCommandForEnvironment != nil && remoteConfiguration?.preserveAfterTerminalExit == true)
@@ -7150,7 +7186,13 @@ final class Workspace: Identifiable, ObservableObject {
         // Create the split with the new tab already present in the new pane.
         isProgrammaticSplit = true
         defer { isProgrammaticSplit = false }
-        guard let newPaneId = bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) else {
+        guard let newPaneId = bonsplitController.splitPane(
+            paneId,
+            orientation: orientation,
+            withTab: newTab,
+            insertFirst: insertFirst,
+            newPaneID: restoredPaneId.map(PaneID.init(id:))
+        ) else {
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
             remotePTYSessionIDsByPanelId.removeValue(forKey: newPanel.id)
@@ -7274,6 +7316,11 @@ final class Workspace: Identifiable, ObservableObject {
         allowTextBoxFocusDefault: Bool = true,
         creationOrigin: TerminalPanelCreationRequest.Origin = .workspaceTab
     ) -> TerminalPanelCreationOutcome {
+        if terminalClientComposition.terminalBackendTopologyMutationCoordinator != nil,
+           !isApplyingCanonicalTopologyProjection {
+            terminalClientComposition.terminalBackendTopologyMutationCoordinator?.reject(.attachSurface)
+            return .failed
+        }
         // In a remote tmux mirror, a new tab means "create a tmux window"; never
         // create a local orphan the mirror can't reconcile. Dead mirrors are
         // torn down via handleSessionEndedRemotely.
@@ -9084,6 +9131,11 @@ final class Workspace: Identifiable, ObservableObject {
 
     @discardableResult
     func moveSurface(panelId: UUID, toPane paneId: PaneID, atIndex index: Int? = nil, focus: Bool = true) -> Bool {
+        if panels[panelId] is TerminalPanel,
+           let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator,
+           !isApplyingCanonicalTopologyProjection {
+            return mutationCoordinator.reject(.moveTab)
+        }
         guard let tabId = surfaceIdFromPanelId(panelId) else { return false }
         guard bonsplitController.allPaneIds.contains(paneId) else { return false }
         guard bonsplitController.moveTab(tabId, toPane: paneId, atIndex: index) else { return false }
@@ -11908,6 +11960,14 @@ extension Workspace: BonsplitDelegate {
         }
 
         if forceCloseTabIds.contains(tab.id) {
+            if let panelId = panelIdFromSurfaceId(tab.id),
+               let terminalPanel = panels[panelId] as? TerminalPanel,
+               let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator,
+               !isApplyingCanonicalTopologyProjection {
+                forceCloseTabIds.remove(tab.id)
+                _ = mutationCoordinator.requestClose(terminalPanel)
+                return false
+            }
             if !pushClosedPanelHistoryIfEligible(for: tab, inPane: pane) {
                 stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
             } else {
@@ -11940,6 +12000,13 @@ extension Workspace: BonsplitDelegate {
         if explicitUserClose && shouldCloseWorkspaceOnLastSurface(for: tab.id, tabStripClose: tabStripClose) {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
             clearCloseHistoryEligibility(tabId: tab.id)
+            if let panelId = panelIdFromSurfaceId(tab.id),
+               panels[panelId] is TerminalPanel,
+               let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator,
+               !isApplyingCanonicalTopologyProjection {
+                mutationCoordinator.reject(.closeWorkspace)
+                return false
+            }
             if tabCloseButtonClose == true {
                 owningTabManager?.closeWorkspaceFromTabCloseButton(self)
             } else {
@@ -12007,6 +12074,12 @@ extension Workspace: BonsplitDelegate {
             stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
         } else {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
+        }
+        if let terminalPanel = panels[panelId] as? TerminalPanel,
+           let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator,
+           !isApplyingCanonicalTopologyProjection {
+            _ = mutationCoordinator.requestClose(terminalPanel)
+            return false
         }
         recordPostCloseState()
         return true
@@ -12184,6 +12257,10 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, shouldSplitPane pane: PaneID, orientation: SplitOrientation) -> Bool {
+        if let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator,
+           !isApplyingCanonicalTopologyProjection {
+            return mutationCoordinator.reject(.splitPane)
+        }
         // In a remote tmux mirror, split means tmux `split-window`; always veto
         // local splits so the mirror never gains an orphan pane.
         guard isRemoteTmuxMirror else { return true }
@@ -12330,6 +12407,13 @@ extension Workspace: BonsplitDelegate {
     func splitTabBar(_ controller: BonsplitController, shouldClosePane pane: PaneID) -> Bool {
         // Check if any panel in this pane needs close confirmation
         let tabs = controller.tabs(inPane: pane)
+        if let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator,
+           !isApplyingCanonicalTopologyProjection,
+           tabs.contains(where: { tab in
+               panelIdFromSurfaceId(tab.id).flatMap { panels[$0] } is TerminalPanel
+           }) {
+            return mutationCoordinator.reject(.closePane)
+        }
         for tab in tabs {
             if forceCloseTabIds.contains(tab.id) { continue }
             if let panelId = panelIdFromSurfaceId(tab.id),

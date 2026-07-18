@@ -348,6 +348,7 @@ struct TerminalClientCompositionTests {
     @Test @MainActor
     func appTerminationDetachesPersistentPresentationWhilePanelCloseTerminatesPTY() async {
         let client = RecordingPersistentTerminalBackendClient()
+        let topologyAuthorizationGate = TerminalBackendTopologyAuthorizationGate()
         let factory = PersistentTerminalPanelFactory(
             dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies,
             backendClient: client,
@@ -355,12 +356,22 @@ struct TerminalClientCompositionTests {
             presentationRegistry: TerminalBackendPresentationRegistry(),
             renderConfigSource: TerminalBackendRenderConfigSource {
                 Data("font-family = Menlo\n".utf8)
-            }
+            },
+            topologyAuthorizationGate: topologyAuthorizationGate
         )
 
+        let quitWorkspaceID = UUID()
+        let quitSurfaceID = UUID()
+        await topologyAuthorizationGate.authorize([
+            TerminalBackendTopologyPlacement(
+                workspaceID: quitWorkspaceID,
+                surfaceID: quitSurfaceID
+            ),
+        ])
         let quitPanel = factory.makeTerminalPanel(TerminalPanelCreationRequest(
             origin: .workspaceInitial,
-            workspaceId: UUID()
+            id: quitSurfaceID,
+            workspaceId: quitWorkspaceID
         ))
         await client.waitForEnsureCount(1)
         #expect(AppDelegate.detachPersistentTerminalPresentationsForAppTermination([
@@ -371,9 +382,18 @@ struct TerminalClientCompositionTests {
         let mutationsAfterQuit = await client.mutations()
         #expect(!mutationsAfterQuit.contains { $0.mutation == .closeCanonicalTerminal })
 
+        let closeWorkspaceID = UUID()
+        let closeSurfaceID = UUID()
+        await topologyAuthorizationGate.authorize([
+            TerminalBackendTopologyPlacement(
+                workspaceID: closeWorkspaceID,
+                surfaceID: closeSurfaceID
+            ),
+        ])
         let explicitlyClosedPanel = factory.makeTerminalPanel(TerminalPanelCreationRequest(
             origin: .workspaceTab,
-            workspaceId: UUID()
+            id: closeSurfaceID,
+            workspaceId: closeWorkspaceID
         ))
         await client.waitForEnsureCount(2)
         explicitlyClosedPanel.close()
@@ -467,7 +487,7 @@ private actor RecordingPersistentTerminalBackendClient: TerminalBackendClient {
         return pair.stream
     }
 
-    func canonicalSnapshots() async -> AsyncStream<TopologySnapshot> {
+    func canonicalSnapshots() async throws -> AsyncStream<TopologySnapshot> {
         AsyncStream { _ in }
     }
 

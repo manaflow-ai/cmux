@@ -739,7 +739,7 @@ class TabManager: ObservableObject {
         }
     }
 
-    private func unwireClosedBrowserTracking(for workspace: Workspace) {
+    func unwireClosedBrowserTracking(for workspace: Workspace) {
         workspace.onClosedBrowserPanel = nil
     }
 
@@ -1055,6 +1055,12 @@ class TabManager: ObservableObject {
         normalizeWorkspaceGroupsAfterInsert: Bool = true,
         allowTextBoxFocusDefault: Bool = true
     ) -> Workspace {
+        if !isRestoringSessionSnapshot,
+           let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator,
+           let existingWorkspace = selectedWorkspace ?? tabs.first {
+            mutationCoordinator.reject(.createWorkspace)
+            return existingWorkspace
+        }
         let sourceWorkspace = selectedWorkspace
         let capturedTabs = tabs
         // Snapshot the selected tab from the pinned workspace instead of rereading the
@@ -1546,20 +1552,39 @@ class TabManager: ObservableObject {
     // MARK: - Reordering (WorkspaceReorderCoordinator, CmuxWorkspaces)
 
     func moveTabToTop(_ tabId: UUID) {
+        if let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator {
+            mutationCoordinator.reject(.reorderWorkspace)
+            return
+        }
         workspaceReordering.moveTabToTop(tabId)
     }
 
     func moveTabsToTop(_ tabIds: Set<UUID>) {
+        if let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator {
+            mutationCoordinator.reject(.reorderWorkspace)
+            return
+        }
         workspaceReordering.moveTabsToTop(tabIds)
     }
 
     func moveTabToTopForNotification(_ tabId: UUID) {
+        if let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator {
+            mutationCoordinator.reject(.reorderWorkspace)
+            return
+        }
         workspaceReordering.moveTabToTopForNotification(tabId)
     }
 
     @discardableResult
     func reorderWorkspace(tabId: UUID, toIndex targetIndex: Int, isDragOperation: Bool = false) -> Bool {
-        workspaceReordering.reorderWorkspace(tabId: tabId, toIndex: targetIndex, isDragOperation: isDragOperation)
+        if let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator {
+            return mutationCoordinator.reject(.reorderWorkspace)
+        }
+        return workspaceReordering.reorderWorkspace(
+            tabId: tabId,
+            toIndex: targetIndex,
+            isDragOperation: isDragOperation
+        )
     }
 
     func sidebarReorderWorkspaceIds(
@@ -1608,7 +1633,10 @@ class TabManager: ObservableObject {
         usesTopLevelRows: Bool = false,
         explicitGroupId: UUID? = nil
     ) -> Bool {
-        workspaceReordering.reorderSidebarWorkspace(
+        if let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator {
+            return mutationCoordinator.reject(.reorderWorkspace)
+        }
+        return workspaceReordering.reorderSidebarWorkspace(
             tabId: tabId,
             toIndex: targetIndex,
             isDragOperation: isDragOperation,
@@ -1664,7 +1692,15 @@ class TabManager: ObservableObject {
 
     @discardableResult
     func reorderWorkspace(tabId: UUID, before beforeId: UUID? = nil, after afterId: UUID? = nil, isDragOperation: Bool = false) -> Bool {
-        workspaceReordering.reorderWorkspace(tabId: tabId, before: beforeId, after: afterId, isDragOperation: isDragOperation)
+        if let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator {
+            return mutationCoordinator.reject(.reorderWorkspace)
+        }
+        return workspaceReordering.reorderWorkspace(
+            tabId: tabId,
+            before: beforeId,
+            after: afterId,
+            isDragOperation: isDragOperation
+        )
     }
 
     func workspaceReorderPlan(tabId: UUID, before beforeId: UUID? = nil, after afterId: UUID? = nil) -> WorkspaceReorderPlanItem? {
@@ -1682,7 +1718,15 @@ class TabManager: ObservableObject {
         orderedWorkspaceIds: [UUID],
         dryRun: Bool = false
     ) -> Result<[WorkspaceReorderPlanItem], WorkspaceBatchReorderError> {
-        workspaceReordering.reorderWorkspaces(orderedWorkspaceIds: orderedWorkspaceIds, dryRun: dryRun)
+        if let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator,
+           !dryRun {
+            mutationCoordinator.reject(.reorderWorkspace)
+            return .success([])
+        }
+        return workspaceReordering.reorderWorkspaces(
+            orderedWorkspaceIds: orderedWorkspaceIds,
+            dryRun: dryRun
+        )
     }
 
     func setCustomDescription(tabId: UUID, description: String?) {
@@ -2006,6 +2050,11 @@ class TabManager: ObservableObject {
     }
 
     func closeWorkspace(_ workspace: Workspace, recordHistory: Bool = true) {
+        if workspace.panels.values.contains(where: { $0 is TerminalPanel }),
+           let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator {
+            mutationCoordinator.reject(.closeWorkspace)
+            return
+        }
         guard tabs.count > 1 else { return }
         panelTitleUpdateCoalescer.flushNow()
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
@@ -6003,7 +6052,12 @@ extension TabManager {
         for workspaceSnapshot in workspaceSnapshots {
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
+            let restoredWorkspaceID = terminalClientComposition
+                .terminalBackendTopologyMutationCoordinator == nil
+                ? UUID()
+                : (workspaceSnapshot.workspaceId ?? UUID())
             let workspace = Workspace(
+                id: restoredWorkspaceID,
                 title: workspaceSnapshot.processTitle,
                 workingDirectory: workspaceSnapshot.currentDirectory,
                 portOrdinal: ordinal,

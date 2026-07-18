@@ -4,6 +4,11 @@ import Foundation
 extension Workspace {
     @discardableResult
     func reorderSurface(panelId: UUID, toIndex index: Int, focus: Bool = true) -> Bool {
+        if panels[panelId] is TerminalPanel,
+           let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator,
+           !isApplyingCanonicalTopologyProjection {
+            return mutationCoordinator.reject(.reorderTab)
+        }
         guard let tabId = surfaceIdFromPanelId(panelId) else { return false }
         let mirrorPaneId = isRemoteTmuxMirror ? paneId(forPanelId: panelId) : nil
         let reordered: Bool
