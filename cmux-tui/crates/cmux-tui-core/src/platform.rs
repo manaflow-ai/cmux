@@ -1,6 +1,7 @@
 //! Platform decisions for cmux-tui.
 
-use std::path::{Path, PathBuf};
+use std::fs::{File, OpenOptions};
+use std::path::{Component, Path, PathBuf};
 
 pub mod transport {
     use std::io::{self, Read, Write};
@@ -475,6 +476,126 @@ pub fn restrict_file(path: &Path) -> std::io::Result<()> {
     restrict_permissions(path, 0o600)
 }
 
+/// Create a dedicated private directory without changing permissions on any
+/// preexisting directory.
+///
+/// Existing targets must already be real directories owned by the current
+/// user with mode `0700`. Missing path components are created one at a time
+/// with mode `0700`. Group/world-writable non-sticky ancestors and
+/// user-controlled symlink components are rejected before creation.
+pub fn ensure_private_directory(path: &Path) -> std::io::Result<()> {
+    let absolute = normalized_absolute_path(path)?;
+    validate_path_symlinks(&absolute)?;
+
+    match std::fs::symlink_metadata(&absolute) {
+        Ok(metadata) => return validate_private_directory_metadata(&absolute, &metadata),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
+
+    let mut missing = Vec::new();
+    let mut cursor = absolute.as_path();
+    let ancestor = loop {
+        match std::fs::symlink_metadata(cursor) {
+            Ok(metadata)
+                if metadata.file_type().is_symlink() && trusted_system_symlink(&metadata) =>
+            {
+                let canonical = std::fs::canonicalize(cursor)?;
+                let target_metadata = std::fs::metadata(&canonical)?;
+                validate_creation_ancestor(&canonical, &target_metadata)?;
+                break canonical;
+            }
+            Ok(metadata) => {
+                validate_creation_ancestor(cursor, &metadata)?;
+                break cursor.to_path_buf();
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                missing.push(cursor.to_path_buf());
+                cursor = cursor.parent().ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        format!("private directory has no existing ancestor: {}", path.display()),
+                    )
+                })?;
+            }
+            Err(error) => return Err(error),
+        }
+    };
+
+    let mut parent = ancestor;
+    for directory in missing.into_iter().rev() {
+        create_private_directory(&directory)?;
+        validate_private_directory(&directory)?;
+        sync_created_directory_parent(&parent)?;
+        parent = directory;
+    }
+    Ok(())
+}
+
+/// Validate that `path` is a real, current-user-owned `0700` directory.
+pub fn validate_private_directory(path: &Path) -> std::io::Result<()> {
+    let absolute = normalized_absolute_path(path)?;
+    validate_path_symlinks(&absolute)?;
+    let metadata = std::fs::symlink_metadata(&absolute)?;
+    validate_private_directory_metadata(&absolute, &metadata)
+}
+
+pub(crate) fn private_file_open_options() -> OpenOptions {
+    let mut options = OpenOptions::new();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+
+        options.mode(0o600).custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
+    }
+    options
+}
+
+pub(crate) fn reject_private_file_symlink(path: &Path) -> std::io::Result<()> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("refusing private file symbolic link: {}", path.display()),
+        )),
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+pub(crate) fn validate_private_file(path: &Path, file: &File) -> std::io::Result<()> {
+    let metadata = file.metadata()?;
+    if !metadata.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("private file is not a regular file: {}", path.display()),
+        ));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        validate_private_attributes(
+            path,
+            "file",
+            metadata.uid(),
+            metadata.permissions().mode() & 0o777,
+            0o600,
+        )?;
+        if metadata.nlink() != 1 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                format!(
+                    "private file must have exactly one hard link, found {}: {}",
+                    metadata.nlink(),
+                    path.display()
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
 pub fn is_executable_file(path: &Path) -> bool {
     let Ok(meta) = std::fs::metadata(path) else { return false };
     if !meta.is_file() {
@@ -615,6 +736,168 @@ fn push_unique(candidates: &mut Vec<PathBuf>, path: PathBuf) {
     }
 }
 
+fn normalized_absolute_path(path: &Path) -> std::io::Result<PathBuf> {
+    if path.as_os_str().is_empty() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "private directory path is empty",
+        ));
+    }
+    if path.components().any(|component| matches!(component, Component::ParentDir)) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("private directory path contains '..': {}", path.display()),
+        ));
+    }
+    if path.is_absolute() {
+        Ok(path.to_path_buf())
+    } else {
+        Ok(std::env::current_dir()?.join(path))
+    }
+}
+
+fn validate_path_symlinks(path: &Path) -> std::io::Result<()> {
+    let mut prefix = PathBuf::new();
+    for component in path.components() {
+        prefix.push(component.as_os_str());
+        let metadata = match std::fs::symlink_metadata(&prefix) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+            Err(error) => return Err(error),
+        };
+        if metadata.file_type().is_symlink() && !trusted_system_symlink(&metadata) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                format!("refusing private directory symbolic link: {}", prefix.display()),
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn trusted_system_symlink(metadata: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+
+    metadata.uid() == 0
+}
+
+#[cfg(not(unix))]
+fn trusted_system_symlink(_metadata: &std::fs::Metadata) -> bool {
+    false
+}
+
+fn validate_creation_ancestor(path: &Path, metadata: &std::fs::Metadata) -> std::io::Result<()> {
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("private directory ancestor is not a real directory: {}", path.display()),
+        ));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mode = metadata.permissions().mode();
+        if mode & 0o022 != 0 && mode & libc::S_ISVTX as u32 == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                format!(
+                    "private directory ancestor is group/world-writable without the sticky bit: {}",
+                    path.display()
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn create_private_directory(path: &Path) -> std::io::Result<()> {
+    let mut builder = std::fs::DirBuilder::new();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+
+        builder.mode(0o700);
+    }
+    match builder.create(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+fn validate_private_directory_metadata(
+    path: &Path,
+    metadata: &std::fs::Metadata,
+) -> std::io::Result<()> {
+    if metadata.file_type().is_symlink() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            format!("refusing private directory symbolic link: {}", path.display()),
+        ));
+    }
+    if !metadata.is_dir() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("private directory path is not a directory: {}", path.display()),
+        ));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        validate_private_attributes(
+            path,
+            "directory",
+            metadata.uid(),
+            metadata.permissions().mode() & 0o777,
+            0o700,
+        )?;
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn validate_private_attributes(
+    path: &Path,
+    kind: &str,
+    owner: u32,
+    mode: u32,
+    expected_mode: u32,
+) -> std::io::Result<()> {
+    let current_user = unsafe { libc::getuid() };
+    if owner != current_user {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            format!(
+                "private {kind} must be owned by uid {current_user}, found uid {owner}: {}",
+                path.display()
+            ),
+        ));
+    }
+    if mode != expected_mode {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            format!(
+                "private {kind} must have mode {expected_mode:04o}, found {mode:04o}: {}",
+                path.display()
+            ),
+        ));
+    }
+    Ok(())
+}
+
+fn sync_created_directory_parent(path: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        File::open(path)?.sync_all()?;
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+    Ok(())
+}
+
 #[cfg(unix)]
 fn restrict_permissions(path: &Path, mode: u32) -> std::io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
@@ -646,5 +929,23 @@ mod tests {
         let state = app_service_state_dir().expect("native account home");
         assert!(state.is_absolute());
         assert!(state.ends_with("Library/Application Support/cmux-tui/state"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_attribute_policy_rejects_foreign_owners_and_broad_modes() {
+        let current_user = unsafe { libc::getuid() };
+        let foreign_user = current_user.wrapping_add(1);
+        let path = Path::new("fixture");
+
+        let foreign = validate_private_attributes(path, "directory", foreign_user, 0o700, 0o700)
+            .expect_err("foreign owner must fail");
+        assert_eq!(foreign.kind(), std::io::ErrorKind::PermissionDenied);
+        assert!(foreign.to_string().contains("must be owned"));
+
+        let broad = validate_private_attributes(path, "directory", current_user, 0o755, 0o700)
+            .expect_err("broad mode must fail");
+        assert_eq!(broad.kind(), std::io::ErrorKind::PermissionDenied);
+        assert!(broad.to_string().contains("must have mode 0700"));
     }
 }

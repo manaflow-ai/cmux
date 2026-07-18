@@ -801,14 +801,10 @@ impl StateStore {
         let directory = self.root.join("locks");
         let path = directory.join(format!("{}.lock", session_key(session)));
         ensure_private_parent(&path)?;
-        let file = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .open(&path)
-            .map_err(|error| StateStoreError::io(&path, error))?;
-        platform::restrict_file(&path).map_err(|error| StateStoreError::io(&path, error))?;
+        let file = open_private_state_file(&path, |options| {
+            options.create(true).truncate(false).read(true).write(true);
+        })
+        .map_err(|error| StateStoreError::io(&path, error))?;
         fs2::FileExt::lock_exclusive(&file).map_err(|error| StateStoreError::io(&path, error))?;
         Ok(SessionLock(file))
     }
@@ -1656,12 +1652,10 @@ fn crc32(bytes: &[u8]) -> u32 {
 
 fn append_synced(path: &Path, bytes: &[u8]) -> Result<(), StateStoreError> {
     ensure_private_parent(path)?;
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .map_err(|error| StateStoreError::io(path, error))?;
-    platform::restrict_file(path).map_err(|error| StateStoreError::io(path, error))?;
+    let mut file = open_private_state_file(path, |options| {
+        options.create(true).append(true);
+    })
+    .map_err(|error| StateStoreError::io(path, error))?;
     file.write_all(bytes)
         .and_then(|()| file.sync_all())
         .map_err(|error| StateStoreError::io(path, error))
@@ -1669,15 +1663,14 @@ fn append_synced(path: &Path, bytes: &[u8]) -> Result<(), StateStoreError> {
 
 fn replace_file_atomically(path: &Path, bytes: &[u8]) -> Result<(), StateStoreError> {
     ensure_private_parent(path)?;
+    validate_existing_private_file(path)?;
     let directory = path.parent().expect("state file has a parent");
     let temp_path = directory.join(format!(".state-{}.tmp", Uuid::new_v4()));
-    let mut file = OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .open(&temp_path)
-        .map_err(|error| StateStoreError::io(&temp_path, error))?;
+    let mut file = open_private_state_file(&temp_path, |options| {
+        options.create_new(true).write(true);
+    })
+    .map_err(|error| StateStoreError::io(&temp_path, error))?;
     let mut temp = TempStateFile { path: temp_path.clone(), armed: true };
-    platform::restrict_file(&temp_path).map_err(|error| StateStoreError::io(&temp_path, error))?;
     file.write_all(bytes)
         .and_then(|()| file.sync_all())
         .map_err(|error| StateStoreError::io(&temp_path, error))?;
@@ -1688,34 +1681,20 @@ fn replace_file_atomically(path: &Path, bytes: &[u8]) -> Result<(), StateStoreEr
 
 fn ensure_private_parent(path: &Path) -> Result<(), StateStoreError> {
     let directory = path.parent().expect("state file has a parent");
-    let mut created = Vec::new();
-    let mut candidate = Some(directory);
-    while let Some(path) = candidate {
-        if path.try_exists().map_err(|error| StateStoreError::io(path, error))? {
-            break;
-        }
-        created.push(path.to_path_buf());
-        candidate = path.parent();
-    }
-    fs::create_dir_all(directory).map_err(|error| StateStoreError::io(directory, error))?;
-    if let Some(root) = directory.parent() {
-        platform::restrict_directory(root).map_err(|error| StateStoreError::io(root, error))?;
-    }
-    platform::restrict_directory(directory)
+    let root = directory.parent().ok_or_else(|| StateStoreError::Unavailable {
+        reason: format!("state file has no dedicated state root: {}", path.display()),
+    })?;
+    platform::ensure_private_directory(root).map_err(|error| StateStoreError::io(root, error))?;
+    platform::ensure_private_directory(directory)
         .map_err(|error| StateStoreError::io(directory, error))?;
-    // Sync every newly created directory entry through its parent. Syncing the
-    // sessions directory after a file rename does not itself make a newly
-    // created `sessions/` entry durable in the state directory.
-    for created_directory in created.iter().rev() {
-        if let Some(parent) = created_directory.parent() {
-            sync_directory(parent)?;
-        }
-    }
     Ok(())
 }
 
 fn read_bounded(path: &Path, limit: usize) -> Result<Option<Vec<u8>>, StateStoreError> {
-    let mut file = match File::open(path) {
+    ensure_private_parent(path)?;
+    let mut file = match open_private_state_file(path, |options| {
+        options.read(true);
+    }) {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(StateStoreError::io(path, error)),
@@ -1735,10 +1714,10 @@ fn read_bounded(path: &Path, limit: usize) -> Result<Option<Vec<u8>>, StateStore
 fn quarantine_tail(path: &Path, bytes: &[u8], start: usize) -> Result<PathBuf, StateStoreError> {
     let archive = path.with_extension(format!("invalid-tail-{}.journal", Uuid::new_v4()));
     replace_file_atomically(&archive, &bytes[start..])?;
-    let mut file = OpenOptions::new()
-        .write(true)
-        .open(path)
-        .map_err(|error| StateStoreError::io(path, error))?;
+    let mut file = open_private_state_file(path, |options| {
+        options.write(true);
+    })
+    .map_err(|error| StateStoreError::io(path, error))?;
     file.seek(SeekFrom::Start(start as u64))
         .and_then(|_| file.set_len(start as u64))
         .and_then(|()| file.sync_all())
@@ -1748,16 +1727,45 @@ fn quarantine_tail(path: &Path, bytes: &[u8], start: usize) -> Result<PathBuf, S
 }
 
 fn archive_if_present(path: &Path, archive: &Path) -> Result<Option<PathBuf>, StateStoreError> {
+    ensure_private_parent(path)?;
+    match open_private_state_file(path, |options| {
+        options.read(true);
+    }) {
+        Ok(file) => drop(file),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(StateStoreError::io(path, error)),
+    }
     match fs::rename(path, archive) {
         Ok(()) => {
-            platform::restrict_file(archive)
-                .map_err(|error| StateStoreError::io(archive, error))?;
             sync_directory(path.parent().expect("state file has a parent"))?;
             Ok(Some(archive.to_path_buf()))
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(StateStoreError::io(path, error)),
     }
+}
+
+fn open_private_state_file(
+    path: &Path,
+    configure: impl FnOnce(&mut OpenOptions),
+) -> std::io::Result<File> {
+    platform::reject_private_file_symlink(path)?;
+    let mut options = platform::private_file_open_options();
+    configure(&mut options);
+    let file = options.open(path)?;
+    platform::validate_private_file(path, &file)?;
+    Ok(file)
+}
+
+fn validate_existing_private_file(path: &Path) -> Result<(), StateStoreError> {
+    match open_private_state_file(path, |options| {
+        options.read(true);
+    }) {
+        Ok(file) => drop(file),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(StateStoreError::io(path, error)),
+    }
+    Ok(())
 }
 
 fn session_key(session: &str) -> Uuid {
@@ -1796,6 +1804,16 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    fn write_private_fixture(path: &Path, bytes: &[u8]) {
+        ensure_private_parent(path).unwrap();
+        let mut file = open_private_state_file(path, |options| {
+            options.create(true).truncate(true).write(true);
+        })
+        .unwrap();
+        file.write_all(bytes).unwrap();
+        file.sync_all().unwrap();
     }
 
     fn result(key: &str, revision: u64) -> PersistedIdempotencyResult {
@@ -2315,9 +2333,8 @@ mod tests {
         let directory = TestDirectory::new("corrupt");
         let store = StateStore::new(&directory.0);
         let path = store.session_path("main");
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
         let corrupt = b"{ definitely-not-json";
-        fs::write(&path, corrupt).unwrap();
+        write_private_fixture(&path, corrupt);
 
         let error = store.load_or_create_session("main").unwrap_err();
         assert!(matches!(error, StateStoreError::Corrupt { .. }));
@@ -2336,9 +2353,8 @@ mod tests {
         let directory = TestDirectory::new("concurrent-recovery");
         let store = StateStore::new(&directory.0);
         let path = store.session_path("main");
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
         let corrupt = b"{ concurrently-corrupt";
-        fs::write(&path, corrupt).unwrap();
+        write_private_fixture(&path, corrupt);
 
         let start = std::sync::Arc::new(Barrier::new(16));
         let workers = (0..16)
@@ -2371,18 +2387,16 @@ mod tests {
         let directory = TestDirectory::new("v1-migration");
         let store = StateStore::new(&directory.0);
         let path = store.session_path("main");
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
         let session_id = SessionId::new();
-        fs::write(
+        write_private_fixture(
             &path,
-            serde_json::to_vec(&StoredSessionV1 {
+            &serde_json::to_vec(&StoredSessionV1 {
                 version: 1,
                 session: "main".to_string(),
                 session_id,
             })
             .unwrap(),
-        )
-        .unwrap();
+        );
 
         assert_eq!(store.load_or_create_session("main").unwrap(), session_id);
         let value: serde_json::Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
@@ -2395,7 +2409,6 @@ mod tests {
         let store = StateStore::new(&directory.0);
         let checkpoint_path = store.session_path("main");
         let journal_path = store.journal_path("main");
-        fs::create_dir_all(checkpoint_path.parent().unwrap()).unwrap();
         let session_id = SessionId::new();
         let checkpoint_state = PersistedSessionStateV2 {
             session_id,
@@ -2419,7 +2432,7 @@ mod tests {
             checksum: checksum_json(&checkpoint_body).unwrap(),
             body: checkpoint_body,
         };
-        fs::write(&checkpoint_path, serde_json::to_vec_pretty(&checkpoint).unwrap()).unwrap();
+        write_private_fixture(&checkpoint_path, &serde_json::to_vec_pretty(&checkpoint).unwrap());
 
         let mut journal_state = checkpoint_state;
         journal_state.topology_revision = 1;
@@ -2439,7 +2452,7 @@ mod tests {
         };
         let mut journal_bytes = serde_json::to_vec(&journal).unwrap();
         journal_bytes.push(b'\n');
-        fs::write(&journal_path, journal_bytes).unwrap();
+        write_private_fixture(&journal_path, &journal_bytes);
 
         let opened = store.open_session("main").unwrap();
         assert_eq!(opened.snapshot.session_id, session_id);
@@ -2460,8 +2473,7 @@ mod tests {
         let directory = TestDirectory::new("version");
         let store = StateStore::new(&directory.0);
         let path = store.session_path("main");
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, b"{\"version\":999}").unwrap();
+        write_private_fixture(&path, b"{\"version\":999}");
 
         let error = store.load_or_create_session("main").unwrap_err();
         assert!(error.to_string().contains("unsupported version"));
