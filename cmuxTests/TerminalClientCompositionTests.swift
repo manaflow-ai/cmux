@@ -121,7 +121,7 @@ struct TerminalClientCompositionTests {
             ),
             presentationRegistry: TerminalBackendPresentationRegistry()
         )
-        _ = runtime
+        defer { _ = runtime }
         await client.waitForRendererSubscriberCount(1)
         let frame = try Self.makeRenderDiagnosticsFrame(sequence: 18)
         let release = TerminalRenderFrameRelease(frame: frame)
@@ -304,6 +304,7 @@ struct TerminalClientCompositionTests {
                 state: .ready
             )))
         }
+        await router.waitForRendererDeliveryCount(129)
 
         await gate.open()
         for _ in 0..<512 { await Task.yield() }
@@ -348,6 +349,7 @@ struct TerminalClientCompositionTests {
                 data: Data("font-size = \(revision)\n".utf8)
             ))
         }
+        await router.waitForConfigDeliveryCount(128)
         await gate.open()
         for _ in 0..<512 { await Task.yield() }
 
