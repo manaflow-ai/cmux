@@ -41,5 +41,47 @@ struct CursorExecAProcessArgumentsTests {
                 kind: "cursor"
             ) == .oneShot
         )
+
+        let shortPrintMode = interactive + ["-p", "reply exactly once"]
+        #expect(
+            AgentLaunchCaptureTrust.nativeAgentLaunchArguments(
+                processName: "node",
+                arguments: shortPrintMode,
+                kind: "cursor"
+            ) == ["-p", "reply exactly once"]
+        )
+        #expect(
+            AgentLaunchModeClassifier().processMode(
+                processName: "node",
+                arguments: shortPrintMode,
+                kind: "cursor"
+            ) == .oneShot
+        )
+    }
+
+    @Test("Generic Node entrypoints cannot establish Cursor identity")
+    func genericNodeEntrypointsCannotEstablishCursorIdentity() {
+        let unrelated = [
+            "/Users/alice/bin/unrelated-tool",
+            "--use-system-ca",
+            "/Users/alice/project/index.js",
+            "--print",
+            "prompt",
+        ]
+
+        #expect(
+            !AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                processName: "node",
+                arguments: unrelated,
+                kind: "cursor"
+            )
+        )
+        #expect(
+            AgentLaunchCaptureTrust.nativeAgentLaunchArguments(
+                processName: "node",
+                arguments: unrelated,
+                kind: "cursor"
+            ) == nil
+        )
     }
 }

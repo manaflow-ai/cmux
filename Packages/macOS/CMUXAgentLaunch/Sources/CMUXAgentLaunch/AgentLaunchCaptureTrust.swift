@@ -183,6 +183,13 @@ public enum AgentLaunchCaptureTrust {
         guard hostBases.contains(where: isInterpreterHost) else {
             return Array(arguments.dropFirst())
         }
+        if let entrypointIndex = execAInterpreterScriptEntrypointIndex(
+            processName: processName,
+            arguments: arguments,
+            kind: normalizedKind
+        ) {
+            return Array(arguments[arguments.index(after: entrypointIndex)...])
+        }
         guard let entrypointIndex = interpreterScriptEntrypointIndex(
             processName: processName,
             arguments: arguments
@@ -267,6 +274,39 @@ public enum AgentLaunchCaptureTrust {
         return !nativeProcessDescribesKnownAgent(processName: processName, arguments: arguments)
     }
 
+    /// Node launchers such as Cursor use `exec -a cursor-agent node .../index.js`
+    /// so argv[0] identifies the provider while `proc_pidpath` identifies the
+    /// interpreter. Keep the provider alias as the identity proof, then advance
+    /// past the interpreter's own flags and script path before classifying the
+    /// provider arguments. A generic `index.js` never proves identity by itself.
+    private static func execAInterpreterScriptEntrypointIndex(
+        processName: String?,
+        arguments: [String],
+        kind: String
+    ) -> Int? {
+        guard arguments.count > 1,
+              let interpreter = processBasename(processName),
+              isInterpreterHost(interpreter),
+              let invokedAs = processBasename(arguments.first),
+              !isInterpreterHost(invokedAs) else {
+            return nil
+        }
+        let aliases = nativeProcessAliasesByKind[kind] ?? []
+        guard invokedAs == kind
+                || aliases.contains(invokedAs)
+                || invokedAs == "\(kind)-cli",
+              let entrypointIndex = interpreterScriptEntrypointIndex(
+                  processName: processName,
+                  arguments: arguments,
+                  startingAt: 1
+              ),
+              entrypointIndex > 0,
+              looksLikeScriptPath(arguments[entrypointIndex]) else {
+            return nil
+        }
+        return entrypointIndex
+    }
+
     private static func nativeProcessDescriptors(
         processName: String?,
         arguments: [String]
@@ -342,7 +382,8 @@ public enum AgentLaunchCaptureTrust {
     /// later argv may be a prompt, input file, or unrelated executable path.
     private static func interpreterScriptEntrypointIndex(
         processName: String?,
-        arguments: [String]
+        arguments: [String],
+        startingAt requestedStartIndex: Int? = nil
     ) -> Int? {
         guard !arguments.isEmpty else { return nil }
         let argumentHost = processBasename(arguments.first)
@@ -351,7 +392,9 @@ public enum AgentLaunchCaptureTrust {
             .first(where: isInterpreterHost)
         guard let host else { return nil }
 
-        var index = argumentHost.map(isInterpreterHost) == true ? 1 : 0
+        var index = requestedStartIndex
+            ?? (argumentHost.map(isInterpreterHost) == true ? 1 : 0)
+        guard index >= 0, index < arguments.count else { return nil }
         switch normalizedInterpreterHost(host) {
         case "node":
             return scriptIndex(
