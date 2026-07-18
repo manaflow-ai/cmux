@@ -82,6 +82,26 @@ struct SimulatorHIDFailureContainmentTests {
         #expect(transport.lastPointerEvent == nil)
     }
 
+    @Test("App switcher pauses without injecting stationary move events")
+    @MainActor
+    func appSwitcherUsesStableHold() async {
+        var events: [SimulatorPointerEvent] = []
+        let sleeper = RecordingHIDSleeper()
+        let transport = SimulatorHIDTransport(
+            frameworkLoader: SimulatorFrameworkLoader(environment: ["DEVELOPER_DIR": "/tmp"]),
+            sleeper: sleeper,
+            pointerSenderOverride: { event in
+                events.append(event)
+                return true
+            }
+        )
+
+        #expect(await transport.press(.appSwitcher))
+        #expect(events.map(\.phase) == [.began] + Array(repeating: .moved, count: 10) + [.ended])
+        #expect(sleeper.durations == Array(repeating: .milliseconds(16), count: 11) + [.milliseconds(500)])
+        #expect(transport.lastPointerEvent == nil)
+    }
+
     @Test("Text transmission preserves order and uses cancellable pacing")
     @MainActor
     func textTransmissionPacing() async throws {
