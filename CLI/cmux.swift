@@ -1601,7 +1601,9 @@ final class ClaudeHookSessionStore {
         )
         let mutation = try bridge.mutate { state in
             pruneExpired(&state)
-            return try body(&state)
+            let result = try body(&state)
+            pruneExpired(&state)
+            return result
         }
         if ownsLegacyLock {
             try saveUnlocked(mutation.state)

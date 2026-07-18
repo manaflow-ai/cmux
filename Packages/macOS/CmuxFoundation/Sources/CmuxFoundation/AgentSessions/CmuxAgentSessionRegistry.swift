@@ -36,6 +36,8 @@ import SQLite3
 public struct CmuxAgentSessionRegistry: Sendable {
     public static let currentWriterGeneration = 1
     public static let filename = "agent-sessions.sqlite3"
+    static let optimisticConflictCode = -7_867
+    static let maximumMutationAttempts = 64
 
     public enum Scope: String, Sendable {
         case workspace
@@ -168,36 +170,51 @@ public struct CmuxAgentSessionRegistry: Sendable {
 
     public func snapshot(provider: String) throws -> Snapshot {
         try withDatabase { database in
-            Snapshot(
-                records: try readRecords(database: database, provider: provider),
-                activeSlots: try readSlots(database: database, provider: provider)
-            )
+            try readTransaction(database) {
+                Snapshot(
+                    records: try readRecords(database: database, provider: provider),
+                    activeSlots: try readSlots(database: database, provider: provider)
+                )
+            }
         }
     }
 
-    /// Serializes one provider's read-modify-write cycle inside SQLite. The
-    /// busy timeout bounds contention, unlike a blocking sidecar `flock`.
+    /// Applies a provider snapshot mutation without holding the SQLite writer
+    /// lock while the caller decodes or transforms records.
+    ///
+    /// The closure may be replayed after a touched row changes concurrently,
+    /// so it must only derive its return value and mutations from the snapshot.
+    /// Each commit validates the touched rows and applies their delta inside one
+    /// short transaction. The busy timeout and attempt cap bound contention.
     public func mutateSnapshot<T>(
         provider: String,
         _ mutate: (inout Snapshot) throws -> T
     ) throws -> T {
-        try withDatabase { database in
-            try transaction(database) {
-                let previous = Snapshot(
-                    records: try readRecords(database: database, provider: provider),
-                    activeSlots: try readSlots(database: database, provider: provider)
-                )
-                var current = previous
-                let result = try mutate(&current)
-                try persistSnapshotChanges(
-                    database: database,
+        var lastContentionError: (any Error)?
+        for _ in 0..<Self.maximumMutationAttempts {
+            let previous: Snapshot
+            do {
+                previous = try snapshot(provider: provider)
+            } catch {
+                guard isRetryableMutationError(error) else { throw error }
+                lastContentionError = error
+                continue
+            }
+            var current = previous
+            let result = try mutate(&current)
+            do {
+                try persistSnapshotChangesOptimistically(
                     provider: provider,
                     previous: previous,
                     current: current
                 )
                 return result
+            } catch {
+                guard isRetryableMutationError(error) else { throw error }
+                lastContentionError = error
             }
         }
+        throw lastContentionError ?? mutationConflictError()
     }
 
     public func snapshotImportingLegacy(
@@ -247,12 +264,14 @@ public struct CmuxAgentSessionRegistry: Sendable {
                     }
                 }
             }
-            return try Dictionary(uniqueKeysWithValues: uniqueSources.map { source in
-                (source.provider, Snapshot(
-                    records: try readRecords(database: database, provider: source.provider),
-                    activeSlots: try readSlots(database: database, provider: source.provider)
-                ))
-            })
+            return try readTransaction(database) {
+                try Dictionary(uniqueKeysWithValues: uniqueSources.map { source in
+                    (source.provider, Snapshot(
+                        records: try readRecords(database: database, provider: source.provider),
+                        activeSlots: try readSlots(database: database, provider: source.provider)
+                    ))
+                })
+            }
         }
     }
 

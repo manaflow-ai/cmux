@@ -135,6 +135,19 @@ extension CmuxAgentSessionRegistry {
         )
     }
 
+    func readRecordCount(database: OpaquePointer, provider: String) throws -> Int {
+        let statement = try prepare(
+            database,
+            "SELECT COUNT(*) FROM agent_sessions WHERE provider = ?1"
+        )
+        defer { sqlite3_finalize(statement) }
+        try bind(provider, to: 1, in: statement)
+        guard sqlite3_step(statement) == SQLITE_ROW else {
+            throw error(database, operation: "count sessions")
+        }
+        return Int(sqlite3_column_int64(statement, 0))
+    }
+
     func readSlots(database: OpaquePointer, provider: String) throws -> [ActiveSlot] {
         let statement = try prepare(
             database,
@@ -165,31 +178,59 @@ extension CmuxAgentSessionRegistry {
         return result
     }
 
-    func persistSnapshotChanges(
+    func readSlot(
         database: OpaquePointer,
+        provider: String,
+        scope: Scope,
+        scopeID: String
+    ) throws -> ActiveSlot? {
+        let statement = try prepare(
+            database,
+            """
+            SELECT session_id, updated_at, writer_generation, record_json
+            FROM agent_active_slots
+            WHERE provider = ?1 AND scope = ?2 AND scope_id = ?3
+            """
+        )
+        defer { sqlite3_finalize(statement) }
+        try bind(provider, to: 1, in: statement)
+        try bind(scope.rawValue, to: 2, in: statement)
+        try bind(scopeID, to: 3, in: statement)
+        guard sqlite3_step(statement) == SQLITE_ROW,
+              let sessionID = text(statement, column: 0),
+              let json = data(statement, column: 3) else { return nil }
+        return ActiveSlot(
+            provider: provider,
+            scope: scope,
+            scopeID: scopeID,
+            sessionID: sessionID,
+            updatedAt: sqlite3_column_double(statement, 1),
+            writerGeneration: Int(sqlite3_column_int64(statement, 2)),
+            json: json
+        )
+    }
+
+    func persistSnapshotChangesOptimistically(
         provider: String,
         previous: Snapshot,
         current: Snapshot
     ) throws {
         let previousRecords = Dictionary(uniqueKeysWithValues: previous.records.map { ($0.sessionID, $0) })
         let currentRecords = Dictionary(uniqueKeysWithValues: current.records.map { ($0.sessionID, $0) })
+        let previousRecordIDs = Set(previousRecords.keys)
+        let currentRecordIDs = Set(currentRecords.keys)
+        let recordMembershipChanged = previousRecordIDs != currentRecordIDs
+        var recordUpserts: [Record] = []
         for var record in current.records {
             record.provider = provider
             let old = previousRecords[record.sessionID]
             if old?.updatedAt != record.updatedAt
                 || old?.writerGeneration != record.writerGeneration
                 || old?.json != record.json {
-                try upsert(record, database: database)
+                recordUpserts.append(record)
             }
         }
-        for sessionID in Set(previousRecords.keys).subtracting(currentRecords.keys) {
-            try deleteSession(
-                database: database,
-                provider: provider,
-                sessionID: sessionID,
-                maximumWriterGeneration: Self.currentWriterGeneration
-            )
-        }
+        let recordDeletes = previousRecordIDs.subtracting(currentRecordIDs)
 
         let previousSlots = Dictionary(uniqueKeysWithValues: previous.activeSlots.map {
             (Self.slotKey(scope: $0.scope, scopeID: $0.scopeID), $0)
@@ -197,6 +238,7 @@ extension CmuxAgentSessionRegistry {
         let currentSlots = Dictionary(uniqueKeysWithValues: current.activeSlots.map {
             (Self.slotKey(scope: $0.scope, scopeID: $0.scopeID), $0)
         })
+        var slotUpserts: [ActiveSlot] = []
         for var slot in current.activeSlots {
             slot.provider = provider
             let key = Self.slotKey(scope: slot.scope, scopeID: slot.scopeID)
@@ -205,19 +247,125 @@ extension CmuxAgentSessionRegistry {
                 || old?.writerGeneration != slot.writerGeneration
                 || old?.sessionID != slot.sessionID
                 || old?.json != slot.json {
-                try upsert(slot, database: database)
+                slotUpserts.append(slot)
             }
         }
-        for key in Set(previousSlots.keys).subtracting(currentSlots.keys) {
-            guard let old = previousSlots[key] else { continue }
-            try deleteSlot(
-                database: database,
-                provider: provider,
-                scope: old.scope,
-                scopeID: old.scopeID,
-                maximumWriterGeneration: Self.currentWriterGeneration
-            )
+        let slotDeleteKeys = Set(previousSlots.keys).subtracting(currentSlots.keys)
+        guard !recordUpserts.isEmpty || !recordDeletes.isEmpty
+                || !slotUpserts.isEmpty || !slotDeleteKeys.isEmpty else { return }
+
+        try withDatabase { database in
+            // mutateSnapshot owns the replay budget. Avoid multiplying it by
+            // the generic BEGIN retry budget when another process holds the
+            // writer lock for the full busy timeout.
+            try transaction(database, retryBeginContention: false) {
+                if recordMembershipChanged,
+                   try readRecordCount(database: database, provider: provider) != previousRecords.count {
+                    throw mutationConflictError()
+                }
+                for record in recordUpserts {
+                    guard recordsMatch(
+                        try readRecord(database: database, provider: provider, sessionID: record.sessionID),
+                        previousRecords[record.sessionID]
+                    ) else { throw mutationConflictError() }
+                }
+                for sessionID in recordDeletes {
+                    guard recordsMatch(
+                        try readRecord(database: database, provider: provider, sessionID: sessionID),
+                        previousRecords[sessionID]
+                    ) else { throw mutationConflictError() }
+                }
+                for slot in slotUpserts {
+                    let key = Self.slotKey(scope: slot.scope, scopeID: slot.scopeID)
+                    guard slotsMatch(
+                        try readSlot(
+                            database: database,
+                            provider: provider,
+                            scope: slot.scope,
+                            scopeID: slot.scopeID
+                        ),
+                        previousSlots[key]
+                    ) else { throw mutationConflictError() }
+                }
+                for key in slotDeleteKeys {
+                    guard let previousSlot = previousSlots[key],
+                          slotsMatch(
+                            try readSlot(
+                                database: database,
+                                provider: provider,
+                                scope: previousSlot.scope,
+                                scopeID: previousSlot.scopeID
+                            ),
+                            previousSlot
+                          ) else { throw mutationConflictError() }
+                }
+
+                for record in recordUpserts { try upsert(record, database: database) }
+                for sessionID in recordDeletes {
+                    try deleteSession(
+                        database: database,
+                        provider: provider,
+                        sessionID: sessionID,
+                        maximumWriterGeneration: Self.currentWriterGeneration
+                    )
+                }
+                for slot in slotUpserts { try upsert(slot, database: database) }
+                for key in slotDeleteKeys {
+                    guard let previousSlot = previousSlots[key] else { continue }
+                    try deleteSlot(
+                        database: database,
+                        provider: provider,
+                        scope: previousSlot.scope,
+                        scopeID: previousSlot.scopeID,
+                        maximumWriterGeneration: Self.currentWriterGeneration
+                    )
+                }
+            }
         }
+    }
+
+    func recordsMatch(_ lhs: Record?, _ rhs: Record?) -> Bool {
+        switch (lhs, rhs) {
+        case (nil, nil): true
+        case let (lhs?, rhs?):
+            lhs.provider == rhs.provider
+                && lhs.sessionID == rhs.sessionID
+                && lhs.updatedAt == rhs.updatedAt
+                && lhs.writerGeneration == rhs.writerGeneration
+                && lhs.json == rhs.json
+        default: false
+        }
+    }
+
+    func slotsMatch(_ lhs: ActiveSlot?, _ rhs: ActiveSlot?) -> Bool {
+        switch (lhs, rhs) {
+        case (nil, nil): true
+        case let (lhs?, rhs?):
+            lhs.provider == rhs.provider
+                && lhs.scope == rhs.scope
+                && lhs.scopeID == rhs.scopeID
+                && lhs.sessionID == rhs.sessionID
+                && lhs.updatedAt == rhs.updatedAt
+                && lhs.writerGeneration == rhs.writerGeneration
+                && lhs.json == rhs.json
+        default: false
+        }
+    }
+
+    func mutationConflictError() -> NSError {
+        NSError(
+            domain: "CmuxAgentSessionRegistry",
+            code: Self.optimisticConflictCode,
+            userInfo: [NSLocalizedDescriptionKey: "agent session snapshot changed concurrently"]
+        )
+    }
+
+    func isRetryableMutationError(_ error: any Error) -> Bool {
+        let error = error as NSError
+        guard error.domain == "CmuxAgentSessionRegistry" else { return false }
+        if error.code == Self.optimisticConflictCode { return true }
+        let primarySQLiteCode = Int32(error.code & 0xFF)
+        return primarySQLiteCode == SQLITE_BUSY || primarySQLiteCode == SQLITE_LOCKED
     }
 
     func upsert(_ record: Record, database: OpaquePointer) throws {
@@ -361,8 +509,38 @@ extension CmuxAgentSessionRegistry {
         try stepDone(statement, database: database, operation: "remove session active slots")
     }
 
-    func transaction<T>(_ database: OpaquePointer, body: () throws -> T) throws -> T {
-        try execute(database, sql: "BEGIN IMMEDIATE")
+    func transaction<T>(
+        _ database: OpaquePointer,
+        retryBeginContention: Bool = true,
+        body: () throws -> T
+    ) throws -> T {
+        var lastContentionError: (any Error)?
+        let attemptCount = retryBeginContention && busyTimeoutMilliseconds > 0
+            ? Self.maximumMutationAttempts
+            : 1
+        for attempt in 0..<attemptCount {
+            do {
+                try execute(database, sql: "BEGIN IMMEDIATE")
+                lastContentionError = nil
+                break
+            } catch {
+                guard isRetryableMutationError(error), attempt + 1 < attemptCount else { throw error }
+                lastContentionError = error
+            }
+        }
+        if let lastContentionError { throw lastContentionError }
+        do {
+            let result = try body()
+            try execute(database, sql: "COMMIT")
+            return result
+        } catch {
+            try? execute(database, sql: "ROLLBACK")
+            throw error
+        }
+    }
+
+    func readTransaction<T>(_ database: OpaquePointer, body: () throws -> T) throws -> T {
+        try execute(database, sql: "BEGIN")
         do {
             let result = try body()
             try execute(database, sql: "COMMIT")

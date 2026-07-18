@@ -251,6 +251,72 @@ struct CmuxAgentSessionRegistryTests {
         #expect(Set(stored.records.map(\.sessionID)).isSuperset(of: additions.map(\.sessionID)))
     }
 
+    @Test("same-session mutations replay without losing increments")
+    func sameSessionMutationsReplay() async throws {
+        let fixture = try Fixture(busyTimeoutMilliseconds: 25)
+        try fixture.registry.apply(provider: "codex", records: [
+            try fixture.record(sessionID: "shared", updatedAt: 0, generation: 1),
+        ])
+        let registry = fixture.registry
+        let mutationCount = 8
+        let rendezvous = FirstMutationRendezvous(participantCount: mutationCount)
+
+        let successes = await withTaskGroup(of: Bool.self, returning: Int.self) { group in
+            for _ in 0..<mutationCount {
+                group.addTask {
+                    var isFirstAttempt = true
+                    do {
+                        return try registry.mutateSnapshot(provider: "codex") { snapshot in
+                            if isFirstAttempt {
+                                isFirstAttempt = false
+                                rendezvous.wait()
+                            }
+                            guard let index = snapshot.records.firstIndex(where: {
+                                $0.sessionID == "shared"
+                            }) else { return false }
+                            snapshot.records[index].updatedAt += 1
+                            return true
+                        }
+                    } catch {
+                        return false
+                    }
+                }
+            }
+            var count = 0
+            for await success in group where success { count += 1 }
+            return count
+        }
+
+        #expect(successes == mutationCount)
+        let stored = try #require(fixture.registry.snapshot(provider: "codex").records.first)
+        #expect(stored.updatedAt == Double(mutationCount))
+    }
+
+    @Test("mutation replay has one bounded busy-timeout budget")
+    func mutationReplayContentionIsBounded() throws {
+        let fixture = try Fixture(busyTimeoutMilliseconds: 1)
+        try fixture.registry.apply(provider: "codex", records: [
+            try fixture.record(sessionID: "blocked", updatedAt: 0, generation: 1),
+        ])
+        var database: OpaquePointer?
+        #expect(sqlite3_open(fixture.registry.url.path, &database) == SQLITE_OK)
+        let writer = try #require(database)
+        defer { sqlite3_close(writer) }
+        #expect(sqlite3_exec(writer, "BEGIN IMMEDIATE", nil, nil, nil) == SQLITE_OK)
+        defer { sqlite3_exec(writer, "ROLLBACK", nil, nil, nil) }
+
+        let clock = ContinuousClock()
+        let elapsed = clock.measure {
+            #expect(throws: (any Error).self) {
+                try fixture.registry.mutateSnapshot(provider: "codex") { snapshot in
+                    snapshot.records[0].updatedAt += 1
+                }
+            }
+        }
+
+        #expect(elapsed < .seconds(1))
+    }
+
     @Test("WAL snapshots stay readable while another connection owns the writer lock")
     func snapshotDoesNotJoinWriterContention() throws {
         let fixture = try Fixture(busyTimeoutMilliseconds: 10)
