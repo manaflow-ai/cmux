@@ -24,7 +24,9 @@ actor ComputerUseLegacyHelperCleanupService {
         self.computerUseDirectoryURL = computerUseDirectoryURL
         self.fileManager = fileManager
         self.commandRunner = commandRunner
-        self.processSnapshotProvider = processSnapshotProvider ?? Self.runningProcessPaths
+        self.processSnapshotProvider = processSnapshotProvider ?? {
+            Self.runningProcessPaths()
+        }
     }
 
     func cleanup() async {
