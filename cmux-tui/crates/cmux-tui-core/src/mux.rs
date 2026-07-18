@@ -5941,8 +5941,7 @@ impl Mux {
                     state.workspace_revision
                 );
             }
-            let new_index = if index > old_index { index.saturating_sub(1) } else { index }
-                .min(state.workspaces.len().saturating_sub(1));
+            let new_index = index.min(state.workspaces.len().saturating_sub(1));
             if new_index == old_index {
                 return Ok(Some((state.workspace_revision, false)));
             }
@@ -5985,8 +5984,7 @@ impl Mux {
             let old_idx = resolve_workspace_index(&state, workspace, requested_key)?;
             let workspace_id = state.workspaces[old_idx].id;
             let key = state.workspaces[old_idx].key.clone();
-            let new_idx = if index > old_idx { index.saturating_sub(1) } else { index };
-            let new_idx = new_idx.min(state.workspaces.len().saturating_sub(1));
+            let new_idx = index.min(state.workspaces.len().saturating_sub(1));
             let changed = new_idx != old_idx;
             let mut desired = self.registry_projection(&state);
             let desired_workspace = desired.remove(old_idx);
