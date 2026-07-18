@@ -1,5 +1,6 @@
 import AppKit
 import CmuxFoundation
+import CmuxSettings
 import CmuxTerminal
 import Darwin
 import Foundation
@@ -264,6 +265,219 @@ extension CMUXCLIErrorOutputRegressionTests {
         }
         #expect(elapsed < .seconds(1))
         #expect(!FileManager.default.fileExists(atPath: registryURL.path))
+    }
+
+    @MainActor
+    @Test func backgroundAdoptionWakesWhenLegacyWriterUnlocks() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-restored-legacy-unlock-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let overrides = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            "CMUX_RUNTIME_ID": "legacy-unlock-runtime",
+        ]
+        let previousEnvironment = overrides.keys.map { ($0, ProcessInfo.processInfo.environment[$0]) }
+        for (key, value) in overrides { setenv(key, value, 1) }
+        defer {
+            for (key, value) in previousEnvironment {
+                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            }
+        }
+
+        let fixture = try makeHibernatedRestoreFixture(root: root, sessionID: "legacy-unlock-session")
+        let registry = try installHibernatedAuthority(
+            root: root,
+            registryURL: registryURL,
+            agent: fixture.agent,
+            workspaceId: fixture.source.id,
+            surfaceId: fixture.sourcePanelID
+        )
+        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        let descriptor = open(
+            stateURL.path + ".lock",
+            O_CREAT | O_RDWR,
+            mode_t(S_IRUSR | S_IWUSR)
+        )
+        let lockDescriptor = try #require(descriptor >= 0 ? descriptor : nil)
+        defer { Darwin.close(lockDescriptor) }
+        #expect(flock(lockDescriptor, LOCK_EX | LOCK_NB) == 0)
+        defer { _ = flock(lockDescriptor, LOCK_UN) }
+
+        let targetWorkspaceID = UUID()
+        let targetSurfaceID = UUID()
+        let request = AgentHookSessionStateWriter.RestoredHibernationAdoptionRequest(
+            agent: fixture.agent,
+            previousWorkspaceId: fixture.source.id,
+            previousSurfaceId: fixture.sourcePanelID,
+            workspaceId: targetWorkspaceID,
+            surfaceId: targetSurfaceID
+        )
+        let waitStarted = AgentSessionAsyncGate()
+        let operation = Task {
+            await AgentHookSessionStateWriter.waitForRestoredHibernationOutcomes(
+                [request],
+                busyTimeoutMilliseconds: 2_000,
+                legacyReadLockWaitWillBegin: {
+                    Task { await waitStarted.open() }
+                }
+            )
+        }
+        await waitStarted.waitUntilOpen()
+        #expect(flock(lockDescriptor, LOCK_UN) == 0)
+
+        let outcomes = await operation.value
+        #expect(outcomes[targetSurfaceID] == .adopted)
+        let adopted = try #require(
+            try registry.hookRecord(provider: "codex", sessionID: fixture.agent.sessionId)
+        )
+        let object = try #require(
+            JSONSerialization.jsonObject(with: adopted.json) as? [String: Any]
+        )
+        #expect(object["workspaceId"] as? String == targetWorkspaceID.uuidString)
+        #expect(object["surfaceId"] as? String == targetSurfaceID.uuidString)
+    }
+
+    @MainActor
+    @Test func backgroundAdoptionLegacyLockWaitHonorsCancellationAndDeadline() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-restored-legacy-cancel-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let overrides = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": root
+                .appendingPathComponent(CmuxAgentSessionRegistry.filename).path,
+            "CMUX_RUNTIME_ID": "legacy-cancel-runtime",
+        ]
+        let previousEnvironment = overrides.keys.map { ($0, ProcessInfo.processInfo.environment[$0]) }
+        for (key, value) in overrides { setenv(key, value, 1) }
+        defer {
+            for (key, value) in previousEnvironment {
+                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            }
+        }
+
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "legacy-cancel-session",
+            workingDirectory: root.path,
+            launchCommand: nil
+        )
+        let targetSurfaceID = UUID()
+        let request = AgentHookSessionStateWriter.RestoredHibernationAdoptionRequest(
+            agent: agent,
+            previousWorkspaceId: UUID(),
+            previousSurfaceId: UUID(),
+            workspaceId: UUID(),
+            surfaceId: targetSurfaceID
+        )
+        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        let descriptor = open(
+            stateURL.path + ".lock",
+            O_CREAT | O_RDWR,
+            mode_t(S_IRUSR | S_IWUSR)
+        )
+        let lockDescriptor = try #require(descriptor >= 0 ? descriptor : nil)
+        defer { Darwin.close(lockDescriptor) }
+        #expect(flock(lockDescriptor, LOCK_EX | LOCK_NB) == 0)
+        defer { _ = flock(lockDescriptor, LOCK_UN) }
+
+        let waitStarted = AgentSessionAsyncGate()
+        let canceledOperation = Task {
+            await AgentHookSessionStateWriter.waitForRestoredHibernationOutcomes(
+                [request],
+                busyTimeoutMilliseconds: 5_000,
+                legacyReadLockWaitWillBegin: {
+                    Task { await waitStarted.open() }
+                }
+            )
+        }
+        await waitStarted.waitUntilOpen()
+        let cancellationStart = ContinuousClock.now
+        canceledOperation.cancel()
+        let canceledOutcomes = await canceledOperation.value
+        let cancellationElapsed = cancellationStart.duration(to: .now)
+        #expect(canceledOutcomes[targetSurfaceID] == .unavailable)
+        #expect(cancellationElapsed < .seconds(1))
+
+        let deadlineStart = ContinuousClock.now
+        let deadlineOutcomes = await AgentHookSessionStateWriter.waitForRestoredHibernationOutcomes(
+            [request],
+            busyTimeoutMilliseconds: 100
+        )
+        let deadlineElapsed = deadlineStart.duration(to: .now)
+        #expect(deadlineOutcomes[targetSurfaceID] == .unavailable)
+        #expect(deadlineElapsed < .seconds(1))
+    }
+
+    @MainActor
+    @Test func multipleProviderLegacyLocksShareOneBusyBudget() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-restored-legacy-budget-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let overrides = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": root
+                .appendingPathComponent(CmuxAgentSessionRegistry.filename).path,
+        ]
+        let previousEnvironment = overrides.keys.map { ($0, ProcessInfo.processInfo.environment[$0]) }
+        for (key, value) in overrides { setenv(key, value, 1) }
+        defer {
+            for (key, value) in previousEnvironment {
+                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            }
+        }
+
+        let kinds: [RestorableAgentKind] = [.claude, .codex]
+        var descriptors: [Int32] = []
+        for kind in kinds {
+            let stateURL = kind.hookStoreFileURL(
+                homeDirectory: root.path,
+                environment: overrides
+            )
+            let descriptor = open(
+                stateURL.path + ".lock",
+                O_CREAT | O_RDWR,
+                mode_t(S_IRUSR | S_IWUSR)
+            )
+            let lockDescriptor = try #require(descriptor >= 0 ? descriptor : nil)
+            #expect(flock(lockDescriptor, LOCK_EX | LOCK_NB) == 0)
+            descriptors.append(lockDescriptor)
+        }
+        defer {
+            for descriptor in descriptors {
+                _ = flock(descriptor, LOCK_UN)
+                Darwin.close(descriptor)
+            }
+        }
+
+        let requests = kinds.map { kind in
+            AgentHookSessionStateWriter.RestoredHibernationAdoptionRequest(
+                agent: SessionRestorableAgentSnapshot(
+                    kind: kind,
+                    sessionId: "\(kind.rawValue)-budget-session",
+                    workingDirectory: root.path,
+                    launchCommand: nil
+                ),
+                previousWorkspaceId: UUID(),
+                previousSurfaceId: UUID(),
+                workspaceId: UUID(),
+                surfaceId: UUID()
+            )
+        }
+        let started = ContinuousClock.now
+        let outcomes = await AgentHookSessionStateWriter.waitForRestoredHibernationOutcomes(
+            requests,
+            busyTimeoutMilliseconds: 500
+        )
+        let elapsed = started.duration(to: .now)
+        #expect(outcomes.values.allSatisfy { $0 == .unavailable })
+        #expect(outcomes.count == 2)
+        #expect(elapsed < .milliseconds(800))
     }
 
     @MainActor
@@ -610,7 +824,7 @@ extension CMUXCLIErrorOutputRegressionTests {
     }
 
     @MainActor
-    @Test func visibleClosedPanelRestoreRetriesAfterSQLiteOwnershipStoreRecovers() throws {
+    @Test func visibleClosedPanelRestoreRetriesAfterSQLiteOwnershipStoreRecovers() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-restored-closed-panel-locked-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -667,6 +881,10 @@ extension CMUXCLIErrorOutputRegressionTests {
         defer { sqlite3_exec(lockedDatabase, "ROLLBACK", nil, nil, nil) }
 
         let destination = Workspace()
+        let adoptionFinished = AgentSessionAsyncGate()
+        destination.debugRestoredAgentHibernationAdoptionWaitDidFinish = { _ in
+            Task { await adoptionFinished.open() }
+        }
         destination.setAgentHibernationAutoResumePresentationVisible(true)
         let destinationPane = try #require(destination.bonsplitController.allPaneIds.first)
         let panelSnapshot = try #require(
@@ -685,6 +903,8 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(destination.restoredAgentSnapshotForTesting(panelId: restoredPanelID)?.sessionId == fixture.agent.sessionId)
         #expect(!restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
         #expect(restoredPanel.surface.debugPendingSocketInputForTesting().items == 0)
+        #expect(destination.debugRestoredAgentHibernationAdoptionWaitOperationCount == 1)
+        #expect(destination.debugRestoredAgentHibernationAdoptionWaitInFlightCount == 1)
 
         let lockedSnapshot = try registry.snapshot(provider: "codex")
         let lockedRecord = try #require(
@@ -697,9 +917,10 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(lockedObject["surfaceId"] as? String == fixture.sourcePanelID.uuidString)
 
         #expect(sqlite3_exec(lockedDatabase, "ROLLBACK", nil, nil, nil) == SQLITE_OK)
-        destination.setAgentHibernationAutoResumePresentationVisible(true)
+        await adoptionFinished.waitUntilOpen()
 
         #expect(!restoredPanel.isAgentHibernated)
+        #expect(destination.debugRestoredAgentHibernationAdoptionWaitInFlightCount == 0)
         #expect(
             restoredPanel.surface.debugInitialInputForTesting()
                 == (try #require(fixture.agent.resumeCommand)) + "\n"
@@ -796,6 +1017,455 @@ extension CMUXCLIErrorOutputRegressionTests {
         destination.setAgentHibernationAutoResumePresentationVisible(true)
         #expect(restoredPanel.surface.debugInitialInputForTesting() == expectedResumeInput)
         #expect(restoredPanel.surface.debugPendingSocketInputForTesting().items == 0)
+    }
+
+    @MainActor
+    @Test func closingPanelCancelsPendingBackgroundAdoptionWithoutApplyingItsResult() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-restored-adoption-cancel-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let overrides = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            "CMUX_RUNTIME_ID": "restore-cancel-runtime",
+        ]
+        let previousEnvironment = overrides.keys.map { ($0, ProcessInfo.processInfo.environment[$0]) }
+        for (key, value) in overrides { setenv(key, value, 1) }
+        defer {
+            for (key, value) in previousEnvironment {
+                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            }
+        }
+
+        let fixture = try makeHibernatedRestoreFixture(root: root, sessionID: "restore-cancel-session")
+        let registry = try installHibernatedAuthority(
+            root: root,
+            registryURL: registryURL,
+            agent: fixture.agent,
+            workspaceId: fixture.source.id,
+            surfaceId: fixture.sourcePanelID
+        )
+        var database: OpaquePointer?
+        #expect(sqlite3_open(registryURL.path, &database) == SQLITE_OK)
+        let lockedDatabase = try #require(database)
+        defer { sqlite3_close(lockedDatabase) }
+        #expect(sqlite3_exec(lockedDatabase, "BEGIN IMMEDIATE", nil, nil, nil) == SQLITE_OK)
+        defer { sqlite3_exec(lockedDatabase, "ROLLBACK", nil, nil, nil) }
+
+        let handlerStarted = AgentSessionAsyncGate()
+        let releaseHandler = AgentSessionAsyncGate()
+        let handlerFinished = AgentSessionAsyncGate()
+        let destination = Workspace()
+        destination.debugRestoredAgentHibernationAdoptionWaitHandler = { requests in
+            await handlerStarted.open()
+            await releaseHandler.waitUntilOpen()
+            return Dictionary(uniqueKeysWithValues: requests.map { ($0.surfaceId, .adopted) })
+        }
+        destination.debugRestoredAgentHibernationAdoptionWaitDidFinish = { _ in
+            Task { await handlerFinished.open() }
+        }
+        destination.setAgentHibernationAutoResumePresentationVisible(true)
+        let paneId = try #require(destination.bonsplitController.allPaneIds.first)
+        let panelSnapshot = try #require(
+            fixture.snapshot.panels.first { $0.id == fixture.sourcePanelID }
+        )
+        let panelId = try #require(destination.restoreClosedPanel(.init(
+            workspaceId: destination.id,
+            paneId: paneId.id,
+            tabIndex: 0,
+            snapshot: panelSnapshot
+        )))
+        await handlerStarted.waitUntilOpen()
+
+        #expect(destination.closePanel(panelId, force: true))
+        #expect(destination.terminalPanel(for: panelId) == nil)
+        #expect(destination.debugRestoredAgentHibernationAdoptionWaitCancellationCount == 1)
+        #expect(sqlite3_exec(lockedDatabase, "ROLLBACK", nil, nil, nil) == SQLITE_OK)
+        await releaseHandler.open()
+        await handlerFinished.waitUntilOpen()
+
+        #expect(destination.debugRestoredAgentHibernationAdoptionWaitInFlightCount == 0)
+        let snapshot = try registry.snapshot(provider: "codex")
+        let record = try #require(snapshot.records.first)
+        let object = try #require(JSONSerialization.jsonObject(with: record.json) as? [String: Any])
+        #expect(object["workspaceId"] as? String == fixture.source.id.uuidString)
+        #expect(object["surfaceId"] as? String == fixture.sourcePanelID.uuidString)
+        #expect(object["sessionState"] as? String == "hibernated")
+    }
+
+    @MainActor
+    @Test func repeatedVisibilityDoesNotDuplicatePendingBackgroundAdoption() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-restored-adoption-dedup-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let overrides = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            "CMUX_RUNTIME_ID": "restore-dedup-runtime",
+        ]
+        let previousEnvironment = overrides.keys.map { ($0, ProcessInfo.processInfo.environment[$0]) }
+        for (key, value) in overrides { setenv(key, value, 1) }
+        defer {
+            for (key, value) in previousEnvironment {
+                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            }
+        }
+
+        let fixture = try makeHibernatedRestoreFixture(root: root, sessionID: "restore-dedup-session")
+        _ = try installHibernatedAuthority(
+            root: root,
+            registryURL: registryURL,
+            agent: fixture.agent,
+            workspaceId: fixture.source.id,
+            surfaceId: fixture.sourcePanelID
+        )
+        var database: OpaquePointer?
+        #expect(sqlite3_open(registryURL.path, &database) == SQLITE_OK)
+        let lockedDatabase = try #require(database)
+        defer { sqlite3_close(lockedDatabase) }
+        #expect(sqlite3_exec(lockedDatabase, "BEGIN IMMEDIATE", nil, nil, nil) == SQLITE_OK)
+        defer { sqlite3_exec(lockedDatabase, "ROLLBACK", nil, nil, nil) }
+
+        let handlerStarted = AgentSessionAsyncGate()
+        let releaseHandler = AgentSessionAsyncGate()
+        let handlerFinished = AgentSessionAsyncGate()
+        let destination = Workspace()
+        destination.debugRestoredAgentHibernationAdoptionWaitHandler = { requests in
+            await handlerStarted.open()
+            await releaseHandler.waitUntilOpen()
+            return Dictionary(uniqueKeysWithValues: requests.map { ($0.surfaceId, .unavailable) })
+        }
+        destination.debugRestoredAgentHibernationAdoptionWaitDidFinish = { _ in
+            Task { await handlerFinished.open() }
+        }
+        destination.setAgentHibernationAutoResumePresentationVisible(true)
+        let paneId = try #require(destination.bonsplitController.allPaneIds.first)
+        let panelSnapshot = try #require(
+            fixture.snapshot.panels.first { $0.id == fixture.sourcePanelID }
+        )
+        let panelId = try #require(destination.restoreClosedPanel(.init(
+            workspaceId: destination.id,
+            paneId: paneId.id,
+            tabIndex: 0,
+            snapshot: panelSnapshot
+        )))
+        let panel = try #require(destination.terminalPanel(for: panelId))
+        await handlerStarted.waitUntilOpen()
+
+        for _ in 0..<5 {
+            destination.setAgentHibernationAutoResumePresentationVisible(true)
+        }
+        #expect(destination.debugRestoredAgentHibernationAdoptionWaitOperationCount == 1)
+        #expect(destination.debugRestoredAgentHibernationAdoptionWaitInFlightCount == 1)
+        #expect(panel.isAgentHibernated)
+        #expect(!panel.surface.debugInitialInputMetadata().hasInitialInput)
+
+        #expect(sqlite3_exec(lockedDatabase, "ROLLBACK", nil, nil, nil) == SQLITE_OK)
+        await releaseHandler.open()
+        await handlerFinished.waitUntilOpen()
+        #expect(destination.debugRestoredAgentHibernationAdoptionWaitOperationCount == 1)
+        #expect(destination.debugRestoredAgentHibernationAdoptionWaitInFlightCount == 0)
+        #expect(panel.isAgentHibernated)
+        #expect(!panel.surface.debugInitialInputMetadata().hasInitialInput)
+    }
+
+    @MainActor
+    @Test func closingPanelAfterAdoptionCommitReleasesExactDurableGeneration() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-restored-adoption-postcommit-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let overrides = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            "CMUX_RUNTIME_ID": "restore-postcommit-runtime",
+        ]
+        let previousEnvironment = overrides.keys.map { ($0, ProcessInfo.processInfo.environment[$0]) }
+        for (key, value) in overrides { setenv(key, value, 1) }
+        defer {
+            for (key, value) in previousEnvironment {
+                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            }
+        }
+
+        let fixture = try makeHibernatedRestoreFixture(root: root, sessionID: "restore-postcommit-session")
+        let registry = try installHibernatedAuthority(
+            root: root,
+            registryURL: registryURL,
+            agent: fixture.agent,
+            workspaceId: fixture.source.id,
+            surfaceId: fixture.sourcePanelID
+        )
+        var database: OpaquePointer?
+        #expect(sqlite3_open(registryURL.path, &database) == SQLITE_OK)
+        let lockedDatabase = try #require(database)
+        defer { sqlite3_close(lockedDatabase) }
+        #expect(sqlite3_exec(lockedDatabase, "BEGIN IMMEDIATE", nil, nil, nil) == SQLITE_OK)
+        defer { sqlite3_exec(lockedDatabase, "ROLLBACK", nil, nil, nil) }
+
+        let handlerStarted = AgentSessionAsyncGate()
+        let allowCommit = AgentSessionAsyncGate()
+        let commitFinished = AgentSessionAsyncGate()
+        let allowDelivery = AgentSessionAsyncGate()
+        let handlerFinished = AgentSessionAsyncGate()
+        let destination = Workspace()
+        destination.debugRestoredAgentHibernationAdoptionWaitHandler = { requests in
+            await handlerStarted.open()
+            await allowCommit.waitUntilOpen()
+            let outcomes = await AgentHookSessionStateWriter.waitForRestoredHibernationOutcomes(
+                requests
+            )
+            await commitFinished.open()
+            await allowDelivery.waitUntilOpen()
+            return outcomes
+        }
+        destination.debugRestoredAgentHibernationAdoptionWaitDidFinish = { _ in
+            Task { await handlerFinished.open() }
+        }
+        destination.setAgentHibernationAutoResumePresentationVisible(true)
+        let paneId = try #require(destination.bonsplitController.allPaneIds.first)
+        let panelSnapshot = try #require(
+            fixture.snapshot.panels.first { $0.id == fixture.sourcePanelID }
+        )
+        let panelId = try #require(destination.restoreClosedPanel(.init(
+            workspaceId: destination.id,
+            paneId: paneId.id,
+            tabIndex: 0,
+            snapshot: panelSnapshot
+        )))
+        await handlerStarted.waitUntilOpen()
+
+        #expect(sqlite3_exec(lockedDatabase, "ROLLBACK", nil, nil, nil) == SQLITE_OK)
+        await allowCommit.open()
+        await commitFinished.waitUntilOpen()
+        let committed = try registry.snapshot(provider: "codex")
+        let committedRecord = try #require(committed.records.first)
+        let committedObject = try #require(
+            JSONSerialization.jsonObject(with: committedRecord.json) as? [String: Any]
+        )
+        #expect(committedObject["surfaceId"] as? String == panelId.uuidString)
+        #expect(committedObject["cmuxRestoreAdoptionId"] is String)
+
+        #expect(destination.closePanel(panelId, force: true))
+        await allowDelivery.open()
+        await handlerFinished.waitUntilOpen()
+
+        let released = try registry.snapshot(provider: "codex")
+        let releasedRecord = try #require(released.records.first)
+        let releasedObject = try #require(
+            JSONSerialization.jsonObject(with: releasedRecord.json) as? [String: Any]
+        )
+        #expect(releasedObject["restoreAuthority"] as? Bool == false)
+        #expect(releasedObject["sessionState"] as? String == "ended")
+        #expect(releasedObject["completedAt"] is TimeInterval)
+        #expect(releasedObject["cmuxRestoreAdoptionId"] == nil)
+        #expect(!released.activeSlots.contains { $0.sessionID == fixture.agent.sessionId })
+        #expect(destination.debugRestoredAgentHibernationAdoptionWaitInFlightCount == 0)
+    }
+
+    @MainActor
+    @Test func workspaceTeardownAfterAdoptionCommitPreservesNextLaunchAuthority() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-restored-adoption-teardown-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let overrides = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            "CMUX_RUNTIME_ID": "restore-teardown-runtime",
+        ]
+        let previousEnvironment = overrides.keys.map { ($0, ProcessInfo.processInfo.environment[$0]) }
+        for (key, value) in overrides { setenv(key, value, 1) }
+        defer {
+            for (key, value) in previousEnvironment {
+                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            }
+        }
+
+        let fixture = try makeHibernatedRestoreFixture(root: root, sessionID: "restore-teardown-session")
+        let registry = try installHibernatedAuthority(
+            root: root,
+            registryURL: registryURL,
+            agent: fixture.agent,
+            workspaceId: fixture.source.id,
+            surfaceId: fixture.sourcePanelID
+        )
+        var database: OpaquePointer?
+        #expect(sqlite3_open(registryURL.path, &database) == SQLITE_OK)
+        let lockedDatabase = try #require(database)
+        defer { sqlite3_close(lockedDatabase) }
+        #expect(sqlite3_exec(lockedDatabase, "BEGIN IMMEDIATE", nil, nil, nil) == SQLITE_OK)
+        defer { sqlite3_exec(lockedDatabase, "ROLLBACK", nil, nil, nil) }
+
+        let handlerStarted = AgentSessionAsyncGate()
+        let allowCommit = AgentSessionAsyncGate()
+        let commitFinished = AgentSessionAsyncGate()
+        let allowDelivery = AgentSessionAsyncGate()
+        let ownerReleased = AgentSessionAsyncGate()
+        weak var weakDestination: Workspace?
+        var destination: Workspace? = Workspace()
+        weakDestination = destination
+        var destinationWorkspaceID: UUID?
+        var restoredPanelID: UUID?
+        do {
+            let workspace = try #require(destination)
+            destinationWorkspaceID = workspace.id
+            workspace.debugRestoredAgentHibernationAdoptionWaitHandler = { requests in
+                await handlerStarted.open()
+                await allowCommit.waitUntilOpen()
+                let outcomes = await AgentHookSessionStateWriter.waitForRestoredHibernationOutcomes(
+                    requests
+                )
+                await commitFinished.open()
+                await allowDelivery.waitUntilOpen()
+                return outcomes
+            }
+            workspace.debugRestoredAgentHibernationAdoptionWaitOwnerReleased = {
+                Task { await ownerReleased.open() }
+            }
+            workspace.setAgentHibernationAutoResumePresentationVisible(true)
+            let paneId = try #require(workspace.bonsplitController.allPaneIds.first)
+            let panelSnapshot = try #require(
+                fixture.snapshot.panels.first { $0.id == fixture.sourcePanelID }
+            )
+            restoredPanelID = try #require(workspace.restoreClosedPanel(.init(
+                workspaceId: workspace.id,
+                paneId: paneId.id,
+                tabIndex: 0,
+                snapshot: panelSnapshot
+            )))
+            await handlerStarted.waitUntilOpen()
+        }
+
+        #expect(sqlite3_exec(lockedDatabase, "ROLLBACK", nil, nil, nil) == SQLITE_OK)
+        await allowCommit.open()
+        await commitFinished.waitUntilOpen()
+        let workspaceID = try #require(destinationWorkspaceID)
+        let panelID = try #require(restoredPanelID)
+        let committed = try registry.snapshot(provider: "codex")
+        let committedRecord = try #require(committed.records.first)
+        let committedObject = try #require(
+            JSONSerialization.jsonObject(with: committedRecord.json) as? [String: Any]
+        )
+        #expect(committedObject["workspaceId"] as? String == workspaceID.uuidString)
+        #expect(committedObject["surfaceId"] as? String == panelID.uuidString)
+        #expect(committedObject["cmuxRestoreAdoptionId"] is String)
+
+        destination = nil
+        #expect(weakDestination == nil)
+        await allowDelivery.open()
+        await ownerReleased.waitUntilOpen()
+
+        let preserved = try registry.snapshot(provider: "codex")
+        let preservedRecord = try #require(preserved.records.first)
+        let preservedObject = try #require(
+            JSONSerialization.jsonObject(with: preservedRecord.json) as? [String: Any]
+        )
+        #expect(preservedObject["workspaceId"] as? String == workspaceID.uuidString)
+        #expect(preservedObject["surfaceId"] as? String == panelID.uuidString)
+        #expect(preservedObject["restoreAuthority"] as? Bool == true)
+        #expect(preservedObject["sessionState"] as? String == "hibernated")
+        #expect(preservedObject["completedAt"] == nil)
+        #expect(preservedObject["cmuxRestoreAdoptionId"] is String)
+        #expect(preserved.activeSlots.contains { slot in
+            slot.sessionID == fixture.agent.sessionId
+                && (slot.scopeID == workspaceID.uuidString || slot.scopeID == panelID.uuidString)
+        })
+    }
+
+    @MainActor
+    @Test func hiddenPanelRetainsCommittedAdoptionAndResumesWhenVisibleAgain() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-restored-adoption-hidden-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let overrides = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            "CMUX_RUNTIME_ID": "restore-hidden-runtime",
+        ]
+        let previousEnvironment = overrides.keys.map { ($0, ProcessInfo.processInfo.environment[$0]) }
+        for (key, value) in overrides { setenv(key, value, 1) }
+        defer {
+            for (key, value) in previousEnvironment {
+                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            }
+        }
+
+        let fixture = try makeHibernatedRestoreFixture(root: root, sessionID: "restore-hidden-session")
+        let registry = try installHibernatedAuthority(
+            root: root,
+            registryURL: registryURL,
+            agent: fixture.agent,
+            workspaceId: fixture.source.id,
+            surfaceId: fixture.sourcePanelID
+        )
+        var database: OpaquePointer?
+        #expect(sqlite3_open(registryURL.path, &database) == SQLITE_OK)
+        let lockedDatabase = try #require(database)
+        defer { sqlite3_close(lockedDatabase) }
+        #expect(sqlite3_exec(lockedDatabase, "BEGIN IMMEDIATE", nil, nil, nil) == SQLITE_OK)
+        defer { sqlite3_exec(lockedDatabase, "ROLLBACK", nil, nil, nil) }
+
+        let handlerStarted = AgentSessionAsyncGate()
+        let releaseHandler = AgentSessionAsyncGate()
+        let handlerFinished = AgentSessionAsyncGate()
+        let destination = Workspace()
+        destination.debugRestoredAgentHibernationAdoptionWaitHandler = { requests in
+            await handlerStarted.open()
+            await releaseHandler.waitUntilOpen()
+            return await AgentHookSessionStateWriter.waitForRestoredHibernationOutcomes(requests)
+        }
+        destination.debugRestoredAgentHibernationAdoptionWaitDidFinish = { _ in
+            Task { await handlerFinished.open() }
+        }
+        destination.setAgentHibernationAutoResumePresentationVisible(true)
+        let paneId = try #require(destination.bonsplitController.allPaneIds.first)
+        let panelSnapshot = try #require(
+            fixture.snapshot.panels.first { $0.id == fixture.sourcePanelID }
+        )
+        let panelId = try #require(destination.restoreClosedPanel(.init(
+            workspaceId: destination.id,
+            paneId: paneId.id,
+            tabIndex: 0,
+            snapshot: panelSnapshot
+        )))
+        let panel = try #require(destination.terminalPanel(for: panelId))
+        await handlerStarted.waitUntilOpen()
+
+        destination.setAgentHibernationAutoResumePresentationVisible(false)
+        #expect(sqlite3_exec(lockedDatabase, "ROLLBACK", nil, nil, nil) == SQLITE_OK)
+        await releaseHandler.open()
+        await handlerFinished.waitUntilOpen()
+
+        #expect(panel.isAgentHibernated)
+        #expect(!panel.surface.debugInitialInputMetadata().hasInitialInput)
+        let adopted = try registry.snapshot(provider: "codex")
+        let adoptedRecord = try #require(adopted.records.first)
+        let adoptedObject = try #require(
+            JSONSerialization.jsonObject(with: adoptedRecord.json) as? [String: Any]
+        )
+        #expect(adoptedObject["workspaceId"] as? String == destination.id.uuidString)
+        #expect(adoptedObject["surfaceId"] as? String == panelId.uuidString)
+        #expect(adoptedObject["sessionState"] as? String == "hibernated")
+
+        destination.setAgentHibernationAutoResumePresentationVisible(true)
+        #expect(!panel.isAgentHibernated)
+        #expect(panel.surface.debugInitialInputForTesting() == (try #require(fixture.agent.resumeCommand)) + "\n")
+        let resumed = try registry.snapshot(provider: "codex")
+        let resumedRecord = try #require(resumed.records.first)
+        let resumedObject = try #require(
+            JSONSerialization.jsonObject(with: resumedRecord.json) as? [String: Any]
+        )
+        #expect(resumedObject["sessionState"] as? String == "restoring")
+        #expect(resumedObject["cmuxRestoreAdoptionId"] == nil)
     }
 
     @MainActor
@@ -1163,7 +1833,8 @@ extension CMUXCLIErrorOutputRegressionTests {
 
         #expect(await hibernation.value)
         #expect(!panel.isAgentHibernated)
-        #expect(panel.surface.debugInitialInputForTesting() == try #require(agent.resumeCommand) + "\n")
+        let resumeCommand = try #require(agent.resumeCommand)
+        #expect(panel.surface.debugInitialInputForTesting() == resumeCommand + "\n")
         let saved = try registry.snapshot(provider: "codex")
         let savedRecord = try #require(saved.records.first)
         let savedObject = try #require(
@@ -1539,6 +2210,167 @@ extension CMUXCLIErrorOutputRegressionTests {
             restored.id.uuidString,
             restoredPanelID.uuidString,
         ])
+    }
+
+    @MainActor
+    @Test(arguments: ["current-owned-same", "foreign-owned-same", "foreign-distinct"])
+    func preAdoptionForeignRuntimeRequiresADistinctLiveSocket(
+        ownershipCase: String
+    ) throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-pre-adoption-runtime-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let suffix = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)
+        let liveSocketPath = NSTemporaryDirectory() + "cmux-owner-\(suffix).sock"
+        let foreignRecordUsesCurrentSocket = ownershipCase != "foreign-distinct"
+        let currentListenerOwnsPath = ownershipCase == "current-owned-same"
+        let currentSocketPath = foreignRecordUsesCurrentSocket
+            ? liveSocketPath
+            : NSTemporaryDirectory() + "cmux-current-\(suffix).sock"
+        let listener = try makeListeningUnixSocket(at: liveSocketPath)
+        defer {
+            Darwin.close(listener)
+            unlink(liveSocketPath)
+        }
+        let environment = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            "CMUX_RUNTIME_ID": "new-runtime",
+            "CMUX_SOCKET_PATH": currentSocketPath,
+            "CMUX_ALLOW_SOCKET_OVERRIDE": "1",
+            "CMUX_BUNDLE_ID": "com.cmuxterm.app.debug.restore-runtime-test",
+        ]
+
+        let fixture = try makeHibernatedRestoreFixture(
+            root: root,
+            sessionID: "pre-adoption-\(ownershipCase)"
+        )
+        let registry = try installHibernatedAuthority(
+            root: root,
+            registryURL: registryURL,
+            agent: fixture.agent,
+            workspaceId: fixture.source.id,
+            surfaceId: fixture.sourcePanelID,
+            runtime: [
+                "id": "old-runtime",
+                "socketPath": liveSocketPath,
+            ]
+        )
+        let targetWorkspaceId = UUID()
+        let targetSurfaceId = UUID()
+        let writer = AgentHookSessionStateWriter(
+            homeDirectory: root.path,
+            environment: environment,
+            currentSocketStateResolver: { preferredPath in
+                (
+                    activePath: currentSocketPath,
+                    pathOwnedByCurrentListener: currentListenerOwnsPath
+                        && SocketControlSettings.pathsMatch(preferredPath, currentSocketPath)
+                )
+            }
+        )
+        let adopted = writer.recordRestoredHibernationSynchronously(
+            kind: .codex,
+            sessionId: fixture.agent.sessionId,
+            previousWorkspaceId: fixture.source.id.uuidString,
+            previousSurfaceId: fixture.sourcePanelID.uuidString,
+            workspaceId: targetWorkspaceId.uuidString,
+            surfaceId: targetSurfaceId.uuidString,
+            now: 30
+        )
+        let snapshot = try registry.snapshot(provider: "codex")
+        let stored = try #require(snapshot.records.first)
+        let object = try #require(JSONSerialization.jsonObject(with: stored.json) as? [String: Any])
+
+        if currentListenerOwnsPath {
+            #expect(adopted)
+            #expect(object["workspaceId"] as? String == targetWorkspaceId.uuidString)
+            #expect(object["surfaceId"] as? String == targetSurfaceId.uuidString)
+            #expect((object["cmuxRuntime"] as? [String: Any])?["id"] as? String == "new-runtime")
+        } else {
+            #expect(!adopted)
+            #expect(object["workspaceId"] as? String == fixture.source.id.uuidString)
+            #expect(object["surfaceId"] as? String == fixture.sourcePanelID.uuidString)
+            #expect((object["cmuxRuntime"] as? [String: Any])?["id"] as? String == "old-runtime")
+        }
+    }
+
+    @MainActor
+    @Test(arguments: [true, false])
+    func currentListenerOwnershipUsesConfiguredAndOverrideSocketPaths(
+        usesEnvironmentOverride: Bool
+    ) throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-current-socket-resolution-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let bundleId = "com.cmuxterm.app.debug.restore-socket-resolution"
+        var environment = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            "CMUX_RUNTIME_ID": "configured-new-runtime",
+            "CMUX_BUNDLE_ID": bundleId,
+            "CMUX_TAG": "rscfg",
+        ]
+        if usesEnvironmentOverride {
+            environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-restore-override-\(UUID().uuidString).sock"
+            environment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
+        }
+        let expectedSocketPath = SocketControlSettings.socketPath(
+            environment: environment,
+            bundleIdentifier: bundleId
+        )
+        let fixture = try makeHibernatedRestoreFixture(
+            root: root,
+            sessionID: usesEnvironmentOverride
+                ? "override-current-socket"
+                : "configured-current-socket"
+        )
+        let registry = try installHibernatedAuthority(
+            root: root,
+            registryURL: registryURL,
+            agent: fixture.agent,
+            workspaceId: fixture.source.id,
+            surfaceId: fixture.sourcePanelID,
+            runtime: [
+                "id": "configured-old-runtime",
+                "socketPath": expectedSocketPath,
+            ]
+        )
+        let targetWorkspaceId = UUID()
+        let targetSurfaceId = UUID()
+        let writer = AgentHookSessionStateWriter(
+            homeDirectory: root.path,
+            environment: environment,
+            currentSocketStateResolver: { preferredPath in
+                (
+                    activePath: expectedSocketPath,
+                    pathOwnedByCurrentListener: SocketControlSettings.pathsMatch(
+                        preferredPath,
+                        expectedSocketPath
+                    )
+                )
+            }
+        )
+
+        #expect(writer.recordRestoredHibernationSynchronously(
+            kind: .codex,
+            sessionId: fixture.agent.sessionId,
+            previousWorkspaceId: fixture.source.id.uuidString,
+            previousSurfaceId: fixture.sourcePanelID.uuidString,
+            workspaceId: targetWorkspaceId.uuidString,
+            surfaceId: targetSurfaceId.uuidString,
+            now: 30
+        ))
+        let snapshot = try registry.snapshot(provider: "codex")
+        let stored = try #require(snapshot.records.first)
+        let object = try #require(JSONSerialization.jsonObject(with: stored.json) as? [String: Any])
+        #expect(object["workspaceId"] as? String == targetWorkspaceId.uuidString)
+        #expect(object["surfaceId"] as? String == targetSurfaceId.uuidString)
+        #expect((object["cmuxRuntime"] as? [String: Any])?["id"] as? String == "configured-new-runtime")
     }
 
     @MainActor
@@ -2808,6 +3640,89 @@ extension CMUXCLIErrorOutputRegressionTests {
             sourcePanelID: sourcePanelID,
             agent: agent
         )
+    }
+
+    private func installHibernatedAuthority(
+        root: URL,
+        registryURL: URL,
+        agent: SessionRestorableAgentSnapshot,
+        workspaceId: UUID,
+        surfaceId: UUID,
+        runtime: [String: Any]? = nil
+    ) throws -> CmuxAgentSessionRegistry {
+        let activeSlot: [String: Any] = [
+            "sessionId": agent.sessionId,
+            "updatedAt": 20.0,
+        ]
+        var record: [String: Any] = [
+            "sessionId": agent.sessionId,
+            "workspaceId": workspaceId.uuidString,
+            "surfaceId": surfaceId.uuidString,
+            "sessionState": "hibernated",
+            "restoreAuthority": true,
+            "startedAt": 10.0,
+            "updatedAt": 20.0,
+        ]
+        if let runtime {
+            record["activeRunId"] = "restored-run"
+            record["cmuxRuntime"] = runtime
+            record["runs"] = [[
+                "runId": "restored-run",
+                "restoreAuthority": true,
+                "cmuxRuntime": runtime,
+                "startedAt": 10.0,
+                "updatedAt": 20.0,
+            ]]
+        }
+        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": [agent.sessionId: record],
+            "activeSessionsByWorkspace": [workspaceId.uuidString: activeSlot],
+            "activeSessionsBySurface": [surfaceId.uuidString: activeSlot],
+        ], options: [.sortedKeys]).write(to: stateURL, options: .atomic)
+        let registry = CmuxAgentSessionRegistry(url: registryURL)
+        _ = try registry.snapshotImportingLegacy(
+            provider: "codex",
+            legacyURL: stateURL,
+            fileManager: .default
+        )
+        return registry
+    }
+
+    private func makeListeningUnixSocket(at path: String) throws -> Int32 {
+        unlink(path)
+        let descriptor = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+        guard descriptor >= 0 else {
+            throw NSError(domain: "cmux.tests", code: Int(errno))
+        }
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let bytes = Array(path.utf8)
+        let capacity = MemoryLayout.size(ofValue: address.sun_path)
+        guard bytes.count < capacity else {
+            Darwin.close(descriptor)
+            throw NSError(domain: "cmux.tests", code: Int(ENAMETOOLONG))
+        }
+        withUnsafeMutableBytes(of: &address.sun_path) { buffer in
+            buffer.initializeMemory(as: UInt8.self, repeating: 0)
+            buffer.copyBytes(from: bytes)
+        }
+        let bindResult = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.bind(
+                    descriptor,
+                    $0,
+                    socklen_t(MemoryLayout<sockaddr_un>.size)
+                )
+            }
+        }
+        guard bindResult == 0, Darwin.listen(descriptor, 8) == 0 else {
+            let code = errno
+            Darwin.close(descriptor)
+            throw NSError(domain: "cmux.tests", code: Int(code))
+        }
+        return descriptor
     }
 
 }
