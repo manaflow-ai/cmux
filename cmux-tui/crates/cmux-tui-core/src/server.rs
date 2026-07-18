@@ -51,7 +51,7 @@ use crate::{
     ZoomMode, assign_short_ids,
 };
 
-pub const PROTOCOL_VERSION: u32 = 7;
+pub const PROTOCOL_VERSION: u32 = 8;
 
 /// Default socket path for a session.
 pub fn default_socket_path(session: &str) -> PathBuf {
@@ -3605,7 +3605,7 @@ mod tests {
         let before = handle_command(&mux, 0, Command::ListWorkspaces, &test_writer()).unwrap();
         let split = before["workspaces"][0]["screens"][0]["layout"]["split"]
             .as_u64()
-            .expect("protocol v7 split id");
+            .expect("protocol v8 split id");
 
         let request: Request = serde_json::from_value(json!({
             "id": 1,

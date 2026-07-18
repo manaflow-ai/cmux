@@ -510,8 +510,8 @@ export class CmuxClient {
   ): Promise<CmuxStream<DecodedAttachEvent> | CmuxStream<RenderAttachEvent>> {
     const mode = options.mode ?? "bytes";
     const protocol = this.identifiedProtocol ?? (await this.identify()).protocol;
-    if (protocol > 7) {
-      throw new CmuxProtocolError(`unsupported protocol ${protocol}; maximum supported is 7`);
+    if (protocol > 8) {
+      throw new CmuxProtocolError(`unsupported protocol ${protocol}; maximum supported is 8`);
     }
     if (mode === "render" && protocol < 7) {
       throw new CmuxProtocolError(

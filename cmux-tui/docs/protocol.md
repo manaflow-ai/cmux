@@ -14,7 +14,7 @@ $TMPDIR/cmux-tui-<uid>/<session>.sock
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":7,"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":8,"session":"main","pid":12345}}
 ```
 
 Responses have this shape:
@@ -156,9 +156,9 @@ When the stream ends, it sends:
 
 ## Client Compatibility
 
-The remote TUI requires protocol v7. It refuses servers reporting any other protocol version because it relies on resized attach replays, authoritative title events, and stable `split` ids in canonical layout nodes.
+The remote TUI requires protocol v8. It rejects protocol-v7 servers before loading their workspace tree because v7 split nodes have no stable `split` id.
 
-Existing `set-ratio` clients remain source-compatible and the server keeps the pane-and-direction command unchanged. Protocol-v7 frontends should read `layout.split` and send `set-split-ratio` so nested same-direction dividers are addressed exactly.
+Existing `set-ratio` clients remain source-compatible and the server keeps the pane-and-direction command unchanged. Protocol-v8 frontends should read `layout.split` and send `set-split-ratio` so nested same-direction dividers are addressed exactly.
 
 Attach clients mirror PTY surfaces locally. On first render, a client can resize the server surface before requesting `attach-surface`, so the initial VT replay is captured at the visible geometry.
 

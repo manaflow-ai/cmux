@@ -16,12 +16,12 @@ class ProtocolTests(unittest.TestCase):
 
         self.assertEqual(client.resize_surface(7, 80, 24).reservation_id, 41)
 
-    def test_attach_rejects_protocols_newer_than_seven_even_with_opt_in(self) -> None:
+    def test_attach_rejects_protocols_newer_than_eight_even_with_opt_in(self) -> None:
         client = CmuxClient.__new__(CmuxClient)
-        client._protocol = 8
+        client._protocol = 9
         client.allow_protocol_v6_attach = True
 
-        with self.assertRaisesRegex(ProtocolError, "maximum supported is 7"):
+        with self.assertRaisesRegex(ProtocolError, "maximum supported is 8"):
             client.attach_surface(1)
 
 

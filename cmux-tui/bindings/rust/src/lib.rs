@@ -138,7 +138,7 @@ pub enum Layout {
     Leaf { pane: u64 },
     #[serde(rename = "split")]
     Split {
-        /// Stable split id, present on protocol v7 and newer servers.
+        /// Stable split id, present on protocol v8 and newer servers.
         #[serde(default)]
         split: Option<u64>,
         dir: String,
@@ -578,7 +578,7 @@ impl CmuxClient {
             Some(protocol) => protocol,
             None => self.identify()?.protocol,
         };
-        if protocol > 7 || (protocol > 5 && !self.config.allow_protocol_v6_attach) {
+        if protocol > 8 || (protocol > 5 && !self.config.allow_protocol_v6_attach) {
             return Err(CmuxError::ProtocolVersion(format!(
                 "unsupported attach protocol {protocol}"
             )));

@@ -384,7 +384,7 @@ fn control_socket_round_trip() {
     writeln!(writer, r#"{{"id":91,"cmd":"export-layout"}}"#).unwrap();
     reader.read_line(&mut line).unwrap();
     let v: serde_json::Value = serde_json::from_str(&line).unwrap();
-    let split_id = v["data"]["layout"]["split"].as_u64().expect("protocol v7 split id");
+    let split_id = v["data"]["layout"]["split"].as_u64().expect("protocol v8 split id");
 
     line.clear();
     writeln!(writer, r#"{{"id":92,"cmd":"set-split-ratio","split":{split_id},"ratio":0.65}}"#)
