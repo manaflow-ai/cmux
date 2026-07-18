@@ -204,8 +204,20 @@ fn version_string() -> String {
 }
 
 fn main() {
-    install_signal_handlers();
     let raw_args = std::env::args().skip(1).collect::<Vec<_>>();
+    // Private process mode used by the daemon when it launches one durable
+    // terminal host per PTY. Keep this out of public help and dispatch it
+    // before installing the interactive daemon's signal handlers: the host
+    // owns its own lifecycle and must not inherit "request mux shutdown"
+    // semantics.
+    if raw_args.first().map(String::as_str) == Some("__terminal-host") {
+        if let Err(error) = run_terminal_host_process(&raw_args[1..]) {
+            eprintln!("cmux-tui terminal host: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
+    install_signal_handlers();
     if raw_args.first().map(|arg| arg.as_str()) == Some("help") {
         cli::print_help(USAGE);
         std::process::exit(0);
@@ -219,6 +231,21 @@ fn main() {
         eprintln!("cmux-tui: {e}");
         std::process::exit(1);
     }
+}
+
+fn run_terminal_host_process(args: &[String]) -> anyhow::Result<()> {
+    if args.iter().map(String::as_str).ne(["--bootstrap-stdio"]) {
+        anyhow::bail!("hidden mode requires --bootstrap-stdio");
+    }
+    let stdin = std::io::stdin();
+    let stdout = std::io::stdout();
+    let mut reader = stdin.lock();
+    let mut writer = stdout.lock();
+    // This first slice establishes the private bootstrap and versioned wire
+    // boundary. The long-lived PTY/admin/data loops will consume the returned
+    // owner state when process isolation is wired into Surface::spawn.
+    let _host = cmux_tui_core::terminal_host::bootstrap_stdio_once(&mut reader, &mut writer)?;
+    Ok(())
 }
 
 fn run_attach(args: Args) -> anyhow::Result<()> {
