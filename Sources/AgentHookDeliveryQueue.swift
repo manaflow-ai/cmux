@@ -79,6 +79,9 @@ actor AgentHookDeliveryQueue {
     private let retryMaximumDelay: TimeInterval
     private let deliveredReceiptRetention: TimeInterval
     private let maximumConcurrentDeliveries: Int
+#if DEBUG
+    private let afterDurableCommitForTesting: (@Sendable (String) -> Void)?
+#endif
 
     private var drainTask: Task<Void, Never>?
     private var retryTask: Task<Void, Never>?
@@ -95,7 +98,8 @@ actor AgentHookDeliveryQueue {
         retryBaseDelay: TimeInterval = 0.25,
         retryMaximumDelay: TimeInterval = 300,
         deliveredReceiptRetention: TimeInterval = 86_400,
-        maximumConcurrentDeliveries: Int = 32
+        maximumConcurrentDeliveries: Int = 32,
+        afterDurableCommitForTesting: (@Sendable (String) -> Void)? = nil
     ) {
         let resolvedDatabaseURL = databaseURL ?? Self.defaultDatabaseURL()
         self.databaseURL = resolvedDatabaseURL
@@ -109,6 +113,9 @@ actor AgentHookDeliveryQueue {
             Self.hardMaximumConcurrentDeliveries,
             max(1, maximumConcurrentDeliveries)
         )
+#if DEBUG
+        self.afterDurableCommitForTesting = afterDurableCommitForTesting
+#endif
 
         do {
             self.database = try Self.openDatabase(at: resolvedDatabaseURL)
@@ -185,6 +192,9 @@ actor AgentHookDeliveryQueue {
         guard status == SQLITE_DONE else {
             throw Self.sqliteFailure(status, operation: "persist accepted delivery")
         }
+#if DEBUG
+        afterDurableCommitForTesting?(event.deliveryID)
+#endif
 
         let storedDigest = try Self.storedDigest(for: event.deliveryID, database: database)
         guard storedDigest == event.contentDigest else {

@@ -165,6 +165,154 @@ struct AgentHookDeliveryQueueTests {
         }
     }
 
+    @Test func activeDrainCannotObserveDurableRowBeforeCredentialOverlay() async throws {
+        let root = try temporaryDirectory(named: "credential-publication-race")
+        let releaseFirstURL = root.appendingPathComponent("release-first")
+        let releaseEnqueueURL = root.appendingPathComponent("release-enqueue")
+        defer {
+            try? Data().write(to: releaseFirstURL)
+            try? Data().write(to: releaseEnqueueURL)
+            try? FileManager.default.removeItem(at: root)
+        }
+        let scriptURL = root.appendingPathComponent("deliver.sh")
+        let durableCommitURL = root.appendingPathComponent("durable-commit")
+        let capturedSecretURL = root.appendingPathComponent("captured-secret")
+        try writeExecutable(
+            at: scriptURL,
+            contents: """
+            #!/bin/sh
+            if [ "$CMUX_AGENT_HOOK_DELIVERY_ID" = "credential-race-blocker" ]; then
+              : > "$TMPDIR/first-started"
+              while [ ! -e "$TMPDIR/release-first" ]; do /bin/sleep 0.005; done
+            else
+              printf '%s' "${OPENAI_API_KEY-unset}" > "$TMPDIR/captured-secret"
+            fi
+            """
+        )
+        let queue = AgentHookDeliveryQueue(
+            databaseURL: root.appendingPathComponent("deliveries.sqlite3"),
+            executableURLProvider: { scriptURL },
+            processTimeout: 2,
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60,
+            maximumConcurrentDeliveries: 1,
+            afterDurableCommitForTesting: { deliveryID in
+                guard deliveryID == "credential-race-secret" else { return }
+                try? Data().write(to: durableCommitURL)
+                while !FileManager.default.fileExists(atPath: releaseEnqueueURL.path) {
+                    Darwin.usleep(1_000)
+                }
+            }
+        )
+        let blocker = try #require(makeEvent(
+            deliveryID: "credential-race-blocker",
+            payload: Data("blocker".utf8),
+            environment: testEnvironment(root: root)
+        ))
+        var credentialEnvironment = testEnvironment(root: root)
+        credentialEnvironment["OPENAI_API_KEY"] = "publication-race-secret"
+        let credentialDelivery = try #require(makeEvent(
+            deliveryID: "credential-race-secret",
+            payload: Data("credential".utf8),
+            environment: credentialEnvironment
+        ))
+
+        try queue.enqueue(blocker)
+        let blockerStarted = await waitUntil(timeout: .seconds(2)) {
+            FileManager.default.fileExists(atPath: root.appendingPathComponent("first-started").path)
+        }
+        #expect(blockerStarted)
+
+        let enqueueTask = Task.detached {
+            try queue.enqueue(credentialDelivery)
+        }
+        let rowCommitted = await waitUntil(timeout: .seconds(2)) {
+            FileManager.default.fileExists(atPath: durableCommitURL.path)
+        }
+        #expect(rowCommitted)
+        try Data().write(to: releaseFirstURL)
+
+        let credentialDelivered = await waitUntil(timeout: .seconds(2)) {
+            FileManager.default.fileExists(atPath: capturedSecretURL.path)
+        }
+        #expect(credentialDelivered)
+        if credentialDelivered {
+            #expect(try String(contentsOf: capturedSecretURL, encoding: .utf8) == "publication-race-secret")
+        }
+
+        try Data().write(to: releaseEnqueueURL)
+        try await enqueueTask.value
+        await queue.waitUntilCurrentDrainFinishes()
+    }
+
+    @Test func openingLegacyQueueScrubsCredentialValuesFromPendingRows() throws {
+        let root = try temporaryDirectory(named: "credential-migration")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let databaseURL = root.appendingPathComponent("deliveries.sqlite3")
+        let secretEnvironment: [String: String] = [
+            "OPENAI_API_KEY": "legacy-openai-api-secret",
+            "AWS_CONTAINER_AUTHORIZATION_TOKEN": "legacy-container-auth-secret",
+            "AWS_SECURITY_TOKEN": "legacy-security-token-secret",
+            "AWS_BEARER_TOKEN_BEDROCK": "legacy-bedrock-bearer-secret",
+            "OPENAI_ADMIN_KEY": "legacy-openai-admin-secret",
+            "OPENAI_BEARER_TOKEN": "legacy-openai-bearer-secret",
+            "HTTPS_PROXY": "https://legacy-user:legacy-password@proxy.example.test:8443",
+            "ANTHROPIC_BASE_URL": "https://legacy-user:legacy-password@api.example.test/v1",
+            "OPENAI_BASE_URL": "https://api.example.test/v1?access_token=legacy-query-secret",
+        ]
+        let durableLocators: [String: String] = [
+            "AWS_CONFIG_FILE": "/tmp/aws-config",
+            "AWS_SHARED_CREDENTIALS_FILE": "/tmp/aws-credentials",
+            "AWS_WEB_IDENTITY_TOKEN_FILE": "/tmp/aws-web-identity-token",
+            "GOOGLE_APPLICATION_CREDENTIALS": "/tmp/google-credentials.json",
+            "XAI_BASE_URL": "https://api.x.ai/v1",
+            "HTTP_PROXY": "http://127.0.0.1:8080",
+        ]
+        var environment = testEnvironment(root: root)
+        environment.merge(secretEnvironment, uniquingKeysWith: { _, new in new })
+        environment.merge(durableLocators, uniquingKeysWith: { _, new in new })
+        let legacy = try #require(makeEvent(
+            deliveryID: "legacy-credential-row",
+            payload: Data("legacy".utf8),
+            environment: environment
+        ))
+        try createLegacyDeliveryDatabase(
+            at: databaseURL,
+            event: legacy,
+            nextAttemptAt: Date().addingTimeInterval(3_600).timeIntervalSince1970
+        )
+
+        let queue = AgentHookDeliveryQueue(
+            databaseURL: databaseURL,
+            executableURLProvider: { nil },
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60
+        )
+        withExtendedLifetime(queue) {}
+
+        let storedData = Data(try storedEnvironmentJSON(
+            databaseURL: databaseURL,
+            deliveryID: legacy.deliveryID
+        ).utf8)
+        let stored = try #require(
+            JSONSerialization.jsonObject(with: storedData) as? [String: String]
+        )
+        for key in secretEnvironment.keys {
+            #expect(stored[key] == nil)
+        }
+        for (key, value) in durableLocators {
+            #expect(stored[key] == value)
+        }
+
+        for file in try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
+            where file.lastPathComponent.hasPrefix("deliveries.sqlite3") {
+            let bytes = try Data(contentsOf: file)
+            for secret in secretEnvironment.values {
+                #expect(bytes.range(of: Data(secret.utf8)) == nil)
+            }
+        }
+    }
+
     @Test func feedTelemetryTargetsUseTheBoundedDeliveryQueue() async throws {
         let root = try temporaryDirectory(named: "feed-targets")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -708,7 +856,8 @@ struct AgentHookDeliveryQueueTests {
 
     private func createLegacyDeliveryDatabase(
         at url: URL,
-        event: AgentHookDeliveryEvent
+        event: AgentHookDeliveryEvent,
+        nextAttemptAt: TimeInterval = 0
     ) throws {
         var database: OpaquePointer?
         let openStatus = sqlite3_open(url.path, &database)
@@ -746,7 +895,7 @@ struct AgentHookDeliveryQueueTests {
         ) VALUES (
             \(quote(event.deliveryID)), X'\(hex(event.contentDigest))', \(quote(event.agent)),
             \(quote(event.subcommand)), X'\(hex(event.payload))', \(quote(event.socketPath)),
-            X'\(hex(environmentData))', 0, 0
+            X'\(hex(environmentData))', 0, \(nextAttemptAt)
         );
         """
         let status = sqlite3_exec(database, schema, nil, nil, nil)

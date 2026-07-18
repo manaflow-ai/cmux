@@ -128,4 +128,46 @@ struct AgentLaunchEnvironmentPolicyTests {
         #expect(selected["CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP"] == nil)
         #expect(selected["UNRELATED_SECRET"] == nil)
     }
+
+    @Test("Hook transport keeps credential values out of durable storage")
+    func hookTransportKeepsCredentialValuesEphemeral() {
+        let partitioned = AgentHookTransportEnvironmentPolicy().partitionedEnvironment(from: [
+            "AWS_CONTAINER_AUTHORIZATION_TOKEN": "ecs-authorization-secret",
+            "AWS_SECURITY_TOKEN": "aws-security-secret",
+            "AWS_BEARER_TOKEN_BEDROCK": "bedrock-bearer-secret",
+            "OPENAI_ADMIN_KEY": "openai-admin-secret",
+            "OPENAI_BEARER_TOKEN": "openai-bearer-secret",
+            "HTTPS_PROXY": "https://proxy-user:proxy-password@proxy.example.test:8443",
+            "ANTHROPIC_BASE_URL": "https://anthropic-user:anthropic-password@api.example.test/v1",
+            "OPENAI_BASE_URL": "https://api.example.test/v1?access_token=query-secret",
+            "AWS_CONFIG_FILE": "/tmp/aws-config",
+            "AWS_SHARED_CREDENTIALS_FILE": "/tmp/aws-credentials",
+            "AWS_WEB_IDENTITY_TOKEN_FILE": "/tmp/aws-web-identity-token",
+            "GOOGLE_APPLICATION_CREDENTIALS": "/tmp/google-credentials.json",
+            "XAI_BASE_URL": "https://api.x.ai/v1",
+            "HTTP_PROXY": "http://127.0.0.1:8080",
+        ])
+
+        let expectedEphemeral: [String: String] = [
+            "AWS_CONTAINER_AUTHORIZATION_TOKEN": "ecs-authorization-secret",
+            "AWS_SECURITY_TOKEN": "aws-security-secret",
+            "AWS_BEARER_TOKEN_BEDROCK": "bedrock-bearer-secret",
+            "OPENAI_ADMIN_KEY": "openai-admin-secret",
+            "OPENAI_BEARER_TOKEN": "openai-bearer-secret",
+            "HTTPS_PROXY": "https://proxy-user:proxy-password@proxy.example.test:8443",
+            "ANTHROPIC_BASE_URL": "https://anthropic-user:anthropic-password@api.example.test/v1",
+            "OPENAI_BASE_URL": "https://api.example.test/v1?access_token=query-secret",
+        ]
+        for (key, value) in expectedEphemeral {
+            #expect(partitioned.ephemeral[key] == value)
+            #expect(partitioned.durable[key] == nil)
+        }
+
+        #expect(partitioned.durable["AWS_CONFIG_FILE"] == "/tmp/aws-config")
+        #expect(partitioned.durable["AWS_SHARED_CREDENTIALS_FILE"] == "/tmp/aws-credentials")
+        #expect(partitioned.durable["AWS_WEB_IDENTITY_TOKEN_FILE"] == "/tmp/aws-web-identity-token")
+        #expect(partitioned.durable["GOOGLE_APPLICATION_CREDENTIALS"] == "/tmp/google-credentials.json")
+        #expect(partitioned.durable["XAI_BASE_URL"] == "https://api.x.ai/v1")
+        #expect(partitioned.durable["HTTP_PROXY"] == "http://127.0.0.1:8080")
+    }
 }
