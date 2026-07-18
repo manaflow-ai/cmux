@@ -485,6 +485,55 @@ struct FeedCoordinatorTests {
         #expect(await MainActor.run { FeedCoordinator.shared.store.items.count } == 1)
     }
 
+    @Test func oneWayNonBlockingIngestReturnsBeforeMainActorMutation() async throws {
+        await MainActor.run {
+            FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 10))
+        }
+
+        let event = WorkstreamEvent(
+            sessionId: "codex-one-way-feed-test",
+            hookEventName: .preToolUse,
+            source: "codex",
+            cwd: "/tmp",
+            toolName: "Read",
+            toolInputJSON: #"{"path":"README.md"}"#,
+            requestId: nil
+        )
+        let started = DispatchSemaphore(value: 0)
+        let finished = DispatchSemaphore(value: 0)
+        let resultBox = IngestResultBox()
+
+        await MainActor.run {
+            DispatchQueue.global(qos: .userInitiated).async {
+                started.signal()
+                resultBox.value = FeedCoordinator.shared.ingestBlocking(
+                    event: event,
+                    waitTimeout: 0
+                )
+                finished.signal()
+            }
+            #expect(started.wait(timeout: .now() + 1) == .success)
+            #expect(
+                finished.wait(timeout: .now() + 0.05) == .success,
+                "One-way feed telemetry must not wait for MainActor ingestion"
+            )
+            #expect(FeedCoordinator.shared.store.items.isEmpty)
+        }
+
+        guard case .acknowledged(itemId: nil) = resultBox.value else {
+            Issue.record("Expected one-way ingestion to return an acknowledgement without an item id")
+            return
+        }
+
+        for _ in 0..<100 {
+            if await MainActor.run(body: { FeedCoordinator.shared.store.items.count }) == 1 {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        Issue.record("Expected deferred one-way ingestion to reach the Feed store")
+    }
+
     @Test func blockingIngestExpiresItemWhenHookTimesOut() async {
         await MainActor.run {
             let store = WorkstreamStore(ringCapacity: 10)
