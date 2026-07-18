@@ -2,6 +2,23 @@
 
 Global app preferences live in `~/.config/cmux/cmux.json`.
 
+## `mobile.artifactFolderAccess`
+
+Controls which files and folders cmux on iOS may browse after a chat references a directory or a directory path appears in a terminal.
+
+```json
+{
+  "mobile": {
+    "artifactFolderAccess": "subtree"
+  }
+}
+```
+
+- `subtree` (default): authorize the referenced directory and its full subtree.
+- `oneLevel`: preserve the previous rule, authorizing only immediate children and listing only the referenced directory itself.
+
+Authorization compares canonical paths after resolving symlinks. A symlink inside an authorized folder cannot grant access to a target outside that folder.
+
 ## `paneBorderColor` and `activePaneBorderColor`
 
 Customize split-workspace pane boundaries controlled by cmux.
@@ -269,3 +286,31 @@ Default: `unified`.
 ```
 
 The toolbar layout toggle persists the last user choice for future generated diff viewers. Passing `cmux diff --layout split` or `cmux diff --layout unified` overrides both the saved toolbar choice and this default for that invocation.
+
+## `sidebar.beta.workspaceTodos.checklistStyle`
+
+Workspace todos are always available. Status is inferred from live signals (agent needs input / agent running / open PR / merged PRs / dirty tree) and can be pinned manually from the glyph's status popover, the row's context menu (Status submenu, Mark as Done), the command palette, or `cmux workspace status set <lane|auto>`; checklists are managed from the row, the workspace todo pane (`cmux todo open`), `cmux todo ...`, or by agents over the control socket.
+
+`checklistStyle` picks how a row's checklist opens from its summary line: `popover` (default) anchors a checklist popover to the summary line; `inline` expands the items under the row like round one.
+
+```json
+{
+  "sidebar": {
+    "beta": {
+      "workspaceTodos": {
+        "checklistStyle": "popover"
+      }
+    }
+  }
+}
+```
+
+Default: `enabled: false`. The setting turns on automatically the first time a status or checklist mutation succeeds from any entrypoint.
+
+Three keyboard shortcuts drive the todo state, all editable in **Settings > Keyboard Shortcuts** or `shortcuts.bindings`:
+
+- `markWorkspaceDone` (default `cmd+;`) pins the selected workspace's status to done.
+- `cycleWorkspaceStatus` (default `cmd+shift+;`) advances the status one lane forward (todo → working → needs-attention → review → done → todo).
+- `toggleChecklistItemComplete` (default `cmd+return`) toggles the highlighted checklist item in the focused todo pane or checklist popover.
+
+cmux also posts a notification when a workspace's status first reaches done, and when its checklist first becomes fully complete, so you can watch agent progress without keeping the pane open.

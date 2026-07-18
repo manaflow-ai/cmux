@@ -14,6 +14,10 @@
 	<string>6.0</string>
 	<key>CMUXAuthEnvironment</key>
 	<string>$(CMUX_IOS_AUTH_ENV)</string>
+	<key>CMUXApiBaseURL</key>
+	<string>$(CMUX_API_BASE_URL)</string>
+	<key>CMUXIrohBrokerBaseURL</key>
+	<string>$(CMUX_IROH_BROKER_BASE_URL)</string>
 	<key>CMUXDevTag</key>
 	<string>$(CMUX_DEV_TAG)</string>
 	<key>CMUXGitSHA</key>
@@ -64,6 +68,10 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Scan cmux pairing QR codes from your Mac terminal.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_cmux-iroh._udp</string>
+	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Connect to your Mac on the local network for cmux mobile pairing and terminal sync.</string>
 	<key>NSMicrophoneUsageDescription</key>
@@ -110,6 +118,25 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationPortrait</string>
 		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+	</array>
+	<key>CMUXIrohRelayPolicyKeyID</key>
+	<string>$(CMUX_IROH_RELAY_POLICY_KEY_ID)</string>
+	<key>CMUXIrohRelayPolicyPublicKeyBase64</key>
+	<string>$(CMUX_IROH_RELAY_POLICY_PUBLIC_KEY_BASE64)</string>
+	<key>CMUXIrohRelayPolicyTrustKeys</key>
+	<array>
+		<dict>
+			<key>keyID</key>
+			<string>$(CMUX_IROH_RELAY_POLICY_KEY_ID)</string>
+			<key>publicKeyBase64</key>
+			<string>$(CMUX_IROH_RELAY_POLICY_PUBLIC_KEY_BASE64)</string>
+		</dict>
+		<dict>
+			<key>keyID</key>
+			<string>$(CMUX_IROH_RELAY_POLICY_NEXT_KEY_ID)</string>
+			<key>publicKeyBase64</key>
+			<string>$(CMUX_IROH_RELAY_POLICY_NEXT_PUBLIC_KEY_BASE64)</string>
+		</dict>
 	</array>
 </dict>
 </plist>

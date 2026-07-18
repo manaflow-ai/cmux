@@ -26,7 +26,8 @@ struct RemotePortScanGatingTests {
 
         coordinator.queue.sync {
             coordinator.proxyEndpoint = endpoint
-            coordinator.handleProxyBrokerUpdateLocked(.ready(endpoint))
+            coordinator.handleProxyBrokerUpdateLocked(
+                .ready(endpoint), leaseGeneration: coordinator.proxyLeaseGeneration)
         }
 
         #expect(host.connectionStates.map(\.state).contains(.connected))
@@ -377,7 +378,6 @@ final class SpyProcessRunner: RemoteSessionProcessRunning, @unchecked Sendable {
         }
     }
 }
-
 struct PortScanNoopRemoteSessionHost: RemoteSessionHosting {
     func publishConnectionState(_ state: WorkspaceRemoteConnectionState, detail: String?) {}
     func publishDaemonStatus(_ status: WorkspaceRemoteDaemonStatus) {}
@@ -386,7 +386,6 @@ struct PortScanNoopRemoteSessionHost: RemoteSessionHosting {
     func publishHeartbeat(count: Int, lastSeenAt: Date?) {}
     func publishBootstrapRemoteTTY(_ ttyName: String) {}
 }
-
 final class RecordingRemoteSessionHost: RemoteSessionHosting, @unchecked Sendable {
     private let lock = NSLock()
     private var _connectionStates: [(state: WorkspaceRemoteConnectionState, detail: String?)] = []

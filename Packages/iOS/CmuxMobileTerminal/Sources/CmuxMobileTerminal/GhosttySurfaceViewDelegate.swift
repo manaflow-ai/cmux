@@ -1,6 +1,7 @@
 #if canImport(UIKit)
 import CMUXMobileCore
 import Foundation
+import UIKit
 
 /// Host-side sink for everything a ``GhosttySurfaceView`` produces: input
 /// bytes for the PTY, natural-grid viewport reports, forwarded gestures, and
@@ -27,10 +28,30 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
     /// cell, so TUIs with mouse reporting (lazygit/htop/fzf) receive the click.
     /// The Mac's libghostty self-gates: a normal screen treats it as a harmless
     /// empty selection. Optional.
-    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didTapAtCol col: Int, row: Int)
+    func ghosttySurfaceView(
+        _ surfaceView: GhosttySurfaceView,
+        didTapAtCol col: Int,
+        row: Int
+    ) async -> GhosttySurfaceTapDisposition
     /// The user tapped the "customize" button at the end of the input-accessory
     /// bar; the host should present the toolbar shortcuts editor. Optional.
     func ghosttySurfaceViewDidRequestToolbarSettings(_ surfaceView: GhosttySurfaceView)
+    /// The user tapped the terminal Files button. Optional.
+    /// - Parameter sourceView: The tapped control to use as the popover anchor.
+    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didRequestArtifactFilesFrom sourceView: UIView)
+    /// The visible snapshot changed after settling and produced a local fallback count.
+    ///
+    /// The host may use this as a coalesced trigger for an authoritative count
+    /// and must preserve `generation` when reporting the resolved value.
+    func ghosttySurfaceView(
+        _ surfaceView: GhosttySurfaceView,
+        didDetectVisibleArtifactCount count: Int,
+        generation: UInt64
+    )
+    /// The surface detached, reattached, or changed artifact capability generation.
+    func ghosttySurfaceViewDidResetArtifactCount(_ surfaceView: GhosttySurfaceView)
+    /// The generation-checked artifact count changed and is ready for display.
+    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didChangeVisibleArtifactCount count: Int)
     /// Forward an image the user pasted from the system clipboard. The host
     /// uploads `data` to the Mac, which materializes a temp file and injects its
     /// path into the terminal so a running TUI (e.g. Claude Code) attaches it.
@@ -60,10 +81,28 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
 public extension GhosttySurfaceViewDelegate {
     /// Default no-op so hosts without remote scroll forwarding can ignore it.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int) {}
-    /// Default no-op so hosts without remote click forwarding can ignore it.
-    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didTapAtCol col: Int, row: Int) {}
+    /// Default terminal disposition so hosts without remote click forwarding retain input focus.
+    func ghosttySurfaceView(
+        _ surfaceView: GhosttySurfaceView,
+        didTapAtCol col: Int,
+        row: Int
+    ) async -> GhosttySurfaceTapDisposition {
+        .focusTerminal
+    }
     /// Default no-op so hosts without a toolbar editor can ignore the request.
     func ghosttySurfaceViewDidRequestToolbarSettings(_ surfaceView: GhosttySurfaceView) {}
+    /// Default no-op so hosts without terminal artifacts can ignore the request.
+    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didRequestArtifactFilesFrom sourceView: UIView) {}
+    /// Default no-op so hosts without terminal artifact UI can ignore settled detection.
+    func ghosttySurfaceView(
+        _ surfaceView: GhosttySurfaceView,
+        didDetectVisibleArtifactCount count: Int,
+        generation: UInt64
+    ) {}
+    /// Default no-op so hosts without terminal artifact UI can ignore count resets.
+    func ghosttySurfaceViewDidResetArtifactCount(_ surfaceView: GhosttySurfaceView) {}
+    /// Default no-op so hosts without terminal artifact UI can ignore resolved count changes.
+    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didChangeVisibleArtifactCount count: Int) {}
     /// Default no-op so hosts without image upload can ignore pasted images.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteImage data: Data, format: String) {}
     /// Default no-op so hosts without a composer can ignore the toggle request.

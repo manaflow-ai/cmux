@@ -12,17 +12,124 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `e215e78bf`. It combines the previous cmux pin
-`dd726a9a6`, current fork `main` (`8495e581a`), and upstream
-`ghostty-org/ghostty` `main` through `7e02af879` (2026-07-09), followed by the
-render-grid preserved-page OOM fix, lock-free selection notifications, and
-compressed-storage-preserving full scrollback reads.
-Published via
+Current cmux pinned fork head: `bb30526cd`. It advances the previous cmux pin
+`b4b6d69c8` through the already-merged theme, render-grid, and wrap-aware URL
+updates, then preserves authoritative sprite-font shaping runs. The commit is
+reachable from fork `main` through the merged
+https://github.com/manaflow-ai/ghostty/pull/120.
+The corresponding universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-bb30526cdab8f5fb08ae43e404e3aacc40d3ffc3-crashsubdir-cmux-crash-v1
+and pinned in `scripts/ghosttykit-checksums.txt`.
+
+### Authoritative sprite-font shaping runs
+
+- Commits:
+  - `a6ca2cca0` (test: preserve sprite runs inside text)
+  - `20d11e519` (font/shaper: preserve authoritative sprite runs)
+  - `bb30526cd` (merge Ghostty PR #120 into fork `main`)
+- Files:
+  - `src/font/shaper/coretext.zig`
+  - `src/font/shaper/run.zig`
+- Summary:
+  - Keeps special sprite-font resolutions in their own shaping runs even when
+    a surrounding text font also contains the bidi-neutral codepoint.
+  - Uses one coalescing predicate for both visual run-boundary discovery and
+    logical run construction, so the two phases cannot disagree about whether
+    a special glyph belongs to the surrounding text font.
+  - Covers a box-drawing sprite between ordinary text runs. The test-only
+    commit absorbs the trailing border into the text run; the fix restores
+    separate sprite/text/sprite runs.
+  - Conflict note: future bidi or shaper changes must preserve special-font
+    resolver results as authoritative. Special fonts bypass CoreText and
+    HarfBuzz shaping and render their own glyphs.
+
+The previous documented pin `366c801e0` added wrap-aware URL matching across
+semantic soft wraps and is reachable from fork `main` through the merged
+https://github.com/manaflow-ai/ghostty/pull/118.
+The corresponding universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-366c801e066c37695c2d9be4a6567662bd763ad0-crashsubdir-cmux-crash-v1
+and pinned in `scripts/ghosttykit-checksums.txt`.
+
+The previous `b4b6d69c8` pin introduced an exact Ghostty CLI executable-path
+contract for embedded hosts. That commit is reachable from fork `main` through
+`67b388b73` and was published via
+https://github.com/manaflow-ai/ghostty/pull/115. Its universal ReleaseFast
+GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-b4b6d69c82033e16137266a04b364dc53d16c350-crashsubdir-cmux-crash-v1
+and pinned in `scripts/ghosttykit-checksums.txt`.
+
+### URL matching across semantic soft wraps
+
+- Commits:
+  - `e0ab6113a` (test: cover URL links across semantic soft wraps)
+  - `eee34d0f9` (fix: match URLs across semantic soft wraps)
+  - `cbf65567a` (fix: scope wrapped link candidates by matcher)
+  - `ee1e56791` (test: cover idempotent URL link finalization)
+  - `30bd02565` (fix: preserve custom matchers across finalization)
+  - `366c801e0` (merge Ghostty PR #118 into fork `main`)
+- Files:
+  - `src/Surface.zig`
+  - `src/config/Config.zig`
+  - `src/config/url.zig`
+  - `src/input/Link.zig`
+  - `src/terminal/StringMap.zig`
+- Summary:
+  - Keeps semantic prompt boundaries for path and custom-link matching, while
+    letting explicit-scheme URLs use the complete soft-wrapped logical line
+    when a semantic marker divides the line at a visual row boundary.
+  - Assigns candidate bounds to each matcher so URL matching can use the wider
+    logical line without weakening the narrower scopes for paths or custom
+    matchers.
+  - Keeps link hover, click, preview, and copy on one selection path; clicking
+    any wrapped row yields the same complete URL.
+  - Preserves custom matchers when configuration finalization or cloning calls
+    `Config.finalize()` repeatedly, with focused regression coverage for that
+    idempotence contract.
+  - Conflict note: future upstream syncs must preserve the explicit-scheme
+    wider scope, matcher-owned candidate bounds, and idempotent custom-matcher
+    finalization together.
+
+### Embedded Ghostty CLI path ownership
+
+- `src/termio/Exec.zig` exports `GHOSTTY_BIN` as the exact CLI executable.
+  Native Ghostty resolves to its running binary; an embedded host can supply a
+  separate helper without assuming the host GUI executable is named `ghostty`.
+- The zsh, bash, fish, nushell, and elvish SSH integrations invoke
+  `GHOSTTY_BIN` directly. They install no SSH wrapper when an embedded host has
+  not supplied a helper, so missing optional CLI support cannot break ordinary
+  `ssh`.
+- `GHOSTTY_BIN_DIR` remains the directory contract for the independent `path`
+  shell-integration feature; it is no longer used to reconstruct a CLI filename.
+- Conflict note: future upstream merges must preserve the distinction between
+  the exact CLI path (`GHOSTTY_BIN`) and its PATH directory
+  (`GHOSTTY_BIN_DIR`) across `src/termio/Exec.zig` and every shell integration.
+
+The earlier fork history below includes terminal-owned scrollbar snapshots,
+absolute row-space identity, OSC-boundary geometry, and compare-and-set
+absolute-row restoration for notification scrollback replay.
+
+The underlying compression, selection, and full-scrollback changes were
+published via
 https://github.com/manaflow-ai/ghostty/pull/96 and
 https://github.com/manaflow-ai/ghostty/pull/99 and
 https://github.com/manaflow-ai/ghostty/pull/104 and
 https://github.com/manaflow-ai/ghostty/pull/105 and
 https://github.com/manaflow-ai/ghostty/pull/106.
+
+### Notification replay viewport authority
+
+- OSC PWD actions carry the terminal scrollbar snapshot and row-space revision
+  from the exact byte position where the replay boundary was parsed.
+- `ghostty_surface_scrollbar` reads live terminal geometry without waiting for
+  renderer publication.
+- `ghostty_surface_scroll_to_row_if_revision` validates the row-space identity,
+  scrolls, and returns the resulting geometry under one terminal lock. A reset,
+  reflow, screen replacement, surface replacement, or scrollback eviction makes
+  a stale request fail closed instead of scrolling the wrong rows.
+- Conflict note: keep the PWD snapshot fields ABI-stable in
+  `src/apprt/action.zig` / `include/ghostty.h`, preserve the PageList revision
+  increments around row renumbering, and keep the embedded compare-and-set API
+  adjacent to `ghostty_surface_scrollbar` during future fork merges.
 
 ### Upstream TLDR (`d560c645..7e02af879`)
 
@@ -92,11 +199,13 @@ build, a clean universal GhosttyKit build, tagged cmux reloads `gcmp` and
 `gsel2`, and live accessibility reads across select-all, endpoint adjustment,
 and clearing.
 Prebuilt archive:
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-5ae712a89479f16d47d9a75e1a802a22415a3033-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-eb500e9f45c8b6ffa6043350ec1488a42d195406-crashsubdir-cmux-crash-v1
 
 ### Previous pin
 
-The previous cmux pin was `1ae98c991`. It was superseded by `e215e78bf` after
+The previous cmux pin was `5ae712a89`, which added the bounded VT screen-tail
+export on top of `e215e78bf`. Before that, `1ae98c991` was superseded by
+`e215e78bf` after
 full scrollback formatting was changed to preserve compressed storage and
 selection notifications moved to a lock-free terminal-wide epoch. The initial
 compression merge for this update was `870ed36f9`; it was superseded by

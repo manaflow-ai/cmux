@@ -135,6 +135,7 @@ extension TerminalSurface {
             registry.unregisterRuntimeSurface(surface, ownerId: id)
             self.surface = nil
             activePortalHostLease = nil
+            portalHostAuthority = nil
             recordTeardownRequest(reason: reason)
             markPortalLifecycleClosed(reason: reason)
 #if DEBUG
@@ -197,6 +198,9 @@ extension TerminalSurface {
         guard portalLifecycleState != .closing else { return }
         recordTeardownRequest(reason: reason)
         portalLifecycleState = .closing
+        // Parked wake-ups are for re-anchoring live content; a closing surface
+        // has none, and the park guard refuses new entries from here on.
+        clearPortalHostVacancyRetries()
         portalLifecycleGeneration &+= 1
 #if DEBUG
         logDebugEvent(
@@ -211,6 +215,7 @@ extension TerminalSurface {
         guard portalLifecycleState != .closed else { return }
         portalLifecycleState = .closed
         portalLifecycleGeneration &+= 1
+        clearPortalHostVacancyRetries()
 #if DEBUG
         logDebugEvent(
             "surface.lifecycle.close.sealed surface=\(id.uuidString.prefix(5)) " +
@@ -263,18 +268,19 @@ extension TerminalSurface {
 
 #if DEBUG
         if let freeSurface = Self.runtimeSurfaceFreeOverrideForTesting {
+            // Transport manualIOContext and teeLease through the request too:
+            // the coordinator releases all callback userdata only after the
+            // native free, which is what joins ghostty's IO threads.
             runtimeTeardown.enqueueRuntimeTeardown(
                 id: id,
                 workspaceId: tabId,
                 reason: "teardown",
                 surface: surfaceToFree,
                 callbackContext: callbackContext,
+                manualIOContext: manualIOContext,
+                byteTeeLease: teeLease,
                 freeSurface: freeSurface
             )
-            // The teardown coordinator releases callbackContext; manualIOContext
-            // and teeLease are not transported through the request, so release them here.
-            manualIOContext?.release()
-            teeLease?.release()
             return
         }
 #endif
@@ -312,6 +318,9 @@ extension TerminalSurface {
         }
         surface = nil
         activePortalHostLease = nil
+        portalHostAuthority = nil
+        clearPortalHostVacancyRetries()
+        portalLifecycleGeneration &+= 1
         pendingSocketInputQueue.removeAll(keepingCapacity: false)
         pendingSocketInputBytes = 0
         desiredFocusState = false
@@ -332,18 +341,19 @@ extension TerminalSurface {
 
 #if DEBUG
         if let freeSurface = Self.runtimeSurfaceFreeOverrideForTesting {
+            // Transport manualIOContext and teeLease through the request too:
+            // the coordinator releases all callback userdata only after the
+            // native free, which is what joins ghostty's IO threads.
             runtimeTeardown.enqueueRuntimeTeardown(
                 id: id,
                 workspaceId: tabId,
                 reason: reason,
                 surface: surfaceToFree,
                 callbackContext: callbackContext,
+                manualIOContext: manualIOContext,
+                byteTeeLease: teeLease,
                 freeSurface: freeSurface
             )
-            // The teardown coordinator releases callbackContext; manualIOContext
-            // and teeLease are not transported through the request, so release them here.
-            manualIOContext?.release()
-            teeLease?.release()
             return
         }
 #endif
@@ -614,7 +624,7 @@ extension TerminalSurface {
             }()
             if shouldReapply {
                 let action = String(format: "set_font_size:%.3f", inheritedRuntimeFontPoints)
-                _ = performBindingAction(action)
+                _ = performInternalBindingAction(action)
             }
         }
 

@@ -1,6 +1,6 @@
 import CMUXAgentLaunch
 import Foundation
-import XCTest
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -8,7 +8,71 @@ import XCTest
 @testable import cmux
 #endif
 
-final class RestorableAgentSessionIndexTests: XCTestCase {
+private func XCTAssertEqual<T: Equatable>(
+    _ lhs: @autoclosure () throws -> T,
+    _ rhs: @autoclosure () throws -> T,
+    _ message: @autoclosure () -> String = ""
+) {
+    do {
+        #expect(try lhs() == rhs(), Comment(rawValue: message()))
+    } catch {
+        Issue.record(error)
+    }
+}
+
+private func XCTAssertTrue(
+    _ expression: @autoclosure () throws -> Bool,
+    _ message: @autoclosure () -> String = ""
+) {
+    do {
+        #expect(try expression(), Comment(rawValue: message()))
+    } catch {
+        Issue.record(error)
+    }
+}
+
+private func XCTAssertFalse(
+    _ expression: @autoclosure () throws -> Bool,
+    _ message: @autoclosure () -> String = ""
+) {
+    do {
+        #expect(try !expression(), Comment(rawValue: message()))
+    } catch {
+        Issue.record(error)
+    }
+}
+
+private func XCTAssertNil<T>(
+    _ expression: @autoclosure () throws -> T?,
+    _ message: @autoclosure () -> String = ""
+) {
+    do {
+        #expect(try expression() == nil, Comment(rawValue: message()))
+    } catch {
+        Issue.record(error)
+    }
+}
+
+private func XCTAssertNotNil<T>(
+    _ expression: @autoclosure () throws -> T?,
+    _ message: @autoclosure () -> String = ""
+) {
+    do {
+        #expect(try expression() != nil, Comment(rawValue: message()))
+    } catch {
+        Issue.record(error)
+    }
+}
+
+private func XCTUnwrap<T>(
+    _ expression: @autoclosure () throws -> T?,
+    _ message: @autoclosure () -> String = ""
+) throws -> T {
+    try #require(try expression(), Comment(rawValue: message()))
+}
+
+struct RestorableAgentSessionIndexTests {
+    @Test
     func testClaudeHookSnapshotRequiresTranscriptFile() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
@@ -136,6 +200,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
     }
 
+    @Test
     func testClaudeTranscriptCreatedAfterAbsentLoadInvalidatesSharedLookup() throws {
         let fm = FileManager.default
         let sessionId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
@@ -163,6 +228,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
     }
 
+    @Test
     func testClaudeTranscriptDeletedBetweenLoadsInvalidatesSharedLookup() throws {
         let fm = FileManager.default
         let sessionId = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
@@ -187,6 +253,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
     }
 
+    @Test
     func testClaudeTranscriptLookupIsStableAcrossUnchangedLoads() throws {
         let fm = FileManager.default
         let sessionId = "cccccccc-cccc-cccc-cccc-cccccccccccc"
@@ -214,6 +281,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         XCTAssertEqual(secondSnapshot.resumeCommand, firstSnapshot.resumeCommand)
     }
 
+    @Test
     func testClaudeZeroByteTranscriptIsRecheckedOnNextLoad() throws {
         let fm = FileManager.default
         let sessionId = "dddddddd-dddd-dddd-dddd-dddddddddddd"
@@ -243,6 +311,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
     }
 
+    @Test
     func testClaudeNestedTranscriptCreatedWithoutProjectRootMtimeChangeIsFound() throws {
         let fm = FileManager.default
         let sessionId = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
@@ -279,6 +348,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
     }
 
+    @Test
     func testClaudeNestedTranscriptDeletedWithoutProjectRootMtimeChangeStopsResolving() throws {
         let fm = FileManager.default
         let sessionId = "ffffffff-ffff-ffff-ffff-ffffffffffff"
@@ -313,6 +383,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
     }
 
+    @Test
     func testPanelFallbackUsesLatestHookRecord() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
@@ -385,6 +456,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
     // The launch path contains a "." so this also exercises encodeClaudeProjectDir's "." -> "-"
     // contract, and the on-disk fixture is placed using a project-dir name computed independently of
     // the production helper so a regression in that helper fails the test instead of being masked.
+    @Test
     func testClaudeForkResolvesDriftedCwdViaTranscriptPath() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
@@ -442,6 +514,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
 
     // Same drift, but the record carries no explicit transcriptPath: resolution must still find the
     // correct directory by probing the Claude config directory on disk.
+    @Test
     func testClaudeForkResolvesDriftedCwdViaConfigScanWhenTranscriptPathMissing() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
@@ -493,6 +566,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
     // folder, so neither verifier can confirm a candidate. Resolution must still prefer the launch
     // cwd (the session namespace) over the drift-prone recorded cwd, instead of falling back to the
     // drift. This is the exact shape that made a build *with* the #5154 fix still fail to resume.
+    @Test
     func testClaudeResumePrefersLaunchCwdWhenTranscriptUnverifiable() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
@@ -553,6 +627,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
     // hook-reported cwd drifted into a subdirectory must still resume from the launch cwd. Before
     // the fix the resolver short-circuited every non-Claude kind straight to the drifted recorded
     // cwd via `guard kind == .claude else { return recordedCwd }`.
+    @Test
     func testDirectoryNamespacedNonClaudeAgentResolvesDriftToLaunchCwd() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
@@ -599,6 +674,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
     }
 
+    @Test
     func testPiDetectedLatestSessionDoesNotCollapseExactHookRecordsAcrossPanels() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
@@ -695,6 +771,218 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         XCTAssertEqual(restoredSessionIds, sessionIds)
     }
 
+    @Test
+    func testPiDetectedLatestSessionDoesNotCollapseExactHookRecordsAfterWorkspaceIdRotation() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-pi-restore-workspace-rotation-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        let sessionsRoot = root.appendingPathComponent("pi-sessions", isDirectory: true)
+        let projectDirectory = try XCTUnwrap(PiSessionLocator.projectDirectoryName(for: cwd.path))
+        let projectSessions = sessionsRoot.appendingPathComponent(projectDirectory, isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+        try fm.createDirectory(at: projectSessions, withIntermediateDirectories: true)
+
+        var registration = CmuxVaultAgentRegistration.builtInPi
+        registration.sessionDirectory = sessionsRoot.path
+        let registry = CmuxVaultAgentRegistry(registrations: [registration])
+        let oldWorkspaceIds = [UUID(), UUID(), UUID()]
+        let restoredWorkspaceIds = [UUID(), UUID(), UUID()]
+        let panels = [UUID(), UUID(), UUID()]
+        let sessionIds = ["pi-session-a", "pi-session-b", "pi-session-c"]
+        var hookSessions: [String: [String: Any]] = [:]
+        for (index, sessionId) in sessionIds.enumerated() {
+            let sessionFile = projectSessions.appendingPathComponent("\(sessionId).jsonl", isDirectory: false)
+            try "{}\n".write(to: sessionFile, atomically: true, encoding: .utf8)
+            try fm.setAttributes(
+                [.modificationDate: Date(timeIntervalSince1970: TimeInterval(1_000 + index))],
+                ofItemAtPath: sessionFile.path
+            )
+            hookSessions[sessionId] = driftedAgentHookRecord(
+                launcher: "pi",
+                sessionId: sessionId,
+                workspaceId: oldWorkspaceIds[index],
+                panelId: panels[index],
+                recordedCwd: cwd.path,
+                launchCwd: cwd.path,
+                updatedAt: TimeInterval(10 + index)
+            )
+        }
+        try writeHookStore(root: root, storeFilename: "pi-hook-sessions.json", sessions: hookSessions)
+
+        let processes = panels.enumerated().map { index, panelId in
+            CmuxTopProcessInfo(
+                pid: 4_300 + index,
+                parentPID: 1,
+                name: "pi",
+                path: "/usr/local/bin/pi",
+                ttyDevice: nil,
+                cmuxWorkspaceID: restoredWorkspaceIds[index],
+                cmuxSurfaceID: panelId,
+                cmuxAttributionReason: "cmux-test",
+                processGroupID: nil,
+                terminalProcessGroupID: nil,
+                cpuPercent: 0,
+                residentBytes: 0,
+                virtualBytes: 0,
+                threadCount: 1
+            )
+        }
+        let processSnapshot = CmuxTopProcessSnapshot(
+            processes: processes,
+            sampledAt: Date(timeIntervalSince1970: 0),
+            includesProcessDetails: true
+        )
+        let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: registry,
+            fileManager: fm,
+            processSnapshot: processSnapshot,
+            capturedAt: 42,
+            processArgumentsProvider: { processId in
+                guard processes.contains(where: { $0.pid == processId }) else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: ["/usr/local/bin/pi"],
+                    environment: [
+                        "PWD": cwd.path,
+                        "PI_CODING_AGENT_SESSION_DIR": sessionsRoot.path,
+                    ]
+                )
+            }
+        )
+
+        let expectedDetectedKeys = Set(zip(restoredWorkspaceIds, panels).map { workspaceId, panelId in
+            RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
+        })
+        XCTAssertEqual(Set(detectedSnapshots.keys), expectedDetectedKeys)
+        let detectedSessionIds = Set(detectedSnapshots.values.map { $0.snapshot.sessionId })
+        XCTAssertEqual(detectedSessionIds.count, 1, "Pi latest-file detection is ambiguous for same-cwd workspaces")
+
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fm,
+            registry: registry,
+            detectedSnapshots: detectedSnapshots,
+            processArgumentsProvider: { _ in nil }
+        )
+        let restoredSessionIds = try zip(restoredWorkspaceIds, panels).map { workspaceId, panelId in
+            try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId)).sessionId
+        }
+
+        XCTAssertEqual(restoredSessionIds, sessionIds)
+    }
+
+    @Test
+    func testPiDetectedLatestSessionDoesNotUsePanelOnlyFallbackWhenPanelIdIsAmbiguous() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-pi-restore-panel-id-ambiguous-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        let sessionsRoot = root.appendingPathComponent("pi-sessions", isDirectory: true)
+        let projectDirectory = try XCTUnwrap(PiSessionLocator.projectDirectoryName(for: cwd.path))
+        let projectSessions = sessionsRoot.appendingPathComponent(projectDirectory, isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+        try fm.createDirectory(at: projectSessions, withIntermediateDirectories: true)
+
+        var registration = CmuxVaultAgentRegistration.builtInPi
+        registration.sessionDirectory = sessionsRoot.path
+        let registry = CmuxVaultAgentRegistry(registrations: [registration])
+        let oldWorkspaceId = UUID()
+        let otherOldWorkspaceId = UUID()
+        let restoredWorkspaceId = UUID()
+        let panelId = UUID()
+        let hookRecords = [
+            (sessionId: "pi-old-workspace-a", workspaceId: oldWorkspaceId),
+            (sessionId: "pi-old-workspace-b", workspaceId: oldWorkspaceId),
+            (sessionId: "pi-other-old-workspace", workspaceId: otherOldWorkspaceId),
+        ]
+        let detectedLatestSessionId = "pi-detected-newest"
+        var hookSessions: [String: [String: Any]] = [:]
+        for (index, hookRecord) in hookRecords.enumerated() {
+            let sessionFile = projectSessions.appendingPathComponent("\(hookRecord.sessionId).jsonl", isDirectory: false)
+            try "{}\n".write(to: sessionFile, atomically: true, encoding: .utf8)
+            try fm.setAttributes(
+                [.modificationDate: Date(timeIntervalSince1970: TimeInterval(1_000 + index))],
+                ofItemAtPath: sessionFile.path
+            )
+            hookSessions[hookRecord.sessionId] = driftedAgentHookRecord(
+                launcher: "pi",
+                sessionId: hookRecord.sessionId,
+                workspaceId: hookRecord.workspaceId,
+                panelId: panelId,
+                recordedCwd: cwd.path,
+                launchCwd: cwd.path,
+                updatedAt: TimeInterval(10 + index)
+            )
+        }
+        let detectedLatestFile = projectSessions.appendingPathComponent("\(detectedLatestSessionId).jsonl", isDirectory: false)
+        try "{}\n".write(to: detectedLatestFile, atomically: true, encoding: .utf8)
+        try fm.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 2_000)],
+            ofItemAtPath: detectedLatestFile.path
+        )
+        try writeHookStore(root: root, storeFilename: "pi-hook-sessions.json", sessions: hookSessions)
+
+        let process = CmuxTopProcessInfo(
+            pid: 4_400,
+            parentPID: 1,
+            name: "pi",
+            path: "/usr/local/bin/pi",
+            ttyDevice: nil,
+            cmuxWorkspaceID: restoredWorkspaceId,
+            cmuxSurfaceID: panelId,
+            cmuxAttributionReason: "cmux-test",
+            processGroupID: nil,
+            terminalProcessGroupID: nil,
+            cpuPercent: 0,
+            residentBytes: 0,
+            virtualBytes: 0,
+            threadCount: 1
+        )
+        let processSnapshot = CmuxTopProcessSnapshot(
+            processes: [process],
+            sampledAt: Date(timeIntervalSince1970: 0),
+            includesProcessDetails: true
+        )
+        let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: registry,
+            fileManager: fm,
+            processSnapshot: processSnapshot,
+            capturedAt: 42,
+            processArgumentsProvider: { processId in
+                guard processId == process.pid else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: ["/usr/local/bin/pi"],
+                    environment: [
+                        "PWD": cwd.path,
+                        "PI_CODING_AGENT_SESSION_DIR": sessionsRoot.path,
+                    ]
+                )
+            }
+        )
+        let restoredKey = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: restoredWorkspaceId,
+            panelId: panelId
+        )
+        let detected = try XCTUnwrap(detectedSnapshots[restoredKey])
+        XCTAssertEqual(detected.snapshot.sessionId, detectedLatestSessionId)
+
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fm,
+            registry: registry,
+            detectedSnapshots: detectedSnapshots,
+            processArgumentsProvider: { _ in nil }
+        )
+        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: restoredWorkspaceId, panelId: panelId))
+
+        XCTAssertEqual(snapshot.sessionId, detectedLatestSessionId)
+    }
+
+    @Test
     func testPiInferredLatestFallbackUsesSameKindPanelHookWhenAnotherKindIsNewer() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
@@ -788,6 +1076,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
     // RestorableAgentKind.cwdNamespacing delegates to the shared AgentResumeWorkingDirectory
     // classifier (in CMUXAgentLaunch) so the app-side resolver and the CLI surface-restore publisher
     // apply one policy. The shared resolver's own behavior is covered in CMUXAgentLaunchTests.
+    @Test
     func testRestorableAgentKindCwdNamespacingMatchesSharedClassifier() {
         for kind in RestorableAgentKind.allCases {
             XCTAssertEqual(
@@ -798,6 +1087,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         }
     }
 
+    @Test
     func testClaudeWorkflowDirectorySessionUsesSiblingJsonlSessionForResume() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
@@ -928,6 +1218,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
     // A custom Vault agent defaults to cwd: .preserve and can expand {{cwd}} in its resume template,
     // so a restored custom session must keep the runtime cwd it drifted into, not the launch dir.
     // (The kind-based namespace classifier would otherwise treat an unknown id as by-directory.)
+    @Test
     func testCustomVaultAgentPreservesRuntimeCwdOnRestore() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
@@ -990,6 +1281,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
     // Forking branches a NEW session off an existing one. The fork command must use the correct
     // per-agent fork verb and cd into the session's directory, so the forked session launches in the
     // right place and is itself resumable.
+    @Test
     func testForkCommandUsesPerAgentVerbAndSessionCwd() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
@@ -1001,8 +1293,8 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         let cases: [(launcher: String, store: String, verbNeedles: [String])] = [
             ("codex", "codex-hook-sessions.json", ["'fork'"]),
             ("opencode", "opencode-hook-sessions.json", ["'--session'", "'--fork'"]),
-            ("pi", "pi-hook-sessions.json", ["'--session'", "'--fork'"]),
-            ("omp", "omp-hook-sessions.json", ["'--session'", "'--fork'"]),
+            ("pi", "pi-hook-sessions.json", ["'--fork'"]),
+            ("omp", "omp-hook-sessions.json", ["'--fork'"]),
         ]
         for testCase in cases {
             let ws = UUID()
@@ -1042,6 +1334,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
 
     // Agents without a fork verb must not emit a fork command (a malformed one would launch a broken
     // session). This pins which agents support fork so the set is explicit.
+    @Test
     func testNonForkAgentsProduceNoForkCommand() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
@@ -1077,6 +1370,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
 
     // Spawn an agent, end it, spawn a new one on the same surface: restore must pick the NEWEST
     // session (highest updatedAt), not the stale earlier one.
+    @Test
     func testReplacementRestoresNewestSessionForSurface() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
@@ -1113,6 +1407,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
 
     // Reopening the app multiple times must restore the same session each time (load is pure over
     // the on-disk store).
+    @Test
     func testRestoreIsIdempotentAcrossReloads() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
@@ -1149,6 +1444,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
 
     // A session whose recorded process is no longer alive (the agent was killed) must NOT restore
     // from the hook index, even though the record is still on disk.
+    @Test
     func testKilledSessionWithDeadProcessDoesNotRestore() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
@@ -1350,6 +1646,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
     // claude-only flags. Resume/fork must never run the foreign binary; the cross-agent
     // capture is discarded and the agent's bare verbs are used instead. This is the root
     // cause of "Fork Conversation" breaking for codex sessions started under a claude session.
+    @Test
     func testCrossAgentLaunchCaptureIsDiscardedForResumeAndFork() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
@@ -1415,6 +1712,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
     // When the launch argv falls back to a PID that points at the hook dispatch shell instead of
     // the agent (`sh -c 'payload=...'`), the captured argv describes the hook wrapper, not a
     // launch. Resume/fork must discard it and use the agent's bare verbs.
+    @Test
     func testShellWrapperArgvCaptureIsDiscardedForResumeAndFork() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
@@ -1461,6 +1759,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
     }
 
     // Wrapper launchers legitimately differ from the hook kind; their captures must stay trusted.
+    @Test
     func testWrapperLauncherCaptureStaysTrusted() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory

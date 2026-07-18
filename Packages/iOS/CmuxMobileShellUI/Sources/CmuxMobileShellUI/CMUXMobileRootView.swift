@@ -15,6 +15,9 @@ struct CMUXMobileRootView: View {
     @Bindable var store: CMUXMobileShellStore
     @Environment(\.scenePhase) private var scenePhase
     @Environment(AuthCoordinator.self) private var authManager
+    @Environment(\.dogfoodAttachPreparation) private var dogfoodAttachPreparation
+    private let signOutHook: MobileSignOutHook
+    private let startupConnectionCoordinator: MobileStartupConnectionCoordinator
     #if os(iOS)
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
     /// The persisted first-run onboarding "seen" flag store. The one-time
@@ -28,7 +31,6 @@ struct CMUXMobileRootView: View {
     @State private var hasSeenOnboarding: Bool
     #endif
     @State private var pendingAttachURL: String?
-    @State private var didConsumeUITestAttachURL = false
     @State private var didAuthenticateWithAttachTicket = false
     @State private var isShowingAddDeviceSheet = false
     #if os(iOS)
@@ -43,14 +45,27 @@ struct CMUXMobileRootView: View {
     @Environment(\.tailscaleStatusMonitor) private var tailscaleStatusMonitor
 
     #if os(iOS)
-    init(store: CMUXMobileShellStore, onboardingStore: MobileOnboardingStore) {
+    init(
+        store: CMUXMobileShellStore,
+        onboardingStore: MobileOnboardingStore,
+        signOutHook: MobileSignOutHook,
+        startupConnectionCoordinator: MobileStartupConnectionCoordinator
+    ) {
         self.store = store
         self.onboardingStore = onboardingStore
+        self.signOutHook = signOutHook
+        self.startupConnectionCoordinator = startupConnectionCoordinator
         _hasSeenOnboarding = State(initialValue: onboardingStore.hasSeenOnboarding)
     }
     #else
-    init(store: CMUXMobileShellStore) {
+    init(
+        store: CMUXMobileShellStore,
+        signOutHook: MobileSignOutHook,
+        startupConnectionCoordinator: MobileStartupConnectionCoordinator
+    ) {
         self.store = store
+        self.signOutHook = signOutHook
+        self.startupConnectionCoordinator = startupConnectionCoordinator
     }
     #endif
 
@@ -132,12 +147,11 @@ struct CMUXMobileRootView: View {
             pushCoordinator.workspacesDidChange()
         }
         #endif
-        .onChange(of: authManager.selectedTeamID) { _, _ in
-            // The user switched Stack teams (from the nav drawer). Lazily re-scope
-            // the team-bound state (presence, registry, paired-Mac backup,
-            // aggregation) to the new team without dropping the live terminal. The
-            // drawer only writes `selectedTeamID`; this is the single observation
-            // point, so every entrypoint that changes the team flows through here.
+        .onChange(of: authManager.resolvedTeamID) { _, _ in
+            // The effective team can change because the user selected one or
+            // because launch-time team loading resolved the cached account's
+            // default. Re-scope both transitions so a reconnect that began with
+            // no team is superseded by exactly one current-team attempt.
             store.currentTeamDidChange()
         }
         .onChange(of: scenePhase) { _, phase in
@@ -168,6 +182,7 @@ struct CMUXMobileRootView: View {
         .onChange(of: isAuthenticated) { _, isAuthenticated in
             syncShellAuthentication(isAuthenticated)
             guard isAuthenticated else {
+                startupConnectionCoordinator.reset()
                 return
             }
             if consumePendingURLIfReady() {
@@ -178,7 +193,10 @@ struct CMUXMobileRootView: View {
         .onChange(of: authManager.isRestoringSession) { _, isRestoringSession in
             syncShellAuthentication(isAuthenticated, isRestoringSession: isRestoringSession)
             guard !isRestoringSession else { return }
-            _ = consumePendingURLIfReady()
+            if consumePendingURLIfReady() {
+                return
+            }
+            reconnectStoredMacIfNeeded()
         }
         .onChange(of: store.connectionState) { _, connectionState in
             if connectionState == .connected {
@@ -369,17 +387,20 @@ struct CMUXMobileRootView: View {
     /// sign-in that completes after mount) so the restoring gate always resolves
     /// even when the auth state never transitions while this view is mounted.
     private func reconnectStoredMacIfNeeded() {
-        guard isAuthenticated else { return }
+        guard isAuthenticated, !authManager.isRestoringSession else { return }
         let startedUITestAttachURL = connectUITestAttachURLIfNeeded()
         guard !startedUITestAttachURL,
               MobileRootAuthGate.shouldReconnectStoredMac(
                 stackAuthenticated: authManager.isAuthenticated,
                 attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
+                isRestoringSession: authManager.isRestoringSession,
                 connectionState: store.connectionState
               ) else { return }
+        guard let startupAttempt = startupConnectionCoordinator.claimStoredReconnect() else { return }
         let stackUserID = authManager.currentUser?.id
         Task {
-            await store.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
+            _ = await store.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
+            startupConnectionCoordinator.finishStoredReconnect(startupAttempt)
         }
     }
 
@@ -462,27 +483,16 @@ struct CMUXMobileRootView: View {
     }
 
     private func signOut() {
-        #if os(iOS)
-        // The hook receives the tokens captured before the local-first clear:
-        // by the time it runs, the live token store is already empty.
-        let pushCoordinator = pushCoordinator
-        let onSignedOut: @Sendable (String?, String?) async -> Void = { accessToken, refreshToken in
-            await pushCoordinator.unregisterFromServer(
-                accessToken: accessToken,
-                refreshToken: refreshToken
-            )
-        }
-        #else
-        let onSignedOut: @Sendable (String?, String?) async -> Void = { _, _ in }
-        #endif
         Task {
             // Local shell teardown first so the whole UI lands signed out
             // immediately; authManager.signOut clears the local session up
             // front and only then runs its bounded best-effort server teardown
             // (push-token DELETE, Stack session revocation).
             didAuthenticateWithAttachTicket = false
+            startupConnectionCoordinator.reset()
             store.signOut()
-            await authManager.signOut(onSignedOut: onSignedOut)
+            let serverTeardown = signOutHook.begin()
+            await authManager.signOut(onSignedOut: serverTeardown)
         }
     }
 
@@ -501,14 +511,21 @@ struct CMUXMobileRootView: View {
         //     kept intact for the XCUITest harness.
         // No-op unless one of those env vars is set, so normal launches are
         // unaffected.
-        guard !didConsumeUITestAttachURL,
-              isAuthenticated,
+        guard isAuthenticated,
               let attachURL = UITestConfig.dogfoodAttachURL ?? UITestConfig.attachURL else {
             return false
         }
-        didConsumeUITestAttachURL = true
+        // The configured launch route owns startup even after it is consumed.
+        // Returning true for repeated lifecycle callbacks prevents a saved-Mac
+        // restore from silently racing or replacing that explicit route.
+        guard let startupAttempt = startupConnectionCoordinator.claimInjectedAttach() else {
+            return true
+        }
         Task {
-            await store.connectPairingURL(attachURL)
+            await dogfoodAttachPreparation.run {
+                await store.connectPairingURL(attachURL)
+            }
+            startupConnectionCoordinator.finishInjectedAttach(startupAttempt)
         }
         return true
         #else

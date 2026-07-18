@@ -71,6 +71,58 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     assert_eq!(ping.get("ok").and_then(|v| v.as_bool()), Some(true));
     assert_eq!(ping.get("protocol").and_then(|v| v.as_u64()), Some(7));
 
+    let client_info =
+        cli(&server, &["set-client-info", "--name", "one-shot", "--kind", "cli-test"]);
+    assert_success(&client_info);
+
+    let target = transport::connect(&server.socket).unwrap();
+    let mut target_writer = target.try_clone_box().unwrap();
+    let mut target_reader = BufReader::new(target);
+    writeln!(
+        target_writer,
+        r#"{{"id":1,"cmd":"set-client-info","name":"cli-detach-target","kind":"test"}}"#
+    )
+    .unwrap();
+    let mut target_response = String::new();
+    target_reader.read_line(&mut target_response).unwrap();
+    assert_eq!(serde_json::from_str::<serde_json::Value>(&target_response).unwrap()["ok"], true);
+
+    let clients = cli(&server, &["--json", "list-clients"]);
+    assert_success(&clients);
+    let clients_json: serde_json::Value = serde_json::from_slice(&clients.stdout).unwrap();
+    let target_id = clients_json
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|client| client["name"] == "cli-detach-target")
+        .unwrap()["client"]
+        .as_u64()
+        .unwrap();
+    let clients_human = cli(&server, &["list-clients"]);
+    assert_success(&clients_human);
+    assert!(String::from_utf8_lossy(&clients_human.stdout).contains("connected="));
+    let excluded = cli(
+        &server,
+        &["set-client-sizing", "--client", &target_id.to_string(), "--enabled", "false"],
+    );
+    assert_success(&excluded);
+    let clients = cli(&server, &["--json", "list-clients"]);
+    assert_success(&clients);
+    let clients_json: serde_json::Value = serde_json::from_slice(&clients.stdout).unwrap();
+    assert_eq!(
+        clients_json
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|client| client["client"] == target_id)
+            .unwrap()["size_participating"],
+        false
+    );
+    let detached = cli(&server, &["detach-client", "--client", &target_id.to_string()]);
+    assert_success(&detached);
+    target_response.clear();
+    assert_eq!(target_reader.read_line(&mut target_response).unwrap(), 0);
+
     let title = cli(&server, &["set-window-title", "--title", "hello"]);
     assert_success(&title);
     assert!(title.stdout.is_empty(), "set-window-title should be quiet on success");
@@ -132,16 +184,9 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     assert_eq!(zoom_json["zoomed_pane"].as_u64(), Some(pane1));
 
     let marker = format!("cmux_cli_marker_{}", std::process::id());
-    let marker_suffix = std::process::id().to_string();
     let send = cli(
         &server,
-        &[
-            "send",
-            "--surface",
-            &surface.to_string(),
-            "--text",
-            &format!("printf 'cmux_cli_marker_%s\\n' '{marker_suffix}'\n"),
-        ],
+        &["send", "--surface", &surface.to_string(), "--text", &format!("echo {marker}\r")],
     );
     assert_success(&send);
     assert!(send.stdout.is_empty(), "mutating commands should be quiet on success");
@@ -203,6 +248,45 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     assert_eq!(bogus.status.code(), Some(3));
 
     assert_subscribe_reports_tree_changed(&server);
+}
+
+#[test]
+fn cli_apply_layout_passes_explicit_surface_size() {
+    let server = HeadlessServer::start("apply-layout-size");
+    let applied = cli(
+        &server,
+        &[
+            "--json",
+            "apply-layout",
+            "--layout",
+            r#"{"type":"leaf"}"#,
+            "--cols",
+            "111",
+            "--rows",
+            "37",
+        ],
+    );
+    assert_success(&applied);
+    let applied: serde_json::Value = serde_json::from_slice(&applied.stdout).unwrap();
+    let surface = applied["panes"][0]["surface"].as_u64().unwrap();
+
+    let state = cli(&server, &["--json", "vt-state", "--surface", &surface.to_string()]);
+    assert_success(&state);
+    let state: serde_json::Value = serde_json::from_slice(&state.stdout).unwrap();
+    assert_eq!(state["cols"].as_u64(), Some(111));
+    assert_eq!(state["rows"].as_u64(), Some(37));
+
+    let inherited = cli(&server, &["new-workspace"]);
+    assert_success(&inherited);
+    let inherited = String::from_utf8(inherited.stdout).unwrap().trim().parse::<u64>().unwrap();
+    let state = cli(&server, &["--json", "vt-state", "--surface", &inherited.to_string()]);
+    assert_success(&state);
+    let state: serde_json::Value = serde_json::from_slice(&state.stdout).unwrap();
+    assert_eq!(state["cols"].as_u64(), Some(111));
+    assert_eq!(state["rows"].as_u64(), Some(37));
+
+    let partial = cli(&server, &["apply-layout", "--layout", r#"{"type":"leaf"}"#, "--cols", "90"]);
+    assert_eq!(partial.status.code(), Some(2));
 }
 
 fn assert_subscribe_reports_tree_changed(server: &HeadlessServer) {

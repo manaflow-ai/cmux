@@ -936,6 +936,19 @@
         "p3": "優れた開発者は常に自分のツールを構築してきました。エージェントとの最適な作業方法はまだ誰も見つけていませんし、クローズドな製品を作っているチームも見つけていません。自分のコードベースに最も近い開発者が最初に見つけるでしょう。",
         "p4": "100万人の開発者にコンポーザブルなプリミティブを与えれば、どんなプロダクトチームがトップダウンで設計するよりも速く、最も効率的なワークフローを集合的に見つけ出すでしょう。"
       },
+      "cmuxFork": {
+        "title": "cmux Forkの紹介",
+        "summary": "エージェントの会話を、文脈を失わずに新しい分割、タブ、ワークスペースへ分岐できます。",
+        "date": "2026年7月14日",
+        "p1": "コーディングエージェントとの会話では、分岐したくなる場面があります。一つの方針を残したまま、別のエージェントに異なる実装、派生調査、同じ問題への別の視点を試してもらえます。",
+        "p2": "Fork Conversationは、現在の会話履歴と作業ディレクトリを引き継いだ新しいエージェントセッションを作成します。Codex、Claude Code、OpenCode、Pi、Hermesなど、フォーク可能なセッションを持つエージェントに対応しています。",
+        "destinationsTitle": "作業したい場所へフォーク",
+        "destinationsP": "ターミナルまたはタブを右クリックしてFork Conversationを選ぶか、<code>Cmd+Shift+P</code>を押してFork Conversationを検索します。上下左右の分割、新しいタブ、新しいワークスペースへフォークできます。",
+        "parallelTitle": "複数の方向を同時に試す",
+        "parallelP1": "同じ会話を複数回フォークして実装を比較したり、同じ開始文脈を持つ複数のエージェントに問題を分担させたりできます。各フォークは独立して続き、元の会話もそのまま残ります。",
+        "parallelP2": "フォークは同じディレクトリでも動かせます。同時編集が重なる可能性がある場合は、別々のタスクやファイルを割り当ててください。",
+        "release": "cmux Forkはv0.64.19で利用できます。"
+      },
       "claudeCodeBestWorktreeManager": {
         "title": "Claude Code は最高のワークツリー マネージャーです",
         "summary": "Claude Code、Codex、スクリプト、cmux プリミティブを使用して、コードベースが実際に必要とするワークツリー ワークフローを構築します。",
@@ -1156,6 +1169,10 @@
       "metaTitle": "cmuxの禅",
       "metaDescription": "cmuxはソリューションではなくプリミティブ。組み合わせ可能なパーツを提供し、ワークフローはあなた次第。"
     },
+    "cmuxFork": {
+      "metaTitle": "cmux Forkの紹介",
+      "metaDescription": "Codex、Claude Code、OpenCode、Pi、Hermesなどの対応エージェントの会話を、文脈を失わずに新しい分割、タブ、ワークスペースへフォークできます。"
+    },
     "claudeCodeBestWorktreeManager": {
       "metaTitle": "Claude Code は最高のワークツリー マネージャーです",
       "metaDescription": "エージェント、スーパー リポジトリ、cmux カスタム コマンド、プログラマブル ターミナル プリミティブが実際のコードベースの組み込みワークツリー マネージャーに勝る理由。",
@@ -1325,6 +1342,7 @@
       "enableDesc": "設定 → ベータ機能 を開き、「リモート tmux」をオンにします。デフォルトはオフなので、オプトインするまでローカルのターミナルには何も影響しません。",
       "attachTitle": "接続する",
       "attachIntro": "ターミナルで cmux ssh-tmux <宛先>（~/.ssh/config のエイリアスまたは user@host）を実行します。cmux はそのホストの tmux セッションを現在のウィンドウのサイドバーにミラーリングします。各セッションはワークスペースに、各ウィンドウはタブに、複数ペインのウィンドウはタブ内の分割になります。",
+      "attachNewWindow": "--new-window を指定すると、現在のウィンドウの代わりに専用の新しいウィンドウでミラーを開きます。",
       "attachSockets": "remote.tmux.* のソケットコマンド（下記）でより細かく制御できます。remote.tmux.mirror がミラーリングのエントリポイントで、ウィンドウや呼び出し元のルーティングを受け取り、必要に応じてミラーワークスペースを選択できます。",
       "attachCli": "非対話で認証されるホスト（ssh-agent や ~/.ssh/config の鍵）はプロンプトなしで接続されます。対話的な認証（パスワード、ホストキーの確認、多要素認証）が必要なホストでは、cmux がそのターミナル内で ssh を実行するため、その場で認証でき、その後 cmux が現在のウィンドウにミラーリングします。--port、--identity、--no-focus を指定できます。",
       "troubleshootTitle": "「Permission denied」が出る場合",
@@ -1626,6 +1644,8 @@
         "terminal": {
           "copyOnSelect": "true の場合、選択が確定したときにターミナルで選択したテキストをシステムクリップボードへコピーします。false の場合、cmux は Ghostty の copy-on-select 上書きを出力せず、選択クリップボードの動作は Ghostty の設定と既定値に従います。",
           "scrollSpeed": "ターミナルのスクロールホイールとトラックパッドの移動量に適用される倍率です。値を大きくするとスクロールが速くなり、小さくすると遅くなります。",
+          "sessionContentMaxWidth": "ターミナルと組み込みエージェントチャットのコンテンツ幅の上限をポイント単位で指定します。ペインの全幅を使うには false を設定します。",
+          "sessionContentAlignment": "sessionContentMaxWidth が有効な場合の、ターミナルと組み込みエージェントチャットの水平方向の配置です。",
           "showTextBoxOnNewTerminals": "新しいワークスペース、ターミナルタブ、ターミナル分割でベータ版の TextBox 入力を既定で表示します。",
           "focusTextBoxOnNewTerminals": "新しいワークスペース、ターミナルタブ、ターミナル分割でベータ版の TextBox 入力に既定でフォーカスします。フォーカスする場合は TextBox も表示されます。",
           "textBoxDefaultSubmitAction": "新しいターミナルセッションで使う既定の TextBox 送信アクション ID です。通常の入力には text-entry、または設定済みアクション ID のいずれかを使います。",
@@ -2308,7 +2328,7 @@
       "whatYouGetDesc": "フック拡張により、ompはライフサイクルとセッション情報をcmuxへ報告できます：",
       "whatYouGet1": "ompのターン境界にもとづくワークスペースの実行中・アイドル状態",
       "whatYouGet2": "cmux内のターン終了通知",
-      "whatYouGet3": "閉じたペインをセッションインデックスからomp --session SESSION_IDで再開でき、フォーク時は--forkを追加できるセッション追跡",
+      "whatYouGet3": "閉じたペインをセッションインデックスからomp --session SESSION_IDで再開でき、omp --fork SESSION_IDでフォークできるセッション追跡",
       "whatYouGet4": "ompを要約モデルとして使えるワークスペース自動命名",
       "whatYouGet5": "ompプロセスのタスクマネージャ識別",
       "directories": "ディレクトリ",

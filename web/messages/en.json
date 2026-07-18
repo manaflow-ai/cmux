@@ -975,6 +975,10 @@
       "metaTitle": "The Zen of cmux",
       "metaDescription": "cmux is a primitive, not a solution. It gives you composable pieces and your workflow is up to you."
     },
+    "cmuxFork": {
+      "metaTitle": "Introducing cmux Fork",
+      "metaDescription": "Fork a Codex, Claude Code, OpenCode, Pi, Hermes, or other supported agent conversation into a new split, tab, or workspace without losing its context."
+    },
     "claudeCodeBestWorktreeManager": {
       "metaTitle": "Claude Code Is The Best Worktree Manager",
       "metaDescription": "Why agents, super repos, cmux custom commands, and programmable terminal primitives beat built-in worktree managers for real codebases.",
@@ -1135,6 +1139,19 @@
         "p2": "cmux is a primitive, not a solution. It gives you a terminal, a browser, notifications, workspaces, splits, tabs, and a CLI to control all of it. cmux doesn't force you into an opinionated way to use coding agents. What you build with the primitives is yours.",
         "p3": "The best developers have always built their own tools. Nobody has figured out the best way to work with agents yet, and the teams building closed products definitely haven't either. The developers closest to their own codebases will figure it out first.",
         "p4": "Give a million developers composable primitives and they'll collectively find the most efficient workflows faster than any product team could design top-down."
+      },
+      "cmuxFork": {
+        "title": "Introducing cmux Fork",
+        "summary": "Branch an agent conversation into a new split, tab, or workspace without losing its context.",
+        "date": "July 14, 2026",
+        "p1": "Coding-agent threads reach useful fork points. You may want to keep one approach intact while another agent tries a different implementation, investigates a tangent, or reviews the same problem from a fresh angle.",
+        "p2": "Fork Conversation creates a new agent session from the current thread, preserving its conversation history and working directory. It supports Codex, Claude Code, OpenCode, Pi, Hermes, and other agents with forkable sessions.",
+        "destinationsTitle": "Fork wherever you want to work",
+        "destinationsP": "Right-click a terminal or tab and choose Fork Conversation, or press <code>Cmd+Shift+P</code> and search for Fork Conversation. Send the fork to a split on any side, a new tab, or a new workspace.",
+        "parallelTitle": "Explore several directions at once",
+        "parallelP1": "Fork the same conversation more than once to compare implementations or let several agents divide a problem with the same starting context. Each fork continues independently, while the original thread stays available.",
+        "parallelP2": "Forks can work in the same directory. Give them separate tasks or files when concurrent edits could overlap.",
+        "release": "cmux Fork is available in v0.64.19."
       },
       "claudeCodeBestWorktreeManager": {
         "title": "Claude Code Is The Best Worktree Manager",
@@ -1406,6 +1423,7 @@
       "enableDesc": "Open Settings → Beta Features and turn on Remote tmux. The toggle is off by default, so nothing changes for local terminals until you opt in.",
       "attachTitle": "Attaching",
       "attachIntro": "Run cmux ssh-tmux <destination> in a terminal — an ~/.ssh/config alias or user@host. cmux mirrors that host's tmux sessions into the current window's sidebar: each session becomes a workspace, each window a tab, and multi-pane windows become in-tab splits.",
+      "attachNewWindow": "Pass --new-window to open the mirror in a dedicated new window instead of the current window.",
       "attachSockets": "The remote.tmux.* socket commands (below) give finer control. remote.tmux.mirror is the mirror entry point; it accepts window/caller routing and can optionally select the mirrored workspace.",
       "attachCli": "Hosts that authenticate non-interactively (ssh-agent, or a key in ~/.ssh/config) attach with no prompt. If the host needs interactive authentication (a password, host-key confirmation, or MFA), cmux runs ssh inline in your terminal so you can authenticate, then mirrors into the current window. Accepts --port, --identity, and --no-focus.",
       "troubleshootTitle": "If you get \"Permission denied\"",
@@ -1703,6 +1721,8 @@
         "terminal": {
           "copyOnSelect": "When true, copy selected terminal text to the system clipboard when the selection is committed. When false, cmux does not emit a Ghostty copy-on-select override; Ghostty config and defaults control selection-clipboard behavior.",
           "scrollSpeed": "Multiplier applied to terminal scroll wheel and trackpad deltas. Higher values scroll faster; lower values scroll slower.",
+          "sessionContentMaxWidth": "Optional maximum width, in points, for terminal and built-in agent chat content. Set false to use the full pane width.",
+          "sessionContentAlignment": "Horizontal placement for terminal and built-in agent chat content when sessionContentMaxWidth is enabled.",
           "showTextBoxOnNewTerminals": "Show the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits.",
           "focusTextBoxOnNewTerminals": "Focus the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox.",
           "textBoxDefaultSubmitAction": "Default TextBox submit action ID for new terminal sessions. Use text-entry for plain input or one of the configured action IDs.",
@@ -2451,7 +2471,7 @@
       "whatYouGetDesc": "The hooks extension lets omp report lifecycle and session information back to cmux:",
       "whatYouGet1": "Workspace busy and idle status from omp turn boundaries",
       "whatYouGet2": "Turn-end notifications in cmux",
-      "whatYouGet3": "Session tracking so closed panes can be resumed or forked from the session index with omp --session SESSION_ID, adding --fork for forks",
+      "whatYouGet3": "Session tracking so closed panes can be resumed from the session index with omp --session SESSION_ID or forked with omp --fork SESSION_ID",
       "whatYouGet4": "Workspace auto-naming, with omp available as the summarizer model",
       "whatYouGet5": "Task Manager process attribution for omp processes",
       "directories": "Directories",

@@ -17,6 +17,7 @@ struct MobileSettingsView: View {
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
     @Environment(MobileDisplaySettings.self) private var displaySettings
+    @Environment(\.irohSettingsController) private var irohSettingsController
     let connectedHostName: String
     let rescanQR: (() -> Void)?
     let signOut: (() -> Void)?
@@ -132,6 +133,20 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsHowPairingWorks")
                 }
 
+                if let irohSettingsController {
+                    Section(L10n.string("mobile.settings.networking", defaultValue: "Networking")) {
+                        NavigationLink {
+                            MobileIrohSettingsView(controller: irohSettingsController)
+                        } label: {
+                            Label(
+                                L10n.string("mobile.settings.iroh", defaultValue: "Iroh and Relays"),
+                                systemImage: "network"
+                            )
+                        }
+                        .accessibilityIdentifier("MobileSettingsIroh")
+                    }
+                }
+
                 Section(L10n.string("mobile.settings.terminal", defaultValue: "Terminal")) {
                     Toggle(isOn: $displaySettings.showAltScreenNotice) {
                         Text(L10n.string(
@@ -150,6 +165,16 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsTerminalShortcuts")
+                }
+
+                Section(L10n.string("mobile.settings.betaFeatures", defaultValue: "Beta Features")) {
+                    Toggle(isOn: $displaySettings.terminalFilesChipEnabled) {
+                        Text(L10n.string(
+                            "mobile.settings.terminalFilesChip",
+                            defaultValue: "Terminal Files Chip"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsTerminalFilesChip")
                 }
 
                 #if DEBUG
@@ -204,6 +229,14 @@ struct MobileSettingsView: View {
                 #endif
 
                 Section(L10n.string("mobile.settings.display", defaultValue: "Display")) {
+                    Toggle(isOn: $displaySettings.showMissingFiles) {
+                        Text(L10n.string(
+                            "mobile.settings.showMissingFiles",
+                            defaultValue: "Show missing files"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsShowMissingFiles")
+
                     Toggle(isOn: $displaySettings.wrapWorkspaceTitles) {
                         Text(L10n.string("mobile.settings.wrapTitles", defaultValue: "Wrap Workspace Titles"))
                     }

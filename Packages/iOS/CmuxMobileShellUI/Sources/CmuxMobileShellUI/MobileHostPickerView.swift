@@ -102,8 +102,17 @@ struct MobileHostPickerView: View {
     @ViewBuilder
     private func macRow(_ mac: MobilePairedMac) -> some View {
         let isActive = mac.isActive
+        let appDisplayName = localizedAppDisplayName(for: mac)
+        let hasSiblingInstance = store.pairedMacs.contains {
+            $0.id != mac.id && $0.macDeviceID == mac.macDeviceID
+        }
         Button {
-            Task { await store.switchToMac(macDeviceID: mac.macDeviceID) }
+            Task {
+                await store.switchToMac(
+                    macDeviceID: mac.macDeviceID,
+                    instanceTag: mac.instanceTag
+                )
+            }
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: "desktopcomputer")
@@ -111,6 +120,15 @@ struct MobileHostPickerView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(scopedDisplayName(mac.resolvedName))
                         .foregroundStyle(.primary)
+                    if let appDisplayName {
+                        Text(appDisplayName)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else if hasSiblingInstance {
+                        Text(L10n.string("mobile.hostPicker.app.legacy", defaultValue: "Legacy"))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                     Text(mac.lastSeenAt, format: .relative(presentation: .named))
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -125,19 +143,54 @@ struct MobileHostPickerView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityIdentifier("MobileHostPickerRow-\(mac.macDeviceID)")
+        .accessibilityIdentifier("MobileHostPickerRow-\(mac.id)")
         .swipeActions(edge: .trailing) {
             Button(role: .destructive) {
-                Task { await store.forgetStoredMac(macDeviceID: mac.macDeviceID) }
+                Task {
+                    await store.forgetStoredMac(
+                        macDeviceID: mac.macDeviceID,
+                        instanceTag: mac.instanceTag
+                    )
+                }
             } label: {
                 Label(L10n.string("mobile.hostPicker.forget", defaultValue: "Forget"), systemImage: "trash")
             }
-            .accessibilityIdentifier("MobileHostPickerForget-\(mac.macDeviceID)")
+            .accessibilityIdentifier("MobileHostPickerForget-\(mac.id)")
         }
     }
 
     private func scopedDisplayName(_ baseName: String) -> String {
         MobileIOSBuildScope.current()?.computerDisplayName(baseName) ?? baseName
+    }
+
+    private func localizedAppDisplayName(for mac: MobilePairedMac) -> String? {
+        guard let appName = MacBuildChannel().appDisplayName(
+            bundleID: nil,
+            tag: mac.instanceTag
+        ) else {
+            return nil
+        }
+        switch appName {
+        case "cmux":
+            return L10n.string("mobile.hostPicker.app.stable", defaultValue: "cmux")
+        case "cmux Nightly":
+            return L10n.string("mobile.hostPicker.app.nightly", defaultValue: "cmux Nightly")
+        case "cmux RC":
+            return L10n.string("mobile.hostPicker.app.rc", defaultValue: "cmux RC")
+        case "cmux Staging":
+            return L10n.string("mobile.hostPicker.app.staging", defaultValue: "cmux Staging")
+        case "cmux DEV":
+            return L10n.string("mobile.hostPicker.app.dev", defaultValue: "cmux DEV")
+        default:
+            let prefix = "cmux DEV "
+            guard appName.hasPrefix(prefix) else { return appName }
+            let tag = appName.dropFirst(prefix.count)
+            let format = L10n.string(
+                "mobile.hostPicker.app.devTaggedFormat",
+                defaultValue: "cmux DEV %@"
+            )
+            return String(format: format, String(tag))
+        }
     }
 }
 #endif

@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::fmt;
 use std::io::{BufRead, BufReader, Write};
+use std::net::Shutdown;
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -177,8 +178,26 @@ pub struct Size {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct ResizeSurfaceResult {
+    #[serde(default = "default_true")]
+    pub accepted: bool,
+    #[serde(default)]
+    pub reservation_id: Option<u64>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct SurfaceEvent {
     pub surface: u64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct TitleChangedEvent {
+    pub surface: u64,
+    pub title: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -186,6 +205,19 @@ pub struct SurfaceResizedEvent {
     pub surface: u64,
     pub cols: u16,
     pub rows: u16,
+    #[serde(default)]
+    pub reservation_id: Option<u64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SurfaceResizeFailedEvent {
+    pub surface: u64,
+    pub cols: u16,
+    pub rows: u16,
+    pub error: String,
+    pub retry_after_ms: Option<u64>,
+    #[serde(default)]
+    pub reservation_id: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -212,7 +244,15 @@ pub struct ResizedEvent {
     pub surface: u64,
     pub cols: u16,
     pub rows: u16,
+    #[serde(alias = "data")]
     pub replay: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct OverflowEvent {
+    pub error: String,
+    pub scope: Option<String>,
+    pub surface: Option<u64>,
 }
 
 #[non_exhaustive]
@@ -222,14 +262,16 @@ pub enum Event {
     LayoutChanged(LayoutChangedEvent),
     SurfaceOutput(SurfaceEvent),
     SurfaceResized(SurfaceResizedEvent),
+    SurfaceResizeFailed(SurfaceResizeFailedEvent),
     SurfaceExited(SurfaceEvent),
-    TitleChanged(SurfaceEvent),
+    TitleChanged(TitleChangedEvent),
     Bell(SurfaceEvent),
     Empty,
     VtState(VtStateEvent),
     Output(OutputEvent),
     Resized(ResizedEvent),
     Detached(SurfaceEvent),
+    Overflow(OverflowEvent),
     Unknown(Value),
 }
 
@@ -458,11 +500,20 @@ impl CmuxClient {
         self.request::<Empty>("rename-workspace", params).map(|_| ())
     }
 
-    pub fn resize_surface(&mut self, surface: u64, cols: u16, rows: u16) -> Result<()> {
+    pub fn resize_surface(
+        &mut self,
+        surface: u64,
+        cols: u16,
+        rows: u16,
+    ) -> Result<ResizeSurfaceResult> {
         let mut params = surface_params(surface);
         params.insert("cols".to_string(), Value::from(cols));
         params.insert("rows".to_string(), Value::from(rows));
-        self.request::<Empty>("resize-surface", params).map(|_| ())
+        self.request("resize-surface", params)
+    }
+
+    pub fn release_surface_size(&mut self, surface: u64) -> Result<()> {
+        self.request::<Empty>("release-surface-size", surface_params(surface)).map(|_| ())
     }
 
     pub fn focus_pane(&mut self, pane: u64) -> Result<()> {
@@ -552,6 +603,7 @@ impl CmuxClient {
 pub struct CmuxStream {
     conn: JsonLineConnection,
     buffered: Vec<Event>,
+    finished: bool,
 }
 
 impl CmuxStream {
@@ -570,7 +622,7 @@ impl CmuxStream {
                 continue;
             }
             if response.get("ok") == Some(&Value::Bool(true)) {
-                return Ok(Self { conn, buffered });
+                return Ok(Self { conn, buffered, finished: false });
             }
             return Err(CmuxError::Command {
                 message: response
@@ -584,29 +636,47 @@ impl CmuxStream {
     }
 
     pub fn recv(&mut self) -> Result<Event> {
+        if self.finished {
+            return Err(CmuxError::Connection("stream is closed".to_string()));
+        }
         if !self.buffered.is_empty() {
-            return Ok(self.buffered.remove(0));
+            let event = self.buffered.remove(0);
+            return Ok(self.finish_terminal(event));
         }
         loop {
             let value = self.conn.recv()?;
             if value.get("event").is_some() {
-                return Ok(parse_event(value));
+                let event = parse_event(value);
+                return Ok(self.finish_terminal(event));
             }
         }
     }
 
     pub fn recv_timeout(&mut self, timeout: Duration) -> Result<Event> {
-        if !self.buffered.is_empty() {
-            return Ok(self.buffered.remove(0));
+        if self.finished {
+            return Err(CmuxError::Connection("stream is closed".to_string()));
         }
-        self.conn.with_read_timeout(timeout, |conn| {
+        if !self.buffered.is_empty() {
+            let event = self.buffered.remove(0);
+            return Ok(self.finish_terminal(event));
+        }
+        let event = self.conn.with_read_timeout(timeout, |conn| {
             loop {
                 let value = conn.recv()?;
                 if value.get("event").is_some() {
                     return Ok(parse_event(value));
                 }
             }
-        })
+        })?;
+        Ok(self.finish_terminal(event))
+    }
+
+    fn finish_terminal(&mut self, event: Event) -> Event {
+        if matches!(&event, Event::Detached(_) | Event::Overflow(_)) {
+            self.finished = true;
+            let _ = self.conn.writer.shutdown(Shutdown::Both);
+        }
+        event
     }
 }
 
@@ -614,7 +684,7 @@ impl Iterator for CmuxStream {
     type Item = Result<Event>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        Some(self.recv())
+        (!self.finished).then(|| self.recv())
     }
 }
 
@@ -703,6 +773,9 @@ fn parse_event(value: Value) -> Event {
         "layout-changed" => parse_typed(value).map_or_else(Event::Unknown, Event::LayoutChanged),
         "surface-output" => parse_typed(value).map_or_else(Event::Unknown, Event::SurfaceOutput),
         "surface-resized" => parse_typed(value).map_or_else(Event::Unknown, Event::SurfaceResized),
+        "surface-resize-failed" => {
+            parse_typed(value).map_or_else(Event::Unknown, Event::SurfaceResizeFailed)
+        }
         "surface-exited" => parse_typed(value).map_or_else(Event::Unknown, Event::SurfaceExited),
         "title-changed" => parse_typed(value).map_or_else(Event::Unknown, Event::TitleChanged),
         "bell" => parse_typed(value).map_or_else(Event::Unknown, Event::Bell),
@@ -711,6 +784,7 @@ fn parse_event(value: Value) -> Event {
         "output" => parse_typed(value).map_or_else(Event::Unknown, Event::Output),
         "resized" => parse_typed(value).map_or_else(Event::Unknown, Event::Resized),
         "detached" => parse_typed(value).map_or_else(Event::Unknown, Event::Detached),
+        "overflow" => parse_typed(value).map_or_else(Event::Unknown, Event::Overflow),
         _ => Event::Unknown(value),
     }
 }
@@ -731,5 +805,121 @@ fn insert_opt<T: Serialize>(params: &mut Map<String, Value>, key: &str, value: O
             key.to_string(),
             serde_json::to_value(value).expect("serializing command parameter must not fail"),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn title_changed_decodes_authoritative_title() {
+        let event = parse_event(serde_json::json!({
+            "event": "title-changed",
+            "surface": 7,
+            "title": "build logs",
+        }));
+
+        assert!(matches!(
+            event,
+            Event::TitleChanged(TitleChangedEvent { surface: 7, title })
+                if title.as_deref() == Some("build logs")
+        ));
+
+        let legacy = parse_event(serde_json::json!({
+            "event": "title-changed",
+            "surface": 7,
+        }));
+        assert!(matches!(
+            legacy,
+            Event::TitleChanged(TitleChangedEvent { surface: 7, title: None })
+        ));
+    }
+
+    #[test]
+    fn resized_decodes_protocol_v6_data_field() {
+        let event = parse_event(serde_json::json!({
+            "event": "resized",
+            "surface": 7,
+            "cols": 80,
+            "rows": 24,
+            "data": "cmVwbGF5",
+        }));
+
+        assert!(matches!(
+            event,
+            Event::Resized(ResizedEvent { surface: 7, replay, .. }) if replay == "cmVwbGF5"
+        ));
+    }
+
+    #[test]
+    fn surface_resize_failed_decodes_retry_schedule() {
+        let event = parse_event(serde_json::json!({
+            "event": "surface-resize-failed",
+            "surface": 7,
+            "cols": 120,
+            "rows": 40,
+            "error": "browser is not responding",
+            "retry_after_ms": 250,
+        }));
+
+        assert!(matches!(
+            event,
+            Event::SurfaceResizeFailed(SurfaceResizeFailedEvent {
+                surface: 7,
+                cols: 120,
+                rows: 40,
+                error,
+                retry_after_ms: Some(250),
+                reservation_id: None,
+            }) if error == "browser is not responding"
+        ));
+    }
+
+    #[test]
+    fn legacy_resize_response_defaults_to_accepted() {
+        let result: ResizeSurfaceResult = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert!(result.accepted);
+        assert_eq!(result.reservation_id, None);
+        let reserved: ResizeSurfaceResult =
+            serde_json::from_value(serde_json::json!({"accepted": true, "reservation_id": 41}))
+                .unwrap();
+        assert_eq!(reserved.reservation_id, Some(41));
+    }
+
+    #[test]
+    fn overflow_decodes_recovery_fields() {
+        let event = parse_event(serde_json::json!({
+            "event": "overflow",
+            "error": "subscriber fell behind",
+            "scope": "surface",
+            "surface": 7,
+        }));
+
+        assert!(matches!(
+            event,
+            Event::Overflow(OverflowEvent { error, scope, surface })
+                if error == "subscriber fell behind"
+                    && scope.as_deref() == Some("surface")
+                    && surface == Some(7)
+        ));
+    }
+
+    #[test]
+    fn iterator_yields_buffered_overflow_once_then_stops() {
+        let (socket, _peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let mut stream = CmuxStream {
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            buffered: vec![Event::Overflow(OverflowEvent {
+                error: "fell behind".to_string(),
+                scope: None,
+                surface: None,
+            })],
+            finished: false,
+        };
+
+        assert!(matches!(stream.next(), Some(Ok(Event::Overflow(_)))));
+        assert!(stream.next().is_none());
     }
 }

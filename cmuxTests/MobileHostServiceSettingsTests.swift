@@ -1,3 +1,5 @@
+import CMUXMobileCore
+import CmuxIrohTransport
 import CmuxSettings
 import Foundation
 import Testing
@@ -9,14 +11,52 @@ import Testing
 #endif
 
 struct MobileHostServiceSettingsTests {
-    @Test func mobileHostListenerDefaultsOffUntilIOSPairingIsEnabled() throws {
+    @Test func mobileHostListenerHonorsBuildDefaultUntilIOSPairingIsOverridden() throws {
         let suiteName = "MobileHostServiceSettingsTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        #expect(!MobileHostService.isListeningEnabled(defaults: defaults))
+        #expect(
+            MobileHostService.isListeningEnabled(defaults: defaults)
+                == SettingCatalog().mobile.iOSPairingHost.defaultValue
+        )
 
         defaults.set(true, forKey: MobileHostService.listeningEnabledDefaultsKey)
+        #expect(MobileHostService.isListeningEnabled(defaults: defaults))
+
+        defaults.set(false, forKey: MobileHostService.listeningEnabledDefaultsKey)
+        #expect(!MobileHostService.isListeningEnabled(defaults: defaults))
+    }
+
+    @Test func signedInIrohStartsWithoutEnablingTheLegacyListener() {
+        let automatic = MobileHostService.startupPlan(
+            legacyListenerEnabled: false,
+            legacyListenerRunning: false
+        )
+        #expect(automatic.activatesIroh)
+        #expect(!automatic.startsLegacyListener)
+
+        let tailscaleCompatible = MobileHostService.startupPlan(
+            legacyListenerEnabled: true,
+            legacyListenerRunning: false
+        )
+        #expect(tailscaleCompatible.activatesIroh)
+        #expect(tailscaleCompatible.startsLegacyListener)
+
+        let alreadyListening = MobileHostService.startupPlan(
+            legacyListenerEnabled: true,
+            legacyListenerRunning: true
+        )
+        #expect(alreadyListening.activatesIroh)
+        #expect(!alreadyListening.startsLegacyListener)
+    }
+
+    @Test func mobileHostListenerPreservesHistoricalExplicitOptIn() throws {
+        let suiteName = "MobileHostServiceSettingsTests.Legacy.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(true, forKey: "cmuxMobilePairingHostEnabled")
         #expect(MobileHostService.isListeningEnabled(defaults: defaults))
 
         defaults.set(false, forKey: MobileHostService.listeningEnabledDefaultsKey)
@@ -109,6 +149,106 @@ struct MobileHostServiceSettingsTests {
 }
 
 #if DEBUG
+@Suite(.serialized)
+struct MobileHostTransportRouteCompositionTests {
+    @Test func tcpRouteRefreshDoesNotRemoveTheActiveIrohRoute() throws {
+        defer { MobileHostPublicStatusCache.removeAll() }
+        MobileHostPublicStatusCache.removeAll()
+        let binding = try JSONDecoder().decode(
+            CmxIrohBrokerBinding.self,
+            from: Data(
+                """
+                {
+                  "binding_id":"123e4567-e89b-42d3-a456-426614174010",
+                  "device_id":"123e4567-e89b-42d3-a456-426614174011",
+                  "app_instance_id":"123e4567-e89b-42d3-a456-426614174012",
+                  "tag":"dev",
+                  "platform":"mac",
+                  "display_name":"Test Mac",
+                  "endpoint_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "identity_generation":1,
+                  "pairing_enabled":true,
+                  "capabilities":["mobile-rpc-v1","multistream-v1"],
+                  "path_hints":[],
+                  "last_seen_at":"2026-07-09T12:00:00.000Z"
+                }
+                """.utf8
+            )
+        )
+        let tailscale = try CmxAttachRoute(
+            id: "tailscale",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.1", port: 58_465),
+            priority: 10
+        )
+
+        MobileHostPublicStatusCache.update(irohBinding: binding)
+        MobileHostPublicStatusCache.update(routes: [tailscale])
+        #expect(MobileHostPublicStatusCache.snapshot().map(\.kind) == [.iroh, .tailscale])
+
+        MobileHostPublicStatusCache.update(routes: [])
+        #expect(MobileHostPublicStatusCache.snapshot().map(\.kind) == [.iroh])
+    }
+
+    @MainActor
+    @Test func tcpListenerRestartDoesNotEraseIrohClientState() {
+        let service = MobileHostService.shared
+        let irohConnectionID = UUID()
+        service.debugResetMobileLifecycleStateForTesting()
+        defer { service.debugResetMobileLifecycleStateForTesting() }
+        service.debugRecordClientIDForTesting(
+            "iroh-client",
+            connectionID: irohConnectionID
+        )
+
+        service.debugStopLegacyListenerForTesting()
+
+        #expect(
+            service.debugTrackedClientIDsForTesting(connectionID: irohConnectionID)
+                == ["iroh-client"]
+        )
+    }
+
+    @Test func irohBindingLifecycleDoesNotRemoveTailscaleRoute() throws {
+        defer { MobileHostPublicStatusCache.removeAll() }
+        MobileHostPublicStatusCache.removeAll()
+        let binding = try JSONDecoder().decode(
+            CmxIrohBrokerBinding.self,
+            from: Data(
+                """
+                {
+                  "binding_id":"123e4567-e89b-42d3-a456-426614174010",
+                  "device_id":"123e4567-e89b-42d3-a456-426614174011",
+                  "app_instance_id":"123e4567-e89b-42d3-a456-426614174012",
+                  "tag":"dev",
+                  "platform":"mac",
+                  "display_name":"Test Mac",
+                  "endpoint_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "identity_generation":1,
+                  "pairing_enabled":true,
+                  "capabilities":["mobile-rpc-v1","multistream-v1"],
+                  "path_hints":[],
+                  "last_seen_at":"2026-07-09T12:00:00.000Z"
+                }
+                """.utf8
+            )
+        )
+        let tailscale = try CmxAttachRoute(
+            id: "tailscale",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.1", port: 58_465),
+            priority: 10
+        )
+
+        MobileHostPublicStatusCache.update(routes: [tailscale])
+        MobileHostPublicStatusCache.update(irohBinding: binding)
+        #expect(MobileHostPublicStatusCache.snapshot().map(\.kind) == [.iroh, .tailscale])
+
+        MobileHostPublicStatusCache.update(irohBinding: nil)
+        #expect(MobileHostPublicStatusCache.snapshot().map(\.kind) == [.tailscale])
+    }
+}
+
 @Suite(.serialized)
 @MainActor
 struct MobileHostMacScopedMutationAuthorizationTests {

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -311,8 +312,10 @@ func (c *Client) RenameWorkspace(ctx context.Context, workspace uint64, name str
 	return c.request(ctx, "rename-workspace", map[string]any{"workspace": workspace, "name": name}, nil)
 }
 
-func (c *Client) ResizeSurface(ctx context.Context, surface uint64, cols, rows uint16) error {
-	return c.request(ctx, "resize-surface", map[string]any{"surface": surface, "cols": cols, "rows": rows}, nil)
+func (c *Client) ResizeSurface(ctx context.Context, surface uint64, cols, rows uint16) (ResizeSurfaceResult, error) {
+	var result ResizeSurfaceResult
+	err := c.request(ctx, "resize-surface", map[string]any{"surface": surface, "cols": cols, "rows": rows}, &result)
+	return result, err
 }
 
 func (c *Client) FocusPane(ctx context.Context, pane uint64) error {
@@ -402,17 +405,24 @@ type Stream struct {
 	conn     *jsonLineConn
 	timeout  time.Duration
 	buffered []Event
+	closed   atomic.Bool
 }
 
 func (s *Stream) Close() error {
+	if !s.closed.CompareAndSwap(false, true) {
+		return nil
+	}
 	return s.conn.Close()
 }
 
 func (s *Stream) Recv(ctx context.Context) (Event, error) {
+	if s.closed.Load() {
+		return nil, io.EOF
+	}
 	if len(s.buffered) > 0 {
 		event := s.buffered[0]
 		s.buffered = s.buffered[1:]
-		return event, nil
+		return s.finishTerminal(event), nil
 	}
 	for {
 		value, err := s.conn.Recv(ctx, s.timeout)
@@ -420,9 +430,17 @@ func (s *Stream) Recv(ctx context.Context) (Event, error) {
 			return nil, err
 		}
 		if _, ok := value["event"].(string); ok {
-			return parseEvent(value), nil
+			return s.finishTerminal(parseEvent(value)), nil
 		}
 	}
+}
+
+func (s *Stream) finishTerminal(event Event) Event {
+	switch event.(type) {
+	case DetachedEvent, OverflowEvent:
+		_ = s.Close()
+	}
+	return event
 }
 
 type jsonLineConn struct {

@@ -13,12 +13,47 @@ import type {
   SplitDirection,
 } from "./common.js";
 import type { DeclarativeLayout, Layout, Tree } from "./tree.js";
+import type { RenderRow } from "./render.js";
 
 export interface IdentifyRequest extends CmuxRequestBase { cmd: "identify" }
 export interface IdentifyResult { app: "cmux-tui"; version: string; protocol: number; session: string; pid: number }
 
 export interface PingRequest extends CmuxRequestBase { cmd: "ping" }
 export interface PingResult { ok: true; version: string; protocol: number }
+
+export interface SetClientInfoRequest extends CmuxRequestBase {
+  cmd: "set-client-info";
+  name?: string;
+  kind?: string;
+}
+
+export interface ListClientsRequest extends CmuxRequestBase { cmd: "list-clients" }
+export type ClientTransport = "local" | "unix" | "ws";
+export interface ClientSize {
+  surface: Id;
+  cols: number | null;
+  rows: number | null;
+}
+export interface ClientInfo {
+  client: Id;
+  transport: ClientTransport;
+  name: string | null;
+  kind: string | null;
+  connected_seconds: number;
+  attached: Id[];
+  sizes: ClientSize[];
+  self: boolean;
+  size_participating: boolean;
+}
+export type ListClientsResult = ClientInfo[];
+
+export interface DetachClientRequest extends CmuxRequestBase { cmd: "detach-client"; client: Id }
+export interface SetClientSizingRequest extends CmuxRequestBase {
+  cmd: "set-client-sizing";
+  client?: Id;
+  enabled: boolean;
+  exclusive?: boolean;
+}
 
 export interface ReloadConfigRequest extends CmuxRequestBase { cmd: "reload-config" }
 export interface ReloadConfigResult { reloaded: true; path: string | null }
@@ -50,10 +85,24 @@ export interface SendRequest extends CmuxRequestBase {
   /** When both are supplied, `text` is written before `bytes`. */
   text?: string | null;
   bytes?: Base64 | null;
+  /** Protocol v7 bracketed-paste request. */
+  paste?: boolean;
 }
 
 export interface ReadScreenRequest extends CmuxRequestBase { cmd: "read-screen"; surface: Id }
 export interface ReadScreenResult { text: string }
+
+export interface ReadScrollbackRequest extends CmuxRequestBase {
+  cmd: "read-scrollback";
+  surface: Id;
+  start: number;
+  count: number;
+}
+export interface ReadScrollbackResult {
+  rows: RenderRow[];
+  start: number;
+  total: number;
+}
 
 export interface SidebarPluginRequest extends CmuxRequestBase {
   cmd: "sidebar-plugin";
@@ -173,6 +222,11 @@ export interface ResizeSurfaceRequest extends CmuxRequestBase {
   cols: number;
   rows: number;
 }
+export interface ResizeSurfaceResult { accepted: boolean; reservation_id?: number | null }
+export interface ReleaseSurfaceSizeRequest extends CmuxRequestBase {
+  cmd: "release-surface-size";
+  surface: Id;
+}
 
 export interface FocusPaneRequest extends CmuxRequestBase { cmd: "focus-pane"; pane: Id }
 
@@ -204,13 +258,15 @@ export interface ScrollSurfaceRequest extends CmuxRequestBase { cmd: "scroll-sur
 
 export interface SubscribeRequest extends CmuxRequestBase {
   cmd: "subscribe";
-  /** Proposed protocol v6 event-name filter. */
-  events?: string[] | null;
-  /** Proposed protocol v6 surface filter. */
-  surfaces?: IdRef[] | null;
+  /** Protocol v7 tree lifecycle delivery mode. */
+  tree_events?: "coarse" | "deltas";
 }
 
-export interface AttachSurfaceRequest extends CmuxRequestBase { cmd: "attach-surface"; surface: Id }
+export interface AttachSurfaceRequest extends CmuxRequestBase {
+  cmd: "attach-surface";
+  surface: Id;
+  mode?: "bytes" | "render";
+}
 
 export interface WaitForRequest extends CmuxRequestBase {
   cmd: "wait-for";
@@ -280,6 +336,10 @@ export interface ReportAgentResult {
 export type CmuxRequest =
   | IdentifyRequest
   | PingRequest
+  | SetClientInfoRequest
+  | ListClientsRequest
+  | DetachClientRequest
+  | SetClientSizingRequest
   | ReloadConfigRequest
   | SetWindowTitleRequest
   | ClearWindowTitleRequest
@@ -288,6 +348,7 @@ export type CmuxRequest =
   | ApplyLayoutRequest
   | SendRequest
   | ReadScreenRequest
+  | ReadScrollbackRequest
   | SidebarPluginRequest
   | VtStateRequest
   | NewTabRequest
@@ -312,6 +373,7 @@ export type CmuxRequest =
   | RenameScreenRequest
   | RenameWorkspaceRequest
   | ResizeSurfaceRequest
+  | ReleaseSurfaceSizeRequest
   | FocusPaneRequest
   | SelectTabRequest
   | SelectScreenRequest
@@ -334,6 +396,10 @@ export type CmuxRequest =
 export interface CmuxResponseDataMap {
   identify: IdentifyResult;
   ping: PingResult;
+  "set-client-info": EmptyResult;
+  "list-clients": ListClientsResult;
+  "detach-client": EmptyResult;
+  "set-client-sizing": EmptyResult;
   "reload-config": ReloadConfigResult;
   "set-window-title": EmptyResult;
   "clear-window-title": EmptyResult;
@@ -342,6 +408,7 @@ export interface CmuxResponseDataMap {
   "apply-layout": ApplyLayoutResult;
   send: EmptyResult;
   "read-screen": ReadScreenResult;
+  "read-scrollback": ReadScrollbackResult;
   "sidebar-plugin": SidebarPluginResult;
   "vt-state": VtStateResult;
   "new-tab": SurfaceResult;
@@ -365,7 +432,8 @@ export interface CmuxResponseDataMap {
   "rename-surface": EmptyResult;
   "rename-screen": EmptyResult;
   "rename-workspace": EmptyResult;
-  "resize-surface": EmptyResult;
+  "resize-surface": ResizeSurfaceResult;
+  "release-surface-size": EmptyResult;
   "focus-pane": EmptyResult;
   "select-tab": EmptyResult;
   "select-screen": EmptyResult;

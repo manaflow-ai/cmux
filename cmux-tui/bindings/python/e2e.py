@@ -30,6 +30,11 @@ def main() -> int:
         client.rename_surface(created.surface, f"{marker}-renamed")
         events = client.subscribe()
         try:
+            title = f"{marker}_TITLE"
+            client.send(created.surface, text=f"printf '\\033]2;{title}\\007'; sleep 5\r")
+            title_changed = next_title_changed(events, created.surface, title, 3.0)
+            assert title_changed.title == title, title_changed
+            client.send(created.surface, text="\x03")
             client.resize_surface(created.surface, 100, 31)
             resized = next_resized(events, created.surface, 1.0)
             assert (resized.cols, resized.rows) == (100, 31)
@@ -85,6 +90,25 @@ def next_resized(stream, surface: int, timeout: float):
     finally:
         stream._conn.sock.settimeout(old_timeout)
     raise CmuxTimeoutError("surface-resized not observed")
+
+
+def next_title_changed(stream, surface: int, title: str, timeout: float):
+    deadline = time.time() + timeout
+    old_timeout = stream._conn.sock.gettimeout()
+    stream._conn.sock.settimeout(timeout)
+    try:
+        while time.time() < deadline:
+            stream._conn.sock.settimeout(max(deadline - time.time(), 0.001))
+            event = next(stream)
+            if (
+                event.event == "title-changed"
+                and event.surface == surface
+                and event.title == title
+            ):
+                return event
+    finally:
+        stream._conn.sock.settimeout(old_timeout)
+    raise CmuxTimeoutError("title-changed not observed")
 
 
 def next_attach_output(stream, timeout: float) -> None:

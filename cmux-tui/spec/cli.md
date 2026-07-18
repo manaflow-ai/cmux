@@ -35,7 +35,7 @@ Human output is stable, greppable, and minimal. It must not include colors, tabl
 
 ### Stdin
 
-`send` reads stdin when neither `--text` nor `--bytes` is supplied. Stdin is read to EOF and sent as the `text` field.
+`send` reads stdin when neither `--text` nor `--bytes` is supplied. Stdin is read to EOF and sent as the `text` field. `--paste` applies equally to argument or stdin payloads and requires protocol 7.
 
 Future commands may opt into stdin only when their command block says so. By default commands do not read stdin.
 
@@ -53,14 +53,18 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | --- | --- | --- | --- | --- |
 | `identify` | implemented | none | global flags | one metadata line |
 | `ping` | implemented | none | global flags | one liveness line |
+| `set-client-info` | implemented | none | `--name <name>`, `--kind <kind>` | none |
+| `list-clients` | implemented | none | global flags | client lines |
+| `detach-client` | implemented | `--client <id>` | global flags | none |
 | `reload-config` | implemented | none | global flags | none |
 | `set-window-title` | implemented | `--title <title>` | global flags | none |
 | `clear-window-title` | implemented | none | global flags | none |
 | `list-workspaces` | implemented | none | global flags | tree lines |
 | `export-layout` | implemented | none | `--screen <id>` | JSON result object |
-| `apply-layout` | implemented | `--layout <json>` | `--workspace <id>`, `--name <name>` | screen and pane/surface lines |
-| `send` | implemented | `--surface <id>` | `--text <text>`, `--bytes <base64>` | none |
+| `apply-layout` | implemented | `--layout <json>` | `--workspace <id>`, `--name <name>`, `--cols <n> --rows <n>` | screen and pane/surface lines |
+| `send` | implemented; `--paste` protocol 7 | `--surface <id>` | `--text <text>`, `--bytes <base64>`, `--paste` | none |
 | `read-screen` | implemented | `--surface <id>` | none | screen text |
+| `read-scrollback` | proposed protocol 7 | `--surface <id> --start <n> --count <n>` | none | scrollback text rows |
 | `vt-state` | implemented | `--surface <id>` | none | `cols=<n> rows=<n> data=<base64>` |
 | `new-tab` | implemented | none | `--pane <id>`, `--cwd <path>`, `--cols <n> --rows <n>` | surface id |
 | `new-browser-tab` | implemented | `--url <url>` | `--pane <id>`, `--cols <n> --rows <n>` | surface id |
@@ -84,6 +88,7 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | `rename-screen` | implemented | `--screen <id> --name <name>` | none | none |
 | `rename-workspace` | implemented | `--workspace <id> --name <name>` | none | none |
 | `resize-surface` | implemented | `--surface <id> --cols <n> --rows <n>` | none | none |
+| `release-surface-size` | implemented | `--surface <id>` | none | none |
 | `focus-pane` | implemented | `--pane <id>` | none | none |
 | `select-tab` | implemented | one of `--index`, `--delta` | `--pane <id>` | none |
 | `select-screen` | implemented | one of `--index`, `--delta` | none | none |
@@ -91,8 +96,8 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | `move-tab` | implemented | `--surface <id> --pane <id> --index <n>` | none | none |
 | `move-workspace` | implemented | `--workspace <id> --index <n>` | none | none |
 | `scroll-surface` | implemented | `--surface <id> --delta <n>` | none | none |
-| `subscribe` | implemented | none | none in v5 | event JSON lines |
-| `attach-surface` | implemented | `--surface <id>` | none | event JSON lines |
+| `subscribe` | implemented; tree deltas protocol 7 | none | `--tree-events coarse|deltas` | event JSON lines |
+| `attach-surface` | implemented; render mode protocol 7 | `--surface <id>` | `--mode bytes\|render` | event JSON lines |
 | `wait-for` | implemented | `--surface <id> --pattern <regex> --timeout-ms <n>` | none | none |
 | `run` | implemented | `-- <argv...>` or `--command <cmd>` | `--pane <id>`, `--new-workspace`, `--cwd <path>`, `--name <name>` | surface id |
 | `send-key` | implemented | `--surface <id> <key>...` | none | none |

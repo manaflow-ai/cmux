@@ -57,6 +57,7 @@ rename-surface
 rename-screen
 rename-workspace
 resize-surface
+release-surface-size
 focus-pane
 select-tab
 select-screen
@@ -107,17 +108,20 @@ Subscribed event lines are:
 
 ```json
 {"event":"surface-output","surface":4}
-{"event":"surface-resized","surface":4,"cols":120,"rows":40}
+{"event":"surface-resized","surface":4,"cols":120,"rows":40,"reservation_id":7}
+{"event":"surface-resize-failed","surface":4,"cols":120,"rows":40,"error":"browser is not responding","retry_after_ms":250,"reservation_id":7}
 {"event":"surface-exited","surface":4}
-{"event":"title-changed","surface":4}
+{"event":"title-changed","surface":4,"title":"build logs"}
 {"event":"bell","surface":4}
 {"event":"tree-changed"}
 {"event":"empty"}
 ```
 
-`surface-resized` reports the final clamped cell size and is emitted only when the surface size actually changes.
+`surface-resized` reports the final clamped cell size and is emitted only when the surface size actually changes. `surface-resize-failed` reports an asynchronous browser resize failure and the delay before an automatic retry, or `null` after retries are exhausted. Browser resize completions repeat the numeric `reservation_id` returned by the accepted request so clients can ignore stale completions.
 
-Browser input, navigation, activation, and browser reconfigure work from `resize-surface` enqueue per-surface CDP work and return `ok:true` after acceptance. Completion or failure is observed later via browser state and status events. Two consecutive CDP call timeouts mark only that browser surface failed with `browser is not responding`.
+Protocol v7 `title-changed` carries the authoritative current `title`. Slow subscribers coalesce repeated pending title changes per surface to the latest value.
+
+Browser input, navigation, activation, and browser reconfigure work from `resize-surface` enqueue per-surface CDP work. Protocol v7 `resize-surface` responses include `data.accepted` and `data.reservation_id`; `true` means the resize was applied or queued, and `false` means it was already satisfied, pending, or waiting for its retry backoff. Completion arrives as `surface-resized`, and asynchronous failure arrives as `surface-resize-failed`. Two consecutive CDP call timeouts mark only that browser surface failed with `browser is not responding`.
 
 ## Attach Surface
 
@@ -137,7 +141,7 @@ Then it sends ordered stream frames:
 
 ```json
 {"event":"output","surface":4,"data":"<base64-pty-bytes>"}
-{"event":"resized","surface":4,"cols":132,"rows":43,"data":"<base64-vt-replay>"}
+{"event":"resized","surface":4,"cols":132,"rows":43,"replay":"<base64-vt-replay>"}
 ```
 
 The `resized` attach frame carries the new cell size and a fresh VT replay captured at that size. It is delivered in the same attach stream as output frames, so a client can reset its local terminal, apply the replay, and continue consuming later output in order.
@@ -152,7 +156,7 @@ When the stream ends, it sends:
 
 ## Client Compatibility
 
-The remote TUI requires protocol v7. It refuses servers reporting any other protocol version. Protocol v7 preserves the v6 attach ordering and adds stable `split` ids to canonical layout nodes.
+The remote TUI requires protocol v7. It refuses servers reporting any other protocol version because it relies on resized attach replays, authoritative title events, and stable `split` ids in canonical layout nodes.
 
 Existing `set-ratio` clients remain source-compatible and the server keeps the pane-and-direction command unchanged. Protocol-v7 frontends should read `layout.split` and send `set-split-ratio` so nested same-direction dividers are addressed exactly.
 
