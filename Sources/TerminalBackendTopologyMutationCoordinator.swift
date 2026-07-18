@@ -544,6 +544,7 @@ final class TerminalBackendTopologyMutationCoordinator {
         workspaceID: UUID = UUID(),
         name: String?,
         index: Int? = nil,
+        projectionOwnerID: UUID? = nil,
         onProjected: ProjectionHandler? = nil,
         onFailure: RequestFailureHandler? = nil
     ) -> TerminalBackendTopologyMutationSubmission {
@@ -551,6 +552,7 @@ final class TerminalBackendTopologyMutationCoordinator {
             .createWorkspace,
             workspaceID: workspaceID,
             surfaceID: surfaceID,
+            projectionOwnerID: projectionOwnerID,
             onProjected: onProjected,
             onFailure: onFailure
         ) { [mutator] requestID in

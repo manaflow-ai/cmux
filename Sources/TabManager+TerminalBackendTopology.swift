@@ -78,6 +78,7 @@ private final class TabManagerTopologyProjectionState {
     var browserCreations: [BrowserCreation] = []
     var cloudTerminalAdoptions: [CloudTerminalAdoption] = []
     var browserMovementOrigins: [UUID: TerminalMovementOrigin] = [:]
+    var importedSurfaceIDs: Set<UUID> = []
     private(set) var touchedWorkspaces: [Workspace] = []
     private var touchedWorkspaceIdentities: Set<ObjectIdentifier> = []
 
@@ -125,11 +126,14 @@ extension TabManager: TerminalBackendTopologyProjecting {
 
     func legacyTerminalPlacements() -> Set<TerminalBackendTopologyPlacement> {
         Set(tabs.flatMap { workspace in
-            workspace.panels.values.compactMap { panel in
-                guard panel is TerminalPanel else { return nil }
+            workspace.panels.compactMap { panelID, panel in
+                guard panel is TerminalPanel,
+                      let surfaceID = workspace.backendCanonicalSurfaceID(
+                          for: panelID
+                      ) else { return nil }
                 return TerminalBackendTopologyPlacement(
                     workspaceID: workspace.id,
-                    surfaceID: panel.id
+                    surfaceID: surfaceID
                 )
             }
         })
@@ -137,7 +141,10 @@ extension TabManager: TerminalBackendTopologyProjecting {
 
     func allPresentationPlacements() -> Set<TerminalBackendTopologyPlacement> {
         Set(tabs.flatMap { workspace in
-            workspace.panels.keys.map { surfaceID in
+            workspace.panels.keys.compactMap { panelID in
+                guard let surfaceID = workspace.backendCanonicalSurfaceID(
+                    for: panelID
+                ) else { return nil }
                 TerminalBackendTopologyPlacement(
                     workspaceID: workspace.id,
                     surfaceID: surfaceID
@@ -152,7 +159,9 @@ extension TabManager: TerminalBackendTopologyProjecting {
 
     func frontendNativeBrowserSourceURL(surfaceID: SurfaceID) -> URL? {
         tabs.lazy.compactMap { workspace in
-            guard let panel = workspace.panels[surfaceID.rawValue] as? BrowserPanel,
+            guard let panel = workspace.panels.first(where: { panelID, _ in
+                workspace.backendCanonicalSurfaceID(for: panelID) == surfaceID.rawValue
+            })?.value as? BrowserPanel,
                   panel.endpointProvenance == .frontendNativeCanonical(surfaceID) else {
                 return nil
             }
@@ -163,7 +172,9 @@ extension TabManager: TerminalBackendTopologyProjecting {
 
     func frontendNativeBrowserIsPresented(surfaceID: SurfaceID) -> Bool {
         tabs.contains { workspace in
-            guard let panel = workspace.panels[surfaceID.rawValue] as? BrowserPanel else {
+            guard let panel = workspace.panels.first(where: { panelID, _ in
+                workspace.backendCanonicalSurfaceID(for: panelID) == surfaceID.rawValue
+            })?.value as? BrowserPanel else {
                 return false
             }
             return panel.endpointProvenance == .frontendNativeCanonical(surfaceID)
@@ -175,7 +186,9 @@ extension TabManager: TerminalBackendTopologyProjecting {
         surfaceID: SurfaceID
     ) {
         for workspace in tabs {
-            guard let panel = workspace.panels[surfaceID.rawValue] as? BrowserPanel,
+            guard let panel = workspace.panels.first(where: { panelID, _ in
+                workspace.backendCanonicalSurfaceID(for: panelID) == surfaceID.rawValue
+            })?.value as? BrowserPanel,
                   panel.endpointProvenance == .frontendNativeCanonical(surfaceID) else {
                 continue
             }
@@ -200,12 +213,25 @@ extension TabManager: TerminalBackendTopologyProjecting {
         _ snapshot: TopologySnapshot,
         plan: TerminalBackendTopologyProjectionPlan
     ) throws -> TerminalBackendTopologyPreparedProjection {
-        try preflightCanonicalTopology(snapshot, plan: plan)
+        try prepareCanonicalTopology(snapshot, plan: plan, transferVault: nil)
+    }
+
+    func prepareCanonicalTopology(
+        _ snapshot: TopologySnapshot,
+        plan: TerminalBackendTopologyProjectionPlan,
+        transferVault: TerminalBackendTopologyCanonicalSurfaceTransferVault?
+    ) throws -> TerminalBackendTopologyPreparedProjection {
+        try preflightCanonicalTopology(snapshot, plan: plan, transferVault: transferVault)
         let state = try captureTopologyProjectionState()
         return TerminalBackendTopologyPreparedProjection(
             commit: { [weak self] in
                 guard let self else { return }
-                try self.commitCanonicalTopology(snapshot, plan: plan, state: state)
+                try self.commitCanonicalTopology(
+                    snapshot,
+                    plan: plan,
+                    state: state,
+                    transferVault: transferVault
+                )
             },
             finalize: { [weak self] in
                 guard let self else { return }
@@ -224,7 +250,7 @@ extension TabManager: TerminalBackendTopologyProjecting {
             },
             rollback: { [weak self] in
                 guard let self else { return }
-                try self.rollbackCanonicalTopology(state)
+                try self.rollbackCanonicalTopology(state, transferVault: transferVault)
             }
         )
     }
@@ -232,7 +258,8 @@ extension TabManager: TerminalBackendTopologyProjecting {
     private func commitCanonicalTopology(
         _ snapshot: TopologySnapshot,
         plan: TerminalBackendTopologyProjectionPlan,
-        state: TabManagerTopologyProjectionState
+        state: TabManagerTopologyProjectionState,
+        transferVault: TerminalBackendTopologyCanonicalSurfaceTransferVault?
     ) throws {
         let browserResolver = TerminalBackendBrowserEndpointResolver(
             factory: terminalClientComposition.browserEndpointFactory
@@ -257,7 +284,10 @@ extension TabManager: TerminalBackendTopologyProjecting {
 
         var currentOwnerBySurface: [UUID: Workspace] = [:]
         for workspace in previousTabs {
-            for surfaceID in workspace.panels.keys {
+            for panelID in workspace.panels.keys {
+                guard let surfaceID = workspace.backendCanonicalSurfaceID(
+                    for: panelID
+                ) else { continue }
                 guard currentOwnerBySurface.updateValue(workspace, forKey: surfaceID) == nil else {
                     throw TerminalBackendTopologyProjectionError.duplicatePlacement(
                         TerminalBackendTopologyPlacement(
@@ -268,6 +298,7 @@ extension TabManager: TerminalBackendTopologyProjecting {
                 }
             }
         }
+        let incomingPanels = transferVault?.incomingPanels(for: self) ?? [:]
 
         // Revalidate every typed endpoint before the first live detach. A local
         // BrowserPanel with the same UUID is still a client overlay unless its
@@ -275,9 +306,9 @@ extension TabManager: TerminalBackendTopologyProjecting {
         for target in orderedTargets {
             let surfaceID = target.surface.uuid.rawValue
             let expectedType = try panelType(for: target.surface)
-            if let owner = currentOwnerBySurface[surfaceID],
-               let panel = owner.panels[surfaceID] {
-                let permitsCloudAdoption = owner.id == target.workspaceID
+            let owner = currentOwnerBySurface[surfaceID]
+            if let panel = owner?.panels[surfaceID] ?? incomingPanels[surfaceID] {
+                let permitsCloudAdoption = owner?.id == target.workspaceID
                     && permitsCloudTerminalAdoption(
                         panel: panel,
                         expectedType: expectedType,
@@ -306,6 +337,27 @@ extension TabManager: TerminalBackendTopologyProjecting {
         // Cross-workspace transfer retains the exact terminal or browser
         // presentation object and its backend runtime identity.
         var transfers: [UUID: Workspace.DetachedSurfaceTransfer] = [:]
+        let incomingTransfers = try transferVault?.incomingTransfers(for: self) ?? []
+        state.importedSurfaceIDs = Set(incomingTransfers.map(\.surfaceID))
+        for incoming in incomingTransfers {
+            guard transfers.updateValue(
+                incoming.transfer,
+                forKey: incoming.surfaceID
+            ) == nil else {
+                throw TerminalBackendTopologyProjectionError.projectionFailed(
+                    "canonical surface has duplicate transfer payloads"
+                )
+            }
+            let origin = TabManagerTopologyProjectionState.TerminalMovementOrigin(
+                workspace: incoming.sourceWorkspace,
+                pane: incoming.sourcePane
+            )
+            if incoming.transfer.panel is BrowserPanel {
+                state.browserMovementOrigins[incoming.surfaceID] = origin
+            } else {
+                state.terminalMovementOrigins[incoming.surfaceID] = origin
+            }
+        }
         for target in orderedTargets {
             let surfaceID = target.surface.uuid.rawValue
             guard let source = currentOwnerBySurface[surfaceID],
@@ -346,13 +398,8 @@ extension TabManager: TerminalBackendTopologyProjecting {
                     existing.isApplyingCanonicalTopologyProjection = true
                     defer { existing.isApplyingCanonicalTopologyProjection = false }
                     let canonicalPresentationIDs = existing.panels.compactMap {
-                        panelID, panel in
-                        if panel is TerminalPanel { return panelID }
-                        if let browser = panel as? BrowserPanel,
-                           browser.endpointProvenance.canonicalSurfaceID != nil {
-                            return panelID
-                        }
-                        return nil
+                        panelID, _ in
+                        existing.isBackendCanonicalPanel(panelID) ? panelID : nil
                     }
                     for panelID in canonicalPresentationIDs {
                         try stageCanonicalPresentationRetirement(
@@ -388,6 +435,13 @@ extension TabManager: TerminalBackendTopologyProjecting {
                     isCanonicalTopologyProjection: true,
                     nativeSSHConnectionBroker: nativeSSHConnectionBroker
                 )
+                if state.importedSurfaceIDs.contains(firstSurface.uuid.rawValue) {
+                    try transferVault?.didImport(
+                        surfaceID: firstSurface.uuid.rawValue,
+                        into: workspace,
+                        by: self
+                    )
+                }
                 if let panel = transfer.panel as? TerminalPanel {
                     guard let origin = state.terminalMovementOrigins[panel.id] else {
                         throw TerminalBackendTopologyProjectionError.projectionFailed(
@@ -532,6 +586,13 @@ extension TabManager: TerminalBackendTopologyProjecting {
                             "canonical terminal transfer attach"
                         )
                     }
+                    if state.importedSurfaceIDs.contains(surfaceID) {
+                        try transferVault?.didImport(
+                            surfaceID: surfaceID,
+                            into: workspace,
+                            by: self
+                        )
+                    }
                     if let panel = transfer.panel as? TerminalPanel {
                         guard let origin = state.terminalMovementOrigins[panel.id] else {
                             throw TerminalBackendTopologyProjectionError.projectionFailed(
@@ -622,14 +683,9 @@ extension TabManager: TerminalBackendTopologyProjecting {
             }
 
             let targetSurfaceIDs = Set(orderedSurfaces.map { $0.uuid.rawValue })
-            let obsoleteCanonicalPresentationIDs: [UUID] = workspace.panels.compactMap { panelID, panel in
+            let obsoleteCanonicalPresentationIDs: [UUID] = workspace.panels.compactMap { panelID, _ in
                 guard !targetSurfaceIDs.contains(panelID) else { return nil }
-                if panel is TerminalPanel { return panelID }
-                if let browser = panel as? BrowserPanel,
-                   browser.endpointProvenance.canonicalSurfaceID != nil {
-                    return panelID
-                }
-                return nil
+                return workspace.isBackendCanonicalPanel(panelID) ? panelID : nil
             }
             for panelID in obsoleteCanonicalPresentationIDs {
                 try stageCanonicalPresentationRetirement(
@@ -671,13 +727,8 @@ extension TabManager: TerminalBackendTopologyProjecting {
             state.touch(workspace)
             workspace.isApplyingCanonicalTopologyProjection = true
             defer { workspace.isApplyingCanonicalTopologyProjection = false }
-            let canonicalPresentationIDs: [UUID] = workspace.panels.compactMap { panelID, panel in
-                if panel is TerminalPanel { return panelID }
-                if let browser = panel as? BrowserPanel,
-                   browser.endpointProvenance.canonicalSurfaceID != nil {
-                    return panelID
-                }
-                return nil
+            let canonicalPresentationIDs: [UUID] = workspace.panels.compactMap { panelID, _ in
+                workspace.isBackendCanonicalPanel(panelID) ? panelID : nil
             }
             for panelID in canonicalPresentationIDs {
                 try stageCanonicalPresentationRetirement(
@@ -715,7 +766,8 @@ extension TabManager: TerminalBackendTopologyProjecting {
 
     private func preflightCanonicalTopology(
         _ snapshot: TopologySnapshot,
-        plan: TerminalBackendTopologyProjectionPlan
+        plan: TerminalBackendTopologyProjectionPlan,
+        transferVault: TerminalBackendTopologyCanonicalSurfaceTransferVault?
     ) throws {
         let browserResolver = TerminalBackendBrowserEndpointResolver(
             factory: terminalClientComposition.browserEndpointFactory
@@ -737,6 +789,16 @@ extension TabManager: TerminalBackendTopologyProjecting {
                 }
                 existingPanelWorkspaceIDs[panelID] = workspace.id
             }
+        }
+        for (surfaceID, panel) in transferVault?.incomingPanels(for: self) ?? [:] {
+            guard existingPanels.updateValue(panel, forKey: surfaceID) == nil else {
+                throw TerminalBackendTopologyProjectionError.projectionFailed(
+                    "incoming canonical surface collides with a destination presentation"
+                )
+            }
+            existingPanelWorkspaceIDs[surfaceID] = plan.surfaceWorkspaceIDs[
+                SurfaceID(rawValue: surfaceID)
+            ]
         }
 
         var canonicalSurfaceIDs: Set<UUID> = []
@@ -911,7 +973,7 @@ extension TabManager: TerminalBackendTopologyProjecting {
         )
     }
 
-    private func captureAuthoritativeTree(
+    func captureAuthoritativeTree(
         in workspace: Workspace
     ) throws -> BonsplitAuthoritativeTree {
         let controller = workspace.bonsplitController
@@ -992,11 +1054,8 @@ extension TabManager: TerminalBackendTopologyProjecting {
         from workspace: Workspace,
         state: TabManagerTopologyProjectionState
     ) throws {
-        guard let panel = workspace.panels[panelID],
-              panel is TerminalPanel || (panel as? BrowserPanel).map({ browser in
-                  if browser.endpointProvenance.canonicalSurfaceID != nil { return true }
-                  return false
-              }) == true,
+        guard workspace.panels[panelID] != nil,
+              workspace.isBackendCanonicalPanel(panelID),
               let tabID = workspace.surfaceIdFromPanelId(panelID),
               let pane = workspace.paneId(forPanelId: panelID),
               let index = workspace.bonsplitController.tabs(inPane: pane)
@@ -1129,10 +1188,12 @@ extension TabManager: TerminalBackendTopologyProjecting {
                 && workspace.panels.isEmpty {
             workspace.teardownAllPanels()
         }
+        state.importedSurfaceIDs.removeAll()
     }
 
     private func rollbackCanonicalTopology(
-        _ state: TabManagerTopologyProjectionState
+        _ state: TabManagerTopologyProjectionState,
+        transferVault: TerminalBackendTopologyCanonicalSurfaceTransferVault?
     ) throws {
         var rollbackFailures: [String] = []
         func recordFailure(_ message: String) {
@@ -1152,6 +1213,14 @@ extension TabManager: TerminalBackendTopologyProjecting {
             for workspace in allWorkspaces {
                 workspace.isApplyingCanonicalTopologyProjection = false
             }
+        }
+
+        do {
+            try transferVault?.reclaimImports(for: self)
+        } catch {
+            recordFailure(
+                "imported canonical surfaces could not be returned to the transfer vault"
+            )
         }
 
         for adoption in state.cloudTerminalAdoptions.reversed() {
@@ -1249,6 +1318,7 @@ extension TabManager: TerminalBackendTopologyProjecting {
         for workspace in allWorkspaces {
             let createdPanelIDs = workspace.panels.keys.filter {
                 state.originalPanelOwners[$0] == nil
+                    && !state.importedSurfaceIDs.contains($0)
             }
             for panelID in createdPanelIDs {
                 if let panel = workspace.panels[panelID] as? TerminalPanel {
@@ -1363,6 +1433,7 @@ extension TabManager: TerminalBackendTopologyProjecting {
         state.browserPlacementAdoptions.removeAll()
         state.browserCreations.removeAll()
         state.browserMovementOrigins.removeAll()
+        state.importedSurfaceIDs.removeAll()
         if !rollbackFailures.isEmpty {
             throw TerminalBackendTopologyProjectionError.projectionFailed(
                 rollbackFailures.joined(separator: "; ")
@@ -1431,8 +1502,9 @@ extension TabManager: TerminalBackendTopologyProjecting {
             }
             let overlayTabIDs = paneTabIDs.filter { tabID in
                 guard let panelID = workspace.panelIdFromSurfaceId(tabID),
-                      let panel = workspace.panels[panelID] else { return false }
-                return !(panel is TerminalPanel) && !canonicalSurfaceIDs.contains(panelID)
+                      workspace.panels[panelID] != nil else { return false }
+                return !workspace.isBackendCanonicalPanel(panelID)
+                    && !canonicalSurfaceIDs.contains(panelID)
             }
             guard !overlayTabIDs.isEmpty else { continue }
             let overlays = overlayTabIDs.compactMap { tabID -> TerminalBackendClientOverlayTabPlacement? in

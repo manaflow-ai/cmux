@@ -636,6 +636,136 @@ struct TerminalBackendTopologyCoordinatorTests {
     }
 
     @Test @MainActor
+    func transientProjectionFailureRetriesUnchangedSnapshotOnce() async throws {
+        let authority = makeAuthority()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let placement = TerminalBackendTopologyPlacement(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID
+        )
+        let projector = RecordingTopologyProjector(
+            transientCommitFailures: [1: 1]
+        )
+        let gate = TerminalBackendTopologyAuthorizationGate()
+        let pair = AsyncStream<TopologySnapshot>.makeStream()
+        let coordinator = TerminalBackendTopologyCoordinator(
+            snapshotSource: { pair.stream },
+            projector: projector,
+            authorizationGate: gate
+        )
+
+        coordinator.startupRestoreDidFinish()
+        coordinator.start()
+        pair.continuation.yield(try makeSnapshot(
+            authority: authority,
+            revision: 1,
+            workspaces: [makeWorkspace(
+                workspaceID: workspaceID,
+                surfaceIDs: [surfaceID]
+            )]
+        ))
+        await settle()
+
+        #expect(projector.commitAttemptRevisions == [1, 1])
+        #expect(projector.installedSnapshots.map(\.revision) == [1])
+        #expect(coordinator.debugInstalledRevision == 1)
+        #expect(await gate.isAuthorized(placement))
+    }
+
+    @Test @MainActor
+    func permanentProjectionFailureRetriesOncePerConcreteSignal() async throws {
+        let authority = makeAuthority()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let projector = RecordingTopologyProjector(failCommitRevisions: [1])
+        let gate = TerminalBackendTopologyAuthorizationGate()
+        let pair = AsyncStream<TopologySnapshot>.makeStream()
+        let coordinator = TerminalBackendTopologyCoordinator(
+            snapshotSource: { pair.stream },
+            projector: projector,
+            authorizationGate: gate
+        )
+
+        coordinator.startupRestoreDidFinish()
+        coordinator.start()
+        pair.continuation.yield(try makeSnapshot(
+            authority: authority,
+            revision: 1,
+            workspaces: [makeWorkspace(
+                workspaceID: workspaceID,
+                surfaceIDs: [surfaceID]
+            )]
+        ))
+        await settle()
+        await settle()
+        #expect(projector.commitAttemptRevisions == [1, 1])
+        #expect(coordinator.debugInstalledRevision == nil)
+
+        for _ in 0..<32 { await Task.yield() }
+        #expect(projector.commitAttemptRevisions == [1, 1])
+
+        coordinator.projectorsDidChange()
+        await settle()
+        await settle()
+        #expect(projector.commitAttemptRevisions == [1, 1, 1, 1])
+
+        for _ in 0..<32 { await Task.yield() }
+        #expect(projector.commitAttemptRevisions == [1, 1, 1, 1])
+    }
+
+    @Test @MainActor
+    func newerSnapshotSupersedesPendingRollbackRetry() async throws {
+        let authority = makeAuthority()
+        let firstWorkspaceID = UUID()
+        let firstSurfaceID = UUID()
+        let secondWorkspaceID = UUID()
+        let secondSurfaceID = UUID()
+        let planner = SuspendSecondTopologyPlanBuilder()
+        let projector = RecordingTopologyProjector(failCommitRevisions: [1])
+        let gate = TerminalBackendTopologyAuthorizationGate()
+        let pair = AsyncStream<TopologySnapshot>.makeStream()
+        let coordinator = TerminalBackendTopologyCoordinator(
+            snapshotSource: { pair.stream },
+            projector: projector,
+            authorizationGate: gate,
+            planBuilder: { topology in try await planner.build(topology) }
+        )
+
+        coordinator.startupRestoreDidFinish()
+        coordinator.start()
+        pair.continuation.yield(try makeSnapshot(
+            authority: authority,
+            revision: 1,
+            workspaces: [makeWorkspace(
+                workspaceID: firstWorkspaceID,
+                surfaceIDs: [firstSurfaceID]
+            )]
+        ))
+        await planner.waitUntilRetryIsBlocked()
+
+        pair.continuation.yield(try makeSnapshot(
+            authority: authority,
+            revision: 2,
+            workspaces: [makeWorkspace(
+                workspaceID: secondWorkspaceID,
+                surfaceIDs: [secondSurfaceID]
+            )]
+        ))
+        await planner.waitUntilSupersedingPlanStarts()
+        await planner.resumeRetry()
+        await settle()
+
+        #expect(projector.commitAttemptRevisions == [1, 2])
+        #expect(projector.installedSnapshots.map(\.revision) == [2])
+        #expect(coordinator.debugInstalledRevision == 2)
+        #expect(await gate.isAuthorized(TerminalBackendTopologyPlacement(
+            workspaceID: secondWorkspaceID,
+            surfaceID: secondSurfaceID
+        )))
+    }
+
+    @Test @MainActor
     func browserOnlyDaemonTopologyNeverOpensLegacyTerminalImport() async throws {
         let legacyPlacement = TerminalBackendTopologyPlacement(
             workspaceID: UUID(),
@@ -1151,6 +1281,654 @@ struct TerminalBackendTopologyCoordinatorTests {
         #expect(second.installedSnapshots.count == secondInstallCount)
         #expect(registry.debugWorkspaceOwner(firstWorkspaceID) == firstWindowID)
         #expect(registry.debugWorkspaceOwner(secondWorkspaceID) == secondWindowID)
+    }
+
+    @Test @MainActor
+    func reservedCrossWindowTerminalMovePreservesExactPresentationObject() throws {
+        let composition = makeProjectionComposition()
+        let first = TabManager(
+            autoWelcomeIfNeeded: false,
+            terminalClientComposition: composition
+        )
+        let second = TabManager(
+            autoWelcomeIfNeeded: false,
+            terminalClientComposition: composition
+        )
+        defer {
+            first.tabs.forEach { $0.teardownAllPanels() }
+            second.tabs.forEach { $0.teardownAllPanels() }
+        }
+        let firstWorkspaceID = try #require(first.tabs.first?.id)
+        let secondWorkspaceID = try #require(second.tabs.first?.id)
+        let firstSurfaceID = try #require(first.tabs.first?.focusedPanelId)
+        let secondSurfaceID = try #require(second.tabs.first?.focusedPanelId)
+        let firstPaneID = UUID()
+        let secondPaneID = UUID()
+        let authority = makeAuthority()
+        let registry = TerminalBackendTopologyProjectionRegistry()
+        let firstPresentationID = UUID()
+        let secondPresentationID = UUID()
+        registry.register(first, presentationID: firstPresentationID, isPrimary: true)
+        registry.register(second, presentationID: secondPresentationID, isPrimary: false)
+        let initial = try makeSnapshot(
+            authority: authority,
+            revision: 1,
+            workspaces: [
+                makeWorkspace(
+                    workspaceID: firstWorkspaceID,
+                    paneID: firstPaneID,
+                    surfaceIDs: [firstSurfaceID]
+                ),
+                makeWorkspace(
+                    workspaceID: secondWorkspaceID,
+                    workspaceNumber: 2,
+                    screenNumber: 2,
+                    paneNumber: 2,
+                    paneID: secondPaneID,
+                    firstSurfaceNumber: 2,
+                    surfaceIDs: [secondSurfaceID]
+                ),
+            ]
+        )
+        try registry.installCanonicalTopology(
+            initial,
+            plan: TerminalBackendTopologyProjectionPlan(topology: initial.topology)
+        )
+        let sourceWorkspace = try #require(first.tabs.first)
+        let original = try #require(
+            sourceWorkspace.panels[firstSurfaceID] as? TerminalPanel
+        )
+        let originalSurface = original.surface
+        let originalHostedView = original.hostedView
+
+        _ = try registry.reserveCanonicalSurfaceMove(
+            surfaceID: firstSurfaceID,
+            from: firstWorkspaceID,
+            in: first,
+            to: secondWorkspaceID,
+            in: second,
+            destinationPaneID: secondPaneID,
+            destinationIndex: 1
+        )
+        let moved = try makeSnapshot(
+            authority: authority,
+            revision: 2,
+            workspaces: [makeWorkspace(
+                workspaceID: secondWorkspaceID,
+                workspaceNumber: 2,
+                screenNumber: 2,
+                paneNumber: 2,
+                paneID: secondPaneID,
+                firstSurfaceNumber: 2,
+                surfaceIDs: [secondSurfaceID, firstSurfaceID]
+            )]
+        )
+        try registry.installCanonicalTopology(
+            moved,
+            plan: TerminalBackendTopologyProjectionPlan(topology: moved.topology)
+        )
+
+        let destination = try #require(second.tabs.first(where: {
+            $0.id == secondWorkspaceID
+        }))
+        let projected = try #require(
+            destination.panels[firstSurfaceID] as? TerminalPanel
+        )
+        #expect(projected === original)
+        #expect(projected.surface === originalSurface)
+        #expect(projected.hostedView === originalHostedView)
+        #expect(projected.workspaceId == secondWorkspaceID)
+        #expect(first.tabs.allSatisfy { $0.panels[firstSurfaceID] == nil })
+        #expect(destination.indexInPane(forPanelId: firstSurfaceID) == 1)
+    }
+
+    @Test @MainActor
+    func detachAllTransferVaultSupportsCrossWindowSwap() throws {
+        let composition = makeProjectionComposition()
+        let first = TabManager(
+            autoWelcomeIfNeeded: false,
+            terminalClientComposition: composition
+        )
+        let second = TabManager(
+            autoWelcomeIfNeeded: false,
+            terminalClientComposition: composition
+        )
+        defer {
+            first.tabs.forEach { $0.teardownAllPanels() }
+            second.tabs.forEach { $0.teardownAllPanels() }
+        }
+        let firstWorkspaceID = try #require(first.tabs.first?.id)
+        let secondWorkspaceID = try #require(second.tabs.first?.id)
+        let firstSurfaceID = try #require(first.tabs.first?.focusedPanelId)
+        let secondSurfaceID = try #require(second.tabs.first?.focusedPanelId)
+        let firstPaneID = UUID()
+        let secondPaneID = UUID()
+        let authority = makeAuthority()
+        let registry = TerminalBackendTopologyProjectionRegistry()
+        registry.register(first, presentationID: UUID(), isPrimary: true)
+        registry.register(second, presentationID: UUID(), isPrimary: false)
+        let initial = try makeSnapshot(
+            authority: authority,
+            revision: 1,
+            workspaces: [
+                makeWorkspace(
+                    workspaceID: firstWorkspaceID,
+                    paneID: firstPaneID,
+                    surfaceIDs: [firstSurfaceID]
+                ),
+                makeWorkspace(
+                    workspaceID: secondWorkspaceID,
+                    workspaceNumber: 2,
+                    screenNumber: 2,
+                    paneNumber: 2,
+                    paneID: secondPaneID,
+                    firstSurfaceNumber: 2,
+                    surfaceIDs: [secondSurfaceID]
+                ),
+            ]
+        )
+        try registry.installCanonicalTopology(
+            initial,
+            plan: TerminalBackendTopologyProjectionPlan(topology: initial.topology)
+        )
+        let firstPanel = try #require(
+            first.tabs.first?.panels[firstSurfaceID] as? TerminalPanel
+        )
+        let secondPanel = try #require(
+            second.tabs.first?.panels[secondSurfaceID] as? TerminalPanel
+        )
+
+        _ = try registry.reserveCanonicalSurfaceMove(
+            surfaceID: firstSurfaceID,
+            from: firstWorkspaceID,
+            in: first,
+            to: secondWorkspaceID,
+            in: second,
+            destinationPaneID: secondPaneID,
+            destinationIndex: 0
+        )
+        _ = try registry.reserveCanonicalSurfaceMove(
+            surfaceID: secondSurfaceID,
+            from: secondWorkspaceID,
+            in: second,
+            to: firstWorkspaceID,
+            in: first,
+            destinationPaneID: firstPaneID,
+            destinationIndex: 0
+        )
+        let swapped = try makeSnapshot(
+            authority: authority,
+            revision: 2,
+            workspaces: [
+                makeWorkspace(
+                    workspaceID: firstWorkspaceID,
+                    paneID: firstPaneID,
+                    firstSurfaceNumber: 2,
+                    surfaceIDs: [secondSurfaceID]
+                ),
+                makeWorkspace(
+                    workspaceID: secondWorkspaceID,
+                    workspaceNumber: 2,
+                    screenNumber: 2,
+                    paneNumber: 2,
+                    paneID: secondPaneID,
+                    surfaceIDs: [firstSurfaceID]
+                ),
+            ]
+        )
+        try registry.installCanonicalTopology(
+            swapped,
+            plan: TerminalBackendTopologyProjectionPlan(topology: swapped.topology)
+        )
+
+        #expect(first.tabs.first?.panels[secondSurfaceID] === secondPanel)
+        #expect(second.tabs.first?.panels[firstSurfaceID] === firstPanel)
+        #expect(first.tabs.first?.panels[firstSurfaceID] == nil)
+        #expect(second.tabs.first?.panels[secondSurfaceID] == nil)
+    }
+
+    @Test @MainActor
+    func reservedCrossWindowBrowserMovePreservesPanelAndWebView() async throws {
+        let movedBrowserID = SurfaceID(rawValue: UUID())
+        let destinationBrowserID = SurfaceID(rawValue: UUID())
+        let authority = makeAuthority()
+        let sourceURL = try #require(URL(string: "https://example.com/source"))
+        let destinationURL = try #require(URL(string: "https://example.com/destination"))
+        let service = RecordingNativeBrowserService(
+            authority: authority,
+            retainedSources: [
+                movedBrowserID: sourceURL,
+                destinationBrowserID: destinationURL,
+            ]
+        )
+        let native = makeNativeBrowserProjectionComposition(service: service)
+        let first = TabManager(
+            autoWelcomeIfNeeded: false,
+            terminalClientComposition: native.composition
+        )
+        let second = TabManager(
+            autoWelcomeIfNeeded: false,
+            terminalClientComposition: native.composition
+        )
+        defer {
+            first.tabs.forEach { $0.teardownAllPanels() }
+            second.tabs.forEach { $0.teardownAllPanels() }
+        }
+        let firstWorkspaceID = try #require(first.tabs.first?.id)
+        let secondWorkspaceID = try #require(second.tabs.first?.id)
+        let firstTerminalID = try #require(first.tabs.first?.focusedPanelId)
+        let secondTerminalID = try #require(second.tabs.first?.focusedPanelId)
+        let firstPaneID = UUID()
+        let secondPaneID = UUID()
+        let registry = TerminalBackendTopologyProjectionRegistry()
+        registry.register(first, presentationID: UUID(), isPrimary: true)
+        registry.register(second, presentationID: UUID(), isPrimary: false)
+        let initial = try makeSnapshot(
+            authority: authority,
+            revision: 1,
+            workspaces: [
+                makeMixedWorkspace(
+                    workspaceID: firstWorkspaceID,
+                    workspaceNumber: 1,
+                    screenNumber: 1,
+                    paneNumber: 1,
+                    paneID: firstPaneID,
+                    surfaces: [
+                        makeSurface(id: 1, uuid: firstTerminalID, name: "terminal"),
+                        makeFrontendNativeBrowserSurface(
+                            id: 2,
+                            uuid: movedBrowserID.rawValue
+                        ),
+                    ]
+                ),
+                makeMixedWorkspace(
+                    workspaceID: secondWorkspaceID,
+                    workspaceNumber: 2,
+                    screenNumber: 2,
+                    paneNumber: 2,
+                    paneID: secondPaneID,
+                    surfaces: [makeFrontendNativeBrowserSurface(
+                        id: 3,
+                        uuid: destinationBrowserID.rawValue
+                    )]
+                ),
+            ]
+        )
+        let initialPlan = try TerminalBackendTopologyProjectionPlan(
+            topology: initial.topology
+        )
+        try await native.runtime.claimBeforeProjection(
+            authority: authority,
+            surfaceIDs: initialPlan.frontendNativeBrowserSurfaceIDs,
+            projector: registry
+        )
+        try registry.installCanonicalTopology(
+            initial,
+            plan: initialPlan
+        )
+        native.runtime.projectionDidInstall(
+            surfaceIDs: initialPlan.frontendNativeBrowserSurfaceIDs,
+            projector: registry
+        )
+        #expect(second.tabs.first?.panels[secondTerminalID] == nil)
+        #expect(second.tabs.first?.panels.values.allSatisfy { $0 is BrowserPanel } == true)
+        let original = try #require(
+            first.tabs.first?.panels[movedBrowserID.rawValue] as? BrowserPanel
+        )
+        let originalWebView = original.webView
+
+        _ = try registry.reserveCanonicalSurfaceMove(
+            surfaceID: movedBrowserID.rawValue,
+            from: firstWorkspaceID,
+            in: first,
+            to: secondWorkspaceID,
+            in: second,
+            destinationPaneID: secondPaneID,
+            destinationIndex: 1
+        )
+        let moved = try makeSnapshot(
+            authority: authority,
+            revision: 2,
+            workspaces: [
+                makeMixedWorkspace(
+                    workspaceID: firstWorkspaceID,
+                    workspaceNumber: 1,
+                    screenNumber: 1,
+                    paneNumber: 1,
+                    paneID: firstPaneID,
+                    surfaces: [makeSurface(
+                        id: 1,
+                        uuid: firstTerminalID,
+                        name: "terminal"
+                    )]
+                ),
+                makeMixedWorkspace(
+                    workspaceID: secondWorkspaceID,
+                    workspaceNumber: 2,
+                    screenNumber: 2,
+                    paneNumber: 2,
+                    paneID: secondPaneID,
+                    surfaces: [
+                        makeFrontendNativeBrowserSurface(
+                            id: 3,
+                            uuid: destinationBrowserID.rawValue
+                        ),
+                        makeFrontendNativeBrowserSurface(
+                            id: 2,
+                            uuid: movedBrowserID.rawValue
+                        ),
+                    ]
+                ),
+            ]
+        )
+        let movedPlan = try TerminalBackendTopologyProjectionPlan(
+            topology: moved.topology
+        )
+        try await native.runtime.claimBeforeProjection(
+            authority: authority,
+            surfaceIDs: movedPlan.frontendNativeBrowserSurfaceIDs,
+            projector: registry
+        )
+        try registry.installCanonicalTopology(
+            moved,
+            plan: movedPlan
+        )
+        native.runtime.projectionDidInstall(
+            surfaceIDs: movedPlan.frontendNativeBrowserSurfaceIDs,
+            projector: registry
+        )
+
+        let projected = try #require(
+            second.tabs.first?.panels[movedBrowserID.rawValue] as? BrowserPanel
+        )
+        #expect(projected === original)
+        #expect(projected.webView === originalWebView)
+        #expect(projected.workspaceId == secondWorkspaceID)
+        #expect(first.tabs.first?.panels[movedBrowserID.rawValue] == nil)
+    }
+
+    @Test @MainActor
+    func crossWindowCommitFailureRestoresExactSourceGraphAndReservation() throws {
+        let composition = makeProjectionComposition()
+        let first = TabManager(
+            autoWelcomeIfNeeded: false,
+            terminalClientComposition: composition
+        )
+        let second = TabManager(
+            autoWelcomeIfNeeded: false,
+            terminalClientComposition: composition
+        )
+        defer {
+            first.tabs.forEach { $0.teardownAllPanels() }
+            second.tabs.forEach { $0.teardownAllPanels() }
+        }
+        let firstWorkspaceID = try #require(first.tabs.first?.id)
+        let secondWorkspaceID = try #require(second.tabs.first?.id)
+        let movedSurfaceID = try #require(first.tabs.first?.focusedPanelId)
+        let retainedSurfaceID = UUID()
+        let destinationSurfaceID = try #require(second.tabs.first?.focusedPanelId)
+        let firstPaneID = UUID()
+        let secondPaneID = UUID()
+        let authority = makeAuthority()
+        let registry = TerminalBackendTopologyProjectionRegistry()
+        registry.register(first, presentationID: UUID(), isPrimary: true)
+        registry.register(second, presentationID: UUID(), isPrimary: false)
+        let initial = try makeSnapshot(
+            authority: authority,
+            revision: 1,
+            workspaces: [
+                makeWorkspace(
+                    workspaceID: firstWorkspaceID,
+                    paneID: firstPaneID,
+                    surfaceIDs: [movedSurfaceID, retainedSurfaceID]
+                ),
+                makeWorkspace(
+                    workspaceID: secondWorkspaceID,
+                    workspaceNumber: 2,
+                    screenNumber: 2,
+                    paneNumber: 2,
+                    paneID: secondPaneID,
+                    firstSurfaceNumber: 3,
+                    surfaceIDs: [destinationSurfaceID]
+                ),
+            ]
+        )
+        try registry.installCanonicalTopology(
+            initial,
+            plan: TerminalBackendTopologyProjectionPlan(topology: initial.topology)
+        )
+        let sourceWorkspace = try #require(first.tabs.first)
+        let original = try #require(
+            sourceWorkspace.panels[movedSurfaceID] as? TerminalPanel
+        )
+        let originalSurface = original.surface
+        let originalHostedView = original.hostedView
+        let originalPane = sourceWorkspace.paneId(forPanelId: movedSurfaceID)
+        let originalIndex = sourceWorkspace.indexInPane(forPanelId: movedSurfaceID)
+        let originalTree = sourceWorkspace.bonsplitController.treeSnapshot()
+        let failing = RecordingTopologyProjector(failCommitRevisions: [2])
+        registry.register(failing, presentationID: UUID(), isPrimary: false)
+        _ = try registry.reserveCanonicalSurfaceMove(
+            surfaceID: movedSurfaceID,
+            from: firstWorkspaceID,
+            in: first,
+            to: secondWorkspaceID,
+            in: second,
+            destinationPaneID: secondPaneID,
+            destinationIndex: 1
+        )
+        let moved = try makeSnapshot(
+            authority: authority,
+            revision: 2,
+            workspaces: [
+                makeWorkspace(
+                    workspaceID: firstWorkspaceID,
+                    paneID: firstPaneID,
+                    firstSurfaceNumber: 2,
+                    surfaceIDs: [retainedSurfaceID]
+                ),
+                makeWorkspace(
+                    workspaceID: secondWorkspaceID,
+                    workspaceNumber: 2,
+                    screenNumber: 2,
+                    paneNumber: 2,
+                    paneID: secondPaneID,
+                    firstSurfaceNumber: 3,
+                    surfaceIDs: [destinationSurfaceID, movedSurfaceID]
+                ),
+            ]
+        )
+
+        #expect(throws: ProjectionTestError.self) {
+            try registry.installCanonicalTopology(
+                moved,
+                plan: TerminalBackendTopologyProjectionPlan(topology: moved.topology)
+            )
+        }
+        #expect(first.tabs.first === sourceWorkspace)
+        #expect(sourceWorkspace.panels[movedSurfaceID] === original)
+        #expect(original.surface === originalSurface)
+        #expect(original.hostedView === originalHostedView)
+        #expect(original.workspaceId == firstWorkspaceID)
+        #expect(sourceWorkspace.paneId(forPanelId: movedSurfaceID) == originalPane)
+        #expect(sourceWorkspace.indexInPane(forPanelId: movedSurfaceID) == originalIndex)
+        #expect(sourceWorkspace.bonsplitController.treeSnapshot() == originalTree)
+        #expect(second.tabs.first?.panels[movedSurfaceID] == nil)
+
+        registry.unregister(failing)
+        try registry.installCanonicalTopology(
+            moved,
+            plan: TerminalBackendTopologyProjectionPlan(topology: moved.topology)
+        )
+        #expect(second.tabs.first?.panels[movedSurfaceID] === original)
+    }
+
+    @Test @MainActor
+    func newWorkspaceReservationsSelectExactWindowAndPresentationObject() throws {
+        let composition = makeProjectionComposition()
+        let first = TabManager(
+            autoWelcomeIfNeeded: false,
+            terminalClientComposition: composition
+        )
+        let second = TabManager(
+            autoWelcomeIfNeeded: false,
+            terminalClientComposition: composition
+        )
+        defer {
+            first.tabs.forEach { $0.teardownAllPanels() }
+            second.tabs.forEach { $0.teardownAllPanels() }
+        }
+        let firstWorkspaceID = try #require(first.tabs.first?.id)
+        let secondWorkspaceID = try #require(second.tabs.first?.id)
+        let movedSurfaceID = try #require(first.tabs.first?.focusedPanelId)
+        let retainedSurfaceID = UUID()
+        let destinationSurfaceID = try #require(second.tabs.first?.focusedPanelId)
+        let newWorkspaceID = UUID()
+        let firstPaneID = UUID()
+        let secondPaneID = UUID()
+        let newPaneID = UUID()
+        let authority = makeAuthority()
+        let registry = TerminalBackendTopologyProjectionRegistry()
+        let firstPresentationID = UUID()
+        let secondPresentationID = UUID()
+        registry.register(first, presentationID: firstPresentationID, isPrimary: true)
+        registry.register(second, presentationID: secondPresentationID, isPrimary: false)
+        let initial = try makeSnapshot(
+            authority: authority,
+            revision: 1,
+            workspaces: [
+                makeWorkspace(
+                    workspaceID: firstWorkspaceID,
+                    paneID: firstPaneID,
+                    surfaceIDs: [movedSurfaceID, retainedSurfaceID]
+                ),
+                makeWorkspace(
+                    workspaceID: secondWorkspaceID,
+                    workspaceNumber: 2,
+                    screenNumber: 2,
+                    paneNumber: 2,
+                    paneID: secondPaneID,
+                    firstSurfaceNumber: 3,
+                    surfaceIDs: [destinationSurfaceID]
+                ),
+            ]
+        )
+        try registry.installCanonicalTopology(
+            initial,
+            plan: TerminalBackendTopologyProjectionPlan(topology: initial.topology)
+        )
+        let original = try #require(
+            first.tabs.first?.panels[movedSurfaceID] as? TerminalPanel
+        )
+        _ = try registry.reserveWorkspaceOwner(workspaceID: newWorkspaceID, for: second)
+        _ = try registry.reserveCanonicalSurfaceMove(
+            surfaceID: movedSurfaceID,
+            from: firstWorkspaceID,
+            in: first,
+            to: newWorkspaceID,
+            in: second,
+            destinationPaneID: newPaneID,
+            destinationIndex: 0
+        )
+        let moved = try makeSnapshot(
+            authority: authority,
+            revision: 2,
+            workspaces: [
+                makeWorkspace(
+                    workspaceID: firstWorkspaceID,
+                    paneID: firstPaneID,
+                    firstSurfaceNumber: 2,
+                    surfaceIDs: [retainedSurfaceID]
+                ),
+                makeWorkspace(
+                    workspaceID: secondWorkspaceID,
+                    workspaceNumber: 2,
+                    screenNumber: 2,
+                    paneNumber: 2,
+                    paneID: secondPaneID,
+                    firstSurfaceNumber: 3,
+                    surfaceIDs: [destinationSurfaceID]
+                ),
+                makeWorkspace(
+                    workspaceID: newWorkspaceID,
+                    workspaceNumber: 3,
+                    screenNumber: 3,
+                    paneNumber: 3,
+                    paneID: newPaneID,
+                    firstSurfaceNumber: 1,
+                    surfaceIDs: [movedSurfaceID]
+                ),
+            ]
+        )
+        try registry.installCanonicalTopology(
+            moved,
+            plan: TerminalBackendTopologyProjectionPlan(topology: moved.topology)
+        )
+
+        #expect(first.tabs.allSatisfy { $0.id != newWorkspaceID })
+        let newWorkspace = try #require(second.tabs.first(where: {
+            $0.id == newWorkspaceID
+        }))
+        #expect(newWorkspace.panels[movedSurfaceID] === original)
+        #expect(registry.debugWorkspaceOwner(newWorkspaceID)
+            == secondPresentationID)
+    }
+
+    @Test @MainActor
+    func canonicalInsertionIndexCountsTerminalAndBrowserButNotOverlay() throws {
+        let browserFactory = RecordingBrowserEndpointFactory()
+        let manager = TabManager(
+            autoWelcomeIfNeeded: false,
+            terminalClientComposition: makeProjectionComposition(
+                browserEndpointFactory: browserFactory
+            )
+        )
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
+        let workspaceID = try #require(manager.tabs.first?.id)
+        let terminalID = try #require(manager.tabs.first?.focusedPanelId)
+        let browserID = UUID()
+        let paneID = UUID()
+        let snapshot = try makeSnapshot(
+            authority: makeAuthority(),
+            revision: 1,
+            workspaces: [makeMixedWorkspace(
+                workspaceID: workspaceID,
+                workspaceNumber: 1,
+                screenNumber: 1,
+                paneNumber: 1,
+                paneID: paneID,
+                surfaces: [
+                    makeSurface(id: 1, uuid: terminalID, name: "terminal"),
+                    makeRequiredBrowserSurface(id: 2, uuid: browserID),
+                ]
+            )]
+        )
+        try manager.installCanonicalTopology(snapshot)
+        let workspace = try #require(manager.tabs.first)
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let overlay = try #require(workspace.newBrowserSurface(
+            inPane: pane,
+            focus: false,
+            creationPolicy: .restoration
+        ))
+        let overlayTab = try #require(workspace.surfaceIdFromPanelId(overlay.id))
+        workspace.isApplyingCanonicalTopologyProjection = true
+        #expect(workspace.bonsplitController.reorderTab(overlayTab, toIndex: 1))
+        workspace.isApplyingCanonicalTopologyProjection = false
+        #expect(workspace.bonsplitController.tabs(inPane: pane).map(\.id.uuid) == [
+            terminalID,
+            overlay.id,
+            browserID,
+        ])
+
+        #expect(workspace.backendCanonicalInsertionIndex(inPane: pane, presentedIndex: 0) == 0)
+        #expect(workspace.backendCanonicalInsertionIndex(inPane: pane, presentedIndex: 1) == 1)
+        #expect(workspace.backendCanonicalInsertionIndex(inPane: pane, presentedIndex: 2) == 1)
+        #expect(workspace.backendCanonicalInsertionIndex(inPane: pane, presentedIndex: 3) == 2)
+        #expect(manager.allPresentationPlacements() == [
+            TerminalBackendTopologyPlacement(workspaceID: workspaceID, surfaceID: terminalID),
+            TerminalBackendTopologyPlacement(workspaceID: workspaceID, surfaceID: browserID),
+        ])
     }
 
     @Test @MainActor
@@ -3001,9 +3779,7 @@ struct TerminalBackendTopologyCoordinatorTests {
         browserEndpointFactory: (any TerminalBackendBrowserEndpointCreating)? = nil
     ) -> TerminalClientComposition {
         TerminalClientComposition(
-            terminalPanelFactory: EmbeddedTerminalPanelFactory(
-                dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies
-            ),
+            terminalPanelFactory: CanonicalTestTerminalPanelFactory(),
             terminalBackendTopologyMutationCoordinator: TerminalBackendTopologyMutationCoordinator(
                 mutator: RejectingTopologyMutator(),
                 failureReporter: failureReporter
@@ -3028,9 +3804,7 @@ struct TerminalBackendTopologyCoordinatorTests {
             presentationRegistry: registry
         )
         let composition = TerminalClientComposition(
-            terminalPanelFactory: EmbeddedTerminalPanelFactory(
-                dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies
-            ),
+            terminalPanelFactory: CanonicalTestTerminalPanelFactory(),
             terminalBackendTopologyMutationCoordinator:
                 TerminalBackendTopologyMutationCoordinator(
                     mutator: RejectingTopologyMutator()
@@ -3105,6 +3879,7 @@ struct TerminalBackendTopologyCoordinatorTests {
         workspaceNumber: UInt64 = 1,
         screenNumber: UInt64 = 1,
         paneNumber: UInt64 = 1,
+        paneID: UUID? = nil,
         firstSurfaceNumber: UInt64 = 1,
         surfaceIDs: [UUID]
     ) -> CanonicalWorkspace {
@@ -3116,6 +3891,7 @@ struct TerminalBackendTopologyCoordinatorTests {
                 surfaceIDs: surfaceIDs,
                 screenNumber: screenNumber,
                 paneNumber: paneNumber,
+                paneID: paneID,
                 firstSurfaceNumber: firstSurfaceNumber
             )]
         )
@@ -3125,9 +3901,10 @@ struct TerminalBackendTopologyCoordinatorTests {
         surfaceIDs: [UUID],
         screenNumber: UInt64 = 1,
         paneNumber: UInt64 = 1,
+        paneID: UUID? = nil,
         firstSurfaceNumber: UInt64 = 1
     ) -> CanonicalScreen {
-        let paneUUID = CmuxTerminalBackend.PaneID(rawValue: UUID())
+        let paneUUID = CmuxTerminalBackend.PaneID(rawValue: paneID ?? UUID())
         return CanonicalScreen(
             id: screenNumber,
             uuid: ScreenID(rawValue: UUID()),
@@ -3145,6 +3922,34 @@ struct TerminalBackendTopologyCoordinatorTests {
                         name: "surface \(index + 1)"
                     )
                 }
+            )]
+        )
+    }
+
+    private func makeMixedWorkspace(
+        workspaceID: UUID,
+        workspaceNumber: UInt64,
+        screenNumber: UInt64,
+        paneNumber: UInt64,
+        paneID: UUID,
+        surfaces: [CanonicalSurface]
+    ) -> CanonicalWorkspace {
+        let canonicalPaneID = CmuxTerminalBackend.PaneID(rawValue: paneID)
+        return CanonicalWorkspace(
+            id: workspaceNumber,
+            uuid: WorkspaceID(rawValue: workspaceID),
+            name: "canonical",
+            screens: [CanonicalScreen(
+                id: screenNumber,
+                uuid: ScreenID(rawValue: UUID()),
+                name: nil,
+                layout: .leaf(pane: paneNumber, paneUUID: canonicalPaneID),
+                panes: [CanonicalPane(
+                    id: paneNumber,
+                    uuid: canonicalPaneID,
+                    name: nil,
+                    tabs: surfaces
+                )]
             )]
         )
     }
@@ -3168,6 +3973,22 @@ struct TerminalBackendTopologyCoordinatorTests {
                 transport: .cmuxdPNGFrameStreamV1,
                 source: .launched,
                 frontendProjection: .frontendOptional
+            )
+        )
+    }
+
+    private func makeRequiredBrowserSurface(
+        id: UInt64,
+        uuid: UUID
+    ) -> CanonicalSurface {
+        CanonicalSurface(
+            id: id,
+            uuid: SurfaceID(rawValue: uuid),
+            kind: "browser",
+            name: "browser",
+            browserEndpoint: CanonicalBrowserEndpoint(
+                transport: .cmuxdPNGFrameStreamV1,
+                source: .launched
             )
         )
     }
@@ -3243,22 +4064,26 @@ private final class RecordingTopologyProjector: TerminalBackendTopologyProjectin
     private(set) var legacyReadCount = 0
     private(set) var installedSnapshots: [TopologySnapshot] = []
     private(set) var installedPlans: [TerminalBackendTopologyProjectionPlan] = []
+    private(set) var commitAttemptRevisions: [UInt64] = []
     private(set) var restoredRemoteTmuxProducers: [
         TerminalBackendRemoteTmuxProducerProjection
     ] = []
     private let failPreparation: Bool
     private let failCommitRevisions: Set<UInt64>
+    private var remainingTransientCommitFailures: [UInt64: Int]
 
     init(
         legacyPlacements: Set<TerminalBackendTopologyPlacement> = [],
         allPresentationPlacements: Set<TerminalBackendTopologyPlacement>? = nil,
         failPreparation: Bool = false,
-        failCommitRevisions: Set<UInt64> = []
+        failCommitRevisions: Set<UInt64> = [],
+        transientCommitFailures: [UInt64: Int] = [:]
     ) {
         self.legacyPlacements = legacyPlacements
         self.presentedPlacements = allPresentationPlacements ?? legacyPlacements
         self.failPreparation = failPreparation
         self.failCommitRevisions = failCommitRevisions
+        self.remainingTransientCommitFailures = transientCommitFailures
     }
 
     func presentationWorkspaceIDs() -> Set<UUID> {
@@ -3290,11 +4115,18 @@ private final class RecordingTopologyProjector: TerminalBackendTopologyProjectin
         }
         return TerminalBackendTopologyPreparedProjection(
             commit: { [weak self] in
-                if self?.failCommitRevisions.contains(snapshot.revision) == true {
+                guard let self else { return }
+                self.commitAttemptRevisions.append(snapshot.revision)
+                if self.failCommitRevisions.contains(snapshot.revision) {
                     throw ProjectionTestError()
                 }
-                self?.installedPlans.append(plan)
-                self?.installedSnapshots.append(snapshot)
+                if let remaining = self.remainingTransientCommitFailures[snapshot.revision],
+                   remaining > 0 {
+                    self.remainingTransientCommitFailures[snapshot.revision] = remaining - 1
+                    throw ProjectionTestError()
+                }
+                self.installedPlans.append(plan)
+                self.installedSnapshots.append(snapshot)
             },
             rollback: { [weak self] in
                 guard let self,
@@ -3308,6 +4140,56 @@ private final class RecordingTopologyProjector: TerminalBackendTopologyProjectin
 }
 
 private struct ProjectionTestError: Error {}
+
+/// Keeps topology projection tests on the production ownership boundary
+/// without opening sockets or starting renderer workers.
+@MainActor
+private final class CanonicalTestTerminalPanelFactory: TerminalPanelCreating {
+    func makeTerminalPanel(_ request: TerminalPanelCreationRequest) -> TerminalPanel {
+        TerminalPanel(
+            externalRequest: request,
+            presentationDependencies: GhosttyApp.terminalSurfacePresentationDependencies,
+            externalRuntime: CanonicalTestTerminalRuntime()
+        )
+    }
+}
+
+@MainActor
+private final class CanonicalTestTerminalRuntime: TerminalExternalRuntime {
+    let snapshot = TerminalExternalRuntimeSnapshot(lifecycle: .live)
+    private var nextSequence: UInt64 = 1
+
+    func attachPresentation(
+        _ presentation: TerminalExternalPresentation
+    ) -> any TerminalExternalPresentationLease {
+        _ = presentation
+        return CanonicalTestTerminalPresentationLease()
+    }
+
+    func enqueue(
+        _ mutation: TerminalExternalRuntimeMutation
+    ) -> TerminalExternalIngressResult {
+        _ = mutation
+        defer { nextSequence += 1 }
+        return .accepted(sequence: nextSequence)
+    }
+
+    func readScreenText(_ request: TerminalExternalScreenTextRequest) async -> String? {
+        _ = request
+        return nil
+    }
+
+    func readSelection() async -> TerminalExternalSelection? {
+        nil
+    }
+}
+
+private final class CanonicalTestTerminalPresentationLease:
+    TerminalExternalPresentationLease,
+    @unchecked Sendable
+{
+    nonisolated func detach() {}
+}
 
 private actor RecordingProjectionStateStore: TerminalBackendProjectionStateServing {
     private let processInstanceID = UUID()
@@ -3801,5 +4683,53 @@ private actor SuspendAfterFirstTopologyPlanBuilder {
         let continuations = resumeContinuations
         resumeContinuations.removeAll()
         continuations.forEach { $0.resume() }
+    }
+}
+
+private actor SuspendSecondTopologyPlanBuilder {
+    private var invocationCount = 0
+    private var retryIsBlocked = false
+    private var retryBlockedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var supersedingPlanWaiters: [CheckedContinuation<Void, Never>] = []
+    private var retryContinuation: CheckedContinuation<Void, Never>?
+
+    func build(
+        _ topology: CanonicalTopology
+    ) async throws -> TerminalBackendTopologyProjectionPlan {
+        invocationCount += 1
+        if invocationCount >= 3 {
+            let waiters = supersedingPlanWaiters
+            supersedingPlanWaiters.removeAll()
+            waiters.forEach { $0.resume() }
+        }
+        if invocationCount == 2 {
+            retryIsBlocked = true
+            let waiters = retryBlockedWaiters
+            retryBlockedWaiters.removeAll()
+            waiters.forEach { $0.resume() }
+            await withCheckedContinuation { continuation in
+                retryContinuation = continuation
+            }
+        }
+        return try TerminalBackendTopologyProjectionPlan(topology: topology)
+    }
+
+    func waitUntilRetryIsBlocked() async {
+        if retryIsBlocked { return }
+        await withCheckedContinuation { continuation in
+            retryBlockedWaiters.append(continuation)
+        }
+    }
+
+    func waitUntilSupersedingPlanStarts() async {
+        if invocationCount >= 3 { return }
+        await withCheckedContinuation { continuation in
+            supersedingPlanWaiters.append(continuation)
+        }
+    }
+
+    func resumeRetry() {
+        retryContinuation?.resume()
+        retryContinuation = nil
     }
 }

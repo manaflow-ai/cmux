@@ -3994,6 +3994,25 @@ final class Workspace: Identifiable, ObservableObject {
         backendCanonicalSurfaceID(for: panelID) != nil
     }
 
+    /// Converts a Bonsplit row index into the daemon's canonical panel index.
+    /// Client-owned overlays remain visible in the row but do not consume a
+    /// topology slot. Canonical terminals and browser endpoints do.
+    func backendCanonicalInsertionIndex(
+        inPane paneID: PaneID,
+        presentedIndex: Int?
+    ) -> Int {
+        let panelIDs = bonsplitController.tabs(inPane: paneID).compactMap { tab in
+            panelIdFromSurfaceId(tab.id)
+        }
+        let clampedPresentedIndex = min(
+            max(presentedIndex ?? panelIDs.count, 0),
+            panelIDs.count
+        )
+        return panelIDs.prefix(clampedPresentedIndex).reduce(into: 0) { count, panelID in
+            if isBackendCanonicalPanel(panelID) { count += 1 }
+        }
+    }
+
     func markdownPanel(for panelId: UUID) -> MarkdownPanel? {
         panels[panelId] as? MarkdownPanel
     }
@@ -9825,13 +9844,17 @@ final class Workspace: Identifiable, ObservableObject {
 
     @discardableResult
     func moveSurface(panelId: UUID, toPane paneId: PaneID, atIndex index: Int? = nil, focus: Bool = true) -> Bool {
-        if isBackendCanonicalPanel(panelId),
-           let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator,
+        if let canonicalSurfaceID = backendCanonicalSurfaceID(for: panelId),
            !isApplyingCanonicalTopologyProjection {
+            guard let mutationCoordinator = terminalClientComposition
+                .terminalBackendTopologyMutationCoordinator else { return false }
             guard bonsplitController.allPaneIds.contains(paneId) else { return false }
-            let targetIndex = index ?? bonsplitController.tabs(inPane: paneId).count
+            let targetIndex = backendCanonicalInsertionIndex(
+                inPane: paneId,
+                presentedIndex: index
+            )
             return mutationCoordinator.requestMoveTab(
-                panelId,
+                canonicalSurfaceID,
                 to: paneId.id,
                 index: targetIndex
             )

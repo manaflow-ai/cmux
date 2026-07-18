@@ -121,12 +121,10 @@ extension AppDelegate {
             panelId: panelId,
             panel: sourcePanel
         )
-        if sourcePanel is TerminalPanel,
-           let mutationCoordinator = sourceWorkspace.terminalClientComposition
-            .terminalBackendTopologyMutationCoordinator,
+        if let canonicalSurfaceID = sourceWorkspace.backendCanonicalSurfaceID(for: panelId),
            !sourceWorkspace.isApplyingCanonicalTopologyProjection {
-            guard targetManager === source.tabManager else {
-                mutationCoordinator.reportFailure(for: .createWorkspace)
+            guard let mutationCoordinator = sourceWorkspace.terminalClientComposition
+                .terminalBackendTopologyMutationCoordinator else {
                 return nil
             }
             let destinationWorkspaceID = UUID()
@@ -135,15 +133,50 @@ extension AppDelegate {
             }
             let canonicalIndex = requestedIndex.map { requestedIndex in
                 targetManager.tabs.prefix(requestedIndex).filter { workspace in
-                    workspace.panels.values.contains { $0 is TerminalPanel }
+                    workspace.panels.keys.contains(where: {
+                        workspace.isBackendCanonicalPanel($0)
+                    })
                 }.count
+            }
+            var ownerReservation: TerminalBackendTopologyWorkspaceOwnerReservation?
+            var surfaceReservation: TerminalBackendTopologyCanonicalSurfaceMoveReservation?
+            do {
+                guard let registry = terminalBackendTopologyProjectionRegistry else {
+                    throw TerminalBackendTopologyProjectionError.projectionFailed(
+                        "canonical workspace move has no projection registry"
+                    )
+                }
+                ownerReservation = try registry.reserveWorkspaceOwner(
+                    workspaceID: destinationWorkspaceID,
+                    for: targetManager
+                )
+                surfaceReservation = source.tabManager === targetManager
+                    ? nil
+                    : try registry.reserveCanonicalSurfaceMove(
+                            surfaceID: canonicalSurfaceID,
+                            from: sourceWorkspace.id,
+                            in: source.tabManager,
+                            to: destinationWorkspaceID,
+                            in: targetManager,
+                            destinationPaneID: nil,
+                            destinationIndex: nil
+                        )
+            } catch {
+                if let ownerReservation {
+                    terminalBackendTopologyProjectionRegistry?
+                        .cancelWorkspaceOwnerReservation(ownerReservation)
+                }
+                mutationCoordinator.reportFailure(for: .createWorkspace)
+                return nil
             }
             let activationIntent = focusIntentForNewWorkspaceMove(panel: sourcePanel)
             let submission = mutationCoordinator.requestMoveTabToNewWorkspace(
-                panelId,
+                canonicalSurfaceID,
                 workspaceID: destinationWorkspaceID,
                 name: destinationTitle,
                 index: canonicalIndex,
+                projectionOwnerID: ownerReservation?.presentationID
+                    ?? targetManager.terminalBackendProjectionPresentationID,
                 onProjected: { [weak self, weak targetManager] _ in
                     guard focus, let self, let targetManager,
                           targetManager.tabs.contains(where: {
@@ -171,6 +204,14 @@ extension AppDelegate {
                             destinationPanelId: panelId,
                             destinationManager: targetManager
                         )
+                    }
+                },
+                onFailure: { [weak registry = terminalBackendTopologyProjectionRegistry] in
+                    if let surfaceReservation {
+                        registry?.cancelCanonicalSurfaceMoveReservation(surfaceReservation)
+                    }
+                    if let ownerReservation {
+                        registry?.cancelWorkspaceOwnerReservation(ownerReservation)
                     }
                 }
             )

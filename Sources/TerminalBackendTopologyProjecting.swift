@@ -87,6 +87,11 @@ protocol TerminalBackendTopologyProjecting: AnyObject {
         _ snapshot: TopologySnapshot,
         plan: TerminalBackendTopologyProjectionPlan
     ) throws -> TerminalBackendTopologyPreparedProjection
+    func prepareCanonicalTopology(
+        _ snapshot: TopologySnapshot,
+        plan: TerminalBackendTopologyProjectionPlan,
+        transferVault: TerminalBackendTopologyCanonicalSurfaceTransferVault?
+    ) throws -> TerminalBackendTopologyPreparedProjection
 }
 
 extension TerminalBackendTopologyProjecting {
@@ -113,6 +118,13 @@ extension TerminalBackendTopologyProjecting {
     ) -> Bool {
         _ = projection
         return false
+    }
+    func prepareCanonicalTopology(
+        _ snapshot: TopologySnapshot,
+        plan: TerminalBackendTopologyProjectionPlan,
+        transferVault _: TerminalBackendTopologyCanonicalSurfaceTransferVault?
+    ) throws -> TerminalBackendTopologyPreparedProjection {
+        try prepareCanonicalTopology(snapshot, plan: plan)
     }
 
     func installCanonicalTopology(

@@ -349,7 +349,7 @@ final class TerminalBackendTopologyCoordinator {
         scheduleReconciliation()
     }
 
-    private func scheduleReconciliation() {
+    private func scheduleReconciliation(isRollbackRetry: Bool = false) {
         reconciliationTask?.cancel()
         guard startupRestoreFinished, latestSnapshot != nil else {
             reconciliationTask = nil
@@ -368,7 +368,11 @@ final class TerminalBackendTopologyCoordinator {
                 return
             } catch {
                 guard generation == self.snapshotGeneration else { return }
-                await self.rejectCurrentProjection(error)
+                await self.rejectCurrentProjection(
+                    error,
+                    failedGeneration: generation,
+                    canRetryAfterRollback: !isRollbackRetry
+                )
             }
         }
     }
@@ -587,9 +591,19 @@ final class TerminalBackendTopologyCoordinator {
         activityReporter(unreadWorkspaceIDs)
     }
 
-    private func rejectCurrentProjection(_ error: any Error) async {
+    private func rejectCurrentProjection(
+        _ error: any Error,
+        failedGeneration: UInt64,
+        canRetryAfterRollback: Bool
+    ) async {
+        guard failedGeneration == snapshotGeneration,
+              let failedSnapshot = latestSnapshot else { return }
+        let failedAuthority = failedSnapshot.authority
+        let failedRevision = failedSnapshot.revision
         advanceAdmissionEpoch()
         snapshotGeneration &+= 1
+        let retryGeneration = snapshotGeneration
+        let retryAdmissionEpoch = admissionEpoch
         failureReporter(localizedFailure(for: error))
         let authorityToRevoke = installedAuthority
         let revisionToRevoke = installedRevision
@@ -618,6 +632,18 @@ final class TerminalBackendTopologyCoordinator {
         if let legacyTokenToRevoke {
             await authorizationGate.revokeLegacyAuthorization(token: legacyTokenToRevoke)
         }
+
+        // A projection commit has already rolled its presentation graph back
+        // before reaching this point. Give the unchanged daemon value one
+        // immediate retry. A second failure remains pending until a newer
+        // snapshot or a projector-registration change supplies a fresh signal.
+        guard canRetryAfterRollback,
+              snapshotGeneration == retryGeneration,
+              admissionEpoch == retryAdmissionEpoch,
+              let latestSnapshot,
+              latestSnapshot.authority == failedAuthority,
+              latestSnapshot.revision == failedRevision else { return }
+        scheduleReconciliation(isRollbackRetry: true)
     }
 
     private func isCurrent(

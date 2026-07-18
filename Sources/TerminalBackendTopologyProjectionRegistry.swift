@@ -1,5 +1,7 @@
+import Bonsplit
 import CmuxTerminalBackend
 import Foundation
+import WebKit
 
 /// Process-reconnecting seam for daemon-retained Swift window placement.
 protocol TerminalBackendProjectionStateServing: Sendable {
@@ -57,10 +59,348 @@ struct TerminalBackendTopologyWorkspaceOwnerReservation: Equatable, Sendable {
     let token: UUID
 }
 
+/// One user-authorized canonical surface move between Swift presentations.
+/// The daemon remains the topology authority; this reservation authorizes only
+/// the matching post-commit projection and carries no live panel object.
+struct TerminalBackendTopologyCanonicalSurfaceMoveReservation: Equatable, Sendable {
+    let surfaceID: UUID
+    let sourceWorkspaceID: UUID
+    let destinationWorkspaceID: UUID
+    let sourcePresentationID: UUID
+    let destinationPresentationID: UUID
+    let destinationPaneID: UUID?
+    let destinationIndex: Int?
+    let token: UUID
+}
+
 struct TerminalBackendEmptyTopologyBootstrapClaim: Equatable, Sendable {
     let authority: BackendAuthority
     let presentationID: UUID
     let token: UUID
+}
+
+/// One projection-scoped object vault for canonical cross-window moves.
+///
+/// Every source is detached before any destination attaches. This makes
+/// swaps/cycles independent of child projector order while preserving the
+/// exact `Panel`, hosted view, renderer, PTY, and browser `WebView` objects.
+@MainActor
+final class TerminalBackendTopologyCanonicalSurfaceTransferVault {
+    struct RouteDescriptor {
+        let reservation: TerminalBackendTopologyCanonicalSurfaceMoveReservation
+        let sourceManager: TabManager
+        let destinationManager: TabManager
+    }
+
+    struct IncomingTransfer {
+        let surfaceID: UUID
+        let transfer: Workspace.DetachedSurfaceTransfer
+        let sourceWorkspace: Workspace
+        let sourcePane: Bonsplit.PaneID?
+    }
+
+    private final class SourceSnapshot {
+        let manager: TabManager
+        let workspace: Workspace
+        let tree: BonsplitAuthoritativeTree
+
+        init(
+            manager: TabManager,
+            workspace: Workspace,
+            tree: BonsplitAuthoritativeTree
+        ) {
+            self.manager = manager
+            self.workspace = workspace
+            self.tree = tree
+        }
+    }
+
+    private final class Route {
+        let reservation: TerminalBackendTopologyCanonicalSurfaceMoveReservation
+        let source: SourceSnapshot
+        let destinationManager: TabManager
+        let panelID: UUID
+        let panel: any Panel
+        let sourceTabID: TabID
+        let sourcePane: Bonsplit.PaneID?
+        let sourceIndex: Int?
+        var transfer: Workspace.DetachedSurfaceTransfer?
+        var importedWorkspace: Workspace?
+
+        init(
+            reservation: TerminalBackendTopologyCanonicalSurfaceMoveReservation,
+            source: SourceSnapshot,
+            destinationManager: TabManager,
+            panelID: UUID,
+            panel: any Panel,
+            sourceTabID: TabID,
+            sourcePane: Bonsplit.PaneID?,
+            sourceIndex: Int?
+        ) {
+            self.reservation = reservation
+            self.source = source
+            self.destinationManager = destinationManager
+            self.panelID = panelID
+            self.panel = panel
+            self.sourceTabID = sourceTabID
+            self.sourcePane = sourcePane
+            self.sourceIndex = sourceIndex
+        }
+    }
+
+    private var routesBySurfaceID: [UUID: Route] = [:]
+    private var sourceSnapshots: [ObjectIdentifier: SourceSnapshot] = [:]
+    private var exportsStaged = false
+
+    init(_ descriptors: [RouteDescriptor]) throws {
+        for descriptor in descriptors.sorted(by: {
+            $0.reservation.surfaceID.uuidString < $1.reservation.surfaceID.uuidString
+        }) {
+            let reservation = descriptor.reservation
+            guard routesBySurfaceID[reservation.surfaceID] == nil,
+                  let workspace = descriptor.sourceManager.tabs.first(where: {
+                      $0.id == reservation.sourceWorkspaceID
+                  }) else {
+                throw TerminalBackendTopologyProjectionError.projectionFailed(
+                    "canonical surface transfer source workspace is missing"
+                )
+            }
+            let matches = workspace.panels.compactMap { panelID, panel -> (UUID, any Panel)? in
+                workspace.backendCanonicalSurfaceID(for: panelID) == reservation.surfaceID
+                    ? (panelID, panel)
+                    : nil
+            }
+            guard matches.count == 1,
+                  let match = matches.first,
+                  match.0 == reservation.surfaceID,
+                  let tabID = workspace.surfaceIdFromPanelId(match.0) else {
+                throw TerminalBackendTopologyProjectionError.projectionFailed(
+                    "canonical surface transfer source object is ambiguous"
+                )
+            }
+            if let browser = match.1 as? BrowserPanel {
+                let destinationWorkspace = descriptor.destinationManager.tabs.first(where: {
+                    $0.id == reservation.destinationWorkspaceID
+                })
+                let destinationStore: WKWebsiteDataStore
+                if let destinationWorkspace, destinationWorkspace.isRemoteWorkspace {
+                    destinationStore = WKWebsiteDataStore(
+                        forIdentifier: destinationWorkspace.id
+                    )
+                } else {
+                    destinationStore = BrowserProfileStore.shared.websiteDataStore(
+                        for: browser.profileID
+                    )
+                }
+                guard browser.webView.configuration.websiteDataStore === destinationStore else {
+                    throw TerminalBackendTopologyProjectionError.projectionFailed(
+                        "canonical browser move would replace its exact WebView"
+                    )
+                }
+            }
+            let sourcePane = workspace.paneId(forPanelId: match.0)
+            let sourceIndex = workspace.indexInPane(forPanelId: match.0)
+            let workspaceIdentity = ObjectIdentifier(workspace)
+            let source: SourceSnapshot
+            if let existing = sourceSnapshots[workspaceIdentity] {
+                guard existing.manager === descriptor.sourceManager else {
+                    throw TerminalBackendTopologyProjectionError.projectionFailed(
+                        "canonical surface transfer source manager changed"
+                    )
+                }
+                source = existing
+            } else {
+                source = SourceSnapshot(
+                    manager: descriptor.sourceManager,
+                    workspace: workspace,
+                    tree: try descriptor.sourceManager.captureAuthoritativeTree(in: workspace)
+                )
+                sourceSnapshots[workspaceIdentity] = source
+            }
+            routesBySurfaceID[reservation.surfaceID] = Route(
+                reservation: reservation,
+                source: source,
+                destinationManager: descriptor.destinationManager,
+                panelID: match.0,
+                panel: match.1,
+                sourceTabID: tabID,
+                sourcePane: sourcePane,
+                sourceIndex: sourceIndex
+            )
+        }
+    }
+
+    func incomingPanels(for manager: TabManager) -> [UUID: any Panel] {
+        routesBySurfaceID.reduce(into: [UUID: any Panel]()) { result, entry in
+            guard entry.value.destinationManager === manager else { return }
+            result[entry.key] = entry.value.panel
+        }
+    }
+
+    func incomingTransfers(for manager: TabManager) throws -> [IncomingTransfer] {
+        guard exportsStaged else {
+            throw TerminalBackendTopologyProjectionError.projectionFailed(
+                "canonical surface imports were requested before detach-all"
+            )
+        }
+        return try routesBySurfaceID.values.compactMap { route in
+            guard route.destinationManager === manager else { return nil }
+            guard let transfer = route.transfer else {
+                throw TerminalBackendTopologyProjectionError.projectionFailed(
+                    "canonical surface transfer payload is missing"
+                )
+            }
+            return IncomingTransfer(
+                surfaceID: route.reservation.surfaceID,
+                transfer: transfer,
+                sourceWorkspace: route.source.workspace,
+                sourcePane: route.sourcePane
+            )
+        }
+    }
+
+    func stageExports() throws {
+        guard !exportsStaged else { return }
+        exportsStaged = true
+        do {
+            for route in routesBySurfaceID.values.sorted(by: {
+                $0.reservation.surfaceID.uuidString < $1.reservation.surfaceID.uuidString
+            }) {
+                let workspace = route.source.workspace
+                guard route.source.manager.tabs.contains(where: { $0 === workspace }),
+                      workspace.panels[route.panelID] === route.panel,
+                      workspace.backendCanonicalSurfaceID(for: route.panelID)
+                        == route.reservation.surfaceID else {
+                    throw TerminalBackendTopologyProjectionError.projectionFailed(
+                        "canonical surface transfer source changed before detach-all"
+                    )
+                }
+                workspace.isApplyingCanonicalTopologyProjection = true
+                defer { workspace.isApplyingCanonicalTopologyProjection = false }
+                guard let detached = workspace.detachSurface(
+                    panelId: route.panelID,
+                    publishLifecycleEvent: false
+                ), detached.panel === route.panel else {
+                    throw TerminalBackendTopologyProjectionError.projectionFailed(
+                        "canonical surface transfer detach failed"
+                    )
+                }
+                route.transfer = detached.withSourcePlacement(
+                    tabId: route.sourceTabID,
+                    paneId: route.sourcePane,
+                    index: route.sourceIndex
+                )
+            }
+        } catch {
+            try? restoreSources()
+            throw error
+        }
+    }
+
+    func didImport(
+        surfaceID: UUID,
+        into workspace: Workspace,
+        by manager: TabManager
+    ) throws {
+        guard let route = routesBySurfaceID[surfaceID],
+              route.destinationManager === manager,
+              workspace.id == route.reservation.destinationWorkspaceID else {
+            throw TerminalBackendTopologyProjectionError.projectionFailed(
+                "canonical surface import destination does not match its reservation"
+            )
+        }
+        route.importedWorkspace = workspace
+        guard workspace.panels[route.panelID] === route.panel else {
+            throw TerminalBackendTopologyProjectionError.projectionFailed(
+                "canonical surface import replaced its exact presentation object"
+            )
+        }
+    }
+
+    func reclaimImports(for manager: TabManager) throws {
+        for route in routesBySurfaceID.values where route.destinationManager === manager {
+            try reclaimImport(route)
+        }
+    }
+
+    func restoreSources() throws {
+        guard exportsStaged else { return }
+        var failures: [String] = []
+        for route in routesBySurfaceID.values {
+            do {
+                try reclaimImport(route)
+            } catch {
+                failures.append(error.localizedDescription)
+            }
+        }
+        for route in routesBySurfaceID.values.sorted(by: {
+            $0.reservation.surfaceID.uuidString < $1.reservation.surfaceID.uuidString
+        }) {
+            let workspace = route.source.workspace
+            if workspace.panels[route.panelID] === route.panel { continue }
+            guard let transfer = route.transfer,
+                  let stagingPane = route.sourcePane.flatMap({ pane in
+                      workspace.bonsplitController.allPaneIds.contains(pane) ? pane : nil
+                  }) ?? workspace.bonsplitController.allPaneIds.first else {
+                failures.append("canonical surface source has no rollback staging pane")
+                continue
+            }
+            workspace.isApplyingCanonicalTopologyProjection = true
+            defer { workspace.isApplyingCanonicalTopologyProjection = false }
+            guard workspace.attachDetachedSurface(
+                transfer,
+                inPane: stagingPane,
+                atIndex: route.sourceIndex,
+                focus: false,
+                publishLifecycleEvent: false,
+                adoptCanonicalTerminalPlacement: false
+            ) == route.panelID,
+            workspace.panels[route.panelID] === route.panel else {
+                failures.append("canonical surface source object could not be restored")
+                continue
+            }
+        }
+        for source in sourceSnapshots.values {
+            do {
+                try source.workspace.bonsplitController.validateAuthoritativeTree(source.tree)
+                _ = try source.workspace.bonsplitController.applyAuthoritativeTree(source.tree)
+            } catch {
+                failures.append("canonical surface source tree could not be restored")
+            }
+        }
+        for route in routesBySurfaceID.values {
+            let workspace = route.source.workspace
+            if workspace.panels[route.panelID] !== route.panel
+                || workspace.paneId(forPanelId: route.panelID) != route.sourcePane
+                || workspace.indexInPane(forPanelId: route.panelID) != route.sourceIndex {
+                failures.append("canonical surface source placement was not restored exactly")
+            }
+        }
+        if !failures.isEmpty {
+            throw TerminalBackendTopologyProjectionError.projectionFailed(
+                failures.joined(separator: "; ")
+            )
+        }
+    }
+
+    private func reclaimImport(_ route: Route) throws {
+        guard let workspace = route.importedWorkspace else { return }
+        guard workspace.panels[route.panelID] === route.panel else {
+            route.importedWorkspace = nil
+            return
+        }
+        workspace.isApplyingCanonicalTopologyProjection = true
+        defer { workspace.isApplyingCanonicalTopologyProjection = false }
+        guard let detached = workspace.detachSurface(
+            panelId: route.panelID,
+            publishLifecycleEvent: false
+        ), detached.panel === route.panel else {
+            throw TerminalBackendTopologyProjectionError.projectionFailed(
+                "imported canonical surface could not be reclaimed without closing"
+            )
+        }
+        route.importedWorkspace = nil
+    }
 }
 
 /// Process-wide presentation graph for daemon-owned terminal topology.
@@ -97,6 +437,9 @@ final class TerminalBackendTopologyProjectionRegistry: TerminalBackendTopologyPr
     private var workspaceOwners: [UUID: UUID] = [:]
     private var pendingWorkspaceOwnerReservations: [
         UUID: TerminalBackendTopologyWorkspaceOwnerReservation
+    ] = [:]
+    private var pendingCanonicalSurfaceMoveReservations: [
+        UUID: TerminalBackendTopologyCanonicalSurfaceMoveReservation
     ] = [:]
     private var emptyTopologyBootstrapClaim: TerminalBackendEmptyTopologyBootstrapClaim?
     private var selectedScreens: [ScreenSelectionKey: UUID] = [:]
@@ -225,6 +568,75 @@ final class TerminalBackendTopologyProjectionRegistry: TerminalBackendTopologyPr
         pendingWorkspaceOwnerReservations.removeValue(forKey: reservation.workspaceID)
     }
 
+    func reserveCanonicalSurfaceMove(
+        surfaceID: UUID,
+        from sourceWorkspaceID: UUID,
+        in source: any TerminalBackendTopologyProjecting,
+        to destinationWorkspaceID: UUID,
+        in destination: any TerminalBackendTopologyProjecting,
+        destinationPaneID: UUID?,
+        destinationIndex: Int?
+    ) throws -> TerminalBackendTopologyCanonicalSurfaceMoveReservation {
+        purgeDeadEntries()
+        guard source !== destination,
+              let sourceEntry = liveEntries().first(where: { $0.projector === source }),
+              let destinationEntry = liveEntries().first(where: {
+                  $0.projector === destination
+              }) else {
+            throw TerminalBackendTopologyProjectionError.projectionFailed(
+                "canonical surface move references an unregistered presentation"
+            )
+        }
+        let sourcePlacement = TerminalBackendTopologyPlacement(
+            workspaceID: sourceWorkspaceID,
+            surfaceID: surfaceID
+        )
+        guard source.allPresentationPlacements().contains(sourcePlacement),
+              workspaceOwners[sourceWorkspaceID] == nil
+                || workspaceOwners[sourceWorkspaceID] == sourceEntry.presentationID else {
+            throw TerminalBackendTopologyProjectionError.projectionFailed(
+                "canonical surface move source does not own the exact presentation"
+            )
+        }
+        let destinationOwner = workspaceOwners[destinationWorkspaceID]
+            ?? pendingWorkspaceOwnerReservations[destinationWorkspaceID]?.presentationID
+        let destinationOwnsWorkspace: Bool
+        if let destinationOwner {
+            destinationOwnsWorkspace = destinationOwner == destinationEntry.presentationID
+        } else {
+            destinationOwnsWorkspace = destination.presentationWorkspaceIDs()
+                .contains(destinationWorkspaceID)
+        }
+        guard destinationOwnsWorkspace,
+              pendingCanonicalSurfaceMoveReservations[surfaceID] == nil,
+              destinationIndex.map({ $0 >= 0 }) ?? true else {
+            throw TerminalBackendTopologyProjectionError.projectionFailed(
+                "canonical surface move destination is not the exact presentation owner"
+            )
+        }
+        let reservation = TerminalBackendTopologyCanonicalSurfaceMoveReservation(
+            surfaceID: surfaceID,
+            sourceWorkspaceID: sourceWorkspaceID,
+            destinationWorkspaceID: destinationWorkspaceID,
+            sourcePresentationID: sourceEntry.presentationID,
+            destinationPresentationID: destinationEntry.presentationID,
+            destinationPaneID: destinationPaneID,
+            destinationIndex: destinationIndex,
+            token: UUID()
+        )
+        pendingCanonicalSurfaceMoveReservations[surfaceID] = reservation
+        return reservation
+    }
+
+    func cancelCanonicalSurfaceMoveReservation(
+        _ reservation: TerminalBackendTopologyCanonicalSurfaceMoveReservation
+    ) {
+        guard pendingCanonicalSurfaceMoveReservations[reservation.surfaceID] == reservation else {
+            return
+        }
+        pendingCanonicalSurfaceMoveReservations.removeValue(forKey: reservation.surfaceID)
+    }
+
     func claimEmptyTopologyBootstrap(
         authority: BackendAuthority,
         for projector: any TerminalBackendTopologyProjecting
@@ -266,6 +678,10 @@ final class TerminalBackendTopologyProjectionRegistry: TerminalBackendTopologyPr
         projectionStateHydrated = false
         pendingProjectionReleases.insert(presentationID)
         workspaceOwners = workspaceOwners.filter { $0.value != presentationID }
+        pendingCanonicalSurfaceMoveReservations = pendingCanonicalSurfaceMoveReservations.filter {
+            $0.value.sourcePresentationID != presentationID
+                && $0.value.destinationPresentationID != presentationID
+        }
         selectedScreens = selectedScreens.filter { $0.key.presentationID != presentationID }
         projectionStateHydrationGeneration &+= 1
         projectionStateHydrationTask?.cancel()
@@ -553,6 +969,7 @@ final class TerminalBackendTopologyProjectionRegistry: TerminalBackendTopologyPr
         }
 
         var surfaceOwners: [UUID: Set<UUID>] = [:]
+        var surfaceWorkspaceIDsByOwner: [UUID: [UUID: UUID]] = [:]
         var workspaceOwnersFromSwift: [UUID: Set<UUID>] = [:]
         for entry in live {
             guard let projector = entry.projector else { continue }
@@ -563,11 +980,20 @@ final class TerminalBackendTopologyProjectionRegistry: TerminalBackendTopologyPr
             }
             for placement in placements {
                 surfaceOwners[placement.surfaceID, default: []].insert(entry.presentationID)
+                let priorWorkspaceID = surfaceWorkspaceIDsByOwner[placement.surfaceID]?[entry.presentationID]
+                guard priorWorkspaceID == nil || priorWorkspaceID == placement.workspaceID else {
+                    throw TerminalBackendTopologyProjectionError.projectionFailed(
+                        "canonical surface appears in multiple workspaces in one presentation"
+                    )
+                }
+                surfaceWorkspaceIDsByOwner[placement.surfaceID, default: [:]][entry.presentationID]
+                    = placement.workspaceID
             }
         }
 
         let previousWorkspaceOwners = workspaceOwners
         let previousOwnerReservations = pendingWorkspaceOwnerReservations
+        let previousSurfaceMoveReservations = pendingCanonicalSurfaceMoveReservations
         let previousBootstrapClaim = emptyTopologyBootstrapClaim
         if let claim = emptyTopologyBootstrapClaim,
            claim.authority != snapshot.authority || !plan.workspaces.isEmpty {
@@ -624,26 +1050,85 @@ final class TerminalBackendTopologyProjectionRegistry: TerminalBackendTopologyPr
             }
         }
 
-        // Cross-window panel moves need an explicit process-wide transfer
-        // transaction. Until that transaction exists, fail closed before any
-        // child mutates instead of replacing a live TerminalPanel/BrowserPanel
-        // with a fresh object in the destination window.
+        let projectableSurfaceIDs = Set(plan.workspaces.flatMap { workspace in
+            workspace.screen.panes.flatMap { pane in
+                pane.tabs.compactMap { surface -> UUID? in
+                    guard surface.kind.lowercased() == "browser",
+                          surface.browserEndpoint?.frontendProjection == .frontendOptional else {
+                        return surface.uuid.rawValue
+                    }
+                    return surface.browserEndpoint?.transport == .frontendNativeV1
+                        ? surface.uuid.rawValue
+                        : nil
+                }
+            }
+        })
+        var targetPlacementBySurface: [
+            UUID: (owner: UUID, workspaceID: UUID, paneID: UUID, index: Int)
+        ] = [:]
         for workspacePlan in plan.workspaces {
             let workspaceID = workspacePlan.canonical.uuid.rawValue
             guard let targetOwner = candidateWorkspaceOwners[workspaceID] else { continue }
-            let presentedSurfaceIDs = workspacePlan.screen.panes.flatMap { pane in
-                pane.tabs.map { $0.uuid.rawValue }
-            }
-            for surfaceID in presentedSurfaceIDs {
-                let displacedOwners = (surfaceOwners[surfaceID] ?? [])
-                    .subtracting([targetOwner])
-                guard displacedOwners.isEmpty else {
-                    throw TerminalBackendTopologyProjectionError.projectionFailed(
-                        "canonical surface move crosses Swift window presentations"
-                    )
+            for pane in workspacePlan.screen.panes {
+                var canonicalIndex = 0
+                for surface in pane.tabs {
+                    let surfaceID = surface.uuid.rawValue
+                    guard projectableSurfaceIDs.contains(surfaceID) else { continue }
+                    guard targetPlacementBySurface.updateValue(
+                        (
+                            owner: targetOwner,
+                            workspaceID: workspaceID,
+                            paneID: pane.uuid.rawValue,
+                            index: canonicalIndex
+                        ),
+                        forKey: surfaceID
+                    ) == nil else {
+                        throw TerminalBackendTopologyProjectionError.projectionFailed(
+                            "canonical surface has multiple projection destinations"
+                        )
+                    }
+                    canonicalIndex += 1
                 }
             }
         }
+
+        var transferDescriptors: [
+            TerminalBackendTopologyCanonicalSurfaceTransferVault.RouteDescriptor
+        ] = []
+        var matchedSurfaceMoveReservationIDs: Set<UUID> = []
+        for (surfaceID, target) in targetPlacementBySurface {
+            let currentOwners = surfaceOwners[surfaceID] ?? []
+            guard currentOwners.count <= 1 else {
+                throw TerminalBackendTopologyProjectionError.projectionFailed(
+                    "canonical surface appears in multiple Swift presentations"
+                )
+            }
+            guard let sourceOwner = currentOwners.first,
+                  sourceOwner != target.owner else { continue }
+            guard let sourceWorkspaceID = surfaceWorkspaceIDsByOwner[surfaceID]?[sourceOwner],
+                  let reservation = pendingCanonicalSurfaceMoveReservations[surfaceID],
+                  reservation.sourceWorkspaceID == sourceWorkspaceID,
+                  reservation.destinationWorkspaceID == target.workspaceID,
+                  reservation.sourcePresentationID == sourceOwner,
+                  reservation.destinationPresentationID == target.owner,
+                  reservation.destinationPaneID.map({ $0 == target.paneID }) ?? true,
+                  reservation.destinationIndex.map({ $0 == target.index }) ?? true,
+                  let sourceManager = entries[sourceOwner]?.projector as? TabManager,
+                  let destinationManager = entries[target.owner]?.projector as? TabManager else {
+                throw TerminalBackendTopologyProjectionError.projectionFailed(
+                    "canonical surface crossed Swift windows without an exact reservation"
+                )
+            }
+            transferDescriptors.append(.init(
+                reservation: reservation,
+                sourceManager: sourceManager,
+                destinationManager: destinationManager
+            ))
+            matchedSurfaceMoveReservationIDs.insert(surfaceID)
+        }
+        let transferVault = try transferDescriptors.isEmpty
+            ? nil
+            : TerminalBackendTopologyCanonicalSurfaceTransferVault(transferDescriptors)
 
         var workspaceIDsByOwner: [UUID: Set<UUID>] = [:]
         workspaceIDsByOwner.reserveCapacity(live.count)
@@ -658,12 +1143,14 @@ final class TerminalBackendTopologyProjectionRegistry: TerminalBackendTopologyPr
             let workspaceIDs = workspaceIDsByOwner[entry.presentationID] ?? []
             preparedChildren.append(try projector.prepareCanonicalTopology(
                 snapshot,
-                plan: try plan.selectingWorkspaces(workspaceIDs)
+                plan: try plan.selectingWorkspaces(workspaceIDs),
+                transferVault: transferVault
             ))
         }
 
         return TerminalBackendTopologyPreparedProjection(
             commit: { [weak self] in
+                try transferVault?.stageExports()
                 for child in preparedChildren {
                     try child.commit()
                 }
@@ -679,6 +1166,15 @@ final class TerminalBackendTopologyProjectionRegistry: TerminalBackendTopologyPr
                     for workspaceID in committedReservationWorkspaceIDs {
                         self.pendingWorkspaceOwnerReservations.removeValue(forKey: workspaceID)
                     }
+                    for surfaceID in matchedSurfaceMoveReservationIDs {
+                        guard self.pendingCanonicalSurfaceMoveReservations[surfaceID]
+                            == previousSurfaceMoveReservations[surfaceID] else {
+                            continue
+                        }
+                        self.pendingCanonicalSurfaceMoveReservations.removeValue(
+                            forKey: surfaceID
+                        )
+                    }
                 }
             },
             finalize: {
@@ -689,6 +1185,11 @@ final class TerminalBackendTopologyProjectionRegistry: TerminalBackendTopologyPr
             },
             rollback: { [weak self] in
                 var firstRollbackError: (any Error)?
+                do {
+                    try transferVault?.restoreSources()
+                } catch {
+                    firstRollbackError = error
+                }
                 for child in preparedChildren.reversed() {
                     do {
                         try child.rollback()
@@ -700,6 +1201,7 @@ final class TerminalBackendTopologyProjectionRegistry: TerminalBackendTopologyPr
                 }
                 self?.workspaceOwners = previousWorkspaceOwners
                 self?.pendingWorkspaceOwnerReservations = previousOwnerReservations
+                self?.pendingCanonicalSurfaceMoveReservations = previousSurfaceMoveReservations
                 self?.emptyTopologyBootstrapClaim = previousBootstrapClaim
                 if let firstRollbackError {
                     throw firstRollbackError
@@ -985,6 +1487,10 @@ final class TerminalBackendTopologyProjectionRegistry: TerminalBackendTopologyPr
             pendingWorkspaceOwnerReservations = pendingWorkspaceOwnerReservations.filter {
                 $0.value.presentationID != identifier
             }
+            pendingCanonicalSurfaceMoveReservations = pendingCanonicalSurfaceMoveReservations.filter {
+                $0.value.sourcePresentationID != identifier
+                    && $0.value.destinationPresentationID != identifier
+            }
             if emptyTopologyBootstrapClaim?.presentationID == identifier {
                 emptyTopologyBootstrapClaim = nil
                 projectionStateDidChange?()
@@ -1004,6 +1510,10 @@ final class TerminalBackendTopologyProjectionRegistry: TerminalBackendTopologyPr
             }
             pendingWorkspaceOwnerReservations = pendingWorkspaceOwnerReservations.filter {
                 $0.value.presentationID != identifier
+            }
+            pendingCanonicalSurfaceMoveReservations = pendingCanonicalSurfaceMoveReservations.filter {
+                $0.value.sourcePresentationID != identifier
+                    && $0.value.destinationPresentationID != identifier
             }
             if emptyTopologyBootstrapClaim?.presentationID == identifier {
                 emptyTopologyBootstrapClaim = nil

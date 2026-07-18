@@ -4988,17 +4988,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        if sourceWorkspace.panels[panelId] is TerminalPanel,
-           let mutationCoordinator = sourceWorkspace.terminalClientComposition
-               .terminalBackendTopologyMutationCoordinator {
+        if let canonicalSurfaceID = sourceWorkspace.backendCanonicalSurfaceID(for: panelId) {
+            guard let mutationCoordinator = sourceWorkspace.terminalClientComposition
+                .terminalBackendTopologyMutationCoordinator else {
+                return false
+            }
             let destinationTabs = destinationWorkspace.bonsplitController
                 .tabs(inPane: resolvedTargetPane)
-            let destinationHasCanonicalTerminal = destinationTabs.contains { tab in
-                destinationWorkspace.panelIdFromSurfaceId(tab.id).flatMap {
-                    destinationWorkspace.panels[$0]
-                } is TerminalPanel
+            let destinationHasCanonicalPanel = destinationTabs.contains { tab in
+                guard let destinationPanelID = destinationWorkspace
+                    .panelIdFromSurfaceId(tab.id) else { return false }
+                return destinationWorkspace.isBackendCanonicalPanel(destinationPanelID)
             }
-            guard destinationHasCanonicalTerminal else {
+            guard destinationHasCanonicalPanel else {
                 mutationCoordinator.reportFailure(
                     for: splitTarget == nil ? .moveTab : .splitPane
                 )
@@ -5013,35 +5015,80 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 case (.vertical, true): direction = .up
                 case (.vertical, false): direction = .down
                 }
+                let reservation: TerminalBackendTopologyCanonicalSurfaceMoveReservation?
+                do {
+                    if source.tabManager === destinationManager {
+                        reservation = nil
+                    } else {
+                        guard let registry = terminalBackendTopologyProjectionRegistry else {
+                            throw TerminalBackendTopologyProjectionError.projectionFailed(
+                                "canonical surface move has no projection registry"
+                            )
+                        }
+                        reservation = try registry.reserveCanonicalSurfaceMove(
+                                surfaceID: canonicalSurfaceID,
+                                from: sourceWorkspace.id,
+                                in: source.tabManager,
+                                to: destinationWorkspace.id,
+                                in: destinationManager,
+                                destinationPaneID: nil,
+                                destinationIndex: nil
+                            )
+                    }
+                } catch {
+                    mutationCoordinator.reportFailure(for: .splitPane)
+                    return false
+                }
                 _ = mutationCoordinator.requestSplitTab(
-                    panelId,
+                    canonicalSurfaceID,
                     around: resolvedTargetPane.id,
-                    direction: direction
+                    direction: direction,
+                    onFailure: { [weak registry = terminalBackendTopologyProjectionRegistry] in
+                        if let reservation {
+                            registry?.cancelCanonicalSurfaceMoveReservation(reservation)
+                        }
+                    }
                 )
                 return true
             }
 
-            let destinationWithoutMovedSurface = destinationTabs.filter { tab in
-                destinationWorkspace.panelIdFromSurfaceId(tab.id) != panelId
-            }
-            let requestedRowIndex = min(
-                max(targetIndex ?? destinationWithoutMovedSurface.count, 0),
-                destinationWithoutMovedSurface.count
+            let canonicalIndex = destinationWorkspace.backendCanonicalInsertionIndex(
+                inPane: resolvedTargetPane,
+                presentedIndex: targetIndex
             )
-            let canonicalIndex = destinationWithoutMovedSurface
-                .prefix(requestedRowIndex)
-                .reduce(into: 0) { count, tab in
-                    guard let destinationPanelID = destinationWorkspace
-                        .panelIdFromSurfaceId(tab.id),
-                          destinationWorkspace.panels[destinationPanelID] is TerminalPanel else {
-                        return
+            let reservation: TerminalBackendTopologyCanonicalSurfaceMoveReservation?
+            do {
+                if source.tabManager === destinationManager {
+                    reservation = nil
+                } else {
+                    guard let registry = terminalBackendTopologyProjectionRegistry else {
+                        throw TerminalBackendTopologyProjectionError.projectionFailed(
+                            "canonical surface move has no projection registry"
+                        )
                     }
-                    count += 1
+                    reservation = try registry.reserveCanonicalSurfaceMove(
+                            surfaceID: canonicalSurfaceID,
+                            from: sourceWorkspace.id,
+                            in: source.tabManager,
+                            to: destinationWorkspace.id,
+                            in: destinationManager,
+                            destinationPaneID: resolvedTargetPane.id,
+                            destinationIndex: canonicalIndex
+                        )
                 }
+            } catch {
+                mutationCoordinator.reportFailure(for: .moveTab)
+                return false
+            }
             _ = mutationCoordinator.requestMoveTab(
-                panelId,
+                canonicalSurfaceID,
                 to: resolvedTargetPane.id,
-                index: canonicalIndex
+                index: canonicalIndex,
+                onFailure: { [weak registry = terminalBackendTopologyProjectionRegistry] in
+                    if let reservation {
+                        registry?.cancelCanonicalSurfaceMoveReservation(reservation)
+                    }
+                }
             )
             return true
         }

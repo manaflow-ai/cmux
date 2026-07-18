@@ -223,7 +223,7 @@ extension Workspace {
               !isRollingBackBackendOptimisticTabMutation,
               !isRemoteTmuxMirror,
               let panelID = panelIdFromSurfaceId(tab.id),
-              isBackendCanonicalPanel(panelID) else {
+              let canonicalSurfaceID = backendCanonicalSurfaceID(for: panelID) else {
             return false
         }
         guard !backendOptimisticTabMutationInFlight else {
@@ -234,19 +234,23 @@ extension Workspace {
         let destinationCanonicalOrder = bonsplitController.tabs(inPane: destination)
             .compactMap { tab -> UUID? in
                 guard let candidate = panelIdFromSurfaceId(tab.id),
-                      isBackendCanonicalPanel(candidate) else {
+                      let canonicalSurfaceID = backendCanonicalSurfaceID(
+                          for: candidate
+                      ) else {
                     return nil
                 }
-                return candidate
+                return canonicalSurfaceID
             }
-        guard let destinationIndex = destinationCanonicalOrder.firstIndex(of: panelID) else {
+        guard let destinationIndex = destinationCanonicalOrder.firstIndex(
+            of: canonicalSurfaceID
+        ) else {
             restoreBackendCanonicalTabPlacementBaseline()
             return true
         }
 
         backendOptimisticTabMutationInFlight = true
         mutationCoordinator.requestMoveTab(
-            panelID,
+            canonicalSurfaceID,
             to: destination.id,
             index: destinationIndex,
             onProjected: { [weak self] _ in
