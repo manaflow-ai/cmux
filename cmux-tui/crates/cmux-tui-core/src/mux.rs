@@ -2455,13 +2455,17 @@ impl Mux {
     /// Set one split ratio by its stable split-tree node id.
     pub fn set_split_ratio(&self, split: SplitId, ratio: f32) -> bool {
         let ratio = clamp_split_ratio(ratio);
-        let changed_screen =
-            {
-                let mut state = self.state.lock().unwrap();
-                state.workspaces.iter_mut().flat_map(|ws| ws.screens.iter_mut()).find_map(
-                    |screen| screen.root.set_split_ratio(split, ratio).then_some(screen.id),
-                )
-            };
+        let changed_screen = {
+            let mut state = self.state.lock().unwrap();
+            state.workspaces.iter_mut().flat_map(|ws| ws.screens.iter_mut()).find_map(|screen| {
+                if screen.root.set_split_ratio(split, ratio) {
+                    screen.zellij_auto_layout = None;
+                    Some(screen.id)
+                } else {
+                    None
+                }
+            })
+        };
         if let Some(screen) = changed_screen {
             self.emit(MuxEvent::TreeChanged);
             self.emit(MuxEvent::LayoutChanged(screen));
@@ -4534,6 +4538,7 @@ mod tests {
     fn set_split_ratio_updates_only_the_exact_split_and_clamps() {
         let mux = test_mux();
         seed_split_ratio_tree(&mux);
+        mux.state.lock().unwrap().workspaces[0].screens[0].zellij_auto_layout = Some(vec![1, 2, 3]);
         let events = mux.subscribe();
 
         assert!(mux.set_split_ratio(10, 2.0));
@@ -4549,6 +4554,7 @@ mod tests {
             };
             assert_eq!(*id, 11);
             assert_eq!(*inner_ratio, 0.5);
+            assert!(s.workspaces[0].screens[0].zellij_auto_layout.is_none());
         });
         assert!(matches!(events.recv().unwrap(), MuxEvent::TreeChanged));
         assert!(matches!(events.recv().unwrap(), MuxEvent::LayoutChanged(1)));
