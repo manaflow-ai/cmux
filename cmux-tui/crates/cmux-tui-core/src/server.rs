@@ -2891,12 +2891,11 @@ fn handle_command(
         }
         Command::MoveWorkspace { workspace, key, index, expected_revision } => {
             let (workspace, key) = resolve_workspace(mux, workspace, key.as_deref())?;
-            if !mux.move_workspace_at_revision(workspace, index, expected_revision)?
-                && !mux.with_state(|state| state.workspaces.iter().any(|ws| ws.id == workspace))
-            {
-                anyhow::bail!("unknown workspace");
-            }
-            let revision = mux.with_state(|state| state.workspace_revision);
+            let Some(revision) =
+                mux.move_workspace_at_revision(workspace, index, expected_revision)?
+            else {
+                anyhow::bail!("unknown workspace {workspace}");
+            };
             Ok(json!({"workspace": workspace, "key": key, "workspace_revision": revision}))
         }
         Command::SetDefaultColors { fg, bg } => {
@@ -2935,10 +2934,10 @@ fn handle_command(
         }
         Command::CloseWorkspace { workspace, key, expected_revision } => {
             let (workspace, key) = resolve_workspace(mux, workspace, key.as_deref())?;
-            if !mux.close_workspace_at_revision(workspace, expected_revision)? {
+            let Some(revision) = mux.close_workspace_at_revision(workspace, expected_revision)?
+            else {
                 anyhow::bail!("unknown workspace {workspace}");
-            }
-            let revision = mux.with_state(|state| state.workspace_revision);
+            };
             Ok(json!({"workspace": workspace, "key": key, "workspace_revision": revision}))
         }
         Command::RenamePane { pane, name } => {
@@ -2961,10 +2960,11 @@ fn handle_command(
         }
         Command::RenameWorkspace { workspace, key, name, expected_revision } => {
             let (workspace, key) = resolve_workspace(mux, workspace, key.as_deref())?;
-            if !mux.rename_workspace_at_revision(workspace, name, expected_revision)? {
+            let Some(revision) =
+                mux.rename_workspace_at_revision(workspace, name, expected_revision)?
+            else {
                 anyhow::bail!("unknown workspace {workspace}");
-            }
-            let revision = mux.with_state(|state| state.workspace_revision);
+            };
             Ok(json!({"workspace": workspace, "key": key, "workspace_revision": revision}))
         }
         Command::ResizeSurface { surface, cols, rows } => {
