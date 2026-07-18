@@ -208,7 +208,7 @@ struct CmuxAgentSessionRegistryTests {
             object["sessionState"] = "hibernated"
         }
 
-        #expect(patched)
+        #expect(patched == .patched)
         let snapshot = try fixture.registry.snapshot(provider: "codex")
         let record = try #require(snapshot.records.first)
         let object = try #require(JSONSerialization.jsonObject(with: record.json) as? [String: Any])
@@ -281,7 +281,7 @@ struct CmuxAgentSessionRegistryTests {
             object["updatedAt"] = 20
         }
 
-        #expect(!patched)
+        #expect(patched == .rejected)
         let snapshot = try fixture.registry.snapshot(provider: "codex")
         let restored = try #require(snapshot.records.first(where: { $0.sessionID == "restored" }))
         let object = try #require(JSONSerialization.jsonObject(with: restored.json) as? [String: Any])
@@ -337,7 +337,7 @@ struct CmuxAgentSessionRegistryTests {
             object["updatedAt"] = 20
         }
 
-        #expect(patched)
+        #expect(patched == .patched)
         let snapshot = try fixture.registry.snapshot(provider: "codex")
         #expect(snapshot.activeSlots.first(where: { $0.scopeID == oldWorkspace })?.sessionID == "new-owner")
         #expect(!snapshot.activeSlots.contains(where: { $0.scopeID == oldSurface }))
@@ -399,7 +399,7 @@ struct CmuxAgentSessionRegistryTests {
                         object["workspaceId"] = workspace
                         object["surfaceId"] = surface
                         object["updatedAt"] = 20
-                    }) == true
+                    }) == .patched
                 }
             }
             var values: [Bool] = []
@@ -441,8 +441,39 @@ struct CmuxAgentSessionRegistryTests {
                 object["surfaceId"] = "new-surface"
                 object["updatedAt"] = 20_000
             }
-            #expect(patched)
+            #expect(patched == .patched)
         }
+        #expect(elapsed < .seconds(1))
+    }
+
+    @Test("targeted rebind spends only one busy timeout waiting for a writer")
+    func targetedRebindContentionIsBounded() throws {
+        let fixture = try Fixture(busyTimeoutMilliseconds: 5)
+        try fixture.registry.apply(provider: "codex", records: [
+            try fixture.record(sessionID: "blocked", updatedAt: 10, generation: 1),
+        ])
+        var database: OpaquePointer?
+        #expect(sqlite3_open(fixture.registry.url.path, &database) == SQLITE_OK)
+        let writer = try #require(database)
+        defer { sqlite3_close(writer) }
+        #expect(sqlite3_exec(writer, "BEGIN IMMEDIATE", nil, nil, nil) == SQLITE_OK)
+        defer { sqlite3_exec(writer, "ROLLBACK", nil, nil, nil) }
+
+        let clock = ContinuousClock()
+        let elapsed = clock.measure {
+            #expect(throws: (any Error).self) {
+                try fixture.registry.patchRecordRebindingActiveSlots(
+                    provider: "codex",
+                    sessionID: "blocked",
+                    updatedAt: 20,
+                    previousSlots: [],
+                    activeSlots: []
+                ) { object in
+                    object["updatedAt"] = 20
+                }
+            }
+        }
+
         #expect(elapsed < .seconds(1))
     }
 

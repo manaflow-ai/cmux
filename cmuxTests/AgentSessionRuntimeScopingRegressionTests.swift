@@ -10,7 +10,7 @@ import Testing
 
 extension CMUXCLIErrorOutputRegressionTests {
     @MainActor
-    @Test func restoredHibernationAdoptsCurrentRuntimeAndPanelBindingBeforeAgentQueries() async throws {
+    @Test func restoredHibernationAdoptsCurrentRuntimeAndPanelBindingBeforeAgentQueries() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-restored-hibernation-runtime-\(UUID().uuidString)", isDirectory: true)
@@ -90,6 +90,11 @@ extension CMUXCLIErrorOutputRegressionTests {
             "activeSessionsByWorkspace": [source.id.uuidString: activeSlot],
             "activeSessionsBySurface": [sourcePanelID.uuidString: activeSlot],
         ], options: [.sortedKeys]).write(to: stateURL, options: .atomic)
+        let registry = CmuxAgentSessionRegistry(url: registryURL)
+        _ = try registry.snapshotImportingLegacy(
+            provider: "codex",
+            legacyURL: stateURL
+        )
 
         let sourceSnapshot = source.sessionSnapshot(includeScrollback: false)
         let restored = Workspace()
@@ -104,22 +109,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(restoredPanelID != sourcePanelID)
         #expect(restored.terminalPanel(for: restoredPanelID)?.isAgentHibernated == true)
 
-        let registry = CmuxAgentSessionRegistry(url: registryURL)
-        var adoptedSnapshot: CmuxAgentSessionRegistry.Snapshot?
-        for _ in 0..<100 {
-            if let snapshot = try? registry.snapshot(provider: "codex"),
-               let stored = snapshot.records.first(where: { $0.sessionID == sessionID }),
-               let record = try? JSONSerialization.jsonObject(with: stored.json) as? [String: Any],
-               record["workspaceId"] as? String == restored.id.uuidString,
-               record["surfaceId"] as? String == restoredPanelID.uuidString,
-               (record["cmuxRuntime"] as? [String: Any])?["id"] as? String == runtimeID {
-                adoptedSnapshot = snapshot
-                break
-            }
-            try await Task.sleep(nanoseconds: 10_000_000)
-        }
-
-        let snapshot = try #require(adoptedSnapshot)
+        let snapshot = try registry.snapshot(provider: "codex")
         let record = try #require(snapshot.records.first(where: { $0.sessionID == sessionID }))
         let recordObject = try #require(
             JSONSerialization.jsonObject(with: record.json) as? [String: Any]

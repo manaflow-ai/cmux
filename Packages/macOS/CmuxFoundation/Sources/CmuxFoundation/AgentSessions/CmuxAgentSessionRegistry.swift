@@ -39,7 +39,7 @@ public struct CmuxAgentSessionRegistry: Sendable {
     static let optimisticConflictCode = -7_867
     static let maximumMutationAttempts = 64
 
-    public enum Scope: String, Sendable {
+    public enum Scope: String, Hashable, Sendable {
         case workspace
         case surface
     }
@@ -94,6 +94,16 @@ public struct CmuxAgentSessionRegistry: Sendable {
         }
     }
 
+    public struct ActiveSlotKey: Hashable, Sendable {
+        public var scope: Scope
+        public var scopeID: String
+
+        public init(scope: Scope, scopeID: String) {
+            self.scope = scope
+            self.scopeID = scopeID
+        }
+    }
+
     public struct Snapshot: Sendable {
         public var records: [Record]
         public var activeSlots: [ActiveSlot]
@@ -107,6 +117,12 @@ public struct CmuxAgentSessionRegistry: Sendable {
     public enum ActiveSlotRemoval: Sendable {
         case all
         case updatedThrough(TimeInterval)
+    }
+
+    public enum RecordRebindResult: Equatable, Sendable {
+        case patched
+        case recordMissing
+        case rejected
     }
 
     public struct LegacyStamp: Equatable, Sendable {
@@ -472,6 +488,138 @@ public struct CmuxAgentSessionRegistry: Sendable {
                     )
                 }
                 return true
+            }
+        }
+    }
+
+    /// Patches one session row and moves its known active slots in one
+    /// transaction. Every lookup is backed by a primary key, so restore cost
+    /// does not grow with the number of sessions owned by the provider.
+    ///
+    /// A destination owned by another session rejects the complete mutation.
+    /// A previous slot that has already changed owners is left untouched. Slot
+    /// JSON merges the owned sources from oldest to newest so unknown keys and
+    /// a newer writer generation survive the move.
+    public func patchRecordRebindingActiveSlots(
+        provider: String,
+        sessionID: String,
+        updatedAt: TimeInterval,
+        previousSlots: [ActiveSlotKey],
+        activeSlots: [ActiveSlotKey],
+        shouldMutate: ([String: Any]) -> Bool = { _ in true },
+        mutate: (inout [String: Any]) -> Void
+    ) throws -> RecordRebindResult {
+        let previousKeys = Set(previousSlots)
+        let activeKeys = Set(activeSlots)
+        let keys = previousKeys.union(activeKeys)
+        return try withDatabase { database in
+            // Session restore runs on the main actor. One SQLite busy timeout
+            // is the complete lock-wait budget; the caller may retry off-main.
+            try transaction(database, retryBeginContention: false) {
+                guard let existingRecord = try readRecord(
+                    database: database,
+                    provider: provider,
+                    sessionID: sessionID
+                ) else {
+                    return .recordMissing
+                }
+                guard var object = try JSONSerialization.jsonObject(
+                    with: existingRecord.json
+                ) as? [String: Any] else {
+                    return .rejected
+                }
+                guard shouldMutate(object) else { return .rejected }
+
+                var storedSlots: [ActiveSlotKey: ActiveSlot] = [:]
+                storedSlots.reserveCapacity(keys.count)
+                for key in keys {
+                    if let slot = try readSlot(
+                        database: database,
+                        provider: provider,
+                        scope: key.scope,
+                        scopeID: key.scopeID
+                    ) {
+                        storedSlots[key] = slot
+                    }
+                }
+                guard activeKeys.allSatisfy({ key in
+                    storedSlots[key].map { $0.sessionID == sessionID } ?? true
+                }) else {
+                    return .rejected
+                }
+                mutate(&object)
+                guard JSONSerialization.isValidJSONObject(object) else { return .rejected }
+                let recordJSON = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+                try upsert(
+                    Record(
+                        provider: provider,
+                        sessionID: sessionID,
+                        updatedAt: updatedAt,
+                        writerGeneration: max(
+                            existingRecord.writerGeneration,
+                            Self.currentWriterGeneration
+                        ),
+                        json: recordJSON
+                    ),
+                    database: database
+                )
+
+                for key in previousKeys.subtracting(activeKeys) {
+                    guard let storedSlot = storedSlots[key],
+                          storedSlot.sessionID == sessionID else { continue }
+                    try deleteSlot(
+                        database: database,
+                        provider: provider,
+                        scope: key.scope,
+                        scopeID: key.scopeID,
+                        maximumWriterGeneration: max(
+                            storedSlot.writerGeneration,
+                            Self.currentWriterGeneration
+                        )
+                    )
+                }
+
+                let ownedSlots = storedSlots.values
+                    .filter { $0.sessionID == sessionID }
+                    .sorted {
+                        if $0.updatedAt != $1.updatedAt { return $0.updatedAt < $1.updatedAt }
+                        if $0.scope.rawValue != $1.scope.rawValue {
+                            return $0.scope.rawValue < $1.scope.rawValue
+                        }
+                        return $0.scopeID < $1.scopeID
+                    }
+                var slotObject: [String: Any] = [:]
+                for ownedSlot in ownedSlots {
+                    guard let decoded = try JSONSerialization.jsonObject(
+                        with: ownedSlot.json
+                    ) as? [String: Any] else {
+                        throw CocoaError(.fileReadCorruptFile)
+                    }
+                    slotObject.merge(decoded) { _, new in new }
+                }
+                slotObject["sessionId"] = sessionID
+                slotObject["updatedAt"] = updatedAt
+                guard JSONSerialization.isValidJSONObject(slotObject) else { return .rejected }
+                let slotJSON = try JSONSerialization.data(withJSONObject: slotObject, options: [.sortedKeys])
+                let slotWriterGeneration = max(
+                    Self.currentWriterGeneration,
+                    ownedSlots.map(\.writerGeneration).max() ?? 0
+                )
+                for key in activeKeys {
+                    try upsert(
+                        ActiveSlot(
+                            provider: provider,
+                            scope: key.scope,
+                            scopeID: key.scopeID,
+                            sessionID: sessionID,
+                            updatedAt: updatedAt,
+                            writerGeneration: slotWriterGeneration,
+                            json: slotJSON
+                        ),
+                        database: database
+                    )
+                }
+                return .patched
             }
         }
     }

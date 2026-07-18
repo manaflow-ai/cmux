@@ -1562,11 +1562,26 @@ extension Workspace {
                 )
                 if let restoredHibernation,
                    restorableAgent.resumeCommand != nil {
-                    terminalPanel.enterAgentHibernation(
+                    let didRestoreHibernation = terminalPanel.enterAgentHibernation(
                         agent: restorableAgent,
                         lastActivityAt: Date(timeIntervalSince1970: restoredHibernation.lastActivityAt),
                         hibernatedAt: Date(timeIntervalSince1970: restoredHibernation.hibernatedAt)
                     )
+                    if didRestoreHibernation {
+                        let didRebindRegistry = AgentHookSessionStateWriter.recordRestoredHibernation(
+                            agent: restorableAgent,
+                            previousWorkspaceId: snapshotWorkspaceId,
+                            previousSurfaceId: snapshot.id,
+                            workspaceId: id,
+                            surfaceId: terminalPanel.id
+                        )
+                        if !didRebindRegistry {
+                            NSLog(
+                                "[Workspace] restored hibernated agent registry rebind deferred or rejected session=%@",
+                                restorableAgent.sessionId
+                            )
+                        }
+                    }
                 }
             } else {
                 seedSessionRestoredAgentState(
