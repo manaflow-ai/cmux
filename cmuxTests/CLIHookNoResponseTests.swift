@@ -351,10 +351,8 @@ struct CLIHookNoResponseTests {
             .appendingPathComponent(".cmux", isDirectory: true)
             .appendingPathComponent("hooks", isDirectory: true)
         let fakeCLI = root.appendingPathComponent("cmux-legacy-fallback", isDirectory: false)
-        let fallbackArgs = root.appendingPathComponent("fallback-args.txt", isDirectory: false)
-        let fallbackInput = root.appendingPathComponent("fallback-input.json", isDirectory: false)
         let socketPath = Self.makeSocketPath("native-rolling")
-        let listenerFD = try Self.bindUnixSocket(at: socketPath, backlog: 8)
+        let listenerFD = try Self.bindUnixSocket(at: socketPath, backlog: 16)
         let state = MockSocketServerState()
         try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
         defer {
@@ -370,26 +368,48 @@ struct CLIHookNoResponseTests {
             timeout: 5
         )
         #expect(inject.status == 0, Comment(rawValue: inject.stderr))
-        let hookPath = try #require(
-            FileManager.default
-                .contentsOfDirectory(at: hooksDirectory, includingPropertiesForKeys: nil)
-                .first { $0.lastPathComponent.hasPrefix("cmux-codex-native-hook-session-start-") }
+        let install = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "install", "--yes"],
+            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
+            timeout: 5
         )
-        #expect(codexHookExecutableIsMachO(hookPath.path))
+        #expect(install.status == 0, Comment(rawValue: install.stderr))
+
+        let cases: [(tag: String, expectedArguments: String)] = [
+            ("session-start", "hooks codex session-start"),
+            ("prompt-submit", "hooks codex prompt-submit"),
+            ("stop", "hooks codex stop"),
+            ("pre-tool-use", "hooks codex pre-tool-use"),
+            ("post-tool-use", "hooks codex post-tool-use"),
+            ("notification", "hooks codex notification"),
+            ("feed-PreToolUse", "hooks feed --source codex --event PreToolUse"),
+            ("feed-PermissionRequest", "hooks feed --source codex --event PermissionRequest"),
+            ("feed-PostToolUse", "hooks feed --source codex --event PostToolUse"),
+            ("feed-PreCompact", "hooks feed --source codex --event PreCompact"),
+            ("feed-PostCompact", "hooks feed --source codex --event PostCompact"),
+            ("feed-SubagentStart", "hooks feed --source codex --event SubagentStart"),
+            ("feed-SubagentStop", "hooks feed --source codex --event SubagentStop"),
+        ]
+        let installed = try FileManager.default.contentsOfDirectory(
+            at: hooksDirectory,
+            includingPropertiesForKeys: nil
+        )
 
         try makeCodexHookExecutableShellFile(at: fakeCLI, lines: [
             "#!/bin/sh",
             "printf '%s' \"$*\" > \"$CMUX_TEST_FALLBACK_ARGS\"",
             "cat > \"$CMUX_TEST_FALLBACK_INPUT\"",
         ])
-        let server = Self.startMockServerAllowingNoResponse(
+        let server = Self.startMultiConnectionMockServerAllowingNoResponse(
             listenerFD: listenerFD,
             state: state,
+            connectionLimit: cases.count,
             fulfillWhen: { line in
-                Self.jsonObject(line)?["method"] as? String == "agent.hook.enqueue"
+                codexHookJSONObject(line)?["method"] as? String == "agent.hook.enqueue"
             }
         ) { line in
-            guard let request = Self.jsonObject(line),
+            guard let request = codexHookJSONObject(line),
                   let id = request["id"] as? String else {
                 return Self.malformedRequestResponse(raw: line)
             }
@@ -398,42 +418,56 @@ struct CLIHookNoResponseTests {
                 "message": "older cmux does not support agent.hook.enqueue",
             ])
         }
-        let payload = #"{"session_id":"rolling-version-session","hook_event_name":"SessionStart"}"#
-        let started = ContinuousClock().now
-        let result = runCodexHookProcess(
-            executablePath: hookPath.path,
-            arguments: [],
-            environment: [
-                "HOME": root.path,
-                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-                "CMUX_SURFACE_ID": "22222222-2222-2222-2222-222222222222",
-                "CMUX_SOCKET_PATH": socketPath,
-                "CMUX_SOCKET_CAPABILITY": "test-capability",
-                "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
-                "CMUX_CODEX_PID": "4242",
-                "CMUX_AGENT_HOOK_DELIVERY_ID": "native-rolling-version",
-                "CMUX_TEST_FALLBACK_ARGS": fallbackArgs.path,
-                "CMUX_TEST_FALLBACK_INPUT": fallbackInput.path,
-            ],
-            standardInput: payload,
-            timeout: 0.35
-        )
-        let elapsed = started.duration(to: .now)
 
-        #expect(server.wait(timeout: 5), "Older app did not receive the queue capability probe")
-        #expect(!result.timedOut, Comment(rawValue: result.stderr))
-        #expect(result.status == 0, Comment(rawValue: result.stderr))
-        #expect(result.stdout == "{}\n")
-        #expect(elapsed < .seconds(0.25), "Rolling-version fallback took \(elapsed)")
-        #expect(waitForCondition(timeout: 1) {
-            FileManager.default.fileExists(atPath: fallbackArgs.path)
-                && FileManager.default.fileExists(atPath: fallbackInput.path)
+        for (index, testCase) in cases.enumerated() {
+            let hookPath = try #require(installed.first {
+                $0.lastPathComponent.hasPrefix("cmux-codex-native-hook-\(testCase.tag)-")
+            })
+            #expect(codexHookExecutableIsMachO(hookPath.path))
+            let fallbackArgs = root.appendingPathComponent("fallback-args-\(index).txt", isDirectory: false)
+            let fallbackInput = root.appendingPathComponent("fallback-input-\(index).json", isDirectory: false)
+            let payload = #"{"session_id":"rolling-version-\#(index)","hook_event_name":"\#(testCase.tag)"}"#
+            let started = ContinuousClock().now
+            let result = runCodexHookProcess(
+                executablePath: hookPath.path,
+                arguments: [],
+                environment: [
+                    "HOME": root.path,
+                    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                    "CMUX_SURFACE_ID": "22222222-2222-2222-2222-222222222222",
+                    "CMUX_SOCKET_PATH": socketPath,
+                    "CMUX_SOCKET_CAPABILITY": "test-capability",
+                    "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
+                    "CMUX_CODEX_PID": "4242",
+                    "CMUX_AGENT_HOOK_DELIVERY_ID": "native-rolling-version-\(index)",
+                    "CMUX_TEST_FALLBACK_ARGS": fallbackArgs.path,
+                    "CMUX_TEST_FALLBACK_INPUT": fallbackInput.path,
+                ],
+                standardInput: payload,
+                timeout: 0.35
+            )
+            let elapsed = started.duration(to: .now)
+
+            #expect(!result.timedOut, "\(testCase.tag): \(result.stderr)")
+            #expect(result.status == 0, "\(testCase.tag): \(result.stderr)")
+            #expect(result.stdout == "{}\n")
+            #expect(elapsed < .seconds(0.25), "\(testCase.tag) took \(elapsed)")
+            #expect(waitForCondition(timeout: 1) {
+                FileManager.default.fileExists(atPath: fallbackArgs.path)
+                    && FileManager.default.fileExists(atPath: fallbackInput.path)
+            })
+            #expect(
+                try String(contentsOf: fallbackArgs, encoding: .utf8)
+                    == "--socket \(socketPath) \(testCase.expectedArguments)"
+            )
+            #expect(try String(contentsOf: fallbackInput, encoding: .utf8) == payload)
+        }
+        #expect(server.wait(timeout: 5), "Older app did not receive a queue capability probe")
+        #expect(waitForCondition(timeout: 2) {
+            state.snapshot().filter {
+                codexHookJSONObject($0)?["method"] as? String == "agent.hook.enqueue"
+            }.count == cases.count
         })
-        #expect(
-            try String(contentsOf: fallbackArgs, encoding: .utf8)
-                == "--socket \(socketPath) hooks codex session-start"
-        )
-        #expect(try String(contentsOf: fallbackInput, encoding: .utf8) == payload)
     }
 
     private static func bundledCLIPath() throws -> String {
