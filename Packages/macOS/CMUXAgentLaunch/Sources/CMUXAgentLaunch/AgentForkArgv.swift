@@ -136,11 +136,10 @@ public struct AgentForkArgv: Sendable, Equatable {
             }
             return [parts.executable, "--resume", sessionId, "--fork-session"] + preserved
         case "amp":
-            let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "amp")
-            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "amp", args: parts.tail) else {
-                return nil
-            }
-            return [parts.executable, "threads", "fork", sessionId] + preserved
+            // Amp removed `threads fork`. Its replacement is a new thread with
+            // an @thread mention, which cannot be represented as a faithful,
+            // single-argv fork without synthesizing user prompt content.
+            return nil
         case "factory":
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "droid")
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "factory", args: parts.tail) else {

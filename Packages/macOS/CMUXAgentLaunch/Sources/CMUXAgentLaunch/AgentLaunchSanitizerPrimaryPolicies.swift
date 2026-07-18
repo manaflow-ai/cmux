@@ -245,6 +245,7 @@ extension AgentLaunchSanitizer {
             "--thinking",
             "--tools",
             "--exclude-tools",
+            "--export",
             "--name",
             "-e",
             "-n",
@@ -253,6 +254,7 @@ extension AgentLaunchSanitizer {
             "-xt"
         ],
         optionalValueOptions: [
+            "--list-models",
             "--resume",
             "-r"
         ],
@@ -355,6 +357,31 @@ extension AgentLaunchSanitizer {
         ])
         policy.valueOptions.insert("--alias")
         policy.rejectOptions.insert("--alias")
+        policy.nonRestorableCommands.formUnion([
+            "agents",
+            "auth-broker",
+            "bench",
+            "commit",
+            "completions",
+            "dry-balance",
+            "gallery",
+            "gc",
+            "grep",
+            "grievances",
+            "models",
+            "plugin",
+            "read",
+            "say",
+            "search",
+            "setup",
+            "ssh",
+            "stats",
+            "tiny-models",
+            "token",
+            "ttsr",
+            "usage",
+            "worktree",
+        ])
         return policy
     }()
 
@@ -385,6 +412,7 @@ extension AgentLaunchSanitizer {
             "--log-level",
             "--mcp-config",
             "--mode",
+            "--runner-id",
             "--settings-file",
             "--visibility",
             "-l",
@@ -400,19 +428,25 @@ extension AgentLaunchSanitizer {
             "--no-color",
             "--no-ide",
             "--no-notifications",
+            "--no-tui",
             "--notifications",
         ],
         nonRestorableCommands: [
+            "clone",
+            "config",
             "login",
             "logout",
             "mcp",
+            "orb",
             "permissions",
             "permission",
+            "projects",
             "review",
             "skill",
             "skills",
             "tool",
             "tools",
+            "top",
             "update",
             "up",
             "usage",
@@ -423,12 +457,14 @@ extension AgentLaunchSanitizer {
             "--label",
             "-l",
             "--stream-json",
-            "--stream-json-input",
             "--stream-json-thinking"
         ],
         rejectOptions: [
             "--execute",
+            "--no-tui",
             "--print",
+            "--runner-id",
+            "--stream-json-input",
             "-V",
             "-x"
         ]
@@ -527,8 +563,12 @@ extension AgentLaunchSanitizer {
             "--add-dir",
             "--conversation",
             "--log-file",
+            "--model",
+            "--new-project",
             "--print-timeout",
+            "--project",
             "--prompt",
+            "--prompt-interactive",
             "-p",
             "--sandbox",
         ],
@@ -536,10 +576,14 @@ extension AgentLaunchSanitizer {
             "--continue",
             "-c",
         ],
+        booleanOptions: [
+            "--dangerously-skip-permissions",
+        ],
         nonRestorableCommands: [
             "changelog",
             "help",
             "install",
+            "models",
             "plugin",
             "plugins",
             "update",
@@ -548,9 +592,13 @@ extension AgentLaunchSanitizer {
             "--continue",
             "-c",
             "--conversation",
+            "--new-project",
+            "--project",
         ],
         droppedOptionPrefixes: [
             "--conversation=",
+            "--new-project=",
+            "--project=",
         ],
         rejectOptions: [
             "--prompt",
@@ -631,6 +679,7 @@ extension AgentLaunchSanitizer {
         ],
         rejectOptions: [
             "--cloud",
+            "--list-models",
             "--output-format",
             "--print",
             "-p",

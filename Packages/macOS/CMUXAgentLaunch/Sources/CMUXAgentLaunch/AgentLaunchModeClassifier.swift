@@ -33,6 +33,9 @@ public enum AgentLaunchModeClassifier {
         if containsOption(nonSessionOptions(for: kind), in: arguments, policy: policy) {
             return .nonSession
         }
+        if kind == "amp", let ampMode = ampMode(arguments: arguments, policy: policy) {
+            return ampMode
+        }
         if let protocolMode = longLivedProtocolMode(kind: kind, arguments: arguments, policy: policy) {
             return protocolMode
         }
@@ -55,6 +58,14 @@ public enum AgentLaunchModeClassifier {
            let command = firstPositional(in: arguments, policy: policy),
            command != "chat" {
             return .nonSession
+        }
+        if kind == "claude",
+           containsOption(["--no-session-persistence"], in: arguments, policy: policy) {
+            guard containsOption(["--print", "-p"], in: arguments, policy: policy),
+                  !containsUnknownOption(in: arguments, policy: policy) else {
+                return .unknown
+            }
+            return .oneShot
         }
         let arguments = normalizedArguments(kind: kind, arguments: arguments)
         if kind == "opencode",
@@ -121,6 +132,10 @@ public enum AgentLaunchModeClassifier {
         let positionals = positionalValues(in: arguments, policy: policy, limit: 3)
         let command = commandLocation?.value
         switch kind {
+        case "amp":
+            if containsRawOption(["--no-tui"], in: arguments) {
+                return requestsHelp ? .nonSession : .interactive
+            }
         case "claude":
             if optionValue("--input-format", in: arguments) == "stream-json" {
                 return requestsHelp ? .nonSession : .interactive
@@ -130,7 +145,8 @@ public enum AgentLaunchModeClassifier {
                 return requestsHelp ? .nonSession : .interactive
             }
         case "omp":
-            if ["rpc", "rpc-ui"].contains(optionValue("--mode", in: arguments)) || command == "acp" {
+            if ["rpc", "rpc-ui"].contains(optionValue("--mode", in: arguments))
+                || ["acp", "auth-gateway", "join", "shell"].contains(command) {
                 return requestsHelp ? .nonSession : .interactive
             }
         case "campfire":
@@ -181,6 +197,14 @@ public enum AgentLaunchModeClassifier {
             }
         case "opencode":
             if ["acp", "serve", "web"].contains(command) {
+                return requestsHelp ? .nonSession : .interactive
+            }
+        case "codebuddy":
+            if containsRawOption(["--acp", "--prewarm", "--serve"], in: arguments) {
+                return requestsHelp ? .nonSession : .interactive
+            }
+        case "rovodev":
+            if positionals.starts(with: ["rovodev", "serve"]) || command == "serve" {
                 return requestsHelp ? .nonSession : .interactive
             }
         case "qoder":
@@ -296,6 +320,38 @@ public enum AgentLaunchModeClassifier {
         return firstPositional(in: runArguments, policy: policy) == nil ? .interactive : .oneShot
     }
 
+    /// Amp's nested command aliases overlap (`l` means root `last`, but nested
+    /// `threads l` means `list`), so model the documented command grammar before
+    /// the generic first-positional classifier. Stream JSON input is a live
+    /// multi-turn protocol only when its two required companion flags are present.
+    private static func ampMode(
+        arguments: [String],
+        policy: AgentLaunchSanitizer.Policy
+    ) -> AgentProcessLaunchMode? {
+        let hasStreamInput = containsRawOption(["--stream-json-input"], in: arguments)
+        if hasStreamInput {
+            let hasExecute = containsRawOption(["--execute", "-x"], in: arguments)
+            let hasStreamOutput = containsRawOption(["--stream-json"], in: arguments)
+            return hasExecute && hasStreamOutput ? .interactive : .unknown
+        }
+        if containsRawOption(["--execute", "-x"], in: arguments) {
+            return nil
+        }
+
+        let positionals = positionalValues(in: arguments, policy: policy, limit: 3)
+        guard let command = positionals.first else { return nil }
+        if ["last", "l"].contains(command) {
+            return .interactive
+        }
+        if ["threads", "thread", "t"].contains(command) {
+            guard positionals.count >= 2 else { return .nonSession }
+            return ["continue", "c"].contains(positionals[1]) ? .interactive : .nonSession
+        }
+        return AgentLaunchSanitizer.ampPolicy.nonRestorableCommands.contains(command)
+            ? .nonSession
+            : nil
+    }
+
     private static func policy(for kind: String) -> AgentLaunchSanitizer.Policy? {
         switch kind {
         case "claude": AgentLaunchSanitizer.claudePolicy
@@ -334,7 +390,7 @@ public enum AgentLaunchModeClassifier {
         case "hermes-agent": ["--oneshot", "-z"]
         case "copilot": ["--prompt", "-p"]
         case "codebuddy": ["--print", "-p"]
-        case "qoder": ["--print", "-p"]
+        case "qoder": ["--print", "-p", "--remote"]
         case "kimi": ["--print", "--quiet"]
         default: []
         }
@@ -342,7 +398,6 @@ public enum AgentLaunchModeClassifier {
 
     private static func interactiveOptions(for kind: String) -> Set<String> {
         switch kind {
-        case "claude": ["--no-session-persistence"]
         case "pi", "omp", "campfire": ["--no-session"]
         case "gemini", "antigravity", "rovodev", "qoder": ["--prompt-interactive", "-i"]
         case "kimi": ["--prompt", "--command", "-p", "-c"]
@@ -374,8 +429,25 @@ public enum AgentLaunchModeClassifier {
 
     private static func nonSessionOptions(for kind: String) -> Set<String> {
         var options = AgentLaunchSanitizer.nonSessionMetadataOptions(kind: kind)
-        if kind == "gemini" {
+        switch kind {
+        case "gemini":
             options.formUnion(["--list-sessions", "--delete-session", "--list-extensions"])
+        case "pi", "campfire":
+            options.formUnion(["--export", "--list-models"])
+        case "omp":
+            options.formUnion(["--alias", "--export", "--list-models"])
+        case "cursor":
+            options.insert("--list-models")
+        case "factory":
+            options.insert("--list-tools")
+        case "kiro":
+            options.formUnion(["--delete-session", "--list-models", "--list-sessions"])
+        case "codebuddy":
+            options.formUnion(["--background", "--bg"])
+        case "qoder":
+            options.formUnion(["--delete-session", "--list-sessions"])
+        default:
+            break
         }
         return options
     }

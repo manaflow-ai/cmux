@@ -129,20 +129,24 @@ public enum AgentLaunchSanitizer {
         case "campfire":
             return preserveOptions(args, policy: campfirePolicy)
         case "amp":
-            // Strip an existing `threads continue|fork <id>` session selector
-            // before constructing a fresh resume or fork command. Supports the
-            // documented `t`/`thread` aliases and `c` for `continue`.
+            // Strip an existing continuation selector before constructing a
+            // fresh resume command. Amp's old `threads fork` form is accepted
+            // here only for restoring legacy captures; current Amp rejects that
+            // command and CMUX no longer offers Amp forks.
             var tail = args
             let threadsAliases: Set<String> = ["threads", "thread", "t"]
             let sessionCommandAliases: Set<String> = ["continue", "c", "fork"]
             if let first = tail.first, threadsAliases.contains(first) {
                 tail.removeFirst()
-                if let next = tail.first, sessionCommandAliases.contains(next) {
-                    tail.removeFirst()
-                    if let candidate = tail.first, !candidate.hasPrefix("-") {
-                        tail.removeFirst()
-                    }
+                guard let next = tail.first, sessionCommandAliases.contains(next) else {
+                    return nil
                 }
+                tail.removeFirst()
+                if let candidate = tail.first, !candidate.hasPrefix("-") {
+                    tail.removeFirst()
+                }
+            } else if let first = tail.first, ["last", "l"].contains(first) {
+                tail.removeFirst()
             }
             return preserveOptions(tail, policy: ampPolicy)
         case "cursor":
@@ -279,8 +283,16 @@ public enum AgentLaunchSanitizer {
             options.insert("-V")
         case "grok", "pi", "omp", "campfire", "opencode", "cursor":
             options.insert("-v")
-        case "amp", "hermes-agent":
+        case "amp":
+            options.formUnion(["-V", "-v"])
+        case "hermes-agent":
             options.insert("-V")
+        case "gemini":
+            options.insert("-v")
+        case "kimi", "kiro":
+            options.insert("-V")
+        case "copilot", "factory":
+            options.insert("-v")
         default:
             break
         }
