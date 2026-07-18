@@ -30,7 +30,7 @@ struct SimulatorFramebufferOrientationStateTests {
             requestedOrientation: fallbackOrientation
         )
 
-        #expect(nativeOrientation == .landscapeRight)
+        #expect(nativeOrientation == .landscapeLeft)
         #expect(!nativeGeometry.needsRawTransform)
         #expect(fallbackOrientation == .landscapeLeft)
         #expect(!fallbackGeometry.needsRawTransform)
@@ -42,8 +42,8 @@ struct SimulatorFramebufferOrientationStateTests {
 
         #expect(state.observe(width: 1_290, height: 2_796, nativeRawValue: 1) == .portrait)
         #expect(state.observe(width: 1_290, height: 2_796, nativeRawValue: 2) == .portraitUpsideDown)
-        #expect(state.observe(width: 2_796, height: 1_290, nativeRawValue: 3) == .landscapeRight)
-        #expect(state.observe(width: 2_796, height: 1_290, nativeRawValue: 4) == .landscapeLeft)
+        #expect(state.observe(width: 2_796, height: 1_290, nativeRawValue: 3) == .landscapeLeft)
+        #expect(state.observe(width: 2_796, height: 1_290, nativeRawValue: 4) == .landscapeRight)
 
         state.request(.portrait)
         #expect(state.observe(
@@ -51,7 +51,7 @@ struct SimulatorFramebufferOrientationStateTests {
             height: 1_290,
             nativeRawValue: 4,
             nativeValueIsAuthoritative: true
-        ) == .landscapeLeft)
+        ) == .landscapeRight)
     }
 
     @Test("A requested rotation survives stale native properties until the surface catches up")
@@ -74,7 +74,7 @@ struct SimulatorFramebufferOrientationStateTests {
         let settledOrientation = state.observe(
             width: 2_796,
             height: 1_290,
-            nativeRawValue: 3
+            nativeRawValue: 4
         )
         let settledGeometry = SimulatorOrientationGeometry(
             rawWidth: 2_796,
@@ -83,8 +83,34 @@ struct SimulatorFramebufferOrientationStateTests {
         )
 
         #expect(pendingOrientation == .landscapeRight)
-        #expect(pendingGeometry.presentationRotationDegrees == -90)
+        #expect(pendingGeometry.presentationRotationDegrees == 90)
         #expect(settledOrientation == .landscapeRight)
         #expect(!settledGeometry.needsRawTransform)
+    }
+
+    @Test("PurpleWorkspace requests and SimulatorKit callbacks preserve logical landscape identity")
+    func reconcilesPrivateOrientationDialects() {
+        var state = SimulatorFramebufferOrientationState()
+
+        state.request(.landscapeRight)
+        #expect(state.observe(
+            width: 1_290,
+            height: 2_796,
+            nativeRawValue: 1
+        ) == .landscapeRight)
+        #expect(state.observe(
+            width: 1_290,
+            height: 2_796,
+            nativeRawValue: 4,
+            nativeValueIsAuthoritative: true
+        ) == .landscapeRight)
+
+        state.request(.landscapeLeft)
+        #expect(state.observe(
+            width: 1_290,
+            height: 2_796,
+            nativeRawValue: 3,
+            nativeValueIsAuthoritative: true
+        ) == .landscapeLeft)
     }
 }
