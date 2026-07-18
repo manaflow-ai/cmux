@@ -2638,11 +2638,13 @@ private struct SidebarFooterIconBalanceStrip: View {
 
 private struct SidebarFooterProfileIconReference: View {
     var body: some View {
-        CmuxSystemSymbolImage(systemName: "person.circle", pointSize: 14, weight: .medium)
-            .foregroundStyle(Color(nsColor: .secondaryLabelColor))
-            .frame(width: 17, height: 17)
-            .clipShape(Circle())
-            .overlay(Circle().stroke(Color.primary.opacity(0.12), lineWidth: 0.5))
+        SidebarAccountAvatar(
+            avatarURL: nil,
+            displayName: "",
+            email: "",
+            isSignedIn: false,
+            size: 17
+        )
             .frame(width: 22, height: 22)
     }
 }

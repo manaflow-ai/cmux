@@ -114,7 +114,7 @@ private struct SidebarAccountPopover: View {
     }
 }
 
-private struct SidebarAccountAvatar: View {
+struct SidebarAccountAvatar: View {
     let avatarURL: URL?
     let displayName: String
     let email: String
@@ -122,8 +122,37 @@ private struct SidebarAccountAvatar: View {
     let size: CGFloat
 
     var body: some View {
+        if isSignedIn {
+            SidebarSignedInAccountAvatar(
+                avatarURL: avatarURL,
+                initial: accountInitial,
+                size: size
+            )
+        } else {
+            CmuxSystemSymbolImage(
+                systemName: "person.circle",
+                pointSize: max(11, size - 2),
+                weight: .medium
+            )
+            .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+            .frame(width: size, height: size, alignment: .center)
+        }
+    }
+
+    private var accountInitial: String? {
+        let source = displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? email : displayName
+        return source.first.map { String($0).uppercased() }
+    }
+}
+
+private struct SidebarSignedInAccountAvatar: View {
+    let avatarURL: URL?
+    let initial: String?
+    let size: CGFloat
+
+    var body: some View {
         Group {
-            if isSignedIn, let avatarURL {
+            if let avatarURL {
                 AsyncImage(url: avatarURL) { phase in
                     if let image = phase.image {
                         image.resizable().scaledToFill()
@@ -140,24 +169,22 @@ private struct SidebarAccountAvatar: View {
         .overlay(Circle().stroke(Color.primary.opacity(0.12), lineWidth: 0.5))
     }
 
-    @ViewBuilder
     private var fallback: some View {
-        if isSignedIn, let initial = accountInitial {
-            ZStack {
-                Circle().fill(Color.accentColor.opacity(0.18))
-                Text(initial)
+        ZStack {
+            Circle().fill(Color.accentColor.opacity(0.18))
+            if let initial {
+                Text(verbatim: initial)
                     .cmuxFont(size: max(8, size * 0.4), weight: .semibold)
                     .foregroundStyle(Color.accentColor)
+            } else {
+                CmuxSystemSymbolImage(
+                    systemName: "person.fill",
+                    pointSize: max(8, size * 0.45),
+                    weight: .medium
+                )
+                .foregroundStyle(Color.accentColor)
             }
-        } else {
-            CmuxSystemSymbolImage(systemName: "person.circle", pointSize: max(11, size - 3), weight: .medium)
-                .foregroundStyle(Color(nsColor: .secondaryLabelColor))
         }
-    }
-
-    private var accountInitial: String? {
-        let source = displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? email : displayName
-        return source.first.map { String($0).uppercased() }
     }
 }
 
