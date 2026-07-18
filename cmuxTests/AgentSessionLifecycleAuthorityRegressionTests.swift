@@ -9,6 +9,322 @@ import Testing
 #endif
 
 extension CMUXCLIErrorOutputRegressionTests {
+    @Test func lateStopFromExitedOneShotCompletesGenerationWithoutFallbackAuthority() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-exited-one-shot-\(UUID().uuidString)", isDirectory: true)
+        let executable = root.appendingPathComponent("codex", isDirectory: false)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(atPath: "/bin/sleep", toPath: executable.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = ["30"]
+        try process.run()
+        let pid = Int(process.processIdentifier)
+        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        let environment = [
+            "CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": root.appendingPathComponent("sessions.sqlite3").path,
+            "CMUX_RUNTIME_ID": "one-shot-runtime",
+        ]
+        let store = ClaudeHookSessionStore(processEnv: environment, agentName: "codex")
+        let launchCommand = AgentHookLaunchCommandRecord(
+            launcher: "codex",
+            executablePath: executable.path,
+            arguments: [],
+            workingDirectory: root.path,
+            environment: nil,
+            capturedAt: Date().timeIntervalSince1970,
+            source: "rejected"
+        )
+        let sessionID = "one-shot-session"
+        #expect(try store.upsert(
+            sessionId: sessionID,
+            workspaceId: "workspace-a",
+            surfaceId: "surface-a",
+            cwd: root.path,
+            pid: pid,
+            launchCommand: launchCommand,
+            markActive: true
+        ))
+        let original = try #require(try store.lookup(sessionId: sessionID))
+        let originalRunID = try #require(original.activeRunId)
+        #expect(original.runs?.first { $0.runId == originalRunID }?.processStartedAt != nil)
+
+        process.terminate()
+        process.waitUntilExit()
+
+        let firstLateStop = try store.recordPromptStop(
+            sessionId: sessionID,
+            workspaceId: "workspace-a",
+            surfaceId: "surface-a",
+            cwd: root.path,
+            pid: pid,
+            launchCommand: launchCommand,
+            lastSubtitle: nil,
+            lastBody: nil
+        )
+        #expect(!firstLateStop.accepted)
+        let completed = try #require(try store.lookup(sessionId: sessionID))
+        #expect(completed.completedAt != nil)
+        #expect(completed.sessionState == .ended)
+        #expect(completed.restoreAuthority == false)
+        #expect(completed.activeRunId == nil)
+        #expect(completed.runs?.allSatisfy { $0.endedAt != nil && !$0.restoreAuthority } == true)
+        #expect(completed.runs?.contains { $0.runId.hasPrefix("runtime:") } == false)
+        #expect(store.snapshot().activeSessionsByWorkspace.isEmpty)
+        #expect(store.snapshot().activeSessionsBySurface.isEmpty)
+
+        let firstCompletedAt = completed.completedAt
+        let firstUpdatedAt = completed.updatedAt
+        let duplicateLateStop = try store.recordPromptStop(
+            sessionId: sessionID,
+            workspaceId: "workspace-a",
+            surfaceId: "surface-a",
+            cwd: root.path,
+            pid: pid,
+            launchCommand: launchCommand,
+            lastSubtitle: nil,
+            lastBody: nil
+        )
+        #expect(!duplicateLateStop.accepted)
+        let afterDuplicate = try #require(try store.lookup(sessionId: sessionID))
+        #expect(afterDuplicate.completedAt == firstCompletedAt)
+        #expect(afterDuplicate.updatedAt == firstUpdatedAt)
+        #expect(afterDuplicate.runs == completed.runs)
+    }
+
+    @Test func lateStopCannotReplaceAnewerActiveProcessGeneration() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-stale-stop-newer-run-\(UUID().uuidString)", isDirectory: true)
+        let executable = root.appendingPathComponent("codex", isDirectory: false)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(atPath: "/bin/sleep", toPath: executable.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = ["30"]
+        try process.run()
+        defer {
+            if process.isRunning { process.terminate() }
+            process.waitUntilExit()
+        }
+        let currentPID = Int(process.processIdentifier)
+        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        let store = ClaudeHookSessionStore(processEnv: [
+            "CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": root.appendingPathComponent("sessions.sqlite3").path,
+            "CMUX_RUNTIME_ID": "current-runtime",
+        ], agentName: "codex")
+        let sessionID = "resumed-session"
+        #expect(try store.upsert(
+            sessionId: sessionID,
+            workspaceId: "workspace-a",
+            surfaceId: "surface-a",
+            cwd: root.path,
+            pid: currentPID,
+            launchCommand: nil,
+            markActive: true
+        ))
+        let current = try #require(try store.lookup(sessionId: sessionID))
+        let currentRunID = try #require(current.activeRunId)
+
+        let staleStop = try store.recordPromptStop(
+            sessionId: sessionID,
+            workspaceId: "workspace-a",
+            surfaceId: "surface-a",
+            cwd: root.path,
+            pid: Int(Int32.max) - 91,
+            launchCommand: nil,
+            lastSubtitle: nil,
+            lastBody: nil
+        )
+        #expect(!staleStop.accepted)
+        let preserved = try #require(try store.lookup(sessionId: sessionID))
+        #expect(preserved.completedAt == nil)
+        #expect(preserved.activeRunId == currentRunID)
+        #expect(preserved.runs?.first { $0.runId == currentRunID }?.endedAt == nil)
+        #expect(preserved.runs?.first { $0.runId == currentRunID }?.restoreAuthority == true)
+        #expect(store.snapshot().activeSessionsByWorkspace["workspace-a"]?.sessionId == sessionID)
+        #expect(store.snapshot().activeSessionsBySurface["surface-a"]?.sessionId == sessionID)
+    }
+
+    @Test func reusedPIDStopCompletesTheRecordedGenerationInsteadOfPromotingTheReuse() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-reused-stop-pid-\(UUID().uuidString)", isDirectory: true)
+        let executable = root.appendingPathComponent("codex", isDirectory: false)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(atPath: "/bin/sleep", toPath: executable.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = ["30"]
+        try process.run()
+        defer {
+            if process.isRunning { process.terminate() }
+            process.waitUntilExit()
+        }
+        let pid = Int(process.processIdentifier)
+        let liveLineage = AgentHookSessionLineageResolver().resolve(
+            agentName: "codex",
+            sessionId: "reused-pid-session",
+            pid: pid,
+            environment: [:]
+        )
+        let liveStartedAt = try #require(liveLineage.processStartedAt)
+        let recordedStartedAt = liveStartedAt - 10
+        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": ["reused-pid-session": [
+                "sessionId": "reused-pid-session",
+                "workspaceId": "workspace-a",
+                "surfaceId": "surface-a",
+                "pid": pid,
+                "activeRunId": "recorded-generation",
+                "runId": "recorded-generation",
+                "restoreAuthority": true,
+                "sessionState": "active",
+                "startedAt": recordedStartedAt,
+                "updatedAt": recordedStartedAt,
+                "runs": [[
+                    "runId": "recorded-generation",
+                    "pid": pid,
+                    "processStartedAt": recordedStartedAt,
+                    "restoreAuthority": true,
+                    "startedAt": recordedStartedAt,
+                    "updatedAt": recordedStartedAt,
+                ]],
+            ]],
+            "activeSessionsByWorkspace": ["workspace-a": [
+                "sessionId": "reused-pid-session",
+                "updatedAt": recordedStartedAt,
+            ]],
+            "activeSessionsBySurface": ["surface-a": [
+                "sessionId": "reused-pid-session",
+                "updatedAt": recordedStartedAt,
+            ]],
+        ], options: [.sortedKeys]).write(to: stateURL, options: .atomic)
+        let store = ClaudeHookSessionStore(processEnv: [
+            "CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": root.appendingPathComponent("sessions.sqlite3").path,
+        ], agentName: "codex")
+
+        let reusedStop = try store.recordPromptStop(
+            sessionId: "reused-pid-session",
+            workspaceId: "workspace-a",
+            surfaceId: "surface-a",
+            cwd: root.path,
+            pid: pid,
+            launchCommand: nil,
+            lastSubtitle: nil,
+            lastBody: nil
+        )
+        #expect(!reusedStop.accepted)
+        let completed = try #require(try store.lookup(sessionId: "reused-pid-session"))
+        #expect(completed.completedAt != nil)
+        #expect(completed.activeRunId == nil)
+        #expect(completed.runs?.count == 1)
+        #expect(completed.runs?.first?.runId == "recorded-generation")
+        #expect(completed.runs?.first?.endedAt != nil)
+        #expect(completed.runs?.first?.restoreAuthority == false)
+        #expect(store.snapshot().activeSessionsByWorkspace.isEmpty)
+        #expect(store.snapshot().activeSessionsBySurface.isEmpty)
+    }
+
+    @Test func rejectedLaunchSourceIsNonRestorableAcrossListTreeAndForkDiagnostics() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-rejected-restore-evidence-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let records: [String: Any] = [
+            "rejected-nil": [
+                "sessionId": "rejected-nil",
+                "workspaceId": "workspace-a",
+                "surfaceId": "surface-a",
+                "startedAt": 100.0,
+                "updatedAt": 200.0,
+                "launchCommand": [
+                    "launcher": "opencode",
+                    "executablePath": "opencode",
+                    "arguments": ["opencode"],
+                    "source": "rejected",
+                ],
+            ],
+            "rejected-true": [
+                "sessionId": "rejected-true",
+                "workspaceId": "workspace-b",
+                "surfaceId": "surface-b",
+                "isRestorable": true,
+                "startedAt": 100.0,
+                "updatedAt": 201.0,
+                "launchCommand": [
+                    "launcher": "opencode",
+                    "executablePath": "opencode",
+                    "arguments": ["opencode"],
+                    "source": "rejected",
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": records,
+        ], options: [.sortedKeys]).write(
+            to: root.appendingPathComponent("opencode-hook-sessions.json"),
+            options: .atomic
+        )
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_AGENT_SESSION_REGISTRY_PATH"] = root.appendingPathComponent("sessions.sqlite3").path
+
+        let historyList = runProcess(
+            executablePath: cliPath,
+            arguments: ["agents", "list", "--agent", "opencode", "--all", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(historyList.status == 0, Comment(rawValue: historyList.stdout))
+        let historyListObject = try #require(
+            JSONSerialization.jsonObject(with: Data(historyList.stdout.utf8)) as? [String: Any]
+        )
+        let historyRows = try #require(historyListObject["sessions"] as? [[String: Any]])
+        #expect(Set(historyRows.compactMap { $0["session_id"] as? String }) == Set(records.keys))
+        #expect(historyRows.allSatisfy { $0["hook_record_restorable"] as? Bool == false })
+        #expect(historyRows.allSatisfy { $0["fork_supported"] as? Bool == false })
+
+        let defaultList = runProcess(
+            executablePath: cliPath,
+            arguments: ["agents", "list", "--agent", "opencode", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(defaultList.status == 0, Comment(rawValue: defaultList.stdout))
+        let defaultListObject = try #require(
+            JSONSerialization.jsonObject(with: Data(defaultList.stdout.utf8)) as? [String: Any]
+        )
+        #expect((defaultListObject["sessions"] as? [[String: Any]])?.isEmpty == true)
+
+        let defaultTree = runProcess(
+            executablePath: cliPath,
+            arguments: ["agents", "tree", "--agent", "opencode", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(defaultTree.status == 0, Comment(rawValue: defaultTree.stdout))
+        let defaultTreeObject = try #require(
+            JSONSerialization.jsonObject(with: Data(defaultTree.stdout.utf8)) as? [String: Any]
+        )
+        #expect((defaultTreeObject["nodes"] as? [[String: Any]])?.isEmpty == true)
+    }
+
     @Test func lateHookFromCompletedProcessCannotReactivateSession() throws {
         let pid = Int(getpid())
         let lineage = AgentHookSessionLineageResolver().resolve(
