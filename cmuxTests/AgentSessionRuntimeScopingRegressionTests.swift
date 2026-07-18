@@ -3054,6 +3054,158 @@ extension CMUXCLIErrorOutputRegressionTests {
     }
 
     @MainActor
+    @Test func resumeAuthorityClaimsUseCanonicalRunAuthorityAndRuntime() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-canonical-resume-authority-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let currentRuntimeID = "canonical-current-runtime"
+        let overrides = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            "CMUX_RUNTIME_ID": currentRuntimeID,
+        ]
+        let previousEnvironment = overrides.keys.map {
+            ($0, ProcessInfo.processInfo.environment[$0])
+        }
+        for (key, value) in overrides { setenv(key, value, 1) }
+        defer {
+            for (key, value) in previousEnvironment {
+                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            }
+        }
+
+        struct Case {
+            let name: String
+            let rootAuthority: Bool
+            let rootRuntimeID: String
+            let runAuthority: Bool
+            let runRuntimeID: String
+            let storesActiveRunID: Bool
+            let expected: AgentHookSessionStateWriter.HibernatedResumeAuthorityOutcome
+        }
+        let cases = [
+            Case(
+                name: "canonical-denied",
+                rootAuthority: true,
+                rootRuntimeID: currentRuntimeID,
+                runAuthority: false,
+                runRuntimeID: currentRuntimeID,
+                storesActiveRunID: true,
+                expected: .rejected
+            ),
+            Case(
+                name: "canonical-authorized",
+                rootAuthority: false,
+                rootRuntimeID: currentRuntimeID,
+                runAuthority: true,
+                runRuntimeID: currentRuntimeID,
+                storesActiveRunID: true,
+                expected: .acquired
+            ),
+            Case(
+                name: "newest-foreign",
+                rootAuthority: true,
+                rootRuntimeID: currentRuntimeID,
+                runAuthority: true,
+                runRuntimeID: "foreign-runtime",
+                storesActiveRunID: false,
+                expected: .rejected
+            ),
+            Case(
+                name: "newest-current",
+                rootAuthority: true,
+                rootRuntimeID: "stale-root-runtime",
+                runAuthority: true,
+                runRuntimeID: currentRuntimeID,
+                storesActiveRunID: false,
+                expected: .acquired
+            ),
+        ]
+        let registry = CmuxAgentSessionRegistry(url: registryURL)
+        var records: [CmuxAgentSessionRegistry.Record] = []
+        var slots: [CmuxAgentSessionRegistry.ActiveSlot] = []
+        var requests: [(Case, SessionRestorableAgentSnapshot, UUID, UUID)] = []
+        for (index, testCase) in cases.enumerated() {
+            let workspaceID = UUID()
+            let surfaceID = UUID()
+            let sessionID = "canonical-claim-\(testCase.name)"
+            let runID = "run-\(testCase.name)"
+            var object: [String: Any] = [
+                "sessionId": sessionID,
+                "workspaceId": workspaceID.uuidString,
+                "surfaceId": surfaceID.uuidString,
+                "sessionState": "hibernated",
+                "restoreAuthority": testCase.rootAuthority,
+                "cmuxRuntime": ["id": testCase.rootRuntimeID],
+                "runs": [[
+                    "runId": runID,
+                    "restoreAuthority": testCase.runAuthority,
+                    "cmuxRuntime": ["id": testCase.runRuntimeID],
+                    "startedAt": 10.0,
+                    "updatedAt": 20.0 + Double(index),
+                ]],
+                "startedAt": 10.0,
+                "updatedAt": 20.0 + Double(index),
+            ]
+            if testCase.storesActiveRunID { object["activeRunId"] = runID }
+            records.append(.init(
+                provider: "codex",
+                sessionID: sessionID,
+                updatedAt: 20.0 + Double(index),
+                json: try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+            ))
+            slots.append(.init(
+                provider: "codex",
+                scope: .surface,
+                scopeID: surfaceID.uuidString,
+                sessionID: sessionID,
+                updatedAt: 20.0 + Double(index),
+                json: try JSONSerialization.data(withJSONObject: [
+                    "sessionId": sessionID,
+                    "updatedAt": 20.0 + Double(index),
+                ], options: [.sortedKeys])
+            ))
+            requests.append((
+                testCase,
+                SessionRestorableAgentSnapshot(
+                    kind: .codex,
+                    sessionId: sessionID,
+                    workingDirectory: root.path,
+                    launchCommand: AgentLaunchCommandSnapshot(
+                        launcher: "codex",
+                        executablePath: "/usr/local/bin/codex",
+                        arguments: ["/usr/local/bin/codex"],
+                        workingDirectory: root.path,
+                        environment: nil,
+                        capturedAt: 20.0,
+                        source: "agent-hook"
+                    )
+                ),
+                workspaceID,
+                surfaceID
+            ))
+        }
+        try registry.apply(provider: "codex", records: records, activeSlots: slots)
+
+        for (testCase, agent, workspaceID, surfaceID) in requests {
+            #expect(
+                AgentHookSessionStateWriter.acquireHibernatedResumeAuthority(
+                    agent: agent,
+                    workspaceId: workspaceID,
+                    surfaceId: surfaceID,
+                    now: 100
+                ) == testCase.expected,
+                Comment(rawValue: testCase.name)
+            )
+        }
+    }
+
+    @MainActor
     @Test func windowRestoreBatchesManyContendedWorkspacesIntoOneAdoptionOperation() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-restored-many-workspaces-\(UUID().uuidString)", isDirectory: true)
