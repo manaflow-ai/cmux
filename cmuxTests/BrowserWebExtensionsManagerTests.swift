@@ -273,6 +273,22 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
+    @Test func standardLimitsAcceptLargeUnpackedExtension() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let extensionDirectory = root.appendingPathComponent("large-extension", isDirectory: true)
+        try FileManager.default.createDirectory(at: extensionDirectory, withIntermediateDirectories: true)
+        let payload = extensionDirectory.appendingPathComponent("background.js")
+        try Data().write(to: payload)
+        let handle = try FileHandle(forWritingTo: payload)
+        try handle.truncate(atOffset: 80 * 1024 * 1024)
+        try handle.close()
+        let repository = BrowserWebExtensionDirectoryRepository()
+
+        try await repository.validatePackageSize(at: extensionDirectory)
+    }
+
+    @available(macOS 15.4, *)
     @Test func oversizedArchiveIsRejectedBeforeApprovalHashing() async throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -280,7 +296,7 @@ struct BrowserWebExtensionsManagerTests {
         try Data().write(to: archive)
         let handle = try FileHandle(forWritingTo: archive)
         try handle.truncate(
-            atOffset: UInt64(BrowserWebExtensionPackageSession.defaultMaximumResponseByteCount + 1)
+            atOffset: UInt64(256 * 1024 * 1024 + 1)
         )
         try handle.close()
         let manager = BrowserWebExtensionsManager(
