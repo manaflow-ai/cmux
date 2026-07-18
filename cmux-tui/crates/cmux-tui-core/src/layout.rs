@@ -286,7 +286,7 @@ fn walk_stack(panes: &[PaneId], expanded: PaneId, area: Rect, out: &mut LayoutRe
     for (index, pane) in panes.iter().copied().enumerate() {
         let height = if index == expanded_index {
             expanded_height
-        } else if index < headers_before
+        } else if index >= expanded_index - headers_before && index < expanded_index
             || index > expanded_index && index <= expanded_index + headers_after
         {
             1
@@ -542,6 +542,19 @@ mod tests {
         assert_eq!(layout.rect_of(1), Some(Rect { x: 0, y: 0, width: 80, height: 1 }));
         assert!(!layout.stacked_headers.contains(&1));
         assert_eq!(layout.stacked_headers.len(), 4);
+    }
+
+    #[test]
+    fn short_stack_shows_headers_nearest_the_expanded_pane() {
+        let root = Node::stack(vec![1, 2, 3, 4, 5]).unwrap();
+        let layout = layout_screen(&root, Rect { x: 0, y: 0, width: 80, height: 3 }, Some(4));
+
+        assert_eq!(layout.rect_of(1).unwrap().height, 0);
+        assert_eq!(layout.rect_of(2), Some(Rect { x: 0, y: 0, width: 80, height: 1 }));
+        assert_eq!(layout.rect_of(3), Some(Rect { x: 0, y: 1, width: 80, height: 1 }));
+        assert_eq!(layout.rect_of(4), Some(Rect { x: 0, y: 2, width: 80, height: 1 }));
+        assert_eq!(layout.rect_of(5).unwrap().height, 0);
+        assert_eq!(layout.stacked_headers, HashSet::from([2, 3]));
     }
 
     #[test]
