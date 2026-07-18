@@ -14313,8 +14313,8 @@ enum SidebarFooterHelpIconDebugWeight: String, CaseIterable, Identifiable {
 enum SidebarFooterHelpIconDebugSettings {
     static let sizeKey = "debug.sidebarFooterHelpIcon.size"
     static let weightKey = "debug.sidebarFooterHelpIcon.weight"
-    static let defaultSize = 16.0
-    static let defaultWeight = SidebarFooterHelpIconDebugWeight.medium
+    static let defaultSize = 15.0
+    static let defaultWeight = SidebarFooterHelpIconDebugWeight.regular
 }
 #endif
 
@@ -14342,15 +14342,15 @@ private struct SidebarHelpMenuButton: View {
 #if DEBUG
         CGFloat(debugIconSize)
 #else
-        16
+        15
 #endif
     }
 
     private var iconWeight: Font.Weight {
 #if DEBUG
-        SidebarFooterHelpIconDebugWeight(rawValue: debugIconWeight)?.fontWeight ?? .medium
+        SidebarFooterHelpIconDebugWeight(rawValue: debugIconWeight)?.fontWeight ?? .regular
 #else
-        .medium
+        .regular
 #endif
     }
 
