@@ -262,13 +262,49 @@ private struct BrowserExtensionCatalogItem: Identifiable {
     var id: String { entry.id }
 }
 
+private struct BrowserExtensionLocalAppItem: Identifiable {
+    let id: String
+    let name: String
+    let detail: String
+    let icon: String
+    let sourceURL: URL
+    let installedIdentifierPrefix: String
+}
+
 struct BrowserExtensionsManagerPage: View {
     @ObservedObject var panel: BrowserPanel
     let appearance: PanelAppearance
     @State private var snapshot = BrowserWebExtensionsPresentationSnapshot.loading
     @State private var installStatus: BrowserExtensionInstallStatus?
     @State private var installingCatalogID: String?
+    @State private var installingLocalAppID: String?
     @State private var catalogSearch = ""
+
+    private var availableLocalApps: [BrowserExtensionLocalAppItem] {
+        let applicationsDirectories = [
+            URL(fileURLWithPath: "/Applications", isDirectory: true),
+            FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Applications", isDirectory: true),
+        ]
+        guard let bitwardenURL = applicationsDirectories
+            .map({ $0.appendingPathComponent("Bitwarden.app", isDirectory: true) })
+            .first(where: { FileManager.default.fileExists(atPath: $0.path) }) else {
+            return []
+        }
+        return [
+            BrowserExtensionLocalAppItem(
+                id: "bitwarden-safari-app",
+                name: "Bitwarden",
+                detail: String(
+                    localized: "browser.extensions.localApp.bitwarden.detail",
+                    defaultValue: "Use the Safari extension from the Bitwarden app"
+                ),
+                icon: "lock.shield",
+                sourceURL: bitwardenURL,
+                installedIdentifierPrefix: "cmux-browser-extension-com.bitwarden.desktop.safari-"
+            )
+        ]
+    }
 
     private var commonExtensions: [BrowserExtensionCatalogItem] {
         BrowserWebExtensionCatalog.verifiedEntries.compactMap { entry in
@@ -292,9 +328,19 @@ struct BrowserExtensionsManagerPage: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 BrowserExtensionsManagerHeader(
-                    isDisabled: installStatus == .installing || snapshot.state != .ready,
+                    isDisabled: installStatus == .installing
+                        || installingLocalAppID != nil
+                        || snapshot.state != .ready,
                     chooseExtension: chooseExtension
                 )
+                if !availableLocalApps.isEmpty {
+                    BrowserExtensionLocalAppsSection(
+                        items: availableLocalApps,
+                        snapshot: snapshot,
+                        installingLocalAppID: installingLocalAppID,
+                        install: installLocalAppExtension
+                    )
+                }
                 BrowserExtensionCatalogSection(
                     items: commonExtensions,
                     snapshot: snapshot,
@@ -366,6 +412,23 @@ struct BrowserExtensionsManagerPage: View {
     }
 
     @MainActor
+    private func installLocalAppExtension(_ item: BrowserExtensionLocalAppItem) {
+        guard installingLocalAppID == nil else { return }
+        installingLocalAppID = item.id
+        installStatus = .installing
+        Task { @MainActor in
+            defer { installingLocalAppID = nil }
+            do {
+                let receipt = try await panel.installBrowserWebExtension(from: item.sourceURL)
+                installStatus = .installed(receipt.name)
+                snapshot = await panel.browserWebExtensionsPresentationSnapshot()
+            } catch {
+                installStatus = .failed(error.localizedDescription)
+            }
+        }
+    }
+
+    @MainActor
     private func setToolbarPinned(_ item: BrowserWebExtensionsPresentationSnapshot.Item, _ isPinned: Bool) {
         Task { @MainActor in
             guard await panel.setBrowserWebExtensionToolbarActionPinned(
@@ -389,7 +452,7 @@ private struct BrowserExtensionsManagerHeader: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(String(localized: "browser.extensions.manager.title", defaultValue: "Browser Extensions"))
                     .font(.title2.weight(.semibold))
-                Text(String(localized: "browser.extensions.manager.subtitle", defaultValue: "Discover and manage WebExtensions for this browser profile."))
+                Text(String(localized: "browser.extensions.manager.subtitle", defaultValue: "Extensions are optional and install only when you choose one."))
                     .foregroundStyle(.secondary)
             }
             Spacer()
@@ -409,6 +472,65 @@ private struct BrowserExtensionsManagerHeader: View {
             .controlSize(.regular)
             .disabled(isDisabled)
             .accessibilityIdentifier("BrowserExtensionsAddFromDiskButton")
+        }
+    }
+}
+
+private struct BrowserExtensionLocalAppsSection: View {
+    let items: [BrowserExtensionLocalAppItem]
+    let snapshot: BrowserWebExtensionsPresentationSnapshot
+    let installingLocalAppID: String?
+    let install: @MainActor (BrowserExtensionLocalAppItem) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(String(localized: "browser.extensions.localApps.title", defaultValue: "Installed Safari Apps"))
+                .font(.headline)
+
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(items) { item in
+                    HStack(spacing: 12) {
+                        Image(systemName: item.icon)
+                            .font(.title3)
+                            .foregroundStyle(.secondary)
+                            .frame(width: 28)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(item.name)
+                                .font(.callout.weight(.medium))
+                            Text(item.detail)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        Spacer(minLength: 12)
+                        if snapshot.extensions.contains(where: {
+                            $0.id.hasPrefix(item.installedIdentifierPrefix)
+                        }) {
+                            Text(String(localized: "browser.extensions.store.installed", defaultValue: "Installed"))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else if installingLocalAppID == item.id {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Button(String(localized: "browser.extensions.store.get", defaultValue: "Get")) {
+                                install(item)
+                            }
+                            .controlSize(.small)
+                            .accessibilityIdentifier("BrowserExtensionsLocalAppGet-\(item.id)")
+                        }
+                    }
+                    .padding(.vertical, 10)
+                    Divider()
+                }
+            }
+
+            Text(String(
+                localized: "browser.extensions.localApps.explanation",
+                defaultValue: "cmux copies only the Safari extension after you choose Get. It never installs one automatically."
+            ))
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
     }
 }
@@ -684,7 +806,7 @@ private struct BrowserExtensionsReadyList: View {
                 Text(
                     String(
                         localized: "browser.extensions.empty.detail",
-                        defaultValue: "Use Add Extension to install an unpacked Safari Web Extension or .zip file."
+                        defaultValue: "Use Add Extension to choose a Safari app, extension bundle, folder, or ZIP archive."
                     )
                 )
                 .font(.caption)
