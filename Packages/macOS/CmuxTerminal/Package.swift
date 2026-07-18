@@ -52,6 +52,7 @@ let package = Package(
         .target(
             name: "CmuxTerminal",
             dependencies: [
+                .product(name: "CmuxTerminalDomain", package: "CmuxTerminalCore"),
                 .product(name: "CmuxTerminalCore", package: "CmuxTerminalCore"),
                 .product(name: "CmuxGhosttyKit", package: "CmuxTerminalCore"),
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),

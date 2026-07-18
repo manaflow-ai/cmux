@@ -3,6 +3,7 @@ public import Combine
 public import Foundation
 public import GhosttyKit
 public import CmuxTerminalCore
+public import CmuxTerminalDomain
 #if DEBUG
 internal import CMUXDebugLog
 #endif

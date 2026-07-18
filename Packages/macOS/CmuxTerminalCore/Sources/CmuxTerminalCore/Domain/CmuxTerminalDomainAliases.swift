@@ -1,4 +1,4 @@
-internal import CmuxTerminalDomain
+public import CmuxTerminalDomain
 
 /// Compatibility alias for the domain-owned input result.
 public typealias InputSendResult = CmuxTerminalDomain.InputSendResult
