@@ -9838,8 +9838,8 @@ mod tests {
     }
 
     #[test]
-    fn protocol_v8_exposes_canonical_topology_capabilities_without_dropping_v7() {
-        assert_eq!(PROTOCOL_VERSION, 8);
+    fn protocol_v9_exposes_native_runtime_capabilities_without_dropping_v7() {
+        assert_eq!(PROTOCOL_VERSION, 9);
         assert_eq!(PROTOCOL_MIN_VERSION, 6);
         assert_eq!(PROTOCOL_MAX_VERSION, 9);
         for capability in [
@@ -9848,6 +9848,8 @@ mod tests {
             "renderer-worker-supervision-v1",
             "tree-delta-v1",
             "canonical-topology-snapshot-v1",
+            "frontend-native-browser-v1",
+            "remote-tmux-producer-source-v1",
             "stable-entity-uuid-v1",
             "topology-resume-v1",
             "terminal-accessibility-v1",
@@ -10544,6 +10546,17 @@ mod tests {
             v8_mux.with_state(|state| *state.panes.values().next().unwrap().tabs.first().unwrap());
         let v8_writer = test_writer();
         let v8_client = v8_mux.control_clients.register(ClientTransport::Unix, v8_writer.clone());
+        v8_mux
+            .control_clients
+            .register_protocol(
+                v8_client,
+                8,
+                8,
+                uuid::Uuid::new_v4(),
+                uuid::Uuid::new_v4(),
+                Some("swift-shell"),
+            )
+            .unwrap();
         v8_mux.apply_renderer_configuration_size(v8_surface, v8_client, 100, 30).unwrap();
         assert_eq!(v8_mux.surface(v8_surface).unwrap().size(), (100, 30));
         assert_eq!(v8_mux.client_surface_size(v8_surface, v8_client), Some((100, 30)));
