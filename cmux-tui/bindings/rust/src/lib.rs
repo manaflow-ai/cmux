@@ -110,6 +110,7 @@ pub struct VtStateResult {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Tree {
+    #[serde(default)]
     pub workspace_revision: u64,
     pub workspaces: Vec<Workspace>,
 }
@@ -117,6 +118,7 @@ pub struct Tree {
 #[derive(Debug, Clone, Deserialize)]
 pub struct Workspace {
     pub id: u64,
+    #[serde(default)]
     pub key: String,
     pub name: String,
     pub active: bool,
@@ -872,6 +874,22 @@ mod tests {
             serde_json::from_value(serde_json::json!({"accepted": true, "reservation_id": 41}))
                 .unwrap();
         assert_eq!(reserved.reservation_id, Some(41));
+    }
+
+    #[test]
+    fn legacy_tree_defaults_additive_workspace_registry_fields() {
+        let tree: Tree = serde_json::from_value(serde_json::json!({
+            "workspaces": [{
+                "id": 1,
+                "name": "one",
+                "active": true,
+                "screens": [],
+            }],
+        }))
+        .unwrap();
+
+        assert_eq!(tree.workspace_revision, 0);
+        assert_eq!(tree.workspaces[0].key, "");
     }
 
     #[test]

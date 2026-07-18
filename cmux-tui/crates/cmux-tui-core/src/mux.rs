@@ -2017,9 +2017,9 @@ impl Mux {
         pane: Option<PaneId>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
-        let target = {
+        let (target, empty_workspace) = {
             let state = self.state.lock().unwrap();
-            match pane {
+            let target = match pane {
                 Some(id) => {
                     if !state.panes.contains_key(&id) {
                         anyhow::bail!("unknown pane {id}");
@@ -2027,9 +2027,62 @@ impl Mux {
                     Some(id)
                 }
                 None => state.active_pane(),
-            }
+            };
+            let empty_workspace = target
+                .is_none()
+                .then(|| state.workspaces.get(state.active_workspace))
+                .flatten()
+                .filter(|workspace| workspace.screens.is_empty())
+                .map(|workspace| workspace.id);
+            (target, empty_workspace)
         };
         let Some(target) = target else {
+            if let Some(workspace) = empty_workspace {
+                let surface = self.spawn_browser_surface(url, size);
+                let (pane_id, pane) = self.make_pane(surface.id);
+                let screen_id = self.next_id();
+                let notifications = self.surface_notifications();
+                let delta = {
+                    let mut state = self.state.lock().unwrap();
+                    let wi =
+                        state.workspaces.iter().position(|candidate| candidate.id == workspace);
+                    let Some(wi) = wi.filter(|wi| state.workspaces[*wi].screens.is_empty()) else {
+                        state.surfaces.remove(&surface.id);
+                        drop(state);
+                        surface.kill();
+                        anyhow::bail!("workspace changed while creating browser tab");
+                    };
+                    state.panes.insert(pane_id, pane);
+                    state.workspaces[wi].screens.push(Screen {
+                        id: screen_id,
+                        name: None,
+                        root: Node::Leaf(pane_id),
+                        active_pane: pane_id,
+                        zoomed_pane: None,
+                    });
+                    state.workspaces[wi].active_screen = 0;
+                    let entity = crate::server::tree_entity_json(
+                        &state,
+                        &notifications,
+                        TreeDeltaKind::ScreenAdded,
+                        screen_id,
+                    )
+                    .expect("first browser screen is present in tree snapshot");
+                    TreeDelta {
+                        kind: TreeDeltaKind::ScreenAdded,
+                        workspace,
+                        screen: Some(screen_id),
+                        pane: None,
+                        surface: None,
+                        index: Some(0),
+                        entity,
+                        workspace_revision: None,
+                    }
+                };
+                self.emit(MuxEvent::TreeDelta(delta));
+                self.reap_if_dead(&surface);
+                return Ok(surface);
+            }
             let workspace_key = Self::new_workspace_key()?;
             let surface = self.spawn_browser_surface(url, size);
             let (pane_id, pane) = self.make_pane(surface.id);
@@ -2969,7 +3022,7 @@ impl Mux {
     /// Reorder a workspace. The active workspace follows the moved entry.
     pub fn move_workspace(&self, workspace: WorkspaceId, index: usize) -> bool {
         self.move_workspace_at_revision(workspace, index, None)
-            .map(|revision| revision.is_some())
+            .map(|result| result.is_some_and(|(_, changed)| changed))
             .unwrap_or(false)
     }
 
@@ -2978,7 +3031,7 @@ impl Mux {
         workspace: WorkspaceId,
         index: usize,
         expected_revision: Option<u64>,
-    ) -> anyhow::Result<Option<u64>> {
+    ) -> anyhow::Result<Option<(u64, bool)>> {
         let notifications = self.surface_notifications();
         let delta = {
             let mut state = self.state.lock().unwrap();
@@ -2989,7 +3042,7 @@ impl Mux {
             let new_idx = if index > old_idx { index.saturating_sub(1) } else { index };
             let new_idx = new_idx.min(state.workspaces.len().saturating_sub(1));
             if new_idx == old_idx {
-                return Ok(Some(state.workspace_revision));
+                return Ok(Some((state.workspace_revision, false)));
             }
             let active_id = state.workspaces.get(state.active_workspace).map(|ws| ws.id);
             let ws = state.workspaces.remove(old_idx);
@@ -3022,7 +3075,7 @@ impl Mux {
         };
         if let Some((delta, revision)) = delta {
             self.emit(MuxEvent::TreeDelta(delta));
-            Ok(Some(revision))
+            Ok(Some((revision, true)))
         } else {
             Ok(None)
         }
@@ -4648,6 +4701,22 @@ mod tests {
     }
 
     #[test]
+    fn new_browser_tab_materializes_selected_empty_workspace() {
+        let mux = test_mux();
+        let target = mux.create_empty_workspace(Some("browser".into()), None, None).unwrap();
+        let surface = mux.new_browser_tab("about:blank".into(), None, Some((80, 24))).unwrap();
+
+        mux.with_state(|state| {
+            assert_eq!(state.workspaces.len(), 1);
+            assert_eq!(state.workspaces[0].id, target.workspace);
+            assert_eq!(state.workspaces[0].screens.len(), 1);
+            assert_eq!(state.pane_of(surface.id), Some(state.workspaces[0].screens[0].active_pane));
+            assert_eq!(state.workspace_revision, 1);
+        });
+        mux.shutdown();
+    }
+
+    #[test]
     fn move_workspace_reorders_and_tracks_active_workspace() {
         let mux = test_mux();
         let events = mux.subscribe();
@@ -4657,6 +4726,8 @@ mod tests {
         let (ws1, ws2, ws3) =
             mux.with_state(|s| (s.workspaces[0].id, s.workspaces[1].id, s.workspaces[2].id));
 
+        assert_eq!(mux.move_workspace_at_revision(ws3, 2, Some(3)).unwrap(), Some((3, false)));
+        assert!(!mux.move_workspace(ws3, 2));
         assert!(mux.move_workspace(ws3, 0));
         let mut deltas = events.try_iter().filter_map(|event| match event {
             MuxEvent::TreeDelta(delta) => Some(delta),

@@ -2319,11 +2319,10 @@ fn mark_client_attached(
         let (_, _, attached) = mux
             .resize_surface_for_control_client_with_reservation(surface, client, cols, rows)
             .inspect_err(|_| {
-                mux.control_clients.detach_surface(client, surface, stream.id);
-                mux.remove_surface_size_client(surface, client);
+                cleanup_failed_attach(mux, client, surface, stream.id);
             })?;
         let Some((changed, name, kind, _)) = attached else {
-            mux.remove_surface_size_client(surface, client);
+            cleanup_failed_attach(mux, client, surface, stream.id);
             anyhow::bail!("client {client} is not attached to surface {surface}");
         };
         if changed {
@@ -2331,6 +2330,11 @@ fn mark_client_attached(
         }
     }
     Ok(())
+}
+
+fn cleanup_failed_attach(mux: &Mux, client: u64, surface: SurfaceId, stream: u64) {
+    mux.control_clients.detach_surface(client, surface, stream);
+    mux.remove_surface_size_client(surface, client);
 }
 
 fn unmark_client_attached(mux: &Mux, client: u64, surface: SurfaceId, stream: &OutboundStream) {
@@ -2891,7 +2895,7 @@ fn handle_command(
         }
         Command::MoveWorkspace { workspace, key, index, expected_revision } => {
             let (workspace, key) = resolve_workspace(mux, workspace, key.as_deref())?;
-            let Some(revision) =
+            let Some((revision, _)) =
                 mux.move_workspace_at_revision(workspace, index, expected_revision)?
             else {
                 anyhow::bail!("unknown workspace {workspace}");
@@ -4270,6 +4274,22 @@ mod tests {
         unmark_client_attached(&mux, second, surface.id, &second_stream);
         assert_eq!(mux.client_surface_size(surface.id, second), None);
         assert!(mux.surface(surface.id).is_some());
+    }
+
+    #[test]
+    fn failed_attach_cleanup_releases_stream_and_size_lease() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((120, 40))).unwrap();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let stream = writer.start_stream(&json!({"event": "test"})).unwrap();
+
+        mux.control_clients.attach_surface(client, surface.id, stream.clone()).unwrap();
+        mux.resize_surface_for_control_client_with_reservation(surface.id, client, 80, 24).unwrap();
+        cleanup_failed_attach(&mux, client, surface.id, stream.id);
+
+        assert!(!mux.control_clients.attached_client_ids().contains(&client));
+        assert_eq!(mux.client_surface_size(surface.id, client), None);
     }
 
     #[test]
