@@ -202,15 +202,27 @@ struct RemoteTmuxMirrorTargetingTests {
             ],
             isError: false
         ))
-        for kind in connection.pendingCommandKindsForTesting {
-            guard case let .paneRects(windowId, _) = kind else { continue }
-            let paneId = windowId == 1 ? 0 : 5
-            let size = windowId == 1 ? "80 24" : "90 30"
-            connection.handleMessageForTesting(.commandResult(
-                commandNumber: 2,
-                lines: ["%\(paneId) 0 0 \(size) 1 off :zsh"],
-                isError: false
-            ))
+        // Each window publishes only on its own paneRects reply, and those fetches
+        // can be enqueued incrementally (window @2's arrives after @1 resolves), so
+        // a single snapshot of pending kinds would leave the second window unpublished
+        // and the mirror would build only one tab. Drain every paneRects fetch.
+        var rectsDrainGuard = 0
+        while rectsDrainGuard < 8,
+              connection.pendingCommandKindsForTesting.contains(where: {
+                  if case .paneRects = $0 { return true }
+                  return false
+              }) {
+            rectsDrainGuard += 1
+            for kind in connection.pendingCommandKindsForTesting {
+                guard case let .paneRects(windowId, _) = kind else { continue }
+                let paneId = windowId == 1 ? 0 : 5
+                let size = windowId == 1 ? "80 24" : "90 30"
+                connection.handleMessageForTesting(.commandResult(
+                    commandNumber: 2,
+                    lines: ["%\(paneId) 0 0 \(size) 1 off :zsh"],
+                    isError: false
+                ))
+            }
         }
 
         let controller = RemoteTmuxController()
