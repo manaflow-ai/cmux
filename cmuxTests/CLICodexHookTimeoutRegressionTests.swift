@@ -202,12 +202,15 @@ struct CLICodexHookTimeoutRegressionTests {
             .appendingPathComponent(".cmux", isDirectory: true)
             .appendingPathComponent("hooks", isDirectory: true)
         let fakeCLI = root.appendingPathComponent("cmux-hung-fallback", isDirectory: false)
-        let childPIDFile = root.appendingPathComponent("hung-child-pid.txt", isDirectory: false)
+        let leaderPIDFile = root.appendingPathComponent("hung-leader-pid.txt", isDirectory: false)
+        let descendantPIDFile = root.appendingPathComponent("hung-descendant-pid.txt", isDirectory: false)
         try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
         defer {
-            if let rawPID = try? String(contentsOf: childPIDFile, encoding: .utf8),
-               let pid = Int32(rawPID.trimmingCharacters(in: .whitespacesAndNewlines)) {
-                Darwin.kill(pid, SIGKILL)
+            for pidFile in [leaderPIDFile, descendantPIDFile] {
+                if let rawPID = try? String(contentsOf: pidFile, encoding: .utf8),
+                   let pid = Int32(rawPID.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                    Darwin.kill(pid, SIGKILL)
+                }
             }
             try? FileManager.default.removeItem(at: root)
         }
@@ -226,7 +229,8 @@ struct CLICodexHookTimeoutRegressionTests {
 
         try makeCodexHookExecutableShellFile(at: fakeCLI, lines: [
             "#!/bin/sh",
-            "printf '%s' \"$$\" > \"$CMUX_TEST_PID\"",
+            "printf '%s' \"$$\" > \"$CMUX_TEST_LEADER_PID\"",
+            "/bin/sh -c 'trap \"\" TERM; printf \"%s\" \"$$\" > \"$CMUX_TEST_DESCENDANT_PID\"; while :; do :; done' &",
             "trap 'exit 143' TERM",
             "while :; do :; done",
         ])
@@ -243,7 +247,8 @@ struct CLICodexHookTimeoutRegressionTests {
                 "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
                 "CMUX_CODEX_PID": "4242",
                 "CMUX_AGENT_HOOK_DELIVERY_ID": "native-hung-fallback",
-                "CMUX_TEST_PID": childPIDFile.path,
+                "CMUX_TEST_LEADER_PID": leaderPIDFile.path,
+                "CMUX_TEST_DESCENDANT_PID": descendantPIDFile.path,
             ],
             standardInputData: Data(repeating: 0xA5, count: 512 * 1024),
             timeout: 3
@@ -254,11 +259,13 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         #expect(result.stdout == "{}\n")
         #expect(elapsed < .seconds(2))
-        let rawPID = try String(contentsOf: childPIDFile, encoding: .utf8)
-        let childPID = try #require(Int32(rawPID.trimmingCharacters(in: .whitespacesAndNewlines)))
-        errno = 0
-        #expect(Darwin.kill(childPID, 0) == -1)
-        #expect(errno == ESRCH)
+        for pidFile in [leaderPIDFile, descendantPIDFile] {
+            let rawPID = try String(contentsOf: pidFile, encoding: .utf8)
+            let pid = try #require(Int32(rawPID.trimmingCharacters(in: .whitespacesAndNewlines)))
+            errno = 0
+            #expect(Darwin.kill(pid, 0) == -1)
+            #expect(errno == ESRCH)
+        }
     }
 
     @Test func codexPersistentLifecycleHooksAreNativeButFeedHooksStayScripts() throws {
