@@ -65,7 +65,8 @@ extension TabManager {
                 workingDirectory: normalizedWorkingDirectory(detached.directory) ?? snapshot.preferredWorkingDirectory,
                 portOrdinal: ordinal,
                 configTemplate: inheritedConfig,
-                initialDetachedSurface: detached
+                initialDetachedSurface: detached,
+                nativeSSHConnectionBroker: nativeSSHConnectionBroker
             )
             guard newWorkspace.panels[detached.panelId] != nil,
                   newWorkspace.paneId(forPanelId: detached.panelId) != nil else {

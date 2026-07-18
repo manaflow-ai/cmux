@@ -216,13 +216,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let fakeCLI = root.appendingPathComponent("cmux")
         let fakeSSH = root.appendingPathComponent("ssh")
         let logFile = root.appendingPathComponent("ssh.log")
+        let socketHash = UUID().uuidString
+            .replacingOccurrences(of: "-", with: "")
+            .lowercased() + "01234567"
         let staleControlPath = URL(fileURLWithPath: "/tmp", isDirectory: true)
-            .appendingPathComponent("cmux-ssh-\(getuid())-\(UUID().uuidString.prefix(8)).sock")
+            .appendingPathComponent("cmux-ssh-\(getuid())-\(socketHash)")
 
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer {
             try? fileManager.removeItem(at: root)
             unlink(staleControlPath.path)
+            unlink(staleControlPath.path + ".auth.lock")
         }
 
         let staleSocketFD = try bindUnixSocket(at: staleControlPath.path)

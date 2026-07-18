@@ -78,6 +78,22 @@ extension Workspace {
         return locations.first(where: { $0.pane.isFocused }) ?? locations.first
     }
 
+    /// Resolves a control-plane surface identity to its tab mutation owner and
+    /// exposed pane. Mirror topology remains authoritative: projected panes
+    /// resolve to their window container, while an unresolved hidden container
+    /// fails closed instead of falling through to its local wrapper panel.
+    func controlTabTarget(for surfaceID: UUID) -> (panelID: UUID, paneID: UUID?)? {
+        switch remoteTmuxControlSurfaceTarget(surfaceID: surfaceID) {
+        case .pane(let location):
+            return (location.containerPanelID, location.pane.paneID.id)
+        case .unresolvedMirror:
+            return nil
+        case .notRemote:
+            guard panels[surfaceID] != nil else { return nil }
+            return (surfaceID, paneId(forPanelId: surfaceID)?.id)
+        }
+    }
+
     /// Resolves every mirror-owned surface identity without conflating an
     /// unresolved mirror with an ordinary workspace surface.
     func remoteTmuxControlSurfaceTarget(surfaceID: UUID) -> RemoteTmuxControlSurfaceTarget {
@@ -91,6 +107,20 @@ extension Workspace {
         // Never alias it to the mutable active pane: callers may cache handles,
         // and a later focus publication would silently retarget that handle.
         return .unresolvedMirror
+    }
+
+    /// Maps a control-plane surface identity to the workspace-owned tab that
+    /// participates in reorder. Projected tmux pane surfaces reorder their
+    /// window container; hidden mirror wrappers remain unresolved.
+    func controlReorderContainerPanelID(for surfaceID: UUID) -> UUID? {
+        switch remoteTmuxControlSurfaceTarget(surfaceID: surfaceID) {
+        case .pane(let location):
+            return location.containerPanelID
+        case .unresolvedMirror:
+            return nil
+        case .notRemote:
+            return panels[surfaceID] == nil ? nil : surfaceID
+        }
     }
 
     /// Intercepts focus requests the remote tmux layer owns. Focus activation
