@@ -419,6 +419,64 @@ fn claude_resolver_uses_structured_patches_from_the_latest_prompt_id() {
 }
 
 #[test]
+fn claude_resolver_keeps_turn_patches_across_automated_user_records() {
+    let fixture = FixtureRoot::new("claude-automated-user-records");
+    prepare_common_directories(&fixture);
+    let transcript = fixture.home().join("claude-automated-user-records.jsonl");
+    let repo = fixture.repo();
+    write_lines(
+        &transcript,
+        &[
+            claude_prompt("prompt-current", "current request"),
+            claude_patch_result(
+                "prompt-current",
+                &repo.join("current.txt"),
+                "-before",
+                "+after",
+            ),
+            serde_json::json!({
+                "type":"user",
+                "promptId":"notification",
+                "userType":"external",
+                "message":{"role":"user","content":"<task-notification>background work completed</task-notification>"}
+            }),
+            serde_json::json!({
+                "type":"user",
+                "promptId":"compact",
+                "isMeta":true,
+                "isCompactSummary":true,
+                "message":{"role":"user","content":"This session is being continued from a previous conversation."}
+            }),
+            serde_json::json!({
+                "type":"user",
+                "promptId":"prompt-current",
+                "message":{"role":"user","content":[{
+                    "type":"tool_result",
+                    "tool_use_id":"tool",
+                    "content":"command output"
+                }]}
+            }),
+        ],
+    );
+    write_hook_store(
+        &fixture.home(),
+        "claude",
+        "session",
+        &repo,
+        Some(&transcript),
+    );
+
+    let resolved = resolve_last_turn_patch(
+        &AgentTurnIdentity::new(AgentProvider::Claude, "session"),
+        &TrajectoryRoots::for_home(fixture.home()),
+    )
+    .expect("automated user records must not start a new human turn");
+
+    assert!(resolved.patch.contains("current.txt"));
+    assert!(resolved.patch.contains("+after"));
+}
+
+#[test]
 fn claude_resolver_does_not_reuse_patch_after_prompt_without_id() {
     let fixture = FixtureRoot::new("claude-missing-prompt-id");
     prepare_common_directories(&fixture);

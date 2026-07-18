@@ -905,14 +905,14 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         XCTAssertEqual(delivered, 2)
     }
 
-    func testDiffViewerSchemeLifecycleCanDeliverOffMainActor() async {
+    func testDiffViewerSchemeLifecycleSerializesDeliveryOnMainActor() async {
         let lifecycle = DiffViewerSchemeTaskLifecycle()
         let registration = lifecycle.register(ObjectIdentifier(NSObject()))
-        let delivered = expectation(description: "callback delivered off main actor")
+        let delivered = expectation(description: "callback delivered on main actor")
 
-        DispatchQueue.global(qos: .userInitiated).async {
-            XCTAssertTrue(lifecycle.deliver(registration) {
-                XCTAssertFalse(Thread.isMainThread)
+        Task.detached {
+            XCTAssertTrue(await lifecycle.deliver(registration) {
+                XCTAssertTrue(Thread.isMainThread)
             })
             delivered.fulfill()
         }
