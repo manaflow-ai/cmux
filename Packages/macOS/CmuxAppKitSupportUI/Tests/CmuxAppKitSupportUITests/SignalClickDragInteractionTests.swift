@@ -49,4 +49,24 @@ struct SignalClickDragInteractionTests {
 
         #expect(interaction.phase == .idle)
     }
+
+    @Test
+    func aNewPressCleansUpThePreviousActivationSynchronously() {
+        let interaction = SignalClickDragInteraction<String, Int>()
+        var cleanedActivationIDs: [String] = []
+        let effect = interaction.observePhase { phase, context in
+            guard case let .activating(id, _) = phase else { return }
+            context.onCleanup {
+                cleanedActivationIDs.append(id)
+            }
+        }
+
+        interaction.mouseDown(on: "workspace-a", context: 7)
+        _ = interaction.mouseUpWithoutDrag(on: "workspace-a")
+        interaction.mouseDown(on: "workspace-b", context: 8)
+
+        #expect(cleanedActivationIDs == ["workspace-a"])
+        #expect(interaction.phase == .pressed(id: "workspace-b", context: 8))
+        withExtendedLifetime(effect) {}
+    }
 }
