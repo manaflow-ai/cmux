@@ -59,16 +59,17 @@ extension SimulatorWorkerClient {
         }
         let message = replayMessages.removeFirst()
         do {
-            try child.send(JSONEncoder().encode(message))
             await remember(message)
             if let requestIdentifier = message.requestIdentifier {
                 replayRequestIDs.insert(requestIdentifier)
+                try child.send(JSONEncoder().encode(message))
             } else {
                 let sequence = nextPingSequence
                 nextPingSequence &+= 1
-                try child.send(JSONEncoder().encode(SimulatorWorkerInbound.ping(sequence)))
                 captureInputReleaseProof(sequence: sequence)
                 replayAcknowledgementSequence = sequence
+                try child.send(JSONEncoder().encode(message))
+                try child.send(JSONEncoder().encode(SimulatorWorkerInbound.ping(sequence)))
             }
             armReplayWatchdog(generation: generation)
         } catch {
