@@ -1,4 +1,5 @@
 import CmuxFoundation
+import Darwin
 import Dispatch
 import Foundation
 import Testing
@@ -98,6 +99,95 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(!snapshot.activeSlots.contains {
             $0.scopeID == targetWorkspaceID.uuidString || $0.scopeID == targetSurfaceID.uuidString
         })
+    }
+
+    @MainActor
+    @Test func repeatedRestoredHibernationAdoptionIsIdempotent() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-restored-idempotent-adoption-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let overrides = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            "CMUX_RUNTIME_ID": "idempotent-adoption-runtime",
+        ]
+        let previousEnvironment = overrides.keys.map { ($0, ProcessInfo.processInfo.environment[$0]) }
+        for (key, value) in overrides { setenv(key, value, 1) }
+        defer {
+            for (key, value) in previousEnvironment {
+                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            }
+        }
+
+        let sessionID = "idempotent-adoption-session"
+        let previousWorkspaceID = UUID()
+        let previousSurfaceID = UUID()
+        let targetWorkspaceID = UUID()
+        let targetSurfaceID = UUID()
+        let slot: [String: Any] = ["sessionId": sessionID, "updatedAt": 10.0]
+        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": [sessionID: [
+                "sessionId": sessionID,
+                "workspaceId": previousWorkspaceID.uuidString,
+                "surfaceId": previousSurfaceID.uuidString,
+                "sessionState": "hibernated",
+                "restoreAuthority": true,
+                "startedAt": 1.0,
+                "updatedAt": 10.0,
+            ]],
+            "activeSessionsByWorkspace": [previousWorkspaceID.uuidString: slot],
+            "activeSessionsBySurface": [previousSurfaceID.uuidString: slot],
+        ], options: [.sortedKeys]).write(to: stateURL, options: .atomic)
+        let descriptor = open(
+            stateURL.path + ".lock",
+            O_CREAT | O_RDWR,
+            mode_t(S_IRUSR | S_IWUSR)
+        )
+        #expect(descriptor >= 0)
+        guard descriptor >= 0 else { return }
+        defer { Darwin.close(descriptor) }
+        #expect(flock(descriptor, LOCK_SH | LOCK_NB) == 0)
+        defer { _ = flock(descriptor, LOCK_UN) }
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: sessionID,
+            workingDirectory: root.path,
+            launchCommand: nil
+        )
+
+        let firstAdoption = AgentHookSessionStateWriter.recordRestoredHibernation(
+            agent: agent,
+            previousWorkspaceId: previousWorkspaceID,
+            previousSurfaceId: previousSurfaceID,
+            workspaceId: targetWorkspaceID,
+            surfaceId: targetSurfaceID
+        )
+        let repeatedAdoption = AgentHookSessionStateWriter.recordRestoredHibernation(
+            agent: agent,
+            previousWorkspaceId: previousWorkspaceID,
+            previousSurfaceId: previousSurfaceID,
+            workspaceId: targetWorkspaceID,
+            surfaceId: targetSurfaceID
+        )
+
+        #expect(firstAdoption)
+        #expect(repeatedAdoption)
+        let snapshot = try CmuxAgentSessionRegistry(url: registryURL).snapshot(provider: "codex")
+        let record = try #require(snapshot.records.first { $0.sessionID == sessionID })
+        let object = try #require(JSONSerialization.jsonObject(with: record.json) as? [String: Any])
+        #expect(object["workspaceId"] as? String == targetWorkspaceID.uuidString)
+        #expect(object["surfaceId"] as? String == targetSurfaceID.uuidString)
+        #expect(snapshot.activeSlots.count == 2)
+        #expect(snapshot.activeSlots.first {
+            $0.scope == .workspace && $0.scopeID == targetWorkspaceID.uuidString
+        }?.sessionID == sessionID)
+        #expect(snapshot.activeSlots.first {
+            $0.scope == .surface && $0.scopeID == targetSurfaceID.uuidString
+        }?.sessionID == sessionID)
     }
 
     @Test func hibernationAndRestoreOwnLateTeardownHooks() throws {
