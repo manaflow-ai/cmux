@@ -2,8 +2,8 @@ import { ImageResponse } from "next/og";
 import { readFile } from "fs/promises";
 import { join } from "path";
 import { openGraphImageTagline } from "@/i18n/seo";
+import { routing, type Locale } from "@/i18n/routing";
 
-export const runtime = "nodejs";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -30,8 +30,8 @@ const localeFonts: Record<string, { name: string; url: string }> = {
     url: `${NOTO_CJK_BASE}/Korean/NotoSansCJKkr-Regular.otf`,
   },
   ar: {
-    name: "Noto Naskh Arabic",
-    url: `${NOTO_BASE}/NotoNaskhArabic/hinted/ttf/NotoNaskhArabic-Regular.ttf`,
+    name: "Tajawal",
+    url: "https://fonts.gstatic.com/s/tajawal/v12/Iura6YBj_oCad4k1rzY.ttf",
   },
   th: {
     name: "Noto Sans Thai",
@@ -52,6 +52,19 @@ const localeFonts: Record<string, { name: string; url: string }> = {
 };
 const FONT_FETCH_TIMEOUT_MS = 1500;
 const remoteFontData = new Map<string, ArrayBuffer>();
+
+type OpenGraphImageRenderer = (locale: string) => Response | Promise<Response>;
+
+export async function openGraphImageResponse(
+  locale: string,
+  render: OpenGraphImageRenderer = renderOpenGraphImage,
+): Promise<Response> {
+  if (!routing.locales.includes(locale as Locale)) {
+    return new Response(null, { status: 404 });
+  }
+
+  return render(locale);
+}
 
 async function fetchRemoteFont(url: string) {
   const existing = remoteFontData.get(url);
@@ -74,12 +87,7 @@ async function fetchRemoteFont(url: string) {
   }
 }
 
-export default async function Image({
-  params,
-}: {
-  params: Promise<{ locale: string }>;
-}) {
-  const { locale } = await params;
+export async function renderOpenGraphImage(locale: string) {
   const tagline = openGraphImageTagline(locale);
   const localeFont = localeFonts[locale];
   const [logoData, screenshotData, geistRegular, geistSemiBold, localeFontData] =
@@ -133,7 +141,9 @@ export default async function Image({
   }
   const taglineFontFamily =
     localeFont && localeFontData ? `${localeFont.name}, Geist` : "Geist";
-  const renderedTagline = localeFont && !localeFontData ? openGraphImageTagline("en") : tagline;
+  // Keep retry-time font failures from exposing the wrong language. The
+  // screenshot and wordmark still provide a representative social image.
+  const renderedTagline = localeFont && !localeFontData ? "" : tagline;
   const taglineDirection = locale === "ar" && localeFontData ? "rtl" : "ltr";
 
   return new ImageResponse(
