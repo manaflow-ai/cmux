@@ -6,7 +6,8 @@ import Testing
 @testable import cmux
 #endif
 
-extension CMUXCLIErrorOutputRegressionTests {
+@Suite
+struct AgentSessionLineageAuthorityRegressionTests {
     @Test func explicitHookAgentNameOwnsVisibleMutationLineage() {
         let resolver = AgentVisibleMutationOwnershipAgentName()
         #expect(
