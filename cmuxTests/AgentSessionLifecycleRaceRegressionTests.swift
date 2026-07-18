@@ -733,47 +733,55 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(malformed.hibernationResumeAttemptId == nil)
     }
 
-    @Test func exactLaunchCaptureRecoversCollapsedPiAndOMPProcessModes() throws {
-        for provider in ["pi", "omp"] {
+    @Test func exactLaunchCaptureRecoversCollapsedInterpreterProcessModes() throws {
+        let providers = [
+            (kind: "pi", title: "pi", processDescribesAgent: true),
+            (kind: "omp", title: "omp", processDescribesAgent: true),
+            (kind: "kimi", title: "Kimi Code", processDescribesAgent: false),
+        ]
+        for provider in providers {
             try withCollapsedInterpreterProcess(
-                title: provider,
+                title: provider.title,
                 hostExecutableName: "cmux.app/Contents/MacOS/cmux"
             ) { pid, root in
                 let unassisted = AgentHookSessionLineageResolver().resolve(
-                    agentName: provider,
-                    sessionId: "\(provider)-collapsed-unassisted",
+                    agentName: provider.kind,
+                    sessionId: "\(provider.kind)-collapsed-unassisted",
                     pid: pid,
                     environment: [:]
                 )
-                #expect(unassisted.processDescribesAgent, Comment(rawValue: provider))
-                #expect(unassisted.processLaunchMode == .unknown, Comment(rawValue: provider))
+                #expect(
+                    unassisted.processDescribesAgent == provider.processDescribesAgent,
+                    Comment(rawValue: provider.kind)
+                )
+                #expect(unassisted.processLaunchMode == .unknown, Comment(rawValue: provider.kind))
 
                 var environment = exactAgentLaunchEnvironment(
-                    kind: provider,
-                    arguments: [provider]
+                    kind: provider.kind,
+                    arguments: [provider.kind]
                 )
                 environment["CMUX_CLAUDE_HOOK_STATE_PATH"] = root
-                    .appendingPathComponent("\(provider)-hook-sessions.json").path
+                    .appendingPathComponent("\(provider.kind)-hook-sessions.json").path
                 environment["CMUX_AGENT_SESSION_REGISTRY_PATH"] = root
-                    .appendingPathComponent("\(provider)-sessions.sqlite3").path
-                environment["CMUX_RUNTIME_ID"] = "\(provider)-collapsed-runtime"
+                    .appendingPathComponent("\(provider.kind)-sessions.sqlite3").path
+                environment["CMUX_RUNTIME_ID"] = "\(provider.kind)-collapsed-runtime"
 
                 let recovered = AgentHookSessionLineageResolver().resolve(
-                    agentName: provider,
-                    sessionId: "\(provider)-collapsed-recovered",
+                    agentName: provider.kind,
+                    sessionId: "\(provider.kind)-collapsed-recovered",
                     pid: pid,
                     environment: environment
                 )
-                #expect(recovered.processLaunchMode == .interactive, Comment(rawValue: provider))
-                #expect(recovered.restoreAuthority, Comment(rawValue: provider))
-                #expect(recovered.relationship == nil, Comment(rawValue: provider))
+                #expect(recovered.processLaunchMode == .interactive, Comment(rawValue: provider.kind))
+                #expect(recovered.restoreAuthority, Comment(rawValue: provider.kind))
+                #expect(recovered.relationship == nil, Comment(rawValue: provider.kind))
 
-                let store = ClaudeHookSessionStore(processEnv: environment, agentName: provider)
-                let sessionID = "\(provider)-collapsed-store"
+                let store = ClaudeHookSessionStore(processEnv: environment, agentName: provider.kind)
+                let sessionID = "\(provider.kind)-collapsed-store"
                 #expect(try store.upsert(
                     sessionId: sessionID,
-                    workspaceId: "workspace-\(provider)",
-                    surfaceId: "surface-\(provider)",
+                    workspaceId: "workspace-\(provider.kind)",
+                    surfaceId: "surface-\(provider.kind)",
                     cwd: root.path,
                     pid: pid,
                     isRestorable: true,
@@ -781,10 +789,10 @@ extension CMUXCLIErrorOutputRegressionTests {
                 ))
                 let record = try #require(try store.lookup(sessionId: sessionID))
                 let activeRunID = try #require(record.activeRunId)
-                #expect(record.restoreAuthority, Comment(rawValue: provider))
+                #expect(record.restoreAuthority, Comment(rawValue: provider.kind))
                 #expect(
                     record.runs?.first { $0.runId == activeRunID }?.restoreAuthority == true,
-                    Comment(rawValue: provider)
+                    Comment(rawValue: provider.kind)
                 )
             }
         }
@@ -807,6 +815,45 @@ extension CMUXCLIErrorOutputRegressionTests {
 
             #expect(lineage.processDescribesAgent)
             #expect(lineage.processLaunchMode == .unknown)
+        }
+    }
+
+    @Test func exactOneShotCaptureCannotGainAuthorityFromCollapsedProcessTitle() throws {
+        try withCollapsedInterpreterProcess(
+            title: "pi",
+            hostExecutableName: "cmux.app/Contents/MacOS/cmux"
+        ) { pid, root in
+            var environment = exactAgentLaunchEnvironment(
+                kind: "pi",
+                arguments: ["pi", "--print", "reply once"]
+            )
+            environment["CMUX_CLAUDE_HOOK_STATE_PATH"] = root
+                .appendingPathComponent("pi-one-shot-hook-sessions.json").path
+            environment["CMUX_AGENT_SESSION_REGISTRY_PATH"] = root
+                .appendingPathComponent("pi-one-shot-sessions.sqlite3").path
+
+            let lineage = AgentHookSessionLineageResolver().resolve(
+                agentName: "pi",
+                sessionId: "pi-collapsed-one-shot",
+                pid: pid,
+                environment: environment
+            )
+            #expect(lineage.processLaunchMode == .oneShot)
+
+            let store = ClaudeHookSessionStore(processEnv: environment, agentName: "pi")
+            #expect(try store.upsert(
+                sessionId: "pi-collapsed-one-shot",
+                workspaceId: "workspace-pi-one-shot",
+                surfaceId: "surface-pi-one-shot",
+                cwd: root.path,
+                pid: pid,
+                isRestorable: true,
+                markActive: true
+            ))
+            let record = try #require(try store.lookup(sessionId: "pi-collapsed-one-shot"))
+            let activeRunID = try #require(record.activeRunId)
+            #expect(!record.restoreAuthority)
+            #expect(record.runs?.first { $0.runId == activeRunID }?.restoreAuthority == false)
         }
     }
 
