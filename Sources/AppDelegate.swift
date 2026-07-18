@@ -38,6 +38,46 @@ private struct WorkspaceGroupNewWorkspaceTarget {
     let placement: WorkspaceGroupNewPlacement
 }
 
+/// Returns whichever arrives first: a fresh value or a caller-supplied deadline fallback.
+/// Both producers run on the main actor, so completion is serialized without locks. The
+/// losing task is cancelled, while a non-cooperative operation may finish harmlessly later.
+@MainActor
+final class DiffViewerAgentSnapshotDeadline<Value> {
+    private var continuation: CheckedContinuation<Value, Never>?
+    private var operationTask: Task<Void, Never>?
+    private var deadlineTask: Task<Void, Never>?
+
+    func value(
+        fallback: Value,
+        operation: @escaping @MainActor () async -> Value,
+        waitForDeadline: @escaping @MainActor () async -> Void
+    ) async -> Value {
+        precondition(continuation == nil, "A snapshot deadline resolves only one operation")
+        return await withCheckedContinuation { continuation in
+            self.continuation = continuation
+            operationTask = Task { @MainActor [weak self] in
+                let value = await operation()
+                self?.complete(with: value)
+            }
+            deadlineTask = Task { @MainActor [weak self] in
+                await waitForDeadline()
+                guard !Task.isCancelled else { return }
+                self?.complete(with: fallback)
+            }
+        }
+    }
+
+    private func complete(with value: Value) {
+        guard let continuation else { return }
+        self.continuation = nil
+        operationTask?.cancel()
+        deadlineTask?.cancel()
+        operationTask = nil
+        deadlineTask = nil
+        continuation.resume(returning: value)
+    }
+}
+
 /// Short-lived helper that watches for the next workspace to appear in a
 /// TabManager and joins it to a target group. Used by group `+` context-menu
 /// actions whose underlying executor creates the workspace asynchronously
@@ -6079,9 +6119,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let workspaceId = workspace.id
         let freshSnapshotTask: Task<SessionRestorableAgentSnapshot?, Never>? = preferAgentContext
             ? Task { @MainActor in
-                await SharedLiveAgentIndex.shared.freshSnapshot(
+                let index = SharedLiveAgentIndex.shared
+                let cachedSnapshot = index.snapshot(
                     workspaceId: workspaceId,
                     panelId: sourceSurfaceId
+                )
+                let deadline = DiffViewerAgentSnapshotDeadline<SessionRestorableAgentSnapshot?>()
+                return await deadline.value(
+                    fallback: cachedSnapshot,
+                    operation: {
+                        await index.freshSnapshot(
+                            workspaceId: workspaceId,
+                            panelId: sourceSurfaceId
+                        )
+                    },
+                    waitForDeadline: {
+                        // A bounded operation deadline, not synchronization: the skeleton is
+                        // already visible, and expiry falls back to cached identity or cwd.
+                        try? await ContinuousClock().sleep(for: .milliseconds(500))
+                    }
                 )
             }
             : nil
