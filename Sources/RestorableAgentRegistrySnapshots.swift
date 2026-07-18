@@ -248,9 +248,15 @@ extension RestorableAgentSessionIndex {
             CmuxAgentSessionRegistry.RestoreOwnerContext
         >()
         for candidate in candidates {
-            guard let workspaceID = candidate.workspaceID,
-                  let projection = projections[candidate.kind.rawValue],
-                  let record = projection.recordsBySessionID[candidate.sessionID] else {
+            guard let workspaceID = candidate.workspaceID else {
+                rejectStartupRestoreCandidate(candidate, in: &workspaces)
+                continue
+            }
+            guard let projection = projections[candidate.kind.rawValue] else {
+                continue
+            }
+            guard let record = projection.recordsBySessionID[candidate.sessionID] else {
+                rejectStartupRestoreCandidate(candidate, in: &workspaces)
                 continue
             }
             guard let recordObject = try? JSONSerialization.jsonObject(
@@ -265,22 +271,40 @@ extension RestorableAgentSessionIndex {
                 rejectStartupRestoreCandidate(candidate, in: &workspaces)
                 continue
             }
-            guard
-                  startupRecord(
-                      recordObject,
-                      projectedRestoreAuthority: projectedRestoreAuthority == true,
-                      matches: candidate,
-                      workspaceID: workspaceID
-                  ),
-                  startupRecordHasCanonicalSurfaceAuthority(
-                      recordObject,
-                      projection: projection,
-                      candidate: candidate
-                  ),
-                  let lifecycle = recordObject["sessionState"] as? String,
-                  lifecycle == AgentSessionLifecycleState.hibernated.rawValue
+            guard startupRecord(
+                recordObject,
+                projectedRestoreAuthority: projectedRestoreAuthority == true,
+                matches: candidate,
+                workspaceID: workspaceID
+            ), startupRecordHasCanonicalSurfaceAuthority(
+                recordObject,
+                projection: projection,
+                candidate: candidate
+            ) else {
+                rejectStartupRestoreCandidate(candidate, in: &workspaces)
+                continue
+            }
+            let lifecycleValue = recordObject["sessionState"]
+            let lifecycle: String?
+            if lifecycleValue == nil || lifecycleValue is NSNull {
+                lifecycle = nil
+            } else if let lifecycleValue = lifecycleValue as? String {
+                lifecycle = lifecycleValue
+            } else {
+                rejectStartupRestoreCandidate(candidate, in: &workspaces)
+                continue
+            }
+            if lifecycle == nil
+                || lifecycle == AgentSessionLifecycleState.active.rawValue {
+                if candidate.wasHibernated {
+                    rejectStartupRestoreCandidate(candidate, in: &workspaces)
+                }
+                continue
+            }
+            guard lifecycle == AgentSessionLifecycleState.hibernated.rawValue
                     || lifecycle == AgentSessionLifecycleState.restoring.rawValue else {
-                  continue
+                rejectStartupRestoreCandidate(candidate, in: &workspaces)
+                continue
             }
             reconciledCanonicalOwners.insert(.init(
                 provider: candidate.kind.rawValue,
@@ -416,20 +440,19 @@ extension RestorableAgentSessionIndex {
         projection: StartupRegistryProjection,
         candidate: StartupRestoreCandidate
     ) -> Bool {
-        if record["cmuxHibernationDetached"] as? Bool == true,
-           record["sessionState"] as? String
-            == AgentSessionLifecycleState.hibernated.rawValue {
-            return true
+        if let slot = projection.surfaceSlotsByID[candidate.panelID] {
+            guard slot.sessionID == candidate.sessionID,
+                  let slotObject = try? JSONSerialization.jsonObject(
+                      with: slot.json
+                  ) as? [String: Any] else {
+                return false
+            }
+            return slotObject["sessionId"] as? String == candidate.sessionID
+                && slotObject["updatedAt"] is NSNumber
         }
-        guard let slot = projection.surfaceSlotsByID[candidate.panelID],
-        slot.sessionID == candidate.sessionID,
-        let slotObject = try? JSONSerialization.jsonObject(
-            with: slot.json
-        ) as? [String: Any] else {
-            return false
-        }
-        return slotObject["sessionId"] as? String == candidate.sessionID
-            && slotObject["updatedAt"] is NSNumber
+        return record["cmuxHibernationDetached"] as? Bool == true
+            && record["sessionState"] as? String
+                == AgentSessionLifecycleState.hibernated.rawValue
     }
 
     private static func normalizeProvablyDeadRestoringAttempts(
