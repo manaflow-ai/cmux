@@ -621,6 +621,7 @@ extension CMUXCLI {
                         sessionsListForkDiagnostics(
                             agent: spec.name,
                             record: record,
+                            projectedRunRestoreAuthority: projectedRun.restoreAuthority,
                             claudeTranscriptLookup: claudeTranscriptLookup,
                             processIdentityLookup: processIdentityLookup,
                             processExistenceLookup: processExistenceLookup

@@ -7,6 +7,7 @@ extension CMUXCLI {
     func sessionsListForkDiagnostics(
         agent: String,
         record: ClaudeHookSessionRecord,
+        projectedRunRestoreAuthority: Bool,
         claudeTranscriptLookup: SessionsListClaudeTranscriptLookupCache,
         processIdentityLookup: (Int) -> SessionsListProcessIdentity?,
         processExistenceLookup: (Int?) -> Bool?
@@ -15,11 +16,17 @@ extension CMUXCLI {
         // projection. Transcript lookup only verifies that identity.
         let diagnosticRecord = record
         let storedPIDExists = processExistenceLookup(diagnosticRecord.pid)
-        let hookRecordRestorable = agentHookRecordIsRestorable(
+        let recordHasDurableResumeEvidence = agentHookRecordIsRestorable(
             agent: agent,
             record: diagnosticRecord,
             claudeTranscriptLookup: claudeTranscriptLookup
         )
+        // The compatibility fields on the logical record can lag or conflict
+        // with canonical run history. Forking must use the same projected run
+        // authority that the list row exposes, otherwise a stale root flag can
+        // promote a spawned or one-shot generation back into a restore owner.
+        let hookRecordRestorable = projectedRunRestoreAuthority
+            && recordHasDurableResumeEvidence
         let trustedLaunchCommand = sessionsListTrustedLaunchCommand(agent: agent, record: diagnosticRecord)
         let forkArguments = hookRecordRestorable ? sessionsListForkArguments(
             agent: agent,
@@ -46,7 +53,9 @@ extension CMUXCLI {
         let unavailableReason: String
         if forkSupported {
             unavailableReason = "available"
-        } else if !hookRecordRestorable {
+        } else if !projectedRunRestoreAuthority {
+            unavailableReason = "run_marked_non_restorable"
+        } else if !recordHasDurableResumeEvidence {
             unavailableReason = "record_marked_non_restorable"
         } else if !forkCommandAvailable {
             unavailableReason = "agent_has_no_fork_command"
