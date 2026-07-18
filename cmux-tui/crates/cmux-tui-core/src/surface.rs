@@ -336,6 +336,7 @@ struct AttachTap {
     lifecycle: AttachLifecycle,
     queued_bytes: Arc<AtomicUsize>,
     max_queued_bytes: usize,
+    replay_max_bytes: usize,
 }
 
 impl AttachTap {
@@ -1606,15 +1607,9 @@ impl Surface {
                 pixel_width: 0,
                 pixel_height: 0,
             });
-            let replay = match term.vt_replay_bounded(VT_REPLAY_MAX_BYTES) {
-                Ok(replay) => replay,
-                Err(error) => {
-                    let _ = pty.advance_attach_generation_locked();
-                    pty.cancel_attach_taps_for_resnapshot();
-                    return Err(error.into());
-                }
-            };
-            pty.broadcast_attach_replay_locked(cols, rows, replay);
+            if let Err(error) = pty.broadcast_attach_replay_locked(&mut term, cols, rows) {
+                return Err(error.into());
+            }
             let title = term.title().unwrap_or_default();
             *pty.title.lock().unwrap() = title;
             *pty.pwd.lock().unwrap() = term.pwd();
@@ -2866,6 +2861,17 @@ impl Surface {
         &self,
         lifecycle: AttachLifecycle,
     ) -> ghostty_vt::Result<AttachStream> {
+        self.attach_stream_with_lifecycle_and_replay_limit(lifecycle, VT_REPLAY_MAX_BYTES)
+    }
+
+    pub(crate) fn attach_stream_with_lifecycle_and_replay_limit(
+        &self,
+        lifecycle: AttachLifecycle,
+        replay_max_bytes: usize,
+    ) -> ghostty_vt::Result<AttachStream> {
+        if replay_max_bytes == 0 || replay_max_bytes > VT_REPLAY_MAX_BYTES {
+            return Err(ghostty_vt::Error::InvalidValue);
+        }
         let Some(pty) = self.as_pty() else {
             return Err(ghostty_vt::Error::InvalidValue);
         };
@@ -2874,7 +2880,7 @@ impl Surface {
         let queued_bytes = Arc::new(AtomicUsize::new(0));
         // Snapshot and tap registration under the same terminal lock:
         // the reader thread cannot apply bytes between the two.
-        let replay = term.vt_replay_bounded(VT_REPLAY_MAX_BYTES)?;
+        let replay = term.vt_replay_bounded(replay_max_bytes)?;
         let (cols, rows) = (term.cols(), term.rows());
         let generation = pty.attach_generation.load(Ordering::Acquire);
         let sequence = pty.attach_sequence.load(Ordering::Acquire);
@@ -2885,6 +2891,7 @@ impl Surface {
             lifecycle: lifecycle.clone(),
             queued_bytes: queued_bytes.clone(),
             max_queued_bytes: ATTACH_STREAM_MAX_BYTES,
+            replay_max_bytes,
         });
         Ok(AttachStream {
             surface_uuid: pty.meta.uuid,
@@ -3391,23 +3398,48 @@ impl PtySurface {
         taps.retain(|tap| tap.try_send(frame.clone()));
     }
 
-    fn broadcast_attach_frame(&self, frame: AttachFrame) {
-        self.taps.lock().unwrap().retain(|tap| tap.try_send(frame.clone()));
-    }
-
-    fn broadcast_attach_replay_locked(&self, cols: u16, rows: u16, replay: Vec<u8>) {
+    fn broadcast_attach_replay_locked(
+        &self,
+        term: &mut Terminal,
+        cols: u16,
+        rows: u16,
+    ) -> ghostty_vt::Result<()> {
         let Some((generation, sequence)) = self.advance_attach_generation_locked() else {
-            return;
+            return Ok(());
         };
-        self.broadcast_attach_frame(AttachFrame::Resized {
-            surface_uuid: self.meta.uuid,
-            runtime_epoch: self.semantic_identity.runtime_epoch,
-            generation,
-            sequence,
-            cols,
-            rows,
-            replay,
+        let mut taps = self.taps.lock().unwrap();
+        let mut replay_limits = Vec::new();
+        for tap in taps.iter() {
+            if !replay_limits.contains(&tap.replay_max_bytes) {
+                replay_limits.push(tap.replay_max_bytes);
+            }
+        }
+        let mut replays: Vec<(usize, Vec<u8>)> = Vec::new();
+        for replay_max_bytes in replay_limits {
+            if let Ok(replay) = term.vt_replay_bounded(replay_max_bytes) {
+                replays.push((replay_max_bytes, replay));
+            }
+        }
+        taps.retain(|tap| {
+            let Some(replay) = replays
+                .iter()
+                .find(|(limit, _)| *limit == tap.replay_max_bytes)
+                .map(|(_, replay)| replay)
+            else {
+                tap.lifecycle.mark_overflow();
+                return false;
+            };
+            tap.try_send(AttachFrame::Resized {
+                surface_uuid: self.meta.uuid,
+                runtime_epoch: self.semantic_identity.runtime_epoch,
+                generation,
+                sequence,
+                cols,
+                rows,
+                replay: replay.clone(),
+            })
         });
+        Ok(())
     }
 
     fn request_frame(&self, generation: u64) {
@@ -3526,13 +3558,7 @@ impl PtySurface {
             let _ = term.set_mode(7, false, true);
         }
         let _ = self.refresh_active_search_locked(&mut term);
-        match term.vt_replay_bounded(VT_REPLAY_MAX_BYTES) {
-            Ok(replay) => self.broadcast_attach_replay_locked(cols, rows, replay),
-            Err(_) => {
-                let _ = self.advance_attach_generation_locked();
-                self.cancel_attach_taps_for_resnapshot();
-            }
-        }
+        let _ = self.broadcast_attach_replay_locked(&mut term, cols, rows);
         self.accessibility_viewport_revision.fetch_add(1, Ordering::AcqRel);
         let generation = self.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
         let _ = self.build_frame_locked(&mut term, generation, false);
@@ -3821,6 +3847,54 @@ mod tests {
     }
 
     #[test]
+    fn compatibility_resize_respects_each_tap_replay_limit() {
+        let mux = Mux::new_for_test("attach-resize-per-tap-limit", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let small_lifecycle = AttachLifecycle::default();
+        let small = surface
+            .attach_stream_with_lifecycle_and_replay_limit(small_lifecycle.clone(), 64)
+            .unwrap();
+        let large = surface.attach_stream().unwrap();
+        let output = (0..1_000)
+            .map(|index| {
+                format!(
+                    "\u{1b}[38;2;{};{};{}m{:04X}",
+                    index % 251,
+                    (index * 17) % 251,
+                    (index * 47) % 251,
+                    index
+                )
+            })
+            .collect::<String>()
+            .into_bytes();
+
+        surface.inject_terminal_output(&output).unwrap();
+        assert!(matches!(
+            small.stream.recv_timeout(Duration::from_secs(1)).unwrap(),
+            AttachFrame::Output { .. }
+        ));
+        assert!(matches!(
+            large.stream.recv_timeout(Duration::from_secs(1)).unwrap(),
+            AttachFrame::Output { .. }
+        ));
+        assert!(surface.resize(100, 30).unwrap());
+        let AttachFrame::Resized { replay: small_replay, .. } =
+            small.stream.recv_timeout(Duration::from_secs(1)).unwrap()
+        else {
+            panic!("expected bounded resize replay");
+        };
+        let AttachFrame::Resized { replay: large_replay, .. } =
+            large.stream.recv_timeout(Duration::from_secs(1)).unwrap()
+        else {
+            panic!("expected default resize replay");
+        };
+        assert!(small_replay.len() <= 64);
+        assert!(large_replay.len() > small_replay.len());
+        assert!(!small_lifecycle.is_canceled());
+    }
+
+    #[test]
     fn compatibility_external_reset_advances_seed_cursor_and_generation() {
         let surface = Surface::spawn_external_with_uuid(
             1,
@@ -3926,6 +4000,7 @@ mod tests {
             lifecycle: lifecycle.clone(),
             queued_bytes,
             max_queued_bytes: one_frame_bytes,
+            replay_max_bytes: VT_REPLAY_MAX_BYTES,
         });
 
         surface.inject_terminal_output(b"a").unwrap();
@@ -4314,6 +4389,7 @@ mod tests {
             lifecycle: lifecycle.clone(),
             queued_bytes: Arc::new(AtomicUsize::new(0)),
             max_queued_bytes: usize::MAX,
+            replay_max_bytes: VT_REPLAY_MAX_BYTES,
         };
 
         assert!(tap.try_send(attach_output_frame(vec![1], 0)));
@@ -4334,6 +4410,7 @@ mod tests {
             lifecycle: lifecycle.clone(),
             queued_bytes: Arc::new(AtomicUsize::new(0)),
             max_queued_bytes: frame_bytes,
+            replay_max_bytes: VT_REPLAY_MAX_BYTES,
         };
 
         assert!(tap.try_send(attach_output_frame(vec![1], 0)));

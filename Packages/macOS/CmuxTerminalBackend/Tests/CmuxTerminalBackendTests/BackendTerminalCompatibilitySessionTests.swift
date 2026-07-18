@@ -342,6 +342,10 @@ struct BackendTerminalCompatibilitySessionTests {
         #expect(attach["cmd"] as? String == "attach-surface")
         #expect(try uint64(attach, "surface") == surfaceHandle)
         #expect(attach["mode"] as? String == "compatibility")
+        #expect(
+            try uint64(attach, "replay_max_bytes")
+                == UInt64(BackendTerminalCompatibilitySession.maximumReplayBytes)
+        )
         await transport.enqueue(try encodedJSON([
             "event": "vt-state",
             "surface": surfaceHandle,

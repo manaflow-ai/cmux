@@ -10,7 +10,9 @@ internal import Foundation
 public actor BackendTerminalCompatibilitySession {
     public static let capability = "terminal-byte-stream-compat-v1"
     public static let defaultEventCapacity = 16
-    public static let maximumReplayBytes = 8 * 1_024 * 1_024
+    /// Five MiB remains below the mobile RPC protocol's eight-MiB frame after
+    /// base64 expansion and JSON envelope overhead.
+    public static let maximumReplayBytes = 5 * 1_024 * 1_024
     public static let maximumOutputBytes = 1 * 1_024 * 1_024
     public static let maximumInputBytes = 16 * 1_024
 
@@ -143,6 +145,9 @@ public actor BackendTerminalCompatibilitySession {
                 parameters: [
                     "surface": .unsignedInteger(resolved.handle),
                     "mode": .string("compatibility"),
+                    "replay_max_bytes": .unsignedInteger(
+                        UInt64(Self.maximumReplayBytes)
+                    ),
                 ],
                 as: BackendEmptyResponse.self
             )

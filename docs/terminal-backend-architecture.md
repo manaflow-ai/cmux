@@ -213,6 +213,11 @@ noncanonical: every message carries a terminal epoch, generation, and sequence,
 and overflow or a sequence gap forces reopen plus full resnapshot. Compatibility
 bytes may feed a mobile presentation parser, but that client cannot claim
 canonical state parity and the desktop Swift process does not parse the stream.
+The mobile attach client requests at most 5 MiB of replay bytes. That bound
+leaves room for base64 expansion and the JSON envelope inside the transport's
+8 MiB frame limit. cmuxd applies the requested bound to the initial snapshot and
+every resize replacement snapshot; zero or daemon-global-oversized requests are
+rejected before a tap is installed.
 
 ## Authority model
 

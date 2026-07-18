@@ -14,6 +14,24 @@ import Testing
 
 @MainActor
 extension MobileHostAuthorizationTests {
+    @Test func backendCompatibilityMaximumReplayFitsOneMobileRPCFrame() throws {
+        let replay = Data(
+            repeating: 0xA5,
+            count: BackendTerminalCompatibilitySession.maximumReplayBytes
+        )
+        let response = MobileHostRPCEnvelope.encodeResponse(
+            id: "replay-limit-proof",
+            result: .ok([
+                "snapshot_data_b64": replay.base64EncodedString(),
+                "snapshot_format": "cmuxd.compatibility.vt",
+                "terminal_fidelity": "noncanonical_byte_stream",
+            ])
+        )
+
+        #expect(response.count <= MobileSyncFrameCodec.defaultMaximumFrameByteCount)
+        _ = try MobileSyncFrameCodec.encodeFrame(response)
+    }
+
     @Test func testPairingPayloadDefaultsCanDiscloseOnlyIrohIdentity() throws {
         let store = MobileAttachTicketStore()
         let endpointID = String(repeating: "a", count: 64)

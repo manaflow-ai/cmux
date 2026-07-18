@@ -1345,6 +1345,10 @@ enum Command {
         surface: SurfaceId,
         #[serde(default)]
         mode: Option<String>,
+        /// Optional VT replay ceiling for compatibility clients whose next
+        /// transport has a smaller framed-message limit.
+        #[serde(default)]
+        replay_max_bytes: Option<usize>,
     },
     /// Scroll a surface's viewport by a row delta (negative is up).
     ScrollSurface {
@@ -7940,7 +7944,7 @@ fn handle_command(
                 }
             }
         }
-        Command::AttachSurface { surface: surface_id, mode } => {
+        Command::AttachSurface { surface: surface_id, mode, replay_max_bytes } => {
             let surface = get_surface(mux, surface_id)?;
             let (render_mode, compatibility_mode) = match mode.as_deref().unwrap_or("bytes") {
                 "bytes" => (false, false),
@@ -7954,6 +7958,16 @@ fn handle_command(
                 // paired read-only WebSocket connection.
                 let _ = mux.control_clients.protocol_identity(client, 9)?;
                 require_pty(&surface)?;
+            }
+            if replay_max_bytes.is_some() && !compatibility_mode {
+                anyhow::bail!("replay_max_bytes requires compatibility attach mode");
+            }
+            let replay_max_bytes = replay_max_bytes.unwrap_or(crate::surface::VT_REPLAY_MAX_BYTES);
+            if replay_max_bytes == 0 || replay_max_bytes > crate::surface::VT_REPLAY_MAX_BYTES {
+                anyhow::bail!(
+                    "replay_max_bytes must be between 1 and {}",
+                    crate::surface::VT_REPLAY_MAX_BYTES
+                );
             }
             let lifecycle = AttachLifecycle::default();
             let outbound_stream = writer.start_stream(&attach_overflow_json(surface_id))?;
@@ -8085,7 +8099,9 @@ fn handle_command(
                 })?;
                 return Ok(json!({}));
             }
-            let attach = match surface.attach_stream_with_lifecycle(lifecycle.clone()) {
+            let attach = match surface
+                .attach_stream_with_lifecycle_and_replay_limit(lifecycle.clone(), replay_max_bytes)
+            {
                 Ok(attach) => attach,
                 Err(error) => {
                     lifecycle.cancel();
@@ -9960,7 +9976,11 @@ mod tests {
         let error = handle_command(
             &mux,
             unregistered,
-            Command::AttachSurface { surface: surface.id, mode: Some("compatibility".to_string()) },
+            Command::AttachSurface {
+                surface: surface.id,
+                mode: Some("compatibility".to_string()),
+                replay_max_bytes: None,
+            },
             &unregistered_writer,
         )
         .unwrap_err();
@@ -9984,7 +10004,11 @@ mod tests {
         let error = handle_command(
             &mux,
             v8,
-            Command::AttachSurface { surface: surface.id, mode: Some("compatibility".to_string()) },
+            Command::AttachSurface {
+                surface: surface.id,
+                mode: Some("compatibility".to_string()),
+                replay_max_bytes: None,
+            },
             &v8_writer,
         )
         .unwrap_err();
@@ -9992,10 +10016,26 @@ mod tests {
 
         let (writer, outbound) = test_writer_and_outbound();
         let (client, _) = register_v9_client(&mux, &writer);
+        let error = handle_command(
+            &mux,
+            client,
+            Command::AttachSurface {
+                surface: surface.id,
+                mode: Some("compatibility".to_string()),
+                replay_max_bytes: Some(crate::surface::VT_REPLAY_MAX_BYTES + 1),
+            },
+            &writer,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("replay_max_bytes"));
         handle_command(
             &mux,
             client,
-            Command::AttachSurface { surface: surface.id, mode: Some("compatibility".to_string()) },
+            Command::AttachSurface {
+                surface: surface.id,
+                mode: Some("compatibility".to_string()),
+                replay_max_bytes: Some(64),
+            },
             &writer,
         )
         .unwrap();
@@ -10005,6 +10045,13 @@ mod tests {
         assert_eq!(initial["fidelity"], "noncanonical-byte-stream");
         assert_eq!(initial["generation"], 1);
         assert_eq!(initial["sequence"], 0);
+        assert!(
+            base64::engine::general_purpose::STANDARD
+                .decode(initial["data"].as_str().unwrap())
+                .unwrap()
+                .len()
+                <= 64
+        );
         let runtime_epoch = initial["runtime_epoch"].as_u64().unwrap();
         assert_ne!(runtime_epoch, 0);
 
@@ -10023,6 +10070,13 @@ mod tests {
         assert_eq!(resized["surface_uuid"], initial["surface_uuid"]);
         assert_eq!(resized["runtime_epoch"], runtime_epoch);
         assert_eq!(resized["generation"], 2);
+        assert!(
+            base64::engine::general_purpose::STANDARD
+                .decode(resized["replay"].as_str().unwrap())
+                .unwrap()
+                .len()
+                <= 64
+        );
         assert_eq!(resized["sequence"], 2);
         assert_eq!((resized["cols"].as_u64(), resized["rows"].as_u64()), (Some(81), Some(25)));
         assert!(resized["replay"].as_str().is_some_and(|replay| !replay.is_empty()));
@@ -10079,7 +10133,11 @@ mod tests {
         handle_command(
             &mux,
             byte_client,
-            Command::AttachSurface { surface: surface.id, mode: Some("bytes".to_string()) },
+            Command::AttachSurface {
+                surface: surface.id,
+                mode: Some("bytes".to_string()),
+                replay_max_bytes: None,
+            },
             &byte_writer,
         )
         .unwrap();
@@ -10115,7 +10173,11 @@ mod tests {
         handle_command(
             &mux,
             render_client,
-            Command::AttachSurface { surface: surface.id, mode: Some("render".to_string()) },
+            Command::AttachSurface {
+                surface: surface.id,
+                mode: Some("render".to_string()),
+                replay_max_bytes: None,
+            },
             &render_writer,
         )
         .unwrap();
