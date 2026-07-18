@@ -11,6 +11,13 @@ import Testing
 @Suite
 struct SidebarWorkspaceTableTests {
     @Test
+    func workspaceSelectionPreviewOccursOnlyForRecognizedClick() {
+        #expect(!SidebarWorkspaceSelectionPreviewPolicy.shouldPreview(.mouseDown))
+        #expect(!SidebarWorkspaceSelectionPreviewPolicy.shouldPreview(.dragStarted))
+        #expect(SidebarWorkspaceSelectionPreviewPolicy.shouldPreview(.recognizedClick))
+    }
+
+    @Test
     @MainActor
     func containerHasNoStructuralHorizontalRowInsetAndAlwaysActiveHoverTracking() throws {
         let container = SidebarWorkspaceTableController().makeContainerView()

@@ -8,8 +8,8 @@ import QuartzCore
 /// full commit per click and later selections feel progressively slower.
 /// Leading edge applies immediately (single clicks keep their latency);
 /// clicks landing inside the window replace the pending request and one
-/// trailing fire applies only the newest. The row's optimistic press
-/// highlight still tracks every click instantly.
+/// trailing fire applies only the newest. The row's optimistic mouse-up
+/// highlight still tracks every completed click instantly.
 @MainActor
 final class SidebarSelectionCoalescer {
     private var pendingApply: (() -> Void)?

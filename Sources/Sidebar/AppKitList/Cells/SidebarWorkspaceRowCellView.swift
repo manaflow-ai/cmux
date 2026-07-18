@@ -88,7 +88,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
     var currentModelForMeasurement: SidebarWorkspaceRowModel? { model }
 
-    /// Paints the FULL selected treatment instantly on press by applying a
+    /// Paints the FULL selected treatment instantly on mouse-up by applying a
     /// selection-flipped copy of the model — every selection-derived color
     /// (background, title, secondary text, notification preview, badges)
     /// flips with the highlight instead of trailing in with the terminal
@@ -103,7 +103,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         needsLayout = true
     }
 
-    /// Counterpart for the row selection is LEAVING: applies the full
+    /// Counterpart for the row selection that is LEAVING: applies the full
     /// deselected treatment instantly so old and new selection never show
     /// together while the authoritative render sits behind the terminal-view
     /// swap. configure() reconciles right after.
@@ -114,12 +114,6 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         optimistic.isMultiSelected = false
         applyModel(optimistic)
         needsLayout = true
-    }
-
-    /// True when a press at this view should not repaint selection (the
-    /// close button closes without selecting).
-    func selectionPreviewShouldIgnore(_ hitView: NSView) -> Bool {
-        hitView === closeButton || hitView.isDescendant(of: closeButton)
     }
 
     private func applyBackgroundStyle(_ style: SidebarWorkspaceRowBackgroundStyle) {
