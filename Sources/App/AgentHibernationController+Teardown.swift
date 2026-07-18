@@ -15,6 +15,7 @@ extension AgentHibernationController {
         let confirmationFingerprint: String
         let effectiveLastActivityAt: TimeInterval
         let requestID: UUID
+        let inFlight: InFlightTeardown
         let epoch: UInt64
         let generation: UInt64
     }
@@ -92,6 +93,10 @@ extension AgentHibernationController {
                     panelId: record.key.panelId,
                     index: postSnapshotIndex
                 )
+                let currentProcessEvidence = postSnapshotIndex.processEvidence(
+                    workspaceId: record.key.workspaceId,
+                    panelId: record.key.panelId
+                )
                 let currentLifecycle = postSnapshotLifecycle(for: record, index: postSnapshotIndex)
                 let currentEffectiveLastActivityAt = postSnapshotEffectiveLastActivityAt(
                     for: record,
@@ -103,11 +108,11 @@ extension AgentHibernationController {
                 // tick will re-arm if still idle.
                 guard AgentHibernationTrackingGate.isEnabled(),
                       record.isStillOwnedByOriginalWorkspace,
-                      !postSnapshotIndex.hasLiveProcess(workspaceId: record.key.workspaceId, panelId: record.key.panelId),
-                      TabManager.restorableAgentSnapshotFingerprint(currentAgent) ==
-                          TabManager.restorableAgentSnapshotFingerprint(record.agent),
+                      currentProcessEvidence == record.processEvidence,
+                      currentAgent == record.agent,
                       !record.terminalPanel.isAgentHibernated,
                       record.terminalPanel.surface.hasLiveSurface,
+                      record.satisfiesPromptAndCloseGates,
                       AppDelegate.shared?.agentHibernationPanelIsProtected(
                           workspace: record.workspace,
                           panelId: record.key.panelId
@@ -172,12 +177,23 @@ extension AgentHibernationController {
                         continue
                     }
                 }
-                self.terminateScopedProcessesForHibernation(record: record)
-                record.workspace.enterAgentHibernation(
+                guard case .confirmedProcessFree(let lease) = record.processEvidence,
+                      lease.workspaceId == record.key.workspaceId,
+                      lease.panelId == record.key.panelId,
+                      record.workspace.surfaceTTYDevices[record.key.panelId] == lease.ttyDevice,
+                      record.satisfiesPromptAndCloseGates else {
+                    continue
+                }
+                let inFlight = request.inFlight
+                let didHibernate = await record.workspace.enterAgentHibernation(
                     panelId: record.key.panelId,
                     agent: record.agent,
-                    lastActivityAt: Date(timeIntervalSince1970: request.effectiveLastActivityAt)
+                    lastActivityAt: Date(timeIntervalSince1970: request.effectiveLastActivityAt),
+                    finalValidation: {
+                        lease.isStillProcessFree() && inFlight.claim()
+                    }
                 )
+                guard didHibernate else { continue }
                 guard let snapshot else { continue }
                 if self.armPostTeardownRestoreMonitor(snapshot: snapshot, processIDs: record.processIDs) {
                     restoreOwnedSnapshotPaths.insert(snapshot.snapshotPath)

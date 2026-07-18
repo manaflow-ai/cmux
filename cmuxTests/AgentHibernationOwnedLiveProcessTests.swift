@@ -10,632 +10,474 @@ import Testing
 
 @Suite
 struct AgentHibernationOwnedLiveProcessTests {
-    private let pid = 4_242
+    private let shellPID = 4_242
+    private let ttyDevice: Int64 = 9_001
 
     @Test
-    func exactIdleHookOwnerIsEligible() {
-        let agent = snapshot(sessionId: "owned-idle")
-        let identity = processIdentity(startSeconds: 100)
-        let observation = entry(
-            snapshot: agent,
-            lifecycle: .idle,
-            hasHookRestoreAuthority: true,
-            processIDs: [pid],
-            agentProcessIdentities: [pid: identity]
+    func processFreeShellProducesMinimalLease() throws {
+        let key = panelKey()
+        let identity = processIdentity(pid: shellPID)
+        let index = topologyIndex(
+            key: key,
+            identity: identity,
+            ttyEnumeration: .complete([shellPID]),
+            childEnumeration: .complete([])
         )
 
-        #expect(
-            AgentHibernationLiveProcessEvidence.resolve(
-                observation: observation,
-                agent: agent
-            ).ownership == .ownedIdleRestorableSession
-        )
+        let evidence = index.evidence(for: key)
+        let lease = try #require(evidence.lease)
+        #expect(evidence.allowsHibernation)
+        #expect(evidence.processIDs.isEmpty)
+        #expect(lease.workspaceId == key.workspaceId)
+        #expect(lease.panelId == key.panelId)
+        #expect(lease.shellPID == shellPID)
+        #expect(lease.shellIdentity == identity)
+        #expect(lease.ttyDevice == ttyDevice)
+        #expect(lease.arguments == ["/bin/zsh", "-l"])
     }
 
     @Test
-    func processOnlyActiveNeedsInputAndMissingIdentityFailClosed() {
-        let agent = snapshot(sessionId: "fail-closed")
-        let identity = processIdentity(startSeconds: 100)
-        let cases = [
-            entry(
-                snapshot: agent,
-                lifecycle: .idle,
-                hasHookRestoreAuthority: false,
-                processIDs: [pid],
-                agentProcessIdentities: [pid: identity]
-            ),
-            // Active workloads project to the durable `.running` lifecycle.
-            entry(
-                snapshot: agent,
-                lifecycle: .running,
-                hasHookRestoreAuthority: true,
-                processIDs: [pid],
-                agentProcessIdentities: [pid: identity]
-            ),
-            entry(
-                snapshot: agent,
-                lifecycle: .needsInput,
-                hasHookRestoreAuthority: true,
-                processIDs: [pid],
-                agentProcessIdentities: [pid: identity]
-            ),
-            entry(
-                snapshot: agent,
-                lifecycle: .idle,
-                hasHookRestoreAuthority: true,
-                processIDs: [pid],
-                agentProcessIdentities: [:]
-            ),
+    func targetTTYOrChildUncertaintyFailsClosed() {
+        let key = panelKey()
+        let identity = processIdentity(pid: shellPID)
+        let cases: [(CmuxTopTargetedPIDEnumeration, CmuxTopTargetedPIDEnumeration)] = [
+            (.incomplete, .complete([])),
+            (.complete([shellPID, shellPID + 1]), .complete([])),
+            (.complete([shellPID]), .incomplete),
+            (.complete([shellPID]), .complete([shellPID + 1])),
         ]
 
-        for observation in cases {
-            let evidence = AgentHibernationLiveProcessEvidence.resolve(
-                observation: observation,
-                agent: agent
-            )
-            #expect(evidence.ownership == .unverified)
-            #expect(evidence.allowsHibernation == false)
+        for (tty, children) in cases {
+            let evidence = topologyIndex(
+                key: key,
+                identity: identity,
+                ttyEnumeration: tty,
+                childEnumeration: children
+            ).evidence(for: key)
+            #expect(!evidence.allowsHibernation)
+            #expect(evidence.lease == nil)
         }
     }
 
     @Test
-    func sessionMismatchFailsClosed() {
-        let recorded = snapshot(sessionId: "recorded")
-        let current = snapshot(sessionId: "current")
-        let identity = processIdentity(startSeconds: 100)
-        let observation = entry(
-            snapshot: current,
-            lifecycle: .idle,
-            hasHookRestoreAuthority: true,
-            processIDs: [pid],
-            agentProcessIdentities: [pid: identity]
-        )
-
-        let evidence = AgentHibernationLiveProcessEvidence.resolve(
-            observation: observation,
-            agent: recorded
-        )
-        #expect(evidence.ownership == .unverified)
-        #expect(evidence.allowsHibernation == false)
-    }
-
-    @Test
-    func plannerRejectsUnverifiedAndNonIdleOwnedLiveProcesses() {
-        let workspaceId = UUID()
-        let now: TimeInterval = 1_000
-        let identity = processIdentity(startSeconds: 100)
-        let owned = AgentHibernationLiveProcessEvidence.ownedIdleRestorableSession(
-            processIDs: [pid],
-            processIdentities: [pid: identity]
-        )
-        let unverified = AgentHibernationLiveProcessEvidence.unverified(processIDs: [pid])
-        let settings = AgentHibernationSettings.Values(
-            enabled: true,
-            idleSeconds: 60,
-            maxLiveTerminals: 1,
-            confirmationSeconds: 5
-        )
-
-        for (evidence, lifecycle) in [
-            (unverified, AgentHibernationLifecycleState.idle),
-            (owned, AgentHibernationLifecycleState.running),
-            (owned, AgentHibernationLifecycleState.needsInput),
-        ] {
-            let candidate = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
-            let protected = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
-            let selected = AgentHibernationPlanner.selectedPanelKeys(
-                inputs: [
-                    .init(
-                        key: candidate,
-                        hasRestorableAgent: true,
-                        isLive: true,
-                        liveProcessEvidence: evidence,
-                        isProtected: false,
-                        lifecycle: lifecycle,
-                        hasUnconfirmedTerminalInput: false,
-                        lastActivityAt: now - 300
-                    ),
-                    .init(
-                        key: protected,
-                        hasRestorableAgent: true,
-                        isLive: true,
-                        isProtected: true,
-                        lifecycle: .idle,
-                        hasUnconfirmedTerminalInput: false,
-                        lastActivityAt: now - 300
-                    ),
-                ],
-                settings: settings,
-                now: now
-            )
-            #expect(selected.isEmpty)
-        }
-    }
-
-    @Test
-    func pidReuseChangesFingerprintAndFailsImmediateIdentityCheck() {
-        let original = processIdentity(startSeconds: 100)
-        let reused = processIdentity(startSeconds: 101)
-        let originalFingerprint = AgentHibernationController.scrollbackFingerprint(
-            tail: "stable tail",
-            processIDs: [pid],
-            processIdentities: [pid: original]
-        )
-        let reusedFingerprint = AgentHibernationController.scrollbackFingerprint(
-            tail: "stable tail",
-            processIDs: [pid],
-            processIdentities: [pid: reused]
-        )
-
-        #expect(originalFingerprint != reusedFingerprint)
-        #expect(AgentHibernationController.processIdentitiesStillMatch(
-            [pid: original],
-            currentIdentity: { _ in original }
-        ))
-        #expect(!AgentHibernationController.processIdentitiesStillMatch(
-            [pid: original],
-            currentIdentity: { _ in reused }
-        ))
-        #expect(!AgentHibernationController.processIdentitiesStillMatch(
-            [pid: original],
-            currentIdentity: { _ in nil }
-        ))
-    }
-
-    @Test
-    func postSnapshotEvidenceRejectsPIDGenerationAndProcessSetDrift() {
-        let agent = snapshot(sessionId: "post-snapshot")
-        let original = processIdentity(startSeconds: 100)
-        let reused = processIdentity(startSeconds: 101)
-        let recorded = AgentHibernationLiveProcessEvidence.resolve(
-            observation: entry(
-                snapshot: agent,
-                lifecycle: .idle,
-                hasHookRestoreAuthority: true,
-                processIDs: [pid],
-                agentProcessIdentities: [pid: original]
-            ),
-            agent: agent
-        )
-        let exact = entry(
-            snapshot: agent,
-            lifecycle: .idle,
-            hasHookRestoreAuthority: true,
-            processIDs: [pid],
-            agentProcessIdentities: [pid: original]
-        )
-        let reusedPID = entry(
-            snapshot: agent,
-            lifecycle: .idle,
-            hasHookRestoreAuthority: true,
-            processIDs: [pid],
-            agentProcessIdentities: [pid: reused]
-        )
-        let addedProcess = entry(
-            snapshot: agent,
-            lifecycle: .idle,
-            hasHookRestoreAuthority: true,
-            processIDs: [pid, pid + 1],
-            agentProcessIdentities: [pid: original]
-        )
-
-        #expect(recorded.matchesPostSnapshot(observation: exact, agent: agent))
-        #expect(!recorded.matchesPostSnapshot(observation: reusedPID, agent: agent))
-        #expect(!recorded.matchesPostSnapshot(observation: addedProcess, agent: agent))
-    }
-
-    @Test
-    func nonAgentScopedPIDReuseFailsPostSnapshotAndImmediateChecks() {
-        let agent = snapshot(sessionId: "scoped-child-reuse")
-        let childPID = pid + 1
-        let root = processIdentity(startSeconds: 100)
-        let child = processIdentity(pid: childPID, startSeconds: 100)
-        let reusedChild = processIdentity(pid: childPID, startSeconds: 101)
-        let recordedObservation = entry(
-            snapshot: agent,
-            lifecycle: .idle,
-            hasHookRestoreAuthority: true,
-            processIDs: [pid, childPID],
-            agentProcessIdentities: [pid: root],
-            processIdentities: [pid: root, childPID: child]
-        )
-        let recorded = AgentHibernationLiveProcessEvidence.resolve(
-            observation: recordedObservation,
-            agent: agent
-        )
-        let reusedObservation = entry(
-            snapshot: agent,
-            lifecycle: .idle,
-            hasHookRestoreAuthority: true,
-            processIDs: [pid, childPID],
-            agentProcessIdentities: [pid: root],
-            processIdentities: [pid: root, childPID: reusedChild]
-        )
-
-        #expect(recorded.ownership == .ownedIdleRestorableSession)
-        #expect(!recorded.matchesPostSnapshot(observation: reusedObservation, agent: agent))
-        #expect(!AgentHibernationController.processIdentitiesStillMatch(
-            recorded.processIdentities,
-            currentIdentity: { candidate in
-                candidate == pid_t(self.pid) ? root : reusedChild
-            }
-        ))
-    }
-
-    @Test
-    func loaderMarksOnlyScopedLiveHookPIDAsAuthoritative() throws {
-        let fixture = try hookFixture(sessionId: "pure-hook", pid: pid)
-        defer { try? FileManager.default.removeItem(at: fixture.home) }
-        let childPID = pid + 1
-        let identity = processIdentity(startSeconds: 100)
-        let childIdentity = processIdentity(pid: childPID, startSeconds: 100)
-
-        let index = loadIndex(
-            fixture: fixture,
-            scopedProcessIDsByPanel: [fixture.key: [pid, childPID]],
-            processArgumentsProvider: { requestedPID in
-                requestedPID == self.pid ? self.scopedOpenCodeProcess(fixture: fixture) : nil
-            },
-            processIdentityProvider: { requestedPID in
-                requestedPID == self.pid ? identity : (requestedPID == childPID ? childIdentity : nil)
-            }
-        )
-        let entry = try #require(index.entry(
-            workspaceId: fixture.key.workspaceId,
-            panelId: fixture.key.panelId
-        ))
-
-        #expect(entry.hasHookRestoreAuthority)
-        #expect(entry.processIDs == [pid, childPID])
-        #expect(entry.processIdentities == [pid: identity, childPID: childIdentity])
-        #expect(
-            AgentHibernationLiveProcessEvidence.resolve(
-                observation: entry,
-                agent: entry.snapshot
-            ).ownership == .ownedIdleRestorableSession
-        )
-    }
-
-    @Test
-    func liveHookWithoutFullScopedTreeCorroborationFailsClosed() throws {
-        let fixture = try hookFixture(sessionId: "hook-without-tree", pid: pid)
-        defer { try? FileManager.default.removeItem(at: fixture.home) }
-        let identity = processIdentity(startSeconds: 100)
-        let index = loadIndex(
-            fixture: fixture,
-            processArgumentsProvider: { requestedPID in
-                requestedPID == self.pid ? self.scopedOpenCodeProcess(fixture: fixture) : nil
-            },
-            processIdentityProvider: { requestedPID in
-                requestedPID == self.pid ? identity : nil
-            }
-        )
-        let entry = try #require(index.entry(
-            workspaceId: fixture.key.workspaceId,
-            panelId: fixture.key.panelId
-        ))
-        let evidence = AgentHibernationLiveProcessEvidence.resolve(
-            observation: entry,
-            agent: entry.snapshot
-        )
-
-        #expect(!entry.hasHookRestoreAuthority)
-        #expect(evidence.ownership == .unverified)
-        #expect(!evidence.allowsHibernation)
-    }
-
-    @Test
-    func loaderPropagatesAuthorityForExactExplicitDetection() throws {
-        let fixture = try hookFixture(sessionId: "explicit-exact")
-        defer { try? FileManager.default.removeItem(at: fixture.home) }
-        let childPID = pid + 1
-        let root = processIdentity(startSeconds: 100)
-        let child = processIdentity(pid: childPID, startSeconds: 100)
-
-        let index = loadIndex(
-            fixture: fixture,
-            detected: detected(
-                fixture: fixture,
-                sessionId: fixture.sessionId,
-                processIDs: [pid, childPID],
-                source: .explicit
-            ),
-            processIdentityProvider: { requestedPID in
-                requestedPID == self.pid ? root : (requestedPID == childPID ? child : nil)
-            }
-        )
-        let entry = try #require(index.entry(
-            workspaceId: fixture.key.workspaceId,
-            panelId: fixture.key.panelId
-        ))
-
-        #expect(entry.hasHookRestoreAuthority)
-        #expect(entry.processIdentities == [pid: root, childPID: child])
-        #expect(
-            AgentHibernationLiveProcessEvidence.resolve(
-                observation: entry,
-                agent: entry.snapshot
-            ).ownership == .ownedIdleRestorableSession
-        )
-    }
-
-    @Test
-    func loaderFailsClosedForBorrowedOrUnmatchedDetectedIdentity() throws {
-        for source in [
-            RestorableAgentSessionIndex.ProcessDetectedSessionIDSource.inferredLatestSessionFile,
-            .forkParentFallback,
-        ] {
-            let fixture = try hookFixture(sessionId: "hook-\(source)", updatedAt: 200)
-            defer { try? FileManager.default.removeItem(at: fixture.home) }
-            let identity = processIdentity(startSeconds: 100)
-            let index = loadIndex(
-                fixture: fixture,
-                detected: detected(
-                    fixture: fixture,
-                    sessionId: "detected-mismatch",
-                    processIDs: [pid],
-                    source: source
+    func unrelatedUnreadableProcessDoesNotPoisonTargetedProof() {
+        let key = panelKey()
+        let otherKey = panelKey()
+        let identity = processIdentity(pid: shellPID)
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [
+                shellProcess(key: key, identity: identity),
+                shellProcess(
+                    key: otherKey,
+                    pid: shellPID + 100,
+                    ttyDevice: ttyDevice + 100,
+                    identity: nil
                 ),
-                processIdentityProvider: { requestedPID in
-                    requestedPID == self.pid ? identity : nil
-                }
-            )
-            let entry = try #require(index.entry(
-                workspaceId: fixture.key.workspaceId,
-                panelId: fixture.key.panelId
-            ))
-
-            #expect(!entry.hasHookRestoreAuthority)
-            #expect(
-                AgentHibernationLiveProcessEvidence.resolve(
-                    observation: entry,
-                    agent: entry.snapshot
-                ).ownership == .unverified
-            )
-        }
-
-        let unmatched = try hookFixture(sessionId: "unused-hook")
-        try FileManager.default.removeItem(
-            at: RestorableAgentKind.opencode.hookStoreFileURL(homeDirectory: unmatched.home.path)
+            ],
+            sampledAt: Date(),
+            includesProcessDetails: true
         )
-        defer { try? FileManager.default.removeItem(at: unmatched.home) }
-        let unmatchedIndex = loadIndex(
-            fixture: unmatched,
-            detected: detected(
-                fixture: unmatched,
-                sessionId: "unmatched-detected",
-                processIDs: [pid],
-                source: .explicit
-            ),
-            processIdentityProvider: { requestedPID in
-                requestedPID == self.pid ? self.processIdentity(startSeconds: 100) : nil
-            }
+        let index = AgentHibernationProcessTopologyIndex(
+            processSnapshot: snapshot,
+            targetPanelKeys: [key],
+            processArguments: { pid in pid == self.shellPID ? self.shellArguments(key: key) : nil },
+            processIdentity: { pid in pid == self.shellPID ? identity : nil },
+            processExecutablePath: { pid in pid == self.shellPID ? "/bin/zsh" : nil },
+            processSessionID: { pid in pid == self.shellPID ? pid_t(self.shellPID) : nil },
+            ttyProcessIDs: { _ in .complete([self.shellPID]) },
+            childProcessIDs: { _ in .complete([]) }
         )
-        let unmatchedEntry = try #require(unmatchedIndex.entry(
-            workspaceId: unmatched.key.workspaceId,
-            panelId: unmatched.key.panelId
-        ))
-        #expect(!unmatchedEntry.hasHookRestoreAuthority)
+
+        #expect(index.evidence(for: key).allowsHibernation)
     }
 
     @Test
-    func incompleteFullProcessIdentityCoverageFailsClosed() throws {
-        let fixture = try hookFixture(sessionId: "incomplete-identities")
-        defer { try? FileManager.default.removeItem(at: fixture.home) }
-        let childPID = pid + 1
-        let root = processIdentity(startSeconds: 100)
-        let index = loadIndex(
-            fixture: fixture,
-            detected: detected(
-                fixture: fixture,
-                sessionId: fixture.sessionId,
-                processIDs: [pid, childPID],
-                source: .explicit
-            ),
-            processIdentityProvider: { requestedPID in
-                requestedPID == self.pid ? root : nil
-            }
+    func topologyQueriesEachTargetTTYOnlyOnce() {
+        let firstKey = panelKey()
+        let secondKey = panelKey()
+        let firstPID = shellPID
+        let secondPID = shellPID + 1
+        let firstIdentity = processIdentity(pid: firstPID)
+        let secondIdentity = processIdentity(pid: secondPID)
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [
+                shellProcess(key: firstKey, pid: firstPID, identity: firstIdentity),
+                shellProcess(key: secondKey, pid: secondPID, identity: secondIdentity),
+            ],
+            sampledAt: Date(),
+            includesProcessDetails: true
         )
-        let entry = try #require(index.entry(
+        var ttyQueries = 0
+        _ = AgentHibernationProcessTopologyIndex(
+            processSnapshot: snapshot,
+            targetPanelKeys: [firstKey, secondKey],
+            processArguments: { pid in
+                pid == firstPID ? self.shellArguments(key: firstKey) : self.shellArguments(key: secondKey)
+            },
+            processIdentity: { pid in pid == firstPID ? firstIdentity : secondIdentity },
+            processExecutablePath: { _ in "/bin/zsh" },
+            processSessionID: { pid_t($0) },
+            ttyProcessIDs: { _ in
+                ttyQueries += 1
+                return .complete([firstPID, secondPID])
+            },
+            childProcessIDs: { _ in .complete([]) }
+        )
+
+        #expect(ttyQueries == 1)
+    }
+
+    @Test
+    func finalLeaseValidationRejectsEveryTopologyDrift() throws {
+        let key = panelKey()
+        let identity = processIdentity(pid: shellPID)
+        let lease = try #require(topologyIndex(
+            key: key,
+            identity: identity,
+            ttyEnumeration: .complete([shellPID]),
+            childEnumeration: .complete([])
+        ).evidence(for: key).lease)
+        let topology = AgentHibernationProcessFreeLease.ProcessTopology(
+            parentPID: 1,
+            name: "zsh",
+            ttyDevice: ttyDevice,
+            processGroupID: shellPID,
+            terminalProcessGroupID: shellPID
+        )
+        func validates(
+            arguments: [String] = ["/bin/zsh", "-l"],
+            path: String = "/bin/zsh",
+            ttyPIDs: Set<Int> = [shellPID],
+            children: Set<Int> = [],
+            currentIdentity: AgentPIDProcessIdentity? = identity,
+            currentTopology: AgentHibernationProcessFreeLease.ProcessTopology? = topology
+        ) -> Bool {
+            lease.isStillProcessFree(
+                processArguments: { _ in
+                    CmuxTopProcessArguments(
+                        arguments: arguments,
+                        environment: [
+                            "CMUX_WORKSPACE_ID": key.workspaceId.uuidString,
+                            "CMUX_SURFACE_ID": key.panelId.uuidString,
+                        ]
+                    )
+                },
+                processIdentity: { _ in currentIdentity },
+                processExecutablePath: { _ in path },
+                processSessionID: { _ in pid_t(self.shellPID) },
+                ttyProcessIDs: { _ in .complete(ttyPIDs) },
+                childProcessIDs: { _ in .complete(children) },
+                processTopology: { _ in currentTopology }
+            )
+        }
+
+        #expect(validates())
+        #expect(!validates(arguments: ["/usr/bin/read", "secret"]))
+        #expect(!validates(path: "/bin/bash"))
+        #expect(!validates(ttyPIDs: [shellPID, shellPID + 1]))
+        #expect(!validates(children: [shellPID + 1]))
+        #expect(!validates(currentIdentity: processIdentity(pid: shellPID, seconds: 101)))
+        #expect(!validates(currentTopology: nil))
+    }
+
+    @Test
+    func standardLoaderCannotAccidentallyAuthorizeHibernation() throws {
+        let fixture = try hookFixture(sessionId: "standard-load")
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+        let identity = processIdentity(pid: shellPID)
+        let snapshot = processSnapshot(key: fixture.key, identity: identity)
+
+        let standard = loadIndex(fixture: fixture, snapshot: snapshot, identity: identity, mode: .standard)
+        let hibernation = loadIndex(
+            fixture: fixture,
+            snapshot: snapshot,
+            identity: identity,
+            mode: .hibernation(processSnapshot: snapshot)
+        )
+
+        #expect(!standard.processEvidence(
             workspaceId: fixture.key.workspaceId,
             panelId: fixture.key.panelId
+        ).allowsHibernation)
+        #expect(hibernation.processEvidence(
+            workspaceId: fixture.key.workspaceId,
+            panelId: fixture.key.panelId
+        ).allowsHibernation)
+    }
+
+    @Test
+    func staleLegacyPIDDoesNotPermanentlyPoisonProcessFreePanel() throws {
+        let fixture = try hookFixture(sessionId: "legacy-stale-pid", recordedPID: 99_999)
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+        let identity = processIdentity(pid: shellPID)
+        let snapshot = processSnapshot(key: fixture.key, identity: identity)
+        let index = loadIndex(
+            fixture: fixture,
+            snapshot: snapshot,
+            identity: identity,
+            mode: .hibernation(processSnapshot: snapshot)
+        )
+
+        #expect(index.processEvidence(
+            workspaceId: fixture.key.workspaceId,
+            panelId: fixture.key.panelId
+        ).allowsHibernation)
+    }
+
+    @Test
+    func restoredWorkspaceRekeyUsesExactLiveShellScope() throws {
+        let fixture = try hookFixture(sessionId: "restored-workspace-rekey")
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+        let liveKey = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: UUID(),
+            panelId: fixture.key.panelId
+        )
+        let identity = processIdentity(pid: shellPID)
+        let snapshot = processSnapshot(key: liveKey, identity: identity)
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: fixture.home.path,
+            fileManager: .default,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [:],
+            mode: .hibernation(processSnapshot: snapshot),
+            processArgumentsProvider: { pid in
+                pid == self.shellPID ? self.shellArguments(key: liveKey) : nil
+            },
+            processIdentityProvider: { pid in pid == self.shellPID ? identity : nil },
+            processExecutablePathProvider: { _ in "/bin/zsh" },
+            processSessionIDProvider: { _ in pid_t(self.shellPID) },
+            ttyProcessIDsProvider: { _ in .complete([self.shellPID]) },
+            childProcessIDsProvider: { _ in .complete([]) }
+        )
+
+        #expect(index.entry(
+            workspaceId: liveKey.workspaceId,
+            panelId: liveKey.panelId
+        )?.snapshot.sessionId == "restored-workspace-rekey")
+        #expect(index.processEvidence(
+            workspaceId: liveKey.workspaceId,
+            panelId: liveKey.panelId
+        ).allowsHibernation)
+    }
+
+    @Test
+    func liveSameSurfaceInAnotherWorkspaceRevokesProcessFreeLease() throws {
+        let fixture = try hookFixture(sessionId: "cross-runtime-live-owner")
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+        let currentKey = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: UUID(),
+            panelId: fixture.key.panelId
+        )
+        let identity = processIdentity(pid: shellPID)
+        let otherAgentPID = shellPID + 500
+        let otherAgentIdentity = processIdentity(pid: otherAgentPID)
+        let snapshot = processSnapshot(key: currentKey, identity: identity)
+        let detected: [RestorableAgentSessionIndex.PanelKey: RestorableAgentSessionIndex.ProcessDetectedSnapshotEntry] = [
+            fixture.key: (
+                snapshot: SessionRestorableAgentSnapshot(
+                    kind: .opencode,
+                    sessionId: "cross-runtime-live-owner",
+                    workingDirectory: "/tmp/cmux-process-free",
+                    launchCommand: nil
+                ),
+                updatedAt: 200,
+                processIDs: [otherAgentPID],
+                agentProcessIDs: [otherAgentPID],
+                sessionIDSource: .explicit
+            ),
+        ]
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: fixture.home.path,
+            fileManager: .default,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: detected,
+            mode: .hibernation(processSnapshot: snapshot),
+            processArgumentsProvider: { pid in
+                pid == self.shellPID ? self.shellArguments(key: currentKey) : nil
+            },
+            processIdentityProvider: { pid in
+                pid == self.shellPID ? identity : (pid == otherAgentPID ? otherAgentIdentity : nil)
+            },
+            processExecutablePathProvider: { _ in "/bin/zsh" },
+            processSessionIDProvider: { _ in pid_t(self.shellPID) },
+            ttyProcessIDsProvider: { _ in .complete([self.shellPID]) },
+            childProcessIDsProvider: { _ in .complete([]) }
+        )
+
+        #expect(!index.processEvidence(
+            workspaceId: currentKey.workspaceId,
+            panelId: currentKey.panelId
+        ).allowsHibernation)
+        #expect(index.processEvidence(
+            workspaceId: fixture.key.workspaceId,
+            panelId: fixture.key.panelId
+        ).processIDs == [otherAgentPID])
+    }
+
+    @Test
+    func promptAndBothCloseGatesAreExact() {
+        #expect(AgentHibernationController.passesPromptAndCloseGates(
+            workspaceShellActivity: .promptIdle,
+            panelShellActivity: .promptIdle,
+            rawNeedsConfirmClose: false,
+            workspaceNeedsConfirmClose: false
         ))
-        let evidence = AgentHibernationLiveProcessEvidence.resolve(
-            observation: entry,
-            agent: entry.snapshot
-        )
-
-        #expect(entry.hasHookRestoreAuthority)
-        #expect(Set(entry.processIdentities.keys) != entry.processIDs)
-        #expect(evidence.ownership == .unverified)
-        #expect(!evidence.allowsHibernation)
-    }
-
-    @Test
-    func terminationSignalsOnlyValidatedProcessIDs() {
-        let childPID = pid_t(pid + 1)
-        var signaled: [(pid_t, Int32)] = []
-
-        let succeeded = AgentHibernationController.signalValidatedProcessIDsForHibernation(
-            [pid_t(pid), childPID],
-            signal: { target, signal in
-                signaled.append((target, signal))
-                return 0
-            },
-            errorCode: { 0 }
-        )
-
-        #expect(succeeded)
-        #expect(signaled.map(\.0) == [pid_t(pid), childPID])
-        #expect(signaled.allSatisfy { $0.0 > 0 && $0.1 == SIGTERM })
-    }
-
-    @Test
-    func terminationRejectsSignalFailuresButAcceptsExitedIdentityRace() {
-        for failure in [EPERM, EINVAL] {
-            var signaled: [pid_t] = []
-            let succeeded = AgentHibernationController.signalValidatedProcessIDsForHibernation(
-                [pid_t(pid), pid_t(pid + 1)],
-                signal: { target, _ in
-                    signaled.append(target)
-                    return -1
-                },
-                errorCode: { failure }
-            )
-
-            #expect(!succeeded)
-            #expect(signaled == [pid_t(pid)])
-        }
-
-        var signaledAfterExit: [pid_t] = []
-        let exitedRaceSucceeded = AgentHibernationController.signalValidatedProcessIDsForHibernation(
-            [pid_t(pid), pid_t(pid + 1)],
-            signal: { target, _ in
-                signaledAfterExit.append(target)
-                return target == pid_t(self.pid) ? -1 : 0
-            },
-            errorCode: { ESRCH }
-        )
-
-        #expect(exitedRaceSucceeded)
-        #expect(signaledAfterExit == [pid_t(pid), pid_t(pid + 1)])
-    }
-
-    private func snapshot(sessionId: String) -> SessionRestorableAgentSnapshot {
-        SessionRestorableAgentSnapshot(
-            kind: .codex,
-            sessionId: sessionId,
-            workingDirectory: "/tmp/cmux-hibernation",
-            launchCommand: nil
-        )
-    }
-
-    private func processIdentity(pid: Int? = nil, startSeconds: Int64) -> AgentPIDProcessIdentity {
-        AgentPIDProcessIdentity(
-            pid: pid_t(pid ?? self.pid),
-            startSeconds: startSeconds,
-            startMicroseconds: 500
-        )
+        #expect(!AgentHibernationController.passesPromptAndCloseGates(
+            workspaceShellActivity: .unknown,
+            panelShellActivity: .promptIdle,
+            rawNeedsConfirmClose: false,
+            workspaceNeedsConfirmClose: false
+        ))
+        #expect(!AgentHibernationController.passesPromptAndCloseGates(
+            workspaceShellActivity: .promptIdle,
+            panelShellActivity: .commandRunning,
+            rawNeedsConfirmClose: false,
+            workspaceNeedsConfirmClose: false
+        ))
+        #expect(!AgentHibernationController.passesPromptAndCloseGates(
+            workspaceShellActivity: .promptIdle,
+            panelShellActivity: .promptIdle,
+            rawNeedsConfirmClose: true,
+            workspaceNeedsConfirmClose: false
+        ))
+        #expect(!AgentHibernationController.passesPromptAndCloseGates(
+            workspaceShellActivity: .promptIdle,
+            panelShellActivity: .promptIdle,
+            rawNeedsConfirmClose: false,
+            workspaceNeedsConfirmClose: true
+        ))
     }
 
     private struct HookFixture {
         let home: URL
         let key: RestorableAgentSessionIndex.PanelKey
-        let sessionId: String
     }
 
-    private func hookFixture(
-        sessionId: String,
+    private func panelKey() -> RestorableAgentSessionIndex.PanelKey {
+        .init(workspaceId: UUID(), panelId: UUID())
+    }
+
+    private func processIdentity(pid: Int, seconds: Int64 = 100) -> AgentPIDProcessIdentity {
+        AgentPIDProcessIdentity(pid: pid_t(pid), startSeconds: seconds, startMicroseconds: 0)
+    }
+
+    private func shellProcess(
+        key: RestorableAgentSessionIndex.PanelKey,
         pid: Int? = nil,
-        updatedAt: TimeInterval = 100
-    ) throws -> HookFixture {
+        ttyDevice: Int64? = nil,
+        identity: AgentPIDProcessIdentity?
+    ) -> CmuxTopProcessInfo {
+        let pid = pid ?? shellPID
+        return CmuxTopProcessInfo(
+            pid: pid,
+            parentPID: 1,
+            name: "zsh",
+            path: "/bin/zsh",
+            ttyDevice: ttyDevice ?? self.ttyDevice,
+            cmuxWorkspaceID: key.workspaceId,
+            cmuxSurfaceID: key.panelId,
+            cmuxAttributionReason: "environment",
+            processGroupID: pid,
+            terminalProcessGroupID: pid,
+            cpuPercent: 0,
+            residentBytes: 0,
+            virtualBytes: 0,
+            threadCount: 1,
+            generationIdentity: identity
+        )
+    }
+
+    private func shellArguments(key: RestorableAgentSessionIndex.PanelKey) -> CmuxTopProcessArguments {
+        CmuxTopProcessArguments(
+            arguments: ["/bin/zsh", "-l"],
+            environment: [
+                "CMUX_WORKSPACE_ID": key.workspaceId.uuidString,
+                "CMUX_SURFACE_ID": key.panelId.uuidString,
+            ]
+        )
+    }
+
+    private func processSnapshot(
+        key: RestorableAgentSessionIndex.PanelKey,
+        identity: AgentPIDProcessIdentity
+    ) -> CmuxTopProcessSnapshot {
+        CmuxTopProcessSnapshot(
+            processes: [shellProcess(key: key, identity: identity)],
+            sampledAt: Date(),
+            includesProcessDetails: true
+        )
+    }
+
+    private func topologyIndex(
+        key: RestorableAgentSessionIndex.PanelKey,
+        identity: AgentPIDProcessIdentity,
+        ttyEnumeration: CmuxTopTargetedPIDEnumeration,
+        childEnumeration: CmuxTopTargetedPIDEnumeration
+    ) -> AgentHibernationProcessTopologyIndex {
+        AgentHibernationProcessTopologyIndex(
+            processSnapshot: processSnapshot(key: key, identity: identity),
+            targetPanelKeys: [key],
+            processArguments: { _ in self.shellArguments(key: key) },
+            processIdentity: { _ in identity },
+            processExecutablePath: { _ in "/bin/zsh" },
+            processSessionID: { _ in pid_t(self.shellPID) },
+            ttyProcessIDs: { _ in ttyEnumeration },
+            childProcessIDs: { _ in childEnumeration }
+        )
+    }
+
+    private func hookFixture(sessionId: String, recordedPID: Int? = nil) throws -> HookFixture {
         let home = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-owned-live-authority-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cmux-process-free-lease-\(UUID().uuidString)", isDirectory: true)
         let storeURL = RestorableAgentKind.opencode.hookStoreFileURL(homeDirectory: home.path)
         try FileManager.default.createDirectory(
             at: storeURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        let key = RestorableAgentSessionIndex.PanelKey(workspaceId: UUID(), panelId: UUID())
+        let key = panelKey()
         var record: [String: Any] = [
             "sessionId": sessionId,
             "workspaceId": key.workspaceId.uuidString,
             "surfaceId": key.panelId.uuidString,
-            "cwd": "/tmp/cmux-owned-live",
+            "cwd": "/tmp/cmux-process-free",
             "agentLifecycle": "idle",
-            "updatedAt": updatedAt,
+            "updatedAt": 100,
             "launchCommand": [
                 "launcher": "opencode",
                 "executablePath": "/usr/local/bin/opencode",
                 "arguments": ["/usr/local/bin/opencode"],
-                "workingDirectory": "/tmp/cmux-owned-live",
+                "workingDirectory": "/tmp/cmux-process-free",
             ],
         ]
-        if let pid { record["pid"] = pid }
+        if let recordedPID { record["pid"] = recordedPID }
         let data = try JSONSerialization.data(
             withJSONObject: ["version": 1, "sessions": [sessionId: record]],
             options: [.prettyPrinted]
         )
         try data.write(to: storeURL, options: .atomic)
-        return HookFixture(home: home, key: key, sessionId: sessionId)
-    }
-
-    private func detected(
-        fixture: HookFixture,
-        sessionId: String,
-        processIDs: Set<Int>,
-        source: RestorableAgentSessionIndex.ProcessDetectedSessionIDSource
-    ) -> [RestorableAgentSessionIndex.PanelKey: RestorableAgentSessionIndex.ProcessDetectedSnapshotEntry] {
-        [
-            fixture.key: (
-                snapshot: SessionRestorableAgentSnapshot(
-                    kind: .opencode,
-                    sessionId: sessionId,
-                    workingDirectory: "/tmp/cmux-owned-live",
-                    launchCommand: AgentLaunchCommandSnapshot(
-                        launcher: "opencode",
-                        executablePath: "/usr/local/bin/opencode",
-                        arguments: ["/usr/local/bin/opencode", "--session", sessionId],
-                        workingDirectory: "/tmp/cmux-owned-live",
-                        environment: nil,
-                        capturedAt: nil,
-                        source: nil
-                    )
-                ),
-                updatedAt: 999,
-                processIDs: processIDs,
-                agentProcessIDs: [pid],
-                sessionIDSource: source
-            ),
-        ]
+        return HookFixture(home: home, key: key)
     }
 
     private func loadIndex(
         fixture: HookFixture,
-        detected: [RestorableAgentSessionIndex.PanelKey: RestorableAgentSessionIndex.ProcessDetectedSnapshotEntry] = [:],
-        scopedProcessIDsByPanel: [RestorableAgentSessionIndex.PanelKey: Set<Int>] = [:],
-        processArgumentsProvider: @escaping (Int) -> CmuxTopProcessArguments? = { _ in nil },
-        processIdentityProvider: @escaping (Int) -> AgentPIDProcessIdentity?
+        snapshot: CmuxTopProcessSnapshot,
+        identity: AgentPIDProcessIdentity,
+        mode: RestorableAgentSessionIndex.LoadMode
     ) -> RestorableAgentSessionIndex {
         RestorableAgentSessionIndex.load(
             homeDirectory: fixture.home.path,
             fileManager: .default,
             registry: CmuxVaultAgentRegistry(registrations: []),
-            detectedSnapshots: detected,
-            scopedProcessIDsByPanel: scopedProcessIDsByPanel,
-            processArgumentsProvider: processArgumentsProvider,
-            processIdentityProvider: processIdentityProvider
-        )
-    }
-
-    private func scopedOpenCodeProcess(fixture: HookFixture) -> CmuxTopProcessArguments {
-        CmuxTopProcessArguments(
-            arguments: ["/usr/local/bin/opencode"],
-            environment: [
-                "CMUX_WORKSPACE_ID": fixture.key.workspaceId.uuidString,
-                "CMUX_SURFACE_ID": fixture.key.panelId.uuidString,
-                "CMUX_AGENT_LAUNCH_KIND": RestorableAgentKind.opencode.rawValue,
-            ]
-        )
-    }
-
-    private func entry(
-        snapshot: SessionRestorableAgentSnapshot,
-        lifecycle: AgentHibernationLifecycleState,
-        hasHookRestoreAuthority: Bool,
-        processIDs: Set<Int>,
-        agentProcessIdentities: [Int: AgentPIDProcessIdentity],
-        processIdentities: [Int: AgentPIDProcessIdentity]? = nil
-    ) -> RestorableAgentSessionIndex.Entry {
-        RestorableAgentSessionIndex.Entry(
-            snapshot: snapshot,
-            lifecycle: lifecycle,
-            updatedAt: 100,
-            processIDs: processIDs,
-            agentProcessIDs: [pid],
-            agentProcessIdentities: agentProcessIdentities,
-            processIdentities: processIdentities ?? agentProcessIdentities,
-            hasHookRestoreAuthority: hasHookRestoreAuthority
+            detectedSnapshots: [:],
+            mode: mode,
+            processArgumentsProvider: { pid in
+                pid == self.shellPID ? self.shellArguments(key: fixture.key) : nil
+            },
+            processIdentityProvider: { pid in pid == self.shellPID ? identity : nil },
+            processExecutablePathProvider: { pid in pid == self.shellPID ? "/bin/zsh" : nil },
+            processSessionIDProvider: { pid in pid == self.shellPID ? pid_t(self.shellPID) : nil },
+            ttyProcessIDsProvider: { _ in .complete([self.shellPID]) },
+            childProcessIDsProvider: { _ in .complete([]) }
         )
     }
 }

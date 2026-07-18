@@ -49,6 +49,31 @@ extension AppDelegate {
                         panelId: panelId,
                         fallback: index.lifecycle(workspaceId: workspace.id, panelId: panelId)
                     )
+                    let indexedEvidence = index.processEvidence(
+                        workspaceId: workspace.id,
+                        panelId: panelId
+                    )
+                    let processEvidence: AgentHibernationProcessEvidence
+                    if case .confirmedProcessFree(let lease) = indexedEvidence,
+                       lease.workspaceId == workspace.id,
+                       lease.panelId == panelId,
+                       workspace.surfaceTTYDevices[panelId] == lease.ttyDevice,
+                       !workspace.isRemoteWorkspace,
+                       !workspace.isRemoteTerminalSurface(panelId),
+                       AgentHibernationController.passesPromptAndCloseGates(
+                           workspaceShellActivity: workspace.panelShellActivityStates[panelId],
+                           panelShellActivity: terminalPanel.shellActivity.state,
+                           rawNeedsConfirmClose: terminalPanel.needsConfirmClose(),
+                           workspaceNeedsConfirmClose: workspace.panelNeedsConfirmClose(panelId: panelId)
+                       ) {
+                        processEvidence = indexedEvidence
+                    } else {
+                        processEvidence = .unverified(
+                            processIDs: indexedEvidence.processIDs.union(
+                                index.processIDs(workspaceId: workspace.id, panelId: panelId)
+                            )
+                        )
+                    }
                     records.append(
                         AgentHibernationRecord(
                             key: key,
@@ -59,8 +84,7 @@ extension AppDelegate {
                             hasUnconfirmedTerminalInput: terminalInputAt > lifecycleChangeAt,
                             lastActivityAt: max(indexActivity, localActivity, createdAt),
                             isProtected: workspaceIsVisible && visiblePanelIds.contains(panelId),
-                            hasLiveProcess: index.hasLiveProcess(workspaceId: workspace.id, panelId: panelId),
-                            processIDs: index.processIDs(workspaceId: workspace.id, panelId: panelId)
+                            processEvidence: processEvidence
                         )
                     )
                 }

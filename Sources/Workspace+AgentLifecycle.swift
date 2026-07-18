@@ -296,10 +296,27 @@ extension Workspace {
         return AgentHibernationLifecycleState.effective(states)
     }
 
-    private func recordAgentLifecycleChange(panelId: UUID) {
+    func recordAgentHibernationLifecycleChange(panelId: UUID) {
+        invalidateProvisionalAgentHibernation(panelId: panelId)
         AgentHibernationController.shared.recordAgentLifecycleChange(
             workspaceId: id,
             panelId: panelId
         )
+    }
+
+    func recordAgentHibernationProcessChange(panelId: UUID) {
+        invalidateProvisionalAgentHibernation(panelId: panelId)
+        AgentHibernationController.shared.recordAgentProcessChange(
+            workspaceId: id,
+            panelId: panelId
+        )
+    }
+
+    private func invalidateProvisionalAgentHibernation(panelId: UUID) {
+        (panels[panelId] as? TerminalPanel)?.surface.invalidateProvisionalAgentHibernation()
+    }
+
+    private func recordAgentLifecycleChange(panelId: UUID) {
+        recordAgentHibernationLifecycleChange(panelId: panelId)
     }
 }

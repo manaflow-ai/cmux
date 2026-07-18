@@ -4578,6 +4578,10 @@ final class Workspace: Identifiable, ObservableObject {
         if let terminalPanel = panels[panelId] as? TerminalPanel {
             terminalPanel.updateShellActivityState(state)
         }
+        // Shell integration is one of the exact hibernation commit gates.
+        // Invalidate an in-flight teardown synchronously before any async
+        // native-free validation can claim it.
+        recordAgentHibernationLifecycleChange(panelId: panelId)
         let rootExitCandidate = agentRootExitCandidate(panelId: panelId, previousState: previousState, state: state)
         if let restoredAgent = restoredAgentSnapshotsByPanelId[panelId] {
             updateRestoredAgentResumeState(
@@ -4621,13 +4625,57 @@ final class Workspace: Identifiable, ObservableObject {
         return snapshot
     }
 
+    /// Restores hibernation state for a surface whose native runtime has not
+    /// been created. Live hibernation uses the async overload below.
+    @discardableResult
     func enterAgentHibernation(
         panelId: UUID,
         agent: SessionRestorableAgentSnapshot,
         lastActivityAt: Date
+    ) -> Bool {
+        guard let terminalPanel = panels[panelId] as? TerminalPanel,
+              !terminalPanel.isAgentHibernated,
+              agent.resumeCommand != nil,
+              terminalPanel.enterAgentHibernation(agent: agent, lastActivityAt: lastActivityAt) else {
+            return false
+        }
+        commitAgentHibernationMetadata(
+            panelId: panelId,
+            agent: agent
+        )
+        return true
+    }
+
+    func enterAgentHibernation(
+        panelId: UUID,
+        agent: SessionRestorableAgentSnapshot,
+        lastActivityAt: Date,
+        finalValidation: @escaping @Sendable () async -> Bool
+    ) async -> Bool {
+        guard let terminalPanel = panels[panelId] as? TerminalPanel,
+              !terminalPanel.isAgentHibernated,
+              agent.resumeCommand != nil,
+              await terminalPanel.enterAgentHibernation(
+                  agent: agent,
+                  lastActivityAt: lastActivityAt,
+                  finalValidation: finalValidation
+              ) else {
+            return false
+        }
+        commitAgentHibernationMetadata(
+            panelId: panelId,
+            agent: agent
+        )
+        if terminalPanel.surface.hasPendingInputForAgentHibernationResume {
+            _ = resumeAgentHibernation(panelId: panelId, focus: false)
+        }
+        return true
+    }
+
+    private func commitAgentHibernationMetadata(
+        panelId: UUID,
+        agent: SessionRestorableAgentSnapshot
     ) {
-        guard let terminalPanel = panels[panelId] as? TerminalPanel, !terminalPanel.isAgentHibernated else { return }
-        guard agent.resumeCommand != nil else { return }
         restoredAgentSnapshotsByPanelId[panelId] = agent
         restoredAgentResumeStatesByPanelId[panelId] = .manualResumeAvailable
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
@@ -4638,7 +4686,6 @@ final class Workspace: Identifiable, ObservableObject {
         if !keys.isEmpty {
             refreshTrackedAgentPorts()
         }
-        terminalPanel.enterAgentHibernation(agent: agent, lastActivityAt: lastActivityAt)
         AgentHookSessionStateWriter.recordLifecycle(agent: agent, state: .hibernated)
     }
 

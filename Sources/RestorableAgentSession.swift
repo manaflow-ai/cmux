@@ -760,7 +760,7 @@ enum AgentResumeCommandBuilder {
     }
 }
 
-struct SessionRestorableAgentSnapshot: Codable, Sendable {
+struct SessionRestorableAgentSnapshot: Codable, Sendable, Equatable {
     static let maxInlineStartupInputBytes = 900
 
     var kind: RestorableAgentKind
@@ -924,7 +924,12 @@ private enum AgentResumeScriptStore {
 }
 
 struct RestorableAgentSessionIndex: Sendable {
-    static let empty = RestorableAgentSessionIndex(entriesByPanel: [:])
+    static let empty = RestorableAgentSessionIndex(entriesByPanel: [:], processEvidenceByPanel: [:])
+
+    enum LoadMode: Sendable {
+        case standard
+        case hibernation(processSnapshot: CmuxTopProcessSnapshot)
+    }
 
     struct PanelKey: Hashable, Sendable {
         let workspaceId: UUID
@@ -978,9 +983,19 @@ struct RestorableAgentSessionIndex: Sendable {
 
     private let entriesByPanel: [PanelKey: Entry]
     private let entriesByPanelId: [UUID: Entry]
+    private let processEvidenceByPanel: [PanelKey: AgentHibernationProcessEvidence]
 
     func entry(workspaceId: UUID, panelId: UUID) -> Entry? {
         entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)] ?? entriesByPanelId[panelId]
+    }
+
+    func exactEntry(workspaceId: UUID, panelId: UUID) -> Entry? {
+        entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]
+    }
+
+    func processEvidence(workspaceId: UUID, panelId: UUID) -> AgentHibernationProcessEvidence {
+        processEvidenceByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]
+            ?? .unverified(processIDs: [])
     }
 
     func snapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
@@ -1045,7 +1060,8 @@ struct RestorableAgentSessionIndex: Sendable {
             homeDirectory: homeDirectory,
             fileManager: fileManager,
             registry: registry,
-            detectedSnapshots: [:]
+            detectedSnapshots: [:],
+            mode: .standard
         )
     }
 
@@ -1061,20 +1077,25 @@ struct RestorableAgentSessionIndex: Sendable {
         }.value
     }
 
-    static func loadIncludingProcessDetectedSnapshotsSynchronously(
+    private static func loadIncludingProcessDetectedSnapshotsSynchronously(
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default
     ) -> RestorableAgentSessionIndex {
         let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
+        let capturedAt = Date().timeIntervalSince1970
+        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
         let detectedSnapshots = processDetectedSnapshots(
             registry: registry,
-            fileManager: fileManager
+            fileManager: fileManager,
+            processSnapshot: processSnapshot,
+            capturedAt: capturedAt
         )
         return load(
             homeDirectory: homeDirectory,
             fileManager: fileManager,
             registry: registry,
-            detectedSnapshots: detectedSnapshots
+            detectedSnapshots: detectedSnapshots,
+            mode: .hibernation(processSnapshot: processSnapshot)
         )
     }
 
@@ -1083,12 +1104,27 @@ struct RestorableAgentSessionIndex: Sendable {
         fileManager: FileManager,
         registry: CmuxVaultAgentRegistry,
         detectedSnapshots: [PanelKey: ProcessDetectedSnapshotEntry],
+        mode: LoadMode = .standard,
         processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
             CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
         },
         processIdentityProvider: (Int) -> AgentPIDProcessIdentity? = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
             return AgentPIDProcessIdentity(pid: pid_t($0))
+        },
+        processExecutablePathProvider: (Int) -> String? = {
+            CmuxTopProcessSnapshot.processExecutablePath(for: $0)
+        },
+        processSessionIDProvider: (Int) -> pid_t? = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
+            let value = getsid(pid_t($0))
+            return value > 0 ? value : nil
+        },
+        ttyProcessIDsProvider: (Int64) -> CmuxTopTargetedPIDEnumeration = {
+            CmuxTopProcessSnapshot.processIDs(forTTYDevice: $0)
+        },
+        childProcessIDsProvider: (Int) -> CmuxTopTargetedPIDEnumeration = {
+            CmuxTopProcessSnapshot.childProcessIDs(of: $0)
         }
     ) -> RestorableAgentSessionIndex {
         let decoder = JSONDecoder()
@@ -1305,7 +1341,43 @@ struct RestorableAgentSessionIndex: Sendable {
             }
         }
 
-        return RestorableAgentSessionIndex(entriesByPanel: resolved)
+        let processEvidenceByPanel: [PanelKey: AgentHibernationProcessEvidence]
+        switch mode {
+        case .standard:
+            processEvidenceByPanel = [:]
+        case .hibernation(let processSnapshot):
+            let restorablePanelIDs = Set(resolved.keys.map(\.panelId))
+            // Surface UUIDs can survive workspace restore and can also collide
+            // across concurrently running cmux runtimes. Any live resolved
+            // session for a surface revokes process-free authority for every
+            // workspace key carrying that surface UUID.
+            let liveResolvedPanelIDs = Set(resolved.compactMap { key, entry in
+                entry.processIDs.isEmpty ? nil : key.panelId
+            })
+            let processFreeCandidateKeys = Set(resolved.compactMap { key, entry in
+                entry.processIDs.isEmpty && !liveResolvedPanelIDs.contains(key.panelId) ? key : nil
+            })
+            let topology = AgentHibernationProcessTopologyIndex(
+                processSnapshot: processSnapshot,
+                targetPanelKeys: processFreeCandidateKeys,
+                targetPanelIDs: restorablePanelIDs.subtracting(liveResolvedPanelIDs),
+                processArguments: processArgumentsProvider,
+                processIdentity: processIdentityProvider,
+                processExecutablePath: processExecutablePathProvider,
+                processSessionID: processSessionIDProvider,
+                ttyProcessIDs: ttyProcessIDsProvider,
+                childProcessIDs: childProcessIDsProvider
+            )
+            var evidence = topology.allEvidence
+            for (key, entry) in resolved where !entry.processIDs.isEmpty {
+                evidence[key] = .unverified(processIDs: entry.processIDs)
+            }
+            processEvidenceByPanel = evidence
+        }
+        return RestorableAgentSessionIndex(
+            entriesByPanel: resolved,
+            processEvidenceByPanel: processEvidenceByPanel
+        )
     }
 
     private static func matchingHookEntry(
@@ -2242,8 +2314,12 @@ struct RestorableAgentSessionIndex: Sendable {
         return rawValue
     }
 
-    private init(entriesByPanel: [PanelKey: Entry]) {
+    private init(
+        entriesByPanel: [PanelKey: Entry],
+        processEvidenceByPanel: [PanelKey: AgentHibernationProcessEvidence]
+    ) {
         self.entriesByPanel = entriesByPanel
+        self.processEvidenceByPanel = processEvidenceByPanel
         var entriesByPanelId: [UUID: Entry] = [:]
         for (key, entry) in entriesByPanel {
             let existing = entriesByPanelId[key.panelId]
