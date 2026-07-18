@@ -111,7 +111,7 @@ struct OmpSupportTests {
         }
     }
 
-    @Test func directProcessDetectionFallsBackToPartialSessionFileMatch() throws {
+    @Test func directProcessDetectionResolvesPiUUIDPrefixFromTimestampedSessionFile() throws {
         let root = try Self.makeTemporaryDirectory(prefix: "cmux-omp-partial-session-")
         defer { try? FileManager.default.removeItem(at: root) }
         let workspace = root.appendingPathComponent("repo", isDirectory: true)
@@ -121,14 +121,15 @@ struct OmpSupportTests {
         try FileManager.default.createDirectory(at: projectSessions, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
 
+        let sessionID = "019e1c86-def0-72c9-90d4-8543db20f981"
         let partial = try Self.writeSessionFile(
-            id: "prefix-partial-omp-session-suffix",
+            id: "2026-07-18T12-00-00-000Z_\(sessionID)",
             in: projectSessions,
             modifiedAt: Date(timeIntervalSince1970: 2_000)
         )
 
         let detected = try #require(Self.detectedOmpSnapshot(
-            arguments: ["/Users/example/.bun/bin/omp", "--session", "partial-omp-session"],
+            arguments: ["/Users/example/.bun/bin/omp", "--session", String(sessionID.prefix(12))],
             environment: [
                 "PWD": workspace.path,
                 "PI_CODING_AGENT_SESSION_DIR": sessionsRoot.path,
@@ -421,14 +422,16 @@ struct OmpSupportTests {
         #expect(legacyPi.id == "pi")
     }
 
-    @Test func piSessionDirectoryIndexEnumeratesThousandFileFixtureOncePerProcessScan() throws {
+    @Test func piSessionDirectoryIndexResolvesThousandUUIDPrefixesWithoutCandidateScans() throws {
         let root = try Self.makeTemporaryDirectory(prefix: "cmux-pi-session-index-")
         defer { try? FileManager.default.removeItem(at: root) }
 
         var expectedLatest: URL?
+        var sessionFiles: [(id: String, url: URL)] = []
         for index in 0..<1_000 {
+            let sessionID = String(format: "%08x-0000-4000-8000-000000000000", index)
             let url = root.appendingPathComponent(
-                String(format: "session-%04d.jsonl", index),
+                "2026-07-18T12-00-00-000Z_\(sessionID).jsonl",
                 isDirectory: false
             )
             try "{}\n".write(to: url, atomically: false, encoding: .utf8)
@@ -438,17 +441,42 @@ struct OmpSupportTests {
                 ofItemAtPath: url.path
             )
             expectedLatest = url
+            sessionFiles.append((id: sessionID, url: url))
         }
 
         var index = PiSessionDirectoryIndex(fileManager: .default)
         #expect(index.newestJSONLFile(in: root.path) == expectedLatest)
-        #expect(
-            index.resolvedSessionPath("session-0500", in: root.path)
-                == root.appendingPathComponent("session-0500.jsonl").path
-        )
+        for session in sessionFiles {
+            let resolved = try #require(index.resolvedSessionPath(String(session.id.prefix(8)), in: root.path))
+            #expect(Self.normalizedPath(resolved) == Self.normalizedPath(session.url.path))
+        }
+        let exactBasename = sessionFiles[500].url.deletingPathExtension().lastPathComponent
+        let exact = try #require(index.resolvedSessionPath(exactBasename, in: root.path))
+        #expect(Self.normalizedPath(exact) == Self.normalizedPath(sessionFiles[500].url.path))
         #expect(index.newestJSONLFile(in: root.path) == expectedLatest)
         #expect(index.directoryEnumerationCount == 1)
-        #expect(index.candidateQueryVisitCount == 0)
+        #expect(index.candidateQueryVisitCount <= 2_000)
+    }
+
+    @Test func piSessionDirectoryIndexChoosesNewestAmbiguousUUIDPrefix() throws {
+        let root = try Self.makeTemporaryDirectory(prefix: "cmux-pi-session-prefix-tie-")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let older = try Self.writeSessionFile(
+            id: "2026-07-18T12-00-00-000Z_019e1c86-def0-72c9-90d4-8543db20f981",
+            in: root,
+            modifiedAt: Date(timeIntervalSince1970: 1_000)
+        )
+        let newer = try Self.writeSessionFile(
+            id: "2026-07-18T12-00-01-000Z_019e1c86-def0-72c9-90d4-8543db20f982",
+            in: root,
+            modifiedAt: Date(timeIntervalSince1970: 2_000)
+        )
+
+        var index = PiSessionDirectoryIndex(fileManager: .default)
+        let resolved = try #require(index.resolvedSessionPath("019e1c86-def0", in: root.path))
+        #expect(Self.normalizedPath(resolved) == Self.normalizedPath(newer.path))
+        #expect(Self.normalizedPath(resolved) != Self.normalizedPath(older.path))
+        #expect(index.resolvedSessionPath("def0-72c9", in: root.path) == nil)
     }
 
     @Test func piSessionDirectoryIndexBreaksEqualMtimeTiesByStablePath() throws {
