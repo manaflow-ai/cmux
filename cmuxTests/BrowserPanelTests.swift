@@ -998,6 +998,31 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         XCTAssertFalse(DiffViewerLoadingPage.owns(url: completedURL, expectedURL: expectedURL))
     }
 
+    func testDiffViewerPendingOwnershipPreservesRenderedOpeningPageError() throws {
+        let token = UUID().uuidString.lowercased()
+        let openingURL = try XCTUnwrap(CmuxDiffViewerURLSchemeHandler.diffViewerURL(
+            token: token,
+            requestPath: "/diff-group-opening.html"
+        ))
+        let expectedURL = DiffViewerLoadingPage.url.absoluteString
+
+        XCTAssertTrue(DiffViewerLoadingPage.isPending(
+            url: DiffViewerLoadingPage.url,
+            expectedURL: expectedURL,
+            openingDocumentHasPendingMarker: false
+        ))
+        XCTAssertTrue(DiffViewerLoadingPage.isPending(
+            url: openingURL,
+            expectedURL: expectedURL,
+            openingDocumentHasPendingMarker: true
+        ))
+        XCTAssertFalse(DiffViewerLoadingPage.isPending(
+            url: openingURL,
+            expectedURL: expectedURL,
+            openingDocumentHasPendingMarker: false
+        ))
+    }
+
     func testDiffViewerSchemeLoadsSameOriginModuleFromAllowlist() throws {
         let token = UUID().uuidString.lowercased()
         let rootURL = trustedDiffViewerTestRoot()
