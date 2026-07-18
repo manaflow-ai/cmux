@@ -12,7 +12,14 @@ internal struct SystemBackendServiceHandoffLock: BackendServiceHandoffLocking, S
     private let expectedUserID: UInt32
 
     init(runtimePaths: BackendServiceRuntimePaths, expectedUserID: UInt32) {
-        lockURL = runtimePaths.serviceInstallationRootURL
+        self.init(
+            installationRootURL: runtimePaths.serviceInstallationRootURL,
+            expectedUserID: expectedUserID
+        )
+    }
+
+    init(installationRootURL: URL, expectedUserID: UInt32) {
+        lockURL = installationRootURL
             .appendingPathComponent(".service-control.lock", isDirectory: false)
         self.expectedUserID = expectedUserID
     }

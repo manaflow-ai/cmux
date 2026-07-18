@@ -187,6 +187,7 @@ public actor SystemBackendServiceRegistration: BackendServiceRegistration,
     private let installer: BackendServicePairInstaller
     private let launchController: any BackendServiceLaunchControlling
     private let propertyListURL: URL
+    private let serviceControlLock: any BackendServiceHandoffLocking
 
     /// Creates the production per-user service adapter.
     public init(
@@ -204,7 +205,11 @@ public actor SystemBackendServiceRegistration: BackendServiceRegistration,
                 expectedUserID: userID
             ),
             propertyListURL: runtimePaths.launchAgentPropertyListURL,
-            launchController: SystemBackendServiceLaunchController(userID: userID)
+            launchController: SystemBackendServiceLaunchController(userID: userID),
+            serviceControlLock: SystemBackendServiceHandoffLock(
+                runtimePaths: runtimePaths,
+                expectedUserID: userID
+            )
         )
     }
 
@@ -212,12 +217,17 @@ public actor SystemBackendServiceRegistration: BackendServiceRegistration,
         descriptor: BackendServiceDescriptor,
         installer: BackendServicePairInstaller,
         propertyListURL: URL,
-        launchController: any BackendServiceLaunchControlling
+        launchController: any BackendServiceLaunchControlling,
+        serviceControlLock: (any BackendServiceHandoffLocking)? = nil
     ) {
         self.descriptor = descriptor
         self.installer = installer
         self.propertyListURL = propertyListURL
         self.launchController = launchController
+        self.serviceControlLock = serviceControlLock ?? SystemBackendServiceHandoffLock(
+            installationRootURL: installer.installationRootURL,
+            expectedUserID: installer.expectedUserID
+        )
     }
 
     public func prepareBundledPair() throws -> BackendServiceInstalledPair {
@@ -368,14 +378,80 @@ public actor SystemBackendServiceRegistration: BackendServiceRegistration,
     }
 
     /// Explicit teardown is the only operation allowed to stop a loaded daemon.
-    public func unregister() throws {
-        if FileManager.default.fileExists(atPath: propertyListURL.path) {
-            try validateLaunchAgentFile(propertyListURL)
+    public func unregister() async throws {
+        let loadedSnapshot = try activeHandoffDescriptor()
+        let propertyListSnapshot: Data?
+        if let loadedSnapshot {
+            propertyListSnapshot = loadedSnapshot.propertyListData
+        } else {
+            propertyListSnapshot = try snapshotLaunchAgentDataIfPresent()
         }
-        try launchController.bootout(label: descriptor.serviceLabel)
-        if FileManager.default.fileExists(atPath: propertyListURL.path) {
-            try FileManager.default.removeItem(at: propertyListURL)
+        let lease = try await serviceControlLock.acquire()
+        do {
+            try unregisterUnderServiceControlLock(
+                loadedSnapshot: loadedSnapshot,
+                propertyListSnapshot: propertyListSnapshot
+            )
+        } catch {
+            await lease.release()
+            throw error
         }
+        await lease.release()
+    }
+
+    private func unregisterUnderServiceControlLock(
+        loadedSnapshot: BackendServiceHandoffLaunchDescriptor?,
+        propertyListSnapshot: Data?
+    ) throws {
+        let active = try activeHandoffDescriptor()
+        guard active == loadedSnapshot else {
+            if let loadedSnapshot {
+                throw BackendServicePairError.loadedDescriptorChanged(
+                    expected: loadedSnapshot.pair.backendExecutableURL,
+                    actual: active?.pair.backendExecutableURL
+                )
+            }
+            throw BackendServicePairError.launchAgentDescriptorChanged(propertyListURL)
+        }
+        if let loadedSnapshot {
+            try bootoutExact(loadedSnapshot)
+        }
+        let replacement = try launchController.loadedProgramURL(
+            label: descriptor.serviceLabel
+        )
+        guard replacement == nil else {
+            throw BackendServicePairError.loadedDescriptorChanged(
+                expected: loadedSnapshot?.pair.backendExecutableURL ?? propertyListURL,
+                actual: replacement
+            )
+        }
+        try removeLaunchAgentIfExact(propertyListSnapshot)
+    }
+
+    private func snapshotLaunchAgentDataIfPresent() throws -> Data? {
+        guard FileManager.default.fileExists(atPath: propertyListURL.path) else {
+            return nil
+        }
+        try validateLaunchAgentFile(propertyListURL)
+        return try Data(contentsOf: propertyListURL)
+    }
+
+    private func removeLaunchAgentIfExact(_ expectedData: Data?) throws {
+        guard let expectedData else {
+            guard !FileManager.default.fileExists(atPath: propertyListURL.path) else {
+                throw BackendServicePairError.launchAgentDescriptorChanged(propertyListURL)
+            }
+            return
+        }
+        guard FileManager.default.fileExists(atPath: propertyListURL.path) else {
+            return
+        }
+        try validateLaunchAgentFile(propertyListURL)
+        guard try Data(contentsOf: propertyListURL) == expectedData else {
+            throw BackendServicePairError.launchAgentDescriptorChanged(propertyListURL)
+        }
+        try FileManager.default.removeItem(at: propertyListURL)
+        try synchronize(propertyListURL.deletingLastPathComponent(), isDirectory: true)
     }
 
     public func openSystemSettingsLoginItems() {

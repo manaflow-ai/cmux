@@ -330,6 +330,125 @@ struct SystemBackendServiceRegistrationTests {
         #expect(controller.bootoutCount == 0)
     }
 
+    @Test("unregister preserves a replacement that wins while waiting for service lock")
+    func unregisterRevalidatesSnapshotAfterLockAcquisition() async throws {
+        let installRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-unregister-lock-race-\(UUID())", isDirectory: true)
+        let launchAgent = installRoot.appendingPathComponent("service.plist")
+        let controller = FakeLaunchController()
+        let lock = ControllableServiceControlLock()
+        let v1 = try PairFixture(buildID: buildID("6"), installationRoot: installRoot)
+        let v2 = try PairFixture(buildID: buildID("7"), installationRoot: installRoot)
+        let registration1 = SystemBackendServiceRegistration(
+            descriptor: .production,
+            installer: v1.installer,
+            propertyListURL: launchAgent,
+            launchController: controller,
+            serviceControlLock: lock
+        )
+        let registration2 = SystemBackendServiceRegistration(
+            descriptor: .production,
+            installer: v2.installer,
+            propertyListURL: launchAgent,
+            launchController: controller
+        )
+        let pair1 = try await registration1.prepareBundledPair()
+        let pair2 = try await registration2.prepareBundledPair()
+        try await registration1.register(pair1)
+        let original = try #require(try await registration1.activeHandoffDescriptor())
+
+        controller.loadedProgram = nil
+        let replacement = try await registration2.writeHandoffDescriptor(for: pair2)
+        try await registration1.restoreHandoffDescriptor(original)
+        controller.loadedProgram = pair1.backendExecutableURL
+        await lock.runOnAcquire {
+            try replaceLaunchAgent(at: launchAgent, with: replacement.propertyListData)
+            controller.loadedProgram = pair2.backendExecutableURL
+        }
+
+        await #expect(throws: BackendServicePairError.self) {
+            try await registration1.unregister()
+        }
+        #expect(await lock.acquisitionCount == 1)
+        #expect(await lock.releaseCount == 1)
+        #expect(controller.bootoutCount == 0)
+        #expect(controller.loadedProgram == pair2.backendExecutableURL)
+        #expect(try Data(contentsOf: launchAgent) == replacement.propertyListData)
+    }
+
+    @Test("unregister preserves a replacement loaded during exact bootout")
+    func unregisterPreservesReplacementAfterExactBootout() async throws {
+        let installRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-unregister-bootout-race-\(UUID())", isDirectory: true)
+        let launchAgent = installRoot.appendingPathComponent("service.plist")
+        let controller = FakeLaunchController()
+        let lock = ControllableServiceControlLock()
+        let v1 = try PairFixture(buildID: buildID("8"), installationRoot: installRoot)
+        let v2 = try PairFixture(buildID: buildID("9"), installationRoot: installRoot)
+        let registration1 = SystemBackendServiceRegistration(
+            descriptor: .production,
+            installer: v1.installer,
+            propertyListURL: launchAgent,
+            launchController: controller,
+            serviceControlLock: lock
+        )
+        let registration2 = SystemBackendServiceRegistration(
+            descriptor: .production,
+            installer: v2.installer,
+            propertyListURL: launchAgent,
+            launchController: controller
+        )
+        let pair1 = try await registration1.prepareBundledPair()
+        let pair2 = try await registration2.prepareBundledPair()
+        try await registration1.register(pair1)
+        let original = try #require(try await registration1.activeHandoffDescriptor())
+
+        controller.loadedProgram = nil
+        let replacement = try await registration2.writeHandoffDescriptor(for: pair2)
+        try await registration1.restoreHandoffDescriptor(original)
+        controller.loadedProgram = pair1.backendExecutableURL
+        controller.runOnBootout = {
+            try replaceLaunchAgent(at: launchAgent, with: replacement.propertyListData)
+            controller.loadedProgram = pair2.backendExecutableURL
+        }
+
+        await #expect(throws: BackendServicePairError.self) {
+            try await registration1.unregister()
+        }
+        #expect(await lock.acquisitionCount == 1)
+        #expect(await lock.releaseCount == 1)
+        #expect(controller.bootoutCount == 1)
+        #expect(controller.loadedProgram == pair2.backendExecutableURL)
+        #expect(try Data(contentsOf: launchAgent) == replacement.propertyListData)
+    }
+
+    @Test("unregister removes only the exact loaded descriptor")
+    func unregisterRemovesExactDescriptorUnderServiceLock() async throws {
+        let installRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-unregister-exact-\(UUID())", isDirectory: true)
+        let launchAgent = installRoot.appendingPathComponent("service.plist")
+        let controller = FakeLaunchController()
+        let lock = ControllableServiceControlLock()
+        let fixture = try PairFixture(buildID: buildID("a"), installationRoot: installRoot)
+        let registration = SystemBackendServiceRegistration(
+            descriptor: .production,
+            installer: fixture.installer,
+            propertyListURL: launchAgent,
+            launchController: controller,
+            serviceControlLock: lock
+        )
+        let pair = try await registration.prepareBundledPair()
+        try await registration.register(pair)
+
+        try await registration.unregister()
+
+        #expect(await lock.acquisitionCount == 1)
+        #expect(await lock.releaseCount == 1)
+        #expect(controller.bootoutCount == 1)
+        #expect(controller.loadedProgram == nil)
+        #expect(!FileManager.default.fileExists(atPath: launchAgent.path))
+    }
+
     @Test("tampered installed helper never reaches launchctl")
     func tamperedRendererFailsBeforeBootstrap() async throws {
         let fixture = try PairFixture(buildID: buildID("1"))
@@ -374,6 +493,7 @@ private struct TimingOutCommandRunner: BackendServiceCommandRunning {
 private final class FakeLaunchController: BackendServiceLaunchControlling, @unchecked Sendable {
     var loadedProgram: URL?
     var competingProgramOnBootstrap: URL?
+    var runOnBootout: (() throws -> Void)?
     var lastBootstrappedPropertyList: URL?
     var bootstrapCount = 0
     var bootoutCount = 0
@@ -405,9 +525,12 @@ private final class FakeLaunchController: BackendServiceLaunchControlling, @unch
         loadedProgram = URL(fileURLWithPath: program)
     }
 
-    func bootout(label _: String) {
+    func bootout(label _: String) throws {
         bootoutCount += 1
         loadedProgram = nil
+        let operation = runOnBootout
+        runOnBootout = nil
+        try operation?()
     }
 
     func rendererRestartPath() -> URL? {
@@ -431,4 +554,42 @@ private final class FakeLaunchController: BackendServiceLaunchControlling, @unch
         loadedProgram = URL(fileURLWithPath: program)
         bootstrapCount += 1
     }
+}
+
+private actor ControllableServiceControlLock: BackendServiceHandoffLocking {
+    private var operation: (@Sendable () throws -> Void)?
+    private(set) var acquisitionCount = 0
+    private(set) var releaseCount = 0
+
+    func runOnAcquire(_ operation: @escaping @Sendable () throws -> Void) {
+        self.operation = operation
+    }
+
+    func acquire() async throws -> any BackendServiceHandoffLockLease {
+        acquisitionCount += 1
+        let operation = operation
+        self.operation = nil
+        try operation?()
+        return ControllableServiceControlLockLease(lock: self)
+    }
+
+    func recordRelease() {
+        releaseCount += 1
+    }
+}
+
+private struct ControllableServiceControlLockLease: BackendServiceHandoffLockLease, Sendable {
+    let lock: ControllableServiceControlLock
+
+    func release() async {
+        await lock.recordRelease()
+    }
+}
+
+private func replaceLaunchAgent(at url: URL, with data: Data) throws {
+    try data.write(to: url, options: .atomic)
+    try FileManager.default.setAttributes(
+        [.posixPermissions: 0o600],
+        ofItemAtPath: url.path
+    )
 }
