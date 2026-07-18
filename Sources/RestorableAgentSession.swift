@@ -1430,8 +1430,19 @@ struct RestorableAgentSessionIndex: Sendable {
         kind: RestorableAgentKind
     ) -> AgentLaunchCommandSnapshot? {
         guard let launchCommand else { return nil }
+        // A canonical replay plan intentionally has no executable or argv. Any
+        // captured executable must independently prove the actual agent entrypoint;
+        // the launcher label alone can be inherited or forged by older records.
+        let isCanonicalCapture = launchCommand.arguments.isEmpty
+            && normalizedNonEmptyValue(launchCommand.executablePath) == nil
         guard AgentLaunchCaptureTrust.launcherDescribesKind(launchCommand.launcher, kind: kind.rawValue),
-              !AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(launchCommand.arguments) else {
+              !AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(launchCommand.arguments),
+              isCanonicalCapture || AgentLaunchCaptureTrust.capturedArgumentsDescribeKind(
+                  launcher: launchCommand.launcher,
+                  executablePath: launchCommand.executablePath,
+                  arguments: launchCommand.arguments,
+                  kind: kind.rawValue
+              ) else {
             return nil
         }
         return launchCommand
