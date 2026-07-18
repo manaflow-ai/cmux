@@ -189,6 +189,23 @@ enum DiffViewerLoadingPage {
             .requestPath
             .hasSuffix("-opening.html") == true
     }
+
+    static func isPending(
+        url currentURL: URL?,
+        expectedURL: String,
+        openingDocumentHasPendingMarker: Bool
+    ) -> Bool {
+        guard let currentURL else { return false }
+        if currentURL.absoluteString == expectedURL {
+            return true
+        }
+        guard CmuxDiffViewerURLSchemeHandler.diffViewerComponents(from: currentURL)?
+            .requestPath
+            .hasSuffix("-opening.html") == true else {
+            return false
+        }
+        return openingDocumentHasPendingMarker
+    }
 }
 
 extension BrowserPanel {

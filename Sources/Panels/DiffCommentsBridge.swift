@@ -279,6 +279,18 @@ extension BrowserPanel {
         DiffViewerLoadingPage.owns(url: webView.url ?? currentURL, expectedURL: expectedURL)
     }
 
+    func isShowingPendingDiffViewerLoadingState(expectedURL: String) -> Bool {
+        let visibleURL = webView.url ?? currentURL
+        let openingDocumentHasPendingMarker = visibleURL.flatMap {
+            CmuxDiffViewerURLSchemeHandler.shared.documentHasPendingMarker(for: $0)
+        } ?? false
+        return DiffViewerLoadingPage.isPending(
+            url: visibleURL,
+            expectedURL: expectedURL,
+            openingDocumentHasPendingMarker: openingDocumentHasPendingMarker
+        )
+    }
+
     @discardableResult
     func navigateFromCLI(_ url: String, expectedURL: String? = nil) -> Bool {
         guard expectedURL.map(hasCurrentURL) != false else { return false }
@@ -294,6 +306,19 @@ extension BrowserPanel {
 }
 
 extension CmuxDiffViewerURLSchemeHandler {
+    func documentHasPendingMarker(for url: URL) -> Bool? {
+        guard let file = registeredFile(for: url),
+              let handle = try? FileHandle(forReadingFrom: file.fileURL) else {
+            return nil
+        }
+        defer { try? handle.close() }
+        guard let head = try? handle.read(upToCount: 8192),
+              let text = String(data: head, encoding: .utf8) else {
+            return nil
+        }
+        return text.contains("data-cmux-diff-pending=\"true\"")
+    }
+
     func allowsNavigation(to url: URL) -> Bool {
         guard url.scheme == Self.scheme,
               url.user == nil,
