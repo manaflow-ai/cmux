@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { readFile } from "fs/promises";
 import { NextRequest } from "next/server";
+import { join } from "path";
+import sharp from "sharp";
 import { GET } from "../app/[locale]/opengraph-image/route";
 import {
   openGraphImageResponse,
@@ -9,6 +12,17 @@ import { articleSchema } from "../app/[locale]/components/json-ld";
 import { openGraphImage } from "../i18n/seo";
 import { routing } from "../i18n/routing";
 import middleware from "../proxy";
+
+async function withoutNetwork<T>(operation: () => Promise<T>): Promise<T> {
+  const fetchImplementation = globalThis.fetch;
+  globalThis.fetch = () =>
+    Promise.reject(new Error("Open Graph rendering must not use the network"));
+  try {
+    return await operation();
+  } finally {
+    globalThis.fetch = fetchImplementation;
+  }
+}
 
 describe("Open Graph image discovery", () => {
   test("serves the advertised image endpoint for every locale", async () => {
@@ -61,7 +75,9 @@ describe("Open Graph image discovery", () => {
     test(
       `renders the ${locale} image response body`,
       async () => {
-        const response = await renderOpenGraphImage(locale);
+        const response = await withoutNetwork(() =>
+          renderOpenGraphImage(locale),
+        );
         const body = new Uint8Array(await response.arrayBuffer());
 
         expect(response.status).toBe(200);
@@ -69,10 +85,47 @@ describe("Open Graph image discovery", () => {
         expect([...body.slice(0, 8)]).toEqual([
           137, 80, 78, 71, 13, 10, 26, 10,
         ]);
+
+        const { data } = await sharp(body)
+          .extract({ left: 280, top: 1080, width: 1500, height: 150 })
+          .removeAlpha()
+          .raw()
+          .toBuffer({ resolveWithObject: true });
+        let visibleTaglinePixels = 0;
+        for (let offset = 0; offset < data.length; offset += 3) {
+          if (
+            data[offset] > 140 &&
+            data[offset + 1] > 140 &&
+            data[offset + 2] > 140
+          ) {
+            visibleTaglinePixels += 1;
+          }
+        }
+        expect(visibleTaglinePixels).toBeGreaterThan(5_000);
       },
       15_000,
     );
   }
+
+  test("keeps the README hero synchronized with the landing screenshot", async () => {
+    const [landingScreenshot, readmeScreenshot] = await Promise.all([
+      readFile(
+        join(
+          process.cwd(),
+          "app",
+          "[locale]",
+          "(landing)",
+          "assets",
+          "landing-image.png",
+        ),
+      ),
+      readFile(
+        join(process.cwd(), "..", "docs", "assets", "main-first-image.png"),
+      ),
+    ]);
+
+    expect(readmeScreenshot.equals(landingScreenshot)).toBe(true);
+  });
 
   test("uses the crawlable localized image in Article structured data", () => {
     const article = articleSchema({
