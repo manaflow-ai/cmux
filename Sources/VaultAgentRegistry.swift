@@ -169,6 +169,12 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
         if matchesPersistedBuiltInHistory(current: Self.builtInOmp) {
             return Self.builtInOmp
         }
+        if matchesPersistedBuiltInWithoutFork(current: Self.builtInGrok) {
+            return Self.builtInGrok
+        }
+        if matchesPersistedBuiltInWithoutFork(current: Self.builtInCampfire) {
+            return Self.builtInCampfire
+        }
         return self
     }
 
@@ -180,6 +186,13 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
         }
         var candidate = self
         candidate.iconAssetName = current.iconAssetName
+        candidate.forkCommand = current.forkCommand
+        return candidate == current
+    }
+
+    private func matchesPersistedBuiltInWithoutFork(current: CmuxVaultAgentRegistration) -> Bool {
+        guard forkCommand == nil else { return false }
+        var candidate = self
         candidate.forkCommand = current.forkCommand
         return candidate == current
     }
@@ -204,6 +217,7 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
             detect: CmuxVaultAgentDetectRule(processNames: ["grok", "grok-macos-aarch64", "grok-macos-aarch"]),
             sessionIdSource: .grokSessionDirectory,
             resumeCommand: "{{executable}} -r {{sessionId}}",
+            forkCommand: "{{executable}} --resume {{sessionId}} --fork-session",
             cwd: .preserve,
             sessionDirectory: "~/.grok/sessions"
         )

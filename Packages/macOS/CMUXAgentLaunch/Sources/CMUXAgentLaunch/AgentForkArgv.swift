@@ -104,6 +104,34 @@ public struct AgentForkArgv: Sendable, Equatable {
                 return nil
             }
             return [parts.executable, "--session", sessionId, "--fork"] + preserved
+        case "grok", "codebuddy", "qoder":
+            let fallbackExecutable: String
+            switch kind {
+            case "codebuddy": fallbackExecutable = "codebuddy"
+            case "qoder": fallbackExecutable = "qodercli"
+            default: fallbackExecutable = "grok"
+            }
+            let parts = commandParts(
+                executablePath: executablePath,
+                arguments: arguments,
+                fallbackExecutable: fallbackExecutable
+            )
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: kind, args: parts.tail) else {
+                return nil
+            }
+            return [parts.executable, "--resume", sessionId, "--fork-session"] + preserved
+        case "amp":
+            let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "amp")
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "amp", args: parts.tail) else {
+                return nil
+            }
+            return [parts.executable, "threads", "fork", sessionId] + preserved
+        case "factory":
+            let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "droid")
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "factory", args: parts.tail) else {
+                return nil
+            }
+            return [parts.executable, "--fork", sessionId] + preserved
         case "pi":
             return withForkSessionValue(
                 kind: "pi",

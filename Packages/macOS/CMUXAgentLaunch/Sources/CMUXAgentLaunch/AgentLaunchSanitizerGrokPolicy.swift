@@ -19,6 +19,7 @@ extension AgentLaunchSanitizer {
             "-r",
             "--rules",
             "--sandbox",
+            "--session-id",
             "--system-prompt-override",
             "--tools",
             "--worktree",
@@ -56,12 +57,16 @@ extension AgentLaunchSanitizer {
             "--restore-code",
             "--resume",
             "-r",
+            "--fork-session",
+            "--session-id",
             "--worktree",
             "-w"
         ],
         droppedOptionPrefixes: [
             "--resume=",
             "-r=",
+            "--fork-session=",
+            "--session-id=",
             "--worktree=",
             "-w="
         ],

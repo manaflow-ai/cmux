@@ -118,16 +118,15 @@ public enum AgentLaunchSanitizer {
         case "campfire":
             return preserveOptions(args, policy: campfirePolicy)
         case "amp":
-            // Strip the `threads continue <id>` resume sub-subcommand if the
-            // captured launch already started by resuming a thread, so we
-            // don't double-add it. Supports the documented short aliases:
-            // `t`/`thread` for `threads`, and `c` for `continue`.
+            // Strip an existing `threads continue|fork <id>` session selector
+            // before constructing a fresh resume or fork command. Supports the
+            // documented `t`/`thread` aliases and `c` for `continue`.
             var tail = args
             let threadsAliases: Set<String> = ["threads", "thread", "t"]
-            let continueAliases: Set<String> = ["continue", "c"]
+            let sessionCommandAliases: Set<String> = ["continue", "c", "fork"]
             if let first = tail.first, threadsAliases.contains(first) {
                 tail.removeFirst()
-                if let next = tail.first, continueAliases.contains(next) {
+                if let next = tail.first, sessionCommandAliases.contains(next) {
                     tail.removeFirst()
                     if let candidate = tail.first, !candidate.hasPrefix("-") {
                         tail.removeFirst()
