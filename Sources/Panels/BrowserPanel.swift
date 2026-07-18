@@ -1002,6 +1002,7 @@ private let browserEmbeddedNavigationSchemes: Set<String> = [
     "http",
     "https",
     "javascript",
+    "webkit-extension",
 ]
 
 func browserShouldOpenURLExternally(_ url: URL) -> Bool {
