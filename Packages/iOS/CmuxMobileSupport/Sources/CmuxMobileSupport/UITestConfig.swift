@@ -159,6 +159,15 @@ public struct UITestConfig {
             .agentChatInlinePreviewEnabled
     }
 
+    /// Whether the self-playing semantic-toast showcase is enabled.
+    ///
+    /// `CMUX_UITEST_MOBILE_TOAST_PREVIEW=1` bypasses auth and pairing so UI
+    /// verification can record the production host, card, and transitions.
+    public static var mobileToastPreviewEnabled: Bool {
+        UITestEnvironmentConfig(environment: ProcessInfo.processInfo.environment)
+            .mobileToastPreviewEnabled
+    }
+
     /// Whether mock data is enabled for an explicit environment.
     ///
     /// In release builds this is always `false`. In DEBUG builds, an explicit

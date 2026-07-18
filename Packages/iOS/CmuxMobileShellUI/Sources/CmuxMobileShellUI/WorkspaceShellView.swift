@@ -1,6 +1,7 @@
 import Foundation
 import CmuxMobileShell
 import CmuxMobileShellModel
+import CmuxMobileSupport
 import CmuxMobileWorkspace
 import SwiftUI
 #if os(iOS)
@@ -25,10 +26,9 @@ struct WorkspaceShellView: View {
     @State private var hasPresentedSplitDetail = false
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var macSelection: WorkspaceMacSelection = .all
-    @State var workspaceActionToast: WorkspaceActionToastContent?
     @State private var pendingMacSwitchID: String?
     @State private var pendingMacSwitchGeneration: UInt64 = 0
-    var workspaceActionToastClock: any Clock<Duration> = ContinuousClock()
+    @Environment(MobileToastPresenter.self) var toastPresenter
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -57,20 +57,7 @@ struct WorkspaceShellView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            layoutContent
-            if let workspaceActionToast {
-                WorkspaceActionToast(
-                    content: workspaceActionToast,
-                    clock: workspaceActionToastClock,
-                    dismiss: dismissWorkspaceActionToast
-                )
-                .padding(.horizontal, 16)
-                .padding(.bottom, 12)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-                .accessibilityIdentifier("MobileWorkspaceActionToast")
-            }
-        }
+        layoutContent
     }
 
     private var layoutContent: some View {

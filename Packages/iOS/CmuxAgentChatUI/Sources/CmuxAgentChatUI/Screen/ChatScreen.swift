@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import CmuxMobileSupport
 import SwiftUI
 
 #if canImport(UIKit)
@@ -18,6 +19,7 @@ public struct ChatScreen: View {
     @State private var contentCache = ChatContentCache()
     @State private var selectedBlockSelection: ChatBlockSelection?
     @State private var selectedArtifact: ChatArtifactPathSelection?
+    @Environment(MobileToastPresenter.self) private var toastPresenter
 
     private let detailBuilder = ChatBlockDetailBuilder()
     @Binding private var draft: String
@@ -66,18 +68,7 @@ public struct ChatScreen: View {
     }
 
     public var body: some View {
-        ZStack(alignment: .top) {
-            chatLayout
-            // On iOS 26 `chatLayout` underlaps the top chrome
-            // (`chatTopBarUnderlapContainer` ignores the top safe area so the
-            // native scroll-edge effect can blend transcript rows into the
-            // bar). The error toast must stay *below* the navigation bar, so it
-            // lives as a ZStack sibling that still respects the top safe area —
-            // an `.overlay` on the underlapped layout would inherit the
-            // underlap and render the banner under the bar.
-            errorBanner
-        }
-        .animation(.snappy(duration: 0.2), value: store.lastErrorDescription)
+        chatLayout
         .animation(.snappy(duration: 0.22), value: store.agentState == .ended)
         .modifier(ChatScreenChrome(
             store: store,
@@ -105,8 +96,13 @@ public struct ChatScreen: View {
         }
         #if canImport(UIKit)
         .onChange(of: store.rows.last?.id) { announceLatestAgentProse() }
-        .onChange(of: store.lastErrorDescription) { announceLastError() }
         #endif
+        .onChange(of: store.lastErrorDescription, initial: true) { _, error in
+            synchronizeErrorToast(error)
+        }
+        .onDisappear {
+            toastPresenter.dismiss(coalescingKey: errorToastCoalescingKey)
+        }
     }
 
     private var artifactIsPresented: Binding<Bool> {
@@ -116,38 +112,6 @@ public struct ChatScreen: View {
                 if !isPresented { selectedArtifact = nil }
             }
         )
-    }
-
-    @ViewBuilder
-    private var errorBanner: some View {
-        if let error = store.lastErrorDescription {
-            Text(error)
-                .font(.caption)
-                .foregroundStyle(.white)
-                .lineLimit(2)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(.red.opacity(0.92), in: .capsule)
-                .padding(.top, 4)
-                .transition(.move(edge: .top).combined(with: .opacity))
-                .accessibilityIdentifier("ChatErrorBanner")
-                .onTapGesture { store.dismissError() }
-                // Swipe the toast up to dismiss (it animates out via the
-                // move(edge: .top) transition), in addition to tap and the
-                // bounded auto-dismiss below.
-                .gesture(
-                    DragGesture(minimumDistance: 8)
-                        .onEnded { value in
-                            if value.translation.height < -8 { store.dismissError() }
-                        }
-                )
-                // Bounded auto-dismiss: the view is keyed on the error text,
-                // so a new error restarts the timer subscription.
-                .id(error)
-                .onReceive(Timer.publish(every: 8, on: .main, in: .common).autoconnect()) { _ in
-                    store.dismissError()
-                }
-        }
     }
 
     @ViewBuilder
@@ -227,14 +191,39 @@ public struct ChatScreen: View {
         AccessibilityNotification.Announcement(prose.text).post()
     }
 
-    /// Speaks the error banner's text when an error surfaces.
-    private func announceLastError() {
-        guard UIAccessibility.isVoiceOverRunning,
-              let error = store.lastErrorDescription
-        else { return }
-        AccessibilityNotification.Announcement(error).post()
-    }
     #endif
+
+    private var errorToastCoalescingKey: String {
+        "chat-error-\(store.descriptor.id)"
+    }
+
+    private func synchronizeErrorToast(_ error: String?) {
+        guard let error else {
+            toastPresenter.dismiss(coalescingKey: errorToastCoalescingKey)
+            return
+        }
+
+        let coalescingKey = errorToastCoalescingKey
+        toastPresenter.present(
+            .error(
+                title: .localized(
+                    "chat.error.title",
+                    defaultValue: "Something went wrong",
+                    bundle: .module,
+                    comment: "Title for a transient agent chat error"
+                ),
+                message: .verbatim(error),
+                coalescingKey: coalescingKey,
+                accessibilityIdentifier: "MobileChatErrorToast",
+                playsFeedback: false
+            )
+        ) { [weak store] reason in
+            guard reason != .replaced,
+                  store?.lastErrorDescription == error
+            else { return }
+            store?.dismissError()
+        }
+    }
 
     private func blockDetail(for selection: ChatBlockSelection) -> ChatBlockDetail? {
         switch selection {

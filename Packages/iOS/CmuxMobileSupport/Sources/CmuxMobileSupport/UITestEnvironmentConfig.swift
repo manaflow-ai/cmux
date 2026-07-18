@@ -26,4 +26,13 @@ public struct UITestEnvironmentConfig: Equatable, Sendable {
         return false
         #endif
     }
+
+    /// Whether the self-playing semantic-toast showcase is enabled.
+    public var mobileToastPreviewEnabled: Bool {
+        #if DEBUG
+        return environment["CMUX_UITEST_MOBILE_TOAST_PREVIEW"] == "1"
+        #else
+        return false
+        #endif
+    }
 }

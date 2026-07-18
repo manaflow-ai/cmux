@@ -415,8 +415,7 @@ public final class ChatConversationStore {
         }
     }
 
-    /// Clears the transient error banner (user dismissal or auto-expiry;
-    /// the owning view drives timing through a cancellable task).
+    /// Clears the transient error after its toast is dismissed or expires.
     public func dismissError() {
         lastErrorDescription = nil
     }
