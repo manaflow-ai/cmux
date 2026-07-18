@@ -5,15 +5,28 @@ import SQLite3
 extension CmuxAgentSessionRegistry {
     func withDatabase<T>(_ body: (OpaquePointer) throws -> T) throws -> T {
         let stateDirectory = url.deletingLastPathComponent()
-        try FileManager.default.createDirectory(
-            at: stateDirectory,
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: NSNumber(value: Int16(0o700))]
+        var isDirectory: ObjCBool = false
+        let directoryAlreadyExists = FileManager.default.fileExists(
+            atPath: stateDirectory.path,
+            isDirectory: &isDirectory
         )
-        try FileManager.default.setAttributes(
-            [.posixPermissions: NSNumber(value: Int16(0o700))],
-            ofItemAtPath: stateDirectory.path
-        )
+        if !directoryAlreadyExists {
+            try FileManager.default.createDirectory(
+                at: stateDirectory,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: NSNumber(value: Int16(0o700))]
+            )
+        }
+        // `.cmuxterm` is cmux-owned and older releases may have created it
+        // too broadly. An explicit registry URL can live in `/tmp`, a project,
+        // or another shared directory, so never chmod an arbitrary existing
+        // parent as a side effect of opening one database file.
+        if !directoryAlreadyExists || stateDirectory.lastPathComponent == ".cmuxterm" {
+            try FileManager.default.setAttributes(
+                [.posixPermissions: NSNumber(value: Int16(0o700))],
+                ofItemAtPath: stateDirectory.path
+            )
+        }
         var database: OpaquePointer?
         let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX
         guard sqlite3_open_v2(url.path, &database, flags, nil) == SQLITE_OK, let database else {
