@@ -324,10 +324,17 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         continue
                     }
                     if !chunk.data.isEmpty || chunk.terminalConfigTheme != nil {
-                        let applied = await surfaceView.processOutputAndWait(
-                            chunk.data,
-                            terminalConfigTheme: chunk.terminalConfigTheme
-                        )
+                        let applied = if chunk.isFullReplacement {
+                            await surfaceView.processFullReplacementOutputAndWait(
+                                chunk.data,
+                                terminalConfigTheme: chunk.terminalConfigTheme
+                            )
+                        } else {
+                            await surfaceView.processOutputAndWait(
+                                chunk.data,
+                                terminalConfigTheme: chunk.terminalConfigTheme
+                            )
+                        }
                         guard applied else {
                             store.terminalOutputDidReset(
                                 surfaceID: surfaceID,

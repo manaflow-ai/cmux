@@ -25,6 +25,8 @@ public struct MobileTerminalOutputChunk: Sendable {
     public let data: Data
     public let streamToken: UUID
     public let viewportPolicy: MobileTerminalOutputViewportPolicy?
+    /// Whether `data` rebuilds the complete terminal from a render-grid snapshot.
+    public let isFullReplacement: Bool
     /// Raw Ghostty defaults that must be installed before this chunk's VT replay.
     public let terminalConfigTheme: TerminalTheme?
 
@@ -32,11 +34,13 @@ public struct MobileTerminalOutputChunk: Sendable {
         data: Data,
         streamToken: UUID,
         viewportPolicy: MobileTerminalOutputViewportPolicy? = nil,
+        isFullReplacement: Bool = false,
         terminalConfigTheme: TerminalTheme? = nil
     ) {
         self.data = data
         self.streamToken = streamToken
         self.viewportPolicy = viewportPolicy
+        self.isFullReplacement = isFullReplacement
         self.terminalConfigTheme = terminalConfigTheme
     }
 }

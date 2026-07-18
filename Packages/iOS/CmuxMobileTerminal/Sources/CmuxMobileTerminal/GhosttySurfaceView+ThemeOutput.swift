@@ -43,6 +43,17 @@ extension GhosttySurfaceView {
         }
     }
 
+    /// Dedicated seam for complete render-grid replacements. The regression
+    /// test intentionally starts with a plain forward so the first commit
+    /// demonstrates the reset-induced scroll jump.
+    @discardableResult
+    public func processFullReplacementOutputAndWait(
+        _ data: Data,
+        terminalConfigTheme: TerminalTheme? = nil
+    ) async -> Bool {
+        await processOutputAndWait(data, terminalConfigTheme: terminalConfigTheme)
+    }
+
     /// Enqueues the current raw config defaults on this surface's serial Ghostty queue.
     public func applyTerminalConfigTheme() {
         applyTerminalConfigTheme(terminalConfigTheme, force: false)

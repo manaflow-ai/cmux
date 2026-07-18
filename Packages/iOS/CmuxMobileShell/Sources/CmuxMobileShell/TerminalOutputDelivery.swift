@@ -72,6 +72,18 @@ struct TerminalOutputDelivery: Equatable, Sendable {
             nil
         }
     }
+
+    /// Whether this payload rebuilds the complete terminal from an authoritative
+    /// render-grid snapshot. Full snapshots begin with a terminal reset, so the
+    /// apply side must preserve any phone-local scrollback position around them.
+    var isFullReplacement: Bool {
+        switch payload {
+        case .renderGrid(let frame):
+            frame.full
+        case .bytes, .theme:
+            false
+        }
+    }
 }
 
 /// Backpressure queue for one mounted mobile terminal output stream.

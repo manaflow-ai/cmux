@@ -333,6 +333,7 @@ extension MobileShellComposite {
                     data: immediate.bytes,
                     streamToken: streamToken,
                     viewportPolicy: immediate.viewportPolicy,
+                    isFullReplacement: immediate.isFullReplacement,
                     terminalConfigTheme: immediate.terminalConfigTheme
                 )
             )
@@ -418,6 +419,7 @@ extension MobileShellComposite {
             data: next.bytes,
             streamToken: streamToken,
             viewportPolicy: next.viewportPolicy,
+            isFullReplacement: next.isFullReplacement,
             terminalConfigTheme: next.terminalConfigTheme
         ))
     }
