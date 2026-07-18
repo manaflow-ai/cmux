@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 extension CMUXCLI {
@@ -444,8 +445,12 @@ extension CMUXCLI {
         guard path.hasPrefix("/") else { return false }
         let url = URL(fileURLWithPath: path, isDirectory: false).standardizedFileURL
         let directory = url.deletingLastPathComponent()
-        guard directory.lastPathComponent == "hooks",
-              directory.deletingLastPathComponent().lastPathComponent == ".cmux" else {
+        let isHomeDirectory = directory.lastPathComponent == "hooks"
+            && directory.deletingLastPathComponent().lastPathComponent == ".cmux"
+        let sharedRoot = URL(fileURLWithPath: "/Users/Shared", isDirectory: true).standardizedFileURL
+        let isSharedDirectory = directory.lastPathComponent == ".cmux-hooks-\(geteuid())"
+            && directory.deletingLastPathComponent() == sharedRoot
+        guard isHomeDirectory || isSharedDirectory else {
             return false
         }
 

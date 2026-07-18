@@ -1,5 +1,6 @@
 import CMUXAgentLaunch
 import CryptoKit
+import Darwin
 import Foundation
 
 extension CMUXCLI {
@@ -95,9 +96,18 @@ extension CMUXCLI {
         FileHandle.standardOutput.write(out)
     }
 
-    /// The cmux-owned directory holding the generated codex hook scripts.
-    /// `~/.cmux/hooks` (NOT the user's `~/.codex`), created on demand. Returns
-    /// nil if it cannot be created, so the caller falls back to inline commands.
+    /// The cmux-owned directory holding generated Codex hook executables.
+    ///
+    /// Hook configuration has one command string shared by two runtime
+    /// contracts: Codex runs it through a shell, while some compatible runtimes
+    /// pass it directly to `exec`. A bare path containing shell syntax (including
+    /// whitespace) cannot satisfy both contracts. Keep the historical
+    /// `~/.cmux/hooks` location when its path is a safe shell word; otherwise use
+    /// a private per-uid directory below `/Users/Shared`, whose path is stable,
+    /// persistent across reboots, and contains no shell syntax.
+    ///
+    /// Returns nil if neither private directory can be established, so callers
+    /// retain the existing inline-shell compatibility fallback.
     static func codexHookScriptsDirectory() -> URL? {
         let home = ProcessInfo.processInfo.environment["HOME"]
             .flatMap { raw -> URL? in
@@ -105,16 +115,60 @@ extension CMUXCLI {
                 return path.isEmpty ? nil : URL(fileURLWithPath: path, isDirectory: true)
             }
             ?? FileManager.default.homeDirectoryForCurrentUser
-        let dir = home
+        let homeDirectory = home
             .appendingPathComponent(".cmux", isDirectory: true)
             .appendingPathComponent("hooks", isDirectory: true)
-        do {
-            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: dir.path)
-            return dir
-        } catch {
+
+        if codexHookPathIsSafeBareShellWord(homeDirectory.path),
+           let directory = createPrivateCodexHookDirectory(homeDirectory) {
+            return directory
+        }
+
+        let sharedDirectory = URL(fileURLWithPath: "/Users/Shared", isDirectory: true)
+            .appendingPathComponent(".cmux-hooks-\(geteuid())", isDirectory: true)
+        return createPrivateCodexHookDirectory(sharedDirectory)
+    }
+
+    private static func codexHookPathIsSafeBareShellWord(_ path: String) -> Bool {
+        guard path.hasPrefix("/") else { return false }
+        let shellSyntax = CharacterSet(charactersIn: " \t\r\n\\\"'\u{60}$&;|<>()*?[]{}!")
+        return path.unicodeScalars.allSatisfy { !shellSyntax.contains($0) }
+    }
+
+    private static func createPrivateCodexHookDirectory(_ directory: URL) -> URL? {
+        let fileManager = FileManager.default
+        let path = directory.standardizedFileURL.path
+
+        var status = stat()
+        if lstat(path, &status) != 0 {
+            guard errno == ENOENT else { return nil }
+            do {
+                try fileManager.createDirectory(
+                    at: directory,
+                    withIntermediateDirectories: true,
+                    attributes: [.posixPermissions: 0o700]
+                )
+            } catch {
+                return nil
+            }
+            guard lstat(path, &status) == 0 else { return nil }
+        }
+
+        guard (status.st_mode & S_IFMT) == S_IFDIR,
+              status.st_uid == geteuid() else {
             return nil
         }
+
+        if status.st_mode & 0o077 != 0 {
+            guard chmod(path, 0o700) == 0,
+                  lstat(path, &status) == 0,
+                  (status.st_mode & S_IFMT) == S_IFDIR,
+                  status.st_uid == geteuid(),
+                  status.st_mode & 0o077 == 0 else {
+                return nil
+            }
+        }
+        return directory.standardizedFileURL
     }
 
     /// Installs the bundled process-light hook sender at the stable event path.
