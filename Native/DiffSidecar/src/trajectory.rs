@@ -591,7 +591,7 @@ fn claude_last_turn_patch(
             return Ok(false);
         }
         let prompt_id = object.get("promptId").and_then(Value::as_str);
-        if object.get("toolUseResult").is_none() {
+        if claude_is_prompt_boundary(object) {
             patch.clear();
             current_prompt = prompt_id.map(str::to_owned);
             return Ok(false);
@@ -610,6 +610,46 @@ fn claude_last_turn_patch(
         Ok(false)
     })?;
     Ok(patch)
+}
+
+fn claude_is_prompt_boundary(object: &Value) -> bool {
+    if object.get("toolUseResult").is_some()
+        || object.get("isMeta").and_then(Value::as_bool) == Some(true)
+        || object.get("isCompactSummary").and_then(Value::as_bool) == Some(true)
+    {
+        return false;
+    }
+    let Some(message) = object.get("message") else {
+        return false;
+    };
+    if message
+        .get("role")
+        .and_then(Value::as_str)
+        .is_some_and(|role| role != "user")
+    {
+        return false;
+    }
+    match message.get("content") {
+        Some(Value::String(content)) => {
+            let content = content.trim_start();
+            !content.is_empty()
+                && !content.starts_with("<task-notification>")
+                && !content.starts_with("<local-command-caveat>")
+                && !content.starts_with("[SYSTEM NOTIFICATION - NOT USER INPUT]")
+        }
+        Some(Value::Array(content)) => {
+            !content
+                .iter()
+                .any(|item| item.get("type").and_then(Value::as_str) == Some("tool_result"))
+                && content.iter().any(|item| {
+                    matches!(
+                        item.get("type").and_then(Value::as_str),
+                        Some("text" | "image" | "document")
+                    )
+                })
+        }
+        _ => false,
+    }
 }
 
 fn append_claude_result(

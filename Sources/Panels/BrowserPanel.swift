@@ -1825,94 +1825,42 @@ enum BrowserInsecureHTTPNavigationIntent {
     case newTab
 }
 
-final class DiffViewerSchemeTaskLifecycle: @unchecked Sendable {
+@MainActor
+final class DiffViewerSchemeTaskLifecycle {
     struct Registration: Sendable {
         fileprivate let taskID: ObjectIdentifier
         fileprivate let generation: UUID
     }
 
-    private final class State: @unchecked Sendable {
-        let condition = NSCondition()
-        var stopped = false
-        var callbacksInFlight = 0
-    }
-
-    private let lock = NSLock()
-    private var registrationByTask: [ObjectIdentifier: (Registration, State)] = [:]
+    private var registrationByTask: [ObjectIdentifier: Registration] = [:]
 
     @discardableResult
     func register(_ taskID: ObjectIdentifier) -> Registration {
         let registration = Registration(taskID: taskID, generation: UUID())
-        let state = State()
-        lock.lock()
-        let replaced = registrationByTask.updateValue((registration, state), forKey: taskID)
-        lock.unlock()
-        if let replaced {
-            stop(replaced.1)
-        }
+        registrationByTask[taskID] = registration
         return registration
     }
 
     @discardableResult
     func deliver(_ registration: Registration, _ callback: () -> Void) -> Bool {
-        lock.lock()
-        let entry = registrationByTask[registration.taskID]
-        lock.unlock()
-        guard let (current, state) = entry,
-              current.generation == registration.generation else {
+        guard registrationByTask[registration.taskID]?.generation == registration.generation else {
             return false
         }
-
-        state.condition.lock()
-        guard !state.stopped else {
-            state.condition.unlock()
-            return false
-        }
-        state.callbacksInFlight += 1
-        state.condition.unlock()
-
         callback()
-
-        state.condition.lock()
-        state.callbacksInFlight -= 1
-        if state.callbacksInFlight == 0 {
-            state.condition.broadcast()
-        }
-        let active = !state.stopped
-        state.condition.unlock()
-        return active
+        return registrationByTask[registration.taskID]?.generation == registration.generation
     }
 
     func finish(_ registration: Registration) {
-        lock.lock()
-        guard let (current, state) = registrationByTask[registration.taskID],
-              current.generation == registration.generation else {
-            lock.unlock()
+        guard registrationByTask[registration.taskID]?.generation == registration.generation else {
             return
         }
         registrationByTask.removeValue(forKey: registration.taskID)
-        lock.unlock()
-        stop(state)
     }
 
     @discardableResult
     func stop(_ taskID: ObjectIdentifier) -> Registration? {
-        lock.lock()
         let entry = registrationByTask.removeValue(forKey: taskID)
-        lock.unlock()
-        if let entry {
-            stop(entry.1)
-        }
-        return entry?.0
-    }
-
-    private func stop(_ state: State) {
-        state.condition.lock()
-        state.stopped = true
-        while state.callbacksInFlight > 0 {
-            state.condition.wait()
-        }
-        state.condition.unlock()
+        return entry
     }
 }
 
@@ -2646,7 +2594,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         Task.detached(priority: .userInitiated) {
             let admitted = await streamLimiter.withPermit(key: registration.generation) {
                 do {
-                    guard lifecycle.deliver(registration, {
+                    guard await lifecycle.deliver(registration, {
                         urlSchemeTask.didReceive(response)
                     }) else { return }
 
@@ -2660,29 +2608,29 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
                         if data.isEmpty {
                             break
                         }
-                        guard lifecycle.deliver(registration, {
+                        guard await lifecycle.deliver(registration, {
                             urlSchemeTask.didReceive(data)
                         }) else { return }
                     }
 
-                    guard lifecycle.deliver(registration, {
+                    guard await lifecycle.deliver(registration, {
                         urlSchemeTask.didFinish()
                     }) else { return }
-                    lifecycle.finish(registration)
+                    await lifecycle.finish(registration)
                 } catch {
-                    guard lifecycle.deliver(registration, {
+                    guard await lifecycle.deliver(registration, {
                         urlSchemeTask.didFailWithError(error)
                     }) else { return }
-                    lifecycle.finish(registration)
+                    await lifecycle.finish(registration)
                 }
             }
             guard !admitted else { return }
-            guard lifecycle.deliver(registration, {
+            guard await lifecycle.deliver(registration, {
                 urlSchemeTask.didFailWithError(
                     NSError(domain: NSURLErrorDomain, code: NSURLErrorResourceUnavailable)
                 )
             }) else { return }
-            lifecycle.finish(registration)
+            await lifecycle.finish(registration)
         }
     }
 
