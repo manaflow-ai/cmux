@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 
@@ -1853,7 +1854,7 @@ struct CLICodexHookTimeoutRegressionTests {
 
     private func isShellSafeBareHookPath(_ path: String) -> Bool {
         guard path.hasPrefix("/") else { return false }
-        let shellSyntax = CharacterSet(charactersIn: " \\t\\r\\n\\\\\"'`$&;|<>()*?[]{}!")
+        let shellSyntax = CharacterSet(charactersIn: " \t\r\n\\\"'\u{60}$&;|<>()*?[]{}!")
         return path.unicodeScalars.allSatisfy { !shellSyntax.contains($0) }
     }
 
