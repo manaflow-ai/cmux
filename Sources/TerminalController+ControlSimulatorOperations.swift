@@ -61,12 +61,10 @@ extension TerminalController {
         persistedDeviceTypeIdentifier: String?
     ) async {
         do {
-            if !operation.isIdentityRead {
-                if case .selectDevice = operation {
-                    await coordinator.prepareForExplicitDeviceSelection()
-                } else {
-                    await coordinator.start()
-                }
+            if case .selectDevice = operation {
+                await coordinator.prepareForExplicitDeviceSelection()
+            } else {
+                await coordinator.start()
             }
             try Task.checkCancellation()
             if !operation.isAvailableWithoutStreaming {
@@ -531,11 +529,6 @@ extension TerminalController {
 }
 
 extension ControlSimulatorOperation {
-    var isIdentityRead: Bool {
-        if case .context = self { return true }
-        return false
-    }
-
     var isAvailableWithoutStreaming: Bool {
         switch self {
         case .context, .selectDevice, .recover, .eventLog, .tools:
