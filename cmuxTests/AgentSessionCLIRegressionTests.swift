@@ -309,7 +309,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(!result.timedOut, Comment(rawValue: result.stdout))
         #expect(result.status == 0, Comment(rawValue: result.stdout))
         let output = try #require(JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any])
-        #expect(output["schema_version"] as? Int == 1)
+        #expect(output["schema_version"] as? Int == 2)
         let nodes = try #require(output["nodes"] as? [[String: Any]])
         let edges = try #require(output["edges"] as? [[String: Any]])
         #expect(nodes.count == 3)
