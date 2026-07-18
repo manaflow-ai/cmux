@@ -297,6 +297,233 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         XCTAssertTrue(ends.contains { $0["sessionId"] == "session-terminal-reservation" })
     }
 
+    func testOpenCodeRestartTerminalEventsSurviveSaturatedQueue() throws {
+        let fixture = try makeOpenCodePluginFixture(fakeCmuxLines: [
+            "payload=\"$(cat)\"",
+            "printf '%s|%s\\n' \"$3\" \"$payload\" >> \"$TEST_HOOK_CAPTURE\"",
+            "if [ \"$3\" = \"session-start\" ]; then /usr/bin/nc -U \"$TEST_HOOK_RELEASE_SOCKET\" >/dev/null; fi",
+        ])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let capture = fixture.root.appendingPathComponent("hooks.txt", isDirectory: false)
+        let releaseSocket = fixture.root.appendingPathComponent("release.sock", isDirectory: false)
+        var environment = fixture.environment
+        environment["TEST_HOOK_CAPTURE"] = capture.path
+        environment["TEST_HOOK_RELEASE_SOCKET"] = releaseSocket.path
+
+        let harness = fixture.root.appendingPathComponent("restart-terminal-overload.mjs", isDirectory: false)
+        try """
+        import fs from "node:fs";
+        import net from "node:net";
+        import plugin from \(javaScriptString(fixture.pluginURL.absoluteString));
+
+        let releaseStarts = false;
+        const heldStarts = [];
+        const releaseServer = net.createServer((socket) => {
+          socket.on("error", () => {});
+          if (releaseStarts) socket.end("release\\n");
+          else heldStarts.push(socket);
+        });
+        await new Promise((resolve, reject) => {
+          releaseServer.once("error", reject);
+          releaseServer.listen(process.env.TEST_HOOK_RELEASE_SOCKET, resolve);
+        });
+        const hooks = await plugin({ directory: process.cwd() });
+        const captureLines = () => fs.existsSync(process.env.TEST_HOOK_CAPTURE)
+          ? fs.readFileSync(process.env.TEST_HOOK_CAPTURE, "utf8").trim().split("\\n").filter(Boolean)
+          : [];
+        const records = () => captureLines().map((line) => {
+          const separator = line.indexOf("|");
+          const payload = JSON.parse(line.slice(separator + 1));
+          return { subcommand: line.slice(0, separator), sessionId: payload.session_id };
+        });
+        const waitFor = (description, predicate) => new Promise((resolve, reject) => {
+          if (predicate()) return resolve();
+          const watcher = fs.watch(\(javaScriptString(fixture.root.path)), () => {
+            if (!predicate()) return;
+            watcher.close();
+            clearTimeout(timeout);
+            resolve();
+          });
+          const timeout = setTimeout(() => {
+            watcher.close();
+            reject(new Error(`timed out waiting for ${description}`));
+          }, 6000);
+        });
+
+        const saturatedIds = Array.from(
+          { length: 301 },
+          (_, index) => `session-saturated-${index}`
+        );
+        for (const sessionId of saturatedIds) {
+          const info = { id: sessionId, directory: process.cwd() };
+          await hooks.event({ event: { type: "session.created", properties: { info } } });
+        }
+        for (const sessionId of saturatedIds) {
+          const info = { id: sessionId, directory: process.cwd() };
+          await hooks.event({ event: { type: "session.deleted", properties: { info } } });
+        }
+
+        const deletedInfo = { id: "session-restart-deleted", directory: process.cwd() };
+        await hooks.event({ event: { type: "session.deleted", properties: { info: deletedInfo } } });
+        const archivedInfo = {
+          id: "session-restart-archived",
+          directory: process.cwd(),
+          time: { archived: Date.now() },
+        };
+        await hooks.event({ event: { type: "session.updated", properties: { info: archivedInfo } } });
+
+        await waitFor("four blocked starts", () => records().length >= 4);
+        releaseStarts = true;
+        for (const socket of heldStarts.splice(0)) socket.end("release\\n");
+        await waitFor("both restart terminal events", () => {
+          const ended = new Set(
+            records()
+              .filter((record) => record.subcommand === "session-end")
+              .map((record) => record.sessionId)
+          );
+          return ended.has("session-restart-deleted")
+            && ended.has("session-restart-archived");
+        });
+        await new Promise((resolve) => releaseServer.close(resolve));
+        console.log(JSON.stringify(records()));
+        """.write(to: harness, atomically: true, encoding: .utf8)
+
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: ["node", harness.path],
+            environment: environment,
+            timeout: 10
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let records = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [[String: String]]
+        )
+        for sessionID in ["session-restart-deleted", "session-restart-archived"] {
+            let commands = records
+                .filter { $0["sessionId"] == sessionID }
+                .compactMap { $0["subcommand"] }
+            XCTAssertEqual(commands, ["session-end"], "restart terminal event was lost for \(sessionID)")
+        }
+    }
+
+    func testOpenCodeDisposeWaitsForQueuedLifecycleHooks() throws {
+        let fixture = try makeOpenCodePluginFixture(fakeCmuxLines: [
+            "payload=\"$(cat)\"",
+            "printf '%s|%s\\n' \"$3\" \"$payload\" >> \"$TEST_HOOK_CAPTURE\"",
+            "if [ \"$3\" = \"session-start\" ]; then /usr/bin/nc -U \"$TEST_HOOK_RELEASE_SOCKET\" >/dev/null; fi",
+        ])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let capture = fixture.root.appendingPathComponent("hooks.txt", isDirectory: false)
+        let releaseSocket = fixture.root.appendingPathComponent("release.sock", isDirectory: false)
+        var environment = fixture.environment
+        environment["TEST_HOOK_CAPTURE"] = capture.path
+        environment["TEST_HOOK_RELEASE_SOCKET"] = releaseSocket.path
+
+        let harness = fixture.root.appendingPathComponent("dispose-drain.mjs", isDirectory: false)
+        try """
+        import fs from "node:fs";
+        import net from "node:net";
+        import plugin from \(javaScriptString(fixture.pluginURL.absoluteString));
+
+        const heldStarts = [];
+        const releaseServer = net.createServer((socket) => {
+          socket.on("error", () => {});
+          heldStarts.push(socket);
+        });
+        await new Promise((resolve, reject) => {
+          releaseServer.once("error", reject);
+          releaseServer.listen(process.env.TEST_HOOK_RELEASE_SOCKET, resolve);
+        });
+        const hooks = await plugin({ directory: process.cwd() });
+        const captureLines = () => fs.existsSync(process.env.TEST_HOOK_CAPTURE)
+          ? fs.readFileSync(process.env.TEST_HOOK_CAPTURE, "utf8").trim().split("\\n").filter(Boolean)
+          : [];
+        const waitForLineCount = (count) => new Promise((resolve, reject) => {
+          if (captureLines().length >= count) return resolve();
+          const watcher = fs.watch(\(javaScriptString(fixture.root.path)), () => {
+            if (captureLines().length < count) return;
+            watcher.close();
+            clearTimeout(timeout);
+            resolve();
+          });
+          const timeout = setTimeout(() => {
+            watcher.close();
+            reject(new Error(`hook capture did not reach ${count} lines`));
+          }, 2000);
+        });
+
+        const info = { id: "session-dispose", directory: process.cwd() };
+        await hooks.event({ event: { type: "session.created", properties: { info } } });
+        await hooks.event({ event: { type: "session.deleted", properties: { info } } });
+        await waitForLineCount(1);
+        let disposed = false;
+        const disposal = hooks.dispose().then(() => { disposed = true; });
+        await Promise.resolve();
+        const resolvedBeforeRelease = disposed;
+        for (const socket of heldStarts.splice(0)) socket.end("release\\n");
+        await disposal;
+        await new Promise((resolve) => releaseServer.close(resolve));
+        console.log(JSON.stringify({ resolvedBeforeRelease, commands: captureLines().map((line) => line.split("|", 1)[0]) }));
+        """.write(to: harness, atomically: true, encoding: .utf8)
+
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: ["node", harness.path],
+            environment: environment,
+            timeout: 4
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let output = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
+        )
+        XCTAssertEqual(output["resolvedBeforeRelease"] as? Bool, false)
+        XCTAssertEqual(output["commands"] as? [String], ["session-start", "session-end"])
+    }
+
+    func testOpenCodeNaturalExitDrainsQueuedLifecycleHooks() throws {
+        let fixture = try makeOpenCodePluginFixture(fakeCmuxLines: [
+            "payload=\"$(cat)\"",
+            "if [ \"$3\" = \"session-start\" ]; then sleep 0.35; fi",
+            "printf '%s|%s\\n' \"$3\" \"$payload\" >> \"$TEST_HOOK_CAPTURE\"",
+        ])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let capture = fixture.root.appendingPathComponent("hooks.txt", isDirectory: false)
+        var environment = fixture.environment
+        environment["TEST_HOOK_CAPTURE"] = capture.path
+        let harness = fixture.root.appendingPathComponent("natural-exit-drain.mjs", isDirectory: false)
+        try """
+        import plugin from \(javaScriptString(fixture.pluginURL.absoluteString));
+        const hooks = await plugin({ directory: process.cwd() });
+        const info = { id: "session-natural-exit", directory: process.cwd() };
+        await hooks.event({ event: { type: "session.created", properties: { info } } });
+        await hooks.event({ event: { type: "session.deleted", properties: { info } } });
+        """.write(to: harness, atomically: true, encoding: .utf8)
+
+        let startedAt = Date()
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: ["node", harness.path],
+            environment: environment,
+            timeout: 3
+        )
+        let elapsed = Date().timeIntervalSince(startedAt)
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertGreaterThanOrEqual(elapsed, 0.25, "Node exited before the detached hook queue drained")
+        let commands = try String(contentsOf: capture, encoding: .utf8)
+            .split(separator: "\n")
+            .compactMap { $0.split(separator: "|", maxSplits: 1).first.map(String.init) }
+        XCTAssertEqual(commands, ["session-start", "session-end"])
+    }
+
     func testOpenCodeInstallHooksIsIdempotentForLegacySetupAlias() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-opencode-hooks-\(UUID().uuidString)", isDirectory: true)
