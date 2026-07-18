@@ -596,15 +596,22 @@ final class RemoteTmuxController {
            (mirrorWorkspace ?? AppDelegate.shared?.tabManagerFor(tabId: workspaceId)?
             .tabs.first(where: { $0.id == workspaceId }))?
             .handleRemoteTmuxSessionEndedKeepingWorkspaceOpenIfNeeded() == true { return }
-        // Use the shared noninteractive close mutation: a mirror in a mixed
-        // window removes only its workspace, while a mirror that is the final
-        // workspace closes the owning window. Creating a local replacement here
-        // strands a blank dedicated `--new-window` shell after explicit detach
-        // (#7992). Detach is authoritative even if the mirror was pinned.
         let manager = mirrorWorkspace?.owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: workspaceId)
         let workspace = mirrorWorkspace ?? manager?.tabs.first(where: { $0.id == workspaceId })
         if let manager, let workspace {
-            _ = manager.closeWorkspaceNonInteractively(workspace, allowPinned: true)
+            switch reason {
+            case .sessionEnded:
+                // Preserve a usable owning window when the remote disappears.
+                // The replacement is local and must not inherit the remote path.
+                if manager.tabs.count == 1 {
+                    _ = manager.addWorkspace(inheritWorkingDirectory: false, select: false)
+                }
+                manager.closeWorkspace(workspace)
+            case .explicitDetach:
+                // Detach is authoritative even for a pinned final mirror. Closing
+                // its owning window avoids stranding a blank `--new-window` shell.
+                _ = manager.closeWorkspaceNonInteractively(workspace, allowPinned: true)
+            }
         }
     }
 
