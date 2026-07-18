@@ -1342,6 +1342,103 @@ struct AgentHookDeliveryQueueTests {
         }
     }
 
+    @Test func liveSupervisorOwnsDetachedDeliveryGroupUntilItDrains() async throws {
+        let root = try temporaryDirectory(named: "owned-supervisor")
+        let scriptURL = root.appendingPathComponent("deliver.sh")
+        let firstForkURL = root.appendingPathComponent("first-fork.sh")
+        let lingerURL = root.appendingPathComponent("linger.sh")
+        let supervisorPIDFile = root.appendingPathComponent("supervisor.pid")
+        let descendantPIDFile = root.appendingPathComponent("descendant.pid")
+        defer {
+            for pidFile in [supervisorPIDFile, descendantPIDFile] {
+                if let rawPID = try? String(contentsOf: pidFile, encoding: .utf8),
+                   let pid = Int32(rawPID.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                    Darwin.kill(pid, SIGKILL)
+                }
+            }
+            try? FileManager.default.removeItem(at: root)
+        }
+        try writeExecutable(
+            at: scriptURL,
+            contents: """
+            #!/bin/sh
+            : "${CMUX_AGENT_HOOK_DELIVERY_SUPERVISOR_PID:?}"
+            printf '%s' "$CMUX_AGENT_HOOK_DELIVERY_SUPERVISOR_PID" > "$TMPDIR/supervisor.pid"
+            /bin/sh "$TMPDIR/first-fork.sh" &
+            exit 0
+            """
+        )
+        try writeExecutable(
+            at: firstForkURL,
+            contents: """
+            #!/bin/sh
+            /bin/sh "$TMPDIR/linger.sh" &
+            exit 0
+            """
+        )
+        try writeExecutable(
+            at: lingerURL,
+            contents: """
+            #!/bin/sh
+            printf '%s' "$$" > "$TMPDIR/descendant.pid"
+            : > "$TMPDIR/descendant-active"
+            while [ ! -e "$TMPDIR/release-descendant" ]; do
+              /bin/sleep 0.01
+            done
+            /bin/rm -f "$TMPDIR/descendant-active"
+            """
+        )
+        let queue = AgentHookDeliveryQueue(
+            databaseURL: root.appendingPathComponent("deliveries.sqlite3"),
+            executableURLProvider: { scriptURL },
+            processTimeout: 2,
+            lingeringProcessGroupTimeout: 3,
+            terminationGrace: 0.05,
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60,
+            maximumConcurrentDeliveries: 1
+        )
+        let event = try #require(makeEvent(
+            deliveryID: "owned-supervisor",
+            payload: Data([0x00, 0xff, 0x0a]),
+            environment: testEnvironment(root: root)
+        ))
+
+        try queue.enqueue(event)
+        let directDeliveryFinished = await waitUntil(timeout: .seconds(2)) {
+            let state = try? await queue.diagnosticStatus(for: event.deliveryID)?["state"]
+            return state == "delivered"
+                && FileManager.default.fileExists(atPath: supervisorPIDFile.path)
+                && FileManager.default.fileExists(atPath: descendantPIDFile.path)
+                && FileManager.default.fileExists(
+                    atPath: root.appendingPathComponent("descendant-active").path
+                )
+        }
+        #expect(directDeliveryFinished)
+
+        let supervisorPID = try #require(Int32(
+            String(contentsOf: supervisorPIDFile, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        ))
+        let descendantPID = try #require(Int32(
+            String(contentsOf: descendantPIDFile, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        ))
+        #expect(supervisorPID != descendantPID)
+        #expect(Darwin.kill(supervisorPID, 0) == 0)
+        #expect(Darwin.getpgid(supervisorPID) == supervisorPID)
+        #expect(Darwin.getpgid(descendantPID) == supervisorPID)
+
+        try Data().write(to: root.appendingPathComponent("release-descendant"))
+        await queue.waitUntilCurrentDrainFinishes()
+
+        for pid in [supervisorPID, descendantPID] {
+            errno = 0
+            #expect(Darwin.kill(pid, 0) == -1)
+            #expect(errno == ESRCH)
+        }
+    }
+
     @Test func completedLeaderFreesItsSurfaceLaneWhileDescendantRetainsPermit() async throws {
         let root = try temporaryDirectory(named: "detached-lane-release")
         let scriptURL = root.appendingPathComponent("deliver.sh")
