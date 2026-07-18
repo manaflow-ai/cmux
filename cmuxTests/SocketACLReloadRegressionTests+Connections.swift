@@ -106,6 +106,170 @@ extension SocketACLReloadRegressionTests {
         #expect(Darwin.read(sockets.client, &byte, 1) == 0)
     }
 
+    @Test func verifiedCapabilityBypassesPasswordForOnlyItsWrappedLine() throws {
+        let controller = TerminalController.shared
+        controller.stop()
+
+        let directory = shortTemporaryDirectory(prefix: "salc")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let socketPath = directory.appendingPathComponent("cmux.sock").path
+        defer {
+            controller.stop()
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        controller.start(tabManager: TabManager(), socketPath: socketPath, accessMode: .password)
+        let envelope = try #require(SocketClientCapabilityEnvelope(
+            capability: controller.socketClientCapabilityAuthority.issueCapability()
+        ))
+        let sockets = try makeSocketPair()
+        defer { close(sockets.client) }
+        try configureReadTimeout(sockets.client)
+        try writeLine(envelope.wrap("ping"), to: sockets.client)
+        try writeLine("ping", to: sockets.client)
+        try enqueueSyntheticConnection(
+            sockets.server,
+            peerProcessID: 1,
+            controller: controller
+        )
+
+        let wrappedResponse = try readLine(from: sockets.client)
+        let followingRawResponse = try readLine(from: sockets.client)
+        #expect(wrappedResponse.localizedCaseInsensitiveContains("PONG"), Comment(rawValue: wrappedResponse))
+        #expect(
+            followingRawResponse.localizedCaseInsensitiveContains("Authentication required"),
+            "A verified envelope must not authenticate later lines on the connection: \(followingRawResponse)"
+        )
+    }
+
+    @Test func onlyVerifiedCapabilityCanStartAgentSidecarOutsideProcessTree() async throws {
+        let controller = TerminalController.shared
+        controller.stop()
+
+        let directory = shortTemporaryDirectory(prefix: "sala")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let socketPath = directory.appendingPathComponent("cmux.sock").path
+        defer {
+            controller.stop()
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        controller.start(tabManager: TabManager(), socketPath: socketPath, accessMode: .automation)
+        let envelope = try #require(SocketClientCapabilityEnvelope(
+            capability: controller.socketClientCapabilityAuthority.issueCapability()
+        ))
+        let request = try v2RequestLine(
+            id: "sidecar",
+            method: "agent.sidecar.start",
+            params: [
+                "kind": "codex_transcript_monitor",
+                "session_id": "socket-capability-sidecar",
+                "workspace_id": UUID().uuidString,
+            ]
+        )
+        let sockets = try makeSocketPair()
+        defer { close(sockets.client) }
+        try configureReadTimeout(sockets.client)
+        try writeLine(envelope.wrap(request), to: sockets.client)
+        try writeLine(request, to: sockets.client)
+        try enqueueSyntheticConnection(
+            sockets.server,
+            peerProcessID: 1,
+            controller: controller
+        )
+
+        let wrappedResponse = try v2Object(from: readLine(from: sockets.client))
+        let rawResponse = try v2Object(from: readLine(from: sockets.client))
+        #expect(wrappedResponse["ok"] as? Bool == true, Comment(rawValue: String(describing: wrappedResponse)))
+        #expect(
+            (rawResponse["error"] as? [String: Any])?["code"] as? String == "access_denied",
+            "Same-owner automation clients must not start app sidecars: \(rawResponse)"
+        )
+
+        await controller.codexTranscriptMonitorManager.refreshOwnersNow()
+        #expect(await controller.codexTranscriptMonitorManager.activeMonitorCount() == 0)
+    }
+
+    @Test func verifiedCapabilityCanOpenPasswordModeEventStream() throws {
+        let controller = TerminalController.shared
+        controller.stop()
+        CmuxEventBus.shared.resetForTesting()
+
+        let directory = shortTemporaryDirectory(prefix: "salv")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let socketPath = directory.appendingPathComponent("cmux.sock").path
+        defer {
+            controller.stop()
+            CmuxEventBus.shared.resetForTesting()
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        controller.start(tabManager: TabManager(), socketPath: socketPath, accessMode: .password)
+        let envelope = try #require(SocketClientCapabilityEnvelope(
+            capability: controller.socketClientCapabilityAuthority.issueCapability()
+        ))
+        let streamRequest = try v2RequestLine(
+            id: "stream",
+            method: "events.stream",
+            params: ["include_heartbeats": false]
+        )
+        let sockets = try makeSocketPair()
+        defer { close(sockets.client) }
+        try configureReadTimeout(sockets.client)
+        try writeLine(envelope.wrap(streamRequest), to: sockets.client)
+        try enqueueSyntheticConnection(
+            sockets.server,
+            peerProcessID: 1,
+            controller: controller
+        )
+
+        let acknowledgement = try v2Object(from: readLine(from: sockets.client))
+        #expect(acknowledgement["type"] as? String == "ack", Comment(rawValue: String(describing: acknowledgement)))
+
+        #expect(controller.socketServer.reconfigure(accessMode: .automation))
+        var byte: UInt8 = 0
+        #expect(Darwin.read(sockets.client, &byte, 1) == 0)
+    }
+
+    private func enqueueSyntheticConnection(
+        _ serverSocket: Int32,
+        peerProcessID: pid_t,
+        controller: TerminalController
+    ) throws {
+        let authorization = controller.socketServer.acceptedConnectionAuthorization()
+        let result = controller.socketServer.connectionsContinuation.yield(
+            ControlConnection(
+                socket: serverSocket,
+                peerProcessID: peerProcessID,
+                authorizationGeneration: authorization.generation,
+                authorizationRevocationSignal: authorization.revocationSignal
+            )
+        )
+        guard case .enqueued = result else {
+            close(serverSocket)
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(ECONNABORTED),
+                userInfo: [NSLocalizedDescriptionKey: "Failed to enqueue synthetic connection"]
+            )
+        }
+    }
+
+    private func v2RequestLine(id: String, method: String, params: [String: Any]) throws -> String {
+        let data = try JSONSerialization.data(withJSONObject: [
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": method,
+            "params": params,
+        ])
+        return try #require(String(data: data, encoding: .utf8))
+    }
+
+    private func v2Object(from line: String) throws -> [String: Any] {
+        let data = try #require(line.data(using: .utf8))
+        return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
     private func makeSocketPair() throws -> (client: Int32, server: Int32) {
         var descriptors: [Int32] = [-1, -1]
         guard socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors) == 0 else {
