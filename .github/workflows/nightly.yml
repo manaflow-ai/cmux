@@ -15,6 +15,14 @@ on:
         required: false
         default: false
         type: boolean
+      notarization_mode:
+        description: Branch-only experiment; main always requires app and DMG notarization
+        required: false
+        default: app-and-dmg
+        type: choice
+        options:
+          - app-and-dmg
+          - dmg-only-experiment
 
 concurrency:
   group: nightly-build-${{ github.ref_name }}
@@ -43,14 +51,20 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           FORCE_BUILD: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force == 'true' && 'true' || 'false' }}
+          NOTARIZATION_MODE: ${{ github.event.inputs.notarization_mode || 'app-and-dmg' }}
         with:
           script: |
             const forceBuild = process.env.FORCE_BUILD === 'true';
+            const notarizationMode = process.env.NOTARIZATION_MODE;
             const { owner, repo } = context.repo;
             const requestedRef = context.ref.startsWith('refs/heads/')
               ? context.ref.replace('refs/heads/', '')
               : 'main';
             const isMainRef = requestedRef === 'main';
+            if (isMainRef && notarizationMode !== 'app-and-dmg') {
+              core.setFailed('DMG-only notarization experiment is forbidden on main');
+              return;
+            }
 
             // Pin every run to the revision that triggered it. In particular,
             // queued main pushes must each build their own merge commit instead
@@ -92,6 +106,7 @@ jobs:
                 [{data: 'build HEAD', header: true}, headSha],
                 [{data: 'nightly tag', header: true}, nightlySha ?? '(missing)'],
                 [{data: 'force build', header: true}, String(forceBuild)],
+                [{data: 'notarization mode', header: true}, notarizationMode],
                 [{data: 'should build', header: true}, String(shouldBuild)],
                 [{data: 'should publish', header: true}, String(isMainRef)],
               ])
@@ -379,6 +394,7 @@ jobs:
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      DMG_ONLY_EXPERIMENT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.notarization_mode == 'dmg-only-experiment' && 'true' || 'false' }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -721,23 +737,25 @@ jobs:
             local dmg_tmp_dir
             local created_dmg
 
-            ditto -c -k --sequesterRsrc --keepParent "$app_path" "$zip_submit"
-            APP_SUBMIT_JSON="$(xcrun notarytool submit "$zip_submit" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait --output-format json)"
-            APP_SUBMIT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$APP_SUBMIT_JSON")"
-            APP_STATUS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$APP_SUBMIT_JSON")"
-            if [ "$APP_STATUS" != "Accepted" ]; then
-              echo "App notarization failed for $app_path with status: $APP_STATUS" >&2
-              xcrun notarytool log "$APP_SUBMIT_ID" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" || true
-              exit 1
+            if [ "$DMG_ONLY_EXPERIMENT" != "true" ]; then
+              ditto -c -k --sequesterRsrc --keepParent "$app_path" "$zip_submit"
+              APP_SUBMIT_JSON="$(xcrun notarytool submit "$zip_submit" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait --output-format json)"
+              APP_SUBMIT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$APP_SUBMIT_JSON")"
+              APP_STATUS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$APP_SUBMIT_JSON")"
+              if [ "$APP_STATUS" != "Accepted" ]; then
+                echo "App notarization failed for $app_path with status: $APP_STATUS" >&2
+                xcrun notarytool log "$APP_SUBMIT_ID" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" || true
+                exit 1
+              fi
+              xcrun stapler staple "$app_path"
+              xcrun stapler validate "$app_path"
+              spctl -a -vv --type execute "$app_path"
+              CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1 CMUX_SMOKE_DEBUG_LOGS=1 ./scripts/smoke-launch-macos-app.sh "$app_path"
+              CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 ./scripts/smoke-launch-macos-app.sh "$app_path"
+              ./scripts/verify-app-bundle-channel-metadata.sh "$app_path" nightly
+              ./scripts/verify-app-bundle-licenses.sh "$app_path"
+              rm -f "$zip_submit"
             fi
-            xcrun stapler staple "$app_path"
-            xcrun stapler validate "$app_path"
-            spctl -a -vv --type execute "$app_path"
-            CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1 CMUX_SMOKE_DEBUG_LOGS=1 ./scripts/smoke-launch-macos-app.sh "$app_path"
-            CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 ./scripts/smoke-launch-macos-app.sh "$app_path"
-            ./scripts/verify-app-bundle-channel-metadata.sh "$app_path" nightly
-            ./scripts/verify-app-bundle-licenses.sh "$app_path"
-            rm -f "$zip_submit"
 
             dmg_tmp_dir="$(mktemp -d)"
             create-dmg \
@@ -763,6 +781,17 @@ jobs:
               echo "DMG notarization failed for $dmg_release with status: $DMG_STATUS" >&2
               xcrun notarytool log "$DMG_SUBMIT_ID" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" || true
               exit 1
+            fi
+            if [ "$DMG_ONLY_EXPERIMENT" = "true" ]; then
+              # A DMG submission scans its nested app. Prove that Apple issued
+              # an independently usable app ticket before considering this path.
+              xcrun stapler staple "$app_path"
+              xcrun stapler validate "$app_path"
+              spctl -a -vv --type execute "$app_path"
+              CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1 CMUX_SMOKE_DEBUG_LOGS=1 ./scripts/smoke-launch-macos-app.sh "$app_path"
+              CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 ./scripts/smoke-launch-macos-app.sh "$app_path"
+              ./scripts/verify-app-bundle-channel-metadata.sh "$app_path" nightly
+              ./scripts/verify-app-bundle-licenses.sh "$app_path"
             fi
             xcrun stapler staple "$dmg_release"
             xcrun stapler validate "$dmg_release"
