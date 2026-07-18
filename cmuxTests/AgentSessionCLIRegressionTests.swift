@@ -1,5 +1,6 @@
 import CmuxFoundation
 import Foundation
+import SQLite3
 import Testing
 
 #if canImport(cmux_DEV)
@@ -570,6 +571,137 @@ extension CMUXCLIErrorOutputRegressionTests {
             #expect(result.stdout.contains(registryPath))
             #expect(!result.stdout.contains("NSCocoaErrorDomain"))
         }
+    }
+
+    @Test func boundedAgentListLegacyFallbackKeepsExactCountsAndGlobalOrder() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-bounded-fallback-counts-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let codexLegacyURL = root.appendingPathComponent("codex-hook-sessions.json")
+        let legacyRows: [(id: String, updatedAt: TimeInterval)] = [
+            ("codex-older", 100),
+            ("codex-middle", 400),
+            ("codex-newest", 600),
+        ]
+        let legacySessions = Dictionary(uniqueKeysWithValues: legacyRows.map { row in
+            (row.id, [
+                "sessionId": row.id,
+                "workspaceId": "workspace-\(row.id)",
+                "surfaceId": "surface-\(row.id)",
+                "startedAt": row.updatedAt,
+                "updatedAt": row.updatedAt,
+            ] as [String: Any])
+        })
+        try JSONSerialization.data(
+            withJSONObject: ["version": 2, "sessions": legacySessions],
+            options: [.sortedKeys]
+        ).write(to: codexLegacyURL, options: .atomic)
+
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let registry = CmuxAgentSessionRegistry(url: registryURL)
+        _ = try registry.snapshotImportingLegacy(
+            provider: "codex",
+            legacyURL: codexLegacyURL,
+            fileManager: .default
+        )
+        try registry.apply(provider: "codex", records: [
+            .init(
+                provider: "codex",
+                sessionID: "codex-malformed",
+                updatedAt: 700,
+                json: Data("{}".utf8)
+            ),
+        ])
+        try registry.apply(provider: "opencode", records: [
+            try agentSessionRegistryRecord(
+                provider: "opencode",
+                sessionID: "opencode-newest",
+                updatedAt: 550
+            ),
+            try agentSessionRegistryRecord(
+                provider: "opencode",
+                sessionID: "opencode-older",
+                updatedAt: 300
+            ),
+        ])
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "agents", "list", "--all", "--limit", "2", "--json",
+                "--state-dir", root.path, "--codex-home", root.path,
+            ],
+            environment: isolatedAgentTreeEnvironment(home: root),
+            timeout: 10
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        let output = try #require(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
+        )
+        #expect(output["total_matches"] as? Int == 5)
+        let rows = try #require(output["sessions"] as? [[String: Any]])
+        #expect(rows.compactMap { $0["session_id"] as? String } == [
+            "codex-newest", "opencode-newest",
+        ])
+        let stores = try #require(output["stores"] as? [[String: Any]])
+        let codexStore = try #require(stores.first { $0["agent"] as? String == "codex" })
+        #expect(codexStore["exists"] as? Bool == true)
+        #expect(codexStore["session_count"] as? Int == 3)
+        let opencodeStore = try #require(stores.first { $0["agent"] as? String == "opencode" })
+        #expect(opencodeStore["exists"] as? Bool == true)
+        #expect(opencodeStore["session_count"] as? Int == 2)
+        let warnings = try #require(output["store_warnings"] as? [[String: Any]])
+        #expect(warnings.count == 1)
+        #expect(warnings.first?["provider"] as? String == "codex")
+        #expect(warnings.first?["code"] as? String == "authoritative_snapshot_decode_failed")
+        #expect(warnings.first?["fallback"] as? String == "legacy")
+    }
+
+    @Test func boundedAgentListPreservesGenericCanonicalReadFailures() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-bounded-generic-read-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let registry = CmuxAgentSessionRegistry(url: registryURL)
+        try registry.apply(provider: "codex", records: [
+            try agentSessionRegistryRecord(
+                provider: "codex",
+                sessionID: "canonical-session",
+                updatedAt: 100
+            ),
+        ])
+        // Storage preflight does not read this column, while the canonical list
+        // query does. This injects a canonical SQLite error after preflight.
+        try executeAgentSessionSQLite(
+            at: registryURL,
+            sql: "ALTER TABLE agent_sessions RENAME COLUMN writer_generation TO missing_writer_generation"
+        )
+
+        var caught: (any Error)?
+        do {
+            _ = try AgentHookSessionRegistryBridge.boundedRecentSnapshotsForList(
+                specifications: [(provider: "codex", suffix: "codex")],
+                stateDirectory: root.path,
+                environment: ["CMUX_AGENT_HOOK_STATE_DIR": root.path],
+                fileManager: .default,
+                maximumRecordsPerProvider: 1
+            )
+        } catch {
+            caught = error
+        }
+
+        #expect(caught != nil)
+        #expect(
+            !(caught is AgentHookSessionStoreLoadFailure),
+            "A canonical query failure must not be relabeled as a legacy import failure."
+        )
     }
 
     @Test func agentsListAndTreeFailClosedForMalformedLegacyWithoutRegistryFallback() throws {
@@ -3484,6 +3616,50 @@ private func seedAuthoritativeAgentSessions(
         )
     }
     try registry.apply(provider: provider, records: records)
+}
+
+private func agentSessionRegistryRecord(
+    provider: String,
+    sessionID: String,
+    updatedAt: TimeInterval
+) throws -> CmuxAgentSessionRegistry.Record {
+    CmuxAgentSessionRegistry.Record(
+        provider: provider,
+        sessionID: sessionID,
+        updatedAt: updatedAt,
+        json: try JSONSerialization.data(withJSONObject: [
+            "sessionId": sessionID,
+            "workspaceId": "workspace-\(sessionID)",
+            "surfaceId": "surface-\(sessionID)",
+            "startedAt": updatedAt,
+            "updatedAt": updatedAt,
+        ], options: [.sortedKeys])
+    )
+}
+
+private func executeAgentSessionSQLite(at url: URL, sql: String) throws {
+    var database: OpaquePointer?
+    guard sqlite3_open_v2(
+        url.path,
+        &database,
+        SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX,
+        nil
+    ) == SQLITE_OK, let database else {
+        defer { if let database { sqlite3_close(database) } }
+        throw CocoaError(.fileReadUnknown)
+    }
+    defer { sqlite3_close(database) }
+    var message: UnsafeMutablePointer<CChar>?
+    let status = sqlite3_exec(database, sql, nil, nil, &message)
+    guard status == SQLITE_OK else {
+        let description = message.map(String.init(cString:)) ?? "SQLite test setup failed"
+        sqlite3_free(message)
+        throw NSError(
+            domain: "AgentSessionCLIRegressionTests.SQLite",
+            code: Int(status),
+            userInfo: [NSLocalizedDescriptionKey: description]
+        )
+    }
 }
 
 private func shellQuoteAgentTreeArgument(_ value: String) -> String {

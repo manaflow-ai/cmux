@@ -517,6 +517,73 @@ struct CmuxAgentSessionRegistryHookHotPathTests {
         #expect(error.provider == provider)
     }
 
+    @Test("bounded list identity validation matches Swift canonical equivalence")
+    func boundedListIdentityUsesCanonicalUnicodeEquivalence() throws {
+        let fixture = try makeFixture()
+        let provider = "unicode-identity"
+        let storedSessionID = "session-\u{00E9}"
+        let projectedSessionID = "session-e\u{0301}"
+        let storedWorkspaceID = "workspace-\u{00E9}"
+        let projectedWorkspaceID = "workspace-e\u{0301}"
+        let storedSurfaceID = "surface-\u{00E9}"
+        let projectedSurfaceID = "surface-e\u{0301}"
+        #expect(storedSessionID == projectedSessionID)
+        #expect(storedWorkspaceID == projectedWorkspaceID)
+        #expect(storedSurfaceID == projectedSurfaceID)
+
+        let record = CmuxAgentSessionRegistry.Record(
+            provider: provider,
+            sessionID: storedSessionID,
+            updatedAt: 100,
+            json: try JSONSerialization.data(withJSONObject: [
+                "sessionId": projectedSessionID,
+                "workspaceId": projectedWorkspaceID,
+                "surfaceId": projectedSurfaceID,
+                "startedAt": 100.0,
+                "updatedAt": 100.0,
+            ], options: [.sortedKeys])
+        )
+        let slotJSON = try JSONSerialization.data(withJSONObject: [
+            "sessionId": projectedSessionID,
+            "updatedAt": 100.0,
+        ], options: [.sortedKeys])
+        try fixture.registry.apply(
+            provider: provider,
+            records: [record],
+            activeSlots: [
+                .init(
+                    provider: provider,
+                    scope: .workspace,
+                    scopeID: storedWorkspaceID,
+                    sessionID: storedSessionID,
+                    updatedAt: 100,
+                    json: slotJSON
+                ),
+                .init(
+                    provider: provider,
+                    scope: .surface,
+                    scopeID: storedSurfaceID,
+                    sessionID: storedSessionID,
+                    updatedAt: 100,
+                    json: slotJSON
+                ),
+            ]
+        )
+
+        let complete = try fixture.registry.snapshot(provider: provider)
+        #expect(complete.records.count == 1)
+        #expect(complete.activeSlots.count == 2)
+        let bounded = try fixture.registry.hookBoundedRecentSnapshot(
+            provider: provider,
+            maximumRecords: 1
+        )
+        #expect(bounded.totalRecordCount == 1)
+        #expect(bounded.snapshot.records.map(\.sessionID) == [storedSessionID])
+        #expect(Set(bounded.snapshot.activeSlots.map(\.scopeID)) == [
+            storedWorkspaceID, storedSurfaceID,
+        ])
+    }
+
     @Test("bounded list rejects a corrupt authoritative row outside top K")
     func boundedListValidatesOmittedRows() throws {
         let fixture = try makeFixture()
