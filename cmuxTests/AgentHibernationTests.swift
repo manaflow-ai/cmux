@@ -890,6 +890,64 @@ struct AgentHibernationTests {
 
     @MainActor
     @Test
+    func testUnavailableResumeAuthorityDoesNotLeakOversizedLauncherScripts() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let sessionId = "authority-leak-\(UUID().uuidString.prefix(12))"
+        let launcherPrefix = "codex-\(sessionId)"
+        let launcherDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-resume", isDirectory: true)
+        func matchingLaunchers() -> [URL] {
+            (try? FileManager.default.contentsOfDirectory(
+                at: launcherDirectory,
+                includingPropertiesForKeys: nil
+            ))?.filter { $0.lastPathComponent.hasPrefix(launcherPrefix) } ?? []
+        }
+        defer {
+            for url in matchingLaunchers() { try? FileManager.default.removeItem(at: url) }
+        }
+
+        let oversizedDirectory = "/tmp/" + String(repeating: "long-resume-directory/", count: 80)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: sessionId,
+            workingDirectory: oversizedDirectory,
+            launchCommand: launch("codex", "/usr/local/bin/codex", cwd: oversizedDirectory)
+        )
+        let resumeCommand = try #require(snapshot.resumeCommand)
+        #expect(resumeCommand.utf8.count > SessionRestorableAgentSnapshot.maxInlineStartupInputBytes)
+        workspace.surfaceResumeBindingsByPanelId[panelId] = SurfaceResumeBindingSnapshot(
+            kind: snapshot.kind.rawValue,
+            command: resumeCommand,
+            cwd: oversizedDirectory,
+            checkpointId: sessionId,
+            source: "agent-hook",
+            autoResume: false,
+            updatedAt: 100
+        )
+        expectTrue(workspace.enterAgentHibernation(
+            panelId: panelId,
+            agent: snapshot,
+            lastActivityAt: Date(timeIntervalSince1970: 0)
+        ))
+
+        for _ in 0..<3 {
+            expectFalse(workspace.resumeVisibleAgentHibernationPanels(
+                panelIds: [panelId],
+                retryPendingAdoptions: false,
+                authorityClaimHandler: { requests in
+                    Dictionary(uniqueKeysWithValues: requests.map {
+                        ($0.surfaceId, .unavailable)
+                    })
+                }
+            ))
+            expectTrue(workspace.terminalPanel(for: panelId)?.isAgentHibernated == true)
+            #expect(matchingLaunchers().isEmpty)
+        }
+    }
+
+    @MainActor
+    @Test
     func testHiddenMountedWorkspaceDoesNotAutoResumeHibernatedTerminal() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
