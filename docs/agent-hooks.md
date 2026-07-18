@@ -59,7 +59,7 @@ When the opt-in `automation.workspaceAutoNaming` setting is enabled, turn-end ho
 
 ## Agent Hibernation
 
-Agent Hibernation kills idle background agent processes to free their RAM and CPU, then resumes each one with its saved session when you return to its tab. It is opt-in and off by default. cmux knows which process belongs to which terminal because the agent hooks associate each session ID with its surface (see the session-restore section above), so it can terminate the right process and bring back the right session.
+Agent Hibernation replaces a proven process-free background terminal with a lightweight placeholder, then resumes its saved agent session when you return to the tab. It is opt-in and off by default. cmux never hibernates a terminal while an agent or other child process is still running.
 
 ### When a terminal hibernates
 
@@ -67,19 +67,20 @@ A live terminal is only ever a candidate when all of these hold:
 
 - it has a saved restorable agent session, and the saved launch data can build a resume command
 - the agent lifecycle is `idle` (not running, not waiting on input)
+- the terminal is at its shell prompt, needs no close confirmation, and has no agent or other child process
 - the terminal is in the background (its panel is not currently visible)
 - you have more live restorable agent terminals than the live-terminal limit (`maxLiveTerminals`, default `12`)
 - the terminal has had no output, input, or lifecycle change for at least the idle window (`idleSeconds`, default `5`)
 
-The live-terminal limit is the first gate. Under the limit, nothing hibernates no matter how long it sits idle. Once you are over the limit, cmux frees only the oldest-idle background terminals, just enough to get back under the limit. Visible terminals are never touched.
+The live-terminal limit is the first gate. Under the limit, nothing hibernates no matter how long it sits idle. Once you are over the limit, cmux frees the oldest eligible background terminals. Live agent processes still count toward the limit but are never terminated, so cmux may remain over the limit when no process-free terminal is eligible. Visible terminals are never touched.
 
-Before killing, cmux watches the terminal tail. It samples the last lines of output and a fingerprint of the process, and waits a short confirmation window (`confirmationSeconds`, ~60s) during which the output and process must stay unchanged. Any new output, input, lifecycle change, or PID change cancels the pending hibernation. This is why a small `idleSeconds` is safe: a freshly idle agent that resumes work on its own is never killed mid-task.
+Before hibernating, cmux watches the terminal tail and verifies the idle shell's identity, terminal scope, process group, and complete TTY membership. It waits a short confirmation window (`confirmationSeconds`, ~60s), then repeats those checks immediately before freeing the terminal runtime. New output, input, lifecycle changes, process changes, or incomplete process inspection cancel hibernation.
 
-So with the defaults, hibernation only affects power users running more than 12 agents at once, and even then only ~1 minute after an agent has gone quiet off-screen.
+With the defaults, hibernation only affects users with more than 12 restorable agent terminals, and only after an agent has exited back to a quiet off-screen shell.
 
-### What gets killed and how it comes back
+### What gets released and how it comes back
 
-cmux sends `SIGTERM` to the agent's process group (scoped to that workspace and surface), then swaps the live terminal for a lightweight placeholder, releasing the terminal's memory and CPU. When you visit the tab again, cmux runs the agent's native resume command with the saved session ID, so the session continues where it left off. The placeholder also shows a Resume button as a manual fallback.
+cmux frees the verified process-free terminal runtime and swaps it for a lightweight placeholder. It does not signal a live agent process. When you visit the tab again, cmux runs the agent's native resume command with the saved session ID. The placeholder also shows a Resume button as a manual fallback.
 
 ### Enable and configure
 
