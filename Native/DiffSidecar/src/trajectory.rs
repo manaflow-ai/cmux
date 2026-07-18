@@ -1,7 +1,9 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::hash_map::DefaultHasher;
+use std::collections::{BTreeMap, HashMap};
 use std::ffi::OsString;
 use std::fmt::Write as _;
 use std::fs::File;
+use std::hash::{Hash, Hasher};
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
@@ -19,6 +21,7 @@ const MAX_JSONL_LINE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_HOOK_STORE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_TRANSCRIPT_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_PATCH_BYTES: usize = 64 * 1024 * 1024;
+const MAX_CODEX_RETAINED_APPLY_PATCH_CALLS: usize = 1024;
 const MAX_CLAUDE_SUBAGENT_TRANSCRIPTS: usize = 128;
 const MAX_CLAUDE_PROJECT_DIRECTORIES: usize = 4096;
 const MAX_CLAUDE_AGGREGATE_TRANSCRIPT_BYTES: u64 = 512 * 1024 * 1024;
@@ -191,8 +194,8 @@ pub(crate) enum AgentTurnGeneration {
     OpenCode {
         database: PathBuf,
         latest_user_message: Option<String>,
-        patch_part_count: i64,
-        latest_patch_part: Option<String>,
+        summary_diff_count: i64,
+        summary_fingerprint: Option<u64>,
     },
 }
 
@@ -554,17 +557,17 @@ fn resolve_opencode(
         .ok_or(TrajectoryError::Empty)?;
     let mut statement = connection
         .prepare(
-            "SELECT json_extract(part.data, '$.state.metadata.diff') \
-             FROM part JOIN message ON message.id = part.message_id \
-             WHERE message.session_id = ?1 \
-               AND json_extract(message.data, '$.role') = 'assistant' \
-               AND json_extract(message.data, '$.parentID') = ?2 \
-               AND json_type(part.data, '$.state.metadata.diff') = 'text' \
-             ORDER BY part.time_created, part.id",
+            "SELECT json_extract(diff.value, '$.patch') \
+             FROM message JOIN json_each(json_extract(message.data, '$.summary.diffs')) AS diff \
+             WHERE message.id = ?1 \
+               AND message.session_id = ?2 \
+               AND json_extract(message.data, '$.role') = 'user' \
+               AND json_type(diff.value, '$.patch') = 'text' \
+             ORDER BY CAST(diff.key AS INTEGER)",
         )
         .map_err(|_| TrajectoryError::Invalid)?;
     let rows = statement
-        .query_map(params![identity.session_id, user_message], |row| {
+        .query_map(params![user_message, identity.session_id], |row| {
             row.get::<_, String>(0)
         })
         .map_err(|_| TrajectoryError::Invalid)?;
@@ -597,19 +600,25 @@ fn opencode_location(
         )
         .optional()
         .map_err(|_| TrajectoryError::Invalid)?;
-    let (patch_part_count, latest_patch_part) = if let Some(user_message) = &latest_user_message {
-        connection
+    let (summary_diff_count, summary_fingerprint) = if let Some(user_message) = &latest_user_message
+    {
+        let summary = connection
             .query_row(
-                "SELECT COUNT(*), MAX(part.id) \
-                 FROM part JOIN message ON message.id = part.message_id \
-                 WHERE message.session_id = ?1 \
-                   AND json_extract(message.data, '$.role') = 'assistant' \
-                   AND json_extract(message.data, '$.parentID') = ?2 \
-                   AND json_type(part.data, '$.state.metadata.diff') = 'text'",
-                params![identity.session_id, user_message],
-                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?)),
+                "SELECT json_array_length(json_extract(data, '$.summary.diffs')), \
+                        json_extract(data, '$.summary.diffs') \
+                 FROM message \
+                 WHERE id = ?1 AND session_id = ?2 \
+                   AND json_type(data, '$.summary.diffs') = 'array'",
+                params![user_message, identity.session_id],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
             )
-            .map_err(|_| TrajectoryError::Invalid)?
+            .optional()
+            .map_err(|_| TrajectoryError::Invalid)?;
+        summary.map_or((0, None), |(summary_diff_count, summary)| {
+            let mut hasher = DefaultHasher::new();
+            summary.hash(&mut hasher);
+            (summary_diff_count, Some(hasher.finish()))
+        })
     } else {
         (0, None)
     };
@@ -618,8 +627,8 @@ fn opencode_location(
         AgentTurnGeneration::OpenCode {
             database,
             latest_user_message,
-            patch_part_count,
-            latest_patch_part,
+            summary_diff_count,
+            summary_fingerprint,
         },
     ))
 }
@@ -780,10 +789,12 @@ fn codex_last_turn_patch(
 struct CodexTurnPatchState {
     current_turn: Option<String>,
     patch: String,
-    apply_patch_inputs: HashMap<String, String>,
-    successful_apply_patch_calls: HashSet<String>,
-    successful_apply_patch_order: Vec<String>,
-    apply_patch_event_calls: HashSet<String>,
+    pending_apply_patch_inputs: HashMap<String, String>,
+    fallback_patches: BTreeMap<u64, String>,
+    fallback_sequence_by_call: HashMap<String, u64>,
+    next_fallback_sequence: u64,
+    retained_apply_patch_bytes: usize,
+    fallback_disabled: bool,
 }
 
 impl CodexTurnPatchState {
@@ -803,7 +814,7 @@ impl CodexTurnPatchState {
             return Ok(false);
         }
         if object_type == Some("response_item") {
-            self.consume_response_item(payload);
+            self.consume_response_item(payload, repo_root, working_directory);
             return Ok(false);
         }
         if object_type != Some("event_msg") {
@@ -819,20 +830,40 @@ impl CodexTurnPatchState {
         }
     }
 
-    fn consume_response_item(&mut self, payload: &Value) {
+    fn consume_response_item(
+        &mut self,
+        payload: &Value,
+        repo_root: &Path,
+        working_directory: &Path,
+    ) {
         if self.current_turn.is_none() {
             return;
         }
         if let Some((call_id, input)) = codex_apply_patch_input(payload) {
-            self.apply_patch_inputs.insert(call_id, input);
+            self.retain_apply_patch_input(call_id, input);
             return;
         }
-        if codex_apply_patch_output_succeeded(payload)
-            && let Some(call_id) = payload.get("call_id").and_then(Value::as_str)
-            && self.apply_patch_inputs.contains_key(call_id)
-            && self.successful_apply_patch_calls.insert(call_id.to_owned())
+        let Some(call_id) = codex_apply_patch_output_call_id(payload) else {
+            return;
+        };
+        let input = self.take_pending_apply_patch_input(call_id);
+        if !codex_apply_patch_output_succeeded(payload) || self.fallback_disabled {
+            return;
+        }
+        let Some(input) = input else {
+            return;
+        };
+        let mut structured_patch = String::new();
+        if append_codex_apply_patch_input(
+            &mut structured_patch,
+            repo_root,
+            working_directory,
+            &input,
+        )
+        .is_ok()
+            && !structured_patch.is_empty()
         {
-            self.successful_apply_patch_order.push(call_id.to_owned());
+            self.retain_fallback_patch(call_id, structured_patch);
         }
     }
 
@@ -866,9 +897,9 @@ impl CodexTurnPatchState {
         }
         let changes = payload.get("changes").and_then(Value::as_object);
         let call_id = payload.get("call_id").and_then(Value::as_str);
-        if let Some(call_id) = call_id {
-            self.apply_patch_event_calls.insert(call_id.to_owned());
-        }
+        let pending_input =
+            call_id.and_then(|call_id| self.take_pending_apply_patch_input(call_id));
+        let fallback_patch = call_id.and_then(|call_id| self.remove_fallback_patch(call_id));
         let changes_have_patch_data = changes.is_some_and(|changes| {
             !changes.is_empty() && changes.values().all(codex_change_has_patch_data)
         });
@@ -880,20 +911,24 @@ impl CodexTurnPatchState {
             }
             self.patch.push_str(&event_patch);
             ensure_patch_limit(&self.patch)?;
-        } else if let Some(call_id) = call_id
-            && let Some(input) = self.apply_patch_inputs.get(call_id)
-        {
+            self.enforce_combined_patch_budget();
+        } else if let Some(fallback_patch) = fallback_patch {
+            self.patch.push_str(&fallback_patch);
+            ensure_patch_limit(&self.patch)?;
+            self.enforce_combined_patch_budget();
+        } else if let Some(input) = pending_input {
             let mut structured_patch = String::new();
             if append_codex_apply_patch_input(
                 &mut structured_patch,
                 repo_root,
                 working_directory,
-                input,
+                &input,
             )
             .is_ok()
             {
                 self.patch.push_str(&structured_patch);
                 ensure_patch_limit(&self.patch)?;
+                self.enforce_combined_patch_budget();
             }
         }
         Ok(())
@@ -902,38 +937,116 @@ impl CodexTurnPatchState {
     fn reset(&mut self, turn_id: Option<&str>) {
         self.current_turn = turn_id.map(str::to_owned);
         self.patch.clear();
-        self.apply_patch_inputs.clear();
-        self.successful_apply_patch_calls.clear();
-        self.successful_apply_patch_order.clear();
-        self.apply_patch_event_calls.clear();
+        self.pending_apply_patch_inputs.clear();
+        self.fallback_patches.clear();
+        self.fallback_sequence_by_call.clear();
+        self.next_fallback_sequence = 0;
+        self.retained_apply_patch_bytes = 0;
+        self.fallback_disabled = false;
     }
 
     fn finish(
         mut self,
-        repo_root: &Path,
-        working_directory: &Path,
+        _repo_root: &Path,
+        _working_directory: &Path,
     ) -> Result<String, TrajectoryError> {
-        for call_id in self.successful_apply_patch_order {
-            if self.apply_patch_event_calls.contains(&call_id) {
-                continue;
-            }
-            let Some(input) = self.apply_patch_inputs.get(&call_id) else {
-                continue;
-            };
-            let mut structured_patch = String::new();
-            if append_codex_apply_patch_input(
-                &mut structured_patch,
-                repo_root,
-                working_directory,
-                input,
-            )
-            .is_ok()
-            {
-                self.patch.push_str(&structured_patch);
-                ensure_patch_limit(&self.patch)?;
-            }
+        for (_, fallback_patch) in self.fallback_patches {
+            self.patch.push_str(&fallback_patch);
+            ensure_patch_limit(&self.patch)?;
         }
         Ok(self.patch)
+    }
+
+    fn retain_apply_patch_input(&mut self, call_id: String, input: String) {
+        if self.fallback_disabled {
+            return;
+        }
+        let _ = self.take_pending_apply_patch_input(&call_id);
+        let _ = self.remove_fallback_patch(&call_id);
+        let retained_calls = self
+            .pending_apply_patch_inputs
+            .len()
+            .saturating_add(self.fallback_sequence_by_call.len());
+        let Some(retained_bytes) = self.retained_apply_patch_bytes.checked_add(input.len()) else {
+            self.disable_fallback();
+            return;
+        };
+        if retained_calls >= MAX_CODEX_RETAINED_APPLY_PATCH_CALLS
+            || retained_bytes
+                .checked_add(self.patch.len())
+                .is_none_or(|total| total > MAX_PATCH_BYTES)
+        {
+            self.disable_fallback();
+            return;
+        }
+        self.retained_apply_patch_bytes = retained_bytes;
+        self.pending_apply_patch_inputs.insert(call_id, input);
+    }
+
+    fn take_pending_apply_patch_input(&mut self, call_id: &str) -> Option<String> {
+        let input = self.pending_apply_patch_inputs.remove(call_id)?;
+        self.retained_apply_patch_bytes =
+            self.retained_apply_patch_bytes.saturating_sub(input.len());
+        Some(input)
+    }
+
+    fn retain_fallback_patch(&mut self, call_id: &str, patch: String) {
+        if self.fallback_disabled {
+            return;
+        }
+        let _ = self.remove_fallback_patch(call_id);
+        let retained_calls = self
+            .pending_apply_patch_inputs
+            .len()
+            .saturating_add(self.fallback_sequence_by_call.len());
+        let Some(retained_bytes) = self.retained_apply_patch_bytes.checked_add(patch.len()) else {
+            self.disable_fallback();
+            return;
+        };
+        if retained_calls >= MAX_CODEX_RETAINED_APPLY_PATCH_CALLS
+            || retained_bytes
+                .checked_add(self.patch.len())
+                .is_none_or(|total| total > MAX_PATCH_BYTES)
+        {
+            self.disable_fallback();
+            return;
+        }
+        let sequence = self.next_fallback_sequence;
+        let Some(next_sequence) = sequence.checked_add(1) else {
+            self.disable_fallback();
+            return;
+        };
+        self.next_fallback_sequence = next_sequence;
+        self.retained_apply_patch_bytes = retained_bytes;
+        self.fallback_sequence_by_call
+            .insert(call_id.to_owned(), sequence);
+        self.fallback_patches.insert(sequence, patch);
+    }
+
+    fn remove_fallback_patch(&mut self, call_id: &str) -> Option<String> {
+        let sequence = self.fallback_sequence_by_call.remove(call_id)?;
+        let patch = self.fallback_patches.remove(&sequence)?;
+        self.retained_apply_patch_bytes =
+            self.retained_apply_patch_bytes.saturating_sub(patch.len());
+        Some(patch)
+    }
+
+    fn disable_fallback(&mut self) {
+        self.pending_apply_patch_inputs.clear();
+        self.fallback_patches.clear();
+        self.fallback_sequence_by_call.clear();
+        self.retained_apply_patch_bytes = 0;
+        self.fallback_disabled = true;
+    }
+
+    fn enforce_combined_patch_budget(&mut self) {
+        if self
+            .retained_apply_patch_bytes
+            .checked_add(self.patch.len())
+            .is_none_or(|total| total > MAX_PATCH_BYTES)
+        {
+            self.disable_fallback();
+        }
     }
 }
 
@@ -960,10 +1073,7 @@ fn codex_apply_patch_input(payload: &Value) -> Option<(String, String)> {
 }
 
 fn codex_apply_patch_output_succeeded(payload: &Value) -> bool {
-    if !matches!(
-        payload.get("type").and_then(Value::as_str),
-        Some("custom_tool_call_output" | "function_call_output")
-    ) {
+    if codex_apply_patch_output_call_id(payload).is_none() {
         return false;
     }
     payload
@@ -975,6 +1085,16 @@ fn codex_apply_patch_output_succeeded(payload: &Value) -> bool {
                 .and_then(codex_apply_patch_result_succeeded)
         })
         .unwrap_or(false)
+}
+
+fn codex_apply_patch_output_call_id(payload: &Value) -> Option<&str> {
+    if !matches!(
+        payload.get("type").and_then(Value::as_str),
+        Some("custom_tool_call_output" | "function_call_output")
+    ) {
+        return None;
+    }
+    payload.get("call_id").and_then(Value::as_str)
 }
 
 fn codex_apply_patch_result_succeeded(result: &Value) -> Option<bool> {
@@ -1971,6 +2091,95 @@ mod environment_tests {
 
         assert!(!codex_apply_patch_output_succeeded(&structured_failure));
         assert!(codex_apply_patch_output_succeeded(&legacy_success));
+    }
+
+    #[test]
+    fn codex_apply_patch_fallback_retention_is_bounded_and_releases_results() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-codex-retention-test-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).expect("create repository fixture");
+        let root = root.canonicalize().expect("canonical repository fixture");
+
+        let mut released = CodexTurnPatchState {
+            current_turn: Some("turn".to_owned()),
+            ..CodexTurnPatchState::default()
+        };
+        for index in 0..(MAX_CODEX_RETAINED_APPLY_PATCH_CALLS * 2) {
+            let call_id = format!("released-{index}");
+            released.consume_response_item(
+                &serde_json::json!({
+                    "type":"custom_tool_call",
+                    "name":"apply_patch",
+                    "call_id":call_id,
+                    "input":"*** Begin Patch\n*** End Patch"
+                }),
+                &root,
+                &root,
+            );
+            released.consume_response_item(
+                &serde_json::json!({
+                    "type":"custom_tool_call_output",
+                    "call_id":call_id,
+                    "output":{"success":false}
+                }),
+                &root,
+                &root,
+            );
+        }
+        assert!(!released.fallback_disabled);
+        assert!(released.pending_apply_patch_inputs.is_empty());
+        assert_eq!(released.retained_apply_patch_bytes, 0);
+
+        let mut bounded = CodexTurnPatchState {
+            current_turn: Some("turn".to_owned()),
+            ..CodexTurnPatchState::default()
+        };
+        for index in 0..=MAX_CODEX_RETAINED_APPLY_PATCH_CALLS {
+            bounded.consume_response_item(
+                &serde_json::json!({
+                    "type":"custom_tool_call",
+                    "name":"apply_patch",
+                    "call_id":format!("pending-{index}"),
+                    "input":"*** Begin Patch\n*** End Patch"
+                }),
+                &root,
+                &root,
+            );
+        }
+        assert!(bounded.fallback_disabled);
+        assert!(bounded.pending_apply_patch_inputs.is_empty());
+        assert_eq!(bounded.retained_apply_patch_bytes, 0);
+
+        let changed = root.join("authoritative.txt");
+        bounded
+            .consume_event(
+                &serde_json::json!({
+                    "type":"patch_apply_end",
+                    "turn_id":"turn",
+                    "success":true,
+                    "changes":{
+                        changed.to_string_lossy():{
+                            "type":"update",
+                            "unified_diff":"@@ -1 +1 @@\n-old\n+new\n"
+                        }
+                    }
+                }),
+                Some("turn"),
+                &root,
+                &root,
+            )
+            .expect("authoritative events remain available after fallback cap");
+        assert!(
+            bounded.patch.contains("authoritative.txt"),
+            "unexpected patch: {:?}",
+            bounded.patch
+        );
+        assert!(bounded.patch.contains("+new"));
+
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

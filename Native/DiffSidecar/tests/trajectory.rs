@@ -1255,6 +1255,68 @@ fn opencode_resolver_uses_diffs_parented_to_the_latest_user_message() {
 }
 
 #[test]
+fn opencode_resolver_uses_turn_summary_and_ignores_failed_tool_metadata() {
+    let fixture = FixtureRoot::new("opencode-authoritative-summary");
+    prepare_common_directories(&fixture);
+    let home = fixture.home();
+    let repo = fixture.repo();
+    let database_path = home.join(".local/share/opencode/opencode.db");
+    fs::create_dir_all(database_path.parent().expect("database parent"))
+        .expect("create database parent");
+    let database = Connection::open(&database_path).expect("open fixture database");
+    database
+        .execute_batch(
+            "CREATE TABLE session (id TEXT PRIMARY KEY, directory TEXT NOT NULL);\n\
+             CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, time_created INTEGER NOT NULL, data TEXT NOT NULL);\n\
+             CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT NOT NULL, session_id TEXT NOT NULL, time_created INTEGER NOT NULL, data TEXT NOT NULL);",
+        )
+        .expect("create OpenCode schema");
+    database
+        .execute(
+            "INSERT INTO session (id, directory) VALUES (?1, ?2)",
+            ("opencode-session", repo.to_string_lossy().as_ref()),
+        )
+        .expect("insert session");
+    insert_opencode_message(
+        &database,
+        "user-current",
+        1,
+        &serde_json::json!({"role":"user"}),
+    );
+    insert_opencode_message(
+        &database,
+        "assistant-current",
+        2,
+        &serde_json::json!({"role":"assistant","parentID":"user-current"}),
+    );
+    insert_opencode_tool_metadata_only(
+        &database,
+        "failed-edit",
+        "assistant-current",
+        3,
+        "error",
+        "Index: failed.txt\n--- a/failed.txt\n+++ b/failed.txt\n@@ -1 +1 @@\n-old\n+wrong\n",
+    );
+    append_opencode_summary_diff(
+        &database,
+        "user-current",
+        "Index: generated.txt\n--- /dev/null\n+++ b/generated.txt\n@@ -0,0 +1 @@\n+created by shell\n",
+    );
+    drop(database);
+
+    let resolved = resolve_last_turn_patch(
+        &AgentTurnIdentity::new(AgentProvider::OpenCode, "opencode-session"),
+        &TrajectoryRoots::for_home(home),
+    )
+    .expect("resolve snapshot-derived turn summary");
+
+    assert!(resolved.patch.contains("generated.txt"));
+    assert!(resolved.patch.contains("+created by shell"));
+    assert!(!resolved.patch.contains("failed.txt"));
+    assert!(!resolved.patch.contains("+wrong"));
+}
+
+#[test]
 fn opencode_resolver_skips_patch_paths_outside_the_repository() {
     let fixture = FixtureRoot::new("opencode-outside-repo");
     prepare_common_directories(&fixture);
@@ -1519,7 +1581,7 @@ fn insert_opencode_part(
     let data = serde_json::json!({
         "type": "tool",
         "tool": "edit",
-        "state": {"metadata": {"diff": diff}}
+        "state": {"status": "completed", "metadata": {"diff": diff}}
     });
     database
         .execute(
@@ -1527,4 +1589,67 @@ fn insert_opencode_part(
             (id, message_id, "opencode-session", time_created, data.to_string()),
         )
         .expect("insert part");
+    let parent_id = database
+        .query_row(
+            "SELECT json_extract(data, '$.parentID') FROM message WHERE id = ?1",
+            [message_id],
+            |row| row.get::<_, String>(0),
+        )
+        .expect("read assistant parent message");
+    append_opencode_summary_diff(database, &parent_id, diff);
+}
+
+fn insert_opencode_tool_metadata_only(
+    database: &Connection,
+    id: &str,
+    message_id: &str,
+    time_created: i64,
+    status: &str,
+    diff: &str,
+) {
+    let data = serde_json::json!({
+        "type": "tool",
+        "tool": "edit",
+        "state": {"status": status, "metadata": {"diff": diff}}
+    });
+    database
+        .execute(
+            "INSERT INTO part (id, message_id, session_id, time_created, data) VALUES (?1, ?2, ?3, ?4, ?5)",
+            (id, message_id, "opencode-session", time_created, data.to_string()),
+        )
+        .expect("insert metadata-only part");
+}
+
+fn append_opencode_summary_diff(database: &Connection, user_message_id: &str, diff: &str) {
+    let encoded = database
+        .query_row(
+            "SELECT data FROM message WHERE id = ?1",
+            [user_message_id],
+            |row| row.get::<_, String>(0),
+        )
+        .expect("read OpenCode user message");
+    let mut data: serde_json::Value =
+        serde_json::from_str(&encoded).expect("decode OpenCode user message");
+    let summary = data
+        .as_object_mut()
+        .expect("user message object")
+        .entry("summary")
+        .or_insert_with(|| serde_json::json!({"diffs": []}));
+    let diffs = summary
+        .get_mut("diffs")
+        .and_then(serde_json::Value::as_array_mut)
+        .expect("summary diffs array");
+    diffs.push(serde_json::json!({
+        "file": "fixture.txt",
+        "status": "modified",
+        "patch": diff,
+        "additions": 1,
+        "deletions": 1
+    }));
+    database
+        .execute(
+            "UPDATE message SET data = ?1 WHERE id = ?2",
+            (data.to_string(), user_message_id),
+        )
+        .expect("write OpenCode turn summary");
 }
