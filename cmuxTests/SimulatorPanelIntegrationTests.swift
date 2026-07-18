@@ -215,7 +215,8 @@ struct SimulatorPanelIntegrationTests {
             deviceTypeIdentifier: "type",
             family: .iPhone,
             state: .booted,
-            isAvailable: true
+            isAvailable: true,
+            lastBootedAt: nil
         )])
         let panel = SimulatorPanel(client: client)
         defer { panel.close() }
@@ -394,7 +395,8 @@ struct SimulatorPanelIntegrationTests {
             deviceTypeIdentifier: "type",
             family: .iPad,
             state: .shutdown,
-            isAvailable: true
+            isAvailable: true,
+            lastBootedAt: nil
         )
         let client = SimulatorFeatureFlagPaneClient(devices: [device])
         let panel = SimulatorPanel(client: client)
@@ -423,8 +425,8 @@ struct SimulatorPanelIntegrationTests {
             Issue.record("Expected context to return the discovered device")
             return
         }
-        #expect(payload["simulator_id"] == .string(device.id))
-        #expect(payload["device_name"] == .string(device.name))
+        #expect(payload["simulator_id"] == JSONValue.string(device.id))
+        #expect(payload["device_name"] == JSONValue.string(device.name))
         #expect(await client.discoveryCount == 1)
     }
 
