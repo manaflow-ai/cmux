@@ -1,4 +1,5 @@
 import Darwin
+import CmuxTerminal
 import Foundation
 import os
 import Testing
@@ -348,13 +349,15 @@ struct AgentHibernationOwnedLiveProcessTests {
 
     @Test
     func realChildStopBoundarySurvivesSchedulerLoad() throws {
-        let childPID = fork()
-        guard childPID >= 0 else {
-            Issue.record("fork failed")
-            return
+        var childPID: pid_t = 0
+        let spawnStatus = withPOSIXCStringArray(["/bin/sleep", "30"]) { arguments in
+            "/bin/sleep".withCString { executablePath in
+                posix_spawn(&childPID, executablePath, nil, nil, arguments, environ)
+            }
         }
-        if childPID == 0 {
-            while true { _ = pause() }
+        guard spawnStatus == 0 else {
+            Issue.record("posix_spawn failed: \(String(cString: strerror(spawnStatus)))")
+            return
         }
 
         var didReapChild = false
@@ -432,13 +435,18 @@ struct AgentHibernationOwnedLiveProcessTests {
         let workspace = Workspace(workingDirectory: "/tmp")
         let panelID = try #require(workspace.focusedPanelId)
         let panel = try #require(workspace.terminalPanel(for: panelID))
-        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        let runtimeSurface = UnsafeMutableRawPointer(bitPattern: 0x7867)!
         panel.surface.installRuntimeSurfaceForTesting(runtimeSurface)
-        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { pointer in
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
             state.recordNativeFree()
-            pointer.deallocate()
         }
-        defer { TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil }
+        defer {
+            if panel.surface.surface == runtimeSurface {
+                TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in }
+                panel.surface.teardownSurface()
+            }
+            TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil
+        }
 
         let didHibernate = await panel.enterAgentHibernation(
             agent: restorableAgent(),
@@ -492,16 +500,15 @@ struct AgentHibernationOwnedLiveProcessTests {
         let workspace = Workspace(workingDirectory: "/tmp")
         let panelID = try #require(workspace.focusedPanelId)
         let panel = try #require(workspace.terminalPanel(for: panelID))
-        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        let runtimeSurface = UnsafeMutableRawPointer(bitPattern: 0x7868)!
         panel.surface.installRuntimeSurfaceForTesting(runtimeSurface)
         TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
             state.recordNativeFree()
         }
         defer {
             if panel.surface.surface == runtimeSurface {
-                panel.surface.runtimeSurfaceFreedOutOfBandForTesting = true
+                TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in }
                 panel.surface.teardownSurface()
-                runtimeSurface.deallocate()
             }
             TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil
         }
@@ -860,6 +867,16 @@ struct AgentHibernationOwnedLiveProcessTests {
             childProcessIDsProvider: { _ in .complete([]) }
         )
     }
+}
+
+private func withPOSIXCStringArray<Result>(
+    _ strings: [String],
+    _ body: (UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>) -> Result
+) -> Result {
+    var cStrings: [UnsafeMutablePointer<CChar>?] = strings.map { strdup($0) }
+    cStrings.append(nil)
+    defer { cStrings.forEach { free($0) } }
+    return cStrings.withUnsafeMutableBufferPointer { body($0.baseAddress!) }
 }
 
 private final class AgentHibernationFrozenShellTestState: @unchecked Sendable {
