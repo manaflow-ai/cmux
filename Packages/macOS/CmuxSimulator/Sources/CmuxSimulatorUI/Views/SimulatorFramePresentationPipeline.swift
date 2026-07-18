@@ -33,15 +33,18 @@ final class SimulatorFramePresentationPipeline {
         copyIsInFlight = true
         let source = self.source
         let sequence = lastCopiedSequence
-        Task.detached(priority: .userInitiated) { [weak self] in
-            let snapshot = await source.copyLatestFrame(after: sequence)
-            let presentation = snapshot.flatMap(SimulatorFramePresentation.init(snapshot:))
-            await MainActor.run {
-                self?.copyDidComplete(
-                    presentation: presentation,
+        Task { @MainActor [weak self] in
+            let result = await Task.detached(priority: .userInitiated) {
+                let snapshot = await source.copyLatestFrame(after: sequence)
+                return (
+                    presentation: snapshot.flatMap(SimulatorFramePresentation.init(snapshot:)),
                     observedSequence: snapshot?.sequence
                 )
-            }
+            }.value
+            self?.copyDidComplete(
+                presentation: result.presentation,
+                observedSequence: result.observedSequence
+            )
         }
     }
 
