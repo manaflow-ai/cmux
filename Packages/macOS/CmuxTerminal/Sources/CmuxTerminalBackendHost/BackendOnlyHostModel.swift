@@ -3,6 +3,19 @@ public import Foundation
 public import SwiftUI
 
 @MainActor
+protocol BackendOnlyHostRuntimeLifecycle: AnyObject {
+    var selection: BackendOnlyTerminalSelection { get }
+    func shutdown() async
+}
+
+extension BackendOnlyTerminalRuntime: BackendOnlyHostRuntimeLifecycle {}
+
+typealias BackendOnlyHostRuntimeFactory = @MainActor (
+    BackendCanonicalSession,
+    BackendOnlyTerminalSelection
+) -> any BackendOnlyHostRuntimeLifecycle
+
+@MainActor
 public final class BackendOnlyHostModel: ObservableObject {
     private struct PendingProjectionWrite: Sendable {
         let connection: BackendOnlyHostConnection
@@ -13,6 +26,11 @@ public final class BackendOnlyHostModel: ObservableObject {
     private struct ProjectionWriteAttempt: Sendable {
         let pending: PendingProjectionWrite
         let expectedGeneration: UInt64
+    }
+
+    private struct ManagedRuntime {
+        let session: BackendCanonicalSession
+        let lifecycle: any BackendOnlyHostRuntimeLifecycle
     }
 
     public enum Phase: Equatable {
@@ -36,6 +54,7 @@ public final class BackendOnlyHostModel: ObservableObject {
     private let defaults: UserDefaults
     private let logicalPresentationID: UUID
     private let maximumConnectionAttempts: Int
+    private let runtimeFactory: BackendOnlyHostRuntimeFactory
     private var connection: BackendOnlyHostConnection?
     private var eventTask: Task<Void, Never>?
     private var connectTask: Task<Void, Never>?
@@ -46,6 +65,7 @@ public final class BackendOnlyHostModel: ObservableObject {
     private var projectionWriterID: UUID?
     private var pendingProjectionWrite: PendingProjectionWrite?
     private var projection: BackendProjectionState?
+    private var managedRuntime: ManagedRuntime?
 
     public convenience init(
         bundleURL: URL = Bundle.main.bundleURL,
@@ -67,12 +87,19 @@ public final class BackendOnlyHostModel: ObservableObject {
         controller: (any BackendOnlyHostSessionControlling)?,
         defaults: UserDefaults,
         logicalPresentationID: UUID?,
-        maximumConnectionAttempts: Int
+        maximumConnectionAttempts: Int,
+        runtimeFactory: BackendOnlyHostRuntimeFactory? = nil
     ) {
         precondition(maximumConnectionAttempts > 0)
         self.controller = controller
         self.defaults = defaults
         self.maximumConnectionAttempts = maximumConnectionAttempts
+        self.runtimeFactory = runtimeFactory ?? { session, selection in
+            BackendOnlyTerminalRuntime(
+                session: session,
+                selection: selection
+            )
+        }
         if let logicalPresentationID {
             self.logicalPresentationID = logicalPresentationID
         } else if let stored = defaults.string(forKey: Self.logicalPresentationDefaultsKey),
@@ -343,20 +370,24 @@ public final class BackendOnlyHostModel: ObservableObject {
                 where: { $0.uuid.rawValue == selectedWorkspaceID }
             )?.backendOnlyFirstTerminal
         }
-        if let activeRuntime, activeRuntime.selection != desiredSelection {
+        if let managedRuntime,
+           managedRuntime.lifecycle.selection != desiredSelection {
             retireActiveRuntime()
         }
-        guard activeRuntime == nil,
+        guard managedRuntime == nil,
               let connection,
               let selection = desiredSelection else { return }
-        activeRuntime = BackendOnlyTerminalRuntime(
+        let lifecycle = runtimeFactory(connection.session, selection)
+        managedRuntime = ManagedRuntime(
             session: connection.session,
-            selection: selection
+            lifecycle: lifecycle
         )
+        activeRuntime = lifecycle as? BackendOnlyTerminalRuntime
     }
 
     private func retireActiveRuntime() {
-        guard let retiredRuntime = activeRuntime else { return }
+        guard let retiredRuntime = managedRuntime?.lifecycle else { return }
+        managedRuntime = nil
         activeRuntime = nil
         Task { await retiredRuntime.shutdown() }
     }

@@ -112,9 +112,139 @@ struct BackendOnlyHostReconnectTests {
         #expect(finalMetrics.maximumInFlight == 1)
     }
 
+    @Test("rapid runtime selections retire once and materialize only the newest")
+    func rapidRuntimeSelectionsMaterializeOnlyNewest() async throws {
+        let workspaces = BackendOnlyHostConnectionFixture.makeWorkspaces(
+            count: 3,
+            surfaceKind: "terminal"
+        )
+        let firstWorkspaceID = try #require(workspaces.first?.uuid.rawValue)
+        let secondWorkspaceID = workspaces[1].uuid.rawValue
+        let newestWorkspaceID = try #require(workspaces.last?.uuid.rawValue)
+        let connection = try BackendOnlyHostConnectionFixture.make(
+            number: 1,
+            workspaces: workspaces
+        )
+        let factory = FakeBackendOnlyHostRuntimeFactory(
+            blockedShutdownWorkspaceID: firstWorkspaceID
+        )
+        let model = makeModel(
+            controller: FakeBackendOnlyHostController(
+                outcomes: [.connection(connection)]
+            ),
+            maximumConnectionAttempts: 1,
+            runtimeFactory: factory.makeRuntime
+        )
+        let initial = factory.creation(
+            connection: connection,
+            workspaceID: firstWorkspaceID
+        )
+        let newest = factory.creation(
+            connection: connection,
+            workspaceID: newestWorkspaceID
+        )
+
+        model.start()
+        await model.awaitCurrentConnectionCycle()
+        await factory.waitUntilCreated(initial)
+
+        model.selectWorkspace(secondWorkspaceID)
+        model.selectWorkspace(newestWorkspaceID)
+
+        #expect(factory.metrics().creations == [initial])
+        await factory.waitUntilShutdownStarted(firstWorkspaceID)
+        let blocked = factory.metrics()
+        #expect(blocked.liveRuntimeCount == 1)
+        #expect(blocked.maximumLiveRuntimeCount == 1)
+        #expect(blocked.maximumShutdownsInFlight == 1)
+
+        factory.releaseBlockedShutdown()
+        await factory.waitUntilShutdownFinished(firstWorkspaceID)
+        await factory.waitUntilCreated(newest)
+
+        let final = factory.metrics()
+        #expect(final.creations == [initial, newest])
+        #expect(final.shutdownStartedWorkspaceIDs == [firstWorkspaceID])
+        #expect(final.shutdownFinishedWorkspaceIDs == [firstWorkspaceID])
+        #expect(final.liveRuntimeCount == 1)
+        #expect(final.maximumLiveRuntimeCount == 1)
+    }
+
+    @Test("connection replacement waits for prior runtime shutdown")
+    func connectionReplacementWaitsForPriorRuntimeShutdown() async throws {
+        let workspaces = BackendOnlyHostConnectionFixture.makeWorkspaces(
+            count: 2,
+            surfaceKind: "terminal"
+        )
+        let firstWorkspaceID = try #require(workspaces.first?.uuid.rawValue)
+        let replacementWorkspaceID = try #require(workspaces.last?.uuid.rawValue)
+        let first = try BackendOnlyHostConnectionFixture.make(
+            number: 1,
+            workspaces: workspaces
+        )
+        let second = try BackendOnlyHostConnectionFixture.make(
+            number: 2,
+            workspaces: workspaces
+        )
+        let controller = FakeBackendOnlyHostController(
+            outcomes: [.connection(first), .connection(second)]
+        )
+        var observations = await controller.observations().makeAsyncIterator()
+        let factory = FakeBackendOnlyHostRuntimeFactory(
+            blockedShutdownWorkspaceID: firstWorkspaceID
+        )
+        let model = makeModel(
+            controller: controller,
+            maximumConnectionAttempts: 1,
+            runtimeFactory: factory.makeRuntime
+        )
+        let initial = factory.creation(
+            connection: first,
+            workspaceID: firstWorkspaceID
+        )
+        let replacement = factory.creation(
+            connection: second,
+            workspaceID: replacementWorkspaceID
+        )
+
+        model.start()
+        #expect(await observations.next() == .connectAttempt(1))
+        #expect(await observations.next() == .projectionClaim(1))
+        #expect(await observations.next() == .eventSubscription(1))
+        await factory.waitUntilCreated(initial)
+
+        model.selectWorkspace(replacementWorkspaceID)
+        #expect(factory.metrics().creations == [initial])
+        await factory.waitUntilShutdownStarted(firstWorkspaceID)
+
+        await controller.disconnect(connectionNumber: 1)
+        #expect(await observations.next() == .invalidated(1))
+        #expect(await observations.next() == .connectAttempt(2))
+        #expect(await observations.next() == .projectionClaim(2))
+        #expect(await observations.next() == .eventSubscription(2))
+        await model.awaitCurrentConnectionCycle()
+
+        let reconnecting = factory.metrics()
+        #expect(model.phase == .ready)
+        #expect(reconnecting.creations == [initial])
+        #expect(reconnecting.liveRuntimeCount == 1)
+        #expect(reconnecting.maximumLiveRuntimeCount == 1)
+
+        factory.releaseBlockedShutdown()
+        await factory.waitUntilShutdownFinished(firstWorkspaceID)
+        await factory.waitUntilCreated(replacement)
+
+        let final = factory.metrics()
+        #expect(final.creations == [initial, replacement])
+        #expect(final.liveRuntimeCount == 1)
+        #expect(final.maximumLiveRuntimeCount == 1)
+        #expect(final.maximumShutdownsInFlight == 1)
+    }
+
     private func makeModel(
         controller: FakeBackendOnlyHostController,
-        maximumConnectionAttempts: Int
+        maximumConnectionAttempts: Int,
+        runtimeFactory: BackendOnlyHostRuntimeFactory? = nil
     ) -> BackendOnlyHostModel {
         let suiteName = "BackendOnlyHostReconnectTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -123,8 +253,190 @@ struct BackendOnlyHostReconnectTests {
             controller: controller,
             defaults: defaults,
             logicalPresentationID: UUID(),
-            maximumConnectionAttempts: maximumConnectionAttempts
+            maximumConnectionAttempts: maximumConnectionAttempts,
+            runtimeFactory: runtimeFactory
         )
+    }
+}
+
+@MainActor
+private final class FakeBackendOnlyHostRuntimeFactory {
+    struct Creation: Equatable, Hashable {
+        let sessionID: ObjectIdentifier
+        let workspaceID: UUID
+    }
+
+    struct Metrics: Equatable {
+        let creations: [Creation]
+        let shutdownStartedWorkspaceIDs: [UUID]
+        let shutdownFinishedWorkspaceIDs: [UUID]
+        let liveRuntimeCount: Int
+        let maximumLiveRuntimeCount: Int
+        let maximumShutdownsInFlight: Int
+    }
+
+    @MainActor
+    private final class Runtime: BackendOnlyHostRuntimeLifecycle {
+        let selection: BackendOnlyTerminalSelection
+
+        private let identifier: UUID
+        private let creation: Creation
+        private unowned let owner: FakeBackendOnlyHostRuntimeFactory
+
+        init(
+            identifier: UUID,
+            creation: Creation,
+            selection: BackendOnlyTerminalSelection,
+            owner: FakeBackendOnlyHostRuntimeFactory
+        ) {
+            self.identifier = identifier
+            self.creation = creation
+            self.selection = selection
+            self.owner = owner
+        }
+
+        func shutdown() async {
+            await owner.shutdownRuntime(
+                identifier: identifier,
+                creation: creation
+            )
+        }
+    }
+
+    private let blockedShutdownWorkspaceID: UUID
+    private var blockedRuntimeID: UUID?
+    private var blockedShutdownReleased = false
+    private var blockedShutdownContinuation: CheckedContinuation<Void, Never>?
+    private var creations: [Creation] = []
+    private var shutdownStartedWorkspaceIDs: [UUID] = []
+    private var shutdownFinishedWorkspaceIDs: [UUID] = []
+    private var retiredRuntimeIDs: Set<UUID> = []
+    private var liveRuntimeCount = 0
+    private var maximumLiveRuntimeCount = 0
+    private var shutdownsInFlight = 0
+    private var maximumShutdownsInFlight = 0
+    private var creationWaiters: [
+        Creation: [CheckedContinuation<Void, Never>]
+    ] = [:]
+    private var shutdownStartWaiters: [
+        UUID: [CheckedContinuation<Void, Never>]
+    ] = [:]
+    private var shutdownFinishWaiters: [
+        UUID: [CheckedContinuation<Void, Never>]
+    ] = [:]
+
+    init(blockedShutdownWorkspaceID: UUID) {
+        self.blockedShutdownWorkspaceID = blockedShutdownWorkspaceID
+    }
+
+    func creation(
+        connection: BackendOnlyHostConnection,
+        workspaceID: UUID
+    ) -> Creation {
+        Creation(
+            sessionID: ObjectIdentifier(connection.session),
+            workspaceID: workspaceID
+        )
+    }
+
+    func makeRuntime(
+        session: BackendCanonicalSession,
+        selection: BackendOnlyTerminalSelection
+    ) -> any BackendOnlyHostRuntimeLifecycle {
+        let identifier = UUID()
+        let creation = Creation(
+            sessionID: ObjectIdentifier(session),
+            workspaceID: selection.workspaceID.rawValue
+        )
+        if blockedRuntimeID == nil,
+           creation.workspaceID == blockedShutdownWorkspaceID {
+            blockedRuntimeID = identifier
+        }
+        creations.append(creation)
+        liveRuntimeCount += 1
+        maximumLiveRuntimeCount = max(
+            maximumLiveRuntimeCount,
+            liveRuntimeCount
+        )
+        resume(&creationWaiters, for: creation)
+        return Runtime(
+            identifier: identifier,
+            creation: creation,
+            selection: selection,
+            owner: self
+        )
+    }
+
+    func metrics() -> Metrics {
+        Metrics(
+            creations: creations,
+            shutdownStartedWorkspaceIDs: shutdownStartedWorkspaceIDs,
+            shutdownFinishedWorkspaceIDs: shutdownFinishedWorkspaceIDs,
+            liveRuntimeCount: liveRuntimeCount,
+            maximumLiveRuntimeCount: maximumLiveRuntimeCount,
+            maximumShutdownsInFlight: maximumShutdownsInFlight
+        )
+    }
+
+    func waitUntilCreated(_ creation: Creation) async {
+        guard !creations.contains(creation) else { return }
+        await withCheckedContinuation { continuation in
+            creationWaiters[creation, default: []].append(continuation)
+        }
+    }
+
+    func waitUntilShutdownStarted(_ workspaceID: UUID) async {
+        guard !shutdownStartedWorkspaceIDs.contains(workspaceID) else { return }
+        await withCheckedContinuation { continuation in
+            shutdownStartWaiters[workspaceID, default: []].append(continuation)
+        }
+    }
+
+    func waitUntilShutdownFinished(_ workspaceID: UUID) async {
+        guard !shutdownFinishedWorkspaceIDs.contains(workspaceID) else { return }
+        await withCheckedContinuation { continuation in
+            shutdownFinishWaiters[workspaceID, default: []].append(continuation)
+        }
+    }
+
+    func releaseBlockedShutdown() {
+        blockedShutdownReleased = true
+        blockedShutdownContinuation?.resume()
+        blockedShutdownContinuation = nil
+    }
+
+    private func shutdownRuntime(
+        identifier: UUID,
+        creation: Creation
+    ) async {
+        guard retiredRuntimeIDs.insert(identifier).inserted else { return }
+        shutdownStartedWorkspaceIDs.append(creation.workspaceID)
+        shutdownsInFlight += 1
+        maximumShutdownsInFlight = max(
+            maximumShutdownsInFlight,
+            shutdownsInFlight
+        )
+        resume(&shutdownStartWaiters, for: creation.workspaceID)
+
+        if identifier == blockedRuntimeID, !blockedShutdownReleased {
+            await withCheckedContinuation { continuation in
+                blockedShutdownContinuation = continuation
+            }
+        }
+
+        shutdownsInFlight -= 1
+        liveRuntimeCount -= 1
+        shutdownFinishedWorkspaceIDs.append(creation.workspaceID)
+        resume(&shutdownFinishWaiters, for: creation.workspaceID)
+    }
+
+    private func resume<Key: Hashable>(
+        _ waiters: inout [Key: [CheckedContinuation<Void, Never>]],
+        for key: Key
+    ) {
+        for continuation in waiters.removeValue(forKey: key) ?? [] {
+            continuation.resume()
+        }
     }
 }
 
@@ -398,7 +710,10 @@ private enum BackendOnlyHostConnectionFixture {
         )
     }
 
-    static func makeWorkspaces(count: Int) -> [CanonicalWorkspace] {
+    static func makeWorkspaces(
+        count: Int,
+        surfaceKind: String = "browser"
+    ) -> [CanonicalWorkspace] {
         (0 ..< count).map { offset in
             let base = UInt64(offset * 10)
             let workspaceID = WorkspaceID(rawValue: UUID())
@@ -424,7 +739,7 @@ private enum BackendOnlyHostConnectionFixture {
                                     CanonicalSurface(
                                         id: base + 4,
                                         uuid: surfaceID,
-                                        kind: "browser",
+                                        kind: surfaceKind,
                                         name: nil
                                     ),
                                 ]
