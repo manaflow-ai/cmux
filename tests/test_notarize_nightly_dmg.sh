@@ -70,6 +70,7 @@ chmod +x "$FAKE_BIN"/*
 run_helper() {
   CMUX_TEST_CALL_LOG="$LOG" \
   CMUX_TEST_SOURCE_APP="$APP" \
+  CMUX_NIGHTLY_MOUNT_DIR="$TMP_DIR/cmux-nightly-mount" \
   CMUX_CREATE_DMG_TOOL="$FAKE_BIN/create-dmg" \
   CMUX_CODESIGN_TOOL="$FAKE_BIN/codesign" \
   CMUX_XCRUN_TOOL="$FAKE_BIN/xcrun" \
