@@ -1034,6 +1034,33 @@ public actor BackendCanonicalSession {
         )
     }
 
+    /// Creates a canonical workspace whose first terminal is parser-only.
+    public func newExternalWorkspace(
+        expectation: BackendTopologyMutationExpectation,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        columns: UInt16,
+        rows: UInt16,
+        noReflow: Bool,
+        provenance: CanonicalExternalTerminalProvenance,
+        producerSource: BackendRemoteTmuxProducerSource
+    ) async throws -> BackendSurfacePlacement {
+        try requireCanonicalTopologyMutation(
+            expectation,
+            command: "canonical-new-external-workspace"
+        )
+        return try await client.canonicalNewExternalWorkspace(
+            expectation: expectation,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            columns: columns,
+            rows: rows,
+            noReflow: noReflow,
+            provenance: provenance,
+            producerSource: producerSource
+        )
+    }
+
     /// Materializes one parser-only terminal with no daemon PTY or child.
     public func materializeExternalTerminal(
         expectation: BackendTopologyMutationExpectation,
@@ -1041,7 +1068,8 @@ public actor BackendCanonicalSession {
         surfaceID: SurfaceID,
         columns: UInt16,
         rows: UInt16,
-        noReflow: Bool
+        noReflow: Bool,
+        provenance: CanonicalExternalTerminalProvenance
     ) async throws -> BackendSurfacePlacement {
         try requireCanonicalTopologyMutation(
             expectation,
@@ -1053,7 +1081,8 @@ public actor BackendCanonicalSession {
             surfaceID: surfaceID,
             columns: columns,
             rows: rows,
-            noReflow: noReflow
+            noReflow: noReflow,
+            provenance: provenance
         )
     }
 
@@ -1075,6 +1104,7 @@ public actor BackendCanonicalSession {
         outputGeneration: UInt64,
         columns: UInt16,
         rows: UInt16,
+        noReflow: Bool,
         seed: Data
     ) async throws -> BackendExternalTerminalOutputReceipt {
         try requireConnected()
@@ -1085,6 +1115,7 @@ public actor BackendCanonicalSession {
             outputGeneration: outputGeneration,
             columns: columns,
             rows: rows,
+            noReflow: noReflow,
             seed: seed
         )
     }
@@ -1116,6 +1147,36 @@ public actor BackendCanonicalSession {
         return try await client.drainExternalTerminalEgress(
             surfaceID: surfaceID,
             ownerGeneration: ownerGeneration
+        )
+    }
+
+    /// Claims one remote producer's private reconnect source for this connection.
+    public func claimRemoteTmuxProducerSource(
+        producerID: UUID,
+        requestID: UUID,
+        source: BackendRemoteTmuxProducerSource? = nil
+    ) async throws -> BackendRemoteTmuxProducerSourceClaimReceipt {
+        try requireConnected()
+        return try await client.claimRemoteTmuxProducerSource(
+            producerID: producerID,
+            requestID: requestID,
+            source: source
+        )
+    }
+
+    /// Replaces one connection-owned producer source without changing topology.
+    public func updateRemoteTmuxProducerSource(
+        producerID: UUID,
+        ownerGeneration: UInt64,
+        requestID: UUID,
+        source: BackendRemoteTmuxProducerSource
+    ) async throws -> BackendRemoteTmuxProducerSourceUpdateReceipt {
+        try requireConnected()
+        return try await client.updateRemoteTmuxProducerSource(
+            producerID: producerID,
+            ownerGeneration: ownerGeneration,
+            requestID: requestID,
+            source: source
         )
     }
 

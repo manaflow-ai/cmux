@@ -61,6 +61,32 @@ struct TopologyWireContractTests {
         #expect(wire["ephemeral_url"] == nil)
     }
 
+    @Test("external terminal provenance decodes without private connection state")
+    func externalTerminalProvenanceContract() throws {
+        let producerID = "99999999-9999-4999-8999-999999999999"
+        let payload = """
+        {"id":41,"uuid":"55555555-5555-4555-8555-555555555555","kind":"pty","name":null,"external_terminal_provenance":{"producer_kind":"remote-tmux","producer_id":"\(producerID)","tmux_session_id":7,"tmux_window_id":11,"tmux_pane_id":13,"presentation_role":"nested-pane"}}
+        """
+        let surface = try JSONDecoder().decode(
+            CanonicalSurface.self,
+            from: Data(payload.utf8)
+        )
+
+        #expect(surface.externalTerminalProvenance == CanonicalExternalTerminalProvenance(
+            producerID: try #require(UUID(uuidString: producerID)),
+            tmuxSessionID: 7,
+            tmuxWindowID: 11,
+            tmuxPaneID: 13,
+            presentationRole: .nestedPane
+        ))
+        let wire = try #require(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(surface)) as? [String: Any]
+        )
+        #expect(wire["destination"] == nil)
+        #expect(wire["identity_file"] == nil)
+        #expect(wire["session_name"] == nil)
+    }
+
     @Test("delta event decodes typed targets and complete replacement")
     func deltaContract() throws {
         let event = try JSONDecoder().decode(BackendServerEvent.self, from: Data(deltaJSON.utf8))

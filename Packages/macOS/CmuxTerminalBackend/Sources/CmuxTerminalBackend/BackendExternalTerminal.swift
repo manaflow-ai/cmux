@@ -34,6 +34,7 @@ public struct BackendExternalTerminalOutputReceipt: Codable, Equatable, Sendable
     public let outputGeneration: UInt64
     public let acceptedSequence: UInt64
     public let nextSequence: UInt64
+    public let noReflow: Bool
     public let egress: Data
     public let replayed: Bool
 
@@ -43,6 +44,7 @@ public struct BackendExternalTerminalOutputReceipt: Codable, Equatable, Sendable
         outputGeneration: UInt64,
         acceptedSequence: UInt64,
         nextSequence: UInt64,
+        noReflow: Bool,
         egress: Data,
         replayed: Bool
     ) {
@@ -51,6 +53,7 @@ public struct BackendExternalTerminalOutputReceipt: Codable, Equatable, Sendable
         self.outputGeneration = outputGeneration
         self.acceptedSequence = acceptedSequence
         self.nextSequence = nextSequence
+        self.noReflow = noReflow
         self.egress = egress
         self.replayed = replayed
     }
@@ -61,6 +64,7 @@ public struct BackendExternalTerminalOutputReceipt: Codable, Equatable, Sendable
         case outputGeneration = "output_generation"
         case acceptedSequence = "accepted_sequence"
         case nextSequence = "next_sequence"
+        case noReflow = "no_reflow"
         case egress
         case replayed
     }

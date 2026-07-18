@@ -266,6 +266,140 @@ struct BackendTerminalCommandTests {
         await client.close()
     }
 
+    @Test("external workspace creation publishes one parser-only surface atomically")
+    func externalWorkspaceCreation() async throws {
+        let transport = ScriptedBackendTransport()
+        let client = BackendProtocolClient(transport: transport)
+        try await client.connect()
+        let daemonID = DaemonInstanceID(rawValue: UUID())
+        let sessionID = SessionID(rawValue: UUID())
+        let workspaceID = WorkspaceID(rawValue: UUID())
+        let surfaceID = SurfaceID(rawValue: UUID())
+        let producerID = UUID()
+        let requestID = UUID()
+        let provenance = CanonicalExternalTerminalProvenance(
+            producerID: producerID,
+            tmuxSessionID: 7,
+            tmuxWindowID: 11,
+            tmuxPaneID: 13,
+            presentationRole: .workspaceTab
+        )
+        let producerSource = BackendRemoteTmuxProducerSource(
+            destination: "private-host",
+            port: 2222,
+            identityFile: "/private/key",
+            sessionName: "agents"
+        )
+        let expectation = BackendTopologyMutationExpectation(
+            requestID: requestID,
+            authority: BackendAuthority(daemonInstanceID: daemonID, sessionID: sessionID),
+            revision: 4,
+            topologyLease: BackendTopologyMutationLease(
+                connectionID: UUID(),
+                leaseID: UUID(),
+                generation: 2
+            )!
+        )
+        let task = Task {
+            try await client.canonicalNewExternalWorkspace(
+                expectation: expectation,
+                workspaceID: workspaceID,
+                surfaceID: surfaceID,
+                columns: 160,
+                rows: 50,
+                noReflow: true,
+                provenance: provenance,
+                producerSource: producerSource
+            )
+        }
+        let request = try requestObject(await transport.nextSent())
+        #expect(request["cmd"] as? String == "canonical-new-external-workspace")
+        #expect(request["workspace_uuid"] as? String == workspaceID.description)
+        #expect(request["surface_uuid"] as? String == surfaceID.description)
+        #expect(try uint64(request, "cols") == 160)
+        #expect(try uint64(request, "rows") == 50)
+        #expect(request["no_reflow"] as? Bool == true)
+        let provenanceWire = try #require(request["provenance"] as? [String: Any])
+        #expect(provenanceWire["producer_kind"] as? String == "remote-tmux")
+        #expect(provenanceWire["producer_id"] as? String == producerID.uuidString.lowercased())
+        #expect(try uint64(provenanceWire, "tmux_session_id") == 7)
+        #expect(try uint64(provenanceWire, "tmux_window_id") == 11)
+        #expect(try uint64(provenanceWire, "tmux_pane_id") == 13)
+        #expect(provenanceWire["presentation_role"] as? String == "workspace-tab")
+        let sourceWire = try #require(request["producer_source"] as? [String: Any])
+        #expect(sourceWire["destination"] as? String == "private-host")
+        #expect(try uint64(sourceWire, "port") == 2222)
+        #expect(sourceWire["identity_file"] as? String == "/private/key")
+        #expect(sourceWire["session_name"] as? String == "agents")
+        await transport.enqueue(try response(
+            to: request,
+            data: [
+                "request_id": requestID.uuidString,
+                "daemon_instance_id": daemonID.description,
+                "session_id": sessionID.description,
+                "base_revision": 4,
+                "revision": 5,
+                "replayed": false,
+                "surface": 41,
+                "surface_uuid": surfaceID.description,
+                "pane": 31,
+                "pane_uuid": UUID().uuidString,
+                "screen": 21,
+                "screen_uuid": UUID().uuidString,
+                "workspace": 11,
+                "workspace_uuid": workspaceID.description,
+            ]
+        ))
+
+        let placement = try await task.value
+        #expect(placement.workspaceID == workspaceID)
+        #expect(placement.surfaceID == surfaceID)
+        #expect(placement.receipt.revision == 5)
+        await client.close()
+    }
+
+    @Test("external reset carries and echoes mutable reflow policy")
+    func externalResetReflowPolicy() async throws {
+        let transport = ScriptedBackendTransport()
+        let client = BackendProtocolClient(transport: transport)
+        try await client.connect()
+        let surfaceID = SurfaceID(rawValue: UUID())
+        let requestID = UUID()
+        let task = Task {
+            try await client.resetExternalTerminal(
+                surfaceID: surfaceID,
+                ownerGeneration: 3,
+                requestID: requestID,
+                outputGeneration: 7,
+                columns: 120,
+                rows: 40,
+                noReflow: true,
+                seed: Data("seed".utf8)
+            )
+        }
+        let request = try requestObject(await transport.nextSent())
+        #expect(request["cmd"] as? String == "reset-external-terminal")
+        #expect(request["no_reflow"] as? Bool == true)
+        await transport.enqueue(try response(
+            to: request,
+            data: [
+                "request_id": requestID.uuidString,
+                "owner_generation": 3,
+                "output_generation": 7,
+                "accepted_sequence": 0,
+                "next_sequence": 1,
+                "no_reflow": true,
+                "egress": "",
+                "replayed": false,
+            ]
+        ))
+
+        let receipt = try await task.value
+        #expect(receipt.noReflow)
+        #expect(receipt.outputGeneration == 7)
+        await client.close()
+    }
+
     @Test("semantic key command preserves Ghostty key fields")
     func semanticKeyCommand() async throws {
         let transport = ScriptedBackendTransport()

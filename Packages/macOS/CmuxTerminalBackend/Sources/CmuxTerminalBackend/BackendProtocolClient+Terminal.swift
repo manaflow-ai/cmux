@@ -238,14 +238,16 @@ public extension BackendProtocolClient {
         )
     }
 
-    /// Materializes one parser-only terminal with no daemon PTY or child process.
-    func canonicalMaterializeExternalTerminal(
+    /// Creates a workspace whose first surface is parser-only, with no transient PTY.
+    func canonicalNewExternalWorkspace(
         expectation: BackendTopologyMutationExpectation,
         workspaceID: WorkspaceID,
         surfaceID: SurfaceID,
         columns: UInt16,
         rows: UInt16,
-        noReflow: Bool
+        noReflow: Bool,
+        provenance: CanonicalExternalTerminalProvenance,
+        producerSource: BackendRemoteTmuxProducerSource
     ) async throws -> BackendSurfacePlacement {
         var parameters = expectation.jsonParameters
         parameters["workspace_uuid"] = .string(workspaceID.description)
@@ -253,6 +255,32 @@ public extension BackendProtocolClient {
         parameters["cols"] = .unsignedInteger(UInt64(columns))
         parameters["rows"] = .unsignedInteger(UInt64(rows))
         parameters["no_reflow"] = .bool(noReflow)
+        parameters["provenance"] = provenance.jsonValue
+        parameters["producer_source"] = producerSource.jsonValue
+        return try await call(
+            command: "canonical-new-external-workspace",
+            parameters: parameters,
+            as: BackendSurfacePlacement.self
+        )
+    }
+
+    /// Materializes one parser-only terminal with no daemon PTY or child process.
+    func canonicalMaterializeExternalTerminal(
+        expectation: BackendTopologyMutationExpectation,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        columns: UInt16,
+        rows: UInt16,
+        noReflow: Bool,
+        provenance: CanonicalExternalTerminalProvenance
+    ) async throws -> BackendSurfacePlacement {
+        var parameters = expectation.jsonParameters
+        parameters["workspace_uuid"] = .string(workspaceID.description)
+        parameters["surface_uuid"] = .string(surfaceID.description)
+        parameters["cols"] = .unsignedInteger(UInt64(columns))
+        parameters["rows"] = .unsignedInteger(UInt64(rows))
+        parameters["no_reflow"] = .bool(noReflow)
+        parameters["provenance"] = provenance.jsonValue
         return try await call(
             command: "canonical-materialize-external-terminal",
             parameters: parameters,
@@ -281,6 +309,7 @@ public extension BackendProtocolClient {
         outputGeneration: UInt64,
         columns: UInt16,
         rows: UInt16,
+        noReflow: Bool,
         seed: Data
     ) async throws -> BackendExternalTerminalOutputReceipt {
         try await call(
@@ -292,6 +321,7 @@ public extension BackendProtocolClient {
                 "output_generation": .unsignedInteger(outputGeneration),
                 "cols": .unsignedInteger(UInt64(columns)),
                 "rows": .unsignedInteger(UInt64(rows)),
+                "no_reflow": .bool(noReflow),
                 "seed": .string(seed.base64EncodedString()),
             ],
             as: BackendExternalTerminalOutputReceipt.self
@@ -332,6 +362,45 @@ public extension BackendProtocolClient {
             ],
             as: BackendExternalTerminalEgressResponse.self
         ).egress
+    }
+
+    /// Claims one producer's private reconnect source for this exact connection.
+    func claimRemoteTmuxProducerSource(
+        producerID: UUID,
+        requestID: UUID,
+        source: BackendRemoteTmuxProducerSource? = nil
+    ) async throws -> BackendRemoteTmuxProducerSourceClaimReceipt {
+        var parameters: [String: BackendJSONValue] = [
+            "producer_id": .string(producerID.uuidString.lowercased()),
+            "request_id": .string(requestID.uuidString.lowercased()),
+        ]
+        if let source {
+            parameters["source"] = source.jsonValue
+        }
+        return try await call(
+            command: "claim-remote-tmux-producer-source",
+            parameters: parameters,
+            as: BackendRemoteTmuxProducerSourceClaimReceipt.self
+        )
+    }
+
+    /// Replaces one producer's private reconnect source without changing topology.
+    func updateRemoteTmuxProducerSource(
+        producerID: UUID,
+        ownerGeneration: UInt64,
+        requestID: UUID,
+        source: BackendRemoteTmuxProducerSource
+    ) async throws -> BackendRemoteTmuxProducerSourceUpdateReceipt {
+        try await call(
+            command: "update-remote-tmux-producer-source",
+            parameters: [
+                "producer_id": .string(producerID.uuidString.lowercased()),
+                "owner_generation": .unsignedInteger(ownerGeneration),
+                "request_id": .string(requestID.uuidString.lowercased()),
+                "source": source.jsonValue,
+            ],
+            as: BackendRemoteTmuxProducerSourceUpdateReceipt.self
+        )
     }
 
     /// Claims one frontend-native browser placement for this exact connection.

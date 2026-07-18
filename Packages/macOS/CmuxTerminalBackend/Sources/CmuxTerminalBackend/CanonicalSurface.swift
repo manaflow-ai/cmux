@@ -15,6 +15,9 @@ public struct CanonicalSurface: Codable, Equatable, Sendable {
     /// The daemon browser content endpoint. Non-browser surfaces omit it.
     public let browserEndpoint: CanonicalBrowserEndpoint?
 
+    /// Durable, non-secret provenance for a parser-only external terminal.
+    public let externalTerminalProvenance: CanonicalExternalTerminalProvenance?
+
     /// Creates a canonical surface.
     ///
     /// - Parameters:
@@ -23,18 +26,21 @@ public struct CanonicalSurface: Codable, Equatable, Sendable {
     ///   - kind: The backend-defined surface kind.
     ///   - name: The optional canonical surface name.
     ///   - browserEndpoint: The daemon browser content endpoint, when this is a browser.
+    ///   - externalTerminalProvenance: The external producer identity, when present.
     public init(
         id: UInt64,
         uuid: SurfaceID,
         kind: String,
         name: String?,
-        browserEndpoint: CanonicalBrowserEndpoint? = nil
+        browserEndpoint: CanonicalBrowserEndpoint? = nil,
+        externalTerminalProvenance: CanonicalExternalTerminalProvenance? = nil
     ) {
         self.id = id
         self.uuid = uuid
         self.kind = kind
         self.name = name
         self.browserEndpoint = browserEndpoint
+        self.externalTerminalProvenance = externalTerminalProvenance
     }
 
     enum CodingKeys: String, CodingKey {
@@ -43,5 +49,6 @@ public struct CanonicalSurface: Codable, Equatable, Sendable {
         case kind
         case name
         case browserEndpoint = "browser_endpoint"
+        case externalTerminalProvenance = "external_terminal_provenance"
     }
 }

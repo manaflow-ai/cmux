@@ -1097,6 +1097,7 @@ struct BackendCanonicalSessionTests {
                     "frontend-native-browser-v1",
                     "presentation-registry-v1",
                     "projection-state-reconnect-v1",
+                    "remote-tmux-producer-source-v1",
                     "renderer-semantic-scene-v1",
                     "renderer-worker-supervision-v1",
                     "reparent-terminal-v1",
