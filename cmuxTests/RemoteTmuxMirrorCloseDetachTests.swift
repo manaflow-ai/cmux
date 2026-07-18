@@ -293,6 +293,10 @@ import Testing
         let focusedBefore = try #require(
             TerminalController.shared.v2Identify(params: [:])["focused"] as? [String: Any]
         )
+        let windowIDBefore = try #require(focusedBefore["window_id"] as? String)
+        let workspaceIDBefore = try #require(focusedBefore["workspace_id"] as? String)
+        let paneIDBefore = try #require(focusedBefore["pane_id"] as? String)
+        let surfaceIDBefore = try #require(focusedBefore["surface_id"] as? String)
 
         let responseText = await Task.detached {
             TerminalController.shared.v2RemoteTmuxWindow(
@@ -312,10 +316,10 @@ import Testing
         let focusedAfter = try #require(
             TerminalController.shared.v2Identify(params: [:])["focused"] as? [String: Any]
         )
-        #expect(focusedAfter["window_id"] as? String == focusedBefore["window_id"] as? String)
-        #expect(focusedAfter["workspace_id"] as? String == focusedBefore["workspace_id"] as? String)
-        #expect(focusedAfter["pane_id"] as? String == focusedBefore["pane_id"] as? String)
-        #expect(focusedAfter["surface_id"] as? String == focusedBefore["surface_id"] as? String)
+        #expect(focusedAfter["window_id"] as? String == windowIDBefore)
+        #expect(focusedAfter["workspace_id"] as? String == workspaceIDBefore)
+        #expect(focusedAfter["pane_id"] as? String == paneIDBefore)
+        #expect(focusedAfter["surface_id"] as? String == surfaceIDBefore)
     }
 
     private func writeExecutable(at url: URL, contents: String) throws {
