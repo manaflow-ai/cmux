@@ -244,6 +244,189 @@ extension ReconnectRouteSelectionTests {
         #expect(fixture.factory.attemptedKinds() == [.iroh, .iroh])
     }
 
+    @Test func failedIrohRecoveryPreservesTheTypedFailureCategory() async throws {
+        let fixture = try await makeRecoveryOwnerFixture()
+        defer { fixture.release() }
+
+        #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        await fixture.diagnosticLog.clear()
+        fixture.factory.setConnectFailure(.timedOut)
+        let first = try #require(fixture.box.get())
+        await first.close()
+
+        #expect(try await pollUntil {
+            fixture.store.connectionRecoveryFailed
+        })
+        #expect(try await pollUntil {
+            (await fixture.diagnosticLog.snapshot()).events.contains {
+                $0.code == .recoveryFailed
+            }
+        })
+        let report = await fixture.diagnosticLog.snapshot()
+        let recoveryFailures = report.events.filter { $0.code == .recoveryFailed }
+        #expect(recoveryFailures.count == 1)
+        #expect(recoveryFailures[0].diagnosticFailureKind == .timedOut)
+        #expect(report.lastFailureKind == .timedOut)
+    }
+
+    @Test func supersededRecoveryTerminatesTheOwnerAndRecordsOneOutcome() async throws {
+        let log = DiagnosticLog(capacity: 32, role: .mobileClient)
+        let store = MobileShellComposite(diagnosticLog: log)
+        defer { store.connectionRecoveryOwner.cancel() }
+        let generation = store.connectionGeneration
+        let attempt = try #require(store.connectionRecoveryOwner.begin(
+            trigger: "test",
+            sourceConnectionGeneration: generation,
+            probing: false
+        ))
+
+        #expect(store.settleConnectionRecovery(
+            attempt,
+            outcome: .superseded,
+            connectionGeneration: generation
+        ))
+        #expect(store.connectionRecoveryOwner.phase == .failed(attempt))
+        #expect(!store.connectionRecoveryOwner.isActive)
+        #expect(store.connectionRecoveryOwner.begin(
+            trigger: "replacement",
+            sourceConnectionGeneration: generation,
+            probing: false
+        ) != nil)
+        log.record(DiagnosticEvent(.rpcReady))
+
+        #expect(try await pollUntil {
+            (await log.snapshot()).events.contains { $0.code == .rpcReady }
+        })
+        let failures = (await log.snapshot()).events.filter {
+            $0.code == .recoveryFailed
+        }
+        #expect(failures.count == 1)
+        #expect(failures[0].diagnosticFailureKind == .superseded)
+    }
+
+    @Test func replacementStreamDeathRecordsOneTerminalFailure() async throws {
+        let fixture = try await makeRecoveryOwnerFixture()
+        defer { fixture.release() }
+
+        #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        await fixture.diagnosticLog.clear()
+        let client = try #require(fixture.store.remoteClient)
+        let generation = fixture.store.connectionGeneration
+        let attempt = try #require(fixture.store.connectionRecoveryOwner.begin(
+            trigger: "test",
+            sourceConnectionGeneration: generation,
+            probing: false
+        ))
+        #expect(fixture.store.connectionRecoveryOwner.transitionToValidation(
+            attempt,
+            connectionGeneration: generation
+        ))
+
+        fixture.store.recoverDeadConnection(
+            trigger: .eventStreamEnded,
+            expectedClient: client
+        )
+        fixture.store.recoverDeadConnection(
+            trigger: .eventStreamEnded,
+            expectedClient: client
+        )
+
+        #expect(try await pollUntil {
+            (await fixture.diagnosticLog.snapshot()).events.contains {
+                $0.code == .recoveryFailed
+            }
+        })
+        let failures = (await fixture.diagnosticLog.snapshot()).events.filter {
+            $0.code == .recoveryFailed
+        }
+        #expect(failures.count == 1)
+        #expect(failures[0].diagnosticFailureKind == .connectionClosed)
+        #expect(fixture.store.connectionRecoveryOwner.phase == .failed(attempt))
+        #expect(fixture.store.connectionState == .disconnected)
+    }
+
+    @Test func immediateValidatedRecoveryEmitsSuccessExactlyOnce() async throws {
+        let log = DiagnosticLog(capacity: 32, role: .mobileClient)
+        let store = MobileShellComposite(diagnosticLog: log)
+        let generation = store.connectionGeneration
+        let attempt = try #require(store.connectionRecoveryOwner.begin(
+            trigger: "test",
+            sourceConnectionGeneration: generation,
+            probing: false
+        ))
+        store.lastSuccessfulTerminalSubscriptionGeneration = generation
+
+        store.settleSuccessfulConnectionRecovery(
+            attempt,
+            connectionGeneration: generation
+        )
+        store.recordSuccessfulTerminalSubscription()
+        log.record(DiagnosticEvent(.rpcReady))
+
+        #expect(try await pollUntil {
+            (await log.snapshot()).events.contains { $0.code == .rpcReady }
+        })
+        let successes = (await log.snapshot()).events.filter {
+            $0.code == .recoverySucceeded
+        }
+        #expect(successes.count == 1)
+        #expect(store.connectionRecoveryOwner.phase == .idle)
+    }
+
+    @Test func replacementValidationEmitsSuccessExactlyOnce() async throws {
+        let log = DiagnosticLog(capacity: 32, role: .mobileClient)
+        let store = MobileShellComposite(diagnosticLog: log)
+        let generation = store.connectionGeneration
+        let attempt = try #require(store.connectionRecoveryOwner.begin(
+            trigger: "test",
+            sourceConnectionGeneration: generation,
+            probing: false
+        ))
+
+        store.settleSuccessfulConnectionRecovery(
+            attempt,
+            connectionGeneration: generation
+        )
+        store.recordSuccessfulTerminalSubscription()
+        store.recordSuccessfulTerminalSubscription()
+        log.record(DiagnosticEvent(.rpcReady))
+
+        #expect(try await pollUntil {
+            (await log.snapshot()).events.contains { $0.code == .rpcReady }
+        })
+        let successes = (await log.snapshot()).events.filter {
+            $0.code == .recoverySucceeded
+        }
+        #expect(successes.count == 1)
+        #expect(store.connectionRecoveryOwner.phase == .idle)
+    }
+
+    @Test func healthyProbeCompletionCannotEmitASecondSuccess() async throws {
+        let log = DiagnosticLog(capacity: 32, role: .mobileClient)
+        let store = MobileShellComposite(diagnosticLog: log)
+        let generation = store.connectionGeneration
+        let attempt = try #require(store.connectionRecoveryOwner.begin(
+            trigger: "test",
+            sourceConnectionGeneration: generation,
+            probing: true
+        ))
+
+        #expect(store.completeConnectionRecovery(attempt))
+        store.recordSuccessfulTerminalSubscription()
+        log.record(DiagnosticEvent(.rpcReady))
+
+        #expect(try await pollUntil {
+            (await log.snapshot()).events.contains { $0.code == .rpcReady }
+        })
+        let successes = (await log.snapshot()).events.filter {
+            $0.code == .recoverySucceeded
+        }
+        #expect(successes.count == 1)
+        #expect(store.connectionRecoveryOwner.phase == .idle)
+    }
+
     private func makeRecoveryOwnerFixture(
         backup: (any PairedMacBackingUp)? = nil,
         heldConnectAttempts: Set<Int> = []
@@ -257,6 +440,7 @@ extension ReconnectRouteSelectionTests {
             heldConnectAttempts: heldConnectAttempts
         )
         let (inner, directory) = try makePairedMacStore()
+        let diagnosticLog = DiagnosticLog(capacity: 128, role: .mobileClient)
         try await inner.upsert(
             macDeviceID: "test-mac",
             displayName: "Test Mac",
@@ -282,7 +466,8 @@ extension ReconnectRouteSelectionTests {
             pairedMacStore: pairedStore,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             reachability: AlwaysOnlineReachability(),
-            pairingHintDefaults: UserDefaults(suiteName: "iroh-recovery-owner-\(UUID().uuidString)")!
+            pairingHintDefaults: UserDefaults(suiteName: "iroh-recovery-owner-\(UUID().uuidString)")!,
+            diagnosticLog: diagnosticLog
         )
         return RecoveryOwnerFixture(
             store: store,
@@ -290,6 +475,7 @@ extension ReconnectRouteSelectionTests {
             router: router,
             box: box,
             factory: factory,
+            diagnosticLog: diagnosticLog,
             directory: directory
         )
     }
@@ -302,6 +488,7 @@ private struct RecoveryOwnerFixture {
     let router: LivenessHostRouter
     let box: TransportBox
     let factory: SequencedKindTransportFactory
+    let diagnosticLog: DiagnosticLog
     let directory: URL
 
     func release() {
@@ -317,7 +504,7 @@ private final class SequencedKindTransportFactory: CmxByteTransportFactory, @unc
     private let heldConnectAttempts: Set<Int>
     private let lock = NSLock()
     private var kinds: [CmxAttachTransportKind] = []
-    private var connectsFailing = false
+    private var connectFailure: DiagnosticFailureKind?
     private var heldReleased = false
     private var heldWaiters: [CheckedContinuation<Void, Never>] = []
     private var attemptWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
@@ -333,19 +520,19 @@ private final class SequencedKindTransportFactory: CmxByteTransportFactory, @unc
     }
 
     func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
-        let (attempt, shouldFail) = lock.withLock { () -> (Int, Bool) in
+        let (attempt, connectFailure) = lock.withLock { () -> (Int, DiagnosticFailureKind?) in
             kinds.append(route.kind)
             let count = kinds.count
             let ready = attemptWaiters.filter { $0.0 <= count }
             attemptWaiters.removeAll { $0.0 <= count }
             for (_, waiter) in ready { waiter.resume() }
-            return (count, connectsFailing)
+            return (count, self.connectFailure)
         }
         let transport = SequencedLivenessTransport(
             base: LivenessTransport(router: router),
             factory: self,
             attempt: attempt,
-            shouldFail: shouldFail,
+            connectFailure: connectFailure,
             shouldHold: heldConnectAttempts.contains(attempt)
         )
         box.set(transport.base)
@@ -355,7 +542,11 @@ private final class SequencedKindTransportFactory: CmxByteTransportFactory, @unc
     func attemptedKinds() -> [CmxAttachTransportKind] { lock.withLock { kinds } }
 
     func setConnectsFailing(_ failing: Bool) {
-        lock.withLock { connectsFailing = failing }
+        setConnectFailure(failing ? .unknown : nil)
+    }
+
+    func setConnectFailure(_ failure: DiagnosticFailureKind?) {
+        lock.withLock { connectFailure = failure }
     }
 
     func waitForAttemptCount(_ count: Int) async -> Bool {
@@ -397,32 +588,38 @@ private actor SequencedLivenessTransport: CmxByteTransport {
     let base: LivenessTransport
     private let factory: SequencedKindTransportFactory
     private let attempt: Int
-    private let shouldFail: Bool
+    private let connectFailure: DiagnosticFailureKind?
     private let shouldHold: Bool
 
     init(
         base: LivenessTransport,
         factory: SequencedKindTransportFactory,
         attempt: Int,
-        shouldFail: Bool,
+        connectFailure: DiagnosticFailureKind?,
         shouldHold: Bool
     ) {
         self.base = base
         self.factory = factory
         self.attempt = attempt
-        self.shouldFail = shouldFail
+        self.connectFailure = connectFailure
         self.shouldHold = shouldHold
     }
 
     func connect() async throws {
         if shouldHold { await factory.waitForHeldRelease() }
-        if shouldFail { throw RouteRecordingTransportError.routeFailed }
+        if let connectFailure {
+            throw RecoveryConnectFailure(diagnosticFailureKind: connectFailure)
+        }
         try await base.connect()
     }
 
     func receive() async throws -> Data? { try await base.receive() }
     func send(_ data: Data) async throws { try await base.send(data) }
     func close() async { await base.close() }
+}
+
+private struct RecoveryConnectFailure: DiagnosticFailureProviding {
+    let diagnosticFailureKind: DiagnosticFailureKind
 }
 
 private actor BlockingSecondFetchBackup: PairedMacBackingUp {
