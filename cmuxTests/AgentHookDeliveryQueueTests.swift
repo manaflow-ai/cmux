@@ -726,29 +726,16 @@ struct AgentHookDeliveryQueueTests {
             at: scriptURL,
             contents: """
             #!/bin/sh
-            exec /usr/bin/python3 -c '
-            import os
-            import signal
-
-            os.setpgid(0, 0)
-            with open(os.environ["CMUX_AGENT_LAUNCH_CWD"], "w") as handle:
-                handle.write(str(os.getpid()))
-            descendant = os.fork()
-            if descendant == 0:
-                signal.signal(signal.SIGTERM, signal.SIG_IGN)
-                with open(os.environ["CMUX_AGENT_LAUNCH_EXECUTABLE"], "w") as handle:
-                    handle.write(str(os.getpid()))
-                while True:
-                    signal.pause()
-            while True:
-                signal.pause()
-            '
+            printf '%s' "$$" > "$CMUX_AGENT_LAUNCH_CWD"
+            /bin/sh -c 'trap "" TERM; printf "%s" "$$" > "$CMUX_AGENT_LAUNCH_EXECUTABLE"; while :; do :; done' &
+            trap '' TERM
+            while :; do :; done
             """
         )
         let queue = AgentHookDeliveryQueue(
             databaseURL: root.appendingPathComponent("deliveries.sqlite3"),
             executableURLProvider: { scriptURL },
-            processTimeout: 0.2,
+            processTimeout: 0.5,
             terminationGrace: 0.05,
             retryBaseDelay: 60,
             retryMaximumDelay: 60
