@@ -342,7 +342,8 @@ final class BrowserWebExtensionsManager: NSObject {
             do {
                 let context = try loadExtension(
                     webExtension,
-                    installationName: reference.installationName
+                    installationName: reference.installationName,
+                    supportsNativeMessaging: true
                 )
                 return BrowserWebExtensionInstallReceipt(
                     name: context.webExtension.displayName ?? reference.installationName
@@ -617,7 +618,11 @@ final class BrowserWebExtensionsManager: NSObject {
         try requireActive()
         let webExtension = try await WKWebExtension(resourceBaseURL: url)
         try requireActive()
-        return try loadExtension(webExtension, installationName: url.lastPathComponent)
+        return try loadExtension(
+            webExtension,
+            installationName: url.lastPathComponent,
+            supportsNativeMessaging: false
+        )
     }
 
     private func loadAppExtensionBundle(
@@ -625,7 +630,11 @@ final class BrowserWebExtensionsManager: NSObject {
     ) async throws -> WKWebExtensionContext {
         let webExtension = try await webExtension(for: reference)
         try requireActive()
-        return try loadExtension(webExtension, installationName: reference.installationName)
+        return try loadExtension(
+            webExtension,
+            installationName: reference.installationName,
+            supportsNativeMessaging: true
+        )
     }
 
     private func webExtension(
@@ -642,13 +651,24 @@ final class BrowserWebExtensionsManager: NSObject {
 
     private func loadExtension(
         _ webExtension: WKWebExtension,
-        installationName: String
+        installationName: String,
+        supportsNativeMessaging: Bool
     ) throws -> WKWebExtensionContext {
         try requireActive()
         let context = WKWebExtensionContext(for: webExtension)
         // Stable identifier derived from the managed entry or app-extension
         // bundle identifier so storage survives extension and app updates.
         context.uniqueIdentifier = "cmux-browser-extension-\(installationName)"
+        if !supportsNativeMessaging {
+            // WKWebExtension's native messaging transport targets an embedded
+            // Safari App Extension, not Chromium's executable-host protocol.
+            // Mark it unavailable so portable extensions can feature-detect
+            // and use their standalone path instead of waiting forever.
+            context.unsupportedAPIs = [
+                "browser.runtime.sendNativeMessage",
+                "browser.runtime.connectNative",
+            ]
+        }
 #if DEBUG
         context.isInspectable = true
         context.inspectionName = context.webExtension.displayName ?? installationName
