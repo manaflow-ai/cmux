@@ -53,6 +53,10 @@ case "${1:-}" in
     cp -R "$CMUX_TEST_SOURCE_APP" "$mount_dir/cmux NIGHTLY.app"
     ;;
   detach)
+    if [ ! -f "$CMUX_TEST_DETACH_STATE" ]; then
+      : > "$CMUX_TEST_DETACH_STATE"
+      exit 16
+    fi
     find "${2:?mount path required}" -mindepth 1 -delete
     ;;
 esac
@@ -70,6 +74,7 @@ chmod +x "$FAKE_BIN"/*
 run_helper() {
   CMUX_TEST_CALL_LOG="$LOG" \
   CMUX_TEST_SOURCE_APP="$APP" \
+  CMUX_TEST_DETACH_STATE="$TMP_DIR/detach-retried" \
   CMUX_NIGHTLY_MOUNT_DIR="$TMP_DIR/cmux-nightly-mount" \
   CMUX_CREATE_DMG_TOOL="$FAKE_BIN/create-dmg" \
   CMUX_CODESIGN_TOOL="$FAKE_BIN/codesign" \
@@ -115,6 +120,10 @@ fi
 
 if [ "$(grep -c '^smoke ' "$LOG")" -ne 4 ]; then
   echo "FAIL: source and mounted apps must each run GUI and direct launch smokes" >&2
+  exit 1
+fi
+if [ "$(grep -c '^hdiutil detach ' "$LOG")" -ne 2 ]; then
+  echo "FAIL: transient busy DMG detach must be retried" >&2
   exit 1
 fi
 if [ ! -f "$IMMUTABLE" ] || ! cmp -s "$DMG" "$IMMUTABLE"; then
