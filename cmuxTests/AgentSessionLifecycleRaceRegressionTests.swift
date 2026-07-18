@@ -459,6 +459,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         )
         let resumedGeneration = AgentHookSessionLineage(
             runId: savedRun.runId, pid: 456, processStartedAt: 300,
+            processLaunchMode: .interactive,
             parentRunId: nil, parentSessionId: nil, relationship: .resumed,
             restoreAuthority: true
         )
@@ -475,6 +476,47 @@ extension CMUXCLIErrorOutputRegressionTests {
             #expect(AgentHookSessionActivationPolicy().canActivate(
                 record: record, lineage: resumedGeneration, hasIncomingPID: true
             ))
+        }
+    }
+
+    @Test func hibernatedAndRestoringRowsRejectNonInteractiveNewerProcessGenerations() {
+        let savedRun = AgentSessionRunRecord(
+            runId: "stable-run", pid: 123, processStartedAt: 100,
+            parentRunId: nil, parentSessionId: nil, relationship: nil,
+            restoreAuthority: true, startedAt: 100, updatedAt: 200, endedAt: nil
+        )
+        let nonInteractiveGenerations = [
+            AgentHookSessionLineage(
+                runId: savedRun.runId, pid: 456, processStartedAt: 300,
+                processDescribesAgent: true, processLaunchMode: .oneShot,
+                parentRunId: nil, parentSessionId: nil, relationship: .resumed,
+                restoreAuthority: true
+            ),
+            AgentHookSessionLineage(
+                runId: savedRun.runId, pid: 457, processStartedAt: 301,
+                processDescribesAgent: true, processLaunchMode: .nonSession,
+                parentRunId: nil, parentSessionId: nil, relationship: .resumed,
+                restoreAuthority: true
+            ),
+            AgentHookSessionLineage(
+                runId: savedRun.runId, pid: 458, processStartedAt: 302,
+                processDescribesAgent: true, processLaunchMode: .unknown,
+                parentRunId: nil, parentSessionId: nil, relationship: .resumed,
+                restoreAuthority: true
+            ),
+        ]
+
+        for state in [AgentSessionLifecycleState.hibernated, .restoring] {
+            let record = ClaudeHookSessionRecord(
+                sessionId: "protected-session", workspaceId: "workspace", surfaceId: "surface",
+                pid: savedRun.pid, startedAt: 100, updatedAt: 200, sessionState: state,
+                runs: [savedRun], activeRunId: savedRun.runId
+            )
+            for lineage in nonInteractiveGenerations {
+                #expect(!AgentHookSessionActivationPolicy().canActivate(
+                    record: record, lineage: lineage, hasIncomingPID: true
+                ))
+            }
         }
     }
 
