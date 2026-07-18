@@ -109,6 +109,53 @@ struct FeedCoordinatorTests {
         )
     }
 
+    @Test func feedJumpResolverDropsRemovedGenerationZeroLegacyRecord() throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-feed-legacy-delete-\(UUID().uuidString)", isDirectory: true)
+        let stateDirectory = home.appendingPathComponent(".cmuxterm", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let sessionID = "removed-legacy-session"
+        let legacyURL = stateDirectory.appendingPathComponent("codex-hook-sessions.json")
+        let initial = try JSONSerialization.data(withJSONObject: [
+            "version": 1,
+            "sessions": [
+                sessionID: [
+                    "sessionId": sessionID,
+                    "workspaceId": UUID().uuidString,
+                    "surfaceId": UUID().uuidString,
+                    "updatedAt": 1.0,
+                ],
+            ],
+        ], options: [.sortedKeys])
+        try initial.write(to: legacyURL, options: .atomic)
+        #expect(
+            FeedJumpResolver.lookup(
+                agent: "codex",
+                sessionId: sessionID,
+                homeDirectory: home,
+                environment: [:]
+            ) != nil
+        )
+
+        let removed = try JSONSerialization.data(withJSONObject: [
+            "version": 1,
+            "sessions": [:],
+            "padding": "force a distinct compatibility-file stamp",
+        ], options: [.sortedKeys])
+        try removed.write(to: legacyURL, options: .atomic)
+
+        #expect(
+            FeedJumpResolver.lookup(
+                agent: "codex",
+                sessionId: sessionID,
+                homeDirectory: home,
+                environment: [:]
+            ) == nil
+        )
+    }
+
     @Test func feedJumpResolverRetainsBoundedFlatLegacyFallback() throws {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-feed-flat-legacy-\(UUID().uuidString)", isDirectory: true)
