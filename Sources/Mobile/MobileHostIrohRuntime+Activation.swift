@@ -85,8 +85,11 @@ extension MobileHostIrohRuntime {
             lastKnownTag = tag
         }
 
+        guard let brokerBaseURL = AuthEnvironment.irohBrokerBaseURL else {
+            throw CmxIrohTrustBrokerClientError.invalidBaseURL
+        }
         let broker = try CmxIrohTrustBrokerClient(
-            baseURL: AuthEnvironment.vmAPIBaseURL,
+            baseURL: brokerBaseURL,
             tokenSource: CmxIrohBrokerTokenSource(
                 accessToken: { [weak auth] in
                     guard let auth,
@@ -293,9 +296,17 @@ extension MobileHostIrohRuntime {
                 )
             },
             handleLANRefresh: {
+                guard MobileHostService.isListeningEnabled else {
+                    await lanPublisher.stop()
+                    return
+                }
                 await lanPublisher.refresh()
             },
             handleLANPolicy: { context, directAddresses in
+                guard MobileHostService.isListeningEnabled else {
+                    await lanPublisher.stop()
+                    return
+                }
                 await lanPublisher.activate(
                     rendezvous: context.rendezvous,
                     binding: context.binding,

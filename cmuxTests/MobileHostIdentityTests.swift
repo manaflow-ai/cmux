@@ -30,6 +30,26 @@ struct MobileHostIdentityTests {
         ) == "future-one")
     }
 
+    @Test func irohRegistrationUsesAuthoritativeAppInstanceTag() {
+        let cases: [([String: String], String)] = [
+            ([:], "com.cmuxterm.app"),
+            ([:], "com.cmuxterm.app.nightly"),
+            ([:], "com.cmuxterm.app.staging"),
+            ([:], "com.cmuxterm.app.debug.future-one"),
+            (["CMUX_TAG": "future-two"], "com.cmuxterm.app.debug.future-two"),
+        ]
+
+        for (environment, bundleIdentifier) in cases {
+            #expect(MobileHostIrohRuntime.currentTag(
+                environment: environment,
+                bundleIdentifier: bundleIdentifier
+            ) == MobileHostIdentity.instanceTag(
+                environment: environment,
+                bundleIdentifier: bundleIdentifier
+            ))
+        }
+    }
+
     @Test func authenticatedStatusIncludesAuthoritativeInstanceTag() {
         let previousTag = ProcessInfo.processInfo.environment["CMUX_TAG"]
         setenv("CMUX_TAG", "future-one", 1)
