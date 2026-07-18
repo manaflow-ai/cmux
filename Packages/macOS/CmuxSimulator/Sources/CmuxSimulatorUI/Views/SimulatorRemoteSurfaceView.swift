@@ -18,8 +18,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         @MainActor (
             SimulatorFrameTransportDescriptor
         ) throws -> any SimulatorFrameSurfaceReading
-    private var displayLink: CADisplayLink?
-    private var screenObserver: NSObjectProtocol?
+    private var presentationTimer: DispatchSourceTimer?
     private var lastFrameSequence: UInt64?
     private var isTornDown = false
     var display: SimulatorDisplayMetadata?
@@ -61,15 +60,6 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         wantsLayer = true
         layer?.backgroundColor = NSColor.black.cgColor
         layer?.masksToBounds = true
-        screenObserver = NotificationCenter.default.addObserver(
-            forName: NSApplication.didChangeScreenParametersNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.rebuildDisplayLink()
-            }
-        }
     }
 
     @available(*, unavailable)
@@ -123,11 +113,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         cancelInputs()
         removeStagePointerMonitor()
         NotificationCenter.default.removeObserver(self)
-        if let screenObserver {
-            NotificationCenter.default.removeObserver(screenObserver)
-            self.screenObserver = nil
-        }
-        stopDisplayLink()
+        stopPresentationTimer()
         retireFramePipeline()
         frameLayer?.removeFromSuperlayer()
         frameLayer = nil
@@ -169,7 +155,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        rebuildDisplayLink()
+        rebuildPresentationTimer()
         if !isTornDown, isPointerInputEnabled, let window {
             installStagePointerMonitor(for: window)
         } else {
@@ -340,7 +326,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
             )
             return
         }
-        stopDisplayLink()
+        stopPresentationTimer()
         retireFramePipeline()
         frameLayer?.removeFromSuperlayer()
         frameLayer = nil
@@ -357,7 +343,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         onFrameTransportAdopted?(frameTransport)
         renderLatestFrame()
         layoutFrameLayer()
-        startDisplayLink()
+        startPresentationTimer()
     }
 
     func renderLatestFrame() {
@@ -372,28 +358,35 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         lastFrameSequence = presentation.sequence
     }
 
-    private func startDisplayLink() {
-        guard displayLink == nil,
-            framePipeline != nil,
-            let window,
-            let screen = window.screen ?? NSScreen.main ?? NSScreen.screens.first
-        else { return }
-        let link = screen.displayLink(target: self, selector: #selector(displayLinkDidFire(_:)))
-        link.add(to: .main, forMode: .common)
-        displayLink = link
+    private func startPresentationTimer() {
+        guard presentationTimer == nil,
+              framePipeline != nil,
+              window != nil else { return }
+        let timer = DispatchSource.makeTimerSource(flags: .strict, queue: .main)
+        timer.schedule(
+            deadline: .now(),
+            repeating: .nanoseconds(16_666_667),
+            leeway: .milliseconds(1)
+        )
+        timer.setEventHandler { [weak self] in
+            self?.presentationTimerDidFire()
+        }
+        presentationTimer = timer
+        timer.activate()
     }
 
-    private func stopDisplayLink() {
-        displayLink?.invalidate()
-        displayLink = nil
+    private func stopPresentationTimer() {
+        presentationTimer?.setEventHandler(handler: nil)
+        presentationTimer?.cancel()
+        presentationTimer = nil
     }
-    private func rebuildDisplayLink() {
+    private func rebuildPresentationTimer() {
         guard !isTornDown, framePipeline != nil else { return }
-        stopDisplayLink()
-        startDisplayLink()
+        stopPresentationTimer()
+        startPresentationTimer()
     }
 
-    @objc private func displayLinkDidFire(_ link: CADisplayLink) {
+    private func presentationTimerDidFire() {
         flushPendingInputMotion()
         renderLatestFrame()
     }
