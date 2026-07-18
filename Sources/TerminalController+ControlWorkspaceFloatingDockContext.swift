@@ -88,19 +88,25 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
             return .resolved(floatingDockMutationPayload(dock: dock, workspace: workspace, tabManager: tabManager))
         case .noteGet(let selector):
             guard let dock = workspace.floatingDock(selector: selector) else { return .floatingDockNotFound }
+            guard let noteFilePath = dock.noteFilePath else {
+                return .operationFailed("This floating Dock does not contain a note")
+            }
             let notePanel = floatingDockNotePanel(for: dock, tabManager: tabManager)
-            let text = (try? String(contentsOfFile: dock.noteFilePath, encoding: .utf8)) ?? notePanel?.textContent ?? ""
+            let text = (try? String(contentsOfFile: noteFilePath, encoding: .utf8)) ?? notePanel?.textContent ?? ""
             return .resolved(floatingDockNotePayload(
                 dock: dock, workspace: workspace, notePanel: notePanel, text: text
             ))
         case .noteSet(let selector, let text):
             guard let dock = workspace.floatingDock(selector: selector) else { return .floatingDockNotFound }
+            guard let noteFilePath = dock.noteFilePath else {
+                return .operationFailed("This floating Dock does not contain a note")
+            }
             let notePanel = floatingDockNotePanel(for: dock, tabManager: tabManager)
             do {
                 if let notePanel {
                     try notePanel.replaceAutosavedTextContent(text)
                 } else {
-                    try Data(text.utf8).write(to: URL(fileURLWithPath: dock.noteFilePath), options: .atomic)
+                    try Data(text.utf8).write(to: URL(fileURLWithPath: noteFilePath), options: .atomic)
                 }
             } catch {
                 return .operationFailed("Failed to save floating Dock note: \(error.localizedDescription)")
