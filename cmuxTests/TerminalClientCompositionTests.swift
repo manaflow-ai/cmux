@@ -111,13 +111,149 @@ struct TerminalClientCompositionTests {
         defer { workspace.teardownAllPanels() }
 
         recorder.removeAllRequests()
-        let panel = workspace.makeRemoteTmuxPanePanel(onInput: { _ in })
+        let panel = try #require(workspace.makeRemoteTmuxPanePanel(onInput: { _ in }))
         defer { panel.close() }
 
         let request = try #require(recorder.requests.last)
         #expect(request.origin == .remoteTmuxMirror)
         #expect(request.manualIO)
         #expect(request.workspaceId == workspace.id)
+    }
+
+    @Test @MainActor
+    func backendModeRejectsRemoteTmuxManualIOWithoutCallingPersistentFactory() throws {
+        let client = RecordingPersistentTerminalBackendClient()
+        var failures: [String] = []
+        let composition = TerminalClientComposition.persistent(
+            backendClient: client,
+            dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies,
+            topologyFailureReporter: { failures.append($0) }
+        )
+        let workspace = Workspace(
+            initialSurface: .cloudVMLoading,
+            terminalClientComposition: composition
+        )
+        defer { workspace.teardownAllPanels() }
+
+        #expect(workspace.makeRemoteTmuxPanePanel(onInput: { _ in }) == nil)
+        #expect(workspace.addRemoteTmuxDisplayPane(
+            remotePaneId: 7,
+            onInput: { _ in }
+        ) == nil)
+
+        #expect(failures.count == 2)
+        #expect(failures.allSatisfy { $0.contains(TerminalBackendTopologyMutation.attachSurface.rawValue) })
+    }
+
+    @Test @MainActor
+    func backendModeCloudReplacementUsesExternalSafeLaunchMetadata() async throws {
+        let client = RecordingPersistentTerminalBackendClient()
+        let composition = TerminalClientComposition.persistent(
+            backendClient: client,
+            dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies
+        )
+        let workspace = Workspace(
+            initialSurface: .cloudVMLoading,
+            terminalClientComposition: composition
+        )
+        defer { workspace.teardownAllPanels() }
+
+        let loadingPanelID = try #require(workspace.focusedPanelId)
+        let authorizationGate = try #require(composition.terminalBackendTopologyAuthorizationGate)
+        await authorizationGate.authorize([
+            TerminalBackendTopologyPlacement(
+                workspaceID: workspace.id,
+                surfaceID: loadingPanelID
+            ),
+        ])
+        let command = "cmux vm-pty-connect --config /tmp/cmux.json --id vm_external"
+        let terminal = try #require(workspace.replaceCloudVMLoadingSurfaceWithTerminal(
+            workspaceId: workspace.id,
+            initialCommand: command,
+            focus: false
+        ))
+
+        await client.waitForEnsureCount(1)
+        let request = try #require((await client.ensureRequests()).last)
+        #expect(terminal.id == loadingPanelID)
+        #expect(terminal.surface.isExternallyManaged)
+        #expect(terminal.surface.debugTmuxStartCommand() == nil)
+        #expect(request.appSurfaceID == loadingPanelID)
+        #expect(request.command == command)
+    }
+
+    @Test @MainActor
+    func backendModeRespawnFailsClosedWithoutReplacingOrClosingPanel() async throws {
+        let client = RecordingPersistentTerminalBackendClient()
+        var failures: [String] = []
+        let composition = TerminalClientComposition.persistent(
+            backendClient: client,
+            dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies,
+            topologyFailureReporter: { failures.append($0) }
+        )
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let authorizationGate = try #require(composition.terminalBackendTopologyAuthorizationGate)
+        await authorizationGate.authorize([
+            TerminalBackendTopologyPlacement(
+                workspaceID: workspaceID,
+                surfaceID: surfaceID
+            ),
+        ])
+        let workspace = Workspace(
+            id: workspaceID,
+            terminalClientComposition: composition,
+            initialTerminalSurfaceID: surfaceID
+        )
+        defer { workspace.teardownAllPanels() }
+
+        let original = try #require(workspace.focusedTerminalPanel)
+        await client.waitForEnsureCount(1)
+        #expect(workspace.respawnTerminalSurface(
+            panelId: original.id,
+            command: "exec /bin/zsh -l",
+            tmuxStartCommand: "exec /bin/zsh -l"
+        ) == nil)
+
+        #expect(workspace.terminalPanel(for: original.id) === original)
+        #expect((await client.ensureRequests()).count == 1)
+        #expect(!(await client.mutations()).contains { $0.mutation == .closeCanonicalTerminal })
+        #expect(failures.count == 1)
+        #expect(failures[0].contains(TerminalBackendTopologyMutation.attachSurface.rawValue))
+    }
+
+    @Test @MainActor
+    func canonicalLastSurfaceRemovalDoesNotCreateSwiftReplacementOrEchoClose() async throws {
+        let client = RecordingPersistentTerminalBackendClient()
+        let composition = TerminalClientComposition.persistent(
+            backendClient: client,
+            dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies
+        )
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let authorizationGate = try #require(composition.terminalBackendTopologyAuthorizationGate)
+        await authorizationGate.authorize([
+            TerminalBackendTopologyPlacement(
+                workspaceID: workspaceID,
+                surfaceID: surfaceID
+            ),
+        ])
+        let workspace = Workspace(
+            id: workspaceID,
+            terminalClientComposition: composition,
+            initialTerminalSurfaceID: surfaceID,
+            isCanonicalTopologyProjection: true
+        )
+        defer { workspace.teardownAllPanels() }
+
+        let original = try #require(workspace.focusedTerminalPanel)
+        await client.waitForEnsureCount(1)
+        #expect(workspace.closePanel(original.id, force: true))
+        for _ in 0..<8 { await Task.yield() }
+
+        #expect(workspace.panels.isEmpty)
+        #expect((await client.ensureRequests()).count == 1)
+        #expect(!(await client.mutations()).contains { $0.mutation == .closeCanonicalTerminal })
     }
 
     @Test @MainActor
