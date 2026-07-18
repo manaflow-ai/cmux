@@ -873,7 +873,7 @@ Result:
 object{workspace:Id,key:string,index:uint64,workspace_revision:uint64}
 ```
 
-Errors include `workspace key cannot be empty`, `workspace key already exists: <key>`, `workspace revision mismatch: expected <n>, current <n>`, and malformed request errors.
+Errors include `workspace key cannot be empty`, `workspace key already exists: <key>`, `workspace revision conflict: expected <n>, current <n>`, and malformed request errors.
 
 Example:
 
@@ -1392,7 +1392,7 @@ Errors:
 | `unknown workspace <id>` | Workspace id does not exist |
 | `unknown workspace key <key>` | Workspace key does not exist |
 | `workspace id and key do not identify the same workspace` | Supplied selectors identify different workspaces |
-| `workspace revision mismatch: ...` | Compare-and-swap guard is stale |
+| `workspace revision conflict: ...` | Compare-and-swap guard is stale |
 | `bad request: ...` | Missing selector or wrong JSON type |
 
 CLI mapping:
@@ -1585,7 +1585,7 @@ Errors:
 | `unknown workspace <id>` | Workspace id does not exist |
 | `unknown workspace key <key>` | Workspace key does not exist |
 | `workspace id and key do not identify the same workspace` | Supplied selectors identify different workspaces |
-| `workspace revision mismatch: ...` | Compare-and-swap guard is stale |
+| `workspace revision conflict: ...` | Compare-and-swap guard is stale |
 | `bad request: ...` | Missing fields or wrong JSON type |
 
 CLI mapping:
@@ -1954,7 +1954,7 @@ Errors:
 | `unknown workspace <id>` | Workspace id does not exist |
 | `unknown workspace key <key>` | Workspace key does not exist |
 | `workspace id and key do not identify the same workspace` | Supplied selectors identify different workspaces |
-| `workspace revision mismatch: ...` | Compare-and-swap guard is stale |
+| `workspace revision conflict: ...` | Compare-and-swap guard is stale |
 | `bad request: ...` | Missing fields or wrong JSON type |
 
 CLI mapping:

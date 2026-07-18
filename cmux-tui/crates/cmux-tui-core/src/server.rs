@@ -1864,8 +1864,8 @@ pub(crate) fn tree_entity_json(
             | TreeDeltaKind::WorkspaceMoved
     ) {
         let short_ids = tree_short_ids(state);
-        let (index, workspace) =
-            state.workspaces.iter().enumerate().find(|(_, workspace)| workspace.id == id)?;
+        let index = state.workspace_index(id)?;
+        let workspace = state.workspaces.get(index)?;
         return Some(workspace_json(state, workspace, index, &short_ids, notifications));
     }
     let tree = workspaces_json(state, notifications);
@@ -1976,9 +1976,8 @@ fn resolve_workspace(
     key: Option<&str>,
 ) -> anyhow::Result<(WorkspaceId, String)> {
     mux.with_state(|state| {
-        let by_id = id.and_then(|id| state.workspaces.iter().find(|workspace| workspace.id == id));
-        let by_key =
-            key.and_then(|key| state.workspaces.iter().find(|workspace| workspace.key == key));
+        let by_id = id.and_then(|id| state.workspace_by_id(id));
+        let by_key = key.and_then(|key| state.workspace_by_key(key));
         let workspace = match (id, key, by_id, by_key) {
             (None, None, _, _) => anyhow::bail!("workspace or key is required"),
             (Some(id), None, Some(workspace), _) if workspace.id == id => workspace,

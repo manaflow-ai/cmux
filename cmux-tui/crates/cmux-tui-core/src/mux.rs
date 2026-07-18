@@ -466,6 +466,8 @@ impl Mux {
         Arc::new(Mux {
             state: Mutex::new(State {
                 workspaces: Vec::new(),
+                workspace_index_by_id: HashMap::new(),
+                workspace_id_by_key: HashMap::new(),
                 workspace_revision: 0,
                 active_workspace: 0,
                 panes: HashMap::new(),
@@ -1493,7 +1495,7 @@ impl Mux {
             let mut state = self.state.lock().unwrap();
             let name = name.unwrap_or_else(|| format!("{}", state.workspaces.len() + 1));
             state.panes.insert(pane_id, pane);
-            state.workspaces.push(Workspace {
+            state.push_workspace(Workspace {
                 id: ws_id,
                 key: workspace_key,
                 name,
@@ -1552,11 +1554,11 @@ impl Mux {
         let (placement, delta) = {
             let mut state = self.state.lock().unwrap();
             Self::require_workspace_revision(&state, expected_revision)?;
-            if state.workspaces.iter().any(|workspace| workspace.key == key) {
+            if state.workspace_by_key(&key).is_some() {
                 anyhow::bail!("workspace key already exists: {key}");
             }
             let name = name.unwrap_or_else(|| format!("{}", state.workspaces.len() + 1));
-            state.workspaces.push(Workspace {
+            state.push_workspace(Workspace {
                 id: ws_id,
                 key: key.clone(),
                 name,
@@ -1616,7 +1618,7 @@ impl Mux {
                 let workspace_name =
                     name.unwrap_or_else(|| format!("{}", state.workspaces.len() + 1));
                 state.panes.insert(pane_id, pane);
-                state.workspaces.push(Workspace {
+                state.push_workspace(Workspace {
                     id: ws_id,
                     key: workspace_key,
                     name: workspace_name,
@@ -1917,9 +1919,7 @@ impl Mux {
     ) -> anyhow::Result<RunPlacement> {
         let inherited_cwd = {
             let state = self.state.lock().unwrap();
-            let Some(workspace) =
-                state.workspaces.iter().find(|candidate| candidate.id == workspace)
-            else {
+            let Some(workspace) = state.workspace_by_id(workspace) else {
                 anyhow::bail!("unknown workspace {workspace}");
             };
             workspace.active_screen_ref().map(|screen| screen.active_pane)
@@ -1933,8 +1933,7 @@ impl Mux {
         let active_at = self.next_active_at();
         let attached = {
             let mut state = self.state.lock().unwrap();
-            let Some(wi) = state.workspaces.iter().position(|candidate| candidate.id == workspace)
-            else {
+            let Some(wi) = state.workspace_index(workspace) else {
                 state.surfaces.remove(&surface.id);
                 surface.kill();
                 anyhow::bail!("workspace disappeared while creating terminal");
@@ -2056,8 +2055,7 @@ impl Mux {
                 let notifications = self.surface_notifications();
                 let delta = {
                     let mut state = self.state.lock().unwrap();
-                    let wi =
-                        state.workspaces.iter().position(|candidate| candidate.id == workspace);
+                    let wi = state.workspace_index(workspace);
                     let Some(wi) = wi.filter(|wi| state.workspaces[*wi].screens.is_empty()) else {
                         state.surfaces.remove(&surface.id);
                         drop(state);
@@ -2105,7 +2103,7 @@ impl Mux {
                 let mut state = self.state.lock().unwrap();
                 let name = format!("{}", state.workspaces.len() + 1);
                 state.panes.insert(pane_id, pane);
-                state.workspaces.push(Workspace {
+                state.push_workspace(Workspace {
                     id: ws_id,
                     key: workspace_key,
                     name,
@@ -2494,15 +2492,14 @@ impl Mux {
         let (removed, delta, empty, revision) = {
             let mut state = self.state.lock().unwrap();
             Self::require_workspace_revision(&state, expected_revision)?;
-            let Some(index) = state.workspaces.iter().position(|workspace| workspace.id == target)
-            else {
+            let Some(index) = state.workspace_index(target) else {
                 return Ok(None);
             };
             let mut delta = close_workspace_delta(&state, &notifications, target)
                 .expect("live workspace has a close delta");
             let active_id =
                 state.workspaces.get(state.active_workspace).map(|workspace| workspace.id);
-            let workspace = state.workspaces.remove(index);
+            let workspace = state.remove_workspace(index);
             let mut pane_ids = Vec::new();
             for screen in &workspace.screens {
                 screen.root.pane_ids(&mut pane_ids);
@@ -2518,7 +2515,7 @@ impl Mux {
                 }
             }
             state.active_workspace = active_id
-                .and_then(|id| state.workspaces.iter().position(|workspace| workspace.id == id))
+                .and_then(|id| state.workspace_index(id))
                 .unwrap_or_else(|| state.workspaces.len().saturating_sub(1));
             state.workspace_revision = state.workspace_revision.saturating_add(1);
             let revision = state.workspace_revision;
@@ -2552,8 +2549,7 @@ impl Mux {
         let renamed = {
             let mut state = self.state.lock().unwrap();
             Self::require_workspace_revision(&state, expected_revision)?;
-            let Some(index) = state.workspaces.iter().position(|workspace| workspace.id == target)
-            else {
+            let Some(index) = state.workspace_index(target) else {
                 return Ok(None);
             };
             state.workspaces[index].name = name;
@@ -2872,18 +2868,16 @@ impl Mux {
             let mut created_workspace = None;
             let workspace_id = match workspace {
                 Some(id) => {
-                    let ws = state
-                        .workspaces
-                        .iter_mut()
-                        .find(|ws| ws.id == id)
-                        .expect("workspace validated before spawning");
+                    let workspace_index =
+                        state.workspace_index(id).expect("workspace validated before spawning");
+                    let ws = &mut state.workspaces[workspace_index];
                     ws.screens.push(screen);
                     id
                 }
                 None if state.workspaces.is_empty() => {
                     let new_workspace_key = Self::new_workspace_key()?;
                     let ws_id = self.next_id();
-                    state.workspaces.push(Workspace {
+                    state.push_workspace(Workspace {
                         id: ws_id,
                         key: new_workspace_key,
                         name: "1".into(),
@@ -2904,11 +2898,7 @@ impl Mux {
                 }
             };
             if let Some(workspace_id) = created_workspace {
-                let index = state
-                    .workspaces
-                    .iter()
-                    .position(|workspace| workspace.id == workspace_id)
-                    .expect("new workspace index");
+                let index = state.workspace_index(workspace_id).expect("new workspace index");
                 let entity = crate::server::tree_entity_json(
                     &state,
                     &notifications,
@@ -2928,9 +2918,7 @@ impl Mux {
                 }
             } else {
                 let index = state
-                    .workspaces
-                    .iter()
-                    .find(|workspace| workspace.id == workspace_id)
+                    .workspace_by_id(workspace_id)
                     .and_then(|workspace| {
                         workspace.screens.iter().position(|screen| screen.id == screen_id)
                     })
@@ -3048,7 +3036,7 @@ impl Mux {
         let delta = {
             let mut state = self.state.lock().unwrap();
             Self::require_workspace_revision(&state, expected_revision)?;
-            let Some(old_idx) = state.workspaces.iter().position(|ws| ws.id == workspace) else {
+            let Some(old_idx) = state.workspace_index(workspace) else {
                 return Ok(None);
             };
             let new_idx = if index > old_idx { index.saturating_sub(1) } else { index };
@@ -3057,10 +3045,9 @@ impl Mux {
                 return Ok(Some((state.workspace_revision, false)));
             }
             let active_id = state.workspaces.get(state.active_workspace).map(|ws| ws.id);
-            let ws = state.workspaces.remove(old_idx);
-            state.workspaces.insert(new_idx, ws);
+            state.move_workspace(old_idx, new_idx);
             state.active_workspace = active_id
-                .and_then(|id| state.workspaces.iter().position(|ws| ws.id == id))
+                .and_then(|id| state.workspace_index(id))
                 .unwrap_or_else(|| state.workspaces.len().saturating_sub(1));
             state.workspace_revision = state.workspace_revision.saturating_add(1);
             let workspace_revision = state.workspace_revision;
@@ -3359,7 +3346,7 @@ fn close_workspace_delta(
     notifications: &HashMap<SurfaceId, SurfaceNotification>,
     workspace: WorkspaceId,
 ) -> Option<TreeDelta> {
-    let index = state.workspaces.iter().position(|candidate| candidate.id == workspace)?;
+    let index = state.workspace_index(workspace)?;
     let entity = crate::server::tree_entity_json(
         state,
         notifications,
@@ -3439,9 +3426,9 @@ fn remove_surface(state: &mut State, target: SurfaceId) -> Option<Arc<Surface>> 
 
     // Workspace emptied too: drop it, keeping the active selection stable.
     let active_id = state.workspaces.get(state.active_workspace).map(|w| w.id);
-    state.workspaces.remove(wi);
+    state.remove_workspace(wi);
     state.active_workspace = active_id
-        .and_then(|id| state.workspaces.iter().position(|w| w.id == id))
+        .and_then(|id| state.workspace_index(id))
         .unwrap_or_else(|| state.workspaces.len().saturating_sub(1));
     removed
 }
@@ -3483,9 +3470,9 @@ fn collapse_empty_pane(state: &mut State, pane_id: PaneId) {
                 return;
             }
             let active_id = state.workspaces.get(state.active_workspace).map(|w| w.id);
-            state.workspaces.remove(wi);
+            state.remove_workspace(wi);
             state.active_workspace = active_id
-                .and_then(|id| state.workspaces.iter().position(|w| w.id == id))
+                .and_then(|id| state.workspace_index(id))
                 .unwrap_or_else(|| state.workspaces.len().saturating_sub(1));
         }
     }
@@ -4130,6 +4117,11 @@ mod tests {
                 }],
                 active_screen: 0,
             }],
+            workspace_index_by_id: HashMap::from([(1, 0)]),
+            workspace_id_by_key: HashMap::from([(
+                "00000000-0000-4000-8000-000000000001".into(),
+                1,
+            )]),
             workspace_revision: 1,
             active_workspace: 0,
             panes: HashMap::from([
@@ -4644,6 +4636,11 @@ mod tests {
             assert_eq!(state.workspaces.len(), 1);
             assert_eq!(state.workspaces[0].key, key);
             assert!(state.workspaces[0].screens.is_empty());
+            assert_eq!(state.workspace_index(first.workspace), Some(0));
+            assert_eq!(
+                state.workspace_by_key(&key).map(|workspace| workspace.id),
+                Some(first.workspace)
+            );
         });
         let MuxEvent::TreeDelta(added) = events.recv().expect("workspace-added delta") else {
             panic!("expected workspace-added delta");
@@ -4670,6 +4667,8 @@ mod tests {
         mux.with_state(|state| {
             assert!(state.workspaces.is_empty());
             assert_eq!(state.workspace_revision, 3);
+            assert!(state.workspace_by_id(first.workspace).is_none());
+            assert!(state.workspace_by_key(&key).is_none());
         });
         let MuxEvent::TreeDelta(closed) = events.recv().expect("workspace-closed delta") else {
             panic!("expected workspace-closed delta");
@@ -4758,6 +4757,9 @@ mod tests {
                 vec![ws3, ws1, ws2]
             );
             assert_eq!(s.active_workspace, 0);
+            assert_eq!(s.workspace_index(ws3), Some(0));
+            assert_eq!(s.workspace_index(ws1), Some(1));
+            assert_eq!(s.workspace_index(ws2), Some(2));
         });
 
         assert!(mux.move_workspace(ws1, 99));
@@ -4767,6 +4769,7 @@ mod tests {
                 vec![ws3, ws2, ws1]
             );
             assert_eq!(s.active_workspace, 0);
+            assert_eq!(s.workspace_index(ws1), Some(2));
         });
     }
 }
