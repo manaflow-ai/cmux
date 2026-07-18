@@ -10,7 +10,6 @@ struct AgentResumeArgvTests {
         ("omp", "omp", ["omp", "--session", "SID"]),
         ("campfire", "campfire", ["campfire", "--session", "SID"]),
         ("cursor", "cursor-agent", ["cursor-agent", "--resume", "SID"]),
-        ("gemini", "gemini", ["gemini", "--resume", "SID"]),
         ("antigravity", "agy", ["agy", "--conversation", "SID"]),
         ("copilot", "copilot", ["copilot", "--resume", "SID"]),
         ("codebuddy", "codebuddy", ["codebuddy", "--resume", "SID"]),
@@ -23,6 +22,29 @@ struct AgentResumeArgvTests {
             AgentResumeArgv().builtInKind(
                 kind: kind, sessionId: "SID", executablePath: nil, arguments: [executable]
             ) == expected
+        )
+    }
+
+    @Test("Gemini resumes from its recorded session file")
+    func geminiUsesSessionFile() {
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "gemini",
+                sessionId: "5839bed1-0a60-4c05-b6d1-2410d7a3741e",
+                executablePath: nil,
+                arguments: ["gemini"],
+                transcriptPath: "/tmp/session-2026-07-18T04-52-5839bed1.jsonl"
+            ) == [
+                "gemini", "--session-file", "/tmp/session-2026-07-18T04-52-5839bed1.jsonl",
+            ]
+        )
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "gemini",
+                sessionId: "5839bed1-0a60-4c05-b6d1-2410d7a3741e",
+                executablePath: nil,
+                arguments: ["gemini"]
+            ) == nil
         )
     }
 
