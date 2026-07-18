@@ -45,6 +45,7 @@ pub use surface::{
     AttachFrame, AttachFrameReceiver, AttachStream, BrowserAttachState, BrowserFrame,
     BrowserFrameStream, BrowserSource, BrowserStatus, DefaultColors, RenderAttachFrame,
     RenderAttachStream, Surface, SurfaceKind, SurfaceOptions, SurfaceRenderFrame, TerminalColors,
+    TerminalHostConnectionState,
 };
 pub use workspace_registry::{
     FrontendProjection, ProjectionCommit, RegistryCommit, RegistryEvent, RegistrySnapshot,
