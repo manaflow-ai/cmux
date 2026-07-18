@@ -1772,6 +1772,29 @@ struct AgentHibernationTranscriptGuardTests {
     }
 
     @Test
+    func restoreIfClobberedCompletesProtectedAppendPrefix() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let live = directory.appendingPathComponent("live.jsonl")
+        let snapshot = directory.appendingPathComponent("snapshot.jsonl")
+        let protectedPrefix = [
+            #"{"type":"summary","summary":"Session"}"#,
+            #"{"type":"user","message":{"role":"user","content":"hello"}}"#,
+        ].joined(separator: "\n") + "\n"
+        let protected = protectedPrefix
+            + #"{"type":"assistant","message":{"role":"assistant","content":"hi"}}"#
+            + "\n"
+        try protectedPrefix.write(to: live, atomically: true, encoding: .utf8)
+        try protected.write(to: snapshot, atomically: true, encoding: .utf8)
+
+        #expect(AgentHibernationTranscriptGuard.restoreIfClobbered(
+            .init(transcriptPath: live.path, snapshotPath: snapshot.path)
+        ))
+        #expect(try String(contentsOf: live, encoding: .utf8) == protected)
+    }
+
+    @Test
     func restoreIfClobberedPreservesSameSizeDivergentLiveTranscript() throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
