@@ -138,8 +138,7 @@ mod unix {
         }
 
         pub(crate) fn helper_command(&self) -> anyhow::Result<CommandBuilder> {
-            let executable =
-                std::env::current_exe().context("resolve current launch gate executable")?;
+            let executable = helper_executable()?;
             let mut command = CommandBuilder::new(executable);
             #[cfg(not(test))]
             command.arg(HIDDEN_GATE_ARGUMENT);
@@ -211,6 +210,34 @@ mod unix {
                 process_id: expected_process_id,
             })
         }
+    }
+
+    fn helper_executable() -> anyhow::Result<PathBuf> {
+        let current = std::env::current_exe().context("resolve current launch gate executable")?;
+        #[cfg(not(test))]
+        if current.parent().and_then(Path::file_name).is_some_and(|name| name == "deps") {
+            let profile = current.parent().and_then(Path::parent).ok_or_else(|| {
+                anyhow::anyhow!("integration test helper has no profile directory")
+            })?;
+            let candidate =
+                profile.join(format!("cmux-launch-gate-helper{}", std::env::consts::EXE_SUFFIX));
+            let metadata = fs::symlink_metadata(&candidate).with_context(|| {
+                format!("resolve dedicated integration launch-gate helper {}", candidate.display())
+            })?;
+            if !metadata.file_type().is_file()
+                || metadata.uid() != unsafe { libc::geteuid() }
+                || metadata.permissions().mode() & 0o022 != 0
+            {
+                anyhow::bail!(
+                    "integration launch-gate helper is not a trusted owner-only executable: {}",
+                    candidate.display()
+                );
+            }
+            return candidate.canonicalize().with_context(|| {
+                format!("canonicalize launch-gate helper {}", candidate.display())
+            });
+        }
+        Ok(current)
     }
 
     impl TerminalLaunchGate {
