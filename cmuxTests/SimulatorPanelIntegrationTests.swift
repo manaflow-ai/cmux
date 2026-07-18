@@ -371,6 +371,63 @@ struct SimulatorPanelIntegrationTests {
         }
     }
 
+    @Test("Context discovers the default device before returning identity")
+    func contextDiscoversDefaultDevice() async throws {
+        let flags = CmuxFeatureFlags.shared
+        let simulatorFlag = CmuxFeatureFlags.allFlags[5]
+        let previousOverride = flags.overrideValue(for: simulatorFlag)
+        flags.setOverride(true, for: simulatorFlag)
+        defer { flags.setOverride(previousOverride, for: simulatorFlag) }
+
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            workspace.teardownAllPanels()
+            TerminalController.shared.setActiveTabManager(nil)
+        }
+        let device = SimulatorDevice(
+            id: "fresh-default",
+            name: "Fresh iPad",
+            runtimeIdentifier: "runtime",
+            runtimeName: "iOS 26.5",
+            deviceTypeIdentifier: "type",
+            family: .iPad,
+            state: .shutdown,
+            isAvailable: true
+        )
+        let client = SimulatorFeatureFlagPaneClient(devices: [device])
+        let panel = SimulatorPanel(client: client)
+        workspace.panels[panel.id] = panel
+
+        let routing = ControlRoutingSelectors(
+            hasWindowIDParam: false,
+            windowID: nil,
+            groupID: nil,
+            workspaceID: workspace.id,
+            surfaceID: panel.id,
+            paneID: nil
+        )
+        guard case let .started(_, _, receipt) = TerminalController.shared.controlSimulatorBeginOperation(
+            routing: routing,
+            operation: .context
+        ) else {
+            Issue.record("Expected context operation to start")
+            return
+        }
+
+        let completion = await Task.detached {
+            receipt.wait(timeout: 2)
+        }.value
+        guard case let .success(.object(payload)) = completion else {
+            Issue.record("Expected context to return the discovered device")
+            return
+        }
+        #expect(payload["simulator_id"] == .string(device.id))
+        #expect(payload["device_name"] == .string(device.name))
+        #expect(await client.discoveryCount == 1)
+    }
+
     @Test("Control gestures map logical touches and edges through every orientation")
     func controlGestureOrientationMapping() throws {
         let touch = ControlSimulatorTouch(
