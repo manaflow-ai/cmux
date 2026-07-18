@@ -113,7 +113,7 @@ struct TmuxWorkspacePaneOverlayView: View {
     }
 }
 
-private struct TmuxWorkspacePaneFlashTimelineSchedule: TimelineSchedule {
+struct TmuxWorkspacePaneFlashTimelineSchedule: TimelineSchedule {
     let startDate: Date
 
     func entries(from requestedStartDate: Date, mode: Mode) -> Entries {

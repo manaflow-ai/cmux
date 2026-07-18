@@ -51,7 +51,12 @@
           "items": {
             "type": "object",
             "additionalProperties": true,
-            "required": ["id", "name", "sessionIdSource", "resumeCommand"],
+            "required": [
+              "id",
+              "name",
+              "sessionIdSource",
+              "resumeCommand"
+            ],
             "properties": {
               "id": {
                 "type": "string",
@@ -77,10 +82,14 @@
                   },
                   "argvContains": {
                     "oneOf": [
-                      { "type": "string" },
+                      {
+                        "type": "string"
+                      },
                       {
                         "type": "array",
-                        "items": { "type": "string" }
+                        "items": {
+                          "type": "string"
+                        }
                       }
                     ],
                     "description": "Substring or substrings that must appear in the process argv."
@@ -96,11 +105,16 @@
                   {
                     "type": "object",
                     "additionalProperties": false,
-                    "required": ["type"],
+                    "required": [
+                      "type"
+                    ],
                     "properties": {
                       "type": {
                         "type": "string",
-                        "enum": ["argvOption", "piSessionFile"]
+                        "enum": [
+                          "argvOption",
+                          "piSessionFile"
+                        ]
                       },
                       "argvOption": {
                         "type": "string",
@@ -111,19 +125,31 @@
                       {
                         "if": {
                           "properties": {
-                            "type": { "const": "argvOption" }
+                            "type": {
+                              "const": "argvOption"
+                            }
                           }
                         },
-                        "then": { "required": ["argvOption"] }
+                        "then": {
+                          "required": [
+                            "argvOption"
+                          ]
+                        }
                       },
                       {
                         "if": {
                           "properties": {
-                            "type": { "const": "piSessionFile" }
+                            "type": {
+                              "const": "piSessionFile"
+                            }
                           }
                         },
                         "then": {
-                          "not": { "required": ["argvOption"] }
+                          "not": {
+                            "required": [
+                              "argvOption"
+                            ]
+                          }
                         }
                       }
                     ]
@@ -134,14 +160,33 @@
               "resumeCommand": {
                 "type": "string",
                 "anyOf": [
-                  { "pattern": "\\{\\{sessionId\\}\\}" },
-                  { "pattern": "\\{\\{sessionPath\\}\\}" }
+                  {
+                    "pattern": "\\{\\{sessionId\\}\\}"
+                  },
+                  {
+                    "pattern": "\\{\\{sessionPath\\}\\}"
+                  }
                 ],
                 "description": "Shell-like argv template used to resume a session. Supported placeholders: {{sessionId}}, {{sessionPath}}, {{executable}}, {{cwd}}, {{sessionDir}}. Must include {{sessionId}} or {{sessionPath}}."
               },
+              "forkCommand": {
+                "type": "string",
+                "anyOf": [
+                  {
+                    "pattern": "\\{\\{sessionId\\}\\}"
+                  },
+                  {
+                    "pattern": "\\{\\{sessionPath\\}\\}"
+                  }
+                ],
+                "description": "Optional shell-like argv template used to fork (branch) a session into a new copy, for example \"{{executable}} --session {{sessionId}} --fork\". Same placeholders as resumeCommand. Omit when the agent has no fork capability; Fork Conversation stays hidden for it."
+              },
               "cwd": {
                 "type": "string",
-                "enum": ["preserve", "ignore"],
+                "enum": [
+                  "preserve",
+                  "ignore"
+                ],
                 "default": "preserve",
                 "description": "Whether Vault should cd to the saved working directory before running resumeCommand."
               },
@@ -167,7 +212,11 @@
       "properties": {
         "newWorkspacePlacement": {
           "type": "string",
-          "enum": ["afterCurrent", "top", "end"],
+          "enum": [
+            "afterCurrent",
+            "top",
+            "end"
+          ],
           "default": "afterCurrent",
           "description": "Global default for where Cmd-N inside a group, the group header + button, and configured group actions place the new workspace: `afterCurrent` (after the active in-group workspace, falling back to top), `top` (second slot, just after the anchor), or `end` (after the last member).",
           "descriptionKey": "schemaDescriptions.workspaceGroups.newWorkspacePlacement"
@@ -192,14 +241,23 @@
                 "description": "Items appearing in the right-click menu on the group's + button. Same schema as the global ui.newWorkspace.contextMenu entries.",
                 "items": {
                   "oneOf": [
-                    { "type": "string" },
-                    { "type": "object", "additionalProperties": true }
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": true
+                    }
                   ]
                 }
               },
               "newWorkspacePlacement": {
                 "type": "string",
-                "enum": ["afterCurrent", "top", "end"],
+                "enum": [
+                  "afterCurrent",
+                  "top",
+                  "end"
+                ],
                 "description": "Per-cwd override for where Cmd-N inside the group, the group header + button, and configured group actions place the new workspace: `afterCurrent` (after the active in-group workspace, falling back to top), `top` (second slot, just after the anchor), or `end` (after the last member). Falls back to the global default when omitted.",
                 "descriptionKey": "schemaDescriptions.workspaceGroups.byCwd.newWorkspacePlacement"
               }
@@ -214,7 +272,9 @@
       "type": "array",
       "items": {
         "oneOf": [
-          { "type": "string" },
+          {
+            "type": "string"
+          },
           {
             "type": "object",
             "additionalProperties": true
@@ -256,15 +316,29 @@
         },
         "appearance": {
           "type": "string",
-          "enum": ["system", "light", "dark"],
+          "enum": [
+            "system",
+            "light",
+            "dark"
+          ],
           "default": "system",
           "description": "App appearance mode."
         },
         "appIcon": {
           "type": "string",
-          "enum": ["automatic", "light", "dark"],
+          "enum": [
+            "automatic",
+            "light",
+            "dark"
+          ],
           "default": "automatic",
           "description": "Dock and app switcher icon style."
+        },
+        "windowTitleTemplate": {
+          "type": "string",
+          "default": "",
+          "descriptionKey": "schemaDescriptions.app.windowTitleTemplate",
+          "description": "Optional NSWindow title template. Blank preserves cmux's existing default title behavior, including the current-directory fallback. Supported placeholders: {windowId}, {windowToken}, {activeWorkspace}, {activeDirectory}, {defaultTitle}, {appName}."
         },
         "menuBarOnly": {
           "type": "boolean",
@@ -273,13 +347,24 @@
         },
         "newWorkspacePlacement": {
           "type": "string",
-          "enum": ["top", "afterCurrent", "end"],
+          "enum": [
+            "top",
+            "afterCurrent",
+            "end"
+          ],
           "default": "afterCurrent",
           "description": "Where new workspaces are inserted in the sidebar."
         },
         "forkConversationDefaultDestination": {
           "type": "string",
-          "enum": ["right", "left", "top", "bottom", "newTab", "newWorkspace"],
+          "enum": [
+            "right",
+            "left",
+            "top",
+            "bottom",
+            "newTab",
+            "newWorkspace"
+          ],
           "default": "right",
           "descriptionKey": "schemaDescriptions.app.forkConversationDefaultDestination",
           "description": "Default destination for the tab context menu's primary Fork Conversation action. The submenu still exposes every destination."
@@ -319,6 +404,15 @@
           "default": true,
           "description": "When enabled, Cmd-clicking .md/.markdown/.mkd/.mdx files opens the rendered cmux markdown viewer panel (with live reload) instead of the generic file preview."
         },
+        "globalFontMagnification": {
+          "type": "integer",
+          "minimum": 50,
+          "maximum": 200,
+          "multipleOf": 10,
+          "default": 100,
+          "descriptionKey": "schemaDescriptions.app.globalFontMagnification",
+          "description": "Scales cmux-owned terminals, tab titles, sidebars, settings, overlays, and app chrome by this percentage. Rendered browser page content is excluded."
+        },
         "reorderOnNotification": {
           "type": "boolean",
           "default": true,
@@ -336,7 +430,11 @@
         },
         "confirmQuit": {
           "type": "string",
-          "enum": ["always", "dirty-only", "never"],
+          "enum": [
+            "always",
+            "dirty-only",
+            "never"
+          ],
           "default": "always",
           "descriptionKey": "schemaDescriptions.app.confirmQuit",
           "description": "Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback."
@@ -387,11 +485,19 @@
           "default": true,
           "description": "Show the right-edge terminal scroll bar when scrollback is available. cmux automatically suppresses it for alternate-screen style TUI surfaces."
         },
+        "scrollSpeed": {
+          "type": "number",
+          "minimum": 0.25,
+          "maximum": 3.0,
+          "default": 1.0,
+          "descriptionKey": "schemaDescriptions.terminal.scrollSpeed",
+          "description": "Multiplier applied to terminal scroll wheel and trackpad deltas. Higher values scroll faster; lower values scroll slower."
+        },
         "copyOnSelect": {
           "type": "boolean",
           "default": false,
           "descriptionKey": "schemaDescriptions.terminal.copyOnSelect",
-          "description": "Copy selected terminal text to the system clipboard when the selection is committed, including word and line selections from double- and triple-click."
+          "description": "When true, copy selected terminal text to the system clipboard when the selection is committed. When false, cmux does not emit a Ghostty copy-on-select override; Ghostty config and defaults control selection-clipboard behavior."
         },
         "autoResumeAgentSessions": {
           "type": "boolean",
@@ -436,6 +542,32 @@
             }
           }
         },
+        "rendererRealization": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Reclaim off-screen terminal GPU renderer memory. cmux releases the Metal renderer (IOSurface) of a terminal that has stayed off-screen and idle while keeping its process and terminal state alive, then rebuilds the renderer instantly when the tab is visited again. Non-destructive and on by default.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Reclaim off-screen terminal renderer memory."
+            },
+            "idleSeconds": {
+              "type": "integer",
+              "minimum": 5,
+              "maximum": 604800,
+              "default": 30,
+              "description": "Minimum seconds a terminal must stay off-screen before its GPU renderer memory is reclaimed."
+            },
+            "maxWarmRenderers": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 256,
+              "default": 12,
+              "description": "Most recently visible terminals to keep renderer-ready so switching stays instant. Extra off-screen renderers are reclaimed oldest first."
+            }
+          }
+        },
         "textBoxMaxLines": {
           "type": "integer",
           "minimum": 1,
@@ -450,7 +582,16 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["version", "id", "commandPrefix", "environmentKeys", "policy", "createdAt", "updatedAt", "signature"],
+            "required": [
+              "version",
+              "id",
+              "commandPrefix",
+              "environmentKeys",
+              "policy",
+              "createdAt",
+              "updatedAt",
+              "signature"
+            ],
             "properties": {
               "version": {
                 "type": "integer",
@@ -493,7 +634,11 @@
               },
               "policy": {
                 "type": "string",
-                "enum": ["manual", "prompt", "auto"]
+                "enum": [
+                  "manual",
+                  "prompt",
+                  "auto"
+                ]
               },
               "createdAt": {
                 "type": "number"
@@ -575,7 +720,10 @@
         },
         "hooksMode": {
           "type": "string",
-          "enum": ["append", "replace"],
+          "enum": [
+            "append",
+            "replace"
+          ],
           "default": "append",
           "description": "Controls whether project-local notification hooks append to inherited hooks or replace them."
         },
@@ -586,7 +734,10 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["id", "command"],
+            "required": [
+              "id",
+              "command"
+            ],
             "properties": {
               "id": {
                 "type": "string",
@@ -638,7 +789,10 @@
         },
         "branchLayout": {
           "type": "string",
-          "enum": ["vertical", "inline"],
+          "enum": [
+            "vertical",
+            "inline"
+          ],
           "default": "vertical",
           "description": "Show git branch details stacked vertically or inline."
         },
@@ -701,6 +855,12 @@
           "type": "boolean",
           "default": true,
           "description": "Show custom metadata pills."
+        },
+        "rightMaxWidth": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "descriptionKey": "schemaDescriptions.sidebar.rightMaxWidth",
+          "description": "Maximum width in points for the right sidebar. When omitted, the built-in dynamic cap applies."
         }
       }
     },
@@ -860,6 +1020,18 @@
           "default": "",
           "description": "Custom path to the claude binary."
         },
+        "workspaceAutoNaming": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.automation.workspaceAutoNaming",
+          "description": "Opt-in AI auto-naming of workspaces and tabs from agent conversation content. When enabled, cmux summarizes supported agent sessions into short titles using each agent's own binary; manual renames always win."
+        },
+        "autoNamingAgent": {
+          "type": "string",
+          "default": "auto",
+          "descriptionKey": "schemaDescriptions.automation.autoNamingAgent",
+          "description": "Which agent generates auto-names for every session. \"auto\" (default) names each session with its own agent; any agent slug (claude, codex, grok, opencode, pi, omp, …) overrides naming for all sessions, even other agents' sessions. Undriveable or uninstalled agents fall back to the session's own agent, so naming never breaks."
+        },
         "ripgrepBinaryPath": {
           "type": "string",
           "default": "",
@@ -924,7 +1096,25 @@
       "properties": {
         "defaultSearchEngine": {
           "type": "string",
-          "enum": ["google", "duckduckgo", "bing", "kagi", "startpage", "brave", "perplexity", "exa", "yahoo", "ecosia", "qwant", "mojeek", "wikipedia", "github", "baidu", "yandex", "custom"],
+          "enum": [
+            "google",
+            "duckduckgo",
+            "bing",
+            "kagi",
+            "startpage",
+            "brave",
+            "perplexity",
+            "exa",
+            "yahoo",
+            "ecosia",
+            "qwant",
+            "mojeek",
+            "wikipedia",
+            "github",
+            "baidu",
+            "yandex",
+            "custom"
+          ],
           "default": "google",
           "descriptionKey": "schemaDescriptions.browser.defaultSearchEngine",
           "description": "Default search engine for non-URL browser address bar queries. Use custom with customSearchEngineURLTemplate for arbitrary providers."
@@ -948,7 +1138,11 @@
         },
         "theme": {
           "type": "string",
-          "enum": ["system", "light", "dark"],
+          "enum": [
+            "system",
+            "light",
+            "dark"
+          ],
           "default": "system",
           "description": "Embedded browser theme."
         },
@@ -1047,6 +1241,28 @@
         }
       }
     },
+    "canvas": {
+      "title": "canvas",
+      "description": "Freeform canvas workspace layout settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "paneGap": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 64,
+          "default": 16,
+          "description": "Spacing between panes in the canvas layout, in points. Snapping, tidy, and new-pane placement all use this one gap.",
+          "descriptionKey": "schemaDescriptions.canvas.paneGap"
+        },
+        "snappingEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Snap pane drags and resizes to neighbor edges and the pane gap. Hold Command to suspend snapping for one gesture.",
+          "descriptionKey": "schemaDescriptions.canvas.snappingEnabled"
+        }
+      }
+    },
     "fileEditor": {
       "title": "fileEditor",
       "description": "Built-in plain-text file editor settings.",
@@ -1061,6 +1277,375 @@
         }
       }
     },
+    "editor": {
+      "title": "editor",
+      "description": "Monaco code-editor settings for `cmux edit` (the rich editor surface).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "wordWrap": {
+          "type": "string",
+          "enum": [
+            "off",
+            "on",
+            "wordWrapColumn",
+            "bounded"
+          ],
+          "default": "off",
+          "description": "How long lines wrap: off (scroll), on (viewport width), wordWrapColumn (at wordWrapColumn), or bounded.",
+          "descriptionKey": "schemaDescriptions.editor.wordWrap"
+        },
+        "wordWrapColumn": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000,
+          "default": 80,
+          "description": "Column to wrap at when wordWrap is wordWrapColumn or bounded.",
+          "descriptionKey": "schemaDescriptions.editor.wordWrapColumn"
+        },
+        "wrappingIndent": {
+          "type": "string",
+          "enum": [
+            "none",
+            "same",
+            "indent",
+            "deepIndent"
+          ],
+          "default": "same",
+          "description": "Indentation of wrapped lines.",
+          "descriptionKey": "schemaDescriptions.editor.wrappingIndent"
+        },
+        "scrollBeyondLastLine": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow scrolling past the last line.",
+          "descriptionKey": "schemaDescriptions.editor.scrollBeyondLastLine"
+        },
+        "smoothScrolling": {
+          "type": "boolean",
+          "default": false,
+          "description": "Animate scrolling.",
+          "descriptionKey": "schemaDescriptions.editor.smoothScrolling"
+        },
+        "tabSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64,
+          "default": 4,
+          "description": "Spaces a tab is rendered as (when detectIndentation does not override it).",
+          "descriptionKey": "schemaDescriptions.editor.tabSize"
+        },
+        "insertSpaces": {
+          "type": "boolean",
+          "default": true,
+          "description": "Insert spaces instead of tabs.",
+          "descriptionKey": "schemaDescriptions.editor.insertSpaces"
+        },
+        "detectIndentation": {
+          "type": "boolean",
+          "default": true,
+          "description": "Auto-detect tabSize and insertSpaces from the file contents.",
+          "descriptionKey": "schemaDescriptions.editor.detectIndentation"
+        },
+        "trimAutoWhitespace": {
+          "type": "boolean",
+          "default": true,
+          "description": "Trim trailing auto-inserted whitespace.",
+          "descriptionKey": "schemaDescriptions.editor.trimAutoWhitespace"
+        },
+        "lineNumbers": {
+          "type": "string",
+          "enum": [
+            "on",
+            "off",
+            "relative",
+            "interval"
+          ],
+          "default": "on",
+          "description": "Line number display.",
+          "descriptionKey": "schemaDescriptions.editor.lineNumbers"
+        },
+        "renderWhitespace": {
+          "type": "string",
+          "enum": [
+            "none",
+            "boundary",
+            "selection",
+            "trailing",
+            "all"
+          ],
+          "default": "selection",
+          "description": "When to render whitespace characters.",
+          "descriptionKey": "schemaDescriptions.editor.renderWhitespace"
+        },
+        "renderLineHighlight": {
+          "type": "string",
+          "enum": [
+            "none",
+            "gutter",
+            "line",
+            "all"
+          ],
+          "default": "all",
+          "description": "How the current line is highlighted.",
+          "descriptionKey": "schemaDescriptions.editor.renderLineHighlight"
+        },
+        "glyphMargin": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show the glyph margin column.",
+          "descriptionKey": "schemaDescriptions.editor.glyphMargin"
+        },
+        "folding": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable code folding.",
+          "descriptionKey": "schemaDescriptions.editor.folding"
+        },
+        "showFoldingControls": {
+          "type": "string",
+          "enum": [
+            "always",
+            "never",
+            "mouseover"
+          ],
+          "default": "mouseover",
+          "description": "When folding controls are shown.",
+          "descriptionKey": "schemaDescriptions.editor.showFoldingControls"
+        },
+        "cursorStyle": {
+          "type": "string",
+          "enum": [
+            "line",
+            "block",
+            "underline",
+            "line-thin",
+            "block-outline",
+            "underline-thin"
+          ],
+          "default": "line",
+          "description": "Cursor shape.",
+          "descriptionKey": "schemaDescriptions.editor.cursorStyle"
+        },
+        "cursorBlinking": {
+          "type": "string",
+          "enum": [
+            "blink",
+            "smooth",
+            "phase",
+            "expand",
+            "solid"
+          ],
+          "default": "blink",
+          "description": "Cursor blinking animation.",
+          "descriptionKey": "schemaDescriptions.editor.cursorBlinking"
+        },
+        "cursorSmoothCaretAnimation": {
+          "type": "string",
+          "enum": [
+            "off",
+            "explicit",
+            "on"
+          ],
+          "default": "off",
+          "description": "Smooth caret movement animation.",
+          "descriptionKey": "schemaDescriptions.editor.cursorSmoothCaretAnimation"
+        },
+        "letterSpacing": {
+          "type": "number",
+          "minimum": -5,
+          "maximum": 20,
+          "default": 0,
+          "description": "Extra letter spacing in pixels.",
+          "descriptionKey": "schemaDescriptions.editor.letterSpacing"
+        },
+        "fontLigatures": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable font ligatures.",
+          "descriptionKey": "schemaDescriptions.editor.fontLigatures"
+        },
+        "roundedSelection": {
+          "type": "boolean",
+          "default": true,
+          "description": "Render selection with rounded corners.",
+          "descriptionKey": "schemaDescriptions.editor.roundedSelection"
+        },
+        "columnSelection": {
+          "type": "boolean",
+          "default": false,
+          "description": "Column (box) selection mode.",
+          "descriptionKey": "schemaDescriptions.editor.columnSelection"
+        },
+        "mouseWheelZoom": {
+          "type": "boolean",
+          "default": false,
+          "description": "Zoom font with Cmd/Ctrl + mouse wheel.",
+          "descriptionKey": "schemaDescriptions.editor.mouseWheelZoom"
+        },
+        "multiCursorModifier": {
+          "type": "string",
+          "enum": [
+            "ctrlCmd",
+            "alt"
+          ],
+          "default": "alt",
+          "description": "Modifier key for adding multiple cursors.",
+          "descriptionKey": "schemaDescriptions.editor.multiCursorModifier"
+        },
+        "minimap": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Minimap (code overview) settings.",
+          "descriptionKey": "schemaDescriptions.editor.minimap._section",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Show the minimap.",
+              "descriptionKey": "schemaDescriptions.editor.minimap.enabled"
+            },
+            "side": {
+              "type": "string",
+              "enum": [
+                "left",
+                "right"
+              ],
+              "default": "right",
+              "description": "Minimap side.",
+              "descriptionKey": "schemaDescriptions.editor.minimap.side"
+            },
+            "renderCharacters": {
+              "type": "boolean",
+              "default": true,
+              "description": "Render actual characters in the minimap.",
+              "descriptionKey": "schemaDescriptions.editor.minimap.renderCharacters"
+            },
+            "maxColumn": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 120,
+              "description": "Maximum columns rendered in the minimap.",
+              "descriptionKey": "schemaDescriptions.editor.minimap.maxColumn"
+            }
+          }
+        },
+        "bracketPairColorization": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Bracket pair colorization.",
+          "descriptionKey": "schemaDescriptions.editor.bracketPairColorization._section",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Colorize matching bracket pairs.",
+              "descriptionKey": "schemaDescriptions.editor.bracketPairColorization.enabled"
+            },
+            "independentColorPoolPerBracketType": {
+              "type": "boolean",
+              "default": false,
+              "description": "Use an independent color pool per bracket type.",
+              "descriptionKey": "schemaDescriptions.editor.bracketPairColorization.independentColorPoolPerBracketType"
+            }
+          }
+        },
+        "guides": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Indentation and bracket guide settings.",
+          "descriptionKey": "schemaDescriptions.editor.guides._section",
+          "properties": {
+            "indentation": {
+              "type": "boolean",
+              "default": true,
+              "description": "Show indentation guides.",
+              "descriptionKey": "schemaDescriptions.editor.guides.indentation"
+            },
+            "highlightActiveIndentation": {
+              "type": "boolean",
+              "default": true,
+              "description": "Highlight the active indentation guide.",
+              "descriptionKey": "schemaDescriptions.editor.guides.highlightActiveIndentation"
+            },
+            "bracketPairs": {
+              "type": [
+                "boolean",
+                "string"
+              ],
+              "enum": [
+                true,
+                false,
+                "active"
+              ],
+              "default": false,
+              "description": "Show bracket pair guides (true, false, or 'active').",
+              "descriptionKey": "schemaDescriptions.editor.guides.bracketPairs"
+            },
+            "highlightActiveBracketPair": {
+              "type": "boolean",
+              "default": true,
+              "description": "Highlight the active bracket pair.",
+              "descriptionKey": "schemaDescriptions.editor.guides.highlightActiveBracketPair"
+            }
+          }
+        },
+        "stickyScroll": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Sticky scroll settings.",
+          "descriptionKey": "schemaDescriptions.editor.stickyScroll._section",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Pin enclosing scopes to the top while scrolling.",
+              "descriptionKey": "schemaDescriptions.editor.stickyScroll.enabled"
+            },
+            "maxLineCount": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20,
+              "default": 5,
+              "description": "Maximum sticky lines.",
+              "descriptionKey": "schemaDescriptions.editor.stickyScroll.maxLineCount"
+            }
+          }
+        },
+        "rulers": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000
+          },
+          "default": [],
+          "description": "Vertical ruler columns.",
+          "descriptionKey": "schemaDescriptions.editor.rulers"
+        }
+      }
+    },
+    "fileExplorer": {
+      "title": "fileExplorer",
+      "description": "Right-sidebar file explorer (file tree) settings.",
+      "descriptionKey": "schemaDescriptions.fileExplorer.description",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "doubleClickAction": {
+          "type": "string",
+          "enum": [
+            "preview",
+            "defaultEditor",
+            "preferredEditor"
+          ],
+          "default": "preview",
+          "description": "What double-clicking (or pressing Return on a search result for) a file in the file explorer does. `preview` opens the built-in cmux file preview (the default and historical behavior). `defaultEditor` opens with the macOS default app for the file type. `preferredEditor` opens with the `app.preferredEditor` command, falling back to the default app when none is set. Only applies to files; directories always expand/collapse, and non-local (remote) file explorers always open the cmux preview.",
+          "descriptionKey": "schemaDescriptions.fileExplorer.doubleClickAction"
+        }
+      }
+    },
     "diffViewer": {
       "title": "diffViewer",
       "description": "Built-in diff viewer settings.",
@@ -1069,7 +1654,10 @@
       "properties": {
         "defaultLayout": {
           "type": "string",
-          "enum": ["unified", "split"],
+          "enum": [
+            "unified",
+            "split"
+          ],
           "default": "unified",
           "description": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both.",
           "descriptionKey": "schemaDescriptions.diffViewer.defaultLayout"
@@ -1082,6 +1670,12 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "showModifierHoldHints": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show shortcut-hint chips while holding Cmd or Control.",
+          "descriptionKey": "schemaDescriptions.shortcuts.showModifierHoldHints"
+        },
         "bindings": {
           "type": "object",
           "default": {},
@@ -1098,6 +1692,7 @@
               "quit",
               "toggleSidebar",
               "newTab",
+              "newBrowserWorkspace",
               "openFolder",
               "reopenPreviousSession",
               "goToWorkspace",
@@ -1137,6 +1732,8 @@
               "toggleTerminalCopyMode",
               "focusTextBoxInput",
               "attachTextBoxFile",
+              "sendCtrlFToTerminal",
+              "clearScreenKeepScrollback",
               "focusLeft",
               "focusRight",
               "focusUp",
@@ -1148,12 +1745,15 @@
               "splitBrowserRight",
               "splitBrowserDown",
               "toggleFileExplorer",
+              "fileExplorerOpenSelection",
+              "fileExplorerOpenSelectionFinderAlias",
               "saveFilePreview",
               "openBrowser",
               "focusBrowserAddressBar",
               "browserBack",
               "browserForward",
               "browserReload",
+              "browserHardReload",
               "browserZoomIn",
               "browserZoomOut",
               "browserZoomReset",
@@ -1170,6 +1770,7 @@
               "showBrowserJavaScriptConsole",
               "toggleBrowserFocusMode",
               "toggleReactGrab",
+              "openDiffViewer",
               "diffViewerScrollDown",
               "diffViewerScrollUp",
               "diffViewerScrollToBottom",
@@ -1178,24 +1779,39 @@
             ]
           },
           "properties": {
+            "fileExplorerOpenSelection": {
+              "$ref": "#/$defs/singleBareFirstStrokeShortcutBindingNullable"
+            },
+            "fileExplorerOpenSelectionFinderAlias": {
+              "$ref": "#/$defs/singleBareFirstStrokeShortcutBindingNullable"
+            },
             "diffViewerScrollDown": {
-              "$ref": "#/$defs/diffViewerShortcutBindingNullable"
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             },
             "diffViewerScrollUp": {
-              "$ref": "#/$defs/diffViewerShortcutBindingNullable"
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             },
             "diffViewerScrollToBottom": {
-              "$ref": "#/$defs/diffViewerShortcutBindingNullable"
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             },
             "diffViewerScrollToTop": {
-              "$ref": "#/$defs/diffViewerShortcutBindingNullable"
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             },
             "diffViewerOpenFileSearch": {
-              "$ref": "#/$defs/diffViewerShortcutBindingNullable"
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             }
           },
           "additionalProperties": {
             "$ref": "#/$defs/shortcutBindingNullable"
+          }
+        },
+        "when": {
+          "type": "object",
+          "default": {},
+          "description": "Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, ||, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } scopes a binding to the Find sidebar when the workspace has multiple panes.",
+          "descriptionKey": "schemaDescriptions.shortcuts.when",
+          "additionalProperties": {
+            "type": "string"
           }
         }
       }
@@ -1254,15 +1870,38 @@
         }
       ]
     },
-    "diffViewerShortcutBinding": {
+    "singleBareFirstStrokeShortcutBinding": {
       "oneOf": [
         {
           "$ref": "#/$defs/unboundShortcutBinding",
           "description": "Unbind this shortcut. Accepted values are an empty string, none, clear, unbound, or disabled."
         },
         {
-          "$ref": "#/$defs/diffViewerShortcutFirstStroke",
-          "description": "Single-stroke diff viewer shortcut, for example j, k, /, or shift+g."
+          "$ref": "#/$defs/bareFirstStrokeShortcutFirstStroke",
+          "description": "Single-stroke shortcut. Bare first strokes are accepted for this action."
+        }
+      ]
+    },
+    "singleBareFirstStrokeShortcutBindingNullable": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/singleBareFirstStrokeShortcutBinding"
+        },
+        {
+          "type": "null",
+          "description": "Unbind this shortcut."
+        }
+      ]
+    },
+    "bareFirstStrokeShortcutBinding": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/unboundShortcutBinding",
+          "description": "Unbind this shortcut. Accepted values are an empty string, none, clear, unbound, or disabled."
+        },
+        {
+          "$ref": "#/$defs/bareFirstStrokeShortcutFirstStroke",
+          "description": "Single-stroke shortcut. Bare first strokes are accepted for this action."
         },
         {
           "type": "array",
@@ -1270,20 +1909,20 @@
           "maxItems": 2,
           "prefixItems": [
             {
-              "$ref": "#/$defs/diffViewerShortcutFirstStroke"
+              "$ref": "#/$defs/bareFirstStrokeShortcutFirstStroke"
             },
             {
               "$ref": "#/$defs/shortcutStroke"
             }
           ],
-          "description": "Chorded diff viewer shortcut. Example: [\"g\", \"g\"]."
+          "description": "Chorded shortcut. Bare first strokes are accepted for this action. Example: [\"g\", \"g\"]."
         }
       ]
     },
-    "diffViewerShortcutBindingNullable": {
+    "bareFirstStrokeShortcutBindingNullable": {
       "oneOf": [
         {
-          "$ref": "#/$defs/diffViewerShortcutBinding"
+          "$ref": "#/$defs/bareFirstStrokeShortcutBinding"
         },
         {
           "type": "null",
@@ -1293,7 +1932,13 @@
     },
     "unboundShortcutBinding": {
       "type": "string",
-      "enum": ["", "none", "clear", "unbound", "disabled"]
+      "enum": [
+        "",
+        "none",
+        "clear",
+        "unbound",
+        "disabled"
+      ]
     },
     "shortcutFirstStroke": {
       "allOf": [
@@ -1313,7 +1958,7 @@
       ],
       "description": "First or only shortcut stroke. Must include a modifier unless the key is Space."
     },
-    "diffViewerShortcutFirstStroke": {
+    "bareFirstStrokeShortcutFirstStroke": {
       "allOf": [
         {
           "$ref": "#/$defs/shortcutStroke"
@@ -1327,12 +1972,18 @@
               "pattern": "^(?: |[sS][pP][aA][cC][eE]|[sS][pP][aA][cC][eE][bB][aA][rR]|<[sS][pP][aA][cC][eE]>)$"
             },
             {
+              "pattern": "^(?:[rR][eE][tT][uU][rR][nN]|[eE][nN][tT][eE][rR]|↩)$"
+            },
+            {
+              "pattern": "^(?:[lL][eE][fF][tT]|[aA][rR][rR][oO][wW][lL][eE][fF][tT]|[lL][eE][fF][tT][aA][rR][rR][oO][wW]|←|[rR][iI][gG][hH][tT]|[aA][rR][rR][oO][wW][rR][iI][gG][hH][tT]|[rR][iI][gG][hH][tT][aA][rR][rR][oO][wW]|→|[uU][pP]|[aA][rR][rR][oO][wW][uU][pP]|[uU][pP][aA][rR][rR][oO][wW]|↑|[dD][oO][wW][nN]|[aA][rR][rR][oO][wW][dD][oO][wW][nN]|[dD][oO][wW][nN][aA][rR][rR][oO][wW]|↓)$"
+            },
+            {
               "pattern": "^(?:[A-Za-z0-9]|[,./\\\\;'`=\\[\\]-]|[cC][oO][mM][mM][aA]|[pP][eE][rR][iI][oO][dD]|[dD][oO][tT]|[sS][lL][aA][sS][hH]|[bB][aA][cC][kK][sS][lL][aA][sS][hH]|[sS][eE][mM][iI][cC][oO][lL][oO][nN]|[qQ][uU][oO][tT][eE]|[aA][pP][oO][sS][tT][rR][oO][pP][hH][eE]|[bB][aA][cC][kK][tT][iI][cC][kK]|[gG][rR][aA][vV][eE]|[mM][iI][nN][uU][sS]|[hH][yY][pP][hH][eE][nN]|[pP][lL][uU][sS]|[eE][qQ][uU][aA][lL][sS]|[lL][eE][fF][tT][bB][rR][aA][cC][kK][eE][tT]|[oO][pP][eE][nN][bB][rR][aA][cC][kK][eE][tT]|[rR][iI][gG][hH][tT][bB][rR][aA][cC][kK][eE][tT]|[cC][lL][oO][sS][eE][bB][rR][aA][cC][kK][eE][tT])$"
             }
           ]
         }
       ],
-      "description": "First or only diff viewer shortcut stroke. Bare printable keys are accepted."
+      "description": "First or only shortcut stroke. Bare printable keys are accepted for actions that opt into bare first strokes."
     },
     "shortcutStroke": {
       "type": "string",

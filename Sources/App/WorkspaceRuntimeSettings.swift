@@ -157,14 +157,14 @@ enum TerminalCopyOnSelectSettings {
     static func storedValue(defaults: UserDefaults = .standard) -> Bool? {
         defaults.object(forKey: copyOnSelectKey) as? Bool
     }
-
-    static func ghosttyCopyOnSelectValue(defaults: UserDefaults = .standard) -> String? {
+    /// Returns the Ghostty `copy-on-select` value; `emitsFalse: false` lets Ghostty config/defaults remain authoritative.
+    static func ghosttyCopyOnSelectValue(defaults: UserDefaults = .standard, emitsFalse: Bool = true) -> String? {
         guard let enabled = storedValue(defaults: defaults) else { return nil }
-        return enabled ? "clipboard" : "false"
+        return enabled ? "clipboard" : (emitsFalse ? "false" : nil)
     }
 
-    static func ghosttyConfigContents(defaults: UserDefaults = .standard) -> String? {
-        guard let value = ghosttyCopyOnSelectValue(defaults: defaults) else { return nil }
+    static func ghosttyConfigContents(defaults: UserDefaults = .standard, emitsFalse: Bool = true) -> String? {
+        guard let value = ghosttyCopyOnSelectValue(defaults: defaults, emitsFalse: emitsFalse) else { return nil }
         return "copy-on-select = \(value)"
     }
 
@@ -200,9 +200,9 @@ enum TerminalCopyOnSelectSettings {
 }
 
 enum TerminalManagedGhosttySettings {
-    static func ghosttyConfigContents(defaults: UserDefaults = .standard) -> String? {
+    static func ghosttyConfigContents(defaults: UserDefaults = .standard, emitsCopyOnSelectFalse: Bool = true) -> String? {
         let lines = [
-            TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults),
+            TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults, emitsFalse: emitsCopyOnSelectFalse),
         ].compactMap { $0 }
         guard !lines.isEmpty else { return nil }
         return lines.joined(separator: "\n")
@@ -348,6 +348,104 @@ enum AgentHibernationSettings {
         defaults.removeObject(forKey: idleSecondsKey)
         defaults.removeObject(forKey: maxLiveTerminalsKey)
         defaults.removeObject(forKey: confirmationSecondsKey)
+        let didChange = oldValues != values(defaults: defaults)
+        if didChange {
+            notifyDidChange(notificationCenter: notificationCenter)
+        }
+        return didChange
+    }
+
+    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
+        notificationCenter.post(name: didChangeNotification, object: nil)
+    }
+}
+
+/// Settings for non-destructive offscreen renderer reclamation. Unlike
+/// `AgentHibernationSettings` (which kills a resumable agent's PTY and is opt-in),
+/// this only releases an offscreen terminal's GPU renderer (Metal swap chain /
+/// IOSurface) while keeping its PTY and terminal state alive, rebuilding it on
+/// re-show. It is therefore safe to default ON. The cap keeps recently-used tabs
+/// warm so switching stays instant; the idle window avoids reclaiming a tab the
+/// user just left.
+enum RendererRealizationSettings {
+    struct Values: Equatable, Sendable {
+        var enabled: Bool
+        var idleSeconds: TimeInterval
+        var maxWarmRenderers: Int
+    }
+
+    static let enabledKey = "terminal.rendererRealization.enabled"
+    static let idleSecondsKey = "terminal.rendererRealization.idleSeconds"
+    static let maxWarmRenderersKey = "terminal.rendererRealization.maxWarmRenderers"
+
+    static let defaultEnabled = true
+    static let defaultIdleSeconds: TimeInterval = 30
+    static let defaultMaxWarmRenderers = 12
+    static let didChangeNotification = Notification.Name("cmux.rendererRealizationSettingsDidChange")
+
+    static func values(defaults: UserDefaults = .standard) -> Values {
+        Values(
+            enabled: isEnabled(defaults: defaults),
+            idleSeconds: idleSeconds(defaults: defaults),
+            maxWarmRenderers: maxWarmRenderers(defaults: defaults)
+        )
+    }
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: enabledKey) != nil else { return defaultEnabled }
+        return defaults.bool(forKey: enabledKey)
+    }
+
+    static func idleSeconds(defaults: UserDefaults = .standard) -> TimeInterval {
+        guard defaults.object(forKey: idleSecondsKey) != nil else { return defaultIdleSeconds }
+        return sanitizedIdleSeconds(defaults.double(forKey: idleSecondsKey))
+    }
+
+    static func maxWarmRenderers(defaults: UserDefaults = .standard) -> Int {
+        guard defaults.object(forKey: maxWarmRenderersKey) != nil else { return defaultMaxWarmRenderers }
+        return sanitizedMaxWarmRenderers(defaults.integer(forKey: maxWarmRenderersKey))
+    }
+
+    static func sanitizedIdleSeconds(_ value: TimeInterval) -> TimeInterval {
+        guard value.isFinite else { return defaultIdleSeconds }
+        return min(max(value.rounded(), 5), 7 * 24 * 60 * 60)
+    }
+
+    static func sanitizedMaxWarmRenderers(_ value: Int) -> Int {
+        min(max(value, 1), 256)
+    }
+
+    static func setValues(
+        enabled: Bool? = nil,
+        idleSeconds: TimeInterval? = nil,
+        maxWarmRenderers: Int? = nil,
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) {
+        let oldValues = values(defaults: defaults)
+        if let enabled {
+            defaults.set(enabled, forKey: enabledKey)
+        }
+        if let idleSeconds {
+            defaults.set(sanitizedIdleSeconds(idleSeconds), forKey: idleSecondsKey)
+        }
+        if let maxWarmRenderers {
+            defaults.set(sanitizedMaxWarmRenderers(maxWarmRenderers), forKey: maxWarmRenderersKey)
+        }
+        if oldValues != values(defaults: defaults) {
+            notifyDidChange(notificationCenter: notificationCenter)
+        }
+    }
+
+    @discardableResult
+    static func reset(
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) -> Bool {
+        let oldValues = values(defaults: defaults)
+        defaults.removeObject(forKey: enabledKey)
+        defaults.removeObject(forKey: idleSecondsKey)
+        defaults.removeObject(forKey: maxWarmRenderersKey)
         let didChange = oldValues != values(defaults: defaults)
         if didChange {
             notifyDidChange(notificationCenter: notificationCenter)

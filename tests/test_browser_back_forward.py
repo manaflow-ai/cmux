@@ -100,19 +100,15 @@ def test_cmd_bracket_back_forward(client: cmux) -> tuple[bool, str]:
 
     # Cmd+[ (back) — should go back to page A
     client.simulate_shortcut("cmd+[")
-    time.sleep(1.5)
-
-    url_after_back = get_browser_url(client, browser_id)
-    if "example.com" not in url_after_back:
+    if not wait_for_url(client, browser_id, "example.com", timeout_s=5.0, contains=True):
+        url_after_back = get_browser_url(client, browser_id)
         client.close_workspace(ws_id)
         return False, f"Cmd+[ did not go back. Expected example.com, got: {url_after_back}"
 
     # Cmd+] (forward) — should go forward to page B
     client.simulate_shortcut("cmd+]")
-    time.sleep(1.5)
-
-    url_after_forward = get_browser_url(client, browser_id)
-    if "example.org" not in url_after_forward:
+    if not wait_for_url(client, browser_id, "example.org", timeout_s=5.0, contains=True):
+        url_after_forward = get_browser_url(client, browser_id)
         client.close_workspace(ws_id)
         return False, f"Cmd+] did not go forward. Expected example.org, got: {url_after_forward}"
 
@@ -186,10 +182,9 @@ def test_browser_back_forward_socket_commands(client: cmux) -> tuple[bool, str]:
     if not resp.startswith("OK"):
         client.close_workspace(ws_id)
         return False, f"browser_back command failed: {resp}"
-    time.sleep(1.5)
 
-    url_after_back = get_browser_url(client, browser_id)
-    if "example.com" not in url_after_back:
+    if not wait_for_url(client, browser_id, "example.com", timeout_s=5.0, contains=True):
+        url_after_back = get_browser_url(client, browser_id)
         client.close_workspace(ws_id)
         return False, f"browser_back did not go back. Got: {url_after_back}"
 
@@ -198,10 +193,9 @@ def test_browser_back_forward_socket_commands(client: cmux) -> tuple[bool, str]:
     if not resp.startswith("OK"):
         client.close_workspace(ws_id)
         return False, f"browser_forward command failed: {resp}"
-    time.sleep(1.5)
 
-    url_after_forward = get_browser_url(client, browser_id)
-    if "example.org" not in url_after_forward:
+    if not wait_for_url(client, browser_id, "example.org", timeout_s=5.0, contains=True):
+        url_after_forward = get_browser_url(client, browser_id)
         client.close_workspace(ws_id)
         return False, f"browser_forward did not go forward. Got: {url_after_forward}"
 

@@ -87,6 +87,10 @@ def test_cmd_ctrl_h_goto_split_left_from_webview(client: cmux) -> tuple[bool, st
             client.set_shortcut("focus_left", "clear")
         except Exception:
             pass
+        try:
+            client.close_workspace(ws_id)
+        except Exception:
+            pass
 
 def test_cmd_opt_left_arrow_goto_split_left_from_webview(client: cmux) -> tuple[bool, str]:
     """
@@ -100,32 +104,38 @@ def test_cmd_opt_left_arrow_goto_split_left_from_webview(client: cmux) -> tuple[
     # Ensure we use the default arrow shortcut.
     client.set_shortcut("focus_left", "clear")
 
-    browser_id = client.new_pane(direction="right", panel_type="browser", url="https://example.com")
-    wait_url_contains(client, browser_id, "example.com", timeout_s=15.0)
+    try:
+        browser_id = client.new_pane(direction="right", panel_type="browser", url="https://example.com")
+        wait_url_contains(client, browser_id, "example.com", timeout_s=15.0)
 
-    panes = client.list_panes()
-    if len(panes) != 2:
-        return False, f"Expected 2 panes, got {len(panes)}: {panes}"
+        panes = client.list_panes()
+        if len(panes) != 2:
+            return False, f"Expected 2 panes, got {len(panes)}: {panes}"
 
-    browser_pane_id = focused_pane_id(client)
-    terminal_pane_id = next((pid for _i, pid, _n, _f in panes if pid != browser_pane_id), None)
-    if not browser_pane_id or not terminal_pane_id:
-        return False, f"Could not identify terminal/browser pane IDs: {panes}"
+        browser_pane_id = focused_pane_id(client)
+        terminal_pane_id = next((pid for _i, pid, _n, _f in panes if pid != browser_pane_id), None)
+        if not browser_pane_id or not terminal_pane_id:
+            return False, f"Could not identify terminal/browser pane IDs: {panes}"
 
-    client.focus_webview(browser_id)
-    client.wait_for_webview_focus(browser_id, timeout_s=3.0)
+        client.focus_webview(browser_id)
+        client.wait_for_webview_focus(browser_id, timeout_s=3.0)
 
-    pre = focused_pane_id(client)
-    if pre != browser_pane_id:
-        return False, f"Expected browser pane focused before keypress, got {pre}"
+        pre = focused_pane_id(client)
+        if pre != browser_pane_id:
+            return False, f"Expected browser pane focused before keypress, got {pre}"
 
-    client.simulate_shortcut("cmd+opt+left")
-    time.sleep(0.4)
+        client.simulate_shortcut("cmd+opt+left")
+        time.sleep(0.4)
 
-    post = focused_pane_id(client)
-    if post != terminal_pane_id:
-        return False, f"Expected focus to move left to {terminal_pane_id}, got {post}"
-    return True, "Cmd+Option+Left moved focus left while webview focused"
+        post = focused_pane_id(client)
+        if post != terminal_pane_id:
+            return False, f"Expected focus to move left to {terminal_pane_id}, got {post}"
+        return True, "Cmd+Option+Left moved focus left while webview focused"
+    finally:
+        try:
+            client.close_workspace(ws_id)
+        except Exception:
+            pass
 
 
 def main() -> int:

@@ -1,10 +1,12 @@
 import AppKit
+import CmuxFoundation
 
 @MainActor
 final class FileDropHintBadgeView: NSView {
     private static let neutralBackgroundColor = NSColor.systemGray.withAlphaComponent(0.20)
     private let effectView: NSView
     private let label = NSTextField(labelWithString: "")
+    private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?
     private var animationGeneration: UInt64 = 0
 
     override var isOpaque: Bool { false }
@@ -21,7 +23,7 @@ final class FileDropHintBadgeView: NSView {
         }
 
         super.init(frame: frameRect)
-        frame.size = CGSize(width: 140, height: 26)
+        frame.size = CGSize(width: 140, height: Self.badgeHeight(for: label.font))
 
         wantsLayer = true
         layer?.backgroundColor = NSColor.clear.cgColor
@@ -31,13 +33,13 @@ final class FileDropHintBadgeView: NSView {
         effectView.translatesAutoresizingMaskIntoConstraints = false
         effectView.wantsLayer = true
         effectView.layer?.backgroundColor = Self.neutralBackgroundColor.cgColor
-        effectView.layer?.cornerRadius = 13
+        effectView.layer?.cornerRadius = Self.badgeHeight(for: label.font) / 2
         effectView.layer?.masksToBounds = true
         configureNativeGlassIfNeeded(effectView)
         addSubview(effectView)
 
         label.translatesAutoresizingMaskIntoConstraints = false
-        label.font = .systemFont(ofSize: 12, weight: .medium)
+        applyFont()
         label.textColor = .labelColor
         label.alignment = .center
         label.lineBreakMode = .byClipping
@@ -56,6 +58,10 @@ final class FileDropHintBadgeView: NSView {
             label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
             label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
         ])
+
+        fontMagnificationObserver = GlobalFontMagnificationChangeObserver { [weak self] in
+            self?.applyFont()
+        }
     }
 
     @available(*, unavailable)
@@ -64,6 +70,22 @@ final class FileDropHintBadgeView: NSView {
     }
 
     deinit {}
+
+    private func applyFont() {
+        label.font = GlobalFontMagnification.systemFont(ofSize: 12, weight: .medium)
+        let height = Self.badgeHeight(for: label.font)
+        effectView.layer?.cornerRadius = height / 2
+        if !isHidden {
+            let fitting = label.intrinsicContentSize
+            frame.size = CGSize(width: max(frame.width, fitting.width + 20), height: height)
+        }
+        needsLayout = true
+    }
+
+    private static func badgeHeight(for font: NSFont?) -> CGFloat {
+        guard let font else { return 26 }
+        return max(26, ceil(font.ascender - font.descender + font.leading) + 10)
+    }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         nil
@@ -75,7 +97,7 @@ final class FileDropHintBadgeView: NSView {
         let fitting = label.intrinsicContentSize
         let maxWidth = max(80, min(bounds.width, targetBounds.width) - 16)
         let width = min(max(140, fitting.width + 20), maxWidth)
-        let height: CGFloat = 26
+        let height = Self.badgeHeight(for: label.font)
         let origin = CGPoint(
             x: min(max(targetBounds.midX - width / 2, bounds.minX + 8), max(bounds.minX + 8, bounds.maxX - width - 8)),
             y: min(max(targetBounds.midY - height / 2, bounds.minY + 8), max(bounds.minY + 8, bounds.maxY - height - 8))

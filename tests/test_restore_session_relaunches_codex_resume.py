@@ -258,19 +258,28 @@ def main() -> int:
                 elif restore_proc.stdout.strip() != "OK":
                     failures.append(f"unexpected restore-session stdout: {restore_proc.stdout!r}")
 
+                marker = "CMUX_FAKE_CODEX_RESUME:resume codex-session-restore-2923"
+
                 def restored() -> bool:
                     workspaces = client.list_workspaces()
                     if len(workspaces) < 2:
                         return False
-                    client.select_workspace(0)
-                    return "CMUX_FAKE_CODEX_RESUME:resume codex-session-restore-2923" in _read_scrollback(client)
+                    for index in range(len(workspaces)):
+                        client.select_workspace(index)
+                        if marker in _read_scrollback(client):
+                            return True
+                    return False
 
                 if not _wait_for_condition(12.0, restored):
-                    client.select_workspace(0)
-                    scrollback_tail = "\n".join(_read_scrollback(client).splitlines()[-20:])
+                    tails: list[str] = []
+                    for index in range(len(client.list_workspaces())):
+                        client.select_workspace(index)
+                        tail = "\n".join(_read_scrollback(client).splitlines()[-20:])
+                        tails.append(f"workspace[{index}] tail:\n{tail}")
+                    scrollback_tail = "\n".join(tails)
                     failures.append(
                         "restore-session did not relaunch the saved Codex session; "
-                        f"workspace_count={len(client.list_workspaces())} tail:\n{scrollback_tail}"
+                        f"workspace_count={len(client.list_workspaces())} {scrollback_tail}"
                     )
             finally:
                 client.close()

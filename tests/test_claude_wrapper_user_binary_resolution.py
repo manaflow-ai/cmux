@@ -79,6 +79,58 @@ exec "{wrapper}" "$@"
             failures.append(f"expected user claude, got {output!r}")
 
 
+def test_wrapper_skips_inherited_cmux_cli_shim_roots(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-inherited-shim-") as td:
+        root = Path(td)
+        wrapper_bin = root / "wrapper-bin"
+        current_shim_root = root / "tmp" / "cmux-cli-shims" / "current-surface"
+        inherited_shim_root = root / "tmp" / "cmux-cli-shims" / "old-surface"
+        real_bin = root / "real-bin"
+        for directory in (wrapper_bin, current_shim_root, inherited_shim_root, real_bin):
+            directory.mkdir(parents=True, exist_ok=True)
+
+        wrapper = wrapper_bin / "cmux-claude-wrapper"
+        wrapper.write_bytes(WRAPPER.read_bytes())
+        wrapper.chmod(0o755)
+
+        current_shim = current_shim_root / "claude"
+        write_executable(
+            current_shim,
+            """#!/bin/sh
+echo current-shim "$@"
+exit 42
+""",
+        )
+        write_executable(
+            inherited_shim_root / "claude",
+            """#!/bin/sh
+echo inherited-shim "$@"
+exit 43
+""",
+        )
+        write_executable(
+            real_bin / "claude",
+            """#!/bin/sh
+echo real-claude "$@"
+""",
+        )
+
+        env = dict(os.environ)
+        env["PATH"] = f"{current_shim_root}:{wrapper_bin}:{inherited_shim_root}:{real_bin}:/usr/bin:/bin"
+        env["CMUX_CLAUDE_WRAPPER_SHIM"] = str(current_shim)
+        env["CMUX_CLAUDE_WRAPPER_SHIM_ROOT"] = str(current_shim_root)
+        env.pop("CMUX_SURFACE_ID", None)
+        env.pop("CMUX_SOCKET_PATH", None)
+        env.pop("CMUX_CUSTOM_CLAUDE_PATH", None)
+
+        result = run_wrapper([str(wrapper), "--version"], env)
+        output = (result.stdout + result.stderr).strip()
+        if result.returncode != 0:
+            failures.append(f"inherited-shim wrapper exited {result.returncode}: {output}")
+        if output != "real-claude --version":
+            failures.append(f"expected inherited cmux shim roots to be skipped, got {output!r}")
+
+
 def test_shell_integration_does_not_shim_grok(failures: list[str]) -> None:
     with tempfile.TemporaryDirectory(prefix="cmux-grok-wrapper-resolution-") as td:
         root = Path(td)
@@ -174,6 +226,7 @@ def test_shell_integration_preserves_empty_path_components(failures: list[str]) 
 def main() -> int:
     failures: list[str] = []
     test_wrapper_skips_cmux_shims_and_bundled_claude(failures)
+    test_wrapper_skips_inherited_cmux_cli_shim_roots(failures)
     test_shell_integration_does_not_shim_grok(failures)
     test_shell_integration_preserves_empty_path_components(failures)
     if failures:

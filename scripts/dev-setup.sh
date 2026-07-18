@@ -87,6 +87,8 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROFILE_REPLAY="$SCRIPT_DIR/dev-profiles/replay-cli.mjs"
+# shellcheck source=scripts/lib/mobile-attach.sh
+source "$SCRIPT_DIR/lib/mobile-attach.sh"
 
 # --- profiles: validate up front (P3) ---------------------------------------
 # Fail fast on an unknown profile name BEFORE any heavy build/launch work, so a
@@ -116,14 +118,10 @@ if ! ( source "$SCRIPT_DIR/lib/dev-secrets.sh"; cmux_dev_secrets_load "${DEV_SEC
   exit 2
 fi
 
-# --- tag identity (must match reload.sh / cmux-debug-cli.sh exactly) ---------
-# slug -> socket path + DerivedData; tag-id -> bundle id.
-dev_setup__sanitize_path() {
-  local cleaned
-  cleaned="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//; s/-+/-/g')"
-  [[ -n "$cleaned" ]] || cleaned="agent"
-  printf '%s' "$cleaned"
-}
+# --- tag identity (delegated to scripts/lib/mobile-attach.sh) ----------------
+# slug -> socket path + DerivedData; tag-id -> bundle id. The shared lib owns the
+# exact derivation so it stays in sync with reload.sh / cmux-debug-cli.sh.
+dev_setup__sanitize_path() { cmux_attach__slug "$1"; }
 dev_setup__sanitize_bundle() {
   local cleaned
   cleaned="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/./g; s/^\.+//; s/\.+$//; s/\.+/./g')"
@@ -144,7 +142,7 @@ enable_pairing_host() {
   # the NWListener is bound. MobileHostService.start() reads this default at app
   # launch (applicationDidFinishLaunching), so it must be written BEFORE the
   # macOS launch below. The tagged bundle id is targeted, never the stable app.
-  defaults write "$BUNDLE_ID" mobile.iOSPairingHost.enabled -bool true
+  cmux_attach_enable_pairing_host "$TAG"
 }
 
 # --- macOS build + launch (P1 auto-sign-in) ---------------------------------
@@ -161,38 +159,7 @@ build_and_launch_mac() {
 # Echoes the URL on stdout. The URL is a bearer credential: callers must NOT
 # print it. Polls the mint RPC (real readiness signal) until routes are ready,
 # bounded so a never-binding listener fails instead of hanging.
-mint_attach_url() {
-  local payload _attempt
-  for _attempt in $(seq 1 20); do
-    if [[ ! -S "$SOCKET_PATH" ]]; then
-      sleep 0.5
-      continue
-    fi
-    # scope=mac mints a Mac-wide ticket; ttl bounded by the RPC (30..3600).
-    payload="$(CMUX_TAG="$TAG" "$REPO_ROOT/scripts/cmux-debug-cli.sh" rpc mobile.attach_ticket.create \
-      "{\"ttl_seconds\":${TTL_SECONDS},\"scope\":\"mac\"}" 2>/dev/null || true)"
-    if [[ -n "$payload" ]]; then
-      local url
-      url="$(REPO_ROOT="$REPO_ROOT" PAYLOAD="$payload" node --input-type=module <<'NODE' 2>/dev/null || true
-import path from "node:path";
-import { pathToFileURL } from "node:url";
-const { buildAttachURL } = await import(
-  pathToFileURL(path.join(process.env.REPO_ROOT, "scripts", "lib", "attach-url.mjs")).href
-);
-const { attachURL } = buildAttachURL(JSON.parse(process.env.PAYLOAD));
-process.stdout.write(attachURL);
-NODE
-)"
-      if [[ -n "$url" ]]; then
-        printf '%s' "$url"
-        return 0
-      fi
-    fi
-    # Listener not bound yet (routes unavailable) or app still starting; retry.
-    sleep 0.5
-  done
-  return 1
-}
+mint_attach_url() { cmux_attach_mint_url "$TAG" "$TTL_SECONDS" "$REPO_ROOT"; }
 
 # --- iOS build + launch (auto-pair via CMUX_DOGFOOD_ATTACH_URL) -------------
 build_and_launch_ios() {
@@ -215,6 +182,11 @@ build_and_launch_ios() {
 
   echo "==> launching iOS dev app${attach_url:+ (auto-pairing)}"
   local launch_args=(--tag "$TAG")
+  # Express attach intent so mobile-dev-launch.sh honors the pre-minted URL we
+  # pass via CMUX_DOGFOOD_ATTACH_URL (it ignores an ambient URL without --attach).
+  if [[ -n "$attach_url" ]]; then
+    launch_args+=(--attach)
+  fi
   if [[ "$AGENT" -eq 1 ]]; then
     launch_args+=(--agent)
   fi

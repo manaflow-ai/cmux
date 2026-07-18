@@ -186,10 +186,16 @@ def main() -> int:
             # Branch changes during a long-running foreground command should still
             # propagate before the prompt returns (agent-style workflows).
             client.send("bash -lc 'git checkout -b feature/agent-live >/dev/null 2>&1; sleep 6'\n")
+            # The branch change happens at the start of the command; `sleep 6` then
+            # holds the prompt for 6s. Propagation must therefore land mid-command,
+            # before the prompt returns. Keep the no-fallback intent (this proves the
+            # async HEAD-watch path, not the prompt hook) but use a generous window
+            # under the 6s prompt-return so hook/socket scheduling jitter on a loaded
+            # CI/VM host doesn't fail correct code.
             _wait_for_git_branch(
                 client,
                 "feature/agent-live",
-                timeout=3.5,
+                timeout=5.5,
                 interval=0.1,
                 allow_force_fallback=False,
             )

@@ -19,6 +19,7 @@ Pi Coding Agent and OMP are registered by default:
         },
         "sessionIdSource": { "type": "piSessionFile" },
         "resumeCommand": "{{executable}} --session {{sessionId}}",
+        "forkCommand": "{{executable}} --session {{sessionId}} --fork",
         "cwd": "preserve",
         "sessionDirectory": "~/.pi/agent/sessions"
       },
@@ -30,6 +31,7 @@ Pi Coding Agent and OMP are registered by default:
         },
         "sessionIdSource": { "type": "piSessionFile" },
         "resumeCommand": "{{executable}} --session {{sessionId}}",
+        "forkCommand": "{{executable}} --session {{sessionId}} --fork",
         "cwd": "preserve",
         "sessionDirectory": "~/.omp/agent/sessions"
       }
@@ -53,6 +55,7 @@ For a generic agent that exposes the current session as an argv option:
         },
         "sessionIdSource": { "type": "argvOption", "argvOption": "--session" },
         "resumeCommand": "my-agent --session {{sessionId}}",
+        "forkCommand": "my-agent --session {{sessionId}} --fork",
         "cwd": "preserve",
         "sessionDirectory": "~/.my-agent/sessions"
       }
@@ -68,6 +71,13 @@ OMP accepts `--session`, `--resume`, and `-r` for existing sessions; Vault emits
 
 `resumeCommand` must include either `{{sessionId}}` or `{{sessionPath}}`, for
 example `pi --session {{sessionId}}`.
+
+`forkCommand` is optional and uses the same placeholders as `resumeCommand`. It
+is the argv template for forking (branching) a session into a new copy, for
+example `{{executable}} --session {{sessionId}} --fork`. Provide it only when the
+agent supports forking; when omitted, the right-click **Fork Conversation** item
+stays hidden for that agent (resume still works via `resumeCommand`). Pi and OMP
+ship with `{{executable}} --session {{sessionId}} --fork`.
 
 `iconAssetName` is optional. When omitted, Vault uses a neutral system icon for
 registered agents instead of reusing another agent's brand mark.

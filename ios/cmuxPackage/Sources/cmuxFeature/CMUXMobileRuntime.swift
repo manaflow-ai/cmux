@@ -9,10 +9,12 @@ import OSLog
 public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
     public static let defaultRPCRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
     public static let defaultPairingRequestTimeoutNanoseconds: UInt64 = 8 * 1_000_000_000
+    public static let defaultPairingAttemptTimeoutNanoseconds: UInt64 = 8 * 1_000_000_000
 
     public var supportedRouteKinds: [CmxAttachTransportKind]
     public var transportFactory: any CmxByteTransportFactory
     public var stackAccessTokenProvider: @Sendable () async throws -> String
+    public var stackAccessTokenForStatusProvider: @Sendable () async -> String?
     /// Force-mint a fresh Stack access token, bypassing the cached-token
     /// freshness check. The connection layer calls this exactly once after the
     /// host rejects a request on auth grounds, so the retry presents a genuinely
@@ -20,6 +22,7 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
     public var stackAccessTokenForceRefresher: @Sendable () async throws -> String
     public var rpcRequestTimeoutNanoseconds: UInt64
     public var pairingRequestTimeoutNanoseconds: UInt64
+    public var pairingAttemptTimeoutNanoseconds: UInt64
     public var now: @Sendable () -> Date
     /// When false, `MobileShellStore` skips background terminal refresh.
     /// Scripted transport tests set this off so background subscribe/poll
@@ -51,20 +54,38 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
         }
     }
 
+    public static func stackAccessTokenForStatusProvider(
+        from tokenProvider: any TokenProviding
+    ) -> @Sendable () async -> String? {
+        {
+            #if DEBUG
+            if let token = MobileShellDevStackAuthTokenProvider.token() {
+                return token
+            }
+            #endif
+            return await tokenProvider.storedAccessToken()
+        }
+    }
+
     /// Translate a Stack-auth token-fetch error into the RPC layer's connection
     /// error so a transient failure stays retryable.
     ///
     /// ``AuthCoordinator`` throws ``AuthError/networkError``/``AuthError/offline``
     /// when it has no usable access token but a refresh token is still present
     /// (the SDK preserves the refresh token across network/server hiccups), and
-    /// ``AuthError/unauthorized`` only when the session is genuinely gone. A
-    /// transient failure maps to ``MobileShellConnectionError/connectionClosed``
-    /// (retryable, no re-auth prompt); a definitive failure maps to
+    /// ``AuthError/unauthorized`` only when the session is genuinely gone.
+    /// ``AuthError/timedOut`` means the token phase hit its own deadline and
+    /// maps to ``MobileShellConnectionError/requestTimedOut`` so the pairing/RPC
+    /// deadline path handles it as retryable. Other transient failures map to
+    /// ``MobileShellConnectionError/connectionClosed`` (retryable, no re-auth
+    /// prompt); a definitive failure maps to
     /// ``MobileShellConnectionError/authorizationFailed(_:)`` (drives re-auth).
     /// - Parameter error: The error thrown by the token source.
     /// - Returns: The mapped ``MobileShellConnectionError``.
     static func connectionError(forStackAuthError error: Error) -> MobileShellConnectionError {
         switch error {
+        case AuthError.timedOut:
+            return .requestTimedOut
         case AuthError.networkError, AuthError.offline:
             return .connectionClosed
         default:
@@ -109,18 +130,22 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
         supportedRouteKinds: [CmxAttachTransportKind] = [.tailscale, .debugLoopback],
         transportFactory: any CmxByteTransportFactory,
         stackAccessTokenProvider: (@Sendable () async throws -> String)? = nil,
+        stackAccessTokenForStatusProvider: (@Sendable () async -> String?)? = nil,
         stackAccessTokenForceRefresher: (@Sendable () async throws -> String)? = nil,
         rpcRequestTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultRPCRequestTimeoutNanoseconds,
         pairingRequestTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultPairingRequestTimeoutNanoseconds,
+        pairingAttemptTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultPairingAttemptTimeoutNanoseconds,
         now: @escaping @Sendable () -> Date = Date.init,
         supportsServerPushEvents: Bool = true
     ) {
         self.supportedRouteKinds = supportedRouteKinds
         self.transportFactory = transportFactory
         self.stackAccessTokenProvider = stackAccessTokenProvider ?? { throw AuthError.unauthorized }
+        self.stackAccessTokenForStatusProvider = stackAccessTokenForStatusProvider ?? { nil }
         self.stackAccessTokenForceRefresher = stackAccessTokenForceRefresher ?? { throw AuthError.unauthorized }
         self.rpcRequestTimeoutNanoseconds = rpcRequestTimeoutNanoseconds
         self.pairingRequestTimeoutNanoseconds = pairingRequestTimeoutNanoseconds
+        self.pairingAttemptTimeoutNanoseconds = pairingAttemptTimeoutNanoseconds
         self.now = now
         self.supportsServerPushEvents = supportsServerPushEvents
     }
@@ -128,18 +153,22 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
     public init(
         transportFactory: any CmxRouteAwareByteTransportFactory,
         stackAccessTokenProvider: (@Sendable () async throws -> String)? = nil,
+        stackAccessTokenForStatusProvider: (@Sendable () async -> String?)? = nil,
         stackAccessTokenForceRefresher: (@Sendable () async throws -> String)? = nil,
         rpcRequestTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultRPCRequestTimeoutNanoseconds,
         pairingRequestTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultPairingRequestTimeoutNanoseconds,
+        pairingAttemptTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultPairingAttemptTimeoutNanoseconds,
         now: @escaping @Sendable () -> Date = Date.init,
         supportsServerPushEvents: Bool = true
     ) {
         self.supportedRouteKinds = transportFactory.supportedKinds
         self.transportFactory = transportFactory
         self.stackAccessTokenProvider = stackAccessTokenProvider ?? { throw AuthError.unauthorized }
+        self.stackAccessTokenForStatusProvider = stackAccessTokenForStatusProvider ?? { nil }
         self.stackAccessTokenForceRefresher = stackAccessTokenForceRefresher ?? { throw AuthError.unauthorized }
         self.rpcRequestTimeoutNanoseconds = rpcRequestTimeoutNanoseconds
         self.pairingRequestTimeoutNanoseconds = pairingRequestTimeoutNanoseconds
+        self.pairingAttemptTimeoutNanoseconds = pairingAttemptTimeoutNanoseconds
         self.supportsServerPushEvents = supportsServerPushEvents
         self.now = now
     }

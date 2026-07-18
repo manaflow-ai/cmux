@@ -39,8 +39,10 @@ export function codeViewOptions(
 export function workerHighlighterOptions(
   options: DiffViewerOptions,
   appearance: DiffViewerAppearance,
+  langs: string[] = ["text"],
 ): WorkerInitializationRenderOptions {
   return {
+    langs: langs as WorkerInitializationRenderOptions["langs"],
     theme: appearance.theme as any,
     preferredHighlighter: "shiki-wasm",
     lineDiffType: options.wordDiffs ? "word" : "none",
@@ -103,6 +105,28 @@ export function codeViewUnsafeCSS(): string {
     }
     [data-separator='line-info'] {
       background-color: var(--diffs-bg-separator);
+    }
+    [data-utility-button] {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      padding: 0;
+      border: 0;
+      border-radius: 4px;
+      background: var(--cmux-diff-accent, light-dark(#0a84ff, #7ab7ff));
+      color: light-dark(#fff, #08233f);
+      cursor: pointer;
+      transform: scale(0.9);
+      transition: transform 80ms ease;
+    }
+    [data-utility-button]:hover {
+      transform: scale(1.1);
+    }
+    [data-utility-button] [data-icon] {
+      width: 12px;
+      height: 12px;
     }
     [data-separator='line-info'] [data-separator-wrapper],
     [data-separator='line-info'] [data-separator-content],
@@ -209,6 +233,34 @@ export function shikiThemeFromGhostty(theme: any, appearance: DiffViewerAppearan
       { scope: ["keyword", "storage", "storage.type"], settings: { foreground: tokenColor(palette["5"]) } },
       { scope: ["entity.name.function", "support.function"], settings: { foreground: tokenColor(palette["4"]) } },
       { scope: ["entity.name.type", "entity.name.class", "support.type"], settings: { foreground: tokenColor(palette["6"]) } },
+      {
+        scope: ["markup.heading", "punctuation.definition.heading"],
+        settings: { foreground: tokenColor(palette["12"], tokenColor(palette["4"])), fontStyle: "bold" },
+      },
+      {
+        scope: ["markup.bold", "punctuation.definition.bold"],
+        settings: { foreground: tokenColor(palette["11"], tokenColor(palette["3"])), fontStyle: "bold" },
+      },
+      {
+        scope: ["markup.italic", "punctuation.definition.italic"],
+        settings: { foreground: tokenColor(palette["13"], tokenColor(palette["5"])), fontStyle: "italic" },
+      },
+      {
+        scope: ["markup.inline.raw", "markup.raw", "markup.fenced_code", "markup.raw.block"],
+        settings: { foreground: tokenColor(palette["10"], tokenColor(palette["2"])) },
+      },
+      {
+        scope: ["markup.underline.link", "string.other.link", "markup.link"],
+        settings: { foreground: tokenColor(palette["14"], tokenColor(palette["6"])) },
+      },
+      {
+        scope: ["markup.quote", "punctuation.definition.quote"],
+        settings: { foreground: tokenColor(palette["8"]), fontStyle: "italic" },
+      },
+      {
+        scope: ["markup.list", "punctuation.definition.list", "markup.table"],
+        settings: { foreground: tokenColor(palette["9"], tokenColor(palette["1"])) },
+      },
       { scope: ["variable", "meta.definition.variable"], settings: { foreground } },
       { scope: ["invalid", "message.error"], settings: { foreground: tokenColor(palette["9"], tokenColor(palette["1"])) } },
     ],

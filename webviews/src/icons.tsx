@@ -1,4 +1,5 @@
 export type IconName =
+  | "arrow"
   | "background"
   | "bars"
   | "check"
@@ -30,6 +31,8 @@ export function Icon({ name }: { name: IconName }) {
 
 function IconPaths({ name }: { name: IconName }) {
   switch (name) {
+  case "arrow":
+    return <><path d="M4 10h11" /><path d="m11 6 4 4-4 4" /></>;
   case "background":
     return <><rect x="4" y="4" width="12" height="12" rx="2" /><path d="M7 8h6" /><path d="M7 12h6" /></>;
   case "bars":

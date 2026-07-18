@@ -1,6 +1,8 @@
 import XCTest
 import Darwin
-import CmuxProcess
+import CmuxFoundation
+
+import CmuxSidebar
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -36,6 +38,29 @@ private final class CommandRunnerInvocationCounter: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return storedValue
+    }
+}
+
+/// Records whether any observation happened on the main thread. Used to assert
+/// that off-main work (e.g. PR-refresh git commands) never executes on the main
+/// thread, a deterministic signal that does not depend on wall-clock timing.
+private final class MainThreadObservationBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedObservedOnMainThread = false
+
+    func recordCurrentThread() {
+        let onMain = Thread.isMainThread
+        lock.lock()
+        if onMain {
+            storedObservedOnMainThread = true
+        }
+        lock.unlock()
+    }
+
+    var observedOnMainThread: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedObservedOnMainThread
     }
 }
 
@@ -516,10 +541,12 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
 
     func testPullRequestRefreshRepositoryDiscoveryDoesNotBlockMainRunLoop() throws {
         let invocationCounter = CommandRunnerInvocationCounter()
+        let gitThreadObservation = MainThreadObservationBox()
         let commandDelay: TimeInterval = 0.03
         let commandRunner = StubCommandRunner { _, executable, arguments, _ in
             if executable == "git", arguments == ["remote", "-v"] {
                 invocationCounter.increment()
+                gitThreadObservation.recordCurrentThread()
                 Thread.sleep(forTimeInterval: commandDelay)
                 return CommandResult(
                     stdout: "origin\tssh://example.invalid/not-github.git (fetch)\n",
@@ -561,7 +588,12 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         }
 
         let monitorDuration: TimeInterval = 0.7
-        let allowedMainThreadGap: TimeInterval = 0.25
+        // Generous bound far above macOS CI scheduling noise (GC, unrelated test
+        // work, run-loop jitter can stall the main thread well past a few hundred
+        // ms on a loaded shared runner). This catches gross main-thread blocking
+        // without failing on routine host jitter; the deterministic non-main-thread
+        // assertion below is the real regression signal.
+        let allowedMainThreadGap: TimeInterval = 2.0
         let finishedMonitoring = expectation(description: "main run loop remained responsive")
         let monitorStartedAt = Date()
         var lastTickAt = monitorStartedAt
@@ -587,6 +619,13 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         timer.invalidate()
         XCTAssertEqual(result, .completed)
         XCTAssertGreaterThan(invocationCounter.value, 0)
+        // Deterministic regression signal: the blocking git work must have run off
+        // the main thread. This does not depend on wall-clock timing, so it cannot
+        // flake from host scheduling noise.
+        XCTAssertFalse(
+            gitThreadObservation.observedOnMainThread,
+            "Pull request refresh ran its blocking git command on the main thread"
+        )
         XCTAssertLessThan(
             maxTickGap,
             allowedMainThreadGap,

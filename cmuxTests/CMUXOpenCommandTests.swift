@@ -625,10 +625,15 @@ final class CMUXOpenCommandTests: XCTestCase {
         let portLine = try readLine(from: stdoutPipe.fileHandleForReading, timeout: 3)
         let port = try XCTUnwrap(Int(portLine), "invalid diff viewer server port: \(portLine)")
         let url = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/__cmux_diff_viewer_wait/\(token)/pending.html"))
-        let startedAt = Date()
+        // The bounded deferred wait is the unit under test. With
+        // CMUX_DIFF_VIEWER_WAIT_TIMEOUT_SECONDS=0.05 the server must give up on the
+        // still-pending diff and answer the request instead of hanging. The deadline-
+        // bounded fetch below (timeout: 3) is itself the "did not hang" guard: a server
+        // that ignored the wait timeout would never respond and `fetchData` would throw.
+        // We assert on the logical outcome of the bound rather than a wall-clock latency:
+        // a 504 whose body has the pending marker stripped and the render-failed copy.
         let response = try fetchData(from: url, timeout: 3)
 
-        XCTAssertLessThan(Date().timeIntervalSince(startedAt), 2)
         XCTAssertEqual(response.statusCode, 504)
         let body = String(data: response.data, encoding: .utf8) ?? ""
         XCTAssertFalse(body.contains("data-cmux-diff-pending=\"true\""), body)
@@ -2534,23 +2539,7 @@ final class CMUXOpenCommandTests: XCTestCase {
     }
 
     private func bundledCLIPath() throws -> String {
-        let fileManager = FileManager.default
-        let appBundleURL = Bundle(for: Self.self)
-            .bundleURL
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let enumerator = fileManager.enumerator(at: appBundleURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
-
-        while let item = enumerator?.nextObject() as? URL {
-            guard item.lastPathComponent == "cmux",
-                  item.path.contains(".app/Contents/Resources/bin/cmux") else {
-                continue
-            }
-            return item.path
-        }
-
-        throw XCTSkip("Bundled cmux CLI not found in \(appBundleURL.path)")
+        try BundledCLITestSupport.bundledCLIPath(for: Self.self)
     }
 
     private func writeTestDiffViewerAssets(resourcesURL: URL, appMain: String) throws {

@@ -1,75 +1,10 @@
+import CmuxWorkspaces
 import Foundation
 
-struct FocusHistoryEntry: Equatable {
-    let workspaceId: UUID
-    let panelId: UUID?
-}
-
-struct FocusHistoryRecord: Equatable {
-    let entry: FocusHistoryEntry
-    var focusedAt: Date
-
-    init(entry: FocusHistoryEntry, focusedAt: Date = Date()) {
-        self.entry = entry
-        self.focusedAt = focusedAt
-    }
-}
-
-enum FocusHistoryMenuPosition: Equatable {
-    case older
-    case newer
-}
-
-enum FocusHistoryMenuDirection: Equatable {
-    case back
-    case forward
-}
-
-struct FocusHistoryMenuItem: Equatable {
-    let historyIndex: Int
-    let entry: FocusHistoryEntry
-    let workspaceTitle: String
-    let panelTitle: String?
-    let position: FocusHistoryMenuPosition
-    let focusedAt: Date
-    let isNavigable: Bool
-}
-
-struct FocusHistoryMenuSnapshot: Equatable {
-    let items: [FocusHistoryMenuItem]
-    let totalItemCount: Int
-    let isLimited: Bool
-}
-
-enum FocusHistoryMenuSnapshotBuilder {
-    static func recentlyFocused(
-        back: FocusHistoryMenuSnapshot,
-        forward: FocusHistoryMenuSnapshot,
-        maxItemCount: Int? = nil
-    ) -> FocusHistoryMenuSnapshot {
-        let items = (back.items + forward.items)
-            .sorted { lhs, rhs in
-                if lhs.focusedAt == rhs.focusedAt {
-                    return lhs.historyIndex > rhs.historyIndex
-                }
-                return lhs.focusedAt > rhs.focusedAt
-            }
-
-        if let maxItemCount, maxItemCount >= 0, items.count > maxItemCount {
-            return FocusHistoryMenuSnapshot(
-                items: Array(items.prefix(maxItemCount)),
-                totalItemCount: items.count,
-                isLimited: true
-            )
-        }
-
-        return FocusHistoryMenuSnapshot(
-            items: items,
-            totalItemCount: items.count,
-            isLimited: false
-        )
-    }
-}
+// The focus-history value types (FocusHistoryEntry, FocusHistoryRecord,
+// FocusHistoryMenuDirection/Position/Item/Snapshot) and the snapshot merge
+// (FocusHistoryMenuSnapshot.recentlyFocused) live in CmuxWorkspaceNavigation.
+// Only the localized menu formatting stays app-side.
 
 enum FocusHistoryMenuFormatter {
     static func title(for item: FocusHistoryMenuItem) -> String {

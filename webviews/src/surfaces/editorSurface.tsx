@@ -2,6 +2,7 @@ import { RouterProvider } from "@tanstack/react-router";
 import { createRoot } from "react-dom/client";
 import { resolveDiffViewerAppearance } from "../appearance";
 // Side-effect import: installs `MonacoEnvironment` before any editor is created.
+import type * as monaco from "monaco-editor/esm/vs/editor/editor.api.js";
 import "../editor/monacoEnvironment";
 import { EditorApp } from "../editor/EditorApp";
 import editorStyles from "../editor/editor.css?inline";
@@ -12,6 +13,37 @@ import { EditorSaveController, mapEditorSaveReply, type EditorSaveRequest } from
 import { createWebviewsRouter } from "../router";
 import type { DiffViewerConfig } from "../types";
 import { installWebviewStyles } from "./installWebviewStyles";
+
+// Options the page must never accept from config, even though the CLI already
+// curates `editor.*`: these control the document model, theme, layout strategy,
+// or the editability invariant, and letting config override them would break
+// the surface or its read-only guarantee. Defense-in-depth — the page can be
+// served from hand-authored HTML, so we re-filter here too.
+const FORBIDDEN_MONACO_OPTIONS = new Set([
+  "model",
+  "value",
+  "language",
+  "theme",
+  "readOnly",
+  "domReadOnly",
+  "automaticLayout",
+]);
+
+/** Drop forbidden keys from a config-provided Monaco options object. */
+function pickSafeMonacoOptions(
+  raw: Record<string, unknown> | undefined,
+): monaco.editor.IStandaloneEditorConstructionOptions {
+  if (!raw || typeof raw !== "object") {
+    return {};
+  }
+  const safe: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (!FORBIDDEN_MONACO_OPTIONS.has(key)) {
+      safe[key] = value;
+    }
+  }
+  return safe as monaco.editor.IStandaloneEditorConstructionOptions;
+}
 
 function readConfig(): DiffViewerConfig {
   const element = document.getElementById("cmux-editor-config");
@@ -96,6 +128,35 @@ async function resolveSaveBridge(): Promise<
 }
 
 /**
+ * Loads the Monaco view state (scroll/cursor/selection/folding) persisted to
+ * the native sidecar before the last webview unload. Authorized by the page's
+ * scheme token, so it resolves for read-only files too. Returns null when there
+ * is no saved state, the bridge is absent, or the round-trip fails.
+ */
+async function loadRestoredViewState(): Promise<monaco.editor.ICodeEditorViewState | null> {
+  const handler = (
+    window as unknown as {
+      webkit?: { messageHandlers?: { cmuxEditorSave?: { postMessage: (m: unknown) => Promise<unknown> } } };
+    }
+  ).webkit?.messageHandlers?.cmuxEditorSave;
+  if (!handler || typeof handler.postMessage !== "function") {
+    return null;
+  }
+  try {
+    const reply = (await handler.postMessage({ loadViewState: true })) as
+      | { ok?: unknown; value?: { viewState?: unknown } }
+      | null;
+    if (reply?.ok !== true) {
+      return null;
+    }
+    const viewState = reply.value?.viewState;
+    return viewState ? (viewState as monaco.editor.ICodeEditorViewState) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Boots the Monaco editor surface: reads its injected config, registers
  * cmux-derived themes, then renders `EditorApp` through the shared router.
  * Loaded as its own lazy chunk so other surfaces never pay for Monaco.
@@ -131,6 +192,13 @@ export async function mountEditorSurface(rootElement: HTMLElement): Promise<void
   // synchronously on first render (the WKWebView does not reliably repaint the
   // lazy async re-tokenization).
   await preloadGrammarForPath(filePath);
+  // User Monaco options from `editor.*` in cmux.json (CLI-curated, re-filtered
+  // here) are applied AFTER cmux's defaults so the user wins, but `readOnly` is
+  // re-applied last so configuration can never make a read-only file editable.
+  const userOptions = pickSafeMonacoOptions(config.payload?.editorOptions);
+  // Restore scroll/cursor from before the last webview unload. Resolved before
+  // mount so EditorApp can apply it before first paint.
+  const restoredViewState = await loadRestoredViewState();
   const router = createWebviewsRouter(() => (
     <EditorApp
       filePath={filePath}
@@ -140,13 +208,15 @@ export async function mountEditorSurface(rootElement: HTMLElement): Promise<void
         fontFamily: appearance.fontFamily,
         fontSize: appearance.fontSize,
         lineHeight: appearance.lineHeight,
-        readOnly,
         minimap: { enabled: true },
         scrollBeyondLastLine: false,
+        ...userOptions,
+        readOnly,
       }}
       labels={labels}
       saveController={saveController}
       chrome={{ background: activeTheme.background, foreground: activeTheme.foreground }}
+      restoredViewState={restoredViewState}
     />
   ));
   createRoot(rootElement).render(<RouterProvider router={router} />);

@@ -147,10 +147,10 @@ cmux_dev_secrets_load() {
     cat >&2 <<EOF
 error: no dev sign-in credentials found.
 
-Store a personal dogfood Stack account in ~/.secrets/cmuxterm-dev.env:
+Run the one-time team dogfood setup to store YOUR personal Stack account
+(it prompts, verifies, and writes ~/.secrets/cmuxterm-dev.env for you):
 
-  CMUX_DOGFOOD_STACK_EMAIL=you@example.com
-  CMUX_DOGFOOD_STACK_PASSWORD=<password>
+  scripts/setup-team-dev.sh
 
 (falls back to the shared agent CMUX_UITEST_STACK_* in ~/.secrets/cmux.env;
 pass --agent to force the agent account.)

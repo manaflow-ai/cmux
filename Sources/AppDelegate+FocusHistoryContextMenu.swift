@@ -1,4 +1,5 @@
 import AppKit
+import CmuxWorkspaces
 
 private let focusHistoryContextMenuPreviewLimit = 12
 

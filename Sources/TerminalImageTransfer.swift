@@ -1,5 +1,7 @@
 import Foundation
+import CmuxTerminal
 import AppKit
+import CmuxRemoteSession
 import UniformTypeIdentifiers
 
 enum TerminalImageTransferMode {
@@ -77,6 +79,16 @@ enum PasteboardFileURLReader {
 
 enum TerminalImageTransferExecutionError: Error {
     case cancelled
+}
+
+// The app-side conformer of the session coordinator's transfer-cancellation
+// seam; the operation already provided every member by contract, the
+// extension only names the cancellation error the legacy controller threw
+// directly.
+extension TerminalImageTransferOperation: RemoteTransferCancelling {
+    var cancellationError: any Error {
+        TerminalImageTransferExecutionError.cancelled
+    }
 }
 
 final class TerminalImageTransferOperation: @unchecked Sendable {
@@ -309,7 +321,7 @@ enum TerminalImageTransferPlanner {
     }
 
     static func escapeForShell(_ value: String) -> String {
-        GhosttyPasteboardHelper.escapeForShell(value)
+        value.terminalShellEscaped
     }
 
     static func insertedText(forPathStrings paths: [String]) -> String {
@@ -367,11 +379,11 @@ enum TerminalImageTransferPlanner {
             return .fileURLs(fileURLs)
         }
 
-        if let string = GhosttyPasteboardHelper.stringContents(from: pasteboard), !string.isEmpty {
+        if let string = GhosttyApp.terminalPasteboard.stringContents(from: pasteboard), !string.isEmpty {
             return .insertText(string)
         }
 
-        switch GhosttyPasteboardHelper.materializeImageFileURLIfNeeded(from: pasteboard) {
+        switch GhosttyApp.terminalPasteboard.materializeImageFileURLIfNeeded(from: pasteboard) {
         case .saved(let imageURL):
             return .fileURLs([imageURL])
         case .rejectedImagePayload:
@@ -381,7 +393,7 @@ enum TerminalImageTransferPlanner {
         }
 
         // Clipboard managers can advertise unusable image types alongside valid text.
-        if let string = GhosttyPasteboardHelper.fallbackPlainTextContents(from: pasteboard), !string.isEmpty {
+        if let string = GhosttyApp.terminalPasteboard.fallbackPlainTextContents(from: pasteboard), !string.isEmpty {
             return .insertText(string)
         }
 
@@ -416,7 +428,7 @@ enum TerminalImageTransferPlanner {
         if !urls.isEmpty {
             return urls
         }
-        return GhosttyPasteboardHelper.saveImageFileURLsIfNeeded(from: pasteboard, assumeNoText: true)
+        return GhosttyApp.terminalPasteboard.saveImageFileURLsIfNeeded(from: pasteboard, assumeNoText: true)
     }
 
     private static func fileURLs(from pasteboard: NSPasteboard) -> [URL] {
@@ -487,6 +499,13 @@ extension TerminalSurface {
         guard let workspace = owningWorkspace() else { return .local }
         if workspace.isRemoteTerminalSurface(id) {
             return .remote(.workspaceRemote)
+        }
+        // Remote tmux mirror surfaces have no local TTY/process, so the SSH
+        // detector below can't see them. Upload pasted images to the tmux host
+        // over SSH (where claude runs can read them) instead of inserting a
+        // macOS-local path the remote host has no access to.
+        if let target = AppDelegate.shared?.remoteTmuxController.remoteUploadTarget(forSurfaceId: id) {
+            return .remote(target)
         }
         if let ttyName = workspace.surfaceTTYNames[id],
            let session = TerminalSSHSessionDetector.detect(forTTY: ttyName) {

@@ -5,7 +5,8 @@ E2E regression test for Claude hook session mapping.
 Validates:
 1) session-start records session_id -> workspace/surface mapping on disk
 2) notification updates mapped session state
-3) stop consumes the mapping and emits a richer completion notification
+3) stop keeps the live mapping and emits a richer completion notification
+4) session-end consumes the mapping when Claude exits
 """
 
 from __future__ import annotations
@@ -120,17 +121,27 @@ def main() -> int:
             client.clear_notifications()
 
             workspace_id = client.new_workspace()
+            client.select_workspace(workspace_id)
             surfaces = client.list_surfaces()
             if not surfaces:
                 return fail("Expected at least one surface in new workspace")
 
             focused = next((s for s in surfaces if s[2]), surfaces[0])
             surface_id = focused[1]
+            client.new_split("right")
+            split_surfaces = client.list_surfaces()
+            other_surface = next((s for s in split_surfaces if s[1] != surface_id), None)
+            if other_surface is None:
+                return fail("Expected a second surface for ambient TTY routing regression")
+            client.focus_surface(surface_id)
+            fake_runner_tty = f"cmux-test-runner-{os.getpid()}"
+            client.report_tty(fake_runner_tty, tab=workspace_id, panel=other_surface[1])
 
             hook_env = os.environ.copy()
             hook_env["CMUX_SOCKET_PATH"] = client.socket_path
             hook_env["CMUX_WORKSPACE_ID"] = workspace_id
             hook_env["CMUX_SURFACE_ID"] = surface_id
+            hook_env["TTY"] = f"/dev/{fake_runner_tty}"
             hook_env["CMUX_CLAUDE_HOOK_STATE_PATH"] = str(state_path)
 
             run_claude_hook(
@@ -206,8 +217,23 @@ def main() -> int:
 
             with state_path.open("r", encoding="utf-8") as f:
                 post_stop_state = json.load(f)
-            if session_id in (post_stop_state.get("sessions") or {}):
-                return fail("Expected session mapping to be consumed on stop")
+            if session_id not in (post_stop_state.get("sessions") or {}):
+                return fail("Expected stop to keep the live session mapping until session-end")
+
+            run_claude_hook(
+                cli_path,
+                client.socket_path,
+                "session-end",
+                {
+                    "session_id": session_id,
+                },
+                hook_env,
+            )
+
+            with state_path.open("r", encoding="utf-8") as f:
+                post_session_end_state = json.load(f)
+            if session_id in (post_session_end_state.get("sessions") or {}):
+                return fail("Expected session-end to consume the session mapping")
 
             print("PASS: Claude hook session mapping + stop summary notification")
             return 0
