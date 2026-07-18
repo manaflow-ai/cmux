@@ -584,15 +584,24 @@ fn surface_json(surface: &crate::Surface) -> Value {
         "kind": surface.kind().as_str(),
         "name": surface.name(),
     });
-    if surface.kind() == crate::SurfaceKind::Browser {
-        value["browser_endpoint"] = json!({
-            "transport": "cmuxd-png-frame-stream-v1",
-            "source": surface.browser_source().map(|source| source.as_str()),
-            // The endpoint remains daemon-owned. Frontends that do not consume
-            // this transport may omit only this surface from their local
-            // presentation graph while continuing to project sibling PTYs.
-            "frontend_projection": "frontend-optional",
-        });
+    if let crate::Surface::Browser(browser) = surface {
+        value["browser_endpoint"] = match browser.presentation_mode() {
+            crate::browser::BrowserPresentationMode::DaemonRendered => json!({
+                "transport": "cmuxd-png-frame-stream-v1",
+                "source": browser.source().map(|source| source.as_str()),
+                // The endpoint remains daemon-owned. Frontends that do not consume
+                // this transport may omit only this surface from their local
+                // presentation graph while continuing to project sibling PTYs.
+                "frontend_projection": "frontend-optional",
+            }),
+            crate::browser::BrowserPresentationMode::FrontendNative => json!({
+                "transport": "frontend-native-v1",
+                "frontend_projection": "required",
+            }),
+        };
+    }
+    if let Some(provenance) = surface.external_terminal_provenance() {
+        value["external_terminal_provenance"] = json!(provenance);
     }
     value
 }
@@ -614,5 +623,46 @@ fn node_json(state: &State, node: &Node) -> Value {
             "a": node_json(state, a),
             "b": node_json(state, b),
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::surface_json;
+    use crate::browser::{new_frontend_native_surface_with_uuid, new_surface_with_uuid};
+    use crate::{SurfaceOptions, SurfaceUuid};
+    use std::sync::Weak;
+
+    #[test]
+    fn mixed_browser_topology_emits_transport_per_presentation_mode() {
+        let options = SurfaceOptions::default();
+        let daemon = new_surface_with_uuid(
+            1,
+            SurfaceUuid::new(),
+            "https://sentinel-daemon-source.invalid".to_string(),
+            (80, 24),
+            (8, 16),
+            &options,
+            Weak::new(),
+        );
+        let native = new_frontend_native_surface_with_uuid(
+            2,
+            SurfaceUuid::new(),
+            (80, 24),
+            (8, 16),
+            &options,
+        );
+
+        let daemon_json = surface_json(&daemon);
+        let native_json = surface_json(&native);
+        assert_eq!(daemon_json["browser_endpoint"]["transport"], "cmuxd-png-frame-stream-v1");
+        assert_eq!(daemon_json["browser_endpoint"]["frontend_projection"], "frontend-optional");
+        assert_eq!(native_json["browser_endpoint"]["transport"], "frontend-native-v1");
+        assert_eq!(native_json["browser_endpoint"]["frontend_projection"], "required");
+        assert!(native_json["browser_endpoint"].get("source").is_none());
+        assert!(!native_json.to_string().contains("sentinel"));
+
+        daemon.kill();
+        native.kill();
     }
 }

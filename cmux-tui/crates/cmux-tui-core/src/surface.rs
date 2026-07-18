@@ -31,6 +31,7 @@ use crate::accessibility::{
     build_terminal_accessibility_snapshot,
 };
 use crate::platform;
+use crate::remote_tmux_producer::ExternalTerminalProvenance;
 use crate::semantic_scene::{
     SemanticSceneAttachError, SemanticSceneAttachment, SemanticSceneAttachmentOptions,
     SemanticSceneHub, SemanticSceneTerminalIdentity,
@@ -401,6 +402,7 @@ pub(crate) struct ExternalTerminalOutputReceipt {
     pub output_generation: u64,
     pub accepted_sequence: u64,
     pub next_sequence: u64,
+    pub no_reflow: bool,
     pub egress: Vec<u8>,
     pub replayed: bool,
 }
@@ -435,12 +437,17 @@ struct ExternalTerminalRuntime {
     /// Serializes claims, generation resets, and ordered output parsing.
     operation: Mutex<()>,
     state: Mutex<ExternalTerminalState>,
-    no_reflow: bool,
+    no_reflow: AtomicBool,
     scrollback: usize,
+    provenance: Option<ExternalTerminalProvenance>,
 }
 
 impl ExternalTerminalRuntime {
-    fn new(no_reflow: bool, scrollback: usize) -> Self {
+    fn new(
+        no_reflow: bool,
+        scrollback: usize,
+        provenance: Option<ExternalTerminalProvenance>,
+    ) -> Self {
         Self {
             operation: Mutex::new(()),
             state: Mutex::new(ExternalTerminalState {
@@ -448,8 +455,9 @@ impl ExternalTerminalRuntime {
                 next_output_sequence: 1,
                 ..ExternalTerminalState::default()
             }),
-            no_reflow,
+            no_reflow: AtomicBool::new(no_reflow),
             scrollback,
+            provenance,
         }
     }
 
@@ -499,8 +507,9 @@ impl std::fmt::Debug for ExternalTerminalRuntime {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("ExternalTerminalRuntime")
-            .field("no_reflow", &self.no_reflow)
+            .field("no_reflow", &self.no_reflow.load(Ordering::Acquire))
             .field("scrollback", &self.scrollback)
+            .field("provenance", &self.provenance)
             .finish_non_exhaustive()
     }
 }
@@ -1125,14 +1134,26 @@ impl Surface {
     pub(crate) fn spawn_external_with_uuid(
         id: SurfaceId,
         uuid: crate::SurfaceUuid,
+        opts: SurfaceOptions,
+        no_reflow: bool,
+        mux: Weak<Mux>,
+    ) -> anyhow::Result<Arc<Surface>> {
+        Self::spawn_external_with_uuid_and_provenance(id, uuid, opts, no_reflow, None, mux)
+    }
+
+    pub(crate) fn spawn_external_with_uuid_and_provenance(
+        id: SurfaceId,
+        uuid: crate::SurfaceUuid,
         mut opts: SurfaceOptions,
         no_reflow: bool,
+        provenance: Option<ExternalTerminalProvenance>,
         mux: Weak<Mux>,
     ) -> anyhow::Result<Arc<Surface>> {
         opts.cols = opts.cols.max(1);
         opts.rows = opts.rows.max(1);
         let semantic_identity = SemanticSceneTerminalIdentity::random(uuid)?;
-        let external = Arc::new(ExternalTerminalRuntime::new(no_reflow, opts.scrollback));
+        let external =
+            Arc::new(ExternalTerminalRuntime::new(no_reflow, opts.scrollback, provenance));
         let callbacks = Callbacks {
             on_pty_write: Some(Box::new({
                 let external = external.clone();
@@ -1340,8 +1361,13 @@ impl Surface {
     pub(crate) fn external_terminal_recipe(&self) -> Option<(u16, u16, usize, bool)> {
         let pty = self.as_pty()?;
         let external = pty.external.as_ref()?;
+        let _operation = external.operation.lock().unwrap();
         let (cols, rows) = *pty.size.lock().unwrap();
-        Some((cols, rows, external.scrollback, external.no_reflow))
+        Some((cols, rows, external.scrollback, external.no_reflow.load(Ordering::Acquire)))
+    }
+
+    pub(crate) fn external_terminal_provenance(&self) -> Option<ExternalTerminalProvenance> {
+        self.as_pty()?.external.as_ref()?.provenance
     }
 
     pub(crate) fn claim_external_terminal(
@@ -1401,6 +1427,7 @@ impl Surface {
         output_generation: u64,
         cols: u16,
         rows: u16,
+        no_reflow: bool,
         seed: &[u8],
     ) -> anyhow::Result<ExternalTerminalOutputReceipt> {
         if request_id.is_nil() || output_generation == 0 || cols == 0 || rows == 0 {
@@ -1420,6 +1447,7 @@ impl Surface {
                 &output_generation.to_be_bytes(),
                 &cols.to_be_bytes(),
                 &rows.to_be_bytes(),
+                &[u8::from(no_reflow)],
                 seed,
             ],
         );
@@ -1451,10 +1479,11 @@ impl Surface {
             state.overflowed = false;
         }
 
-        let generation = {
+        let previous_no_reflow = external.no_reflow.swap(no_reflow, Ordering::AcqRel);
+        let reset_result = (|| -> anyhow::Result<u64> {
             let mut term = pty.term.lock().unwrap();
             term.reset();
-            let restore_wraparound = external.no_reflow && term.mode(7, false);
+            let restore_wraparound = no_reflow && term.mode(7, false);
             if restore_wraparound {
                 let _ = term.set_mode(7, false, false);
             }
@@ -1481,7 +1510,15 @@ impl Surface {
             *pty.pwd.lock().unwrap() = term.pwd();
             pty.accessibility_content_revision.fetch_add(1, Ordering::AcqRel);
             pty.accessibility_viewport_revision.fetch_add(1, Ordering::AcqRel);
-            pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
+            Ok(pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1)
+        })();
+        let generation = match reset_result {
+            Ok(generation) => generation,
+            Err(error) => {
+                external.no_reflow.store(previous_no_reflow, Ordering::Release);
+                external.state.lock().unwrap().requires_reset = true;
+                return Err(error);
+            }
         };
         pty.request_frame(generation);
         if !pty.dirty.swap(true, Ordering::AcqRel)
@@ -1495,6 +1532,7 @@ impl Surface {
         state.next_output_sequence = 1;
         if state.overflowed {
             state.requires_reset = true;
+            external.no_reflow.store(previous_no_reflow, Ordering::Release);
             anyhow::bail!("external terminal reset egress overflowed; another reset is required");
         }
         state.requires_reset = false;
@@ -1505,6 +1543,7 @@ impl Surface {
             output_generation,
             accepted_sequence: 0,
             next_sequence: 1,
+            no_reflow,
             egress,
             replayed: false,
         };
@@ -1594,6 +1633,7 @@ impl Surface {
             output_generation,
             accepted_sequence: sequence,
             next_sequence,
+            no_reflow: external.no_reflow.load(Ordering::Acquire),
             egress,
             replayed: false,
         };
@@ -2826,6 +2866,9 @@ impl Surface {
         let Some(browser) = self.as_browser() else {
             anyhow::bail!("PTY surface is not a browser surface");
         };
+        if browser.presentation_mode() == crate::browser::BrowserPresentationMode::FrontendNative {
+            anyhow::bail!("frontend-native browser does not expose a daemon frame stream");
+        }
         Ok(browser.attach_frames())
     }
 
@@ -3237,6 +3280,14 @@ impl PtySurface {
     /// Resize both the PTY and the terminal state. Returns whether the
     /// final clamped size actually changed.
     fn resize(&self, cols: u16, rows: u16) -> bool {
+        if let Some(external) = &self.external {
+            let _operation = external.operation.lock().unwrap();
+            return self.resize_under_external_operation(cols, rows);
+        }
+        self.resize_under_external_operation(cols, rows)
+    }
+
+    fn resize_under_external_operation(&self, cols: u16, rows: u16) -> bool {
         let (cols, rows) = (cols.max(1), rows.max(1));
         {
             let mut size = self.size.lock().unwrap();
@@ -3256,7 +3307,10 @@ impl PtySurface {
             pixel_height: 0,
         });
         // Nominal cell metrics; only pixel size reports observe these.
-        let suppress_reflow = self.external.as_ref().is_some_and(|external| external.no_reflow);
+        let suppress_reflow = self
+            .external
+            .as_ref()
+            .is_some_and(|external| external.no_reflow.load(Ordering::Acquire));
         let restore_wraparound = suppress_reflow && term.mode(7, false);
         if restore_wraparound {
             let _ = term.set_mode(7, false, false);
@@ -3459,10 +3513,12 @@ mod tests {
                 claim.required_output_generation,
                 8,
                 2,
+                true,
                 b"seed",
             )
             .unwrap();
         assert_eq!(reset.next_sequence, 1);
+        assert!(reset.no_reflow);
 
         let output_request = uuid::Uuid::from_u128(23);
         let first = surface
@@ -3533,6 +3589,7 @@ mod tests {
                 first.required_output_generation,
                 80,
                 24,
+                false,
                 b"old",
             )
             .unwrap();

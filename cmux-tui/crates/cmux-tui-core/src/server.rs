@@ -44,9 +44,13 @@ use tungstenite::protocol::frame::coding::CloseCode;
 use tungstenite::protocol::{Role, WebSocketConfig};
 use tungstenite::{Message, WebSocket, accept_with_config};
 
+use crate::browser::BrowserPresentationMode;
 use crate::connection_security::{
     ConnectionAuthorization, ConnectionPermission, ConnectionRole, RegisteredClientKind,
     TopologyMutationLease, TopologyMutationLeaseClaim,
+};
+use crate::frontend_native_browser::{
+    FrontendNativeBrowserClaimReceipt, FrontendNativeBrowserSourceReceipt,
 };
 use crate::model::{Screen, State};
 use crate::mux::{
@@ -56,8 +60,13 @@ use crate::mux::{
 };
 use crate::platform::{self, transport};
 use crate::presentation::normalize_presentation;
+use crate::private_runtime::ConnectionPrivateOwner;
 use crate::projection_state::{
     ProjectionClaimant, ProjectionStateUpdate, ProjectionWorkspaceState,
+};
+use crate::remote_tmux_producer::{
+    ExternalTerminalProvenance, RemoteTmuxProducerClaimReceipt, RemoteTmuxProducerSource,
+    RemoteTmuxProducerSourceUpdateReceipt,
 };
 use crate::renderer_control::{RendererColorSpace, RendererFrameRelease, RendererPixelFormat};
 use crate::surface::{
@@ -81,18 +90,20 @@ use crate::{
     WorkspaceUuid, ZoomMode, assign_short_ids,
 };
 
-pub const PROTOCOL_VERSION: u32 = 8;
+pub const PROTOCOL_VERSION: u32 = 9;
 pub const PROTOCOL_MIN_VERSION: u32 = 6;
 pub const PROTOCOL_MAX_VERSION: u32 = 9;
 pub const PROTOCOL_CAPABILITIES: &[&str] = &[
     "durable-session-identity-v1",
     "ensure-terminal-v1",
     "ensure-terminals-v1",
+    "frontend-native-browser-v1",
     "reparent-terminal-v1",
     "canonical-topology-mutations-v1",
     "canonical-topology-snapshot-v1",
     "presentation-registry-v1",
     "projection-state-reconnect-v1",
+    "remote-tmux-producer-source-v1",
     "renderer-semantic-scene-v1",
     "renderer-worker-supervision-v1",
     "render-attach-v1",
@@ -969,6 +980,19 @@ enum Command {
         rows: u16,
         #[serde(default)]
         no_reflow: bool,
+        provenance: ExternalTerminalProvenance,
+    },
+    CanonicalNewExternalWorkspace {
+        #[serde(flatten)]
+        mutation: CanonicalMutationWire,
+        workspace_uuid: WorkspaceUuid,
+        surface_uuid: SurfaceUuid,
+        cols: u16,
+        rows: u16,
+        #[serde(default)]
+        no_reflow: bool,
+        provenance: ExternalTerminalProvenance,
+        producer_source: RemoteTmuxProducerSource,
     },
     CanonicalNewBrowserWorkspace {
         #[serde(flatten)]
@@ -978,6 +1002,8 @@ enum Command {
         #[serde(default)]
         name: Option<String>,
         url: String,
+        #[serde(default)]
+        transport: Option<String>,
         #[serde(default)]
         cols: Option<u16>,
         #[serde(default)]
@@ -989,6 +1015,8 @@ enum Command {
         pane_uuid: crate::PaneUuid,
         surface_uuid: SurfaceUuid,
         url: String,
+        #[serde(default)]
+        transport: Option<String>,
         #[serde(default)]
         cols: Option<u16>,
         #[serde(default)]
@@ -1002,6 +1030,8 @@ enum Command {
         dir: String,
         ratio: f32,
         url: String,
+        #[serde(default)]
+        transport: Option<String>,
         #[serde(default)]
         cols: Option<u16>,
         #[serde(default)]
@@ -1018,7 +1048,33 @@ enum Command {
         output_generation: u64,
         cols: u16,
         rows: u16,
+        #[serde(default)]
+        no_reflow: bool,
         seed: String,
+    },
+    ClaimFrontendNativeBrowser {
+        surface_uuid: SurfaceUuid,
+        request_id: uuid::Uuid,
+        #[serde(default)]
+        source_url: Option<String>,
+    },
+    UpdateFrontendNativeBrowserSource {
+        surface_uuid: SurfaceUuid,
+        owner_generation: u64,
+        request_id: uuid::Uuid,
+        source_url: String,
+    },
+    ClaimRemoteTmuxProducerSource {
+        producer_id: uuid::Uuid,
+        request_id: uuid::Uuid,
+        #[serde(default)]
+        source: Option<RemoteTmuxProducerSource>,
+    },
+    UpdateRemoteTmuxProducerSource {
+        producer_id: uuid::Uuid,
+        owner_generation: u64,
+        request_id: uuid::Uuid,
+        source: RemoteTmuxProducerSource,
     },
     ExternalTerminalOutput {
         surface_uuid: SurfaceUuid,
@@ -1068,6 +1124,11 @@ enum Command {
         #[serde(flatten)]
         mutation: CanonicalMutationWire,
         pane_uuid: crate::PaneUuid,
+    },
+    CanonicalCloseSurface {
+        #[serde(flatten)]
+        mutation: CanonicalMutationWire,
+        surface_uuid: SurfaceUuid,
     },
     CanonicalCloseWorkspace {
         #[serde(flatten)]
@@ -1299,12 +1360,14 @@ impl Command {
             | Self::CanonicalMaterializeTerminal { mutation, .. }
             | Self::CanonicalRespawnTerminal { mutation, .. }
             | Self::CanonicalMaterializeExternalTerminal { mutation, .. }
+            | Self::CanonicalNewExternalWorkspace { mutation, .. }
             | Self::CanonicalNewBrowserWorkspace { mutation, .. }
             | Self::CanonicalNewBrowserTab { mutation, .. }
             | Self::CanonicalSplitBrowserPane { mutation, .. }
             | Self::CanonicalSplitPane { mutation, .. }
             | Self::CanonicalSplitTab { mutation, .. }
             | Self::CanonicalClosePane { mutation, .. }
+            | Self::CanonicalCloseSurface { mutation, .. }
             | Self::CanonicalCloseWorkspace { mutation, .. }
             | Self::CanonicalRenameWorkspace { mutation, .. }
             | Self::CanonicalRenameSurface { mutation, .. }
@@ -1594,11 +1657,16 @@ fn command_admission_policy(command: &str) -> CommandAdmissionPolicy {
         | "canonical-materialize-terminal"
         | "canonical-respawn-terminal"
         | "canonical-materialize-external-terminal"
+        | "canonical-new-external-workspace"
         | "canonical-new-browser-workspace"
         | "canonical-new-browser-tab"
         | "canonical-split-browser-pane"
         | "reset-external-terminal"
         | "external-terminal-output"
+        | "claim-frontend-native-browser"
+        | "update-frontend-native-browser-source"
+        | "claim-remote-tmux-producer-source"
+        | "update-remote-tmux-producer-source"
         | "canonical-split-pane"
         | "update-projection-state"
         | "update-projection-states"
@@ -1647,12 +1715,14 @@ fn command_admission_policy(command: &str) -> CommandAdmissionPolicy {
             | "canonical-materialize-terminal"
             | "canonical-respawn-terminal"
             | "canonical-materialize-external-terminal"
+            | "canonical-new-external-workspace"
             | "canonical-new-browser-workspace"
             | "canonical-new-browser-tab"
             | "canonical-split-browser-pane"
             | "canonical-split-pane"
             | "canonical-split-tab"
             | "canonical-close-pane"
+            | "canonical-close-surface"
             | "canonical-close-workspace"
             | "canonical-rename-workspace"
             | "canonical-rename-surface"
@@ -1760,6 +1830,10 @@ fn command_admission_policy(command: &str) -> CommandAdmissionPolicy {
             | "reset-external-terminal"
             | "external-terminal-output"
             | "drain-external-terminal-egress"
+            | "claim-frontend-native-browser"
+            | "update-frontend-native-browser-source"
+            | "claim-remote-tmux-producer-source"
+            | "update-remote-tmux-producer-source"
     ) {
         policy.permission = Some(ConnectionPermission::Frontend);
     }
@@ -1771,12 +1845,14 @@ fn command_admission_policy(command: &str) -> CommandAdmissionPolicy {
             | "canonical-materialize-terminal"
             | "canonical-respawn-terminal"
             | "canonical-materialize-external-terminal"
+            | "canonical-new-external-workspace"
             | "canonical-new-browser-workspace"
             | "canonical-new-browser-tab"
             | "canonical-split-browser-pane"
             | "canonical-split-pane"
             | "canonical-split-tab"
             | "canonical-close-pane"
+            | "canonical-close-surface"
             | "canonical-close-workspace"
             | "canonical-rename-workspace"
             | "canonical-rename-surface"
@@ -1813,6 +1889,10 @@ fn command_admission_policy(command: &str) -> CommandAdmissionPolicy {
             | "reset-external-terminal"
             | "external-terminal-output"
             | "drain-external-terminal-egress"
+            | "claim-frontend-native-browser"
+            | "update-frontend-native-browser-source"
+            | "claim-remote-tmux-producer-source"
+            | "update-remote-tmux-producer-source"
             | "acknowledge-terminal-request"
             | "terminal-activity-snapshot"
             | "mark-terminal-seen"
@@ -3487,6 +3567,7 @@ fn disconnect_client(mux: &Mux, client: u64, send_detached: bool) -> bool {
     };
     mux.terminal_authority.revoke_connection(client);
     mux.projection_states.release_connection(record.connection_id);
+    mux.release_private_runtime_connection(client);
     for presentation_id in mux.presentations.remove_client(client) {
         let _ = mux.remove_renderer_presentation(presentation_id);
     }
@@ -3759,9 +3840,28 @@ fn canonical_surface_placement_json(placement: CanonicalSurfacePlacement) -> Val
 }
 
 fn external_terminal_owner(mux: &Mux, client: u64) -> anyhow::Result<ExternalTerminalOwner> {
+    let owner = private_runtime_owner(mux, client)?;
+    Ok(ExternalTerminalOwner {
+        client_uuid: owner.client_uuid,
+        process_instance_uuid: owner.process_instance_uuid,
+        connection_id: owner.connection_id,
+    })
+}
+
+fn private_runtime_owner(mux: &Mux, client: u64) -> anyhow::Result<ConnectionPrivateOwner> {
     let (client_uuid, process_instance_uuid, _) =
         mux.control_clients.protocol_identity(client, 9)?;
-    Ok(ExternalTerminalOwner { client_uuid, process_instance_uuid, connection_id: client })
+    Ok(ConnectionPrivateOwner { client_uuid, process_instance_uuid, connection_id: client })
+}
+
+fn parse_browser_presentation_transport(
+    transport: Option<&str>,
+) -> anyhow::Result<BrowserPresentationMode> {
+    match transport {
+        None | Some("cmuxd-png-frame-stream-v1") => Ok(BrowserPresentationMode::DaemonRendered),
+        Some("frontend-native-v1") => Ok(BrowserPresentationMode::FrontendNative),
+        Some(_) => anyhow::bail!("unsupported canonical browser transport"),
+    }
 }
 
 fn decode_external_terminal_payload(field: &str, encoded: &str) -> anyhow::Result<Vec<u8>> {
@@ -3795,7 +3895,65 @@ fn external_terminal_output_json(receipt: ExternalTerminalOutputReceipt) -> Valu
         "output_generation": receipt.output_generation,
         "accepted_sequence": receipt.accepted_sequence,
         "next_sequence": receipt.next_sequence,
+        "no_reflow": receipt.no_reflow,
         "egress": base64::engine::general_purpose::STANDARD.encode(receipt.egress),
+        "replayed": receipt.replayed,
+    })
+}
+
+fn frontend_native_browser_claim_json(
+    mux: &Mux,
+    surface_uuid: SurfaceUuid,
+    receipt: FrontendNativeBrowserClaimReceipt,
+) -> Value {
+    json!({
+        "request_id": receipt.request_id,
+        "daemon_instance_id": mux.daemon_instance_id,
+        "session_id": mux.session_id,
+        "surface_uuid": surface_uuid,
+        "owner_generation": receipt.owner_generation,
+        "source_url": receipt.source_url,
+        "replayed": receipt.replayed,
+    })
+}
+
+fn frontend_native_browser_source_json(
+    mux: &Mux,
+    surface_uuid: SurfaceUuid,
+    receipt: FrontendNativeBrowserSourceReceipt,
+) -> Value {
+    json!({
+        "request_id": receipt.request_id,
+        "daemon_instance_id": mux.daemon_instance_id,
+        "session_id": mux.session_id,
+        "surface_uuid": surface_uuid,
+        "owner_generation": receipt.owner_generation,
+        "replayed": receipt.replayed,
+    })
+}
+
+fn remote_tmux_producer_claim_json(mux: &Mux, receipt: RemoteTmuxProducerClaimReceipt) -> Value {
+    json!({
+        "request_id": receipt.request_id,
+        "daemon_instance_id": mux.daemon_instance_id,
+        "session_id": mux.session_id,
+        "producer_id": receipt.producer_id,
+        "owner_generation": receipt.owner_generation,
+        "source": receipt.source,
+        "replayed": receipt.replayed,
+    })
+}
+
+fn remote_tmux_producer_source_json(
+    mux: &Mux,
+    receipt: RemoteTmuxProducerSourceUpdateReceipt,
+) -> Value {
+    json!({
+        "request_id": receipt.request_id,
+        "daemon_instance_id": mux.daemon_instance_id,
+        "session_id": mux.session_id,
+        "producer_id": receipt.producer_id,
+        "owner_generation": receipt.owner_generation,
         "replayed": receipt.replayed,
     })
 }
@@ -7090,12 +7248,32 @@ fn handle_command(
             cols,
             rows,
             no_reflow,
+            provenance,
         } => Ok(canonical_surface_placement_json(mux.canonical_materialize_external_terminal(
             mutation.into(),
             workspace_uuid,
             surface_uuid,
             (cols, rows),
             no_reflow,
+            provenance,
+        )?)),
+        Command::CanonicalNewExternalWorkspace {
+            mutation,
+            workspace_uuid,
+            surface_uuid,
+            cols,
+            rows,
+            no_reflow,
+            provenance,
+            producer_source,
+        } => Ok(canonical_surface_placement_json(mux.canonical_new_external_workspace(
+            mutation.into(),
+            workspace_uuid,
+            surface_uuid,
+            (cols, rows),
+            no_reflow,
+            provenance,
+            producer_source,
         )?)),
         Command::CanonicalNewBrowserWorkspace {
             mutation,
@@ -7103,23 +7281,36 @@ fn handle_command(
             surface_uuid,
             name,
             url,
+            transport,
             cols,
             rows,
-        } => Ok(canonical_surface_placement_json(mux.canonical_new_browser_workspace(
-            mutation.into(),
-            workspace_uuid,
+        } => Ok(canonical_surface_placement_json(
+            mux.canonical_new_browser_workspace_with_presentation(
+                mutation.into(),
+                workspace_uuid,
+                surface_uuid,
+                name,
+                url,
+                optional_surface_size(cols, rows),
+                parse_browser_presentation_transport(transport.as_deref())?,
+            )?,
+        )),
+        Command::CanonicalNewBrowserTab {
+            mutation,
+            pane_uuid,
             surface_uuid,
-            name,
             url,
-            optional_surface_size(cols, rows),
-        )?)),
-        Command::CanonicalNewBrowserTab { mutation, pane_uuid, surface_uuid, url, cols, rows } => {
-            Ok(canonical_surface_placement_json(mux.canonical_new_browser_tab(
+            transport,
+            cols,
+            rows,
+        } => {
+            Ok(canonical_surface_placement_json(mux.canonical_new_browser_tab_with_presentation(
                 mutation.into(),
                 pane_uuid,
                 surface_uuid,
                 url,
                 optional_surface_size(cols, rows),
+                parse_browser_presentation_transport(transport.as_deref())?,
             )?))
         }
         Command::CanonicalSplitBrowserPane {
@@ -7129,20 +7320,24 @@ fn handle_command(
             dir,
             ratio,
             url,
+            transport,
             cols,
             rows,
         } => {
             let (split_dir, insert_first) = parse_canonical_split_edge(&dir)?;
-            Ok(canonical_surface_placement_json(mux.canonical_split_browser_pane(
-                mutation.into(),
-                pane_uuid,
-                surface_uuid,
-                split_dir,
-                insert_first,
-                ratio,
-                url,
-                optional_surface_size(cols, rows),
-            )?))
+            Ok(canonical_surface_placement_json(
+                mux.canonical_split_browser_pane_with_presentation(
+                    mutation.into(),
+                    pane_uuid,
+                    surface_uuid,
+                    split_dir,
+                    insert_first,
+                    ratio,
+                    url,
+                    optional_surface_size(cols, rows),
+                    parse_browser_presentation_transport(transport.as_deref())?,
+                )?,
+            ))
         }
         Command::ClaimExternalTerminal { surface_uuid, request_id } => {
             let _client_lifecycle = mux.control_clients.read_lifecycle();
@@ -7159,6 +7354,7 @@ fn handle_command(
             output_generation,
             cols,
             rows,
+            no_reflow,
             seed,
         } => {
             let _client_lifecycle = mux.control_clients.read_lifecycle();
@@ -7171,8 +7367,71 @@ fn handle_command(
                 output_generation,
                 cols,
                 rows,
+                no_reflow,
                 &seed,
             )?))
+        }
+        Command::ClaimFrontendNativeBrowser { surface_uuid, request_id, source_url } => {
+            let _client_lifecycle = mux.control_clients.read_lifecycle();
+            Ok(frontend_native_browser_claim_json(
+                mux,
+                surface_uuid,
+                mux.claim_frontend_native_browser(
+                    surface_uuid,
+                    private_runtime_owner(mux, client)?,
+                    request_id,
+                    source_url.as_deref(),
+                )?,
+            ))
+        }
+        Command::UpdateFrontendNativeBrowserSource {
+            surface_uuid,
+            owner_generation,
+            request_id,
+            source_url,
+        } => {
+            let _client_lifecycle = mux.control_clients.read_lifecycle();
+            Ok(frontend_native_browser_source_json(
+                mux,
+                surface_uuid,
+                mux.update_frontend_native_browser_source(
+                    surface_uuid,
+                    private_runtime_owner(mux, client)?,
+                    owner_generation,
+                    request_id,
+                    &source_url,
+                )?,
+            ))
+        }
+        Command::ClaimRemoteTmuxProducerSource { producer_id, request_id, source } => {
+            let _client_lifecycle = mux.control_clients.read_lifecycle();
+            Ok(remote_tmux_producer_claim_json(
+                mux,
+                mux.claim_remote_tmux_producer_source(
+                    producer_id,
+                    private_runtime_owner(mux, client)?,
+                    request_id,
+                    source.as_ref(),
+                )?,
+            ))
+        }
+        Command::UpdateRemoteTmuxProducerSource {
+            producer_id,
+            owner_generation,
+            request_id,
+            source,
+        } => {
+            let _client_lifecycle = mux.control_clients.read_lifecycle();
+            Ok(remote_tmux_producer_source_json(
+                mux,
+                mux.update_remote_tmux_producer_source(
+                    producer_id,
+                    private_runtime_owner(mux, client)?,
+                    owner_generation,
+                    request_id,
+                    &source,
+                )?,
+            ))
         }
         Command::ExternalTerminalOutput {
             surface_uuid,
@@ -7247,6 +7506,11 @@ fn handle_command(
         Command::CanonicalClosePane { mutation, pane_uuid } => Ok(canonical_mutation_receipt_json(
             mux.canonical_close_pane(mutation.into(), pane_uuid)?,
         )),
+        Command::CanonicalCloseSurface { mutation, surface_uuid } => {
+            Ok(canonical_mutation_receipt_json(
+                mux.canonical_close_surface(mutation.into(), surface_uuid)?,
+            ))
+        }
         Command::CanonicalCloseWorkspace { mutation, workspace_uuid } => {
             Ok(canonical_mutation_receipt_json(
                 mux.canonical_close_workspace(mutation.into(), workspace_uuid)?,
@@ -8657,13 +8921,9 @@ mod tests {
     #[test]
     fn external_terminal_wire_has_no_child_and_fences_owner_generation_and_sequence() {
         let mux = test_mux();
-        mux.new_workspace(Some("remote".into()), Some((80, 24))).unwrap();
-        let workspace_uuid = mux.topology_snapshot().topology["workspaces"][0]["uuid"]
-            .as_str()
-            .unwrap()
-            .parse::<WorkspaceUuid>()
-            .unwrap();
+        let workspace_uuid = WorkspaceUuid::new();
         let surface_uuid = SurfaceUuid::new();
+        let producer_id = uuid::Uuid::new_v4();
         let request_id = uuid::Uuid::new_v4();
         let (writer, outbound) = test_writer_and_outbound();
         let (client, _, registration) =
@@ -8672,7 +8932,7 @@ mod tests {
         let base_revision = mux.canonical_topology_revision();
         let materialize = json!({
             "id": 51,
-            "cmd": "canonical-materialize-external-terminal",
+            "cmd": "canonical-new-external-workspace",
             "request_id": request_id,
             "daemon_instance_id": mux.daemon_instance_id,
             "session_id": mux.session_id,
@@ -8684,6 +8944,20 @@ mod tests {
             "cols": 80,
             "rows": 24,
             "no_reflow": true,
+            "provenance": {
+                "producer_kind": "remote-tmux",
+                "producer_id": producer_id,
+                "tmux_session_id": 7,
+                "tmux_window_id": 11,
+                "tmux_pane_id": 13,
+                "presentation_role": "workspace-tab",
+            },
+            "producer_source": {
+                "destination": "agent@private.invalid",
+                "port": 2222,
+                "identity_file": "/private/key",
+                "session_name": "agents",
+            },
         })
         .to_string();
         assert!(handle_message(&mux, client, &materialize, &writer));
@@ -8729,6 +9003,7 @@ mod tests {
                 "output_generation": output_generation,
                 "cols": 80,
                 "rows": 24,
+                "no_reflow": true,
                 "seed": base64::engine::general_purpose::STANDARD.encode(b"seed"),
             })
             .to_string(),
@@ -8737,6 +9012,7 @@ mod tests {
         let reset: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
         assert_eq!(reset["data"]["accepted_sequence"], 0);
         assert_eq!(reset["data"]["next_sequence"], 1);
+        assert_eq!(reset["data"]["no_reflow"], true);
 
         let output_request = uuid::Uuid::new_v4();
         let output = json!({

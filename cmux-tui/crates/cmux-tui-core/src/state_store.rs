@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::remote_tmux_producer::ExternalTerminalProvenance;
 use crate::terminal_activity::{
     LEGACY_TERMINAL_ACTIVITY_READER_UUID, MAX_TERMINAL_ACTIVITY_FACTS,
     MAX_TERMINAL_ACTIVITY_READERS, MAX_TERMINAL_ACTIVITY_STABLE_RECEIPTS,
@@ -248,6 +249,15 @@ pub(crate) struct PersistedSurface {
     pub kind: PersistedSurfaceKind,
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum PersistedBrowserPresentationMode {
+    /// Historical browser records omitted presentation mode and used cmuxd CDP rendering.
+    #[default]
+    DaemonRendered,
+    FrontendNative,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub(crate) enum PersistedSurfaceKind {
@@ -262,10 +272,15 @@ pub(crate) enum PersistedSurfaceKind {
         rows: u16,
         scrollback: usize,
         no_reflow: bool,
+        #[serde(default)]
+        provenance: Option<ExternalTerminalProvenance>,
     },
     /// Browser placement is durable, but its URL and engine state are not.
     /// URLs may contain bearer credentials, query secrets, and private data.
-    Browser,
+    Browser {
+        #[serde(default)]
+        presentation: PersistedBrowserPresentationMode,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1322,15 +1337,23 @@ fn validate_snapshot(path: &Path, state: &PersistedSessionState) -> Result<(), S
             PersistedSurfaceKind::Terminal { launch } => {
                 validate_launch_recipe(path, launch)?;
             }
-            PersistedSurfaceKind::ExternalTerminal { cols, rows, scrollback, .. } => {
+            PersistedSurfaceKind::ExternalTerminal {
+                cols, rows, scrollback, provenance, ..
+            } => {
                 if *cols == 0 || *rows == 0 || *scrollback > 10_000_000 {
                     return Err(StateStoreError::corrupt(
                         path,
                         "invalid persisted external terminal recipe",
                     ));
                 }
+                if provenance.is_some_and(|provenance| provenance.validate().is_err()) {
+                    return Err(StateStoreError::corrupt(
+                        path,
+                        "invalid persisted external terminal provenance",
+                    ));
+                }
             }
-            PersistedSurfaceKind::Browser => {}
+            PersistedSurfaceKind::Browser { .. } => {}
         }
     }
     if surface_ids != referenced_surfaces {
@@ -1871,6 +1894,26 @@ mod tests {
             panes: Vec::new(),
             surfaces: Vec::new(),
         }
+    }
+
+    #[test]
+    fn browser_presentation_mode_decodes_legacy_records_and_round_trips_native() {
+        let legacy: PersistedSurfaceKind =
+            serde_json::from_value(serde_json::json!({ "kind": "browser" })).unwrap();
+        assert_eq!(
+            legacy,
+            PersistedSurfaceKind::Browser {
+                presentation: PersistedBrowserPresentationMode::DaemonRendered,
+            }
+        );
+
+        let native = PersistedSurfaceKind::Browser {
+            presentation: PersistedBrowserPresentationMode::FrontendNative,
+        };
+        let encoded = serde_json::to_value(&native).unwrap();
+        assert_eq!(encoded["kind"], "browser");
+        assert_eq!(encoded["presentation"], "frontend-native");
+        assert_eq!(serde_json::from_value::<PersistedSurfaceKind>(encoded).unwrap(), native);
     }
 
     fn state_with_terminal(session_id: SessionId) -> (PersistedSessionState, SurfaceUuid) {

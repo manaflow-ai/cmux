@@ -20,6 +20,24 @@ pub enum BrowserSource {
     Launched,
 }
 
+/// Selects which process owns browser rendering for a durable placement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BrowserPresentationMode {
+    /// cmuxd owns CDP, screencast capture, and the PNG frame stream.
+    DaemonRendered,
+    /// A trusted native frontend owns WebKit and receives only a private URL lease.
+    FrontendNative,
+}
+
+impl BrowserPresentationMode {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::DaemonRendered => "daemon-rendered",
+            Self::FrontendNative => "frontend-native",
+        }
+    }
+}
+
 impl BrowserSource {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -334,6 +352,7 @@ fn fail_surface_route(state: &mut SurfaceRouteState, reason: &str) {
 
 pub struct BrowserSurface {
     pub(crate) meta: SurfaceMeta,
+    presentation_mode: BrowserPresentationMode,
     session: Mutex<Option<BrowserSession>>,
     state: Mutex<BrowserState>,
     dirty: AtomicBool,
@@ -556,6 +575,7 @@ pub(crate) fn new_surface_with_uuid(
     let worker_done_tx = None;
     let surface = Arc::new(Surface::Browser(BrowserSurface {
         meta: SurfaceMeta { id, uuid, name: Mutex::new(None), selection: Mutex::new(None) },
+        presentation_mode: BrowserPresentationMode::DaemonRendered,
         session: Mutex::new(None),
         state: Mutex::new(BrowserState {
             latest_frame: None,
@@ -589,6 +609,60 @@ pub(crate) fn new_surface_with_uuid(
     }));
     start_browser_worker(surface.clone(), command_rx, latest_nav, mux, worker_done_tx);
     surface
+}
+
+/// Creates a browser placement whose renderer lives entirely in the native frontend.
+///
+/// This path intentionally starts no worker, Chrome process, CDP connection, or frame
+/// capture. Its source remains in the private frontend-native registry, never here.
+pub(crate) fn new_frontend_native_surface_with_uuid(
+    id: SurfaceId,
+    uuid: crate::SurfaceUuid,
+    size: (u16, u16),
+    cell_pixels: (u16, u16),
+    opts: &SurfaceOptions,
+) -> Arc<Surface> {
+    let (cols, rows) = (size.0.max(1), size.1.max(1));
+    let (cell_w, cell_h) = (cell_pixels.0.max(1), cell_pixels.1.max(1));
+    let pixel_w = cols as u32 * cell_w as u32;
+    let pixel_h = rows as u32 * cell_h as u32;
+    let capture_options = BrowserCaptureOptions::from_options(opts);
+    let capture_scale = capture_scale_for(pixel_w, pixel_h, capture_options);
+    let capture_pixels = scaled_pixels(pixel_w, pixel_h, capture_scale);
+    Arc::new(Surface::Browser(BrowserSurface {
+        meta: SurfaceMeta { id, uuid, name: Mutex::new(None), selection: Mutex::new(None) },
+        presentation_mode: BrowserPresentationMode::FrontendNative,
+        session: Mutex::new(None),
+        state: Mutex::new(BrowserState {
+            latest_frame: None,
+            taps: Vec::new(),
+            title: "Browser".to_string(),
+            url: String::new(),
+            size: (cols, rows),
+            pane_pixels: (pixel_w, pixel_h),
+            capture_pixels,
+            capture_scale,
+            pending_reconfigures: VecDeque::new(),
+            next_reconfigure_id: 1,
+            reconfigure_failure: None,
+            page_viewport: None,
+            status: BrowserStatus::Live,
+            source: None,
+            next_frame_seq: 1,
+            live_since: None,
+            last_frame_at: None,
+            stall_nudged: false,
+            not_responding_reported: false,
+        }),
+        dirty: AtomicBool::new(true),
+        dead: AtomicBool::new(false),
+        cell_pixels: Mutex::new((cell_w, cell_h)),
+        capture_options,
+        command_tx: Mutex::new(None),
+        latest_nav: Arc::new(Mutex::new(None)),
+        #[cfg(test)]
+        worker_done: Mutex::new(None),
+    }))
 }
 
 impl BrowserCaptureOptions {
@@ -1099,6 +1173,10 @@ fn emit_browser_failure(mux: &Weak<Mux>, id: SurfaceId, message: String) {
 }
 
 impl BrowserSurface {
+    pub fn presentation_mode(&self) -> BrowserPresentationMode {
+        self.presentation_mode
+    }
+
     pub fn latest_frame(&self) -> Option<BrowserFrame> {
         let state = self.state.lock().unwrap();
         if matches!(state.status, BrowserStatus::Failed(_)) {
@@ -1171,6 +1249,9 @@ impl BrowserSurface {
         rows: u16,
         report: Box<dyn FnOnce(Option<u64>) + Send>,
     ) -> anyhow::Result<Option<u64>> {
+        if self.presentation_mode == BrowserPresentationMode::FrontendNative {
+            return Ok(self.resize_frontend_native(cols, rows, report));
+        }
         let (cols, rows) = (cols.max(1), rows.max(1));
         let Some(queued) = self.reserve_reconfigure(cols, rows) else {
             report(None);
@@ -1178,6 +1259,32 @@ impl BrowserSurface {
         };
         self.enqueue_reconfigure(BrowserCommand::Reconfigure { queued, report: Some(report) })?;
         Ok(Some(queued.id))
+    }
+
+    fn resize_frontend_native(
+        &self,
+        cols: u16,
+        rows: u16,
+        report: Box<dyn FnOnce(Option<u64>) + Send>,
+    ) -> Option<u64> {
+        let geometry = self.resize_geometry(cols, rows);
+        let reservation_id = {
+            let mut state = self.state.lock().unwrap();
+            if browser_geometry_locked(&state) == geometry {
+                None
+            } else {
+                let reservation_id = state.next_reconfigure_id;
+                state.next_reconfigure_id = state.next_reconfigure_id.wrapping_add(1).max(1);
+                state.size = geometry.size;
+                state.pane_pixels = geometry.pane_pixels;
+                state.capture_pixels = geometry.capture_pixels;
+                state.capture_scale = geometry.capture_scale;
+                self.dirty.store(true, Ordering::Release);
+                Some(reservation_id)
+            }
+        };
+        report(reservation_id);
+        reservation_id
     }
 
     fn reconfigure_reserved_blocking(&self, queued: QueuedBrowserGeometry) -> anyhow::Result<()> {
@@ -1975,9 +2082,9 @@ fn percent_encode_query(input: &str) -> String {
 mod tests {
     use super::{
         BROWSER_COMMAND_QUEUE_CAPACITY, BrowserCaptureOptions, BrowserCommand, BrowserFrame,
-        BrowserSession, BrowserSource, BrowserStatus, capture_scale_for, new_surface,
-        normalize_url, runtime_endpoint, scaled_pixels, start_surface_thread,
-        take_latest_worker_commands,
+        BrowserPresentationMode, BrowserSession, BrowserSource, BrowserStatus, capture_scale_for,
+        new_frontend_native_surface_with_uuid, new_surface, normalize_url, runtime_endpoint,
+        scaled_pixels, start_surface_thread, take_latest_worker_commands,
     };
     use crate::{Mux, MuxEvent, Surface, SurfaceOptions};
     use serde_json::{Value, json};
@@ -2073,6 +2180,43 @@ mod tests {
     fn test_surface() -> Arc<Surface> {
         let opts = SurfaceOptions::default();
         new_surface(1, "https://example.test".into(), (10, 5), (8, 16), &opts, Weak::new())
+    }
+
+    #[test]
+    fn frontend_native_surface_starts_no_worker_or_private_source_state() {
+        let surface = new_frontend_native_surface_with_uuid(
+            77,
+            crate::SurfaceUuid::new(),
+            (10, 5),
+            (8, 16),
+            &SurfaceOptions::default(),
+        );
+        let browser = surface.as_browser().expect("browser surface");
+        assert_eq!(browser.presentation_mode(), BrowserPresentationMode::FrontendNative);
+        assert_eq!(browser.title(), "Browser");
+        assert_eq!(browser.url(), "");
+        assert_eq!(browser.status(), BrowserStatus::Live);
+        assert_eq!(browser.source(), None);
+        assert!(browser.session.lock().unwrap().is_none());
+        assert!(browser.command_tx.lock().unwrap().is_none());
+        assert!(browser.worker_done.lock().unwrap().is_none());
+
+        let reports = Arc::new(Mutex::new(Vec::new()));
+        let report_sink = reports.clone();
+        let callback_surface = surface.clone();
+        let accepted = browser
+            .resize_reporting_acceptance(
+                12,
+                6,
+                Box::new(move |reservation| {
+                    let size = callback_surface.as_browser().expect("browser surface").size();
+                    report_sink.lock().unwrap().push((reservation, size));
+                }),
+            )
+            .unwrap();
+        assert!(accepted.is_some());
+        assert_eq!(browser.size(), (12, 6));
+        assert_eq!(&*reports.lock().unwrap(), &[(accepted, (12, 6))]);
     }
 
     fn read_ws_json(ws: &mut tungstenite::WebSocket<TcpStream>) -> Value {
