@@ -17,6 +17,9 @@ final class RemoteTmuxControlConnection {
     /// The tmux session name this connection attaches to. Mutable because a
     /// `rename-session` changes it (the underlying `$id` is stable).
     private(set) var sessionName: String
+    /// Stable attach target used for daemon-restored mirrors. `$N` survives a
+    /// remote rename while the human-readable session name does not.
+    private let attachTarget: String?
 
     /// Updates the tracked session name after a `rename-session`.
     func setSessionName(_ name: String) { sessionName = name }
@@ -56,6 +59,10 @@ final class RemoteTmuxControlConnection {
     var activePaneByWindow: [Int: Int] = [:]
     var paneOutputByteCounts: [Int: Int] = [:]
     var totalOutputBytes = 0
+    /// Capture/state transactions waiting to become one atomic parser reset seed.
+    /// A queue is required because resize repair may enqueue another capture for
+    /// the same pane before the first command triplet has completed.
+    var pendingPaneSeeds: [Int: [RemoteTmuxPendingPaneSeed]] = [:]
     /// Per-pane header-strip labels: the pane's EXPANDED `pane-border-format`
     /// (style tokens stripped) — exactly the text a native tmux client draws
     /// in that pane's header, custom formats included. Seeded by the
@@ -290,10 +297,16 @@ final class RemoteTmuxControlConnection {
     static let altScreenEnterSequence = Data("\u{1b}[?1049h".utf8)
     static let altScreenExitSequence = Data("\u{1b}[?1049l".utf8)
 
-    init(host: RemoteTmuxHost, sessionName: String, createIfMissing: Bool = false) {
+    init(
+        host: RemoteTmuxHost,
+        sessionName: String,
+        createIfMissing: Bool = false,
+        attachTarget: String? = nil
+    ) {
         self.host = host
         self.sessionName = sessionName
         self.createIfMissing = createIfMissing
+        self.attachTarget = attachTarget
     }
 
     /// Spawns the SSH `tmux -CC` process and begins streaming.
@@ -363,6 +376,7 @@ final class RemoteTmuxControlConnection {
         #endif
         parser = RemoteTmuxControlStreamParser()
         pendingCommands.removeAll()
+        discardPendingPaneSeeds()
         resetWindowListRequestCoalescing()
         windowReorderBatchFailed = false
         windowReorderRecoveryGeneration = nil
@@ -383,7 +397,7 @@ final class RemoteTmuxControlConnection {
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: RemoteTmuxHost.defaultSSHExecutablePath())
         proc.arguments = host.controlModeArguments(
-            sessionName: sessionName,
+            sessionName: attachTarget ?? sessionName,
             createIfMissing: createIfMissing
         )
         let inPipe = Pipe(), outPipe = Pipe(), errPipe = Pipe()
@@ -502,6 +516,7 @@ final class RemoteTmuxControlConnection {
     /// kick) and the deferred post-attach work. Shared by deliberate teardown
     /// (``stop()``) and a genuine remote end (`%exit`).
     private func cancelScheduledWork() {
+        discardPendingPaneSeeds()
         failPendingActivityQueries()
         failPendingNewWindowRequests()
         failPendingWindowReorderVerifications()
@@ -676,6 +691,7 @@ final class RemoteTmuxControlConnection {
     func beginReconnecting() {
         guard connectionState == .connected || connectionState == .connecting else { return }
         record("reconnecting")
+        discardPendingPaneSeeds()
         // The stream is dead: a close decision awaiting an activity query must
         // not hang for the whole backoff window — fail it onto the cache now.
         failPendingActivityQueries()
@@ -777,7 +793,9 @@ final class RemoteTmuxControlConnection {
         case let .output(paneId, data):
             paneOutputByteCounts[paneId, default: 0] += data.count
             totalOutputBytes += data.count
-            observers.emitPaneOutput(paneId, data)
+            if !absorbPaneOutputIntoPendingSeed(paneId: paneId, data: data) {
+                observers.emitPaneOutput(paneId, data)
+            }
         case let .sessionChanged(id, name):
             // An attached-session SWITCH: the window set changes with it, so
             // re-fetch the topology.

@@ -10,6 +10,7 @@ import CmuxTerminal
 import struct CmuxTerminalBackend.BackendTerminalLaunch
 import enum CmuxTerminalBackend.BackendSplitDirection
 import struct CmuxTerminalBackend.SurfaceID
+import struct CmuxTerminalBackend.CanonicalExternalTerminalProvenance
 import SwiftUI
 import AppKit
 import CmuxFoundation
@@ -7637,16 +7638,25 @@ final class Workspace: Identifiable, ObservableObject {
     /// ``RemoteTmuxWindowMirror`` owns it and renders it via ``TerminalPanelView``
     /// inside a single tab, so the pane gets the full native cmux pane chrome —
     /// background, focus overlay, dividers).
-    func makeRemoteTmuxPanePanel(onInput: @escaping @Sendable (Data) -> Void) -> TerminalPanel? {
-        // Remote tmux panes currently inject bytes into an embedded Ghostty parser.
-        // The persistent backend needs a daemon-owned external-stream terminal
-        // before this path can preserve process isolation. Never hand MANUAL-I/O
-        // to PersistentTerminalPanelFactory: TerminalSurface deliberately rejects
-        // that ownership mismatch, and falling back to embedded Ghostty would make
-        // the backend feature gate dishonest.
-        if let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator {
-            _ = mutationCoordinator.reject(.attachSurface)
-            return nil
+    func makeRemoteTmuxPanePanel(
+        remotePaneId: Int = 0,
+        initialColumns: Int = 80,
+        initialRows: Int = 24,
+        onInput: @escaping @Sendable (Data) -> Void,
+        backendSendKeys: TerminalBackendRemoteTmuxSurfaceBridge.SendKeys? = nil,
+        onRequestSeed: TerminalBackendRemoteTmuxSurfaceBridge.RequestSeed? = nil,
+        backendProvenance: CanonicalExternalTerminalProvenance? = nil
+    ) -> TerminalPanel? {
+        if terminalClientComposition.terminalBackendTopologyMutationCoordinator != nil {
+            return makePersistentRemoteTmuxPanel(
+                remotePaneId: remotePaneId,
+                provenance: backendProvenance,
+                initialColumns: initialColumns,
+                initialRows: initialRows,
+                onInput: onInput,
+                backendSendKeys: backendSendKeys,
+                onRequestSeed: onRequestSeed
+            )
         }
         let panel = terminalClientComposition.terminalPanelFactory.makeTerminalPanel(
             TerminalPanelCreationRequest(
@@ -7679,13 +7689,34 @@ final class Workspace: Identifiable, ObservableObject {
         focus: Bool = false,
         allowTextBoxFocusDefault: Bool = true,
         onInput: @escaping @Sendable (Data) -> Void,
+        backendSendKeys: TerminalBackendRemoteTmuxSurfaceBridge.SendKeys? = nil,
+        onRequestSeed: TerminalBackendRemoteTmuxSurfaceBridge.RequestSeed? = nil,
+        backendProvenance: CanonicalExternalTerminalProvenance? = nil,
+        initialColumns: Int = 80,
+        initialRows: Int = 24,
         onResize: (@MainActor @Sendable (_ columns: Int, _ rows: Int) -> Void)? = nil
     ) -> TerminalPanel? {
-        // See makeRemoteTmuxPanePanel(onInput:). The daemon must own this parser
-        // and renderer before remote tmux mirrors are admitted in backend mode.
-        if let mutationCoordinator = terminalClientComposition.terminalBackendTopologyMutationCoordinator {
-            _ = mutationCoordinator.reject(.attachSurface)
-            return nil
+        if terminalClientComposition.terminalBackendTopologyMutationCoordinator != nil {
+            guard let panel = makePersistentRemoteTmuxPanel(
+                remotePaneId: remotePaneId,
+                provenance: backendProvenance,
+                initialColumns: initialColumns,
+                initialRows: initialRows,
+                onInput: onInput,
+                backendSendKeys: backendSendKeys,
+                onRequestSeed: onRequestSeed
+            ) else { return nil }
+            let title = customTitle
+                ?? String(localized: "remoteTmux.tab.pane", defaultValue: "tmux pane")
+            panelTitles[panel.id] = title
+            if let tabID = surfaceIdFromPanelId(panel.id) {
+                bonsplitController.updateTab(tabID, title: title, icon: nil, isDirty: nil)
+            }
+            if let onResize {
+                panel.surface.onManualSizeApplied = { onResize($0.columns, $0.rows) }
+            }
+            if focus { focusPanel(panel.id) }
+            return panel
         }
         let newPanel = performRemoteTmuxMirrorMutation { () -> TerminalPanel? in
             guard let paneId = bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first
@@ -7728,6 +7759,72 @@ final class Workspace: Identifiable, ObservableObject {
             focusPanel(newPanel.id)
         }
         return newPanel
+    }
+
+    private func makePersistentRemoteTmuxPanel(
+        remotePaneId: Int,
+        provenance: CanonicalExternalTerminalProvenance?,
+        initialColumns: Int,
+        initialRows: Int,
+        onInput: @escaping @Sendable (Data) -> Void,
+        backendSendKeys: TerminalBackendRemoteTmuxSurfaceBridge.SendKeys?,
+        onRequestSeed: TerminalBackendRemoteTmuxSurfaceBridge.RequestSeed?
+    ) -> TerminalPanel? {
+        guard let mutationCoordinator = terminalClientComposition
+                .terminalBackendTopologyMutationCoordinator,
+              let registry = terminalClientComposition.remoteTmuxSurfaceRegistry,
+              let provenance,
+              let exactRemotePaneID = UInt64(exactly: remotePaneId),
+              provenance.tmuxPaneID == exactRemotePaneID,
+              let columns = UInt16(exactly: max(initialColumns, 1)),
+              let rows = UInt16(exactly: max(initialRows, 1)) else {
+            return nil
+        }
+        let sendKeys = backendSendKeys ?? { data in
+            onInput(data)
+            return true
+        }
+        let requestSeed = onRequestSeed ?? {}
+        guard let registration = registry.register(
+            workspaceID: id,
+            provenance: provenance,
+            sendKeys: sendKeys,
+            requestSeed: requestSeed,
+            onProjected: { [weak self] in
+                self?.remoteTmuxSessionMirror?.rebuild()
+            }
+        ) else { return nil }
+        if registration.isNew {
+            _ = mutationCoordinator.requestMaterializeExternalTerminal(
+                workspaceID: id,
+                surfaceID: registration.surfaceID,
+                columns: columns,
+                rows: rows,
+                noReflow: true,
+                provenance: provenance,
+                onProjected: { [weak registry] _ in
+                    registry?.markProjected(surfaceID: registration.surfaceID)
+                },
+                onFailure: { [weak registry] in
+                    registry?.materializationFailed(surfaceID: registration.surfaceID)
+                }
+            )
+            return nil
+        }
+        guard registration.isProjected else { return nil }
+        if provenance.presentationRole == .workspaceTab {
+            return panels[registration.surfaceID] as? TerminalPanel
+        }
+        let panel = terminalClientComposition.terminalPanelFactory.makeTerminalPanel(
+            TerminalPanelCreationRequest(
+                origin: .remoteTmuxMirror,
+                id: registration.surfaceID,
+                workspaceId: id,
+                context: GHOSTTY_SURFACE_CONTEXT_SPLIT
+            )
+        )
+        configureNewTerminalPanel(panel)
+        return panel
     }
 
     /// Closes one pane of a mirrored multi-pane tmux window (the pane-header ✕),

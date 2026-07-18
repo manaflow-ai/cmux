@@ -78,6 +78,11 @@ protocol TerminalBackendTopologyProjecting: AnyObject {
         _ sourceURL: URL,
         surfaceID: SurfaceID
     )
+    /// Installs one daemon-claimed remote-tmux producer into the presentation
+    /// that owns its canonical workspace. Returns true only for that owner.
+    func restoreRemoteTmuxProducer(
+        _ projection: TerminalBackendRemoteTmuxProducerProjection
+    ) -> Bool
     func prepareCanonicalTopology(
         _ snapshot: TopologySnapshot,
         plan: TerminalBackendTopologyProjectionPlan
@@ -103,6 +108,12 @@ extension TerminalBackendTopologyProjecting {
         _ sourceURL: URL,
         surfaceID: SurfaceID
     ) {}
+    func restoreRemoteTmuxProducer(
+        _ projection: TerminalBackendRemoteTmuxProducerProjection
+    ) -> Bool {
+        _ = projection
+        return false
+    }
 
     func installCanonicalTopology(
         _ snapshot: TopologySnapshot,

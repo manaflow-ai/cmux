@@ -33,6 +33,7 @@ extension RemoteTmuxControlConnection {
     ///
     /// - Parameters:
     ///   - onPaneOutput: receives every `%output` (raw, octal-unescaped bytes).
+    ///   - onPaneSeed: receives one complete capture plus terminal-state seed.
     ///   - onPaneCwd: receives a pane's working directory (`pane_current_path`),
     ///     both the initial value and live changes (see ``requestPanePath(paneId:)``
     ///     and ``subscribePanePath(paneId:)``).
@@ -57,6 +58,8 @@ extension RemoteTmuxControlConnection {
     @discardableResult
     func addObserver(
         onPaneOutput: ((_ paneId: Int, _ data: Data) -> Void)? = nil,
+        onPaneSeed: ((_ paneId: Int, _ seed: RemoteTmuxPaneSeed) -> Void)? = nil,
+        onPaneSeedFailure: ((_ paneId: Int) -> Void)? = nil,
         onPaneCwd: ((_ paneId: Int, _ path: String) -> Void)? = nil,
         onPaneReflow: ((_ paneId: Int, _ noReflow: Bool) -> Void)? = nil,
         onActivePaneChanged: ((_ windowId: Int, _ paneId: Int) -> Void)? = nil,
@@ -68,6 +71,8 @@ extension RemoteTmuxControlConnection {
     ) -> ObserverToken {
         observers.add(
             onPaneOutput: onPaneOutput,
+            onPaneSeed: onPaneSeed,
+            onPaneSeedFailure: onPaneSeedFailure,
             onPaneCwd: onPaneCwd,
             onPaneReflow: onPaneReflow,
             onActivePaneChanged: onActivePaneChanged,

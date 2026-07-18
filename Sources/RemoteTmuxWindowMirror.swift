@@ -472,7 +472,9 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         if let sample = surface.rawSizingSample() {
             handleSizingSample(sample, paneId: paneId)
         }
-        if needsSeed { connection?.seedPane(paneId: paneId) }
+        if needsSeed, !surface.isExternallyManaged {
+            connection?.seedPane(paneId: paneId)
+        }
     }
 
     /// Routes a tmux `%output` to the surface for `paneId` (no-op if unknown).

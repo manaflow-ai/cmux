@@ -24,6 +24,7 @@ final class TerminalBackendTopologyCoordinator {
     private let mutationCoordinator: TerminalBackendTopologyMutationCoordinator?
     private let disconnectHandler: DisconnectHandler
     private let nativeBrowserRuntimeCoordinator: TerminalBackendNativeBrowserRuntimeCoordinator?
+    private let remoteTmuxSurfaceRegistry: TerminalBackendRemoteTmuxSurfaceRegistry?
 
     private var observationTask: Task<Void, Never>?
     private var activityTask: Task<Void, Never>?
@@ -53,7 +54,8 @@ final class TerminalBackendTopologyCoordinator {
         failureReporter: @escaping FailureReporter = { _ in },
         mutationCoordinator: TerminalBackendTopologyMutationCoordinator? = nil,
         disconnectHandler: @escaping DisconnectHandler = {},
-        nativeBrowserRuntimeCoordinator: TerminalBackendNativeBrowserRuntimeCoordinator? = nil
+        nativeBrowserRuntimeCoordinator: TerminalBackendNativeBrowserRuntimeCoordinator? = nil,
+        remoteTmuxSurfaceRegistry: TerminalBackendRemoteTmuxSurfaceRegistry? = nil
     ) {
         self.eventSource = {
             let snapshots = try await snapshotSource()
@@ -78,6 +80,7 @@ final class TerminalBackendTopologyCoordinator {
         self.mutationCoordinator = mutationCoordinator
         self.disconnectHandler = disconnectHandler
         self.nativeBrowserRuntimeCoordinator = nativeBrowserRuntimeCoordinator
+        self.remoteTmuxSurfaceRegistry = remoteTmuxSurfaceRegistry
     }
 
     init(
@@ -92,7 +95,8 @@ final class TerminalBackendTopologyCoordinator {
         failureReporter: @escaping FailureReporter = { _ in },
         mutationCoordinator: TerminalBackendTopologyMutationCoordinator? = nil,
         disconnectHandler: @escaping DisconnectHandler = {},
-        nativeBrowserRuntimeCoordinator: TerminalBackendNativeBrowserRuntimeCoordinator? = nil
+        nativeBrowserRuntimeCoordinator: TerminalBackendNativeBrowserRuntimeCoordinator? = nil,
+        remoteTmuxSurfaceRegistry: TerminalBackendRemoteTmuxSurfaceRegistry? = nil
     ) {
         self.eventSource = eventSource
         self.projector = projector
@@ -105,6 +109,7 @@ final class TerminalBackendTopologyCoordinator {
         self.mutationCoordinator = mutationCoordinator
         self.disconnectHandler = disconnectHandler
         self.nativeBrowserRuntimeCoordinator = nativeBrowserRuntimeCoordinator
+        self.remoteTmuxSurfaceRegistry = remoteTmuxSurfaceRegistry
     }
 
     convenience init?(
@@ -140,8 +145,10 @@ final class TerminalBackendTopologyCoordinator {
                 } else {
                     composition.nativeBrowserPresentationRegistry.removeAll()
                 }
+                composition.remoteTmuxSurfaceRegistry?.backendDidDisconnect()
             },
-            nativeBrowserRuntimeCoordinator: composition.nativeBrowserRuntimeCoordinator
+            nativeBrowserRuntimeCoordinator: composition.nativeBrowserRuntimeCoordinator,
+            remoteTmuxSurfaceRegistry: composition.remoteTmuxSurfaceRegistry
         )
     }
 
@@ -384,6 +391,17 @@ final class TerminalBackendTopologyCoordinator {
             ) else { return }
             surfaceWorkspaceIDs = structuralPlan.surfaceWorkspaceIDs
             publishActivityProjection()
+            if let remoteTmuxSurfaceRegistry {
+                try await remoteTmuxSurfaceRegistry.claimBeforeProjection(
+                    authority: snapshot.authority,
+                    plan: structuralPlan
+                )
+                guard isCurrent(
+                    snapshot,
+                    generation: generation,
+                    admissionEpoch: admissionEpoch
+                ) else { return }
+            }
             plan = try projector.resolvePresentationPlan(structuralPlan)
         } catch {
             guard isCurrent(
@@ -517,6 +535,10 @@ final class TerminalBackendTopologyCoordinator {
         try projector.installCanonicalTopology(snapshot, plan: plan)
         nativeBrowserRuntimeCoordinator?.projectionDidInstall(
             surfaceIDs: plan.frontendNativeBrowserSurfaceIDs,
+            projector: projector
+        )
+        remoteTmuxSurfaceRegistry?.projectionDidInstall(
+            plan: plan,
             projector: projector
         )
         guard isCurrent(

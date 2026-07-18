@@ -11,6 +11,7 @@ actor TerminalBackendClientCoordinator:
     TerminalBackendProjectionStateServing,
     TerminalBackendTopologyMutating,
     TerminalBackendExternalTerminalServing,
+    TerminalBackendRemoteTmuxProducerSourceServing,
     TerminalBackendFrontendNativeBrowserServing,
     TerminalBackendFrontendConnectionRecovering
 {
@@ -436,7 +437,8 @@ actor TerminalBackendClientCoordinator:
         surfaceID: SurfaceID,
         columns: UInt16,
         rows: UInt16,
-        noReflow: Bool
+        noReflow: Bool,
+        provenance: CanonicalExternalTerminalProvenance
     ) async throws -> BackendSurfacePlacement {
         try await performCanonicalTopologyMutation(
             command: "canonical-materialize-external-terminal",
@@ -449,7 +451,41 @@ actor TerminalBackendClientCoordinator:
                 surfaceID: surfaceID,
                 columns: columns,
                 rows: rows,
-                noReflow: noReflow
+                noReflow: noReflow,
+                provenance: provenance
+            )
+            guard placement.workspaceID == workspaceID,
+                  placement.surfaceID == surfaceID else {
+                throw BackendProtocolError.peerIdentityMismatch
+            }
+            return placement
+        }
+    }
+
+    func newExternalWorkspace(
+        requestID: UUID,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        columns: UInt16,
+        rows: UInt16,
+        noReflow: Bool,
+        provenance: CanonicalExternalTerminalProvenance,
+        producerSource: BackendRemoteTmuxProducerSource
+    ) async throws -> BackendSurfacePlacement {
+        try await performCanonicalTopologyMutation(
+            command: "canonical-new-external-workspace",
+            requestID: requestID,
+            receipt: \BackendSurfacePlacement.receipt
+        ) { session, expectation in
+            let placement = try await session.newExternalWorkspace(
+                expectation: expectation,
+                workspaceID: workspaceID,
+                surfaceID: surfaceID,
+                columns: columns,
+                rows: rows,
+                noReflow: noReflow,
+                provenance: provenance,
+                producerSource: producerSource
             )
             guard placement.workspaceID == workspaceID,
                   placement.surfaceID == surfaceID else {
@@ -477,6 +513,7 @@ actor TerminalBackendClientCoordinator:
         outputGeneration: UInt64,
         columns: UInt16,
         rows: UInt16,
+        noReflow: Bool,
         seed: Data
     ) async throws -> BackendExternalTerminalOutputReceipt {
         let connection = try await connectedSession()
@@ -487,6 +524,7 @@ actor TerminalBackendClientCoordinator:
             outputGeneration: outputGeneration,
             columns: columns,
             rows: rows,
+            noReflow: noReflow,
             seed: seed
         )
     }
@@ -518,6 +556,34 @@ actor TerminalBackendClientCoordinator:
         return try await connection.session.drainExternalTerminalEgress(
             surfaceID: surfaceID,
             ownerGeneration: ownerGeneration
+        )
+    }
+
+    func claimRemoteTmuxProducerSource(
+        producerID: UUID,
+        requestID: UUID,
+        source: BackendRemoteTmuxProducerSource?
+    ) async throws -> BackendRemoteTmuxProducerSourceClaimReceipt {
+        let connection = try await connectedSession()
+        return try await connection.session.claimRemoteTmuxProducerSource(
+            producerID: producerID,
+            requestID: requestID,
+            source: source
+        )
+    }
+
+    func updateRemoteTmuxProducerSource(
+        producerID: UUID,
+        ownerGeneration: UInt64,
+        requestID: UUID,
+        source: BackendRemoteTmuxProducerSource
+    ) async throws -> BackendRemoteTmuxProducerSourceUpdateReceipt {
+        let connection = try await connectedSession()
+        return try await connection.session.updateRemoteTmuxProducerSource(
+            producerID: producerID,
+            ownerGeneration: ownerGeneration,
+            requestID: requestID,
+            source: source
         )
     }
 

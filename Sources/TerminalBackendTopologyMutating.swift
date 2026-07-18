@@ -73,13 +73,27 @@ protocol TerminalBackendTopologyMutating: Sendable {
         rows: UInt16?
     ) async throws -> BackendSurfacePlacement
 
+    /// Atomically creates a workspace whose first surface owns parser/render
+    /// state but no PTY or child process.
+    func newExternalWorkspace(
+        requestID: UUID,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        columns: UInt16,
+        rows: UInt16,
+        noReflow: Bool,
+        provenance: CanonicalExternalTerminalProvenance,
+        producerSource: BackendRemoteTmuxProducerSource
+    ) async throws -> BackendSurfacePlacement
+
     func materializeExternalTerminal(
         requestID: UUID,
         workspaceID: WorkspaceID,
         surfaceID: SurfaceID,
         columns: UInt16,
         rows: UInt16,
-        noReflow: Bool
+        noReflow: Bool,
+        provenance: CanonicalExternalTerminalProvenance
     ) async throws -> BackendSurfacePlacement
 
     func splitPane(
@@ -167,6 +181,7 @@ protocol TerminalBackendExternalTerminalServing: Sendable {
         outputGeneration: UInt64,
         columns: UInt16,
         rows: UInt16,
+        noReflow: Bool,
         seed: Data
     ) async throws -> BackendExternalTerminalOutputReceipt
 
@@ -183,6 +198,23 @@ protocol TerminalBackendExternalTerminalServing: Sendable {
         surfaceID: SurfaceID,
         ownerGeneration: UInt64
     ) async throws -> Data
+}
+
+/// Authenticated connection-private lease for durable remote-tmux reconnect
+/// details. The source never enters canonical topology or Swift persistence.
+protocol TerminalBackendRemoteTmuxProducerSourceServing: Sendable {
+    func claimRemoteTmuxProducerSource(
+        producerID: UUID,
+        requestID: UUID,
+        source: BackendRemoteTmuxProducerSource?
+    ) async throws -> BackendRemoteTmuxProducerSourceClaimReceipt
+
+    func updateRemoteTmuxProducerSource(
+        producerID: UUID,
+        ownerGeneration: UInt64,
+        requestID: UUID,
+        source: BackendRemoteTmuxProducerSource
+    ) async throws -> BackendRemoteTmuxProducerSourceUpdateReceipt
 }
 
 /// Connection-owned private state for browser runtimes hosted by AppKit.

@@ -2891,6 +2891,110 @@ struct TerminalBackendTopologyCoordinatorTests {
         _ = try registry.resolvePresentationPlan(structural)
     }
 
+    @Test @MainActor
+    func remoteTmuxRestartAdoptsCanonicalProducerAndSurfaceIdentities() async throws {
+        let authority = makeAuthority()
+        let producerID = UUID()
+        let workspaceID = UUID()
+        let outerSurfaceID = SurfaceID(rawValue: UUID())
+        let nestedSurfaceID = SurfaceID(rawValue: UUID())
+        let source = BackendRemoteTmuxProducerSource(
+            destination: "private.example",
+            port: 2222,
+            identityFile: "/private/key",
+            sessionName: "agents"
+        )
+        let outerProvenance = CanonicalExternalTerminalProvenance(
+            producerID: producerID,
+            tmuxSessionID: 7,
+            tmuxWindowID: 11,
+            tmuxPaneID: 13,
+            presentationRole: .workspaceTab
+        )
+        let nestedProvenance = CanonicalExternalTerminalProvenance(
+            producerID: producerID,
+            tmuxSessionID: 7,
+            tmuxWindowID: 11,
+            tmuxPaneID: 17,
+            presentationRole: .nestedPane
+        )
+        let canonicalPaneID = CmuxTerminalBackend.PaneID(rawValue: UUID())
+        let topology = try CanonicalTopology(workspaces: [CanonicalWorkspace(
+            id: 1,
+            uuid: WorkspaceID(rawValue: workspaceID),
+            name: "remote tmux",
+            screens: [CanonicalScreen(
+                id: 1,
+                uuid: ScreenID(rawValue: UUID()),
+                name: nil,
+                layout: .leaf(pane: 1, paneUUID: canonicalPaneID),
+                panes: [CanonicalPane(
+                    id: 1,
+                    uuid: canonicalPaneID,
+                    name: nil,
+                    tabs: [
+                        CanonicalSurface(
+                            id: 1,
+                            uuid: outerSurfaceID,
+                            kind: "terminal",
+                            name: "window",
+                            externalTerminalProvenance: outerProvenance
+                        ),
+                        CanonicalSurface(
+                            id: 2,
+                            uuid: nestedSurfaceID,
+                            kind: "terminal",
+                            name: "nested pane",
+                            externalTerminalProvenance: nestedProvenance
+                        ),
+                    ]
+                )]
+            )]
+        )])
+        let plan = try TerminalBackendTopologyProjectionPlan(topology: topology)
+        let service = RecordingExternalTerminalService(
+            authority: authority,
+            producerSources: [producerID: source]
+        )
+        let registry = TerminalBackendRemoteTmuxSurfaceRegistry(
+            service: service,
+            producerSourceService: service
+        )
+
+        try await registry.claimBeforeProjection(authority: authority, plan: plan)
+        #expect(registry.shouldProjectCanonicalSurface(outerSurfaceID))
+        #expect(!registry.shouldProjectCanonicalSurface(nestedSurfaceID))
+
+        let projector = RecordingTopologyProjector()
+        registry.projectionDidInstall(plan: plan, projector: projector)
+        #expect(projector.restoredRemoteTmuxProducers.count == 1)
+        let restored = try #require(projector.restoredRemoteTmuxProducers.first)
+        #expect(restored.producerID == producerID)
+        #expect(restored.workspaceID == workspaceID)
+        #expect(restored.tmuxSessionID == 7)
+        #expect(restored.source == source)
+        #expect(Set(restored.surfaces.map(\.surfaceID)) == [outerSurfaceID, nestedSurfaceID])
+
+        let outer = try #require(registry.register(
+            workspaceID: workspaceID,
+            provenance: outerProvenance,
+            sendKeys: { _ in true },
+            requestSeed: {}
+        ))
+        let nested = try #require(registry.register(
+            workspaceID: workspaceID,
+            provenance: nestedProvenance,
+            sendKeys: { _ in true },
+            requestSeed: {}
+        ))
+        #expect(!outer.isNew)
+        #expect(!nested.isNew)
+        #expect(outer.surfaceID == outerSurfaceID.rawValue)
+        #expect(nested.surfaceID == nestedSurfaceID.rawValue)
+        #expect(outer.isProjected)
+        #expect(nested.isProjected)
+    }
+
     @MainActor
     private func makeProjectionComposition(
         failureReporter: @escaping @MainActor (String) -> Void = { _ in },
@@ -3139,6 +3243,9 @@ private final class RecordingTopologyProjector: TerminalBackendTopologyProjectin
     private(set) var legacyReadCount = 0
     private(set) var installedSnapshots: [TopologySnapshot] = []
     private(set) var installedPlans: [TerminalBackendTopologyProjectionPlan] = []
+    private(set) var restoredRemoteTmuxProducers: [
+        TerminalBackendRemoteTmuxProducerProjection
+    ] = []
     private let failPreparation: Bool
     private let failCommitRevisions: Set<UInt64>
 
@@ -3165,6 +3272,13 @@ private final class RecordingTopologyProjector: TerminalBackendTopologyProjectin
     func legacyTerminalPlacements() -> Set<TerminalBackendTopologyPlacement> {
         legacyReadCount += 1
         return legacyPlacements
+    }
+
+    func restoreRemoteTmuxProducer(
+        _ projection: TerminalBackendRemoteTmuxProducerProjection
+    ) -> Bool {
+        restoredRemoteTmuxProducers.append(projection)
+        return true
     }
 
     func prepareCanonicalTopology(
@@ -3513,9 +3627,17 @@ private struct RejectingTopologyMutator: TerminalBackendTopologyMutating {
         columns: UInt16?, rows: UInt16?
     ) async throws -> BackendSurfacePlacement { try reject() }
 
+    func newExternalWorkspace(
+        requestID: UUID, workspaceID: WorkspaceID, surfaceID: SurfaceID,
+        columns: UInt16, rows: UInt16, noReflow: Bool,
+        provenance: CanonicalExternalTerminalProvenance,
+        producerSource: BackendRemoteTmuxProducerSource
+    ) async throws -> BackendSurfacePlacement { try reject() }
+
     func materializeExternalTerminal(
         requestID: UUID, workspaceID: WorkspaceID, surfaceID: SurfaceID,
-        columns: UInt16, rows: UInt16, noReflow: Bool
+        columns: UInt16, rows: UInt16, noReflow: Bool,
+        provenance: CanonicalExternalTerminalProvenance
     ) async throws -> BackendSurfacePlacement { try reject() }
 
     func splitPane(

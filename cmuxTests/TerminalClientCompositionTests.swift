@@ -121,7 +121,7 @@ struct TerminalClientCompositionTests {
     }
 
     @Test @MainActor
-    func backendModeRejectsRemoteTmuxManualIOWithoutCallingPersistentFactory() throws {
+    func backendModeRequiresCanonicalRemoteTmuxProvenance() async throws {
         let client = RecordingPersistentTerminalBackendClient()
         var failures: [String] = []
         let composition = TerminalClientComposition.persistent(
@@ -141,8 +141,8 @@ struct TerminalClientCompositionTests {
             onInput: { _ in }
         ) == nil)
 
-        #expect(failures.count == 2)
-        #expect(failures.allSatisfy { $0.contains(TerminalBackendTopologyMutation.attachSurface.rawValue) })
+        #expect(failures.isEmpty)
+        #expect((await client.ensureRequests()).isEmpty)
     }
 
     @Test @MainActor
@@ -2010,6 +2010,293 @@ struct TerminalClientCompositionTests {
         #expect(clearedMetrics["provenance_records"] as? UInt64 == 0)
     }
 
+    @Test @MainActor
+    func remoteTmuxBridgePreservesEarlySeedThenLiveOutputAndPaneState() async throws {
+        let service = RecordingExternalTerminalService(suspendResets: true)
+        let requests = MainActorCounter()
+        var forwardedEgress: [Data] = []
+        let surfaceID = SurfaceID(rawValue: UUID())
+        let bridge = TerminalBackendRemoteTmuxSurfaceBridge(
+            surfaceID: surfaceID,
+            service: service,
+            sendKeys: {
+                forwardedEgress.append($0)
+                return true
+            },
+            requestSeed: { requests.increment() }
+        )
+        bridge.activate()
+        await bridge.waitForIdleForTesting()
+        #expect(requests.value == 1)
+
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "seed-bridge.test"),
+            sessionName: "work"
+        )
+        let paneID = 17
+        let token = connection.addObserver(
+            onPaneOutput: { observedPaneID, data in
+                guard observedPaneID == paneID else { return }
+                bridge.receiveOutput(data)
+            },
+            onPaneSeed: { observedPaneID, seed in
+                guard observedPaneID == paneID else { return }
+                bridge.receiveSeed(seed, columns: 160, rows: 48, noReflow: true)
+            },
+            onPaneSeedFailure: { observedPaneID in
+                guard observedPaneID == paneID else { return }
+                bridge.seedFailed()
+            }
+        )
+        defer { connection.removeObserver(token) }
+
+        let capture = Data(
+            repeating: 0x61,
+            count: RemoteTmuxControlConnection.maximumPendingPaneSeedByteCount + 1
+        )
+        let live = Data("live-after-early-seed".utf8)
+        let state = Data("pane-state-after-live".utf8)
+        connection.beginPaneSeed(paneId: paneID, clearScrollback: false)
+        connection.installPaneSeedCapture(paneId: paneID, data: capture)
+        await service.waitForResetCount(1)
+
+        connection.handleMessageForTesting(.output(paneId: paneID, data: live))
+        connection.finishPaneSeed(paneId: paneID, state: state)
+        await service.releaseResets()
+        await bridge.waitForIdleForTesting()
+
+        let resetSeeds = await service.resetSeeds()
+        let outputChunks = await service.outputChunks()
+        #expect(resetSeeds.count == 1)
+        #expect(resetSeeds[0].count == RemoteTmuxPaneSeed.maximumChunkByteCount)
+        #expect(outputChunks.allSatisfy {
+            !$0.isEmpty && $0.count <= RemoteTmuxPaneSeed.maximumChunkByteCount
+        })
+        var reconstructed = resetSeeds[0]
+        for chunk in outputChunks { reconstructed.append(chunk) }
+        #expect(reconstructed == capture + live + state)
+        #expect(forwardedEgress.first == Data("reset-egress".utf8))
+        #expect(forwardedEgress.count == outputChunks.count + 1)
+    }
+
+    @Test @MainActor
+    func repeatedSeedFailureFailsWaiterThenRequestsOnceAfterRecovery() async throws {
+        let service = RecordingExternalTerminalService()
+        let requests = MainActorCounter()
+        let recovery = AsyncTestGate()
+        let bridge = TerminalBackendRemoteTmuxSurfaceBridge(
+            surfaceID: SurfaceID(rawValue: UUID()),
+            service: service,
+            sendKeys: { _ in true },
+            requestSeed: { requests.increment() },
+            recoveryHandler: { await recovery.wait() }
+        )
+        bridge.activate()
+        await requests.wait(for: 1)
+        bridge.receiveSeed(
+            RemoteTmuxPaneSeed(bytes: Data("initial".utf8)),
+            columns: 80,
+            rows: 24,
+            noReflow: true
+        )
+        try await bridge.waitUntilReadyForTesting()
+
+        bridge.seedFailed()
+        await requests.wait(for: 2)
+        let waiter = Task { @MainActor in
+            do {
+                try await bridge.waitUntilReadyForTesting()
+                return false
+            } catch TerminalBackendRemoteTmuxBridgeError.seedUnavailable {
+                return true
+            } catch {
+                return false
+            }
+        }
+        await Task.yield()
+        #expect(bridge.readyWaiterCountForTesting == 1)
+        bridge.seedFailed()
+        #expect(await waiter.value)
+        await recovery.waitUntilEntered()
+        #expect(requests.value == 2)
+
+        await recovery.open()
+        await requests.wait(for: 3)
+        #expect(requests.value == 3)
+        bridge.receiveSeed(
+            RemoteTmuxPaneSeed(bytes: Data("recovered".utf8)),
+            columns: 80,
+            rows: 24,
+            noReflow: true
+        )
+        try await bridge.waitUntilReadyForTesting()
+    }
+
+    @Test @MainActor
+    func remoteDisconnectEndpointRebindRequestsFreshSeedAndReturnsReady() async throws {
+        let service = RecordingExternalTerminalService()
+        let requests = MainActorCounter()
+        let bridge = TerminalBackendRemoteTmuxSurfaceBridge(
+            surfaceID: SurfaceID(rawValue: UUID()),
+            service: service,
+            sendKeys: { _ in true },
+            requestSeed: { requests.increment() }
+        )
+        bridge.activate()
+        await requests.wait(for: 1)
+        bridge.receiveSeed(
+            RemoteTmuxPaneSeed(bytes: Data("before-disconnect".utf8)),
+            columns: 80,
+            rows: 24,
+            noReflow: true
+        )
+        try await bridge.waitUntilReadyForTesting()
+
+        bridge.remoteConnectionDidDisconnect()
+        let waiter = Task { @MainActor in
+            try await bridge.waitUntilReadyForTesting()
+        }
+        await Task.yield()
+        #expect(bridge.readyWaiterCountForTesting == 1)
+        bridge.updateEndpoints(
+            sendKeys: { _ in true },
+            requestSeed: { requests.increment() },
+            requestSeedIfNeeded: true
+        )
+        await requests.wait(for: 2)
+        #expect(requests.value == 2)
+        bridge.receiveSeed(
+            RemoteTmuxPaneSeed(bytes: Data("after-reconnect".utf8)),
+            columns: 80,
+            rows: 24,
+            noReflow: false
+        )
+        try await waiter.value
+    }
+
+    @Test @MainActor
+    func noReflowChangeDropsInFlightOutputEgressBeforeReplacementSeed() async throws {
+        let service = RecordingExternalTerminalService()
+        let requests = MainActorCounter()
+        var forwardedEgress: [Data] = []
+        let bridge = TerminalBackendRemoteTmuxSurfaceBridge(
+            surfaceID: SurfaceID(rawValue: UUID()),
+            service: service,
+            sendKeys: {
+                forwardedEgress.append($0)
+                return true
+            },
+            requestSeed: { requests.increment() }
+        )
+        bridge.activate()
+        await requests.wait(for: 1)
+        bridge.receiveSeed(
+            RemoteTmuxPaneSeed(bytes: Data("original".utf8)),
+            columns: 80,
+            rows: 24,
+            noReflow: true
+        )
+        try await bridge.waitUntilReadyForTesting()
+        let forwardedBeforePolicyChange = forwardedEgress
+
+        await service.setSuspendOutputs(true)
+        bridge.receiveOutput(Data("old-cycle-output".utf8))
+        await service.waitForOutputCount(1)
+        bridge.updateNoReflow(false)
+        await requests.wait(for: 2)
+        await service.releaseOutputs()
+        await bridge.waitForIdleForTesting()
+        #expect(forwardedEgress == forwardedBeforePolicyChange)
+
+        bridge.receiveSeed(
+            RemoteTmuxPaneSeed(bytes: Data("replacement".utf8)),
+            columns: 80,
+            rows: 24,
+            noReflow: false
+        )
+        try await bridge.waitUntilReadyForTesting()
+    }
+
+    @Test @MainActor
+    func retiringBlockedOutputCancelsQueuedMutationAndDropsLateEgress() async throws {
+        let service = RecordingExternalTerminalService()
+        var forwardedEgress: [Data] = []
+        let surfaceID = SurfaceID(rawValue: UUID())
+        let bridge = TerminalBackendRemoteTmuxSurfaceBridge(
+            surfaceID: surfaceID,
+            service: service,
+            sendKeys: {
+                forwardedEgress.append($0)
+                return true
+            },
+            requestSeed: {}
+        )
+        bridge.activate()
+        await bridge.waitForIdleForTesting()
+        bridge.receiveSeed(
+            RemoteTmuxPaneSeed(bytes: Data("seed".utf8)),
+            columns: 80,
+            rows: 24,
+            noReflow: true
+        )
+        try await bridge.waitUntilReadyForTesting()
+        let forwardedBeforeBlockedOutput = forwardedEgress
+
+        await service.setSuspendOutputs(true)
+        bridge.receiveOutput(Data("blocked".utf8))
+        await service.waitForOutputCount(1)
+        let client = RecordingPersistentTerminalBackendClient()
+        let workspaceID = UUID()
+        let binding = TerminalBackendTerminalBinding(
+            authority: BackendAuthority(
+                daemonInstanceID: DaemonInstanceID(rawValue: UUID()),
+                sessionID: SessionID(rawValue: UUID())
+            ),
+            appWorkspaceID: workspaceID,
+            appSurfaceID: surfaceID.rawValue,
+            workspaceHandle: 1,
+            workspaceID: WorkspaceID(rawValue: workspaceID),
+            surfaceHandle: 2,
+            surfaceID: surfaceID,
+            columns: 80,
+            rows: 24,
+            created: false
+        )
+        let viewport = TerminalExternalViewport(
+            widthPoints: 640,
+            heightPoints: 480,
+            widthPixels: 1_280,
+            heightPixels: 960,
+            xScale: 2,
+            yScale: 2,
+            proposedColumns: 100,
+            proposedRows: 30
+        )
+        let mutation = Task { @MainActor in
+            do {
+                _ = try await bridge.apply(
+                    .resize(viewport),
+                    requestID: UUID(),
+                    client: client,
+                    binding: binding,
+                    presentation: nil
+                )
+                return false
+            } catch is CancellationError {
+                return true
+            } catch {
+                return false
+            }
+        }
+        await Task.yield()
+        bridge.retire()
+        await service.releaseOutputs()
+
+        #expect(await mutation.value)
+        #expect((await client.mutations()).isEmpty)
+        #expect(forwardedEgress == forwardedBeforeBlockedOutput)
+    }
+
     private static func makeRenderDiagnosticsFrame(
         sequence: UInt64
     ) throws -> TerminalRenderFrame {
@@ -2088,6 +2375,244 @@ struct TerminalClientCompositionTests {
         return ownLayerCount + view.subviews.reduce(into: 0) { count, subview in
             count += ghosttyMetalLayerCount(in: subview)
         }
+    }
+}
+
+@MainActor
+private final class MainActorCounter {
+    private(set) var value = 0
+    private var waiters: [(target: Int, continuation: CheckedContinuation<Void, Never>)] = []
+
+    func increment() {
+        value += 1
+        let ready = waiters.filter { $0.target <= value }
+        waiters.removeAll { $0.target <= value }
+        for waiter in ready { waiter.continuation.resume() }
+    }
+
+    func wait(for target: Int) async {
+        guard value < target else { return }
+        await withCheckedContinuation { continuation in
+            waiters.append((target, continuation))
+        }
+    }
+}
+
+private actor AsyncTestGate {
+    private var isOpen = false
+    private var isEntered = false
+    private var gateWaiters: [CheckedContinuation<Void, Never>] = []
+    private var entryWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        isEntered = true
+        let entered = entryWaiters
+        entryWaiters.removeAll(keepingCapacity: false)
+        for waiter in entered { waiter.resume() }
+        guard !isOpen else { return }
+        await withCheckedContinuation { continuation in
+            gateWaiters.append(continuation)
+        }
+    }
+
+    func waitUntilEntered() async {
+        guard !isEntered else { return }
+        await withCheckedContinuation { continuation in
+            entryWaiters.append(continuation)
+        }
+    }
+
+    func open() {
+        isOpen = true
+        let waiters = gateWaiters
+        gateWaiters.removeAll(keepingCapacity: false)
+        for waiter in waiters { waiter.resume() }
+    }
+}
+
+actor RecordingExternalTerminalService: TerminalBackendExternalTerminalServing,
+    TerminalBackendRemoteTmuxProducerSourceServing
+{
+    private let authority: BackendAuthority
+    private var suspendResets: Bool
+    private var suspendOutputs = false
+    private var resetContinuations: [CheckedContinuation<Void, Never>] = []
+    private var outputContinuations: [CheckedContinuation<Void, Never>] = []
+    private var resetWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
+    private var outputWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
+    private var claims = 0
+    private var recordedResetSeeds: [Data] = []
+    private var recordedOutputChunks: [Data] = []
+    private var currentOutputGeneration: UInt64 = 0
+    private var currentNoReflow = true
+    private var producerSources: [UUID: BackendRemoteTmuxProducerSource] = [:]
+
+    init(
+        suspendResets: Bool = false,
+        authority: BackendAuthority = BackendAuthority(
+            daemonInstanceID: DaemonInstanceID(rawValue: UUID()),
+            sessionID: SessionID(rawValue: UUID())
+        ),
+        producerSources: [UUID: BackendRemoteTmuxProducerSource] = [:]
+    ) {
+        self.suspendResets = suspendResets
+        self.authority = authority
+        self.producerSources = producerSources
+    }
+
+    func claimExternalTerminal(
+        surfaceID: SurfaceID,
+        requestID: UUID
+    ) async throws -> BackendExternalTerminalClaimReceipt {
+        _ = surfaceID
+        claims += 1
+        return BackendExternalTerminalClaimReceipt(
+            requestID: requestID,
+            ownerGeneration: 1,
+            requiredOutputGeneration: max(currentOutputGeneration + 1, 1),
+            replayed: false
+        )
+    }
+
+    func resetExternalTerminal(
+        surfaceID: SurfaceID,
+        ownerGeneration: UInt64,
+        requestID: UUID,
+        outputGeneration: UInt64,
+        columns: UInt16,
+        rows: UInt16,
+        noReflow: Bool,
+        seed: Data
+    ) async throws -> BackendExternalTerminalOutputReceipt {
+        _ = surfaceID
+        _ = columns
+        _ = rows
+        recordedResetSeeds.append(seed)
+        resumeSatisfied(&resetWaiters, count: recordedResetSeeds.count)
+        if suspendResets {
+            await withCheckedContinuation { resetContinuations.append($0) }
+        }
+        currentOutputGeneration = outputGeneration
+        currentNoReflow = noReflow
+        return BackendExternalTerminalOutputReceipt(
+            requestID: requestID,
+            ownerGeneration: ownerGeneration,
+            outputGeneration: outputGeneration,
+            acceptedSequence: 0,
+            nextSequence: 1,
+            noReflow: noReflow,
+            egress: Data("reset-egress".utf8),
+            replayed: false
+        )
+    }
+
+    func sendExternalTerminalOutput(
+        surfaceID: SurfaceID,
+        ownerGeneration: UInt64,
+        requestID: UUID,
+        outputGeneration: UInt64,
+        sequence: UInt64,
+        data: Data
+    ) async throws -> BackendExternalTerminalOutputReceipt {
+        _ = surfaceID
+        recordedOutputChunks.append(data)
+        resumeSatisfied(&outputWaiters, count: recordedOutputChunks.count)
+        if suspendOutputs {
+            await withCheckedContinuation { outputContinuations.append($0) }
+        }
+        return BackendExternalTerminalOutputReceipt(
+            requestID: requestID,
+            ownerGeneration: ownerGeneration,
+            outputGeneration: outputGeneration,
+            acceptedSequence: sequence,
+            nextSequence: sequence + 1,
+            noReflow: currentNoReflow,
+            egress: Data("output-egress-\(sequence)".utf8),
+            replayed: false
+        )
+    }
+
+    func drainExternalTerminalEgress(
+        surfaceID: SurfaceID,
+        ownerGeneration: UInt64
+    ) async throws -> Data {
+        _ = surfaceID
+        _ = ownerGeneration
+        return Data("drain-egress".utf8)
+    }
+
+    func claimRemoteTmuxProducerSource(
+        producerID: UUID,
+        requestID: UUID,
+        source: BackendRemoteTmuxProducerSource?
+    ) async throws -> BackendRemoteTmuxProducerSourceClaimReceipt {
+        if let source { producerSources[producerID] = source }
+        return BackendRemoteTmuxProducerSourceClaimReceipt(
+            requestID: requestID,
+            daemonInstanceID: authority.daemonInstanceID,
+            sessionID: authority.sessionID,
+            producerID: producerID,
+            ownerGeneration: 1,
+            source: producerSources[producerID],
+            replayed: false
+        )
+    }
+
+    func updateRemoteTmuxProducerSource(
+        producerID: UUID,
+        ownerGeneration: UInt64,
+        requestID: UUID,
+        source: BackendRemoteTmuxProducerSource
+    ) async throws -> BackendRemoteTmuxProducerSourceUpdateReceipt {
+        producerSources[producerID] = source
+        return BackendRemoteTmuxProducerSourceUpdateReceipt(
+            requestID: requestID,
+            daemonInstanceID: authority.daemonInstanceID,
+            sessionID: authority.sessionID,
+            producerID: producerID,
+            ownerGeneration: ownerGeneration,
+            replayed: false
+        )
+    }
+
+    func setSuspendOutputs(_ value: Bool) {
+        suspendOutputs = value
+    }
+
+    func releaseResets() {
+        suspendResets = false
+        let continuations = resetContinuations
+        resetContinuations.removeAll(keepingCapacity: false)
+        for continuation in continuations { continuation.resume() }
+    }
+
+    func releaseOutputs() {
+        suspendOutputs = false
+        let continuations = outputContinuations
+        outputContinuations.removeAll(keepingCapacity: false)
+        for continuation in continuations { continuation.resume() }
+    }
+
+    func waitForResetCount(_ count: Int) async {
+        guard recordedResetSeeds.count < count else { return }
+        await withCheckedContinuation { resetWaiters.append((count, $0)) }
+    }
+
+    func waitForOutputCount(_ count: Int) async {
+        guard recordedOutputChunks.count < count else { return }
+        await withCheckedContinuation { outputWaiters.append((count, $0)) }
+    }
+
+    func resetSeeds() -> [Data] { recordedResetSeeds }
+    func outputChunks() -> [Data] { recordedOutputChunks }
+
+    private func resumeSatisfied(
+        _ waiters: inout [(Int, CheckedContinuation<Void, Never>)],
+        count: Int
+    ) {
+        let satisfied = waiters.filter { $0.0 <= count }
+        waiters.removeAll { $0.0 <= count }
+        for waiter in satisfied { waiter.1.resume() }
     }
 }
 

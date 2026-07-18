@@ -20,10 +20,15 @@ extension RemoteTmuxSessionMirror {
             }
             return
         }
-        guard window.paneIDsInOrder.count > 1 else { return }
+        let registry = workspace.terminalClientComposition.remoteTmuxSurfaceRegistry
+        guard window.paneIDsInOrder.count > 1
+                || registry?.requiresNestedPresentation(
+                    workspaceID: workspace.id,
+                    tmuxWindowID: windowId
+                ) == true else { return }
         let adoptedPanes: [RemoteTmuxWindowMirror.AdoptedPane] = window.paneIDsInOrder.compactMap {
             tmuxPaneId in
-            guard !displayPanelWasCreated,
+            guard (!displayPanelWasCreated || registry != nil),
                   panelIdByPane[tmuxPaneId] == panelId,
                   let panel = workspace.panels[panelId] as? TerminalPanel else { return nil }
             return (tmuxPaneId, panel)
@@ -37,6 +42,10 @@ extension RemoteTmuxSessionMirror {
             workspaceBonsplitController: workspace.bonsplitController,
             controlPaneID: { [weak self] in self?.controlPaneID(forPane: $0) },
             onControlSurfaceChanged: { [weak self] tmuxPaneID, surfaceID in
+                if surfaceID == nil, let workspace = self?.workspace {
+                    workspace.terminalClientComposition.remoteTmuxSurfaceRegistry?
+                        .retireIfNested(workspaceID: workspace.id, tmuxPaneID: tmuxPaneID)
+                }
                 self?.updateControlSurface(
                     tmuxPaneID: tmuxPaneID,
                     surfaceID: surfaceID,
@@ -44,10 +53,30 @@ extension RemoteTmuxSessionMirror {
                 )
             },
             adoptedPanes: adoptedPanes,
-            makePanel: { [weak workspace, weak connection] tmuxPaneId in
-                workspace?.makeRemoteTmuxPanePanel(onInput: { data in
-                    Task { @MainActor in connection?.sendKeys(paneId: tmuxPaneId, data: data) }
-                })
+            makePanel: { [weak self, weak workspace, weak connection] tmuxPaneId in
+                let currentWindow = connection?.windowsByID[windowId]
+                let leaf = currentWindow?.layout.leavesByPaneID[tmuxPaneId]
+                return workspace?.makeRemoteTmuxPanePanel(
+                    remotePaneId: tmuxPaneId,
+                    initialColumns: leaf?.width ?? currentWindow?.width ?? 80,
+                    initialRows: leaf?.height ?? currentWindow?.height ?? 24,
+                    onInput: { data in
+                        Task { @MainActor in
+                            connection?.sendKeys(paneId: tmuxPaneId, data: data)
+                        }
+                    },
+                    backendSendKeys: { [weak connection] data in
+                        connection?.sendKeys(paneId: tmuxPaneId, data: data) ?? false
+                    },
+                    onRequestSeed: { [weak connection] in
+                        connection?.seedPane(paneId: tmuxPaneId)
+                    },
+                    backendProvenance: self?.backendProvenance(
+                        windowID: windowId,
+                        paneID: tmuxPaneId,
+                        role: .nestedPane
+                    )
+                )
             }
         )
         mirror.onClosePaneRequest = { [weak workspace, weak mirror] tmuxPaneId in

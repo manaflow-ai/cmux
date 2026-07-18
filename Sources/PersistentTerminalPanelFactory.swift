@@ -14,6 +14,7 @@ final class PersistentTerminalPanelFactory: TerminalPanelCreating {
     private let presentationRegistry: TerminalBackendPresentationRegistry
     private let renderConfigSource: TerminalBackendRenderConfigSource
     private let topologyAuthorizationGate: TerminalBackendTopologyAuthorizationGate
+    private let remoteTmuxSurfaceRegistry: TerminalBackendRemoteTmuxSurfaceRegistry?
 
     init(
         dependencies: TerminalSurfaceRuntimeDependencies,
@@ -21,7 +22,8 @@ final class PersistentTerminalPanelFactory: TerminalPanelCreating {
         launchResolver: TerminalSurfaceLaunchResolver,
         presentationRegistry: TerminalBackendPresentationRegistry,
         renderConfigSource: TerminalBackendRenderConfigSource,
-        topologyAuthorizationGate: TerminalBackendTopologyAuthorizationGate
+        topologyAuthorizationGate: TerminalBackendTopologyAuthorizationGate,
+        remoteTmuxSurfaceRegistry: TerminalBackendRemoteTmuxSurfaceRegistry? = nil
     ) {
         self.dependencies = dependencies
         self.backendClient = backendClient
@@ -29,6 +31,7 @@ final class PersistentTerminalPanelFactory: TerminalPanelCreating {
         self.presentationRegistry = presentationRegistry
         self.renderConfigSource = renderConfigSource
         self.topologyAuthorizationGate = topologyAuthorizationGate
+        self.remoteTmuxSurfaceRegistry = remoteTmuxSurfaceRegistry
     }
 
     func makeTerminalPanel(_ request: TerminalPanelCreationRequest) -> TerminalPanel {
@@ -50,7 +53,9 @@ final class PersistentTerminalPanelFactory: TerminalPanelCreating {
             presentationRegistry: presentationRegistry,
             renderConfigSource: renderConfigSource,
             presentationConfigOverrides: rendererConfigOverrides(for: request),
-            topologyAuthorizationGate: topologyAuthorizationGate
+            topologyAuthorizationGate: topologyAuthorizationGate,
+            externalMutationRouter: remoteTmuxSurfaceRegistry?
+                .runtimeMutationRouter(surfaceID: request.id)
         )
         let panel = TerminalPanel(
             request: request,

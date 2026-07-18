@@ -188,6 +188,14 @@ extension TabManager: TerminalBackendTopologyProjecting {
         }
     }
 
+    func restoreRemoteTmuxProducer(
+        _ projection: TerminalBackendRemoteTmuxProducerProjection
+    ) -> Bool {
+        guard tabs.contains(where: { $0.id == projection.workspaceID }),
+              let controller = AppDelegate.shared?.remoteTmuxController else { return false }
+        return controller.restorePersistentProducer(projection, into: self)
+    }
+
     func prepareCanonicalTopology(
         _ snapshot: TopologySnapshot,
         plan: TerminalBackendTopologyProjectionPlan
@@ -207,6 +215,10 @@ extension TabManager: TerminalBackendTopologyProjecting {
                     .canonicalProjectionDidInstall(
                         snapshot,
                         presentationID: self.terminalBackendProjectionPresentationID
+                    )
+                self.terminalClientComposition.remoteTmuxSurfaceRegistry?
+                    .canonicalProjectionDidInstall(
+                        surfaceIDs: Set(plan.surfaceWorkspaceIDs.keys)
                     )
                 self.canonicalTopologyDidProject(snapshot)
             },
@@ -1826,6 +1838,10 @@ extension TabManager: TerminalBackendTopologyProjecting {
     /// Daemon-rendered endpoints stay in the topology but remain omitted when
     /// their descriptor explicitly permits a frontend without frame support.
     private func shouldProjectCanonicalSurface(_ surface: CanonicalSurface) -> Bool {
+        if terminalClientComposition.remoteTmuxSurfaceRegistry?
+            .shouldProjectCanonicalSurface(surface.uuid) == false {
+            return false
+        }
         guard surface.kind.lowercased() == "browser",
               surface.browserEndpoint?.frontendProjection == .frontendOptional else {
             return true

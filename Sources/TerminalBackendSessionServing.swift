@@ -97,13 +97,24 @@ protocol TerminalBackendSessionServing: Sendable {
         columns: UInt16?,
         rows: UInt16?
     ) async throws -> BackendSurfacePlacement
+    func newExternalWorkspace(
+        expectation: BackendTopologyMutationExpectation,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        columns: UInt16,
+        rows: UInt16,
+        noReflow: Bool,
+        provenance: CanonicalExternalTerminalProvenance,
+        producerSource: BackendRemoteTmuxProducerSource
+    ) async throws -> BackendSurfacePlacement
     func materializeExternalTerminal(
         expectation: BackendTopologyMutationExpectation,
         workspaceID: WorkspaceID,
         surfaceID: SurfaceID,
         columns: UInt16,
         rows: UInt16,
-        noReflow: Bool
+        noReflow: Bool,
+        provenance: CanonicalExternalTerminalProvenance
     ) async throws -> BackendSurfacePlacement
     func claimExternalTerminal(
         surfaceID: SurfaceID,
@@ -116,6 +127,7 @@ protocol TerminalBackendSessionServing: Sendable {
         outputGeneration: UInt64,
         columns: UInt16,
         rows: UInt16,
+        noReflow: Bool,
         seed: Data
     ) async throws -> BackendExternalTerminalOutputReceipt
     func sendExternalTerminalOutput(
@@ -130,6 +142,17 @@ protocol TerminalBackendSessionServing: Sendable {
         surfaceID: SurfaceID,
         ownerGeneration: UInt64
     ) async throws -> Data
+    func claimRemoteTmuxProducerSource(
+        producerID: UUID,
+        requestID: UUID,
+        source: BackendRemoteTmuxProducerSource?
+    ) async throws -> BackendRemoteTmuxProducerSourceClaimReceipt
+    func updateRemoteTmuxProducerSource(
+        producerID: UUID,
+        ownerGeneration: UInt64,
+        requestID: UUID,
+        source: BackendRemoteTmuxProducerSource
+    ) async throws -> BackendRemoteTmuxProducerSourceUpdateReceipt
     func claimFrontendNativeBrowser(
         surfaceID: SurfaceID,
         requestID: UUID,
@@ -509,13 +532,15 @@ extension TerminalBackendSessionServing {
         throw BackendProtocolError.notConnected
     }
 
-    func materializeExternalTerminal(
+    func newExternalWorkspace(
         expectation: BackendTopologyMutationExpectation,
         workspaceID: WorkspaceID,
         surfaceID: SurfaceID,
         columns: UInt16,
         rows: UInt16,
-        noReflow: Bool
+        noReflow: Bool,
+        provenance: CanonicalExternalTerminalProvenance,
+        producerSource: BackendRemoteTmuxProducerSource
     ) async throws -> BackendSurfacePlacement {
         _ = expectation
         _ = workspaceID
@@ -523,6 +548,27 @@ extension TerminalBackendSessionServing {
         _ = columns
         _ = rows
         _ = noReflow
+        _ = provenance
+        _ = producerSource
+        throw BackendProtocolError.notConnected
+    }
+
+    func materializeExternalTerminal(
+        expectation: BackendTopologyMutationExpectation,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        columns: UInt16,
+        rows: UInt16,
+        noReflow: Bool,
+        provenance: CanonicalExternalTerminalProvenance
+    ) async throws -> BackendSurfacePlacement {
+        _ = expectation
+        _ = workspaceID
+        _ = surfaceID
+        _ = columns
+        _ = rows
+        _ = noReflow
+        _ = provenance
         throw BackendProtocolError.notConnected
     }
 
@@ -542,6 +588,7 @@ extension TerminalBackendSessionServing {
         outputGeneration: UInt64,
         columns: UInt16,
         rows: UInt16,
+        noReflow: Bool,
         seed: Data
     ) async throws -> BackendExternalTerminalOutputReceipt {
         _ = surfaceID
@@ -550,6 +597,7 @@ extension TerminalBackendSessionServing {
         _ = outputGeneration
         _ = columns
         _ = rows
+        _ = noReflow
         _ = seed
         throw BackendProtocolError.notConnected
     }
@@ -577,6 +625,30 @@ extension TerminalBackendSessionServing {
     ) async throws -> Data {
         _ = surfaceID
         _ = ownerGeneration
+        throw BackendProtocolError.notConnected
+    }
+
+    func claimRemoteTmuxProducerSource(
+        producerID: UUID,
+        requestID: UUID,
+        source: BackendRemoteTmuxProducerSource?
+    ) async throws -> BackendRemoteTmuxProducerSourceClaimReceipt {
+        _ = producerID
+        _ = requestID
+        _ = source
+        throw BackendProtocolError.notConnected
+    }
+
+    func updateRemoteTmuxProducerSource(
+        producerID: UUID,
+        ownerGeneration: UInt64,
+        requestID: UUID,
+        source: BackendRemoteTmuxProducerSource
+    ) async throws -> BackendRemoteTmuxProducerSourceUpdateReceipt {
+        _ = producerID
+        _ = ownerGeneration
+        _ = requestID
+        _ = source
         throw BackendProtocolError.notConnected
     }
 

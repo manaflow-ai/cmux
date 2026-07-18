@@ -118,6 +118,7 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
     private let presentationConfigOverrides: Data
     private let clipboardWriter: (String) -> Void
     private let topologyAuthorizationGate: TerminalBackendTopologyAuthorizationGate?
+    private let externalMutationRouter: (any TerminalBackendExternalRuntimeMutationRouting)?
     private var baseRenderConfigRevision: UInt64
     private var baseRenderConfig: Data
     private var backendDefaultConfig = Data()
@@ -179,6 +180,7 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         resolvedConfig: Data = Data(),
         queueCapacity: Int = 256,
         topologyAuthorizationGate: TerminalBackendTopologyAuthorizationGate? = nil,
+        externalMutationRouter: (any TerminalBackendExternalRuntimeMutationRouting)? = nil,
         launchResolution: (@MainActor (
             TerminalSurfaceLaunchRequest
         ) async -> TerminalSurfaceResolvedLaunch)? = nil,
@@ -200,6 +202,7 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         self.renderConfigSource = renderConfigSource
         self.presentationConfigOverrides = presentationConfigOverrides
         self.topologyAuthorizationGate = topologyAuthorizationGate
+        self.externalMutationRouter = externalMutationRouter
         self.clipboardWriter = clipboardWriter
         if let current = renderConfigSource?.current {
             self.baseRenderConfigRevision = current.revision
@@ -696,12 +699,23 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         }
 
         let descriptor = try presentationDescriptor(for: mutation, binding: binding)
-        let outcome = try await client.apply(
-            mutation,
-            requestID: queued.requestID,
-            to: binding,
-            presentation: descriptor
-        )
+        let outcome: TerminalBackendMutationOutcome
+        if let externalMutationRouter {
+            outcome = try await externalMutationRouter.apply(
+                mutation,
+                requestID: queued.requestID,
+                client: client,
+                binding: binding,
+                presentation: descriptor
+            )
+        } else {
+            outcome = try await client.apply(
+                mutation,
+                requestID: queued.requestID,
+                to: binding,
+                presentation: descriptor
+            )
+        }
         if let updatedBinding = outcome.binding {
             self.binding = updatedBinding
             currentWorkspaceID = updatedBinding.appWorkspaceID

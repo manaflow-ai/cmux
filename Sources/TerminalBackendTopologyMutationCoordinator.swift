@@ -250,6 +250,73 @@ final class TerminalBackendTopologyMutationCoordinator {
         }
     }
 
+    /// Materializes a parser/renderer endpoint with no daemon PTY or child.
+    @discardableResult
+    func requestMaterializeExternalTerminal(
+        workspaceID: UUID,
+        surfaceID: UUID,
+        columns: UInt16,
+        rows: UInt16,
+        noReflow: Bool,
+        provenance: CanonicalExternalTerminalProvenance,
+        onProjected: ProjectionHandler? = nil,
+        onFailure: RequestFailureHandler? = nil
+    ) -> TerminalBackendTopologyMutationSubmission {
+        submit(
+            .attachSurface,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            onProjected: onProjected,
+            onFailure: onFailure
+        ) { [mutator] requestID in
+            try await mutator.materializeExternalTerminal(
+                requestID: requestID,
+                workspaceID: CmuxTerminalBackend.WorkspaceID(rawValue: workspaceID),
+                surfaceID: CmuxTerminalBackend.SurfaceID(rawValue: surfaceID),
+                columns: columns,
+                rows: rows,
+                noReflow: noReflow,
+                provenance: provenance
+            ).receipt
+        }
+    }
+
+    /// Creates a canonical workspace and its first parser-only surface in one
+    /// revision, so remote mirrors never allocate a placeholder PTY.
+    @discardableResult
+    func requestCreateExternalWorkspace(
+        workspaceID: UUID = UUID(),
+        surfaceID: UUID = UUID(),
+        columns: UInt16,
+        rows: UInt16,
+        noReflow: Bool,
+        provenance: CanonicalExternalTerminalProvenance,
+        producerSource: BackendRemoteTmuxProducerSource,
+        projectionOwnerID: UUID? = nil,
+        onProjected: ProjectionHandler? = nil,
+        onFailure: RequestFailureHandler? = nil
+    ) -> TerminalBackendTopologyMutationSubmission {
+        submit(
+            .createWorkspace,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            projectionOwnerID: projectionOwnerID,
+            onProjected: onProjected,
+            onFailure: onFailure
+        ) { [mutator] requestID in
+            try await mutator.newExternalWorkspace(
+                requestID: requestID,
+                workspaceID: CmuxTerminalBackend.WorkspaceID(rawValue: workspaceID),
+                surfaceID: CmuxTerminalBackend.SurfaceID(rawValue: surfaceID),
+                columns: columns,
+                rows: rows,
+                noReflow: noReflow,
+                provenance: provenance,
+                producerSource: producerSource
+            ).receipt
+        }
+    }
+
     @discardableResult
     func requestRespawnTerminal(
         surfaceID: UUID,

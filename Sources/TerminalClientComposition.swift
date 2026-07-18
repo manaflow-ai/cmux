@@ -14,6 +14,7 @@ final class TerminalClientComposition {
     let terminalBackendTopologyAdoptionRegistry: TerminalBackendTopologyAdoptionRegistry?
     let nativeBrowserPresentationRegistry: TerminalBackendNativeBrowserPresentationRegistry
     let nativeBrowserRuntimeCoordinator: TerminalBackendNativeBrowserRuntimeCoordinator?
+    let remoteTmuxSurfaceRegistry: TerminalBackendRemoteTmuxSurfaceRegistry?
     let browserEndpointFactory: any TerminalBackendBrowserEndpointCreating
     /// Whether Swift can present a canonical browser endpoint. Production
     /// supports frontend-native WebKit endpoints, not daemon PNG frames.
@@ -28,6 +29,7 @@ final class TerminalClientComposition {
         terminalBackendTopologyAdoptionRegistry: TerminalBackendTopologyAdoptionRegistry? = nil,
         nativeBrowserPresentationRegistry: TerminalBackendNativeBrowserPresentationRegistry? = nil,
         nativeBrowserRuntimeCoordinator: TerminalBackendNativeBrowserRuntimeCoordinator? = nil,
+        remoteTmuxSurfaceRegistry: TerminalBackendRemoteTmuxSurfaceRegistry? = nil,
         browserEndpointFactory: (any TerminalBackendBrowserEndpointCreating)? = nil,
         canonicalBrowserProjectionAvailable: Bool = false
     ) {
@@ -40,6 +42,7 @@ final class TerminalClientComposition {
         self.nativeBrowserPresentationRegistry = nativeBrowserPresentationRegistry
             ?? TerminalBackendNativeBrowserPresentationRegistry()
         self.nativeBrowserRuntimeCoordinator = nativeBrowserRuntimeCoordinator
+        self.remoteTmuxSurfaceRegistry = remoteTmuxSurfaceRegistry
         self.browserEndpointFactory = browserEndpointFactory
             ?? UnsupportedTerminalBackendBrowserEndpointFactory()
         self.canonicalBrowserProjectionAvailable = canonicalBrowserProjectionAvailable
@@ -68,13 +71,29 @@ final class TerminalClientComposition {
         let renderConfigSource = TerminalBackendRenderConfigSource {
             GhosttyApp.shared.serializedTerminalRendererConfig()
         }
+        let remoteTmuxSurfaceRegistry: TerminalBackendRemoteTmuxSurfaceRegistry? = {
+            guard let externalService = backendClient as?
+                    any TerminalBackendExternalTerminalServing,
+                  let producerSourceService = backendClient as?
+                    any TerminalBackendRemoteTmuxProducerSourceServing else { return nil }
+                let recoveringClient = backendClient as?
+                    any TerminalBackendFrontendConnectionRecovering
+                return TerminalBackendRemoteTmuxSurfaceRegistry(
+                    service: externalService,
+                    producerSourceService: producerSourceService,
+                    recoveryHandler: {
+                        await recoveringClient?.recoverFrontendConnection()
+                    }
+                )
+        }()
         let factory = PersistentTerminalPanelFactory(
             dependencies: dependencies,
             backendClient: backendClient,
             launchResolver: TerminalSurfaceLaunchResolver(dependencies: dependencies),
             presentationRegistry: registry,
             renderConfigSource: renderConfigSource,
-            topologyAuthorizationGate: topologyAuthorizationGate
+            topologyAuthorizationGate: topologyAuthorizationGate,
+            remoteTmuxSurfaceRegistry: remoteTmuxSurfaceRegistry
         )
         let nativeBrowserPresentationRegistry =
             TerminalBackendNativeBrowserPresentationRegistry()
@@ -100,6 +119,7 @@ final class TerminalClientComposition {
             terminalBackendTopologyAdoptionRegistry: topologyAdoptionRegistry,
             nativeBrowserPresentationRegistry: nativeBrowserPresentationRegistry,
             nativeBrowserRuntimeCoordinator: nativeBrowserRuntimeCoordinator,
+            remoteTmuxSurfaceRegistry: remoteTmuxSurfaceRegistry,
             browserEndpointFactory: NativeTerminalBackendBrowserEndpointFactory(
                 presentationRegistry: nativeBrowserPresentationRegistry,
                 claimedSourceURL: { [nativeBrowserRuntimeCoordinator] surfaceID in

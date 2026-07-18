@@ -527,6 +527,18 @@ final class TerminalBackendTopologyProjectionRegistry: TerminalBackendTopologyPr
         }
     }
 
+    func restoreRemoteTmuxProducer(
+        _ projection: TerminalBackendRemoteTmuxProducerProjection
+    ) -> Bool {
+        purgeDeadEntries()
+        for entry in liveEntries() {
+            if entry.projector?.restoreRemoteTmuxProducer(projection) == true {
+                return true
+            }
+        }
+        return false
+    }
+
     func prepareCanonicalTopology(
         _ snapshot: TopologySnapshot,
         plan: TerminalBackendTopologyProjectionPlan
