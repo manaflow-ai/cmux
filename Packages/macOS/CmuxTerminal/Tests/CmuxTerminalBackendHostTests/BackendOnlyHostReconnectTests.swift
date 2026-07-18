@@ -1,4 +1,5 @@
 import CmuxTerminalBackend
+import CmuxTerminalBackendService
 @testable import CmuxTerminalBackendHost
 import Foundation
 import Testing

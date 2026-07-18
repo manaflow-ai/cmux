@@ -120,6 +120,14 @@ let package = Package(
             dependencies: [
                 "CmuxTerminalBackendHost",
                 .product(name: "CmuxTerminalBackend", package: "CmuxTerminalBackend"),
+                .product(
+                    name: "CmuxTerminalBackendService",
+                    package: "CmuxTerminalBackendService"
+                ),
+                .product(
+                    name: "CmuxTerminalRenderProtocol",
+                    package: "CmuxTerminalRenderTransport"
+                ),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

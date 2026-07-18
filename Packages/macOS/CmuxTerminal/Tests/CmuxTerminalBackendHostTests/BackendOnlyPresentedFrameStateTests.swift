@@ -1,3 +1,4 @@
+import CmuxTerminalRenderProtocol
 import Foundation
 import Testing
 @testable import CmuxTerminalBackendHost
