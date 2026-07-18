@@ -480,6 +480,106 @@ class AcceptanceToolTests(unittest.TestCase):
                     "PROC-1", "process-census", metrics, "renderer PTY ownership"
                 )
 
+    def test_host_attestation_is_recomputed_for_the_manifest_app(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            app = root / "cmux.app"
+            report = {
+                "schema_version": 1,
+                "graph_sha256": "a" * 64,
+                "product_closure": {
+                    "nodes": [
+                        {"package": "CmuxTerminal", "target": "CmuxTerminalDomain"},
+                        {"package": "CmuxTerminal", "target": "CmuxTerminalFrontend"},
+                    ],
+                    "edges": [],
+                },
+                "source_roots": [],
+                "root_product": {
+                    "package": "CmuxTerminal",
+                    "product": "CmuxTerminalFrontend",
+                },
+                "host_artifact": {
+                    "executable": "Contents/MacOS/cmux",
+                    "load_closure": [
+                        {"path": "Contents/MacOS/cmux", "sha256": "b" * 64}
+                    ],
+                    "load_edges": [],
+                    "linkage_auditor_sha256": acceptance.sha256_file(
+                        acceptance.BACKEND_ONLY_LINKAGE_AUDITOR
+                    ),
+                    "attestation_sha256": "c" * 64,
+                },
+            }
+            raw = root / "host-attestation.json"
+            raw.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "artifact_kind": "host-backend-only-attestation",
+                        "context": {
+                            "source_commit": "d" * 40,
+                            "app_path": str(app.resolve()),
+                            "verifier_sha256": acceptance.sha256_file(
+                                acceptance.BACKEND_ONLY_PRODUCT_VERIFIER
+                            ),
+                            "linkage_auditor_sha256": acceptance.sha256_file(
+                                acceptance.BACKEND_ONLY_LINKAGE_AUDITOR
+                            ),
+                        },
+                        "records": [report],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with mock.patch.object(
+                acceptance,
+                "_backend_only_product_report",
+                return_value=report,
+            ) as verifier:
+                metrics = acceptance.derive_payload_metrics(
+                    "PROC-1",
+                    "host-backend-only-attestation",
+                    raw,
+                    "host attestation",
+                    source_commit="d" * 40,
+                    app_bundle=app,
+                )
+            verifier.assert_called_once_with(app.resolve())
+            self.assertEqual(
+                metrics,
+                {
+                    "source_commit": "d" * 40,
+                    "graph_sha256": "a" * 64,
+                    "host_attestation_sha256": "c" * 64,
+                    "host_load_closure_binary_count": 1,
+                    "frontend_target_count": 1,
+                    "runtime_ownership_backend_only": 1,
+                    "forbidden_host_link_count": 0,
+                    "dynamic_load_escape_count": 0,
+                },
+            )
+
+            edited = json.loads(raw.read_text(encoding="utf-8"))
+            edited["records"][0]["host_artifact"]["attestation_sha256"] = "e" * 64
+            raw.write_text(json.dumps(edited), encoding="utf-8")
+            with mock.patch.object(
+                acceptance,
+                "_backend_only_product_report",
+                return_value=report,
+            ), self.assertRaisesRegex(
+                acceptance.AcceptanceError,
+                "does not match a fresh backend-only product",
+            ):
+                acceptance.derive_payload_metrics(
+                    "PROC-1",
+                    "host-backend-only-attestation",
+                    raw,
+                    "edited host attestation",
+                    source_commit="d" * 40,
+                    app_bundle=app,
+                )
+
     def test_raw_json_rejects_embedded_self_authored_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = pathlib.Path(temporary) / "raw.json"

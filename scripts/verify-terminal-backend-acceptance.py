@@ -28,6 +28,9 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 SPEC_PATH = REPO_ROOT / "tests/terminal-backend/acceptance/spec.json"
 SCHEMA_PATH = REPO_ROOT / "tests/terminal-backend/acceptance/manifest.schema.json"
 IDENTITY_TOOL = REPO_ROOT / "scripts/terminal-backend-identity.py"
+BACKEND_ONLY_PRODUCT_VERIFIER = REPO_ROOT / "scripts/verify-cmux-backend-only-product.py"
+BACKEND_ONLY_LINKAGE_AUDITOR = REPO_ROOT / "scripts/audit-cmux-backend-only-linkage.sh"
+TERMINAL_FRONTEND_PACKAGE = REPO_ROOT / "Packages/macOS/CmuxTerminal"
 SCHEMA_VERSION = 1
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
@@ -230,6 +233,16 @@ ARTIFACT_REQUIRED_METRICS: dict[str, set[str]] = {
         "config_sha256",
         "geometry_sha256",
         "source_commit",
+    },
+    "host-backend-only-attestation": {
+        "source_commit",
+        "graph_sha256",
+        "host_attestation_sha256",
+        "host_load_closure_binary_count",
+        "frontend_target_count",
+        "runtime_ownership_backend_only",
+        "forbidden_host_link_count",
+        "dynamic_load_escape_count",
     },
     "image-diff": {
         "different_pixel_count",
@@ -532,6 +545,8 @@ ZERO_ON_PASS_METRICS = {
     "state_mutation_count",
     "swift_pty_master_count",
     "renderer_pty_master_count",
+    "forbidden_host_link_count",
+    "dynamic_load_escape_count",
     "blocked_parser_count",
     "blocked_topology_count",
     "other_client_failure_count",
@@ -556,6 +571,9 @@ POSITIVE_ON_PASS_METRICS = {
     "submitted_blits",
     "provenance_records",
     "fixture_count",
+    "host_load_closure_binary_count",
+    "frontend_target_count",
+    "runtime_ownership_backend_only",
     "width",
     "height",
     "group_count",
@@ -2560,6 +2578,105 @@ def _provenance_is_complete(value: Any) -> bool:
     return required.issubset(value) and all(value[name] not in (None, "") for name in required)
 
 
+def _backend_only_product_report(app_bundle: pathlib.Path) -> dict[str, Any]:
+    """Recompute the frontend product graph and recursive host Mach-O audit."""
+    rendered = run(
+        [
+            sys.executable,
+            str(BACKEND_ONLY_PRODUCT_VERIFIER),
+            "--package-path",
+            str(TERMINAL_FRONTEND_PACKAGE),
+            "--product",
+            "CmuxTerminalFrontend",
+            "--app-bundle",
+            str(app_bundle),
+        ]
+    )
+    try:
+        report = json.loads(rendered)
+    except json.JSONDecodeError as error:
+        raise AcceptanceError(
+            f"backend-only product verifier returned invalid JSON: {error}"
+        ) from error
+    if not isinstance(report, dict):
+        raise AcceptanceError("backend-only product verifier returned a non-object report")
+    return report
+
+
+def _derive_host_backend_only_attestation_metrics(
+    context: dict[str, Any],
+    records: list[Any],
+    label: str,
+    *,
+    source_commit: str | None,
+    app_bundle: pathlib.Path | None,
+) -> dict[str, Any]:
+    expected_context_keys = {
+        "source_commit",
+        "app_path",
+        "verifier_sha256",
+        "linkage_auditor_sha256",
+    }
+    if set(context) != expected_context_keys:
+        raise AcceptanceError(
+            f"{label} attestation context keys differ from repository schema"
+        )
+    if source_commit is None or app_bundle is None:
+        raise AcceptanceError(
+            f"{label} needs manifest-bound source and app identities"
+        )
+    if context.get("source_commit") != source_commit:
+        raise AcceptanceError(f"{label} source commit differs from the manifest")
+    resolved_app = app_bundle.expanduser().resolve()
+    if context.get("app_path") != str(resolved_app):
+        raise AcceptanceError(f"{label} app path differs from the manifest")
+    if context.get("verifier_sha256") != sha256_file(BACKEND_ONLY_PRODUCT_VERIFIER):
+        raise AcceptanceError(f"{label} product verifier hash changed")
+    if context.get("linkage_auditor_sha256") != sha256_file(BACKEND_ONLY_LINKAGE_AUDITOR):
+        raise AcceptanceError(f"{label} linkage auditor hash changed")
+    if len(records) != 1 or not isinstance(records[0], dict):
+        raise AcceptanceError(f"{label} needs exactly one verifier report")
+
+    report = _backend_only_product_report(resolved_app)
+    if records[0] != report:
+        raise AcceptanceError(
+            f"{label} does not match a fresh backend-only product and host audit"
+        )
+    if report.get("schema_version") != 1:
+        raise AcceptanceError(f"{label} verifier report schema is unsupported")
+    graph_sha256 = _raw_string(report.get("graph_sha256"), f"{label} graph hash")
+    expect_sha256(graph_sha256, f"{label} graph hash")
+    closure = _raw_dict(report.get("product_closure"), f"{label} product closure")
+    nodes = closure.get("nodes")
+    if not isinstance(nodes, list):
+        raise AcceptanceError(f"{label} product closure nodes must be an array")
+    frontend_target_count = sum(
+        isinstance(node, dict) and node.get("target") == "CmuxTerminalFrontend"
+        for node in nodes
+    )
+    if frontend_target_count != 1:
+        raise AcceptanceError(f"{label} needs exactly one frontend product target")
+    host = _raw_dict(report.get("host_artifact"), f"{label} host artifact")
+    attestation_sha256 = _raw_string(
+        host.get("attestation_sha256"), f"{label} host attestation hash"
+    )
+    expect_sha256(attestation_sha256, f"{label} host attestation hash")
+    load_closure = host.get("load_closure")
+    if not isinstance(load_closure, list) or not load_closure:
+        raise AcceptanceError(f"{label} host load closure must be non-empty")
+    return {
+        "source_commit": source_commit,
+        "graph_sha256": graph_sha256,
+        "host_attestation_sha256": attestation_sha256,
+        "host_load_closure_binary_count": len(load_closure),
+        "frontend_target_count": frontend_target_count,
+        "runtime_ownership_backend_only": 1,
+        # A successful repository verifier invocation proves these exact absences.
+        "forbidden_host_link_count": 0,
+        "dynamic_load_escape_count": 0,
+    }
+
+
 def derive_structured_metrics(
     criterion_id: str,
     kind: str,
@@ -2567,9 +2684,18 @@ def derive_structured_metrics(
     label: str,
     *,
     source_commit: str | None = None,
+    app_bundle: pathlib.Path | None = None,
     repo_root: pathlib.Path = REPO_ROOT,
 ) -> dict[str, Any]:
     context, records = load_raw_artifact(path, kind, label)
+    if kind == "host-backend-only-attestation":
+        return _derive_host_backend_only_attestation_metrics(
+            context,
+            records,
+            label,
+            source_commit=source_commit,
+            app_bundle=app_bundle,
+        )
     if kind == "accessibility-tree":
         text = context.get("text")
         if not isinstance(text, str):
@@ -3237,6 +3363,7 @@ def derive_payload_metrics(
     *,
     process_roles: dict[int, str] | None = None,
     source_commit: str | None = None,
+    app_bundle: pathlib.Path | None = None,
     repo_root: pathlib.Path = REPO_ROOT,
 ) -> dict[str, Any] | None:
     """Derive receipt metrics from immutable raw payloads.
@@ -3268,6 +3395,7 @@ def derive_payload_metrics(
         path,
         label,
         source_commit=source_commit,
+        app_bundle=app_bundle,
         repo_root=repo_root,
     )
 
@@ -3670,6 +3798,7 @@ def validate_evidence_receipt(
     process_build_roles: dict[int, str] | None = None,
     bound_processes: dict[int, dict[str, Any]] | None = None,
     environment: dict[str, Any] | None = None,
+    app_bundle: pathlib.Path | None = None,
 ) -> str:
     if receipt_path.suffix.lower() != ".json":
         raise AcceptanceError(
@@ -3820,6 +3949,7 @@ def validate_evidence_receipt(
         if artifact_kind in TRACE_ARTIFACT_KINDS
         else None,
         source_commit=source_commit,
+        app_bundle=app_bundle,
     )
     if derived_metrics is None:
         if expected_pass:
@@ -3838,6 +3968,20 @@ def validate_evidence_receipt(
                 f"evidence receipt {criterion_id}/{artifact_kind} metrics were not derived "
                 "from its raw primary attachment"
             )
+        if artifact_kind == "host-backend-only-attestation":
+            if metrics["source_commit"] != source_commit:
+                raise AcceptanceError(
+                    "backend-only host attestation belongs to a different commit"
+                )
+            swift_pids = sorted(
+                pid
+                for pid, role in (process_build_roles or {}).items()
+                if pid in artifact_pids and role == "swift-host"
+            )
+            if artifact_pids != swift_pids or len(swift_pids) != 1:
+                raise AcceptanceError(
+                    "backend-only host attestation must cite exactly the bound Swift host PID"
+                )
         if artifact_kind in {"conformance-test", "integration-test"}:
             if metrics["binary_source_commit"] != source_commit:
                 raise AcceptanceError(
@@ -3993,6 +4137,68 @@ def collect_process_census(arguments: argparse.Namespace) -> pathlib.Path:
     return output
 
 
+def collect_host_backend_only_attestation(arguments: argparse.Namespace) -> pathlib.Path:
+    """Capture a fresh product-graph and recursive Mach-O audit for the tagged host."""
+    manifest_path = arguments.manifest.expanduser().resolve()
+    manifest = load_json(manifest_path)
+    spec = load_spec()
+    validate_shape(manifest, spec)
+    expected_commit, expected_submodules = assert_clean_source()
+    if manifest["source"]["commit"] != expected_commit:
+        raise AcceptanceError("host attestation manifest is not for current clean HEAD")
+    if manifest["source"]["submodules"] != expected_submodules:
+        raise AcceptanceError("host attestation manifest submodules are stale")
+
+    app = pathlib.Path(manifest["build"]["app_path"]).expanduser().resolve()
+    bundle_id, _, app_commit, app_dirty = app_identity(app)
+    if bundle_id != manifest["build"]["bundle_id"]:
+        raise AcceptanceError("host attestation app bundle identifier changed")
+    if app_commit != expected_commit or app_dirty != "NO":
+        raise AcceptanceError("host attestation app does not match clean HEAD")
+    if sha256_file(app / "Contents/Info.plist") != manifest["build"]["info_plist_sha256"]:
+        raise AcceptanceError("host attestation app Info.plist changed")
+    for executable in manifest["build"]["executables"]:
+        path = (app / executable["path"]).resolve()
+        try:
+            path.relative_to(app)
+        except ValueError as error:
+            raise AcceptanceError("host attestation packaged executable escapes the app") from error
+        if not path.is_file() or sha256_file(path) != executable["sha256"]:
+            raise AcceptanceError(
+                f"host attestation packaged {executable['role']} executable changed"
+            )
+
+    report = _backend_only_product_report(app)
+    payload = {
+        "schema_version": 1,
+        "artifact_kind": "host-backend-only-attestation",
+        "context": {
+            "source_commit": expected_commit,
+            "app_path": str(app),
+            "verifier_sha256": sha256_file(BACKEND_ONLY_PRODUCT_VERIFIER),
+            "linkage_auditor_sha256": sha256_file(BACKEND_ONLY_LINKAGE_AUDITOR),
+        },
+        "records": [report],
+    }
+
+    run_root = manifest_path.parent
+    output = (run_root / arguments.output).resolve()
+    try:
+        output.relative_to(run_root.resolve())
+    except ValueError as error:
+        raise AcceptanceError("host attestation output escapes the evidence directory") from error
+    if output.suffix.lower() != ".json":
+        raise AcceptanceError("host attestation output must be JSON")
+    if output.exists() and not arguments.replace:
+        raise AcceptanceError(f"host attestation already exists: {output}; pass --replace")
+
+    after_commit, after_submodules = assert_clean_source()
+    if (after_commit, after_submodules) != (expected_commit, expected_submodules):
+        raise AcceptanceError("source changed while the host attestation was collected")
+    atomic_write_json(output, payload)
+    return output
+
+
 def collect_linkage_audit(arguments: argparse.Namespace) -> pathlib.Path:
     """Capture the fixed-root linkage scan for the manifest's exact commit."""
     manifest_path = arguments.manifest.expanduser().resolve()
@@ -4066,6 +4272,14 @@ def derive_receipt(arguments: argparse.Namespace) -> pathlib.Path:
         for process in manifest["processes"]
         if process["pid"] in pids and process["build_role"] is not None
     }
+    if arguments.kind == "host-backend-only-attestation":
+        swift_pids = sorted(
+            pid for pid, role in process_roles.items() if role == "swift-host"
+        )
+        if pids != swift_pids or len(swift_pids) != 1:
+            raise AcceptanceError(
+                "host backend-only attestation must cite exactly the bound Swift host PID"
+            )
     metrics = derive_payload_metrics(
         arguments.id,
         arguments.kind,
@@ -4073,6 +4287,7 @@ def derive_receipt(arguments: argparse.Namespace) -> pathlib.Path:
         f"{arguments.id}/{arguments.kind} primary attachment",
         process_roles=process_roles if arguments.kind in TRACE_ARTIFACT_KINDS else None,
         source_commit=expected_commit,
+        app_bundle=pathlib.Path(manifest["build"]["app_path"]),
     )
     if metrics is None:
         raise AcceptanceError(
@@ -4247,6 +4462,7 @@ def record(arguments: argparse.Namespace) -> pathlib.Path:
             process_build_roles=process_build_roles,
             bound_processes=bound_processes,
             environment=manifest["environment"],
+            app_bundle=pathlib.Path(manifest["build"]["app_path"]),
         )
         artifact_metrics[kind] = load_json(path)["metrics"]
         artifacts.append(
@@ -4652,6 +4868,7 @@ def verify(arguments: argparse.Namespace) -> None:
                 process_build_roles=process_build_roles,
                 bound_processes=bound_processes,
                 environment=manifest["environment"],
+                app_bundle=app,
             )
             if receipt_captured_at != artifact["captured_at"]:
                 raise AcceptanceError(
@@ -4722,6 +4939,14 @@ def parser() -> argparse.ArgumentParser:
     census_parser.add_argument("--output", required=True)
     census_parser.add_argument("--replace", action="store_true")
 
+    host_attestation_parser = subparsers.add_parser(
+        "collect-host-backend-only-attestation",
+        help="audit the tagged Swift host product graph and recursive Mach-O closure",
+    )
+    host_attestation_parser.add_argument("--manifest", type=pathlib.Path, required=True)
+    host_attestation_parser.add_argument("--output", required=True)
+    host_attestation_parser.add_argument("--replace", action="store_true")
+
     linkage_parser = subparsers.add_parser(
         "collect-linkage-audit",
         help="scan fixed production roots at the manifest-bound commit",
@@ -4766,6 +4991,9 @@ def main() -> int:
             print(path)
         elif arguments.operation == "collect-process-census":
             path = collect_process_census(arguments)
+            print(path)
+        elif arguments.operation == "collect-host-backend-only-attestation":
+            path = collect_host_backend_only_attestation(arguments)
             print(path)
         elif arguments.operation == "collect-linkage-audit":
             path = collect_linkage_audit(arguments)

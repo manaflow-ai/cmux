@@ -31,6 +31,24 @@ The command prints the manifest path. Launch the tagged app, identify the exact 
 
 Place raw payloads and derived receipts under the manifest directory. A passing receipt cannot supply its own measurements. The verifier parses the primary payload again and requires exact equality with repository-derived metrics.
 
+PROC-1 audits the actual tagged app before inspecting live processes. The collector traverses the `CmuxTerminalFrontend` SwiftPM closure, recursively resolves every in-bundle Mach-O load, rejects Ghostty and PTY symbols, rejects legacy runtime identities and dynamic-load escape hatches, and requires `CMUXTerminalRuntimeOwnership=backend-only`. Receipt derivation and final verification rerun that audit against the manifest-bound app.
+
+```bash
+./scripts/verify-terminal-backend-acceptance.py collect-host-backend-only-attestation \
+  --manifest <manifest> \
+  --output proc-1/host-backend-only-attestation-raw.json
+./scripts/verify-terminal-backend-acceptance.py derive-receipt \
+  --manifest <manifest> \
+  --id PROC-1 \
+  --kind host-backend-only-attestation \
+  --status pass \
+  --primary proc-1/host-backend-only-attestation-raw.json \
+  --output proc-1/host-backend-only-attestation-receipt.json \
+  --pid 101 \
+  --command-json '["./scripts/verify-terminal-backend-acceptance.py","collect-host-backend-only-attestation"]' \
+  --observation 'The production Swift host load closure is backend-only.'
+```
+
 Structured payloads use this envelope:
 
 ```json
@@ -76,8 +94,11 @@ Then attach the derived receipt to the check:
   --manifest <manifest> \
   --id PROC-1 \
   --status pass \
+  --command-json '["./scripts/verify-terminal-backend-acceptance.py","collect-host-backend-only-attestation"]' \
   --command-json '["./scripts/verify-terminal-backend-acceptance.py","collect-process-census"]' \
-  --assertion 'The Swift host owns no PTY master.' \
+  --assertion 'The production host is linked only to the backend frontend closure.' \
+  --assertion 'Only cmuxd owns live terminal PTY masters.' \
+  --artifact-json '{"kind":"host-backend-only-attestation","path":"proc-1/host-backend-only-attestation-receipt.json","pids":[101]}' \
   --artifact-json '{"kind":"process-census","path":"proc-1/process-census-receipt.json","pids":[101,202,303]}'
 ```
 
@@ -95,13 +116,11 @@ Fidelity evidence uses a JSON corpus manifest. `golden-image` requires the named
 
 Instruments `.trace` bundles are accepted only when `xcrun xctrace export --toc` parses them, reports a captured run, and names the required template. Caller-authored trace summaries are rejected.
 
-The PROC-1 Allocations extractor reads `/trace-toc/run/data/table[@schema='os-signpost']` and accepts only `com.cmux.ghostty.process-census` events from the exact manifest-bound Swift-host PID. Ghostty increments process-lifetime atomics at the shared seam used by both `ghostty_surface_new` entrypoints and immediately around the real POSIX `openpty` allocation. Manual-I/O and embedded-PTY surface attempts have separate counters. `cmux terminal-backend-diagnostics --json` asks the Ghostty library to emit a schema-v1 interval whose unit events encode the monotonic snapshot; the diagnostics JSON is informational and is never an evidence source. Run that command after the measured workload and before stopping the Allocations trace. The verifier rejects missing or partial intervals, unknown events, overflow, decreasing snapshots, subtype disagreement, activity after the final snapshot, an unbound PID, and any source change that lets a constructor bypass instrumentation. It derives `swift_canonical_ghostty_allocations` and `swift_pty_master_allocations` from the exported signposts only.
-
 The Time Profiler extractor reads `/trace-toc/run/data/table[@schema='time-profile']` and `/trace-toc/run/data/table[@schema='os-signpost']`. The `time-profile` table supplies process PID and symbolized `tagged-backtrace` rows. The extractor counts terminal shaping and render samples only for commit-bound Swift-host and renderer-worker PIDs. The `os-signpost` table supplies timestamp, main-thread identity, process PID, event type, interval identifier, name, and subsystem. It pairs exact `com.cmux.sidebar` intervals named `sidebar-selection-event-to-visible-state` and derives sample count, p50, p95, p99, and maximum duration. The endpoint is the selected row's SwiftUI render-input projection. Video remains the pixel-visible evidence.
 
 The Metal System Trace extractor reads `/trace-toc/run/data/table[@schema='metal-application-encoders-list']`. It uses process PID, command-buffer label, and encoder label. Host blits require the exact pair `cmux host compositor: one IOSurface blit` and `cmux host compositor: no Ghostty rendering`. Renderer draws require the exact pair `cmux Ghostty worker semantic-scene render` and `Ghostty terminal glyph render pass`. Admitted frames come from the independently derived `frame-counters` payload. PROC-2 cross-artifact validation rejects more host blits than admitted frames.
 
-PROC-1 combines two different time domains. The Allocations trace proves lifetime Ghostty runtime-app, canonical-surface, and PTY-allocation history through monotonic in-library counters, including objects freed before tracing began. The process census independently derives current PTY-master ownership from kernel-visible file descriptors. A passing run requires every Swift-host counter and current PTY ownership to be zero, and requires at least one PTY master in the terminal backend.
+PROC-1 combines a build-time host audit with a live kernel census. The host audit prevents dormant or dynamically loaded Ghostty and PTY code from hiding behind a runtime feature flag. The process census independently requires zero PTY masters in Swift and renderer workers and at least one PTY master in cmuxd.
 
 Final verification rejects missing required artifact kinds, failed P0 checks, reused role identities, unbound PIDs, changed hashes, a dirty worktree, or a manifest from a different commit.
 
