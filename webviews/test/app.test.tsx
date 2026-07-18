@@ -10,7 +10,7 @@ type FetchMock = (input: RequestInfo | URL, init?: RequestInit) => Promise<Respo
 let root: Root | null = null;
 let dom: JSDOM | null = null;
 const originalGlobals = new Map<string, any>();
-for (const key of ["window", "document", "navigator", "Element", "Node", "HTMLElement", "HTMLStyleElement", "customElements", "fetch", "requestAnimationFrame", "cancelAnimationFrame"]) {
+for (const key of ["window", "document", "navigator", "Element", "Node", "ShadowRoot", "HTMLElement", "HTMLButtonElement", "HTMLDivElement", "HTMLPreElement", "HTMLStyleElement", "HTMLTemplateElement", "SVGElement", "ResizeObserver", "customElements", "fetch", "requestAnimationFrame", "cancelAnimationFrame"]) {
   originalGlobals.set(key, (globalThis as any)[key]);
 }
 
@@ -542,7 +542,16 @@ test("App still starts diff rendering when statusMessage is an empty string", as
   let fetchCount = 0;
   installDomGlobals(dom, () => {
     fetchCount += 1;
-    return new Response("", { status: 200 });
+    return new Response([
+      "diff --git a/story.txt b/story.txt",
+      "index 3367afd..f875bd7 100644",
+      "--- a/story.txt",
+      "+++ b/story.txt",
+      "@@ -1 +1 @@",
+      "-before",
+      "+after",
+      "",
+    ].join("\n"), { status: 200 });
   });
 
   renderApp(
@@ -558,8 +567,9 @@ test("App still starts diff rendering when statusMessage is an empty string", as
     />,
   );
 
-  await waitFor(() => fetchCount > 0);
+  await waitFor(() => dom?.window.document.body.dataset.streamFileCount === "1");
   expect(fetchCount).toBe(1);
+  expect(dom.window.document.querySelector(".code-view-root")).toBeTruthy();
 });
 
 test("App reports copy failure without replacing the current status screen", async () => {
@@ -739,8 +749,19 @@ function installDomGlobals(nextDom: JSDOM, fetchImpl: FetchMock): void {
   (globalThis as any).navigator = nextDom.window.navigator;
   (globalThis as any).Element = nextDom.window.Element;
   (globalThis as any).Node = nextDom.window.Node;
+  (globalThis as any).ShadowRoot = nextDom.window.ShadowRoot;
   (globalThis as any).HTMLElement = nextDom.window.HTMLElement;
+  (globalThis as any).HTMLButtonElement = nextDom.window.HTMLButtonElement;
+  (globalThis as any).HTMLDivElement = nextDom.window.HTMLDivElement;
+  (globalThis as any).HTMLPreElement = nextDom.window.HTMLPreElement;
   (globalThis as any).HTMLStyleElement = nextDom.window.HTMLStyleElement;
+  (globalThis as any).HTMLTemplateElement = nextDom.window.HTMLTemplateElement;
+  (globalThis as any).SVGElement = nextDom.window.SVGElement;
+  (globalThis as any).ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
   (globalThis as any).customElements = nextDom.window.customElements;
   (globalThis as any).fetch = fetchImpl;
   (globalThis as any).requestAnimationFrame = (callback: FrameRequestCallback) => setTimeout(() => callback(performance.now()), 0);
