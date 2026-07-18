@@ -257,6 +257,38 @@ struct AgentLaunchCaptureTrustTests {
         )
         #expect(
             !AgentLaunchCaptureTrust.nativeProcessIsSameAgentLauncherRelay(
+                parentProcessName: "node",
+                parentArguments: [
+                    "node",
+                    "--use-system-ca",
+                    "/Users/alice/.npm/lib/node_modules/@anthropic-ai/claude-code/cli.js",
+                    "--model", "sonnet",
+                ],
+                childProcessName: "claude",
+                childArguments: [
+                    "/Users/alice/.local/share/claude/versions/2.1.214",
+                    "--model", "sonnet",
+                ],
+                kind: "claude"
+            )
+        )
+        #expect(
+            AgentLaunchCaptureTrust.nativeProcessIsSameAgentLauncherRelay(
+                parentProcessName: "node",
+                parentArguments: [
+                    "node", "--use-system-ca", "/Users/alice/.bun/bin/codex",
+                    "--yolo",
+                ],
+                childProcessName: "codex",
+                childArguments: [
+                    "/Users/alice/.bun/lib/node_modules/@openai/codex/vendor/codex",
+                    "--yolo",
+                ],
+                kind: "codex"
+            )
+        )
+        #expect(
+            !AgentLaunchCaptureTrust.nativeProcessIsSameAgentLauncherRelay(
                 parentProcessName: "codex",
                 parentArguments: ["/Users/alice/.local/bin/codex", "--yolo"],
                 childProcessName: "codex",
@@ -340,6 +372,34 @@ struct AgentLaunchCaptureTrustTests {
                 arguments: trustedArguments,
                 kind: "claude"
             ) == ["--print", "fix this"]
+        )
+
+        let preloadedArguments = [
+            "node",
+            "--require", "/tmp/codex.js",
+            "/Users/alice/.npm/lib/node_modules/@anthropic-ai/claude-code/cli.js",
+            "--print",
+        ]
+        #expect(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                processName: "node",
+                arguments: preloadedArguments,
+                kind: "claude"
+            )
+        )
+        #expect(
+            !AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                processName: "node",
+                arguments: preloadedArguments,
+                kind: "codex"
+            )
+        )
+        #expect(
+            AgentLaunchCaptureTrust.nativeAgentLaunchArguments(
+                processName: "node",
+                arguments: preloadedArguments,
+                kind: "claude"
+            ) == ["--print"]
         )
     }
 
