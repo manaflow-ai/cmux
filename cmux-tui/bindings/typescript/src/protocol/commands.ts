@@ -134,6 +134,24 @@ export interface SidebarPluginResult {
 export interface VtStateRequest extends CmuxRequestBase { cmd: "vt-state"; surface: Id }
 export interface VtStateResult { cols: number; rows: number; data: Base64 }
 
+export interface ResolveTerminalRequest extends CmuxRequestBase {
+  cmd: "resolve-terminal";
+  /** Stable 16-byte terminal UUID encoded as exactly 32 lowercase hex characters. */
+  terminal_id: string;
+}
+export interface ResolveTerminalResult {
+  surface: Id;
+  terminal_id: string;
+  terminal_incarnation: string;
+}
+
+export interface CloseTerminalRequest extends CmuxRequestBase {
+  cmd: "close-terminal";
+  terminal_id: string;
+  terminal_incarnation: string;
+}
+export type CloseTerminalResult = ResolveTerminalResult;
+
 export interface NewTabRequest extends CmuxRequestBase {
   cmd: "new-tab";
   pane?: Id | null;
@@ -217,7 +235,12 @@ export interface SplitRequest extends CmuxRequestBase {
   rows?: number | null;
 }
 
-export interface SurfaceResult { surface: Id }
+export interface SurfaceResult {
+  surface: Id;
+  /** Present for process-hosted terminal creation, absent for browser surfaces. */
+  terminal_id?: string | null;
+  terminal_incarnation?: string | null;
+}
 
 export interface SetRatioRequest extends CmuxRequestBase {
   cmd: "set-ratio";
@@ -431,6 +454,8 @@ export type CmuxRequest =
   | ReadScrollbackRequest
   | SidebarPluginRequest
   | VtStateRequest
+  | ResolveTerminalRequest
+  | CloseTerminalRequest
   | NewTabRequest
   | NewBrowserTabRequest
   | NewWorkspaceRequest
@@ -494,6 +519,8 @@ export interface CmuxResponseDataMap {
   "read-scrollback": ReadScrollbackResult;
   "sidebar-plugin": SidebarPluginResult;
   "vt-state": VtStateResult;
+  "resolve-terminal": ResolveTerminalResult;
+  "close-terminal": CloseTerminalResult;
   "new-tab": SurfaceResult;
   "new-browser-tab": SurfaceResult;
   "new-workspace": SurfaceResult;

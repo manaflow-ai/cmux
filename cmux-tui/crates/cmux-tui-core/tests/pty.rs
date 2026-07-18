@@ -268,12 +268,15 @@ fn surface_exit_reaps_tree_and_emits_event() {
     );
     assert!(got.is_some(), "no SurfaceExited event");
     assert!(surface.is_dead());
-    // The mux reaps exited surfaces itself, but a canonical empty workspace is
-    // retained so GUI and TUI projections cannot disagree about its existence.
+    // The mux reaps exited surfaces itself. Empty workspace containers are
+    // durable registry state and remain visible for GUI/TUI parity.
     let reaped = wait_for(
         || {
-            mux.with_state(|s| {
-                (s.workspaces.len() == 1 && s.workspaces[0].screens.is_empty()).then_some(())
+            mux.with_state(|state| {
+                (!state.surfaces.contains_key(&surface.id)
+                    && state.workspaces.len() == 1
+                    && state.workspaces[0].screens.is_empty())
+                .then_some(())
             })
         },
         Duration::from_secs(10),
@@ -645,6 +648,7 @@ fn control_socket_attach_vt_state_includes_effective_colors() {
             "palette": {"4": "#112233"},
             "cursor_style": "bar",
             "cursor_blink": false,
+            "palette": {},
         })
     );
 
@@ -780,6 +784,7 @@ fn control_socket_attach_stream_receives_merged_colors_changed() {
             "palette": {},
             "cursor_style": "bar",
             "cursor_blink": false,
+            "palette": {},
         })
     );
 
@@ -814,6 +819,55 @@ fn control_socket_attach_stream_receives_merged_colors_changed() {
     .expect("RIS palette reapply event");
     assert_eq!(reset_event["fg"], "#445566");
     assert_eq!(reset_event["palette"], serde_json::json!({"1": "#112233"}));
+
+    mux.close_surface(surface.id);
+    cmux_tui_core::server::cleanup(&sock_path);
+}
+
+#[test]
+fn control_socket_attach_palette_is_full_sparse_state_and_reset_clears_all_256() {
+    let mux = Mux::new(unique_session("test-attach-palette"), shell_opts("cat"));
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let mut set_palette = Vec::new();
+    for index in 0..=255u8 {
+        set_palette.extend_from_slice(
+            format!("\x1b]4;{index};#{:02x}{:02x}{:02x}\x07", index, 255 - index, index ^ 0x55)
+                .as_bytes(),
+        );
+    }
+    surface.try_with_terminal(|term| term.vt_write(&set_palette)).unwrap();
+
+    let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
+    let attach_stream = connect(&sock_path);
+    attach_stream.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+    let mut attach_writer = attach_stream.try_clone_box().unwrap();
+    let mut attach_reader = BufReader::new(attach_stream);
+    writeln!(attach_writer, r#"{{"id":1,"cmd":"attach-surface","surface":{}}}"#, surface.id)
+        .unwrap();
+    let vt_state = wait_for(|| read_json_line(&mut attach_reader), Duration::from_secs(5))
+        .expect("vt-state event");
+    let palette = vt_state["colors"]["palette"].as_object().expect("palette object");
+    assert_eq!(palette.len(), 256);
+    assert_eq!(palette["0"], "#00ff55");
+    assert_eq!(palette["255"], "#ff00aa");
+    let response = wait_for(|| read_json_line(&mut attach_reader), Duration::from_secs(5))
+        .expect("attach response");
+    assert_eq!(response["ok"], true, "attach failed: {response}");
+
+    surface.write_bytes(b"\x1b]104\x07\n").unwrap();
+    let reset = wait_for(
+        || {
+            while let Some(value) = read_json_line(&mut attach_reader) {
+                if value.get("event").and_then(|value| value.as_str()) == Some("colors-changed") {
+                    return Some(value);
+                }
+            }
+            None
+        },
+        Duration::from_secs(5),
+    )
+    .expect("palette reset colors-changed event");
+    assert_eq!(reset["palette"], serde_json::json!({}));
 
     mux.close_surface(surface.id);
     cmux_tui_core::server::cleanup(&sock_path);
@@ -971,13 +1025,15 @@ fn attach_stream_replays_then_streams_without_duplication() {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         match attach.stream.recv_timeout(Duration::from_millis(200)) {
-            Ok(AttachFrame::Output(chunk)) => {
+            Ok(AttachFrame::Output(chunk))
+            | Ok(AttachFrame::OutputWithColors { output: chunk, .. }) => {
                 mirror.vt_write(&chunk);
                 if mirror.plain_text().unwrap().contains("after-attach") {
                     break;
                 }
             }
-            Ok(AttachFrame::Resized { cols, rows, replay, .. }) => {
+            Ok(AttachFrame::Resized { cols, rows, replay })
+            | Ok(AttachFrame::ResizedWithColors { cols, rows, replay, .. }) => {
                 assert!(!replay.is_empty());
                 mirror =
                     ghostty_vt::Terminal::new(cols, rows, 1000, ghostty_vt::Callbacks::default())
@@ -1036,7 +1092,7 @@ fn attach_stream_orders_resize_between_output_frames() {
     mux.resize_surface(surface.id, 100, 40).unwrap();
     let resized = wait_for(
         || match attach.stream.recv_timeout(Duration::from_millis(200)) {
-            Ok(AttachFrame::Resized { cols, rows, replay, colors }) => {
+            Ok(AttachFrame::ResizedWithColors { cols, rows, replay, colors }) => {
                 assert!(!replay.is_empty());
                 assert_eq!(colors.palette[4], Some(Rgb { r: 0x11, g: 0x22, b: 0x33 }));
                 Some((cols, rows))
@@ -1053,11 +1109,14 @@ fn attach_stream_orders_resize_between_output_frames() {
     loop {
         match attach.stream.recv_timeout(Duration::from_millis(200)) {
             Ok(AttachFrame::Output(bytes))
+            | Ok(AttachFrame::OutputWithColors { output: bytes, .. })
                 if bytes.windows(b"after-resize".len()).any(|w| w == b"after-resize") =>
             {
                 break;
             }
-            Ok(AttachFrame::Resized { .. }) => panic!("unexpected second resize marker"),
+            Ok(AttachFrame::Resized { .. } | AttachFrame::ResizedWithColors { .. }) => {
+                panic!("unexpected second resize marker")
+            }
             Ok(AttachFrame::ColorsChanged(_)) => {}
             Ok(_) => {}
             Err(_) => assert!(Instant::now() < deadline, "after output never arrived"),
@@ -1546,6 +1605,7 @@ fn workspace_mutations_are_exactly_once_before_guards_and_close_resolution() {
         )
         .expect("create mutation was not committed");
         // Deliberately drop both halves without reading the queued response.
+        drop(stream);
     }
 
     let stream = connect(&sock_path);

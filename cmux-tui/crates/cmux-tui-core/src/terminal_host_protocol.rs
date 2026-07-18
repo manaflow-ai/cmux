@@ -13,6 +13,11 @@ pub const MAGIC: [u8; 4] = *b"CMTH";
 pub const HEADER_LEN: usize = 32;
 pub const PROTOCOL_VERSION: u16 = 1;
 pub const MAX_FRAME_PAYLOAD: usize = 16 * 1024 * 1024;
+/// The live Output or Resized payload is not independently renderable. Its
+/// immediately following sequenced frame must be Colors, and consumers must
+/// apply both before publishing terminal state. No other flag bits are
+/// currently defined.
+pub const FLAG_COLORS_FOLLOW: u32 = 1 << 0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u16)]
@@ -30,11 +35,16 @@ pub enum MessageKind {
     Bell = 11,
     Exit = 12,
     ResyncRequired = 13,
+    Launch = 14,
+    /// Response to `MintCapability`; payload is one 32-byte capability.
+    Capability = 15,
     Input = 100,
     Paste = 101,
     ViewerSize = 102,
     ReleaseViewer = 103,
     Terminate = 104,
+    /// Admin request: little-endian rights:u32 + ttl_ms:u32.
+    MintCapability = 105,
 }
 
 impl TryFrom<u16> for MessageKind {
@@ -55,11 +65,14 @@ impl TryFrom<u16> for MessageKind {
             11 => Ok(Self::Bell),
             12 => Ok(Self::Exit),
             13 => Ok(Self::ResyncRequired),
+            14 => Ok(Self::Launch),
+            15 => Ok(Self::Capability),
             100 => Ok(Self::Input),
             101 => Ok(Self::Paste),
             102 => Ok(Self::ViewerSize),
             103 => Ok(Self::ReleaseViewer),
             104 => Ok(Self::Terminate),
+            105 => Ok(Self::MintCapability),
             other => Err(ProtocolError::UnknownMessageKind(other)),
         }
     }
@@ -71,6 +84,26 @@ pub struct Frame {
     pub kind: MessageKind,
     pub flags: u32,
     pub request_id: u64,
+    /// Host-to-client live-stream position.
+    ///
+    /// Snapshot and its immediately following full-state Colors frame carry
+    /// the same boundary and consume no sequence numbers. Every subsequent
+    /// live Output, Colors, Resized, Title, Pwd, Bell, Exit, or
+    /// ResyncRequired frame consumes exactly one contiguous number. Control
+    /// request/response frames have a nonzero `request_id`, carry sequence
+    /// zero, and are outside that ordered stream. A client that sees a gap or
+    /// duplicate must disconnect and take a new Snapshot; continuing would
+    /// silently corrupt its terminal mirror.
+    ///
+    /// When Output changes application-authored colors it carries
+    /// [`FLAG_COLORS_FOLLOW`], and its full-state Colors frame is exactly the
+    /// next sequence. Resized always carries that flag and likewise has its
+    /// complete Colors state exactly next. Producers publish each pair
+    /// atomically; consumers stage the first frame and expose only the paired
+    /// state. Snapshot keeps flags zero: its same-boundary Colors frame is a
+    /// mandatory bootstrap rule rather than a live-stream transition.
+    /// Unknown flags, flags on Colors or other message kinds, an unflagged
+    /// Resized, and a flagged frame not followed by Colors are protocol errors.
     pub sequence: u64,
     pub payload: Vec<u8>,
 }

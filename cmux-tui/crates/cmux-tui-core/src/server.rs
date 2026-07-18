@@ -218,6 +218,24 @@ enum Command {
     VtState {
         surface: SurfaceId,
     },
+    /// Mint a one-use direct renderer credential without exposing the
+    /// daemon's durable owner capability.
+    MintTerminalRenderer {
+        surface: SurfaceId,
+        #[serde(default = "default_renderer_capability_ttl_ms")]
+        ttl_ms: u64,
+    },
+    /// Resolve a process-stable hosted terminal UUID to this daemon
+    /// generation's local surface handle without creating anything.
+    ResolveTerminal {
+        terminal_id: String,
+    },
+    /// Close a hosted terminal by stable identity. This is safe across daemon
+    /// generations; the incarnation guard prevents a stale close request.
+    CloseTerminal {
+        terminal_id: String,
+        terminal_incarnation: String,
+    },
     /// New tab in a pane (default: the active pane).
     NewTab {
         #[serde(default)]
@@ -1869,6 +1887,10 @@ fn paired_surface_size(
     }
 }
 
+fn default_renderer_capability_ttl_ms() -> u64 {
+    30_000
+}
+
 fn workspace_mutation(request: &MutationRequest) -> anyhow::Result<WorkspaceMutation> {
     match (&request.mutation_id, &request.origin) {
         (Some(id), Some(origin)) => WorkspaceMutation::new(id.clone(), origin.clone()),
@@ -1942,8 +1964,13 @@ fn pane_json(
         "focused_at": pane.focused_at,
         "tabs": pane.tabs.iter().map(|sid| {
             let surface = state.surfaces.get(sid);
+            let terminal_identity = surface.and_then(|surface| surface.terminal_host_identity());
             json!({
                 "surface": sid,
+                "terminal_id": terminal_identity.as_ref().map(|identity| &identity.terminal_id),
+                "terminal_incarnation": terminal_identity
+                    .as_ref()
+                    .map(|identity| &identity.incarnation),
                 "short_id": short_ids.get(sid).cloned().unwrap_or_default(),
                 "kind": surface.map(|s| s.kind().as_str()).unwrap_or("pty"),
                 "browser_source": surface.and_then(|s| s.browser_source().map(|source| source.as_str())),
@@ -2994,8 +3021,14 @@ fn handle_command(
                 name,
                 optional_surface_size(cols, rows),
             )?;
+            let terminal_identity =
+                mux.surface(placement.surface).and_then(|surface| surface.terminal_host_identity());
             Ok(json!({
                 "surface": placement.surface,
+                "terminal_id": terminal_identity.as_ref().map(|identity| &identity.terminal_id),
+                "terminal_incarnation": terminal_identity
+                    .as_ref()
+                    .map(|identity| &identity.incarnation),
                 "pane": placement.pane,
                 "screen": placement.screen,
                 "workspace": placement.workspace,
@@ -3085,9 +3118,49 @@ fn handle_command(
                 "data": base64::engine::general_purpose::STANDARD.encode(replay),
             }))
         }
+        Command::MintTerminalRenderer { surface, ttl_ms } => {
+            let surface = get_surface(mux, surface)?;
+            require_pty(&surface)?;
+            let grant = surface.mint_renderer_grant(Duration::from_millis(ttl_ms))?;
+            Ok(json!({
+                "endpoint": grant.endpoint,
+                "terminal_id": grant.terminal_id,
+                "incarnation": grant.incarnation,
+                "token": grant.token,
+                "rights": grant.rights.bits(),
+                "ttl_ms": ttl_ms,
+            }))
+        }
+        Command::ResolveTerminal { terminal_id } => {
+            let Some((surface, identity)) = mux.resolve_terminal(&terminal_id)? else {
+                anyhow::bail!("terminal_not_found");
+            };
+            Ok(json!({
+                "surface": surface,
+                "terminal_id": identity.terminal_id,
+                "terminal_incarnation": identity.incarnation,
+            }))
+        }
+        Command::CloseTerminal { terminal_id, terminal_incarnation } => {
+            let Some(surface) = mux.close_terminal(&terminal_id, &terminal_incarnation)? else {
+                anyhow::bail!("terminal_not_found");
+            };
+            Ok(json!({
+                "surface": surface,
+                "terminal_id": terminal_id,
+                "terminal_incarnation": terminal_incarnation,
+            }))
+        }
         Command::NewTab { pane, cwd, cols, rows } => {
             let surface = mux.new_tab(pane, cwd, optional_surface_size(cols, rows))?;
-            Ok(json!({ "surface": surface.id }))
+            let terminal_identity = surface.terminal_host_identity();
+            Ok(json!({
+                "surface": surface.id,
+                "terminal_id": terminal_identity.as_ref().map(|identity| &identity.terminal_id),
+                "terminal_incarnation": terminal_identity
+                    .as_ref()
+                    .map(|identity| &identity.incarnation),
+            }))
         }
         Command::NewBrowserTab { url, pane, cols, rows } => {
             let surface = mux.new_browser_tab(url, pane, optional_surface_size(cols, rows))?;
@@ -3238,8 +3311,14 @@ fn handle_command(
             let (workspace, key) = resolve_workspace(mux, workspace, key.as_deref())?;
             let size = paired_surface_size("create-terminal", cols, rows)?;
             let placement = mux.create_terminal_in_workspace(workspace, argv, cwd, name, size)?;
+            let terminal_identity =
+                mux.surface(placement.surface).and_then(|surface| surface.terminal_host_identity());
             Ok(json!({
                 "surface": placement.surface,
+                "terminal_id": terminal_identity.as_ref().map(|identity| &identity.terminal_id),
+                "terminal_incarnation": terminal_identity
+                    .as_ref()
+                    .map(|identity| &identity.incarnation),
                 "pane": placement.pane,
                 "screen": placement.screen,
                 "workspace": placement.workspace,
@@ -3939,16 +4018,27 @@ fn handle_command(
                                 "surface": surface_id,
                                 "data": base64::engine::general_purpose::STANDARD.encode(chunk),
                             }),
-                            AttachFrame::Resized { cols, rows, replay, colors } => {
-                                json!({
-                                    "event": "resized",
-                                    "surface": surface_id,
-                                    "cols": cols,
-                                    "rows": rows,
-                                    "replay": base64::engine::general_purpose::STANDARD.encode(replay),
-                                    "colors": terminal_colors_json(*colors),
-                                })
-                            }
+                            AttachFrame::OutputWithColors { output, colors } => json!({
+                                "event": "output",
+                                "surface": surface_id,
+                                "data": base64::engine::general_purpose::STANDARD.encode(output),
+                                "colors": terminal_colors_json(*colors),
+                            }),
+                            AttachFrame::Resized { cols, rows, replay } => json!({
+                                "event": "resized",
+                                "surface": surface_id,
+                                "cols": cols,
+                                "rows": rows,
+                                "replay": base64::engine::general_purpose::STANDARD.encode(replay),
+                            }),
+                            AttachFrame::ResizedWithColors { cols, rows, replay, colors } => json!({
+                                "event": "resized",
+                                "surface": surface_id,
+                                "cols": cols,
+                                "rows": rows,
+                                "replay": base64::engine::general_purpose::STANDARD.encode(replay),
+                                "colors": terminal_colors_json(*colors),
+                            }),
                             AttachFrame::ColorsChanged(colors) => {
                                 let mut value = terminal_colors_json(*colors);
                                 value["event"] = json!("colors-changed");

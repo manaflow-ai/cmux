@@ -523,3 +523,95 @@ fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
     state.update(&mut term).unwrap();
     assert_eq!(state.palette_color(4), Rgb { r: 1, g: 2, b: 3 });
 }
+
+#[test]
+fn color_overrides_are_sparse_and_resets_return_to_embedder_defaults() {
+    let mut term = Terminal::new(5, 1, 0, Callbacks::default()).unwrap();
+    term.set_default_colors(
+        Some(Rgb { r: 220, g: 221, b: 222 }),
+        Some(Rgb { r: 10, g: 11, b: 12 }),
+        Some(Rgb { r: 30, g: 31, b: 32 }),
+    );
+    let mut palette = [None; 256];
+    palette[3] = Some(Rgb { r: 40, g: 41, b: 42 });
+    term.set_default_palette(&palette);
+    assert_eq!(term.color_overrides(), Default::default());
+
+    term.vt_write(b"\x1b]4;3;#010203\x07\x1b]10;#111213\x07\x1b]11;#212223\x07\x1b]12;#313233\x07");
+    let colors = term.color_overrides();
+    assert_eq!(colors.palette[3], Some(Rgb { r: 1, g: 2, b: 3 }));
+    assert_eq!(colors.foreground, Some(Rgb { r: 17, g: 18, b: 19 }));
+    assert_eq!(colors.background, Some(Rgb { r: 33, g: 34, b: 35 }));
+    assert_eq!(colors.cursor, Some(Rgb { r: 49, g: 50, b: 51 }));
+
+    term.vt_write(b"\x1b]104;3\x07\x1b]110\x07\x1b]111\x07\x1b]112\x07");
+    assert_eq!(term.color_overrides(), Default::default());
+}
+
+#[test]
+fn color_override_authorship_survives_equal_defaults_fragmentation_and_queries() {
+    let foreground = Rgb { r: 17, g: 18, b: 19 };
+    let palette_color = Rgb { r: 1, g: 2, b: 3 };
+    let mut term = Terminal::new(5, 1, 0, Callbacks::default()).unwrap();
+    term.set_default_colors(Some(foreground), None, None);
+    let mut palette = [None; 256];
+    palette[3] = Some(palette_color);
+    term.set_default_palette(&palette);
+
+    // Queries do not author state, even when split across writes.
+    term.vt_write(b"\x1b]10;");
+    term.vt_write(b"?\x1b\\\x1b]4;3;?\x07");
+    assert_eq!(term.color_overrides(), Default::default());
+
+    // Setting exactly the embedder default is still application-authored.
+    term.vt_write(b"\x1b]10;#111213\x1b");
+    term.vt_write(b"\\\x1b]4;3;#010203");
+    term.vt_write(b"\x07");
+    let colors = term.color_overrides();
+    assert_eq!(colors.foreground, Some(foreground));
+    assert_eq!(colors.palette[3], Some(palette_color));
+
+    term.vt_write(b"\x1b]110\x1b\\\x1b]104;3\x07");
+    assert_eq!(term.color_overrides(), Default::default());
+}
+
+#[test]
+fn color_override_tracker_handles_c1_osc_and_st_without_misreading_utf8() {
+    let mut term = Terminal::new(5, 1, 0, Callbacks::default()).unwrap();
+    term.vt_write("❝👍".as_bytes());
+    assert_eq!(term.color_overrides(), Default::default());
+
+    term.vt_write(b"\x9d10;#010203");
+    term.vt_write(b"\x9c\x1b]4;7;#040506");
+    term.vt_write(b"\x9c");
+    let colors = term.color_overrides();
+    assert_eq!(colors.foreground, Some(Rgb { r: 1, g: 2, b: 3 }));
+    assert_eq!(colors.palette[7], Some(Rgb { r: 4, g: 5, b: 6 }));
+
+    term.vt_write(b"\x9d110\x9c\x9d104;7\x9c");
+    assert_eq!(term.color_overrides(), Default::default());
+}
+
+#[test]
+fn theme_portable_replay_omits_terminal_color_osc_state() {
+    let mut source = Terminal::new(20, 2, 100, Callbacks::default()).unwrap();
+    source.vt_write(
+        b"\x1b]4;3;#010203\x07\x1b]10;#111213\x07\x1b]11;#212223\x07\
+          \x1b]12;#313233\x07hello",
+    );
+    let portable = source.vt_replay_bounded_theme_portable(1024 * 1024).unwrap();
+    let replay_text = String::from_utf8_lossy(&portable);
+    for color_osc in ["\x1b]4;", "\x1b]10;", "\x1b]11;", "\x1b]12;"] {
+        assert!(!replay_text.contains(color_osc), "portable replay leaked {color_osc:?}");
+    }
+
+    let mut target = Terminal::new(20, 2, 100, Callbacks::default()).unwrap();
+    target.set_default_colors(
+        Some(Rgb { r: 240, g: 241, b: 242 }),
+        Some(Rgb { r: 4, g: 5, b: 6 }),
+        Some(Rgb { r: 7, g: 8, b: 9 }),
+    );
+    target.vt_write(&portable);
+    assert_eq!(target.color_overrides(), Default::default());
+    assert!(target.viewport_text().unwrap().contains("hello"));
+}
