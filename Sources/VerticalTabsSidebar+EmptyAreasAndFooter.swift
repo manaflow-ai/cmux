@@ -31,7 +31,14 @@ enum SidebarFooterProfileIconDebugChoice: String, CaseIterable, Identifiable {
 
 enum SidebarFooterProfileIconDebugSettings {
     static let iconKey = "debug.sidebarFooterProfileIcon.symbol"
+    static let sizeKey = "debug.sidebarFooterProfileIcon.size"
     static let defaultIcon = SidebarFooterProfileIconDebugChoice.outline
+    static let defaultSize = 16.0
+}
+
+enum SidebarFooterMobileIconDebugSettings {
+    static let sizeKey = "debug.sidebarFooterMobileIcon.size"
+    static let defaultSize = 11.0
 }
 
 enum SidebarFooterHelpIconDebugWeight: String, CaseIterable, Identifiable {
@@ -105,6 +112,18 @@ struct SidebarAccountMenuButton: View {
     private let signInTitle = String(localized: "settings.account.signIn", defaultValue: "Sign In…")
     private let buttonSize: CGFloat = 22
     @State private var isPopoverPresented = false
+#if DEBUG
+    @AppStorage(SidebarFooterProfileIconDebugSettings.sizeKey)
+    private var debugIconSize = SidebarFooterProfileIconDebugSettings.defaultSize
+#endif
+
+    private var iconSize: CGFloat {
+#if DEBUG
+        CGFloat(debugIconSize)
+#else
+        16
+#endif
+    }
 
     var body: some View {
         let identity = accountFlow?.currentIdentity
@@ -122,7 +141,7 @@ struct SidebarAccountMenuButton: View {
                 displayName: identity?.displayName ?? "",
                 email: identity?.email ?? "",
                 isSignedIn: isSignedIn,
-                size: 16
+                size: iconSize
             )
             .frame(width: buttonSize, height: buttonSize)
         }
@@ -297,6 +316,18 @@ private struct SidebarSignedInAccountAvatar: View {
 struct SidebarMobileConnectButton: View {
     @EnvironmentObject private var tabManager: TabManager
     private let title = String(localized: "command.mobileConnect.title", defaultValue: "Connect iPhone/iPad")
+#if DEBUG
+    @AppStorage(SidebarFooterMobileIconDebugSettings.sizeKey)
+    private var debugIconSize = SidebarFooterMobileIconDebugSettings.defaultSize
+#endif
+
+    private var iconSize: CGFloat {
+#if DEBUG
+        CGFloat(debugIconSize)
+#else
+        11
+#endif
+    }
 
     var body: some View {
         Button {
@@ -305,7 +336,7 @@ struct SidebarMobileConnectButton: View {
                 debugSource: "sidebar.mobileConnect"
             )
         } label: {
-            CmuxSystemSymbolImage(systemName: "iphone", pointSize: 11, weight: .medium)
+            CmuxSystemSymbolImage(systemName: "iphone", pointSize: iconSize, weight: .medium)
                 .foregroundStyle(Color(nsColor: .secondaryLabelColor))
                 .frame(width: 22, height: 22)
         }

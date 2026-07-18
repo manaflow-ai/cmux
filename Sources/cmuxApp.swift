@@ -2484,6 +2484,13 @@ private struct SidebarFooterHelpIconVariant: Identifiable {
         }
 }
 
+private enum SidebarFooterOpticalBalanceDebugSettings {
+    static let blurRadiusKey = "debug.sidebarFooterIconBalance.blurRadius"
+    static let showsCellGuidesKey = "debug.sidebarFooterIconBalance.showsCellGuides"
+    static let defaultBlurRadius = 1.75
+    static let defaultShowsCellGuides = true
+}
+
 private struct SidebarFooterIconBalanceDebugView: View {
     private static let columns = Array(
         repeating: GridItem(.flexible(minimum: 150), spacing: 10),
@@ -2496,10 +2503,18 @@ private struct SidebarFooterIconBalanceDebugView: View {
     private var selectedWeight = SidebarFooterHelpIconDebugSettings.defaultWeight.rawValue
     @AppStorage(SidebarFooterProfileIconDebugSettings.iconKey)
     private var selectedProfileIcon = SidebarFooterProfileIconDebugSettings.defaultIcon.rawValue
+    @AppStorage(SidebarFooterProfileIconDebugSettings.sizeKey)
+    private var profileIconSize = SidebarFooterProfileIconDebugSettings.defaultSize
+    @AppStorage(SidebarFooterMobileIconDebugSettings.sizeKey)
+    private var mobileIconSize = SidebarFooterMobileIconDebugSettings.defaultSize
     @AppStorage(SidebarFooterHelpIconDebugSettings.iconKey)
     private var selectedHelpIcon = SidebarFooterHelpIconDebugSettings.defaultIcon.rawValue
     @AppStorage(SidebarFooterIconButtonDebugSettings.hoverOpacityKey)
     private var hoverOpacity = SidebarFooterIconButtonDebugSettings.defaultHoverOpacity
+    @AppStorage(SidebarFooterOpticalBalanceDebugSettings.blurRadiusKey)
+    private var blurRadius = SidebarFooterOpticalBalanceDebugSettings.defaultBlurRadius
+    @AppStorage(SidebarFooterOpticalBalanceDebugSettings.showsCellGuidesKey)
+    private var showsCellGuides = SidebarFooterOpticalBalanceDebugSettings.defaultShowsCellGuides
 
     var body: some View {
         ScrollView {
@@ -2516,8 +2531,26 @@ private struct SidebarFooterIconBalanceDebugView: View {
                     helpIcon: $selectedHelpIcon
                 )
 
+                SidebarFooterIconSizeControls(
+                    profileSize: $profileIconSize,
+                    mobileSize: $mobileIconSize,
+                    helpSize: $selectedPointSize
+                )
+
+                SidebarFooterOpticalBalanceStudy(
+                    profileSize: profileIconSize,
+                    mobileSize: mobileIconSize,
+                    helpSize: selectedPointSize,
+                    helpWeight: SidebarFooterHelpIconDebugWeight(rawValue: selectedWeight)
+                        ?? SidebarFooterHelpIconDebugSettings.defaultWeight,
+                    blurRadius: $blurRadius,
+                    showsCellGuides: $showsCellGuides
+                )
+
                 SidebarFooterIconBalanceControls(
                     hoverOpacity: $hoverOpacity,
+                    profileSize: profileIconSize,
+                    mobileSize: mobileIconSize,
                     selectedPointSize: selectedPointSize,
                     selectedWeight: SidebarFooterHelpIconDebugWeight(rawValue: selectedWeight)
                         ?? SidebarFooterHelpIconDebugSettings.defaultWeight
@@ -2527,6 +2560,8 @@ private struct SidebarFooterIconBalanceDebugView: View {
                     ForEach(SidebarFooterHelpIconVariant.all) { variant in
                         SidebarFooterIconBalanceVariantCard(
                             variant: variant,
+                            profileSize: profileIconSize,
+                            mobileSize: mobileIconSize,
                             isSelected: selectedPointSize == variant.pointSize
                                 && selectedWeight == variant.weight.rawValue,
                             onSelect: {
@@ -2547,8 +2582,12 @@ private struct SidebarFooterIconBalanceDebugView: View {
         selectedPointSize = SidebarFooterHelpIconDebugSettings.defaultSize
         selectedWeight = SidebarFooterHelpIconDebugSettings.defaultWeight.rawValue
         selectedProfileIcon = SidebarFooterProfileIconDebugSettings.defaultIcon.rawValue
+        profileIconSize = SidebarFooterProfileIconDebugSettings.defaultSize
+        mobileIconSize = SidebarFooterMobileIconDebugSettings.defaultSize
         selectedHelpIcon = SidebarFooterHelpIconDebugSettings.defaultIcon.rawValue
         hoverOpacity = SidebarFooterIconButtonDebugSettings.defaultHoverOpacity
+        blurRadius = SidebarFooterOpticalBalanceDebugSettings.defaultBlurRadius
+        showsCellGuides = SidebarFooterOpticalBalanceDebugSettings.defaultShowsCellGuides
     }
 }
 
@@ -2570,7 +2609,7 @@ private struct SidebarFooterIconBalanceDebugHeader: View {
                 Text(
                     String(
                         localized: "debug.sidebarFooterIconBalance.description",
-                        defaultValue: "Select a card to apply it live. The lower strip blurs all three icons independently by 3 px."
+                        defaultValue: "Tune each icon live, compare sharp and squint previews, then use the cards to explore Help weights."
                     )
                 )
                 .cmuxFont(size: 11)
@@ -2578,7 +2617,7 @@ private struct SidebarFooterIconBalanceDebugHeader: View {
                 Text(
                     String(
                         localized: "debug.sidebarFooterIconBalance.referenceNote",
-                        defaultValue: "Profile, Mobile, and Help blur simultaneously; Upgrade stays sharp."
+                        defaultValue: "Cell guides show geometric alignment; the squint preview compares optical weight."
                     )
                 )
                 .cmuxFont(size: 11)
@@ -2681,8 +2720,197 @@ private struct SidebarFooterIconChoiceControls: View {
     }
 }
 
+private struct SidebarFooterIconSizeControls: View {
+    @Binding var profileSize: Double
+    @Binding var mobileSize: Double
+    @Binding var helpSize: Double
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(
+                String(
+                    localized: "debug.sidebarFooterIconBalance.iconSizes",
+                    defaultValue: "Icon sizes"
+                )
+            )
+            .cmuxFont(size: 11, weight: .semibold)
+
+            SidebarFooterIconSizeSlider(
+                title: String(
+                    localized: "debug.sidebarFooterIconBalance.profileSize",
+                    defaultValue: "Profile"
+                ),
+                value: $profileSize,
+                range: 12...20,
+                accessibilityIdentifier: "SidebarFooterProfileSizeSlider"
+            )
+            SidebarFooterIconSizeSlider(
+                title: String(
+                    localized: "debug.sidebarFooterIconBalance.mobileSize",
+                    defaultValue: "Mobile"
+                ),
+                value: $mobileSize,
+                range: 8...18,
+                accessibilityIdentifier: "SidebarFooterMobileSizeSlider"
+            )
+            SidebarFooterIconSizeSlider(
+                title: String(
+                    localized: "debug.sidebarFooterIconBalance.helpSize",
+                    defaultValue: "Help"
+                ),
+                value: $helpSize,
+                range: 10...20,
+                accessibilityIdentifier: "SidebarFooterHelpSizeSlider"
+            )
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(nsColor: .controlBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+        )
+    }
+}
+
+private struct SidebarFooterIconSizeSlider: View {
+    let title: String
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    let accessibilityIdentifier: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(title)
+                .cmuxFont(size: 11)
+                .frame(width: 54, alignment: .leading)
+            Slider(value: $value, in: range, step: 0.5)
+                .accessibilityLabel(title)
+                .accessibilityIdentifier(accessibilityIdentifier)
+            Text(verbatim: String(format: "%.1f pt", value))
+                .cmuxFont(size: 11, weight: .semibold)
+                .monospacedDigit()
+                .frame(width: 52, alignment: .trailing)
+        }
+    }
+}
+
+private struct SidebarFooterOpticalBalanceStudy: View {
+    let profileSize: Double
+    let mobileSize: Double
+    let helpSize: Double
+    let helpWeight: SidebarFooterHelpIconDebugWeight
+    @Binding var blurRadius: Double
+    @Binding var showsCellGuides: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text(
+                String(
+                    localized: "debug.sidebarFooterIconBalance.opticalBalance",
+                    defaultValue: "Optical balance"
+                )
+            )
+            .cmuxFont(size: 11, weight: .semibold)
+
+            HStack(spacing: 10) {
+                Text(
+                    String(
+                        localized: "debug.sidebarFooterIconBalance.squintRadius",
+                        defaultValue: "Squint radius"
+                    )
+                )
+                .cmuxFont(size: 11)
+                Slider(value: $blurRadius, in: 0.5...4, step: 0.25)
+                    .accessibilityIdentifier("SidebarFooterSquintRadiusSlider")
+                Text(verbatim: String(format: "%.2f px", blurRadius))
+                    .cmuxFont(size: 11, weight: .semibold)
+                    .monospacedDigit()
+                    .frame(width: 52, alignment: .trailing)
+            }
+
+            Toggle(
+                String(
+                    localized: "debug.sidebarFooterIconBalance.showCellGuides",
+                    defaultValue: "Show 22 pt cell guides"
+                ),
+                isOn: $showsCellGuides
+            )
+            .toggleStyle(.checkbox)
+            .cmuxFont(size: 11)
+
+            Divider()
+
+            SidebarFooterOpticalBalanceRow(
+                title: String(
+                    localized: "debug.sidebarFooterIconBalance.sharpPreview",
+                    defaultValue: "Sharp"
+                ),
+                profileSize: profileSize,
+                mobileSize: mobileSize,
+                helpSize: helpSize,
+                helpWeight: helpWeight,
+                blurRadius: 0,
+                showsCellGuides: showsCellGuides
+            )
+            SidebarFooterOpticalBalanceRow(
+                title: String(
+                    localized: "debug.sidebarFooterIconBalance.squintPreview",
+                    defaultValue: "Squint"
+                ),
+                profileSize: profileSize,
+                mobileSize: mobileSize,
+                helpSize: helpSize,
+                helpWeight: helpWeight,
+                blurRadius: blurRadius,
+                showsCellGuides: showsCellGuides
+            )
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(nsColor: .controlBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+        )
+        .accessibilityIdentifier("SidebarFooterOpticalBalanceStudy")
+    }
+}
+
+private struct SidebarFooterOpticalBalanceRow: View {
+    let title: String
+    let profileSize: Double
+    let mobileSize: Double
+    let helpSize: Double
+    let helpWeight: SidebarFooterHelpIconDebugWeight
+    let blurRadius: Double
+    let showsCellGuides: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(title)
+                .cmuxFont(size: 11, weight: .semibold)
+                .frame(width: 48, alignment: .leading)
+            SidebarFooterIconBalanceStrip(
+                profileSize: profileSize,
+                mobileSize: mobileSize,
+                helpSize: helpSize,
+                helpWeight: helpWeight,
+                blurRadius: blurRadius,
+                showsCellGuides: showsCellGuides
+            )
+        }
+    }
+}
+
 private struct SidebarFooterIconBalanceControls: View {
     @Binding var hoverOpacity: Double
+    let profileSize: Double
+    let mobileSize: Double
     let selectedPointSize: Double
     let selectedWeight: SidebarFooterHelpIconDebugWeight
 
@@ -2716,6 +2944,8 @@ private struct SidebarFooterIconBalanceControls: View {
                 }
                 .accessibilityIdentifier("SidebarFooterIconBalanceHoverIntensitySlider")
                 SidebarFooterHoverIntensityPreview(
+                    profileSize: profileSize,
+                    mobileSize: mobileSize,
                     helpPointSize: selectedPointSize,
                     helpWeight: selectedWeight
                 )
@@ -2734,6 +2964,8 @@ private struct SidebarFooterIconBalanceControls: View {
 }
 
 private struct SidebarFooterHoverIntensityPreview: View {
+    let profileSize: Double
+    let mobileSize: Double
     let helpPointSize: Double
     let helpWeight: SidebarFooterHelpIconDebugWeight
 
@@ -2750,7 +2982,7 @@ private struct SidebarFooterHoverIntensityPreview: View {
                     displayName: "",
                     email: "",
                     isSignedIn: false,
-                    size: 16
+                    size: CGFloat(profileSize)
                 )
                 .frame(width: 22, height: 22)
             }
@@ -2758,7 +2990,7 @@ private struct SidebarFooterHoverIntensityPreview: View {
             .accessibilityLabel(accessibilityLabel)
 
             Button(action: {}) {
-                CmuxSystemSymbolImage(systemName: "iphone", pointSize: 11, weight: .medium)
+                CmuxSystemSymbolImage(systemName: "iphone", pointSize: CGFloat(mobileSize), weight: .medium)
                     .foregroundStyle(Color(nsColor: .secondaryLabelColor))
                     .frame(width: 22, height: 22)
             }
@@ -2782,6 +3014,8 @@ private struct SidebarFooterHoverIntensityPreview: View {
 
 private struct SidebarFooterIconBalanceVariantCard: View {
     let variant: SidebarFooterHelpIconVariant
+    let profileSize: Double
+    let mobileSize: Double
     let isSelected: Bool
     let onSelect: () -> Void
 
@@ -2795,8 +3029,14 @@ private struct SidebarFooterIconBalanceVariantCard: View {
                     Text(verbatim: "\(Int(variant.pointSize)) pt · \(variant.weight.displayName)")
                         .cmuxFont(size: 10, weight: .semibold)
                 }
-                SidebarFooterIconBalanceStrip(variant: variant, blursIcons: false)
-                SidebarFooterIconBalanceStrip(variant: variant, blursIcons: true)
+                SidebarFooterIconBalanceStrip(
+                    profileSize: profileSize,
+                    mobileSize: mobileSize,
+                    helpSize: variant.pointSize,
+                    helpWeight: variant.weight,
+                    blurRadius: 0,
+                    showsCellGuides: false
+                )
             }
             .padding(8)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -2816,17 +3056,30 @@ private struct SidebarFooterIconBalanceVariantCard: View {
 }
 
 private struct SidebarFooterIconBalanceStrip: View {
-    let variant: SidebarFooterHelpIconVariant
-    let blursIcons: Bool
+    let profileSize: Double
+    let mobileSize: Double
+    let helpSize: Double
+    let helpWeight: SidebarFooterHelpIconDebugWeight
+    let blurRadius: Double
+    let showsCellGuides: Bool
 
     var body: some View {
         HStack(spacing: 4) {
-            SidebarFooterProfileIconReference()
-                .blur(radius: blursIcons ? 3 : 0)
-            SidebarFooterMobileIconReference()
-                .blur(radius: blursIcons ? 3 : 0)
-            SidebarFooterHelpIconReference(variant: variant)
-                .blur(radius: blursIcons ? 3 : 0)
+            SidebarFooterBalanceCell(showsGuide: showsCellGuides) {
+                SidebarFooterProfileIconReference(size: profileSize)
+                    .compositingGroup()
+                    .blur(radius: CGFloat(blurRadius))
+            }
+            SidebarFooterBalanceCell(showsGuide: showsCellGuides) {
+                SidebarFooterMobileIconReference(size: mobileSize)
+                    .compositingGroup()
+                    .blur(radius: CGFloat(blurRadius))
+            }
+            SidebarFooterBalanceCell(showsGuide: showsCellGuides) {
+                SidebarFooterHelpIconReference(size: helpSize, weight: helpWeight)
+                    .compositingGroup()
+                    .blur(radius: CGFloat(blurRadius))
+            }
             ProBadgeLabel(style: .textPro)
         }
         .padding(.horizontal, 8)
@@ -2839,34 +3092,58 @@ private struct SidebarFooterIconBalanceStrip: View {
     }
 }
 
+private struct SidebarFooterBalanceCell<Content: View>: View {
+    let showsGuide: Bool
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        content()
+            .frame(width: 22, height: 22)
+            .overlay {
+                if showsGuide {
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(
+                            Color.secondary.opacity(0.45),
+                            style: StrokeStyle(lineWidth: 0.5, dash: [2, 2])
+                        )
+                }
+            }
+    }
+}
+
 private struct SidebarFooterProfileIconReference: View {
+    let size: Double
+
     var body: some View {
         SidebarAccountAvatar(
             avatarURL: nil,
             displayName: "",
             email: "",
             isSignedIn: false,
-            size: 16
+            size: CGFloat(size)
         )
             .frame(width: 22, height: 22)
     }
 }
 
 private struct SidebarFooterMobileIconReference: View {
+    let size: Double
+
     var body: some View {
-        CmuxSystemSymbolImage(systemName: "iphone", pointSize: 11, weight: .medium)
+        CmuxSystemSymbolImage(systemName: "iphone", pointSize: CGFloat(size), weight: .medium)
             .foregroundStyle(Color(nsColor: .secondaryLabelColor))
             .frame(width: 22, height: 22)
     }
 }
 
 private struct SidebarFooterHelpIconReference: View {
-    let variant: SidebarFooterHelpIconVariant
+    let size: Double
+    let weight: SidebarFooterHelpIconDebugWeight
 
     var body: some View {
         SidebarFooterHelpIcon(
-            pointSize: CGFloat(variant.pointSize),
-            weight: variant.weight.fontWeight
+            pointSize: CGFloat(size),
+            weight: weight.fontWeight
         )
         .frame(width: 22, height: 22)
     }
