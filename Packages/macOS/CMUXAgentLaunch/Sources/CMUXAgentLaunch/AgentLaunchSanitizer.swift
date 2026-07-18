@@ -164,6 +164,16 @@ public enum AgentLaunchSanitizer {
             }
             return preserveOptions(tail, policy: openCodePolicy)
         case "rovodev":
+            // `acli rovodev run <instruction>` is a documented single-instruction
+            // invocation. It still writes a session, but replaying that record as
+            // `run --restore <id>` after the process exits manufactures an
+            // interactive restore for a one-shot command. Keep lifecycle and
+            // replay safety as separate decisions, but reject this replay shape
+            // at the sanitizer boundary too so stale persisted records cannot
+            // resurrect it after an app restart.
+            if AgentLaunchModeClassifier.mode(kind: "rovodev", arguments: args) == .oneShot {
+                return nil
+            }
             var tail = args
             if tail.first == "rovodev" {
                 tail.removeFirst()
@@ -199,6 +209,48 @@ public enum AgentLaunchSanitizer {
         default:
             return nil
         }
+    }
+
+    /// Preserves only the replay-safe options from OpenCode's direct
+    /// `run --interactive` mode.
+    ///
+    /// `opencode run` is normally one-shot, while `run --interactive` owns a
+    /// multi-turn split-footer UI. The root TUI sanitizer intentionally rejects
+    /// every `run` subcommand, so this explicit path keeps the interactive mode
+    /// across resume/fork without replaying its startup message, files, command,
+    /// remote credentials, or stale session selector.
+    static func preservedOpenCodeInteractiveRunArguments(args: [String]) -> [String]? {
+        guard args.first == "run",
+              AgentLaunchModeClassifier.mode(kind: "opencode", arguments: args) == .interactive else {
+            return nil
+        }
+        let tail = Array(args.dropFirst())
+        guard openCodeInteractiveRunOptionsAreKnown(tail) else { return nil }
+        return preserveOptions(tail, policy: openCodeInteractiveRunPolicy)
+    }
+
+    private static func openCodeInteractiveRunOptionsAreKnown(_ args: [String]) -> Bool {
+        let policy = openCodeInteractiveRunPolicy
+        let knownOptions = policy.valueOptions
+            .union(policy.booleanOptions)
+            .union(policy.droppedOptions)
+            .union(policy.rejectOptions)
+        var index = 0
+        while index < args.count {
+            let argument = args[index]
+            if argument == "--" || !argument.hasPrefix("-") || argument == "-" {
+                break
+            }
+            let option = argument.split(separator: "=", maxSplits: 1).first.map(String.init) ?? argument
+            guard knownOptions.contains(option) else { return false }
+            if policy.valueOptions.contains(option),
+               !argument.contains("="),
+               (index + 1 >= args.count || args[index + 1].hasPrefix("-")) {
+                return false
+            }
+            index += max(1, optionWidth(args, index: index, policy: policy))
+        }
+        return true
     }
 
     /// Preserves restorable `claude-teams` `args` with the Teams policy, keeping routing flags while dropping `--tmux` prompt payloads; returns `nil` for unsafe replay shapes.

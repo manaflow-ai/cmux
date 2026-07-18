@@ -100,6 +100,18 @@ public struct AgentForkArgv: Sendable, Equatable {
             return [replayExecutable, "fork", sessionId] + preserved
         case "opencode":
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "opencode")
+            if parts.tail.first == "run" {
+                guard let preserved = AgentLaunchSanitizer.preservedOpenCodeInteractiveRunArguments(
+                    args: parts.tail
+                ) else { return nil }
+                return [
+                    parts.executable,
+                    "run",
+                    "--interactive",
+                    "--session", sessionId,
+                    "--fork",
+                ] + preserved
+            }
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: parts.tail) else {
                 return nil
             }

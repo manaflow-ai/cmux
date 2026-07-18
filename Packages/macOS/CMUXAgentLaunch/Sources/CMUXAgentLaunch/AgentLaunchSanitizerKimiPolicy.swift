@@ -25,7 +25,7 @@ extension AgentLaunchSanitizer {
             "--continue", "-C",
             "--prompt", "--command", "-p", "-c",
             "--acp", "--wire",
-            "--input-format", "--output-format", "--final-message-only", "--quiet",
+            "--input-format", "--output-format", "--final-message-only",
         ],
         droppedOptionPrefixes: [
             "--session=", "--resume=", "-S=", "-r=",
@@ -33,7 +33,7 @@ extension AgentLaunchSanitizer {
             "--input-format=", "--output-format=",
         ],
         rejectOptions: [
-            "--print",
+            "--print", "--quiet",
         ]
     )
 }
