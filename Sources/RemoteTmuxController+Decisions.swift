@@ -64,6 +64,32 @@ extension RemoteTmuxController {
             sourcePanelId: workingDirectorySourcePanelId,
             windowIdForPanel: mirror.windowId(forPanel:)
         )
+        // Multiplexer: anchor on the home session by name/id. A window id is
+        // ambiguous here (the window is linked into both the home session and the
+        // hidden view), and `{end}` resolves against the ATTACHED view session, so a
+        // bare target would create the tab inside the view. The new window isn't
+        // linked into the view yet (no %window-add on the view stream), so nudge a
+        // reconcile to link + surface it.
+        if isMultiplexed(mirror) {
+            let command = Self.newWindowCommandInSession(
+                mirror.sessionName,
+                sessionId: mirror.connection.sessionId ?? mirror.seededSessionId,
+                workingDirectory: commandWorkingDirectory,
+                focus: focus
+            )
+            let view = multiplexedViewsByHost[mirror.host.connectionHash]
+            let sent: Bool
+            if focus {
+                sent = mirror.connection.sendNewWindow(command) { [weak mirror] windowId in
+                    guard let windowId else { return }
+                    mirror?.focusWindowWhenAvailable(windowId)
+                }
+            } else {
+                sent = mirror.connection.send(command)
+            }
+            if sent { view?.requestReconcile() }
+            return sent
+        }
         let command = Self.newWindowCommand(
             afterWindowId: afterWindowId,
             workingDirectory: commandWorkingDirectory,
@@ -103,6 +129,28 @@ extension RemoteTmuxController {
             guard let windowId else { return }
             mirror?.focusWindowWhenAvailable(windowId)
         }
+    }
+
+    /// `new-window` targeting a specific session by stable id (falling back to name),
+    /// anchored at its end. Used by the multiplexer, where the attached view session
+    /// would otherwise capture a bare `{end}` target.
+    nonisolated static func newWindowCommandInSession(
+        _ sessionName: String,
+        sessionId: Int? = nil,
+        workingDirectory: String?,
+        focus: Bool = false
+    ) -> String {
+        var command = focus
+            ? "new-window -P -F '#{window_id}'"
+            : "new-window -d"
+        let sessionTarget = sessionId.map { "$\($0)" } ?? sessionName
+        command += " -a -t \(RemoteTmuxHost.shellSingleQuoted("\(sessionTarget):{end}"))"
+        if let directory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !directory.isEmpty,
+           RemoteTmuxHost.controlModeLineSafeName(directory) != nil {
+            command += " -c \(RemoteTmuxHost.shellSingleQuoted(directory))"
+        }
+        return command
     }
 
     /// Returns the interactive SSH argv when an attach preflight failed because
@@ -178,8 +226,16 @@ extension RemoteTmuxController {
     /// stable tmux window ids and detached swaps.
     nonisolated static func mirrorWindowReorderCommands(
         current: [Int],
-        desired: [Int]
+        desired: [Int],
+        sessionName: String? = nil
     ) -> [String] {
+        // A multiplexed reorder runs on the shared view whose current session holds
+        // windows linked in from many sessions, so a bare `@id` target is ambiguous;
+        // scope it to the session by name. The dedicated transport (nil) keeps `@id`.
+        let target: (Int) -> String = { windowId in
+            guard let sessionName else { return "@\(windowId)" }
+            return RemoteTmuxHost.shellSingleQuoted("\(sessionName):@\(windowId)")
+        }
         var working = current
         var indexByWindow = Dictionary(uniqueKeysWithValues: current.enumerated().map { ($1, $0) })
         var commands: [String] = []
@@ -188,7 +244,7 @@ extension RemoteTmuxController {
             guard let swapFrom = indexByWindow[targetWindow] else { continue }
             let displacedWindow = working[index]
             commands.append(
-                "swap-window -d -s @\(working[index]) -t @\(working[swapFrom])"
+                "swap-window -d -s \(target(working[index])) -t \(target(working[swapFrom]))"
             )
             working.swapAt(index, swapFrom)
             indexByWindow[targetWindow] = index
@@ -226,12 +282,20 @@ extension RemoteTmuxController {
             verification?(true)
             return true
         }
-        let commands = Self.mirrorWindowReorderCommands(current: current, desired: desired)
+        let commands = Self.mirrorWindowReorderCommands(
+            current: current,
+            desired: desired,
+            sessionName: isMultiplexed(mirror) ? mirror.sessionName : nil)
         guard mirror.connection.sendWindowReorder(commands, verification: verification) else {
             mirror.rebuild()
             return false
         }
         mirror.connection.applyWindowReorder(desired)
+        // The shared stream's %window events describe the hidden view session, not
+        // this one, so a multiplexed reorder needs an explicit reconcile nudge.
+        if isMultiplexed(mirror) {
+            multiplexedViewsByHost[mirror.host.connectionHash]?.requestReconcile()
+        }
         return true
     }
 
