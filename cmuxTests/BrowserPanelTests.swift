@@ -644,6 +644,13 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
         XCTAssertLessThan(elapsed, 0.1)
     }
 
+    func testDiffViewerOpenContinuesWithoutImmediatePresentationTarget() {
+        let presentation = DiffViewerInitialLoadingPresentation(target: nil)
+
+        XCTAssertFalse(presentation.isPresented)
+        presentation.close()
+    }
+
     func testDiffViewerImmediatePresentationUsesFutureRightSplitFrame() throws {
         let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 1_000, height: 700))
         let sourceView = NSView(frame: NSRect(x: 240, y: 0, width: 760, height: 644))
