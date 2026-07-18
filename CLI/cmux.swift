@@ -10135,7 +10135,7 @@ struct CMUXCLI {
         passwordCredential: String?,
         controlPathPreflightShellFunction: String?
     ) -> String {
-        var authArguments = sshArgumentsOverridingHostRemoteCommand(baseSSHArguments(options, localCommandScript: localCommandScript))
+        var authArguments = sshArgumentsOverridingHostRemoteCommand(baseSSHArguments(options))
         authArguments += ["-T", options.destination, "true"]
         let authCommand = authArguments.map(shellQuote).joined(separator: " ")
         let attachScript = buildSSHPTYAttachScriptBody(
@@ -10175,6 +10175,11 @@ struct CMUXCLI {
             "cmux_auth_status=$?",
             "if [ \"$cmux_auth_status\" -ne 0 ]; then exit \"$cmux_auth_status\"; fi",
         ]
+        if let localCommandScript = localCommandScript?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !localCommandScript.isEmpty {
+            authScriptLines.append(localCommandScript)
+        }
         if authenticationLockPath != nil {
             authScriptLines += [
                 "zsystem flock -u \"$cmux_ssh_auth_lock_fd\" || exit 255",
