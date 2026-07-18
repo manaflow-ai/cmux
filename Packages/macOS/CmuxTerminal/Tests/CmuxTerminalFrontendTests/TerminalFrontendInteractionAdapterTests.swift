@@ -506,13 +506,23 @@ import Testing
         }
         event.setIntegerValueField(
             .scrollWheelEventScrollPhase,
-            value: Int64(phase.rawValue)
+            value: cgScrollPhaseValue(phase)
         )
         event.setIntegerValueField(
             .scrollWheelEventMomentumPhase,
-            value: Int64(momentumPhase.rawValue)
+            value: cgScrollPhaseValue(momentumPhase)
         )
         return try #require(NSEvent(cgEvent: event))
+    }
+
+    /// CGEvent scroll-phase raw values predate and differ from NSEventPhase.
+    private func cgScrollPhaseValue(_ phase: NSEvent.Phase) -> Int64 {
+        if phase.contains(.began) { return 1 }
+        if phase.contains(.changed) { return 2 }
+        if phase.contains(.ended) { return 4 }
+        if phase.contains(.cancelled) { return 8 }
+        if phase.contains(.mayBegin) { return 128 }
+        return 0
     }
 }
 
