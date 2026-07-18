@@ -104,15 +104,49 @@ final class SidebarWorkspaceTableRowHeightCache {
         return changedHeights
     }
 
+    /// Live-resize partial pass: re-measures only `indexes` at the live
+    /// width, leaving every other entry at its previous width. Only the
+    /// deterministic pure-AppKit rows re-measure here; hosted SwiftUI rows
+    /// keep their entry and settle in the next full `prepareHostedRows`
+    /// pass. Returns the indexes whose height changed.
+    func prepareRows(
+        at indexes: IndexSet,
+        in rows: [SidebarWorkspaceTableRowConfiguration],
+        columnWidth: CGFloat
+    ) -> IndexSet {
+        guard columnWidth > 0 else { return [] }
+        var changedHeights = IndexSet()
+        for index in indexes {
+            guard rows.indices.contains(index) else { continue }
+            let row = rows[index]
+            guard row.appKitGroupHeaderModel != nil || row.appKitWorkspaceRowModel != nil else { continue }
+            let previous = entries[row.id]
+            if let previous, previous.matches(row: row, columnWidth: columnWidth) { continue }
+            let measuredHeight = Self.normalizedHeight(measureHostedRow(row: row, columnWidth: columnWidth))
+            if (previous?.height ?? row.estimatedHeight) != measuredHeight {
+                changedHeights.insert(index)
+            }
+            entries[row.id] = Entry(
+                row: row,
+                columnWidth: columnWidth,
+                height: measuredHeight
+            )
+        }
+        return changedHeights
+    }
+
     /// A pure cache read used by `tableView(_:heightOfRow:)` during layout.
     func height(
         for row: SidebarWorkspaceTableRowConfiguration,
         columnWidth: CGFloat
     ) -> CGFloat? {
-        guard let entry = entries[row.id],
-              entry.matches(row: row, columnWidth: columnWidth) else {
-            return nil
-        }
+        guard let entry = entries[row.id] else { return nil }
+        if entry.matches(row: row, columnWidth: columnWidth) { return entry.height }
+        // Mid-live-resize, visible rows carry entries at the live width while
+        // the lookup still uses the last settled width; a content-matched
+        // entry at another width is that fresher measurement, and the settle
+        // pass re-measures every width-mismatched entry afterward.
+        guard entry.row.hasEquivalentContent(to: row) else { return nil }
         return entry.height
     }
 

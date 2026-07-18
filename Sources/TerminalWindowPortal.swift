@@ -2607,6 +2607,11 @@ enum TerminalWindowPortalRegistry {
             return
         }
         interactiveGeometryResizeCountsByWindowId[windowId, default: 0] += 1
+#if DEBUG
+        if interactiveGeometryResizeCountsByWindowId[windowId] == 1 {
+            cmuxDebugLog("portal.geometryResize.begin")
+        }
+#endif
     }
 
     private static func endInteractiveGeometryResize(windowId: ObjectIdentifier?) {
@@ -2638,6 +2643,9 @@ enum TerminalWindowPortalRegistry {
                 name: .cmuxInteractiveGeometryResizeDidEnd,
                 object: nil
             )
+#if DEBUG
+            cmuxDebugLog("portal.geometryResize.end")
+#endif
         } else {
             interactiveGeometryResizeCountsByWindowId[windowId] = count - 1
         }

@@ -11980,6 +11980,9 @@ struct VerticalTabsSidebar: View, Equatable {
             changed = true
         }
         guard changed else { return }
+#if DEBUG
+        cmuxDebugLog("sidebar.snapshot.refresh requested=\(workspaceIds.count)")
+#endif
         workspaceSnapshotsById = next
     }
 

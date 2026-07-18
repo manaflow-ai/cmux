@@ -165,6 +165,14 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         pumpHeightOverrides.removeAll(keepingCapacity: true)
         rows = nextRows
 
+#if DEBUG
+        if hasStructuralChanges || !contentChanges.isEmpty {
+            cmuxDebugLog(
+                "sidebar.table.apply structural=\(hasStructuralChanges ? 1 : 0) " +
+                "contentChanges=\(contentChanges.count) rows=\(nextRows.count)"
+            )
+        }
+#endif
         if hasStructuralChanges {
             containerView.tableView.reloadData()
         } else {
@@ -234,10 +242,21 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     @objc private func didDoubleClickTableRow() {
         guard let table = containerView?.tableView else { return }
         let row = table.clickedRow
+#if DEBUG
+        cmuxDebugLog("sidebar.table.doubleClick row=\(row) rows=\(rows.count)")
+#endif
         guard rows.indices.contains(row),
               rows[row].appKitWorkspaceRowModel != nil,
               let cell = table.view(atColumn: 0, row: row, makeIfNecessary: false)
                 as? SidebarWorkspaceRowTableCellView else { return }
+        // The single-click action fires for both clicks of a double-click, so
+        // click 2 has a trailing selection application queued. Letting it land
+        // after the rename field takes the field editor re-activates the
+        // workspace, which pulls first responder back to the terminal and
+        // end-editing commits the untouched title — the field flashes and
+        // vanishes. A double-click is a rename gesture: drop the queued
+        // selection before starting the edit.
+        selectionCoalescer.cancel()
         cell.beginInlineRename()
     }
 
@@ -424,6 +443,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     func viewportDidChange() {
         let width = currentColumnWidth()
         if width > 0, width != lastMeasuredWidth {
+            performLiveWidthRemeasure(width: width)
             scheduleWidthRemeasure()
         }
         recomputeHoveredRow()
@@ -434,6 +454,37 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private let selectionCoalescer = SidebarSelectionCoalescer<ContinuousClock>()
     private var lastMeasuredWidth: CGFloat = 0
     private var widthRemeasureTask: Task<Void, Never>?
+    private var lastLiveMeasuredWidth: CGFloat = 0
+    private var hasLiveMeasuredRows = false
+
+    /// Legacy parity: rows re-wrap continuously while the divider or window
+    /// edge is dragged instead of keeping last-width heights until mouse-up.
+    /// Only the visible pure-AppKit rows (plus a small buffer) re-measure per
+    /// width tick — manual frame math, no hosted SwiftUI layout — so the
+    /// per-tick cost stays bounded regardless of total row count. Off-screen
+    /// and hosted rows settle in the full pass at drag end.
+    private func performLiveWidthRemeasure(width: CGFloat) {
+        guard floor(width) != floor(lastLiveMeasuredWidth) else { return }
+        guard let table = containerView?.tableView else { return }
+        let visibleRange = table.rows(in: table.visibleRect)
+        guard visibleRange.length > 0 else { return }
+        let start = max(0, visibleRange.location - 2)
+        let end = min(rows.count, visibleRange.location + visibleRange.length + 2)
+        guard start < end else { return }
+        lastLiveMeasuredWidth = width
+        let changed = rowHeightCache.prepareRows(
+            at: IndexSet(integersIn: start..<end),
+            in: rows,
+            columnWidth: width
+        )
+        hasLiveMeasuredRows = true
+        for index in changed where rows.indices.contains(index) {
+            pumpHeightOverrides.removeValue(forKey: rows[index].id)
+        }
+        if !changed.isEmpty {
+            noteHeightOfRowsWithoutAnimation(table, changed)
+        }
+    }
 
     /// Trailing re-measure fallback for width churn with no explicit end
     /// signal (window live resize); per-pixel drags otherwise re-measure
@@ -458,9 +509,14 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         widthRemeasureTask = nil
         let width = currentColumnWidth()
         guard width > 0 else { return }
-        guard width != lastMeasuredWidth else { return }
+        // A live partial pass leaves off-screen entries at the old width, so
+        // it forces a full settle even when the drag ends back at the width
+        // it started from.
+        guard width != lastMeasuredWidth || hasLiveMeasuredRows else { return }
         let changed = rowHeightCache.prepareHostedRows(rows, columnWidth: width)
         lastMeasuredWidth = width
+        hasLiveMeasuredRows = false
+        lastLiveMeasuredWidth = 0
         pumpHeightOverrides.removeAll(keepingCapacity: true)
         if !changed.isEmpty {
             if let table = containerView?.tableView { noteHeightOfRowsWithoutAnimation(table, changed) }

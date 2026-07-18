@@ -307,10 +307,19 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let titleLineLimit = settings.wrapsWorkspaceTitles ? 8 : 1
         titleView.maximumNumberOfLines = titleLineLimit
         titleView.lineBreakMode = titleLineLimit == 1 ? .byTruncatingTail : .byWordWrapping
-        titleView.stringValue = snapshot.title.sidebarBoundedDisplayString(
+        let boundedTitle = snapshot.title.sidebarBoundedDisplayString(
             maxDisplayedLines: titleLineLimit,
             maxDisplayedCharacters: 2048
         )
+#if DEBUG
+        if titleView.stringValue != boundedTitle {
+            cmuxDebugLog(
+                "sidebar.row.titlePaint workspace=\(model.workspaceId.uuidString.prefix(8)) " +
+                "title=\"\(boundedTitle.prefix(40))\""
+            )
+        }
+#endif
+        titleView.stringValue = boundedTitle
         titleView.font = .systemFont(ofSize: model.scaled(12.5), weight: .semibold)
         titleView.textColor = palette.primaryText
 
@@ -715,7 +724,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         renameField.onCancel = { [weak self] in
             self?.endInlineRename(commit: false)
         }
-        window?.makeFirstResponder(renameField)
+        let tookFocus = window?.makeFirstResponder(renameField) ?? false
+#if DEBUG
+        cmuxDebugLog("sidebar.row.beginInlineRename tookFocus=\(tookFocus ? 1 : 0) window=\(window == nil ? 0 : 1)")
+#endif
         renameField.selectText(nil)
         needsLayout = true
     }
