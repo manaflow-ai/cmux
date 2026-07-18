@@ -1,5 +1,6 @@
 import AppKit
 import CMUXAgentLaunch
+import CmuxFoundation
 import CmuxTerminal
 import Foundation
 import Testing
@@ -186,6 +187,51 @@ struct ComputerUseUXTests {
             bundleIdentifier: "com.example.Target",
             launchDate: launchDate
         ))
+    }
+
+    @Test func legacyHelperCleanupStopsEmbeddedDaemonAndRemovesArtifacts() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-computer-use-legacy-cleanup-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let computerUseDirectory = root.appendingPathComponent("computer-use", isDirectory: true)
+        let legacyApplication = computerUseDirectory
+            .appendingPathComponent("helper", isDirectory: true)
+            .appendingPathComponent("cmux Computer Use.app", isDirectory: true)
+        let legacyExecutable = legacyApplication
+            .appendingPathComponent("Contents/MacOS", isDirectory: true)
+            .appendingPathComponent("cmux-cua-driver")
+        let daemonSocket = computerUseDirectory.appendingPathComponent("cua-daemon.sock")
+        try FileManager.default.createDirectory(
+            at: legacyExecutable.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data().write(to: legacyExecutable)
+        try Data().write(to: daemonSocket)
+
+        let commandRunner = ComputerUseCleanupCommandRunner()
+        let cleanup = ComputerUseLegacyHelperCleanupService(
+            computerUseDirectoryURL: computerUseDirectory,
+            fileManager: .default,
+            commandRunner: commandRunner,
+            processSnapshotProvider: {
+                [
+                    101: legacyExecutable.path,
+                    202: "/Applications/Unrelated.app/Contents/MacOS/unrelated",
+                ]
+            }
+        )
+
+        await cleanup.cleanup()
+
+        #expect(!FileManager.default.fileExists(atPath: legacyApplication.path))
+        #expect(!FileManager.default.fileExists(atPath: daemonSocket.path))
+        #expect(await commandRunner.snapshot() == [
+            ComputerUseCleanupCommandInvocation(
+                executable: "/bin/kill",
+                arguments: ["-TERM", "101"]
+            )
+        ])
     }
 
     @Test @MainActor func onboardingCreatesFreshWindowAndRootForEveryRun() {
@@ -529,5 +575,37 @@ struct ComputerUseUXTests {
         try process.run()
         process.waitUntilExit()
         #expect(process.terminationStatus == 0)
+    }
+}
+
+private struct ComputerUseCleanupCommandInvocation: Equatable, Sendable {
+    let executable: String
+    let arguments: [String]
+}
+
+private actor ComputerUseCleanupCommandRunner: CommandRunning {
+    private var invocations: [ComputerUseCleanupCommandInvocation] = []
+
+    func run(
+        directory: String,
+        executable: String,
+        arguments: [String],
+        timeout: TimeInterval?
+    ) async -> CommandResult {
+        invocations.append(ComputerUseCleanupCommandInvocation(
+            executable: executable,
+            arguments: arguments
+        ))
+        return CommandResult(
+            stdout: "",
+            stderr: "",
+            exitStatus: 0,
+            timedOut: false,
+            executionError: nil
+        )
+    }
+
+    func snapshot() -> [ComputerUseCleanupCommandInvocation] {
+        invocations
     }
 }
