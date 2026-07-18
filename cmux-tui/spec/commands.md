@@ -66,7 +66,7 @@ object{type:"leaf",pane:Id}
 | object{type:"split",split:Id,dir:"right"|"down",ratio:float32,a:Layout,b:Layout}
 ```
 
-`split` is stable for the lifetime of that split node. Ratio changes, pane focus, tab changes, and leaf swaps preserve it. Collapsing the split removes the id. A later split receives a new id. Protocol v6 and older canonical layouts omit this field.
+`split` is stable for the lifetime of that split node. Ratio changes, pane focus, tab changes, and leaf swaps preserve it. Collapsing the split removes the id. A later split receives a new id. Protocol v7 and older canonical layouts omit this field.
 
 `DeclarativeLayout`:
 
