@@ -8,6 +8,41 @@ import Testing
 #endif
 
 @Suite @MainActor struct DiffViewerFinalReviewRegressionTests {
+    @Test func agentSnapshotDeadlineReturnsCachedFallbackWhenRefreshStalls() async {
+        let stalledRefresh = AsyncStream<String>.makeStream()
+        let race = DiffViewerAgentSnapshotDeadline<String>()
+
+        let value = await race.value(
+            fallback: "cached",
+            operation: {
+                for await value in stalledRefresh.stream {
+                    return value
+                }
+                return "cancelled"
+            },
+            waitForDeadline: {}
+        )
+
+        #expect(value == "cached")
+        stalledRefresh.continuation.finish()
+    }
+
+    @Test func agentSnapshotDeadlineReturnsFreshValueBeforeDeadline() async {
+        let stalledDeadline = AsyncStream<Void>.makeStream()
+        let race = DiffViewerAgentSnapshotDeadline<String>()
+
+        let value = await race.value(
+            fallback: "cached",
+            operation: { "fresh" },
+            waitForDeadline: {
+                for await _ in stalledDeadline.stream {}
+            }
+        )
+
+        #expect(value == "fresh")
+        stalledDeadline.continuation.finish()
+    }
+
     @Test func loadingOwnershipRejectsSupersededOperation() {
         let panel = BrowserPanel(
             workspaceId: UUID(),
