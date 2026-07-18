@@ -1,9 +1,7 @@
-use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::OsString;
 use std::fmt::Write as _;
 use std::fs::File;
-use std::hash::{Hash, Hasher};
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
@@ -194,8 +192,8 @@ pub(crate) enum AgentTurnGeneration {
     OpenCode {
         database: PathBuf,
         latest_user_message: Option<String>,
+        latest_user_message_updated: Option<i64>,
         summary_diff_count: i64,
-        summary_fingerprint: Option<u64>,
     },
 }
 
@@ -592,43 +590,41 @@ fn opencode_location(
     let repo_root = opencode_repository_from_connection(identity, &connection)?;
     let latest_user_message = connection
         .query_row(
-            "SELECT id FROM message \
+            "SELECT id, time_updated FROM message \
              WHERE session_id = ?1 AND json_extract(data, '$.role') = 'user' \
              ORDER BY time_created DESC, id DESC LIMIT 1",
             [&identity.session_id],
-            |row| row.get::<_, String>(0),
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
         )
         .optional()
         .map_err(|_| TrajectoryError::Invalid)?;
-    let (summary_diff_count, summary_fingerprint) = if let Some(user_message) = &latest_user_message
-    {
-        let summary = connection
+    let summary_diff_count = if let Some((user_message, _)) = &latest_user_message {
+        connection
             .query_row(
-                "SELECT json_array_length(json_extract(data, '$.summary.diffs')), \
-                        json_extract(data, '$.summary.diffs') \
+                "SELECT json_array_length(json_extract(data, '$.summary.diffs')) \
                  FROM message \
                  WHERE id = ?1 AND session_id = ?2 \
                    AND json_type(data, '$.summary.diffs') = 'array'",
                 params![user_message, identity.session_id],
-                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+                |row| row.get::<_, i64>(0),
             )
             .optional()
-            .map_err(|_| TrajectoryError::Invalid)?;
-        summary.map_or((0, None), |(summary_diff_count, summary)| {
-            let mut hasher = DefaultHasher::new();
-            summary.hash(&mut hasher);
-            (summary_diff_count, Some(hasher.finish()))
-        })
+            .map_err(|_| TrajectoryError::Invalid)?
+            .unwrap_or(0)
     } else {
-        (0, None)
+        0
     };
+    let (latest_user_message, latest_user_message_updated) = latest_user_message
+        .map_or((None, None), |(message, updated)| {
+            (Some(message), Some(updated))
+        });
     Ok((
         repo_root,
         AgentTurnGeneration::OpenCode {
             database,
             latest_user_message,
+            latest_user_message_updated,
             summary_diff_count,
-            summary_fingerprint,
         },
     ))
 }

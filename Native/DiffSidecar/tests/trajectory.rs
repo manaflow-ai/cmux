@@ -1192,7 +1192,7 @@ fn opencode_resolver_uses_diffs_parented_to_the_latest_user_message() {
     database
         .execute_batch(
             "CREATE TABLE session (id TEXT PRIMARY KEY, directory TEXT NOT NULL);\n\
-             CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, time_created INTEGER NOT NULL, data TEXT NOT NULL);\n\
+             CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL, data TEXT NOT NULL);\n\
              CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT NOT NULL, session_id TEXT NOT NULL, time_created INTEGER NOT NULL, data TEXT NOT NULL);",
         )
         .expect("create OpenCode schema");
@@ -1267,7 +1267,7 @@ fn opencode_resolver_uses_turn_summary_and_ignores_failed_tool_metadata() {
     database
         .execute_batch(
             "CREATE TABLE session (id TEXT PRIMARY KEY, directory TEXT NOT NULL);\n\
-             CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, time_created INTEGER NOT NULL, data TEXT NOT NULL);\n\
+             CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL, data TEXT NOT NULL);\n\
              CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT NOT NULL, session_id TEXT NOT NULL, time_created INTEGER NOT NULL, data TEXT NOT NULL);",
         )
         .expect("create OpenCode schema");
@@ -1329,7 +1329,7 @@ fn opencode_resolver_skips_patch_paths_outside_the_repository() {
     database
         .execute_batch(
             "CREATE TABLE session (id TEXT PRIMARY KEY, directory TEXT NOT NULL);\n\
-             CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, time_created INTEGER NOT NULL, data TEXT NOT NULL);\n\
+             CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL, data TEXT NOT NULL);\n\
              CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT NOT NULL, session_id TEXT NOT NULL, time_created INTEGER NOT NULL, data TEXT NOT NULL);",
         )
         .expect("create OpenCode schema");
@@ -1382,7 +1382,7 @@ fn opencode_resolver_keeps_valid_fragments_when_one_path_is_outside_the_reposito
     database
         .execute_batch(
             "CREATE TABLE session (id TEXT PRIMARY KEY, directory TEXT NOT NULL);\n\
-             CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, time_created INTEGER NOT NULL, data TEXT NOT NULL);\n\
+             CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL, data TEXT NOT NULL);\n\
              CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT NOT NULL, session_id TEXT NOT NULL, time_created INTEGER NOT NULL, data TEXT NOT NULL);",
         )
         .expect("create OpenCode schema");
@@ -1565,8 +1565,14 @@ fn insert_opencode_message(
 ) {
     database
         .execute(
-            "INSERT INTO message (id, session_id, time_created, data) VALUES (?1, ?2, ?3, ?4)",
-            (id, "opencode-session", time_created, data.to_string()),
+            "INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?1, ?2, ?3, ?4, ?5)",
+            (
+                id,
+                "opencode-session",
+                time_created,
+                time_created,
+                data.to_string(),
+            ),
         )
         .expect("insert message");
 }
@@ -1648,7 +1654,7 @@ fn append_opencode_summary_diff(database: &Connection, user_message_id: &str, di
     }));
     database
         .execute(
-            "UPDATE message SET data = ?1 WHERE id = ?2",
+            "UPDATE message SET data = ?1, time_updated = time_updated + 1 WHERE id = ?2",
             (data.to_string(), user_message_id),
         )
         .expect("write OpenCode turn summary");
