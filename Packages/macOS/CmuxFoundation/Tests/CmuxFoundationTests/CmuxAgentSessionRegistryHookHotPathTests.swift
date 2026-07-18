@@ -760,6 +760,90 @@ struct CmuxAgentSessionRegistryHookHotPathTests {
         #expect(snapshots[provider]?.snapshot.records.count == 100)
     }
 
+    @Test("hibernation projection reads only active owners and exact detected sessions")
+    func hibernationProjectionIsIndependentOfProviderHistory() throws {
+        let fixture = try makeFixture()
+        let provider = "hibernation-projection"
+        let records = try (0..<20_000).map { index in
+            try record(
+                provider: provider,
+                sessionID: String(format: "session-%05d", index),
+                workspaceID: "workspace-\(index)",
+                surfaceID: "surface-\(index)",
+                updatedAt: TimeInterval(index)
+            )
+        }
+        try fixture.registry.apply(
+            provider: provider,
+            records: records,
+            activeSlots: try slots(
+                provider: provider,
+                sessionID: "session-10000",
+                workspaceID: "workspace-10000",
+                surfaceID: "surface-10000",
+                updatedAt: 10_000
+            )
+        )
+
+        let startedAt = Date().timeIntervalSinceReferenceDate
+        let snapshot = try fixture.registry.hookHibernationSnapshot(
+            provider: provider,
+            panelContexts: [.init(
+                workspaceID: "workspace-10000",
+                surfaceID: "surface-10000"
+            )],
+            exactSessionIDs: ["session-15000"],
+            maximumRecords: 3,
+            maximumBytes: Int64(CmuxAgentSessionRegistry.maximumHookProviderBytes)
+        )
+        let elapsed = Date().timeIntervalSinceReferenceDate - startedAt
+        print("hibernation projection 20000-row elapsed: \(elapsed) seconds")
+
+        #expect(Set(snapshot.records.map(\.sessionID)) == ["session-10000", "session-15000"])
+        #expect(snapshot.activeSlots.count == 2)
+        #expect(elapsed < 0.5)
+    }
+
+    @Test("hibernation projection fails closed at row and byte limits")
+    func hibernationProjectionEnforcesMaterializationLimits() throws {
+        let fixture = try makeFixture()
+        let provider = "hibernation-limits"
+        let first = try record(
+            provider: provider,
+            sessionID: "first",
+            workspaceID: "workspace-first",
+            surfaceID: "surface-first",
+            updatedAt: 1
+        )
+        let second = try record(
+            provider: provider,
+            sessionID: "second",
+            workspaceID: "workspace-second",
+            surfaceID: "surface-second",
+            updatedAt: 2
+        )
+        try fixture.registry.apply(provider: provider, records: [first, second])
+
+        #expect(throws: CmuxAgentSessionRegistry.HookSnapshotLimitError.self) {
+            try fixture.registry.hookHibernationSnapshot(
+                provider: provider,
+                panelContexts: [],
+                exactSessionIDs: ["first", "second"],
+                maximumRecords: 1,
+                maximumBytes: .max
+            )
+        }
+        #expect(throws: CmuxAgentSessionRegistry.HookSnapshotLimitError.self) {
+            try fixture.registry.hookHibernationSnapshot(
+                provider: provider,
+                panelContexts: [],
+                exactSessionIDs: ["first"],
+                maximumRecords: 1,
+                maximumBytes: Int64(first.json.count - 1)
+            )
+        }
+    }
+
     @Test("legacy reads reject oversized files before allocating their payload")
     func legacyReadHasDescriptorBound() throws {
         let fixture = try makeFixture()
