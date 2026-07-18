@@ -80,6 +80,7 @@ extension RestorableAgentSessionIndex {
         resolved.merge(processDetectedForkParentFallbackSnapshots(processSnapshot: processSnapshot, capturedAt: capturedAt, scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey, processArgumentsProvider: cachedProcessArguments)) { existing, _ in existing }
         guard !registry.registrations.isEmpty else { return resolved }
         var registriesByWorkingDirectory: [String: CmuxVaultAgentRegistry] = [:]
+        var piSessionDirectoryIndex = PiSessionDirectoryIndex(fileManager: fileManager)
 
         func registryForWorkingDirectory(_ workingDirectory: String?) -> CmuxVaultAgentRegistry {
             guard let workingDirectory else { return registry }
@@ -114,7 +115,8 @@ extension RestorableAgentSessionIndex {
                   let sessionIDResolution = registration.sessionIdSource.sessionIDResolution(
                       from: observed,
                       registration: registration,
-                      fileManager: fileManager
+                      fileManager: fileManager,
+                      piSessionDirectoryIndex: &piSessionDirectoryIndex
                   ) else {
                 continue
             }
@@ -669,7 +671,8 @@ private extension CmuxVaultAgentSessionIDSource {
     func sessionIDResolution(
         from process: VaultObservedAgentProcess,
         registration: CmuxVaultAgentRegistration,
-        fileManager: FileManager
+        fileManager: FileManager,
+        piSessionDirectoryIndex: inout PiSessionDirectoryIndex
     ) -> VaultAgentSessionIDResolution? {
         switch self {
         case .argvOption(let option):
@@ -682,7 +685,8 @@ private extension CmuxVaultAgentSessionIDSource {
                     session,
                     for: process,
                     registration: registration,
-                    fileManager: fileManager
+                    fileManager: fileManager,
+                    piSessionDirectoryIndex: &piSessionDirectoryIndex
                 ) ?? session
                 return VaultAgentSessionIDResolution(
                     sessionId: sessionId,
@@ -695,7 +699,7 @@ private extension CmuxVaultAgentSessionIDSource {
             guard let sessionId = PiSessionLocator.latestSessionPath(
                 for: process,
                 registration: registration,
-                fileManager: fileManager
+                piSessionDirectoryIndex: &piSessionDirectoryIndex
             ) else {
                 return nil
             }
@@ -811,16 +815,19 @@ enum PiSessionLocator {
     fileprivate static func latestSessionPath(
         for process: VaultObservedAgentProcess,
         registration: CmuxVaultAgentRegistration,
-        fileManager: FileManager
+        piSessionDirectoryIndex: inout PiSessionDirectoryIndex
     ) -> String? {
-        newestJSONLFile(in: candidateSessionDirectory(for: process, registration: registration), fileManager: fileManager)?.path
+        piSessionDirectoryIndex.newestJSONLFile(
+            in: candidateSessionDirectory(for: process, registration: registration)
+        )?.path
     }
 
     fileprivate static func resolvedSessionPath(
         _ session: String,
         for process: VaultObservedAgentProcess,
         registration: CmuxVaultAgentRegistration,
-        fileManager: FileManager
+        fileManager: FileManager,
+        piSessionDirectoryIndex: inout PiSessionDirectoryIndex
     ) -> String? {
         let trimmed = session.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
@@ -829,34 +836,10 @@ enum PiSessionLocator {
             return fileManager.fileExists(atPath: expanded) ? expanded : trimmed
         }
 
-        let directory = candidateSessionDirectory(for: process, registration: registration)
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: directory, isDirectory: &isDirectory),
-              isDirectory.boolValue,
-              let enumerator = fileManager.enumerator(
-                  at: URL(fileURLWithPath: directory, isDirectory: true),
-                  includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
-                  options: [.skipsHiddenFiles]
-              ) else {
-            return nil
-        }
-
-        var exactNewest: (url: URL, modified: Date)?
-        var partialNewest: (url: URL, modified: Date)?
-        for case let url as URL in enumerator where url.pathExtension == "jsonl" {
-            let basename = url.deletingPathExtension().lastPathComponent
-            guard basename == trimmed || basename.contains(trimmed) else { continue }
-            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
-            guard values?.isRegularFile == true, let modified = values?.contentModificationDate else { continue }
-            if basename == trimmed {
-                if exactNewest == nil || modified > exactNewest!.modified {
-                    exactNewest = (url, modified)
-                }
-            } else if partialNewest == nil || modified > partialNewest!.modified {
-                partialNewest = (url, modified)
-            }
-        }
-        return exactNewest?.url.path ?? partialNewest?.url.path
+        return piSessionDirectoryIndex.resolvedSessionPath(
+            trimmed,
+            in: candidateSessionDirectory(for: process, registration: registration)
+        )
     }
 
 }

@@ -1,5 +1,122 @@
 import Foundation
 
+/// Per-process-snapshot index of Pi-family session files. A refresh sees a
+/// coherent directory snapshot and never walks the same project tree once per
+/// live agent process. The next refresh constructs a fresh index, so newly
+/// written sessions are visible without a TTL or invalidation timer.
+struct PiSessionDirectoryIndex {
+    private struct Candidate {
+        let url: URL
+        let modifiedAt: Date
+    }
+
+    private struct DirectorySnapshot {
+        let candidates: [Candidate]
+        let newest: Candidate?
+        let exactByBasename: [String: Candidate]
+    }
+
+    private enum CachedDirectory {
+        case unavailable
+        case files(DirectorySnapshot)
+    }
+
+    private let fileManager: FileManager
+    private var cachedDirectories: [String: CachedDirectory] = [:]
+    private(set) var directoryEnumerationCount = 0
+    private(set) var candidateQueryVisitCount = 0
+
+    init(fileManager: FileManager) {
+        self.fileManager = fileManager
+    }
+
+    mutating func newestJSONLFile(in directory: String) -> URL? {
+        directorySnapshot(in: directory)?.newest?.url
+    }
+
+    mutating func resolvedSessionPath(_ session: String, in directory: String) -> String? {
+        guard let snapshot = directorySnapshot(in: directory) else { return nil }
+        if let exact = snapshot.exactByBasename[session] {
+            return exact.url.path
+        }
+
+        var partialNewest: Candidate?
+        for candidate in snapshot.candidates {
+            candidateQueryVisitCount += 1
+            let basename = candidate.url.deletingPathExtension().lastPathComponent
+            guard basename.contains(session) else { continue }
+            if Self.isPreferred(candidate, over: partialNewest) {
+                partialNewest = candidate
+            }
+        }
+        return partialNewest?.url.path
+    }
+
+    private mutating func directorySnapshot(in directory: String) -> DirectorySnapshot? {
+        let standardizedDirectory = (directory as NSString).standardizingPath
+        if let cached = cachedDirectories[standardizedDirectory] {
+            switch cached {
+            case .unavailable:
+                return nil
+            case .files(let snapshot):
+                return snapshot
+            }
+        }
+
+        directoryEnumerationCount += 1
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: standardizedDirectory, isDirectory: &isDirectory),
+              isDirectory.boolValue,
+              let enumerator = fileManager.enumerator(
+                  at: URL(fileURLWithPath: standardizedDirectory, isDirectory: true),
+                  includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
+                  options: [.skipsHiddenFiles]
+              ) else {
+            cachedDirectories[standardizedDirectory] = .unavailable
+            return nil
+        }
+
+        var candidates: [Candidate] = []
+        var newest: Candidate?
+        var exactByBasename: [String: Candidate] = [:]
+        for case let url as URL in enumerator where url.pathExtension == "jsonl" {
+            let values = try? url.resourceValues(
+                forKeys: [.contentModificationDateKey, .isRegularFileKey]
+            )
+            guard values?.isRegularFile == true,
+                  let modifiedAt = values?.contentModificationDate else {
+                continue
+            }
+            let candidate = Candidate(url: url, modifiedAt: modifiedAt)
+            candidates.append(candidate)
+            if Self.isPreferred(candidate, over: newest) {
+                newest = candidate
+            }
+            let basename = url.deletingPathExtension().lastPathComponent
+            if Self.isPreferred(candidate, over: exactByBasename[basename]) {
+                exactByBasename[basename] = candidate
+            }
+        }
+        let snapshot = DirectorySnapshot(
+            candidates: candidates,
+            newest: newest,
+            exactByBasename: exactByBasename
+        )
+        cachedDirectories[standardizedDirectory] = .files(snapshot)
+        return snapshot
+    }
+
+    /// Prefer a newer file, then the lexicographically first path when mtimes
+    /// tie. Directory enumeration order is filesystem-dependent.
+    private static func isPreferred(_ candidate: Candidate, over current: Candidate?) -> Bool {
+        guard let current else { return true }
+        if candidate.modifiedAt != current.modifiedAt {
+            return candidate.modifiedAt > current.modifiedAt
+        }
+        return candidate.url.path < current.url.path
+    }
+}
+
 extension PiSessionLocator {
     static func candidateSessionDirectory(
         for process: VaultObservedAgentProcess,
@@ -94,28 +211,6 @@ extension PiSessionLocator {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    static func newestJSONLFile(in directory: String, fileManager: FileManager = .default) -> URL? {
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: directory, isDirectory: &isDirectory),
-              isDirectory.boolValue,
-              let enumerator = fileManager.enumerator(
-                  at: URL(fileURLWithPath: directory, isDirectory: true),
-                  includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
-                  options: [.skipsHiddenFiles]
-              ) else {
-            return nil
-        }
-
-        var newest: (url: URL, modified: Date)?
-        for case let url as URL in enumerator where url.pathExtension == "jsonl" {
-            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
-            guard values?.isRegularFile == true, let modified = values?.contentModificationDate else { continue }
-            if newest == nil || modified > newest!.modified {
-                newest = (url, modified)
-            }
-        }
-        return newest?.url
-    }
 }
 
 private extension Array where Element == String {
