@@ -2,6 +2,7 @@
 import CmuxMobilePairedMac
 import CmuxMobileRPC
 import CmuxMobileShell
+import CmuxMobileSupport
 import Foundation
 import SwiftUI
 

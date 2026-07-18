@@ -738,7 +738,7 @@ struct TaskComposerDirectoryPickerView: View {
                 defaultValue: "Couldn’t Load More Folders"
             )
         }
-        switch failure {
+        return switch failure {
         case .permissionDenied, .unreadable:
             L10n.string(
                 "mobile.taskComposer.directoryPicker.browse.failure.access.title",
