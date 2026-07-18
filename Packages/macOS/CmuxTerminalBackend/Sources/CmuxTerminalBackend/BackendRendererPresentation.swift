@@ -43,6 +43,20 @@ public struct BackendRendererMetrics: Decodable, Equatable, Sendable {
     public let cellHeight: UInt32
     public let padding: BackendRendererPadding
 
+    public init(
+        columns: UInt16,
+        rows: UInt16,
+        cellWidth: UInt32,
+        cellHeight: UInt32,
+        padding: BackendRendererPadding
+    ) {
+        self.columns = columns
+        self.rows = rows
+        self.cellWidth = cellWidth
+        self.cellHeight = cellHeight
+        self.padding = padding
+    }
+
     private enum CodingKeys: String, CodingKey {
         case columns
         case rows

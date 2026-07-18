@@ -206,6 +206,10 @@ public struct TerminalExternalCellMetrics: Equatable, Sendable {
     public let surfaceWidthPixels: Int
     public let surfaceHeightPixels: Int
     public let backingScale: Double
+    public let paddingLeftPixels: Int?
+    public let paddingTopPixels: Int?
+    public let paddingRightPixels: Int?
+    public let paddingBottomPixels: Int?
 
     public init(
         columns: Int,
@@ -214,7 +218,11 @@ public struct TerminalExternalCellMetrics: Equatable, Sendable {
         cellHeightPixels: Int,
         surfaceWidthPixels: Int,
         surfaceHeightPixels: Int,
-        backingScale: Double
+        backingScale: Double,
+        paddingLeftPixels: Int? = nil,
+        paddingTopPixels: Int? = nil,
+        paddingRightPixels: Int? = nil,
+        paddingBottomPixels: Int? = nil
     ) {
         self.columns = columns
         self.rows = rows
@@ -223,6 +231,10 @@ public struct TerminalExternalCellMetrics: Equatable, Sendable {
         self.surfaceWidthPixels = surfaceWidthPixels
         self.surfaceHeightPixels = surfaceHeightPixels
         self.backingScale = backingScale
+        self.paddingLeftPixels = paddingLeftPixels
+        self.paddingTopPixels = paddingTopPixels
+        self.paddingRightPixels = paddingRightPixels
+        self.paddingBottomPixels = paddingBottomPixels
     }
 }
 

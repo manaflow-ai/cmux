@@ -200,6 +200,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		7C592156DCB3419BB95383E5 /* AutoNamingEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7752D68A758642EFA282C208 /* AutoNamingEngineTests.swift */; };
 		A4ECF22C62724853A72D6BDE /* AutoNamingGrokAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07EC52007B2144C59C047774 /* AutoNamingGrokAdapterTests.swift */; };
 		74AB3F34FE3B4974A3A5D264 /* AutoNamingHookPayloadAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46792DAA478444ED87B17B31 /* AutoNamingHookPayloadAdapterTests.swift */; };
+		CBAE00000000000000000001 /* BackendOnlyMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBAE00000000000000000101 /* BackendOnlyMain.swift */; };
 		C0DE35860000000000000001 /* BackgroundWorkspacePrimeCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE35860000000000000002 /* BackgroundWorkspacePrimeCoordinator.swift */; };
 		A50012F1 /* Backport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F0 /* Backport.swift */; };
 		B057B0017E57B0017E57B001 /* Bonsplit in Frameworks */ = {isa = PBXBuildFile; productRef = A5001262 /* Bonsplit */; };
@@ -663,15 +664,22 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C750500000000000000000A3 /* CmuxTerminal in Frameworks */ = {isa = PBXBuildFile; productRef = C750500000000000000000A2 /* CmuxTerminal */; };
 		CBAD00000000000000000301 /* CmuxTerminalBackend in Frameworks */ = {isa = PBXBuildFile; productRef = CBAD00000000000000000501 /* CmuxTerminalBackend */; };
 		CBAD00000000000000000305 /* CmuxTerminalBackend in Frameworks */ = {isa = PBXBuildFile; productRef = CBAD00000000000000000501 /* CmuxTerminalBackend */; };
+		CBAE00000000000000000011 /* CmuxTerminalBackend in Frameworks */ = {isa = PBXBuildFile; productRef = CBAD00000000000000000501 /* CmuxTerminalBackend */; };
+		CBAE00000000000000000010 /* CmuxTerminalBackendHost in Frameworks */ = {isa = PBXBuildFile; productRef = CBAE00000000000000000501 /* CmuxTerminalBackendHost */; };
 		CBAC00000000000000000001 /* CmuxTerminalBackendService in Frameworks */ = {isa = PBXBuildFile; productRef = CBAC00000000000000000004 /* CmuxTerminalBackendService */; };
 		CBAC00000000000000000002 /* CmuxTerminalBackendService in Frameworks */ = {isa = PBXBuildFile; productRef = CBAC00000000000000000004 /* CmuxTerminalBackendService */; };
+		CBAE00000000000000000012 /* CmuxTerminalBackendService in Frameworks */ = {isa = PBXBuildFile; productRef = CBAC00000000000000000004 /* CmuxTerminalBackendService */; };
 		C750200000000000000000A3 /* CmuxTerminalCore in Frameworks */ = {isa = PBXBuildFile; productRef = C750200000000000000000A2 /* CmuxTerminalCore */; };
 		C7505F0000000000000000A3 /* CmuxTerminalFrontend in Frameworks */ = {isa = PBXBuildFile; productRef = C7505F0000000000000000A2 /* CmuxTerminalFrontend */; };
 		C7505F0000000000000000A4 /* CmuxTerminalFrontend in Frameworks */ = {isa = PBXBuildFile; productRef = C7505F0000000000000000A2 /* CmuxTerminalFrontend */; };
+		CBAE00000000000000000013 /* CmuxTerminalFrontend in Frameworks */ = {isa = PBXBuildFile; productRef = C7505F0000000000000000A2 /* CmuxTerminalFrontend */; };
 		CBAD00000000000000000304 /* CmuxTerminalRenderCompositor in Frameworks */ = {isa = PBXBuildFile; productRef = CBAD00000000000000000504 /* CmuxTerminalRenderCompositor */; };
+		CBAE00000000000000000014 /* CmuxTerminalRenderCompositor in Frameworks */ = {isa = PBXBuildFile; productRef = CBAD00000000000000000504 /* CmuxTerminalRenderCompositor */; };
 		CBAD00000000000000000302 /* CmuxTerminalRenderProtocol in Frameworks */ = {isa = PBXBuildFile; productRef = CBAD00000000000000000502 /* CmuxTerminalRenderProtocol */; };
 		CBAD00000000000000000306 /* CmuxTerminalRenderProtocol in Frameworks */ = {isa = PBXBuildFile; productRef = CBAD00000000000000000502 /* CmuxTerminalRenderProtocol */; };
+		CBAE00000000000000000015 /* CmuxTerminalRenderProtocol in Frameworks */ = {isa = PBXBuildFile; productRef = CBAD00000000000000000502 /* CmuxTerminalRenderProtocol */; };
 		CBAD00000000000000000303 /* CmuxTerminalRenderTransport in Frameworks */ = {isa = PBXBuildFile; productRef = CBAD00000000000000000503 /* CmuxTerminalRenderTransport */; };
+		CBAE00000000000000000016 /* CmuxTerminalRenderTransport in Frameworks */ = {isa = PBXBuildFile; productRef = CBAD00000000000000000503 /* CmuxTerminalRenderTransport */; };
 		CFF12E0000000000000000A3 /* CmuxTestSupport in Frameworks */ = {isa = PBXBuildFile; productRef = CFF12E0000000000000000A2 /* CmuxTestSupport */; };
 		C7A510000000000000000002 /* CmuxTopMemoryDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A510000000000000000001 /* CmuxTopMemoryDiagnostics.swift */; };
 		B35750000000000000000004 /* CmuxTopProcessArguments.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35750000000000000000003 /* CmuxTopProcessArguments.swift */; };
@@ -2376,6 +2384,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		7752D68A758642EFA282C208 /* AutoNamingEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoNamingEngineTests.swift; sourceTree = "<group>"; };
 		07EC52007B2144C59C047774 /* AutoNamingGrokAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoNamingGrokAdapterTests.swift; sourceTree = "<group>"; };
 		46792DAA478444ED87B17B31 /* AutoNamingHookPayloadAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoNamingHookPayloadAdapterTests.swift; sourceTree = "<group>"; };
+		CBAE00000000000000000101 /* BackendOnlyMain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendOnlyMain.swift; sourceTree = "<group>"; };
 		C0DE35860000000000000002 /* BackgroundWorkspacePrimeCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundWorkspacePrimeCoordinator.swift; sourceTree = "<group>"; };
 		A50012F0 /* Backport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Backport.swift; sourceTree = "<group>"; };
 		74060000000000000000001A /* BonsplitConfiguration+RemoteTmuxEmbedded.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BonsplitConfiguration+RemoteTmuxEmbedded.swift"; sourceTree = "<group>"; };
@@ -2633,6 +2642,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C10D00020000000000000002 /* CloudVMActionLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVMActionLauncher.swift; sourceTree = "<group>"; };
 		C75740010000000000000002 /* CloudVMMenuItemMetricsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVMMenuItemMetricsTests.swift; sourceTree = "<group>"; };
 		B9000004A1B2C3D4E5F60719 /* cmux */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = cmux; sourceTree = BUILT_PRODUCTS_DIR; };
+		CBAE00000000000000000100 /* cmux Backend.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "cmux Backend.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		A5001018 /* cmux-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "cmux-Bridging-Header.h"; sourceTree = "<group>"; };
 		C1ADE20001A1B2C3D4E5F719 /* cmux-claude-wrapper */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "Resources/bin/cmux-claude-wrapper"; sourceTree = SOURCE_ROOT; };
 		C1ADE30001A1B2C3D4E5F719 /* cmux-codex-wrapper */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "Resources/bin/cmux-codex-wrapper"; sourceTree = SOURCE_ROOT; };
@@ -3065,6 +3075,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		CD0CFE6300000000CD0CFE63 /* HostSettingsActions.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HostSettingsActions.swift; sourceTree = "<group>"; };
 		809100000000000000000002 /* HostSettingsShortcutNotificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostSettingsShortcutNotificationTests.swift; sourceTree = "<group>"; };
 		F1C1AA20B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InactivePaneFirstClickFocusTests.swift; sourceTree = "<group>"; };
+		CBAE00000000000000000102 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		DA7A10CA710E000000000002 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 		C0DEA7720000000000000002 /* InternalFlagsWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InternalFlagsWindow.swift; sourceTree = "<group>"; };
 		610008EA5E3744DDBE05C8E2 /* InternalTabDragConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/InternalTabDragConfiguration.swift; sourceTree = "<group>"; };
@@ -4264,6 +4275,20 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		CBAE00000000000000000052 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CBAE00000000000000000011 /* CmuxTerminalBackend in Frameworks */,
+				CBAE00000000000000000010 /* CmuxTerminalBackendHost in Frameworks */,
+				CBAE00000000000000000012 /* CmuxTerminalBackendService in Frameworks */,
+				CBAE00000000000000000013 /* CmuxTerminalFrontend in Frameworks */,
+				CBAE00000000000000000014 /* CmuxTerminalRenderCompositor in Frameworks */,
+				CBAE00000000000000000015 /* CmuxTerminalRenderProtocol in Frameworks */,
+				CBAE00000000000000000016 /* CmuxTerminalRenderTransport in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		B900000CA1B2C3D4E5F60719 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -4506,6 +4531,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A5001040 = {
 			isa = PBXGroup;
 			children = (
+				CBAE00000000000000000040 /* BackendOnlyHost */,
 				A5001041 /* Sources */,
 				B9000003A1B2C3D4E5F60719 /* CLI */,
 				087C454FFF74443AB06942C3 /* Resources */,
@@ -5792,12 +5818,22 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			isa = PBXGroup;
 			children = (
 				A5001000 /* cmux.app */,
+				CBAE00000000000000000100 /* cmux Backend.app */,
 				B9000004A1B2C3D4E5F60719 /* cmux */,
 				D1320AA0D1320AA0D1320AA5 /* CmuxDockTilePlugin.plugin */,
 				7E7E6EF344A568AC7FEE3715 /* cmuxUITests.xctest */,
 				F1000002A1B2C3D4E5F60718 /* cmuxTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		CBAE00000000000000000040 /* BackendOnlyHost */ = {
+			isa = PBXGroup;
+			children = (
+				CBAE00000000000000000101 /* BackendOnlyMain.swift */,
+				CBAE00000000000000000102 /* Info.plist */,
+			);
+			path = BackendOnlyHost;
 			sourceTree = "<group>";
 		};
 		B9000003A1B2C3D4E5F60719 /* CLI */ = {
@@ -6523,6 +6559,33 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			productReference = A5001000 /* cmux.app */;
 			productType = "com.apple.product-type.application";
 		};
+		CBAE00000000000000000050 /* cmux-backend-only */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CBAE00000000000000000062 /* Build configuration list for PBXNativeTarget "cmux-backend-only" */;
+			buildPhases = (
+				CBAE00000000000000000051 /* Sources */,
+				CBAE00000000000000000052 /* Frameworks */,
+				CBAE00000000000000000053 /* Resources */,
+				CBAE00000000000000000054 /* Build Persistent Terminal Backend */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "cmux-backend-only";
+			packageProductDependencies = (
+				CBAE00000000000000000501 /* CmuxTerminalBackendHost */,
+				CBAD00000000000000000501 /* CmuxTerminalBackend */,
+				CBAC00000000000000000004 /* CmuxTerminalBackendService */,
+				C7505F0000000000000000A2 /* CmuxTerminalFrontend */,
+				CBAD00000000000000000504 /* CmuxTerminalRenderCompositor */,
+				CBAD00000000000000000502 /* CmuxTerminalRenderProtocol */,
+				CBAD00000000000000000503 /* CmuxTerminalRenderTransport */,
+			);
+			productName = "cmux Backend";
+			productReference = CBAE00000000000000000100 /* cmux Backend.app */;
+			productType = "com.apple.product-type.application";
+		};
 		B9000005A1B2C3D4E5F60719 /* cmux-cli */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = B9000007A1B2C3D4E5F60719 /* Build configuration list for PBXNativeTarget "cmux-cli" */;
@@ -6721,6 +6784,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			projectRoot = "";
 			targets = (
 				A5001050 /* cmux */,
+				CBAE00000000000000000050 /* cmux-backend-only */,
 				D1320AA0D1320AA0D1320AA8 /* CmuxDockTilePlugin */,
 				B9000005A1B2C3D4E5F60719 /* cmux-cli */,
 				CB450DF0F0B3839599082C4D /* cmuxUITests */,
@@ -6746,6 +6810,13 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				FEED0000000000000000F007 /* opencode-plugin.js in Resources */,
 				A5002000 /* THIRD_PARTY_LICENSES.md in Resources */,
 				84E00D47E4584162AE53BC8D /* xterm-ghostty in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CBAE00000000000000000053 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -6867,6 +6938,46 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			shellScript = "\"${SRCROOT}/scripts/build-diff-sidecar.sh\"\n";
 		};
 		CBAC00000000000000000005 /* Build Persistent Terminal Backend */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			dependencyFile = "$(DERIVED_FILE_DIR)/cmux-terminal-backend.d";
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/Resources/LaunchAgents/com.cmuxterm.app.terminal-backend.plist",
+				"$(SRCROOT)/Resources/cmux-terminal-backend.entitlements",
+				"$(SRCROOT)/cmux-tui",
+				"$(SRCROOT)/cmux-tui/Cargo.lock",
+				"$(SRCROOT)/cmux-tui/Cargo.toml",
+				"$(SRCROOT)/ghostty/build.zig",
+				"$(SRCROOT)/ghostty/build.zig.zon",
+				"$(SRCROOT)/ghostty/include",
+				"$(SRCROOT)/ghostty/src",
+				"$(SRCROOT)/scripts/build-terminal-backend.sh",
+				"$(SRCROOT)/scripts/build-terminal-renderer.sh",
+				"$(SRCROOT)/scripts/configure-terminal-backend-launch-agent.sh",
+				"$(SRCROOT)/scripts/terminal-backend-build-fingerprint.py",
+				"$(SRCROOT)/scripts/terminal-backend-identity.py",
+				"$(SRCROOT)/scripts/verify-terminal-backend-service-artifact.sh",
+			);
+			name = "Build Persistent Terminal Backend";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-terminal-backend",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-terminal-backend.build-id",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-terminal-renderer",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-terminal-renderer.build-id",
+				"$(DERIVED_FILE_DIR)/cmux-terminal-backend.fingerprint",
+				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Library/LaunchAgents/$(PRODUCT_BUNDLE_IDENTIFIER).terminal-backend.plist",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\nAPP_BUNDLE=\"${TARGET_BUILD_DIR}/${WRAPPER_NAME}\"\nBACKEND_DEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/bin/cmux-terminal-backend\"\nBACKEND_ENTITLEMENTS=\"${SRCROOT}/Resources/cmux-terminal-backend.entitlements\"\nBACKEND_FINGERPRINT=\"${DERIVED_FILE_DIR}/cmux-terminal-backend.fingerprint\"\nBACKEND_DEPENDENCIES=\"${DERIVED_FILE_DIR}/cmux-terminal-backend.d\"\nLAUNCH_AGENTS_DIR=\"${TARGET_BUILD_DIR}/${CONTENTS_FOLDER_PATH}/Library/LaunchAgents\"\nif [ \"${CODE_SIGNING_ALLOWED:-YES}\" = \"NO\" ]; then\n  \"${SRCROOT}/scripts/build-terminal-backend.sh\" --output \"$BACKEND_DEST\" --configuration release --architectures \"${ARCHS:-}\" --entitlements \"$BACKEND_ENTITLEMENTS\" --fingerprint-stamp \"$BACKEND_FINGERPRINT\" --dependency-file \"$BACKEND_DEPENDENCIES\" --skip-signing\nelse\n  \"${SRCROOT}/scripts/build-terminal-backend.sh\" --output \"$BACKEND_DEST\" --configuration release --architectures \"${ARCHS:-}\" --entitlements \"$BACKEND_ENTITLEMENTS\" --fingerprint-stamp \"$BACKEND_FINGERPRINT\" --dependency-file \"$BACKEND_DEPENDENCIES\" --sign-identity \"${EXPANDED_CODE_SIGN_IDENTITY:--}\"\nfi\n\"${SRCROOT}/scripts/configure-terminal-backend-launch-agent.sh\" --launch-agents-dir \"$LAUNCH_AGENTS_DIR\" --bundle-id \"${PRODUCT_BUNDLE_IDENTIFIER}\"\nif [ \"${CODE_SIGNING_ALLOWED:-YES}\" = \"NO\" ]; then\n  \"${SRCROOT}/scripts/verify-terminal-backend-service-artifact.sh\" --app-bundle \"$APP_BUNDLE\" --bundle-id \"${PRODUCT_BUNDLE_IDENTIFIER}\" --architectures \"${ARCHS:-}\"\nelse\n  \"${SRCROOT}/scripts/verify-terminal-backend-service-artifact.sh\" --app-bundle \"$APP_BUNDLE\" --bundle-id \"${PRODUCT_BUNDLE_IDENTIFIER}\" --architectures \"${ARCHS:-}\" --require-signed --require-minimal-entitlements\nfi\n";
+		};
+		CBAE00000000000000000054 /* Build Persistent Terminal Backend */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			dependencyFile = "$(DERIVED_FILE_DIR)/cmux-terminal-backend.d";
@@ -8283,6 +8394,14 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		CBAE00000000000000000051 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CBAE00000000000000000001 /* BackendOnlyMain.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		B9000006A1B2C3D4E5F60719 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -9188,6 +9307,68 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			};
 			name = Release;
 		};
+		CBAE00000000000000000060 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CMUX_TERMINAL_BACKEND_ENABLED = YES;
+				CMUX_TERMINAL_RUNTIME_OWNERSHIP = "backend-only";
+				CODE_SIGN_ENTITLEMENTS = "";
+				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 99;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = BackendOnlyHost/Info.plist;
+				LD_GENERATE_MAP_FILE = YES;
+				LD_MAP_FILE_PATH = "$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/cmux-backend-only-$(CURRENT_ARCH).map";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.64.19;
+				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.backend-only.debug;
+				PRODUCT_MODULE_NAME = CmuxBackendOnly;
+				PRODUCT_NAME = "cmux Backend";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		CBAE00000000000000000061 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CMUX_TERMINAL_BACKEND_ENABLED = YES;
+				CMUX_TERMINAL_RUNTIME_OWNERSHIP = "backend-only";
+				CODE_SIGN_ENTITLEMENTS = "";
+				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 99;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = BackendOnlyHost/Info.plist;
+				LD_GENERATE_MAP_FILE = YES;
+				LD_MAP_FILE_PATH = "$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/cmux-backend-only-$(CURRENT_ARCH).map";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.64.19;
+				ONLY_ACTIVE_ARCH = NO;
+				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.backend-only;
+				PRODUCT_MODULE_NAME = CmuxBackendOnly;
+				PRODUCT_NAME = "cmux Backend";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
 		B9000008A1B2C3D4E5F60719 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -9338,6 +9519,15 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			buildConfigurations = (
 				A5001082 /* Debug */,
 				A5001083 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		CBAE00000000000000000062 /* Build configuration list for PBXNativeTarget "cmux-backend-only" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CBAE00000000000000000060 /* Debug */,
+				CBAE00000000000000000061 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
@@ -9774,6 +9964,11 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			isa = XCSwiftPackageProductDependency;
 			package = C750500000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminal" */;
 			productName = CmuxTerminalFrontend;
+		};
+		CBAE00000000000000000501 /* CmuxTerminalBackendHost */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C750500000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminal" */;
+			productName = CmuxTerminalBackendHost;
 		};
 		CBAD00000000000000000501 /* CmuxTerminalBackend */ = {
 			isa = XCSwiftPackageProductDependency;
