@@ -22,6 +22,11 @@ public actor CmxIrohRelayCredentialCoordinator {
         let revision: UInt64
     }
 
+    private struct InFlightRefresh {
+        let id: UUID
+        let task: Task<InstalledCredential, any Error>
+    }
+
     private let supervisor: CmxIrohEndpointSupervisor
     private let broker: any CmxIrohRelayTokenServing
     private let managedRelayURLs: Set<String>
@@ -35,6 +40,7 @@ public actor CmxIrohRelayCredentialCoordinator {
     private var installedCredential: InstalledCredential?
     private var lifecycleRevision: UInt64 = 0
     private var refreshTask: Task<Void, Never>?
+    private var inFlightRefresh: InFlightRefresh?
     private var persistenceTask: Task<Void, Never>?
     private var pendingPersistence: PendingPersistence?
 
@@ -84,6 +90,8 @@ public actor CmxIrohRelayCredentialCoordinator {
         lifecycleRevision &+= 1
         let revision = lifecycleRevision
         refreshTask?.cancel()
+        inFlightRefresh?.task.cancel()
+        inFlightRefresh = nil
         let expectedBinding = Binding(id: bindingID, endpointIdentity: endpointIdentity)
         binding = expectedBinding
         installedCredential = nil
@@ -132,6 +140,8 @@ public actor CmxIrohRelayCredentialCoordinator {
         lifecycleRevision &+= 1
         refreshTask?.cancel()
         refreshTask = nil
+        inFlightRefresh?.task.cancel()
+        inFlightRefresh = nil
         persistenceTask?.cancel()
         persistenceTask = nil
         pendingPersistence = nil
@@ -142,6 +152,52 @@ public actor CmxIrohRelayCredentialCoordinator {
     /// Returns the hard expiry of the last successfully installed credential.
     public func credentialExpiresAt() -> Date? {
         installedCredential?.expiresAt
+    }
+
+    /// Immediately catches up a missing or refresh-due relay credential.
+    ///
+    /// iOS suspends task scheduling in the background, so the ordinary sleep
+    /// loop may not run before an installed credential expires. Foreground
+    /// connection readiness calls this method before dialing. Concurrent
+    /// callers share one mint-and-install operation, and a failure preserves
+    /// the existing endpoint while resuming the bounded retry loop.
+    public func refreshIfNeeded() async throws {
+        guard let binding else {
+            throw CmxIrohRelayCredentialCoordinatorError.inactive
+        }
+        let now = clock.now()
+        if let installedCredential,
+           now < installedCredential.refreshAfter,
+           installedCredential.expiresAt.timeIntervalSince(now)
+            > Self.minimumUsefulValidity {
+            return
+        }
+        let revision = lifecycleRevision
+        do {
+            let installed = try await refreshCredential(
+                binding: binding,
+                revision: revision
+            )
+            refreshTask?.cancel()
+            startLoop(revision: revision, firstRefresh: installed.refreshAfter)
+        } catch {
+            guard isCurrent(revision), !Task.isCancelled else {
+                throw CancellationError()
+            }
+            refreshTask?.cancel()
+            let delay = retryDelay(failureCount: 0, error: error)
+            startLoop(
+                revision: revision,
+                firstRefresh: retryDeadline(
+                    now: clock.now(),
+                    backoff: delay,
+                    honorsServerFloor: (error as? CmxIrohTrustBrokerClientError)?
+                        .retryAfterSeconds != nil
+                ),
+                initialFailureCount: 1
+            )
+            throw error
+        }
     }
 
     private func startLoop(
@@ -175,12 +231,7 @@ public actor CmxIrohRelayCredentialCoordinator {
             }
             guard isCurrent(revision), !Task.isCancelled, let binding else { return }
             do {
-                let response = try await broker.issueRelayToken(
-                    bindingID: binding.id,
-                    endpointID: binding.endpointIdentity
-                )
-                let installed = try await install(
-                    response,
+                let installed = try await refreshCredential(
                     binding: binding,
                     revision: revision
                 )
@@ -201,6 +252,42 @@ public actor CmxIrohRelayCredentialCoordinator {
                 failureCount = min(failureCount + 1, 20)
             }
         }
+    }
+
+    private func refreshCredential(
+        binding: Binding,
+        revision: UInt64
+    ) async throws -> InstalledCredential {
+        if let inFlightRefresh {
+            return try await inFlightRefresh.task.value
+        }
+        let refreshID = UUID()
+        let task = Task { [weak self] in
+            guard let self else { throw CancellationError() }
+            let response = try await self.broker.issueRelayToken(
+                bindingID: binding.id,
+                endpointID: binding.endpointIdentity
+            )
+            return try await self.install(
+                response,
+                binding: binding,
+                revision: revision
+            )
+        }
+        inFlightRefresh = InFlightRefresh(id: refreshID, task: task)
+        do {
+            let installed = try await task.value
+            clearInFlightRefresh(id: refreshID)
+            return installed
+        } catch {
+            clearInFlightRefresh(id: refreshID)
+            throw error
+        }
+    }
+
+    private func clearInFlightRefresh(id: UUID) {
+        guard inFlightRefresh?.id == id else { return }
+        inFlightRefresh = nil
     }
 
     /// Keeps refresh retries inside the useful lifetime of an installed token.

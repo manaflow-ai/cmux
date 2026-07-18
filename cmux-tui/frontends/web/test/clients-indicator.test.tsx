@@ -13,6 +13,7 @@ const clients: ClientInfo[] = [
     attached: [7],
     sizes: [{ surface: 7, cols: 126, rows: 38 }],
     self: true,
+    size_participating: true,
   },
   {
     client: 2,
@@ -23,6 +24,7 @@ const clients: ClientInfo[] = [
     attached: [],
     sizes: [],
     self: false,
+    size_participating: true,
   },
 ];
 

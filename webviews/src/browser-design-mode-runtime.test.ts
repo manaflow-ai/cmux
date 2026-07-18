@@ -9,17 +9,27 @@ const runtimeSource = readFileSync(
 
 const doms: JSDOM[] = [];
 
-function fixture(html: string) {
+function fixture(html: string, options: { stallAnimationFrames?: boolean } = {}) {
   const messages: unknown[] = [];
   const dom = new JSDOM(html, { runScripts: "dangerously", pretendToBeVisual: true, url: "http://localhost:3000" });
   doms.push(dom);
+  let overlayShadowRoot: ShadowRoot | null = null;
+  const attachShadow = dom.window.Element.prototype.attachShadow;
+  dom.window.Element.prototype.attachShadow = function(init: ShadowRootInit) {
+    const root = attachShadow.call(this, init);
+    if (this.getAttribute("data-cmux-design-mode") === "overlay") overlayShadowRoot = root;
+    return root;
+  };
+  if (options.stallAnimationFrames) {
+    Object.defineProperty(dom.window, "requestAnimationFrame", { value: () => 1 });
+  }
   Object.defineProperty(dom.window, "webkit", {
     value: { messageHandlers: { cmuxDesignMode: { postMessage: (value: unknown) => messages.push(value) } } },
   });
   dom.window.eval(runtimeSource);
   const runtime = (dom.window as unknown as { __cmuxDesignMode: DesignRuntime }).__cmuxDesignMode;
   runtime.enable();
-  return { dom, messages, runtime };
+  return { dom, messages, overlayShadowRoot: () => overlayShadowRoot, runtime };
 }
 
 type SnapshotSelection = {
@@ -49,16 +59,44 @@ type DesignRuntime = {
   destroy(): Snapshot;
   snapshot(): Snapshot;
   select(selector: string, stack?: boolean): Snapshot;
-  composerState(): { selection_count: number; selectors: string[]; can_copy: boolean; mode: string; hovered_selector: string | null };
+  composerState(): {
+    selection_count: number;
+    selectors: string[];
+    can_copy: boolean;
+    mode: string;
+    hovered_selector: string | null;
+    annotation_phase: "idle" | "drawing" | "ink_only" | "capturing" | "captured";
+  };
   setMode(mode: string): Snapshot;
+  setSelectionHover(selection: number | string | null): Snapshot;
   clearHover(): Snapshot;
   flashSelection(index: number): Snapshot;
+  removeSelection(selection: number | string): Snapshot;
   applyStyle(property: string, value: string): Snapshot;
   applyText(value: string): Snapshot;
   revert(id: string): Snapshot;
   revertAll(): Snapshot;
   prepareCapture(): Snapshot;
   finishCapture(): Snapshot;
+  prepareAnnotationCapture(id: string): {
+    id: string;
+    stroke_bounds: { x: number; y: number; width: number; height: number };
+    viewport: { width: number; height: number };
+    scroll_x: number;
+    scroll_y: number;
+  } | null;
+  completeAnnotationCapture(
+    id: string,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    imageURL: string,
+    expectedScrollX: number,
+    expectedScrollY: number,
+    expectedViewportWidth: number,
+    expectedViewportHeight: number,
+  ): Snapshot;
 };
 
 afterEach(() => {
@@ -561,9 +599,15 @@ describe("browser design-mode runtime", () => {
     expect(inputEvents).toBe(0);
   });
 
-  test("prepares capture without depending on animation-frame delivery", () => {
-    const { dom, runtime } = fixture(`<main><h1 id="hero">Hello</h1></main>`);
+  test("prepares and restores capture without depending on animation-frame delivery", () => {
+    const { dom, overlayShadowRoot, runtime } = fixture(`<main><h1 id="hero">Hello</h1></main>`);
     runtime.select("#hero");
+    runtime.setSelectionHover(0);
+    const outline = Array.from(overlayShadowRoot()?.querySelectorAll("div") ?? []).find(
+      (element) => element.style.borderColor === "rgb(10, 132, 255)"
+        && element.style.position === "fixed",
+    );
+    expect(outline?.style.display).toBe("block");
     let requestedFrames = 0;
     Object.defineProperty(dom.window, "requestAnimationFrame", {
       value: () => {
@@ -574,8 +618,13 @@ describe("browser design-mode runtime", () => {
 
     const prepared = runtime.prepareCapture();
     expect(prepared.selection?.selector).toBe("#hero");
+    expect(outline?.style.display).toBe("none");
     expect(requestedFrames).toBe(0);
     runtime.finishCapture();
+    // Copy restoration must be synchronous so native can keep its visual
+    // shield up until WebKit confirms the restored overlay has painted.
+    expect(outline?.style.display).toBe("block");
+    expect(requestedFrames).toBe(0);
   });
 
   test("revalidates selector uniqueness immediately before capture", () => {
@@ -660,8 +709,8 @@ describe("browser design-mode runtime", () => {
     expect(dom.window.document.querySelector(selector)).toBe(second);
   });
 
-  test("dragging draws a marquee that captures a screenshot region", () => {
-    const { dom, runtime } = fixture(`<main><button id="b">B</button></main>`);
+  test("freehand ink becomes a captured context card only after native capture completes", () => {
+    const { dom, messages, runtime } = fixture(`<main><button id="b">B</button></main>`);
     const doc = dom.window.document;
     const at = (name: string, x: number, y: number) => doc.dispatchEvent(
       new dom.window.MouseEvent(name, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y }),
@@ -673,36 +722,181 @@ describe("browser design-mode runtime", () => {
     // A freehand stroke whose farthest sweep goes beyond where the pointer is
     // released: the region must bound the WHOLE stroke, not the endpoints.
     at("pointerdown", 10, 20);
+    expect(runtime.composerState().annotation_phase).toBe("drawing");
     at("pointermove", 40, 50);
     at("pointermove", 210, 340);
     at("pointerup", 110, 140);
 
-    const state = runtime.composerState();
-    expect(state.selection_count).toBe(1);
-    expect(state.can_copy).toBe(true);
-    const selection = runtime.snapshot().selections?.[0];
+    // Completion is ink-only: no region token/card exists until the native
+    // screenshot callback returns the exact composited artifact.
+    const inkOnly = runtime.composerState();
+    expect(inkOnly.annotation_phase).toBe("ink_only");
+    expect(inkOnly.selection_count).toBe(0);
+    expect(inkOnly.can_copy).toBe(false);
+    const requestMessage = messages.slice().reverse().find(
+      (message) => (message as { type?: string }).type === "annotation_capture_requested",
+    ) as { request: { id: string } } | undefined;
+    expect(requestMessage).toBeDefined();
+    const annotationID = requestMessage?.request.id ?? "";
+
+    const descriptor = runtime.prepareAnnotationCapture(annotationID);
+    expect(runtime.composerState().annotation_phase).toBe("capturing");
+    expect(descriptor?.stroke_bounds).toEqual({ x: 10, y: 20, width: 200, height: 320 });
+    const completed = runtime.completeAnnotationCapture(
+      annotationID,
+      0,
+      0,
+      258,
+      408,
+      "data:image/png;base64,Y2FyZA==",
+      descriptor?.scroll_x ?? 0,
+      descriptor?.scroll_y ?? 0,
+      descriptor?.viewport.width ?? 0,
+      descriptor?.viewport.height ?? 0,
+    );
+
+    expect(runtime.composerState().annotation_phase).toBe("captured");
+    expect(runtime.composerState().selection_count).toBe(1);
+    expect(runtime.composerState().can_copy).toBe(true);
+    const selection = completed.selections?.[0];
     expect(selection?.tag_name).toBe("region");
-    expect(selection?.bounds).toEqual({ x: 10, y: 20, width: 200, height: 320 });
+    expect(selection?.selector).toBe(`@annotation(${annotationID})`);
+    expect(selection?.bounds).toEqual({ x: 0, y: 0, width: 258, height: 408 });
 
     // The trailing click from the same gesture must not add an element selection.
     at("click", 110, 140);
     expect(runtime.composerState().selection_count).toBe(1);
 
-    // Every draw stacks another region token; earlier captures persist.
+    // One stroke is one immutable context artifact. A later stroke stacks a
+    // new request/card rather than merging into or replacing the first.
+    // A deliberate one-axis stroke is still an annotation; it does not need
+    // circle-like width and height to become a context artifact.
     at("pointerdown", 300, 300);
-    at("pointermove", 360, 360);
-    at("pointerup", 360, 360);
-    const regions = runtime.snapshot().selections ?? [];
+    at("pointermove", 360, 300);
+    at("pointerup", 360, 300);
+    const secondRequest = messages.slice().reverse().find(
+      (message) => (message as { type?: string }).type === "annotation_capture_requested"
+        && (message as { request?: { id?: string } }).request?.id !== annotationID,
+    ) as { request: { id: string } } | undefined;
+    expect(secondRequest).toBeDefined();
+    const secondDescriptor = runtime.prepareAnnotationCapture(secondRequest?.request.id ?? "");
+    const regions = runtime.completeAnnotationCapture(
+      secondRequest?.request.id ?? "",
+      252,
+      252,
+      156,
+      96,
+      "data:image/png;base64,Y2FyZDI=",
+      secondDescriptor?.scroll_x ?? 0,
+      secondDescriptor?.scroll_y ?? 0,
+      secondDescriptor?.viewport.width ?? 0,
+      secondDescriptor?.viewport.height ?? 0,
+    ).selections ?? [];
     expect(regions).toHaveLength(2);
-    expect(regions[1]?.bounds?.x).toBe(300);
+    expect(regions[1]?.bounds?.x).toBe(252);
+
+    const remaining = runtime.removeSelection(regions[0]?.selector ?? "").selections ?? [];
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0]?.selector).toBe(regions[1]?.selector);
 
     // Escape clears regions before exiting design mode.
     doc.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
     expect(runtime.composerState().selection_count).toBe(0);
   });
 
-  test("modes are exclusive: no marquee in select mode, no element picks in draw mode", () => {
-    const { dom, runtime } = fixture(`<main><button id="b">B</button></main>`);
+  test("native annotation completion presents the card when an earlier animation frame is stalled", () => {
+    const { dom, messages, overlayShadowRoot, runtime } = fixture(
+      `<main><button id="b">B</button></main>`,
+      { stallAnimationFrames: true },
+    );
+    const doc = dom.window.document;
+    const at = (name: string, x: number, y: number) => doc.dispatchEvent(
+      new dom.window.MouseEvent(name, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y }),
+    );
+
+    runtime.setMode("draw");
+    at("pointerdown", 50, 60);
+    at("pointermove", 150, 160);
+    at("pointerup", 150, 160);
+    const request = messages.slice().reverse().find(
+      (message) => (message as { type?: string }).type === "annotation_capture_requested",
+    ) as { request: { id: string } } | undefined;
+    const descriptor = runtime.prepareAnnotationCapture(request?.request.id ?? "");
+    const completed = runtime.completeAnnotationCapture(
+      request?.request.id ?? "",
+      2,
+      12,
+      196,
+      196,
+      "data:image/png;base64,Y2FyZA==",
+      descriptor?.scroll_x ?? 0,
+      descriptor?.scroll_y ?? 0,
+      descriptor?.viewport.width ?? 0,
+      descriptor?.viewport.height ?? 0,
+    );
+
+    const card = Array.from(overlayShadowRoot()?.querySelectorAll("div") ?? []).find(
+      (element) => element.style.backgroundImage.includes("Y2FyZA=="),
+    );
+    expect(card).toBeDefined();
+    expect(card?.style.display).toBe("block");
+    expect(card?.style.left).toBe("2px");
+    expect(card?.style.top).toBe("12px");
+    expect(card?.style.width).toBe("196px");
+    expect(card?.style.height).toBe("196px");
+    expect(card?.style.borderStyle).toBe("dashed");
+    expect(card?.style.borderColor).toBe("rgb(10, 132, 255)");
+
+    runtime.setSelectionHover(completed.selections?.[0]?.selector ?? "");
+    expect(card?.style.boxShadow).toContain("rgba(10, 132, 255, 0.55)");
+    runtime.setSelectionHover(null);
+    expect(card?.style.boxShadow).not.toContain("rgba(10, 132, 255, 0.55)");
+  });
+
+  test("annotation cards evict the oldest retained image after the bounded stack fills", () => {
+    const { dom, messages, runtime } = fixture(`<main><button>B</button></main>`);
+    const doc = dom.window.document;
+    const at = (name: string, x: number, y: number) => doc.dispatchEvent(
+      new dom.window.MouseEvent(name, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y }),
+    );
+
+    runtime.setMode("draw");
+    let firstSelector = "";
+    let lastSelector = "";
+    for (let index = 0; index < 10; index += 1) {
+      at("pointerdown", 20 + index, 20 + index);
+      at("pointermove", 60 + index, 60 + index);
+      at("pointerup", 60 + index, 60 + index);
+      const request = messages.slice().reverse().find(
+        (message) => (message as { type?: string }).type === "annotation_capture_requested",
+      ) as { request: { id: string } } | undefined;
+      const annotationID = request?.request.id ?? "";
+      const descriptor = runtime.prepareAnnotationCapture(annotationID);
+      const snapshot = runtime.completeAnnotationCapture(
+        annotationID,
+        0,
+        0,
+        128,
+        128,
+        `data:image/png;base64,Y2FyZC0${index}`,
+        descriptor?.scroll_x ?? 0,
+        descriptor?.scroll_y ?? 0,
+        descriptor?.viewport.width ?? 0,
+        descriptor?.viewport.height ?? 0,
+      );
+      const selector = snapshot.selections?.at(-1)?.selector ?? "";
+      if (index === 0) firstSelector = selector;
+      lastSelector = selector;
+    }
+
+    const selectors = runtime.snapshot().selections?.map((selection) => selection.selector) ?? [];
+    expect(selectors).toHaveLength(8);
+    expect(selectors).not.toContain(firstSelector);
+    expect(selectors).toContain(lastSelector);
+  });
+
+  test("a drag switches select mode to draw while clicks remain element picks", () => {
+    const { dom, messages, runtime } = fixture(`<main><button id="b">B</button></main>`);
     const doc = dom.window.document;
     const button = doc.querySelector("#b") as HTMLElement;
     Object.defineProperty(doc, "elementFromPoint", { value: () => button });
@@ -710,25 +904,50 @@ describe("browser design-mode runtime", () => {
       new dom.window.MouseEvent(name, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y }),
     );
 
-    // Select mode: a drag never creates a region; pointerup picks the element.
+    // A click in select mode remains an element pick.
     at("pointerdown", 10, 10);
-    at("pointermove", 200, 200);
-    at("pointerup", 200, 200);
+    at("pointerup", 10, 10);
     expect(runtime.snapshot().selection?.selector).toBe("#b");
     expect(runtime.snapshot().selections?.every((entry) => entry.tag_name !== "region")).toBe(true);
 
-    // Draw mode: taps never pick elements; strokes capture regions, and
-    // element pills selected earlier persist across the mode switch.
-    runtime.setMode("draw");
-    expect(runtime.composerState().mode).toBe("draw");
-    expect(runtime.composerState().selection_count).toBe(1);
-    at("pointerdown", 30, 30);
-    at("pointerup", 31, 31);
-    expect(runtime.composerState().selection_count).toBe(1);
+    // Crossing the drag threshold automatically enters draw mode before the
+    // drawing transaction begins, with the existing element pill preserved.
     at("pointerdown", 40, 40);
     at("pointermove", 140, 140);
     at("pointerup", 140, 140);
-    const selections = runtime.snapshot().selections ?? [];
+    expect(runtime.composerState().mode).toBe("draw");
+    expect(runtime.composerState().selection_count).toBe(1);
+    const modeMessageIndex = messages.findIndex(
+      (message) => (message as { type?: string; mode?: string }).type === "interaction_mode_changed"
+        && (message as { mode?: string }).mode === "draw",
+    );
+    const drawingMessageIndex = messages.findIndex(
+      (message) => (message as { type?: string }).type === "annotation_drawing",
+    );
+    expect(modeMessageIndex).toBeGreaterThanOrEqual(0);
+    expect(drawingMessageIndex).toBeGreaterThan(modeMessageIndex);
+
+    // Draw-mode taps remain no-ops; the stroke above becomes a second,
+    // region context only after native capture completion.
+    at("pointerdown", 30, 30);
+    at("pointerup", 31, 31);
+    expect(runtime.composerState().selection_count).toBe(1);
+    const request = messages.slice().reverse().find(
+      (message) => (message as { type?: string }).type === "annotation_capture_requested",
+    ) as { request: { id: string } } | undefined;
+    const descriptor = runtime.prepareAnnotationCapture(request?.request.id ?? "");
+    const selections = runtime.completeAnnotationCapture(
+      request?.request.id ?? "",
+      0,
+      0,
+      188,
+      188,
+      "data:image/png;base64,Y2FyZA==",
+      descriptor?.scroll_x ?? 0,
+      descriptor?.scroll_y ?? 0,
+      descriptor?.viewport.width ?? 0,
+      descriptor?.viewport.height ?? 0,
+    ).selections ?? [];
     expect(selections).toHaveLength(2);
     expect(selections[0]?.selector).toBe("#b");
     expect(selections[1]?.tag_name).toBe("region");

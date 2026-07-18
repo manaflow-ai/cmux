@@ -70,6 +70,7 @@ struct DockPortalReconcileTests {
         ))
         #expect(panel.surface.preparePortalHostReplacementIfOwned(
             hostId: ObjectIdentifier(liveHost),
+            instanceSerial: 1,
             reason: "test.dock.liveHostDismantled"
         ))
 

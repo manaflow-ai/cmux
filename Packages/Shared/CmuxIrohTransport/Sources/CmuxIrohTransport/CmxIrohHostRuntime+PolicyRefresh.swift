@@ -407,17 +407,18 @@ extension CmxIrohHostRuntime {
             localBinding = policy.binding
             endpointAttestation = policy.attestation ?? endpointAttestation
             lanRendezvous = policy.lanRendezvous
-            await publishLANPolicy(
-                binding: policy.binding,
-                rendezvous: policy.lanRendezvous,
-                supervisor: supervisor
-            )
-            try requireCurrent(revision)
             guard let registration = policy.registration,
                   let discovery = policy.discovery else {
                 throw CmxIrohHostRuntimeError.invalidLocalBinding
             }
             await handleBinding(registration, discovery, policy.attestation)
+            try requireCurrent(revision)
+            scheduleLANPublication(
+                binding: policy.binding,
+                rendezvous: policy.lanRendezvous,
+                supervisor: supervisor,
+                revision: revision
+            )
             registrationRefreshFailureCount = 0
             completedSuccessfully = true
             scheduleRegistrationRenewal(

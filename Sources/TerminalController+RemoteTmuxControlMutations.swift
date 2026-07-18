@@ -6,6 +6,10 @@ import Foundation
 
 @MainActor
 extension TerminalController {
+    func remoteTmuxSplitFocusIntent(requested: Bool) -> RemoteTmuxSplitFocusIntent {
+        v2FocusAllowed(requested: requested) ? .focusCreatedPane : .preserveActivePane
+    }
+
     /// Pre-mutation validation shared by remote tmux create/split commands.
     func mirrorRoutedUnsupportedOptions(
         insertFirst: Bool = false,
@@ -128,7 +132,11 @@ extension TerminalController {
             remotePTYSessionID: inputs.remotePTYSessionID
         ) + inputs.clientUnsupportedRemoteTmuxOptions
         guard unsupported.isEmpty else { return .mirrorUnsupportedOptions(unsupported) }
-        guard location.requestSplit(vertical: direction.orientation == .vertical) else {
+        let focusIntent = remoteTmuxSplitFocusIntent(requested: inputs.requestedFocus)
+        guard location.requestSplit(
+            vertical: direction.orientation == .vertical,
+            focusIntent: focusIntent
+        ) else {
             return .createFailed
         }
         v2MaybeFocusWindow(for: tabManager)

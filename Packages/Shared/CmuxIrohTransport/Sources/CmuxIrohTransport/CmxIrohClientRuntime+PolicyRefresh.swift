@@ -1,3 +1,5 @@
+internal import Foundation
+
 extension CmxIrohClientRuntime {
     func startSupervisorObservation(revision: UInt64) async {
         supervisorEventTask?.cancel()
@@ -51,19 +53,20 @@ extension CmxIrohClientRuntime {
             return
         }
         registrationRefreshPending = false
+        let refreshID = UUID()
+        registrationRefreshTaskID = refreshID
         registrationRefreshTask = Task { [weak self] in
-            do {
-                try await self?.refreshRegistration(revision: revision)
-            } catch {
-                // Terminal errors already revoke local policy and stop networking.
-            }
+            guard let self else { return }
+            try await self.refreshRegistration(revision: revision, refreshID: refreshID)
         }
     }
 
-    func refreshRegistration(revision: UInt64) async throws {
+    func refreshRegistration(revision: UInt64, refreshID: UUID) async throws {
         defer {
-            if lifecycleRevision == revision {
+            if lifecycleRevision == revision,
+               registrationRefreshTaskID == refreshID {
                 registrationRefreshTask = nil
+                registrationRefreshTaskID = nil
                 if registrationRefreshEnabled,
                    registrationRefreshPending,
                    lifecyclePhase == .active {
@@ -93,7 +96,9 @@ extension CmxIrohClientRuntime {
             )
             if let registration = policy.registration,
                let discovery = policy.discovery {
-                await handleBinding(registration, discovery)
+                let published = await handleBinding(registration, discovery)
+                try requireCurrent(revision)
+                if published { liveDiscoveryGeneration &+= 1 }
             } else if let lanRendezvous = policy.cachedLANRendezvous {
                 await handleCachedBindings(policy.cachedTargetBindings, lanRendezvous)
             }

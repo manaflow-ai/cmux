@@ -9,7 +9,9 @@ import {
   type RenderRow,
   type RenderStateEvent,
 } from "cmux/browser";
+import { ATTACH_RECOVERY_STABLE_MS, attachRecoveryDelay } from "../lib/attachRecovery";
 import { debounce } from "../lib/debounce";
+import { t } from "../i18n";
 import { syncCanvasBackground } from "../lib/canvasTheme";
 import { nextFitSize, type TerminalSize } from "../lib/fit";
 import { createFrameBatch } from "../lib/frameBatch";
@@ -129,6 +131,9 @@ export function useRenderTerminal({ client, surface, active, onError }: RenderTe
     let composing = false;
     let committedComposition: string | null = null;
     let touchStartY: number | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let stableTimer: ReturnType<typeof setTimeout> | undefined;
+    let wakeRetry: (() => void) | null = null;
     const frames = new Set<number>();
     const stage = host.closest<HTMLElement>(".terminal-stage");
     const scroller = host.querySelector<HTMLElement>("[data-render-scroll]");
@@ -139,6 +144,15 @@ export function useRenderTerminal({ client, surface, active, onError }: RenderTe
       stage?.style.setProperty("--surface-background", background);
       syncCanvasBackground(host, background, activeRef.current);
     };
+    const waitForRetry = (delayMs: number) =>
+      new Promise<void>((resolve) => {
+        wakeRetry = resolve;
+        retryTimer = setTimeout(() => {
+          retryTimer = undefined;
+          wakeRetry = null;
+          resolve();
+        }, delayMs);
+      });
 
     dispatch({ type: "bind", client, surface });
     const frameBatch = createFrameBatch<void>(() => {
@@ -183,7 +197,7 @@ export function useRenderTerminal({ client, surface, active, onError }: RenderTe
       return cols >= 2 && rows >= 1 ? { cols, rows } : undefined;
     };
     const applyFit = () => {
-      if (cancelled || currentModel === null) return;
+      if (cancelled || stream === null || currentModel === null) return;
       const next = nextFitSize(reportedFit, proposedSize());
       if (next === null) return;
       reportedFit = next;
@@ -427,58 +441,94 @@ export function useRenderTerminal({ client, surface, active, onError }: RenderTe
 
     void (async () => {
       try {
-        stream = await client.attachSurface(surface, { mode: "render" });
-        if (cancelled) return;
+        let recoveryAttempt = 0;
         for (;;) {
-          let event: RenderAttachEvent;
-          try {
-            event = await stream.next();
-          } catch (error) {
-            if (cancelled) return;
-            if (error instanceof CmuxTimeoutError) continue;
-            throw error;
-          }
+          stream = await client.attachSurface(surface, { mode: "render" });
           if (cancelled) return;
-          if (event.event === "detached") return;
-          if (event.event === "render-state") {
-            currentModel = applySnapshot(event as RenderStateEvent);
-            resetHistoryCache(currentModel.scrollbackRows, false);
-            applySurfaceBackground(currentModel.defaultBg);
-            applyFit();
-            scheduleFrame();
-          } else if (event.event === "render-delta" && currentModel !== null) {
-            const renderDelta = event as RenderDeltaEvent;
-            const previous: RenderModel = currentModel;
-            const nextModel: RenderModel = applyDelta(previous, renderDelta);
-            currentModel = nextModel;
-            if (nextModel === previous) continue;
-            const reconciliation = reconcileScrollbackWindow(
-              cache,
-              previous.scrollbackRows,
-              nextModel.scrollbackRows,
-              renderDelta.size !== undefined,
-            );
-            if (reconciliation.invalidated) {
-              cacheGeneration += 1;
-              historyLoading = false;
-              cache = reconciliation.window;
-              if (historyActive) void loadHistoryPage("latest", false);
-            } else if (reconciliation.window !== cache) {
-              cache = reconciliation.window;
+          // Closing the previous attachment removes this client's report on
+          // the server. Re-publish even when the viewport did not change.
+          reportedFit = null;
+          let overflowed = false;
+          for (;;) {
+            let event: RenderAttachEvent;
+            try {
+              event = await stream.next();
+            } catch (error) {
+              if (cancelled) return;
+              if (error instanceof CmuxTimeoutError) continue;
+              throw error;
             }
-            applySurfaceBackground(nextModel.defaultBg);
-            if (!historyActive) {
-              scheduleAfterRender(() => {
-                if (scroller !== null) scroller.scrollTop = scroller.scrollHeight;
-              });
+            if (cancelled) return;
+            if (event.event === "detached") return;
+            if (event.event === "render-state") {
+              currentModel = applySnapshot(event as RenderStateEvent);
+              resetHistoryCache(currentModel.scrollbackRows, false);
+              applySurfaceBackground(currentModel.defaultBg);
+              applyFit();
+              scheduleFrame();
+              if (stableTimer !== undefined) clearTimeout(stableTimer);
+              stableTimer = setTimeout(() => {
+                stableTimer = undefined;
+                recoveryAttempt = 0;
+              }, ATTACH_RECOVERY_STABLE_MS);
+            } else if (event.event === "render-delta" && currentModel !== null) {
+              const renderDelta = event as RenderDeltaEvent;
+              const previous: RenderModel = currentModel;
+              const nextModel: RenderModel = applyDelta(previous, renderDelta);
+              currentModel = nextModel;
+              if (nextModel === previous) continue;
+              const reconciliation = reconcileScrollbackWindow(
+                cache,
+                previous.scrollbackRows,
+                nextModel.scrollbackRows,
+                renderDelta.size !== undefined,
+              );
+              if (reconciliation.invalidated) {
+                cacheGeneration += 1;
+                historyLoading = false;
+                cache = reconciliation.window;
+                if (historyActive) void loadHistoryPage("latest", false);
+              } else if (reconciliation.window !== cache) {
+                cache = reconciliation.window;
+              }
+              applySurfaceBackground(nextModel.defaultBg);
+              if (!historyActive) {
+                scheduleAfterRender(() => {
+                  if (scroller !== null) scroller.scrollTop = scroller.scrollHeight;
+                });
+              }
+              scheduleFrame();
+            } else if (event.event === "overflow") {
+              if (event.scope === "surface" && event.surface === surface) {
+                if (stableTimer !== undefined) {
+                  clearTimeout(stableTimer);
+                  stableTimer = undefined;
+                }
+                overflowed = true;
+                break;
+              }
             }
-            scheduleFrame();
           }
+          stream.close();
+          stream = null;
+          if (!overflowed) return;
+          const delayMs = attachRecoveryDelay(recoveryAttempt++);
+          if (delayMs === null) throw new Error(t("attachOverflowRecoveryFailed"));
+          await waitForRetry(delayMs);
+          if (cancelled) return;
         }
       } catch (error) {
         if (!cancelled) onError(error instanceof Error ? error : new Error(String(error)));
       } finally {
         stream?.close();
+        if (!cancelled) {
+          reportedFit = null;
+          try {
+            await client.releaseSurfaceSize(surface);
+          } catch (error) {
+            onError(error instanceof Error ? error : new Error(String(error)));
+          }
+        }
       }
     })();
 
@@ -489,6 +539,9 @@ export function useRenderTerminal({ client, surface, active, onError }: RenderTe
       window.visualViewport?.removeEventListener("resize", sendResize);
       window.visualViewport?.removeEventListener("scroll", sendResize);
       sendResize.cancel();
+      if (retryTimer !== undefined) clearTimeout(retryTimer);
+      if (stableTimer !== undefined) clearTimeout(stableTimer);
+      wakeRetry?.();
       textarea?.removeEventListener("focus", handleFocus);
       textarea?.removeEventListener("blur", handleBlur);
       textarea?.removeEventListener("keydown", handleKeyDown);
@@ -507,6 +560,8 @@ export function useRenderTerminal({ client, surface, active, onError }: RenderTe
       frames.clear();
       frameBatch.cancel();
       stream?.close();
+      reportedFit = null;
+      void client.releaseSurfaceSize(surface).catch(onError);
       stage?.style.removeProperty("--surface-background");
       releaseTerminalSelection(host);
       if (controllerRef.current === controller) controllerRef.current = null;

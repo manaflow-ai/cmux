@@ -72,6 +72,7 @@ rename-surface
 rename-screen
 rename-workspace
 resize-surface
+release-surface-size
 focus-pane
 select-tab
 select-screen

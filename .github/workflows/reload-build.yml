@@ -138,6 +138,11 @@ jobs:
           slug="$(printf '%s' "$BUILD_TAG" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' '-' | sed 's/-\{2,\}/-/g; s/^-//; s/-$//')"
           bundle_id="dev.cmux.ios.$slug"
           display_name="cmux DEV $BUILD_TAG"
+          # This archive is installed on a physical device. Its localhost is
+          # the phone, not the tagged Mac or runner, so Debug device builds use
+          # staging unless the dispatcher supplies an explicit reachable URL.
+          api_base_url="${CMUX_IOS_API_BASE_URL:-${CMUX_DEV_API_BASE_URL:-https://cmux-staging.vercel.app}}"
+          iroh_broker_base_url="${CMUX_IOS_IROH_BROKER_BASE_URL:-${CMUX_IROH_BROKER_BASE_URL:-https://cmux-staging.vercel.app}}"
 
           # Register the iOS platform if the runner only has macOS provisioned.
           ios_ready() { xcrun simctl runtime list 2>/dev/null | grep -qiE "iOS [0-9].*\(Ready\)"; }
@@ -163,6 +168,8 @@ jobs:
             PRODUCT_DISPLAY_NAME="$display_name" \
             CMUX_GIT_SHA="$(git rev-parse --short HEAD)" \
             CMUX_DEV_TAG="$BUILD_TAG" \
+            CMUX_API_BASE_URL="$api_base_url" \
+            CMUX_IROH_BROKER_BASE_URL="$iroh_broker_base_url" \
             EXCLUDED_SOURCE_FILE_NAMES=Info.plist \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
