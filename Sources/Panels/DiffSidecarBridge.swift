@@ -1,25 +1,38 @@
 import Foundation
 import WebKit
 
-private final class DiffSidecarProcessExitSignal: @unchecked Sendable {
-    private let condition = NSCondition()
+actor DiffSidecarProcessExitSignal {
     private var exited = false
+    private var waiters: [UUID: CheckedContinuation<Void, Never>] = [:]
 
     func markExited() {
-        condition.lock()
+        guard !exited else { return }
         exited = true
-        condition.broadcast()
-        condition.unlock()
+        let pending = waiters.values
+        waiters.removeAll()
+        for waiter in pending {
+            waiter.resume()
+        }
     }
 
-    func wait(timeout: TimeInterval) -> Bool {
-        condition.lock()
-        defer { condition.unlock() }
-        let deadline = Date(timeIntervalSinceNow: timeout)
-        while !exited {
-            guard condition.wait(until: deadline) else { return exited }
+    func wait() async {
+        guard !exited, !Task.isCancelled else { return }
+        let id = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if exited || Task.isCancelled {
+                    continuation.resume()
+                } else {
+                    waiters[id] = continuation
+                }
+            }
+        } onCancel: {
+            Task { await self.cancelWaiter(id) }
         }
-        return true
+    }
+
+    private func cancelWaiter(_ id: UUID) {
+        waiters.removeValue(forKey: id)?.resume()
     }
 }
 
@@ -550,23 +563,30 @@ actor DiffSidecarProcessSupervisor {
         let processID = process.processIdentifier
         guard processID > 0 else { return }
         let exitSignal = DiffSidecarProcessExitSignal()
-        process.terminationHandler = { _ in exitSignal.markExited() }
+        process.terminationHandler = { _ in
+            Task { await exitSignal.markExited() }
+        }
         if !process.isRunning {
-            exitSignal.markExited()
+            await exitSignal.markExited()
         }
         if Darwin.getpgid(processID) == processID {
             _ = Darwin.kill(-processID, SIGTERM)
         } else {
             process.terminate()
         }
-        let components = gracePeriod.components
-        let timeout = max(
-            0,
-            Double(components.seconds) + Double(components.attoseconds) / 1_000_000_000_000_000_000
-        )
-        let exitedDuringGrace = await Task.detached(priority: .utility) {
-            exitSignal.wait(timeout: timeout)
-        }.value
+        let exitedDuringGrace = await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                await exitSignal.wait()
+                return !Task.isCancelled
+            }
+            group.addTask {
+                try? await ContinuousClock().sleep(for: gracePeriod)
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
+        }
         if !exitedDuringGrace, process.isRunning {
             if Darwin.getpgid(processID) == processID {
                 _ = Darwin.kill(-processID, SIGKILL)
@@ -574,9 +594,7 @@ actor DiffSidecarProcessSupervisor {
                 _ = Darwin.kill(processID, SIGKILL)
             }
         }
-        await Task.detached(priority: .utility) {
-            process.waitUntilExit()
-        }.value
+        await exitSignal.wait()
         process.terminationHandler = nil
     }
 
