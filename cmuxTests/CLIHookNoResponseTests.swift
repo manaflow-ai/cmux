@@ -295,10 +295,11 @@ struct CLIHookNoResponseTests {
         try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: outboxDirectory, withIntermediateDirectories: true)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: outboxDirectory.path)
-        let capability = SocketClientCapabilityAuthority(
+        let capabilityAuthority = SocketClientCapabilityAuthority(
             secret: Data(repeating: 0x51, count: SocketClientCapabilityAuthority.secureByteCount),
             audience: "com.cmuxterm.test.outbox"
-        ).issueCapability()
+        )
+        let capability = capabilityAuthority.issueCapability()
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
@@ -352,6 +353,7 @@ struct CLIHookNoResponseTests {
                 "CMUX_SURFACE_ID": "22222222-2222-2222-2222-222222222222",
                 "CMUX_SOCKET_PATH": socketPath,
                 "CMUX_SOCKET_CAPABILITY": capability,
+                "CMUX_AGENT_HOOK_OUTBOX_CAPABILITY": capability,
                 "CMUX_AGENT_HOOK_ENQUEUE_V1": "1",
                 "CMUX_AGENT_HOOK_OUTBOX_DIR": outboxDirectory.path,
                 "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
@@ -380,7 +382,17 @@ struct CLIHookNoResponseTests {
         #expect(params["delivery_id"] as? String == "native-admission-deadline")
         let encodedPayload = try #require(params["payload_b64"] as? String)
         #expect(Data(base64Encoded: encodedPayload) == Data(payload.utf8))
+        let markerFields = String(decoding: record.marker, as: UTF8.self)
+            .split(separator: "\n")
+            .map { String($0) }
+        let markerNonce = try #require(markerFields.count == 4 ? markerFields[1] : nil)
+        let markerCode = try #require(Data(base64Encoded: markerFields[2]))
         #expect(!String(decoding: record.marker, as: UTF8.self).contains(capability))
+        #expect(capabilityAuthority.verifiesOutboxMessage(
+            nonce: markerNonce,
+            code: markerCode,
+            message: record.message
+        ))
         Thread.sleep(forTimeInterval: 0.1)
         #expect(socketRequests.snapshot().isEmpty)
         #expect(!FileManager.default.fileExists(atPath: fallbackArgs.path))
@@ -532,6 +544,7 @@ struct CLIHookNoResponseTests {
                     "CMUX_SURFACE_ID": "surface-\(index)",
                     "CMUX_SOCKET_PATH": socketPath,
                     "CMUX_SOCKET_CAPABILITY": capability,
+                    "CMUX_AGENT_HOOK_OUTBOX_CAPABILITY": capability,
                     "CMUX_AGENT_HOOK_ENQUEUE_V1": "1",
                     "CMUX_AGENT_HOOK_OUTBOX_DIR": outboxDirectory.path,
                     "CMUX_BUNDLED_CLI_PATH": "/usr/bin/false",
@@ -977,29 +990,17 @@ struct CLIHookNoResponseTests {
             let descriptor = fields[0].withCString { cmuxTestShmOpen($0, O_RDONLY, 0) }
             guard descriptor >= 0 else { throw posixError("open hook outbox shared memory") }
             defer { Darwin.close(descriptor) }
-
-            var message = Data(count: expectedCount)
-            let readSucceeded = message.withUnsafeMutableBytes { rawBuffer -> Bool in
-                guard let baseAddress = rawBuffer.baseAddress else { return expectedCount == 0 }
-                var offset = 0
-                while offset < expectedCount {
-                    let count = Darwin.pread(
-                        descriptor,
-                        baseAddress.advanced(by: offset),
-                        expectedCount - offset,
-                        off_t(offset)
-                    )
-                    if count > 0 {
-                        offset += count
-                    } else if count < 0, errno == EINTR {
-                        continue
-                    } else {
-                        return false
-                    }
-                }
-                return true
+            guard expectedCount > 0 else {
+                throw NSError(domain: "cmux.tests", code: 91, userInfo: [
+                    NSLocalizedDescriptionKey: "Empty hook outbox shared memory",
+                ])
             }
-            guard readSucceeded else { throw posixError("read hook outbox shared memory") }
+            let mapping = mmap(nil, expectedCount, PROT_READ, MAP_SHARED, descriptor, 0)
+            guard mapping != MAP_FAILED else {
+                throw posixError("map hook outbox shared memory")
+            }
+            let message = Data(bytes: mapping!, count: expectedCount)
+            munmap(mapping, expectedCount)
             return OutboxRecord(marker: marker, message: message)
         }
     }
