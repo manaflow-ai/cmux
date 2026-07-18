@@ -1184,6 +1184,7 @@
   });
 
   const refreshOverlay = () => {
+    if (overlayFrame) cancelAnimationFrame(overlayFrame);
     overlayFrame = 0;
     if (!enabled || captureHidden) {
       hideOverlay();
@@ -2043,7 +2044,10 @@
         overlay.strokePath.setAttribute("points", "");
       }
       revision += 1;
-      scheduleOverlayRefresh();
+      // Native capture completion is the authoritative phase transition.
+      // Reconcile it directly so a frame request paused during WebKit's
+      // snapshot cannot strand the card behind an outstanding frame token.
+      refreshOverlay();
       return emit();
     },
 
