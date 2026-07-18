@@ -27,6 +27,8 @@ struct AgentHookSessionStoreLoadResult {
 struct AgentHookSessionRegistrySnapshots {
     var snapshots: [String: CmuxAgentSessionRegistry.Snapshot]
     var warnings: [AgentHookSessionStoreLoadWarning]
+    var totalRecordCounts: [String: Int] = [:]
+    var boundedValidationFailures: Set<String> = []
 }
 
 struct AgentHookSessionStoreLoadFailure: Error {
@@ -188,6 +190,185 @@ struct AgentHookSessionRegistryBridge {
         }
     }
 
+    /// Loads only the newest list candidates per provider while preserving the
+    /// same legacy refresh, storage admission, and registry fallback behavior as
+    /// the complete inspection path.
+    static func boundedRecentSnapshotsForList(
+        specifications: [(provider: String, suffix: String)],
+        stateDirectory: String,
+        environment: [String: String],
+        fileManager: FileManager,
+        maximumRecordsPerProvider: Int,
+        maximumLegacyGraphNodes: Int = AgentHookSessionRegistryBridge.maximumLegacyGraphNodes
+    ) throws -> AgentHookSessionRegistrySnapshots {
+        let registryURL: URL
+        if let explicit = environment["CMUX_AGENT_SESSION_REGISTRY_PATH"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !explicit.isEmpty {
+            registryURL = URL(fileURLWithPath: NSString(string: explicit).expandingTildeInPath)
+        } else {
+            registryURL = URL(fileURLWithPath: stateDirectory, isDirectory: true)
+                .appendingPathComponent(CmuxAgentSessionRegistry.filename, isDirectory: false)
+        }
+        let registry = CmuxAgentSessionRegistry(url: registryURL)
+        let sources = specifications.map { specification in
+            CmuxAgentSessionRegistry.LegacySource(
+                provider: specification.provider,
+                url: URL(fileURLWithPath: stateDirectory, isDirectory: true)
+                    .appendingPathComponent("\(specification.suffix)-hook-sessions.json", isDirectory: false)
+            )
+        }.sorted { $0.provider < $1.provider }
+        try preflightInspectionSources(
+            sources,
+            registry: registry,
+            registryPath: registryURL.path,
+            fileManager: fileManager,
+            maximumLegacyGraphNodes: max(0, maximumLegacyGraphNodes)
+        )
+        let maximumRecordsPerProvider = max(0, maximumRecordsPerProvider)
+        let decoder = JSONDecoder()
+        func validateRecord(
+            provider: String,
+            stored: CmuxAgentSessionRegistry.Record
+        ) throws {
+            do {
+                let record = try decoder.decode(ClaudeHookSessionRecord.self, from: stored.json)
+                guard record.sessionId == stored.sessionID else {
+                    throw ProjectionError.recordIdentityMismatch
+                }
+            } catch {
+                throw CmuxAgentSessionRegistry.HookListProjectionValidationError(
+                    provider: provider
+                )
+            }
+        }
+        func validateActiveSlot(
+            provider: String,
+            stored: CmuxAgentSessionRegistry.ActiveSlot
+        ) throws {
+            do {
+                let slot = try decoder.decode(
+                    ClaudeHookActiveSessionRecord.self,
+                    from: stored.json
+                )
+                guard slot.sessionId == stored.sessionID else {
+                    throw ProjectionError.slotIdentityMismatch
+                }
+            } catch {
+                throw CmuxAgentSessionRegistry.HookListProjectionValidationError(
+                    provider: provider
+                )
+            }
+        }
+        do {
+            let bounded = try registry.boundedRecentSnapshotsImportingLegacy(
+                sources: sources,
+                maximumRecordsPerProvider: maximumRecordsPerProvider,
+                fileManager: fileManager,
+                validateRecord: validateRecord,
+                validateActiveSlot: validateActiveSlot
+            )
+            return AgentHookSessionRegistrySnapshots(
+                snapshots: bounded.mapValues(\.snapshot),
+                warnings: [],
+                totalRecordCounts: bounded.mapValues(\.totalRecordCount)
+            )
+        } catch {
+            var recovered: [String: CmuxAgentSessionRegistry.Snapshot] = [:]
+            var totalRecordCounts: [String: Int] = [:]
+            var validationFailures: Set<String> = []
+            var warnings: [AgentHookSessionStoreLoadWarning] = []
+            for source in sources {
+                do {
+                    let bounded = try registry.boundedRecentSnapshotsImportingLegacy(
+                        sources: [source],
+                        maximumRecordsPerProvider: maximumRecordsPerProvider,
+                        fileManager: fileManager,
+                        validateRecord: validateRecord,
+                        validateActiveSlot: validateActiveSlot
+                    )[source.provider] ?? CmuxAgentSessionRegistry.BoundedRecentSnapshot(
+                        snapshot: .init(records: [], activeSlots: []),
+                        totalRecordCount: 0
+                    )
+                    recovered[source.provider] = bounded.snapshot
+                    totalRecordCounts[source.provider] = bounded.totalRecordCount
+                } catch let failure as CmuxAgentSessionRegistry.HookListProjectionValidationError
+                    where failure.provider == source.provider {
+                    recovered[source.provider] = .init(records: [], activeSlots: [])
+                    totalRecordCounts[source.provider] = 0
+                    validationFailures.insert(source.provider)
+                } catch {
+                    do {
+                        let fallback = try registry.hookBoundedRecentSnapshot(
+                            provider: source.provider,
+                            maximumRecords: maximumRecordsPerProvider,
+                            validateRecord: { try validateRecord(
+                                provider: source.provider,
+                                stored: $0
+                            ) },
+                            validateActiveSlot: { try validateActiveSlot(
+                                provider: source.provider,
+                                stored: $0
+                            ) }
+                        )
+                        guard fallback.totalRecordCount > 0 else {
+                            throw AgentHookSessionStoreLoadFailure(
+                                provider: source.provider,
+                                path: source.url.path,
+                                code: .legacySourceImportFailed
+                            )
+                        }
+                        let bridge = AgentHookSessionRegistryBridge(
+                            provider: source.provider,
+                            statePath: source.url.path,
+                            environment: environment,
+                            fileManager: fileManager
+                        )
+                        guard let validation = try? bridge.loadBoundedForInspection(
+                            snapshot: fallback.snapshot
+                        ), validation.warning == nil,
+                           !validation.store.sessions.isEmpty else {
+                            throw AgentHookSessionStoreLoadFailure(
+                                provider: source.provider,
+                                path: source.url.path,
+                                code: .legacySourceImportFailed
+                            )
+                        }
+                        recovered[source.provider] = fallback.snapshot
+                        totalRecordCounts[source.provider] = fallback.totalRecordCount
+                        warnings.append(AgentHookSessionStoreLoadWarning(
+                            provider: source.provider,
+                            path: source.url.path,
+                            code: .legacySourceImportFailed,
+                            fallback: .registry
+                        ))
+                    } catch let failure as CmuxAgentSessionRegistry.HookListProjectionValidationError
+                        where failure.provider == source.provider {
+                        throw AgentHookSessionStoreLoadFailure(
+                            provider: source.provider,
+                            path: source.url.path,
+                            code: .legacySourceImportFailed
+                        )
+                    } catch let failure as AgentHookSessionStoreLoadFailure {
+                        throw failure
+                    } catch {
+                        throw AgentHookSessionStoreLoadFailure(
+                            provider: source.provider,
+                            path: source.url.path,
+                            code: .legacySourceImportFailed
+                        )
+                    }
+                }
+            }
+            return AgentHookSessionRegistrySnapshots(
+                snapshots: recovered,
+                warnings: warnings,
+                totalRecordCounts: totalRecordCounts,
+                boundedValidationFailures: validationFailures
+            )
+        }
+    }
+
     func load(decoder: JSONDecoder = JSONDecoder()) -> ClaudeHookSessionStoreFile {
         if legacyFileSizeExceedsLimit() {
             if let snapshot = try? registry.snapshot(provider: provider),
@@ -305,6 +486,43 @@ struct AgentHookSessionRegistryBridge {
                 store: store,
                 warning: nil
             )
+        } catch {
+            guard let legacy = readLegacyIfPresent(
+                decoder: decoder,
+                requireInspectionProjectionIdentity: true
+            ) else {
+                throw AgentHookSessionStoreLoadFailure(
+                    provider: provider,
+                    path: registryURL.path,
+                    code: .authoritativeSnapshotDecodeFailed
+                )
+            }
+            return AgentHookSessionStoreLoadResult(
+                store: legacy,
+                warning: AgentHookSessionStoreLoadWarning(
+                    provider: provider,
+                    path: registryURL.path,
+                    code: .authoritativeSnapshotDecodeFailed,
+                    fallback: .legacy
+                )
+            )
+        }
+    }
+
+    func loadBoundedForInspection(
+        snapshot: CmuxAgentSessionRegistry.Snapshot,
+        authoritativeValidationFailed: Bool = false,
+        decoder: JSONDecoder = JSONDecoder()
+    ) throws -> AgentHookSessionStoreLoadResult {
+        do {
+            guard !authoritativeValidationFailed else {
+                throw ProjectionError.recordIdentityMismatch
+            }
+            let store = try decode(snapshot, decoder: decoder)
+            guard inspectionProjectionIdentityIsConsistent(store) else {
+                throw ProjectionError.slotIdentityMismatch
+            }
+            return AgentHookSessionStoreLoadResult(store: store, warning: nil)
         } catch {
             guard let legacy = readLegacyIfPresent(
                 decoder: decoder,

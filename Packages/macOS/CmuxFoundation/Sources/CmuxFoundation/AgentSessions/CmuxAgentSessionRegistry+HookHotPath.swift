@@ -68,6 +68,17 @@ extension CmuxAgentSessionRegistry {
         }
     }
 
+    /// An authoritative row or active slot cannot participate in an exact list
+    /// projection. Callers may fall back to the compatibility source without
+    /// confusing corrupt canonical data with a transient SQLite failure.
+    public struct HookListProjectionValidationError: Error, Equatable, Sendable {
+        public var provider: String
+
+        public init(provider: String) {
+            self.provider = provider
+        }
+    }
+
     /// Allocation-free size metadata used before inspection commands
     /// materialize a provider snapshot.
     public struct HookStorageMetrics: Equatable, Sendable {
@@ -280,6 +291,315 @@ extension CmuxAgentSessionRegistry {
                 return records
             }
         }
+    }
+
+    /// Reads a bounded list slice without consulting a compatibility source.
+    /// This is the fallback used when a changed legacy projection cannot import
+    /// but the canonical registry remains readable.
+    public func hookBoundedRecentSnapshot(
+        provider: String,
+        maximumRecords: Int,
+        validateRecord: ((Record) throws -> Void)? = nil,
+        validateActiveSlot: ((ActiveSlot) throws -> Void)? = nil
+    ) throws -> BoundedRecentSnapshot {
+        let maximumRecords = max(0, maximumRecords)
+        return try withDatabase { database in
+            try ensureHookHotPathSchema(database)
+            return try readTransaction(database) {
+                if let validateRecord {
+                    try validateListRecordPayloads(
+                        database: database,
+                        provider: provider,
+                        validate: validateRecord
+                    )
+                }
+                let recent = try readBoundedListRecords(
+                    database: database,
+                    provider: provider,
+                    limit: maximumRecords
+                )
+                return BoundedRecentSnapshot(
+                    snapshot: Snapshot(
+                        records: recent,
+                        activeSlots: try readListSlots(
+                            database: database,
+                            provider: provider,
+                            selectedSessionIDs: Set(recent.map(\.sessionID)),
+                            validate: validateActiveSlot
+                        )
+                    ),
+                    totalRecordCount: try recordCount(database: database, provider: provider)
+                )
+            }
+        }
+    }
+
+    func recordCount(database: OpaquePointer, provider: String) throws -> Int {
+        let statement = try prepare(
+            database,
+            "SELECT COUNT(*) FROM agent_sessions WHERE provider = ?1"
+        )
+        defer { sqlite3_finalize(statement) }
+        try bind(provider, to: 1, in: statement)
+        guard try stepRow(statement, database: database, operation: "count list sessions") else {
+            throw corruptRowError(operation: "count list sessions")
+        }
+        return Int(sqlite3_column_int64(statement, 0))
+    }
+
+    /// Orders by the same timestamp as `AgentSessionRunCanonicalizer.projectedRun`.
+    /// The row projection timestamp can be newer than its active run, so using
+    /// `agent_sessions.updated_at` alone can select the wrong global top K.
+    func readBoundedListRecords(
+        database: OpaquePointer,
+        provider: String,
+        limit: Int
+    ) throws -> [Record] {
+        try validateBoundedListRecords(database: database, provider: provider)
+        guard limit > 0 else { return [] }
+        let statement = try prepare(
+            database,
+            """
+            SELECT session.session_id, session.updated_at,
+                   session.writer_generation, session.record_json,
+                   CASE
+                     WHEN json_type(session.record_json, '$.runs') = 'array'
+                          AND json_array_length(session.record_json, '$.runs') > 0
+                     THEN COALESCE(
+                       (
+                         SELECT MAX(CAST(json_extract(run.value, '$.updatedAt') AS REAL))
+                         FROM json_each(session.record_json, '$.runs') AS run
+                         WHERE json_extract(run.value, '$.runId') =
+                               json_extract(session.record_json, '$.activeRunId')
+                       ),
+                       (
+                         SELECT MAX(CAST(json_extract(run.value, '$.updatedAt') AS REAL))
+                         FROM json_each(session.record_json, '$.runs') AS run
+                       ),
+                       CAST(json_extract(session.record_json, '$.updatedAt') AS REAL)
+                     )
+                     ELSE CAST(json_extract(session.record_json, '$.updatedAt') AS REAL)
+                   END AS list_updated_at
+            FROM agent_sessions AS session
+            WHERE session.provider = ?1
+            ORDER BY list_updated_at DESC, session.session_id ASC
+            LIMIT ?2
+            """
+        )
+        defer { sqlite3_finalize(statement) }
+        try bind(provider, to: 1, in: statement)
+        sqlite3_bind_int64(statement, 2, sqlite3_int64(limit))
+        var result: [Record] = []
+        result.reserveCapacity(min(limit, 1_024))
+        while try stepRow(statement, database: database, operation: "read bounded list sessions") {
+            guard let sessionID = text(statement, column: 0),
+                  let json = data(statement, column: 3) else {
+                throw HookListProjectionValidationError(provider: provider)
+            }
+            result.append(Record(
+                provider: provider,
+                sessionID: sessionID,
+                updatedAt: sqlite3_column_double(statement, 1),
+                writerGeneration: Int(sqlite3_column_int64(statement, 2)),
+                json: json
+            ))
+        }
+        return result
+    }
+
+    /// Validates fields that affect list ordering for every row without copying
+    /// omitted JSON blobs. Candidate rows still receive the complete Codable
+    /// validation in the CLI projection layer.
+    func validateBoundedListRecords(
+        database: OpaquePointer,
+        provider: String
+    ) throws {
+        let statement = try prepare(
+            database,
+            """
+            SELECT session_id
+            FROM agent_sessions
+            WHERE provider = ?1
+              AND CASE
+                    WHEN json_valid(record_json) = 0 THEN 1
+                    WHEN json_type(record_json) IS NOT 'object' THEN 1
+                    WHEN json_type(record_json, '$.sessionId') IS NOT 'text' THEN 1
+                    WHEN json_extract(record_json, '$.sessionId') != session_id THEN 1
+                    WHEN json_type(record_json, '$.workspaceId') IS NOT 'text' THEN 1
+                    WHEN json_type(record_json, '$.surfaceId') IS NOT 'text' THEN 1
+                    WHEN json_type(record_json, '$.startedAt') IS NOT 'integer'
+                         AND json_type(record_json, '$.startedAt') IS NOT 'real' THEN 1
+                    WHEN json_type(record_json, '$.updatedAt') IS NOT 'integer'
+                         AND json_type(record_json, '$.updatedAt') IS NOT 'real' THEN 1
+                    WHEN json_type(record_json, '$.pid') IS NOT NULL
+                         AND json_type(record_json, '$.pid')
+                             NOT IN ('null', 'integer') THEN 1
+                    WHEN json_type(record_json, '$.runId') IS NOT NULL
+                         AND json_type(record_json, '$.runId')
+                             NOT IN ('null', 'text') THEN 1
+                    WHEN json_type(record_json, '$.activeRunId') IS NOT NULL
+                         AND json_type(record_json, '$.activeRunId')
+                             NOT IN ('null', 'text') THEN 1
+                    WHEN json_type(record_json, '$.runs') IS NOT NULL
+                         AND json_type(record_json, '$.runs')
+                             NOT IN ('null', 'array') THEN 1
+                    WHEN json_type(record_json, '$.runs') = 'array'
+                         AND EXISTS (
+                           SELECT 1
+                           FROM json_each(record_json, '$.runs') AS run
+                           WHERE CASE
+                             WHEN run.type != 'object' THEN 1
+                             WHEN json_type(run.value, '$.runId') IS NOT 'text' THEN 1
+                             WHEN json_type(run.value, '$.startedAt') IS NOT 'integer'
+                                  AND json_type(run.value, '$.startedAt') IS NOT 'real' THEN 1
+                             WHEN json_type(run.value, '$.updatedAt') IS NOT 'integer'
+                                  AND json_type(run.value, '$.updatedAt') IS NOT 'real' THEN 1
+                             WHEN json_type(run.value, '$.restoreAuthority') IS NOT 'true'
+                                  AND json_type(run.value, '$.restoreAuthority') IS NOT 'false'
+                                  THEN 1
+                             WHEN json_type(run.value, '$.pid') IS NOT NULL
+                                  AND json_type(run.value, '$.pid')
+                                      NOT IN ('null', 'integer') THEN 1
+                             WHEN json_type(run.value, '$.processStartedAt') IS NOT NULL
+                                  AND json_type(run.value, '$.processStartedAt')
+                                      NOT IN ('null', 'integer', 'real') THEN 1
+                             ELSE 0
+                           END = 1
+                         ) THEN 1
+                    ELSE 0
+                  END = 1
+            LIMIT 1
+            """
+        )
+        defer { sqlite3_finalize(statement) }
+        try bind(provider, to: 1, in: statement)
+        let hasInvalidRow = try stepRow(
+            statement,
+            database: database,
+            operation: "validate bounded list sessions"
+        )
+        guard !hasInvalidRow else {
+            throw HookListProjectionValidationError(provider: provider)
+        }
+    }
+
+    func validateListRecordPayloads(
+        database: OpaquePointer,
+        provider: String,
+        validate: (Record) throws -> Void
+    ) throws {
+        let statement = try prepare(
+            database,
+            """
+            SELECT session_id, updated_at, writer_generation, record_json
+            FROM agent_sessions
+            WHERE provider = ?1
+            ORDER BY session_id ASC
+            """
+        )
+        defer { sqlite3_finalize(statement) }
+        try bind(provider, to: 1, in: statement)
+        while try stepRow(
+            statement,
+            database: database,
+            operation: "validate list session payloads"
+        ) {
+            guard let sessionID = text(statement, column: 0),
+                  let json = data(statement, column: 3) else {
+                throw HookListProjectionValidationError(provider: provider)
+            }
+            let record = Record(
+                provider: provider,
+                sessionID: sessionID,
+                updatedAt: sqlite3_column_double(statement, 1),
+                writerGeneration: Int(sqlite3_column_int64(statement, 2)),
+                json: json
+            )
+            try autoreleasepool {
+                try validate(record)
+            }
+        }
+    }
+
+    /// Validates every provider slot but copies JSON only when the slot owner is
+    /// one of the retained candidates. A slot can name an older owner, so the
+    /// validation joins against the canonical owner row before filtering it out.
+    func readListSlots(
+        database: OpaquePointer,
+        provider: String,
+        selectedSessionIDs: Set<String>,
+        validate: ((ActiveSlot) throws -> Void)? = nil
+    ) throws -> [ActiveSlot] {
+        let statement = try prepare(
+            database,
+            """
+            SELECT slot.scope, slot.scope_id, slot.session_id, slot.updated_at,
+                   slot.writer_generation, slot.record_json,
+                   json_valid(slot.record_json),
+                   CASE WHEN json_valid(slot.record_json)
+                        THEN json_extract(slot.record_json, '$.sessionId') END,
+                   owner.session_id, owner.workspace_id, owner.surface_id,
+                   CASE WHEN json_valid(owner.record_json)
+                        THEN json_extract(owner.record_json, '$.workspaceId') END,
+                   CASE WHEN json_valid(owner.record_json)
+                        THEN json_extract(owner.record_json, '$.surfaceId') END,
+                   CASE WHEN json_valid(slot.record_json)
+                        THEN json_type(slot.record_json, '$.updatedAt') END
+            FROM agent_active_slots AS slot
+            LEFT JOIN agent_sessions AS owner
+              ON owner.provider = slot.provider
+             AND owner.session_id = slot.session_id
+            WHERE slot.provider = ?1
+            ORDER BY slot.scope ASC, slot.scope_id ASC
+            """
+        )
+        defer { sqlite3_finalize(statement) }
+        try bind(provider, to: 1, in: statement)
+        var result: [ActiveSlot] = []
+        while try stepRow(statement, database: database, operation: "read bounded list slots") {
+            guard let rawScope = text(statement, column: 0),
+                  let scope = Scope(rawValue: rawScope),
+                  let scopeID = text(statement, column: 1),
+                  let sessionID = text(statement, column: 2),
+                  sqlite3_column_int64(statement, 6) == 1,
+                  text(statement, column: 7) == sessionID,
+                  text(statement, column: 8) == sessionID,
+                  let slotUpdatedType = text(statement, column: 13),
+                  ["integer", "real"].contains(slotUpdatedType) else {
+                throw HookListProjectionValidationError(provider: provider)
+            }
+            let ownerMatchesScope = switch scope {
+            case .workspace:
+                text(statement, column: 9) == scopeID
+                    && text(statement, column: 11) == scopeID
+            case .surface:
+                text(statement, column: 10) == scopeID
+                    && text(statement, column: 12) == scopeID
+            }
+            guard ownerMatchesScope else {
+                throw HookListProjectionValidationError(provider: provider)
+            }
+            guard let json = data(statement, column: 5) else {
+                throw HookListProjectionValidationError(provider: provider)
+            }
+            let slot = ActiveSlot(
+                provider: provider,
+                scope: scope,
+                scopeID: scopeID,
+                sessionID: sessionID,
+                updatedAt: sqlite3_column_double(statement, 3),
+                writerGeneration: Int(sqlite3_column_int64(statement, 4)),
+                json: json
+            )
+            if let validate {
+                try autoreleasepool {
+                    try validate(slot)
+                }
+            }
+            guard selectedSessionIDs.contains(sessionID) else { continue }
+            result.append(slot)
+        }
+        return result
     }
 
     private func hookRecordsByActivity(

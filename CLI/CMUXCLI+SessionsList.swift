@@ -186,6 +186,19 @@ extension CMUXCLI {
                 return observation.runtimeID == runtimeID
             }
         }
+        // The history-only, unfiltered top-K query has no predicate that needs a
+        // decoded record. Read K candidates per provider and merge them globally;
+        // any provider row ranked below its own K cannot enter the global K.
+        let usesBoundedHistoryFastPath = includeAll
+            && limit != Int.max
+            && sessionFilter == nil
+            && workspaceFilter == nil
+            && surfaceFilter == nil
+            && cwdFilter == nil
+            && stateFilter == nil
+            && activityFilter == nil
+            && workKindFilter == nil
+            && matchingObservations.isEmpty
         let observationJoiner = AgentTerminalObservationJoiner()
         let observationsByProcessKey = Dictionary(
             grouping: matchingObservations,
@@ -241,12 +254,26 @@ extension CMUXCLI {
         timestampFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let snapshotLoad: AgentHookSessionRegistrySnapshots
         do {
-            snapshotLoad = try AgentHookSessionRegistryBridge.snapshots(
-                specifications: selectedSpecs.map { (provider: $0.name, suffix: $0.sessionStoreSuffix) },
-                stateDirectory: stateDir,
-                environment: processEnv,
-                fileManager: fileManager
-            )
+            if usesBoundedHistoryFastPath {
+                snapshotLoad = try AgentHookSessionRegistryBridge.boundedRecentSnapshotsForList(
+                    specifications: selectedSpecs.map {
+                        (provider: $0.name, suffix: $0.sessionStoreSuffix)
+                    },
+                    stateDirectory: stateDir,
+                    environment: processEnv,
+                    fileManager: fileManager,
+                    maximumRecordsPerProvider: limit
+                )
+            } else {
+                snapshotLoad = try AgentHookSessionRegistryBridge.snapshots(
+                    specifications: selectedSpecs.map {
+                        (provider: $0.name, suffix: $0.sessionStoreSuffix)
+                    },
+                    stateDirectory: stateDir,
+                    environment: processEnv,
+                    fileManager: fileManager
+                )
+            }
         } catch let failure as AgentHookSessionStoreLoadFailure {
             throw agentsStoreLoadCLIError(failure, context: listContext, jsonOutput: localJSONOutput)
         }
@@ -265,14 +292,25 @@ extension CMUXCLI {
                 fileManager: fileManager
             )
             let store: ClaudeHookSessionStoreFile
+            var boundedLoadUsedLegacyFallback = false
             if let snapshot = snapshotLoad.snapshots[spec.name] {
                 let load: AgentHookSessionStoreLoadResult
                 do {
-                    load = try bridge.loadForInspection(snapshot: snapshot)
+                    if usesBoundedHistoryFastPath {
+                        load = try bridge.loadBoundedForInspection(
+                            snapshot: snapshot,
+                            authoritativeValidationFailed: snapshotLoad
+                                .boundedValidationFailures.contains(spec.name)
+                        )
+                    } else {
+                        load = try bridge.loadForInspection(snapshot: snapshot)
+                    }
                 } catch let failure as AgentHookSessionStoreLoadFailure {
                     throw agentsStoreLoadCLIError(failure, context: listContext, jsonOutput: localJSONOutput)
                 }
                 store = load.store
+                boundedLoadUsedLegacyFallback = usesBoundedHistoryFastPath
+                    && load.warning?.fallback == .legacy
                 if let warning = load.warning { storeWarnings.append(warning) }
             } else {
                 store = ClaudeHookSessionStore(
@@ -281,19 +319,17 @@ extension CMUXCLI {
                     agentName: spec.name
                 ).snapshot()
             }
+            let totalProviderSessionCount = boundedLoadUsedLegacyFallback
+                ? store.sessions.count
+                : snapshotLoad.totalRecordCounts[spec.name] ?? store.sessions.count
             var storePayload: [String: Any] = [
                 "agent": spec.name,
                 "path": storePath,
-                "exists": fileManager.fileExists(atPath: storePath) || !store.sessions.isEmpty
+                "exists": fileManager.fileExists(atPath: storePath) || totalProviderSessionCount > 0
             ]
 
-            if store.sessions.isEmpty {
-                storePayload["session_count"] = 0
-                stores.append(storePayload)
-            } else {
-                storePayload["session_count"] = store.sessions.count
-                stores.append(storePayload)
-            }
+            storePayload["session_count"] = totalProviderSessionCount
+            stores.append(storePayload)
 
             let sessionProcessCohort = sessionFilter.map { sessionFilter in
                 var matcher = AgentSessionProcessCohortMatcher()
@@ -773,6 +809,11 @@ extension CMUXCLI {
                             timestampFormatter: timestampFormatter
                         )
                     }
+                )
+            }
+            if usesBoundedHistoryFastPath {
+                entries.addUnmaterializedMatches(
+                    max(0, totalProviderSessionCount - store.sessions.count)
                 )
             }
         }

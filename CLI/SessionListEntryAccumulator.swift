@@ -85,6 +85,14 @@ struct SessionListEntryAccumulator {
 
     var retainedCount: Int { retained.count }
 
+    /// Accounts for matches proven by the registry count query whose payloads
+    /// were intentionally not decoded because they cannot enter this top K.
+    mutating func addUnmaterializedMatches(_ count: Int) {
+        precondition(count >= 0)
+        let sum = totalCount.addingReportingOverflow(count)
+        totalCount = sum.overflow ? Int.max : sum.partialValue
+    }
+
     var sortedPayloads: [[String: Any]] {
         var payloads: [[String: Any]] = []
         payloads.reserveCapacity(retained.count)

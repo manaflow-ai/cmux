@@ -114,6 +114,19 @@ public struct CmuxAgentSessionRegistry: Sendable {
         }
     }
 
+    /// A recent provider slice plus the exact number of canonical session rows.
+    /// Callers can merge one bounded slice per provider without retaining every
+    /// encoded record merely to report a complete match count.
+    public struct BoundedRecentSnapshot: Sendable {
+        public var snapshot: Snapshot
+        public var totalRecordCount: Int
+
+        public init(snapshot: Snapshot, totalRecordCount: Int) {
+            self.snapshot = snapshot
+            self.totalRecordCount = totalRecordCount
+        }
+    }
+
     public enum ActiveSlotRemoval: Sendable {
         case all
         case updatedThrough(TimeInterval)
@@ -477,6 +490,81 @@ public struct CmuxAgentSessionRegistry: Sendable {
                     (source.provider, Snapshot(
                         records: try readRecords(database: database, provider: source.provider),
                         activeSlots: try readSlots(database: database, provider: source.provider)
+                    ))
+                })
+            }
+        }
+    }
+
+    /// Refreshes changed compatibility sources, then reads only each provider's
+    /// newest list candidates and the active slots that annotate those rows.
+    /// All providers share one SQLite connection and one read transaction.
+    public func boundedRecentSnapshotsImportingLegacy(
+        sources: [LegacySource],
+        maximumRecordsPerProvider: Int,
+        fileManager: FileManager = .default,
+        validateRecord: ((String, Record) throws -> Void)? = nil,
+        validateActiveSlot: ((String, ActiveSlot) throws -> Void)? = nil
+    ) throws -> [String: BoundedRecentSnapshot] {
+        let uniqueSources = Dictionary(
+            sources.map { ($0.provider, $0) },
+            uniquingKeysWith: { _, latest in latest }
+        ).values.sorted { $0.provider < $1.provider }
+        let maximumRecordsPerProvider = max(0, maximumRecordsPerProvider)
+        return try withDatabase { database in
+            var changed: [(source: LegacySource, stamp: LegacyStamp, payload: LegacyPayload)] = []
+            for source in uniqueSources {
+                guard let stamp = LegacyStamp.read(path: source.url.path, fileManager: fileManager),
+                      try !legacySourceIsCurrent(
+                        database: database,
+                        provider: source.provider,
+                        stamp: stamp
+                      ) else { continue }
+                let data = try readHookLegacySourceData(at: source.url)
+                changed.append((source, stamp, try legacyPayload(provider: source.provider, json: data)))
+            }
+            if !changed.isEmpty {
+                try transaction(database) {
+                    for item in changed {
+                        try replaceLegacy(
+                            database: database,
+                            provider: item.source.provider,
+                            stamp: item.stamp,
+                            payload: item.payload
+                        )
+                    }
+                }
+            }
+            return try readTransaction(database) {
+                try Dictionary(uniqueKeysWithValues: uniqueSources.map { source in
+                    if let validateRecord {
+                        try validateListRecordPayloads(
+                            database: database,
+                            provider: source.provider,
+                            validate: { try validateRecord(source.provider, $0) }
+                        )
+                    }
+                    let recent = try readBoundedListRecords(
+                        database: database,
+                        provider: source.provider,
+                        limit: maximumRecordsPerProvider
+                    )
+                    return (source.provider, BoundedRecentSnapshot(
+                        snapshot: Snapshot(
+                            records: recent,
+                            activeSlots: try readListSlots(
+                                database: database,
+                                provider: source.provider,
+                                selectedSessionIDs: Set(recent.map(\.sessionID)),
+                                validate: validateActiveSlot.map { validate in
+                                    { try validate(source.provider, $0) }
+                                }
+                            )
+                        ),
+                        totalRecordCount: try recordCount(
+                            database: database,
+                            provider: source.provider
+                        )
                     ))
                 })
             }

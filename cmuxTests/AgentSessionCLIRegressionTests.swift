@@ -472,7 +472,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         let environment = isolatedAgentTreeEnvironment(home: root)
         let commands: [(arguments: [String], rowsKey: String)] = [
             ([
-                "agents", "list", "--agent", "codex", "--all", "--json",
+                "agents", "list", "--agent", "codex", "--all", "--limit", "100", "--json",
                 "--state-dir", root.path, "--codex-home", root.path,
             ], "sessions"),
             ([
@@ -509,7 +509,7 @@ extension CMUXCLIErrorOutputRegressionTests {
 
         for (index, arguments) in [
             [
-                "agents", "list", "--agent", "codex", "--all",
+                "agents", "list", "--agent", "codex", "--all", "--limit", "100",
                 "--state-dir", root.path, "--codex-home", root.path,
             ],
             [
@@ -549,7 +549,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         ])
         for arguments in [
             [
-                "agents", "list", "--agent", "opencode", "--all", "--json",
+                "agents", "list", "--agent", "opencode", "--all", "--limit", "100", "--json",
                 "--state-dir", root.path,
             ],
             [
@@ -882,6 +882,157 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(failure.provider == "codex")
         #expect(failure.path == root.appendingPathComponent(CmuxAgentSessionRegistry.filename).path)
         #expect(failure.code == .authoritativeSnapshotDecodeFailed)
+    }
+
+    @Test func boundedAuthoritativeDecodeValidatesOmittedNestedRecordPayloads() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-bounded-record-decode-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let provider = "codex"
+        let registry = CmuxAgentSessionRegistry(
+            url: root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        )
+        let malformedID = "omitted-malformed"
+        let newestID = "newest-valid"
+        try registry.apply(provider: provider, records: [
+            .init(
+                provider: provider,
+                sessionID: malformedID,
+                updatedAt: 1,
+                json: try JSONSerialization.data(withJSONObject: [
+                    "sessionId": malformedID,
+                    "workspaceId": "old-workspace",
+                    "surfaceId": "old-surface",
+                    "startedAt": 1.0,
+                    "updatedAt": 1.0,
+                    "cmuxRuntime": ["id": 42],
+                ], options: [.sortedKeys])
+            ),
+            .init(
+                provider: provider,
+                sessionID: newestID,
+                updatedAt: 2,
+                json: try JSONSerialization.data(withJSONObject: [
+                    "sessionId": newestID,
+                    "workspaceId": "new-workspace",
+                    "surfaceId": "new-surface",
+                    "startedAt": 2.0,
+                    "updatedAt": 2.0,
+                ], options: [.sortedKeys])
+            ),
+        ])
+        let bounded = try registry.hookBoundedRecentSnapshot(
+            provider: provider,
+            maximumRecords: 1
+        )
+        #expect(bounded.snapshot.records.map(\.sessionID) == [newestID])
+        let bridge = AgentHookSessionRegistryBridge(
+            provider: provider,
+            statePath: root.appendingPathComponent("codex-hook-sessions.json").path,
+            environment: ["CMUX_AGENT_HOOK_STATE_DIR": root.path],
+            fileManager: .default
+        )
+        let snapshots = try AgentHookSessionRegistryBridge.boundedRecentSnapshotsForList(
+            specifications: [(provider: provider, suffix: provider)],
+            stateDirectory: root.path,
+            environment: ["CMUX_AGENT_HOOK_STATE_DIR": root.path],
+            fileManager: .default,
+            maximumRecordsPerProvider: 1
+        )
+        #expect(snapshots.boundedValidationFailures == Set([provider]))
+
+        var loadFailure: AgentHookSessionStoreLoadFailure?
+        do {
+            _ = try bridge.loadBoundedForInspection(
+                snapshot: try #require(snapshots.snapshots[provider]),
+                authoritativeValidationFailed: true
+            )
+        } catch let failure as AgentHookSessionStoreLoadFailure {
+            loadFailure = failure
+        }
+
+        #expect(try #require(loadFailure).code == .authoritativeSnapshotDecodeFailed)
+    }
+
+    @Test func boundedAuthoritativeDecodeValidatesOmittedActiveSlotPayloads() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-bounded-slot-decode-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let provider = "opencode"
+        let registry = CmuxAgentSessionRegistry(
+            url: root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        )
+        let olderID = "omitted-slot-owner"
+        let newestID = "newest-valid"
+        let records = try [
+            (olderID, "old-workspace", "old-surface", 1.0),
+            (newestID, "new-workspace", "new-surface", 2.0),
+        ].map { item in
+            let (sessionID, workspaceID, surfaceID, timestamp) = item
+            return CmuxAgentSessionRegistry.Record(
+                provider: provider,
+                sessionID: sessionID,
+                updatedAt: timestamp,
+                json: try JSONSerialization.data(withJSONObject: [
+                    "sessionId": sessionID,
+                    "workspaceId": workspaceID,
+                    "surfaceId": surfaceID,
+                    "startedAt": timestamp,
+                    "updatedAt": timestamp,
+                ], options: [.sortedKeys])
+            )
+        }
+        let malformedSlot = CmuxAgentSessionRegistry.ActiveSlot(
+            provider: provider,
+            scope: .surface,
+            scopeID: "old-surface",
+            sessionID: olderID,
+            updatedAt: 1,
+            json: try JSONSerialization.data(withJSONObject: [
+                "sessionId": olderID,
+                "updatedAt": 1.0,
+                "allowsNewSessionReplacement": "yes",
+            ], options: [.sortedKeys])
+        )
+        try registry.apply(
+            provider: provider,
+            records: records,
+            activeSlots: [malformedSlot]
+        )
+        let bounded = try registry.hookBoundedRecentSnapshot(
+            provider: provider,
+            maximumRecords: 1
+        )
+        #expect(bounded.snapshot.records.map(\.sessionID) == [newestID])
+        #expect(bounded.snapshot.activeSlots.isEmpty)
+        let bridge = AgentHookSessionRegistryBridge(
+            provider: provider,
+            statePath: root.appendingPathComponent("opencode-hook-sessions.json").path,
+            environment: ["CMUX_AGENT_HOOK_STATE_DIR": root.path],
+            fileManager: .default
+        )
+        let snapshots = try AgentHookSessionRegistryBridge.boundedRecentSnapshotsForList(
+            specifications: [(provider: provider, suffix: provider)],
+            stateDirectory: root.path,
+            environment: ["CMUX_AGENT_HOOK_STATE_DIR": root.path],
+            fileManager: .default,
+            maximumRecordsPerProvider: 1
+        )
+        #expect(snapshots.boundedValidationFailures == Set([provider]))
+
+        var loadFailure: AgentHookSessionStoreLoadFailure?
+        do {
+            _ = try bridge.loadBoundedForInspection(
+                snapshot: try #require(snapshots.snapshots[provider]),
+                authoritativeValidationFailed: true
+            )
+        } catch let failure as AgentHookSessionStoreLoadFailure {
+            loadFailure = failure
+        }
+
+        #expect(try #require(loadFailure).code == .authoritativeSnapshotDecodeFailed)
     }
 
     @Test func kimiHookProviderHasLifecycleRestoreAndHelpParity() throws {
@@ -2013,12 +2164,38 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(sessions.count == 100)
         #expect(sessions.compactMap { $0["session_id"] as? String } ==
             (19_900..<20_000).reversed().map { String(format: "session-%05d", $0) })
+        let stores = try #require(payload["stores"] as? [[String: Any]])
+        let codexStore = try #require(stores.first { $0["agent"] as? String == "codex" })
+        #expect(codexStore["exists"] as? Bool == true)
+        #expect(codexStore["session_count"] as? Int == 20_000)
         let metrics = try String(contentsOf: metricsURL, encoding: .utf8)
         let maximumResidentBytes = metrics.split(separator: "\n").compactMap { line -> Int64? in
             guard line.contains("maximum resident set size") else { return nil }
             return line.split(whereSeparator: \.isWhitespace).first.flatMap { Int64($0) }
         }.first
         #expect(try #require(maximumResidentBytes) < 192 * 1_024 * 1_024)
+
+        try seedAuthoritativeAgentSessions(
+            count: 1,
+            provider: "cursor",
+            registry: registry
+        )
+        let aliasResult = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "agents", "list", "--agent", "cursor-agent", "--all",
+                "--limit", "1", "--json", "--state-dir", root.path,
+            ],
+            environment: environment,
+            timeout: 10
+        )
+        #expect(aliasResult.status == 0, Comment(rawValue: aliasResult.stdout))
+        let aliasPayload = try #require(
+            JSONSerialization.jsonObject(with: Data(aliasResult.stdout.utf8)) as? [String: Any]
+        )
+        let aliasSessions = try #require(aliasPayload["sessions"] as? [[String: Any]])
+        #expect(aliasSessions.count == 1)
+        #expect(aliasSessions.first?["agent"] as? String == "cursor")
 
         try seedAuthoritativeAgentSessions(
             range: 20_000..<20_001,

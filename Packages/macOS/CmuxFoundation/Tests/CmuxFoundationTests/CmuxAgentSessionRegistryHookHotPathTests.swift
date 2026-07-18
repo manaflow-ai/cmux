@@ -292,6 +292,319 @@ struct CmuxAgentSessionRegistryHookHotPathTests {
         )
     }
 
+    @Test("bounded list snapshots return exact per-provider counts and top K")
+    func boundedListSnapshotsAreExactAcrossProviders() throws {
+        let fixture = try makeFixture()
+        try fixture.registry.apply(
+            provider: "codex",
+            records: try (0..<5).map { index in
+                try record(
+                    provider: "codex",
+                    sessionID: "codex-\(index)",
+                    workspaceID: "codex-workspace-\(index)",
+                    surfaceID: "codex-surface-\(index)",
+                    updatedAt: TimeInterval(index)
+                )
+            }
+        )
+        try fixture.registry.apply(
+            provider: "claude",
+            records: try (0..<3).map { index in
+                try record(
+                    provider: "claude",
+                    sessionID: "claude-\(index)",
+                    workspaceID: "claude-workspace-\(index)",
+                    surfaceID: "claude-surface-\(index)",
+                    updatedAt: TimeInterval(index)
+                )
+            }
+        )
+
+        let snapshots = try fixture.registry.boundedRecentSnapshotsImportingLegacy(
+            sources: [
+                .init(provider: "codex", url: fixture.directory.appendingPathComponent("codex.json")),
+                .init(provider: "claude", url: fixture.directory.appendingPathComponent("claude.json")),
+            ],
+            maximumRecordsPerProvider: 2
+        )
+
+        #expect(snapshots["codex"]?.totalRecordCount == 5)
+        #expect(snapshots["codex"]?.snapshot.records.map(\.sessionID) == ["codex-4", "codex-3"])
+        #expect(snapshots["claude"]?.totalRecordCount == 3)
+        #expect(snapshots["claude"]?.snapshot.records.map(\.sessionID) == ["claude-2", "claude-1"])
+    }
+
+    @Test("bounded validation selection and count share one WAL snapshot")
+    func boundedListValidationAndSelectionAreAtomic() throws {
+        let fixture = try makeFixture()
+        let provider = "atomic-bounded-list"
+        try fixture.registry.apply(provider: provider, records: [
+            try record(
+                provider: provider,
+                sessionID: "original-old",
+                workspaceID: "workspace-old",
+                surfaceID: "surface-old",
+                updatedAt: 1
+            ),
+            try record(
+                provider: provider,
+                sessionID: "original-new",
+                workspaceID: "workspace-new",
+                surfaceID: "surface-new",
+                updatedAt: 2
+            ),
+        ])
+        var insertedConcurrentRow = false
+
+        let snapshots = try fixture.registry.boundedRecentSnapshotsImportingLegacy(
+            sources: [.init(
+                provider: provider,
+                url: fixture.directory.appendingPathComponent("atomic.json")
+            )],
+            maximumRecordsPerProvider: 1,
+            validateRecord: { _, _ in
+                guard !insertedConcurrentRow else { return }
+                insertedConcurrentRow = true
+                try fixture.registry.apply(provider: provider, records: [try record(
+                    provider: provider,
+                    sessionID: "concurrent-newest",
+                    workspaceID: "workspace-concurrent",
+                    surfaceID: "surface-concurrent",
+                    updatedAt: 3
+                )])
+            }
+        )
+
+        #expect(insertedConcurrentRow)
+        #expect(snapshots[provider]?.totalRecordCount == 2)
+        #expect(snapshots[provider]?.snapshot.records.map(\.sessionID) == ["original-new"])
+        #expect(try fixture.registry.snapshot(provider: provider).records.count == 3)
+    }
+
+    @Test("bounded list ordering uses the projected active run timestamp")
+    func boundedListOrderingUsesProjectedRun() throws {
+        let fixture = try makeFixture()
+        let provider = "projected-run"
+        let staleActiveRun = try record(
+            provider: provider,
+            sessionID: "row-newer-run-older",
+            workspaceID: "workspace-stale",
+            surfaceID: "surface-stale",
+            updatedAt: 100,
+            extra: [
+                "activeRunId": "active-stale",
+                "runs": [[
+                    "runId": "active-stale",
+                    "restoreAuthority": true,
+                    "startedAt": 1.0,
+                    "updatedAt": 1.0,
+                ]],
+            ]
+        )
+        let recentRun = try record(
+            provider: provider,
+            sessionID: "row-older-run-newer",
+            workspaceID: "workspace-recent",
+            surfaceID: "surface-recent",
+            updatedAt: 10,
+            extra: [
+                "activeRunId": "active-recent",
+                "runs": [[
+                    "runId": "active-recent",
+                    "restoreAuthority": true,
+                    "startedAt": 10.0,
+                    "updatedAt": 10.0,
+                ]],
+            ]
+        )
+        try fixture.registry.apply(provider: provider, records: [staleActiveRun, recentRun])
+
+        let bounded = try fixture.registry.hookBoundedRecentSnapshot(
+            provider: provider,
+            maximumRecords: 1
+        )
+
+        #expect(bounded.totalRecordCount == 2)
+        #expect(bounded.snapshot.records.map(\.sessionID) == ["row-older-run-newer"])
+    }
+
+    @Test("bounded list slots never attach an omitted owner to a retained session")
+    func boundedListSlotsRequireSelectedOwner() throws {
+        let fixture = try makeFixture()
+        let provider = "displaced-owner"
+        let older = try record(
+            provider: provider,
+            sessionID: "older-owner",
+            workspaceID: "shared-workspace",
+            surfaceID: "older-surface",
+            updatedAt: 1
+        )
+        let newer = try record(
+            provider: provider,
+            sessionID: "newer-session",
+            workspaceID: "shared-workspace",
+            surfaceID: "newer-surface",
+            updatedAt: 2
+        )
+        let workspaceSlot = try #require(try slots(
+            provider: provider,
+            sessionID: older.sessionID,
+            workspaceID: "shared-workspace",
+            surfaceID: "older-surface",
+            updatedAt: 1
+        ).first { $0.scope == .workspace })
+        try fixture.registry.apply(
+            provider: provider,
+            records: [older, newer],
+            activeSlots: [workspaceSlot]
+        )
+
+        let one = try fixture.registry.hookBoundedRecentSnapshot(
+            provider: provider,
+            maximumRecords: 1
+        )
+        #expect(one.snapshot.records.map(\.sessionID) == ["newer-session"])
+        #expect(one.snapshot.activeSlots.isEmpty)
+
+        let two = try fixture.registry.hookBoundedRecentSnapshot(
+            provider: provider,
+            maximumRecords: 2
+        )
+        #expect(two.snapshot.activeSlots.map(\.sessionID) == ["older-owner"])
+    }
+
+    @Test("bounded list slots reject canonical metadata and JSON scope disagreement")
+    func boundedListSlotsValidateCanonicalProjectionMetadata() throws {
+        let fixture = try makeFixture()
+        let provider = "slot-metadata"
+        let sessionID = "session"
+        let stored = try record(
+            provider: provider,
+            sessionID: sessionID,
+            workspaceID: "workspace",
+            surfaceID: "surface",
+            updatedAt: 1
+        )
+        try fixture.registry.apply(
+            provider: provider,
+            records: [stored],
+            activeSlots: try slots(
+                provider: provider,
+                sessionID: sessionID,
+                workspaceID: "workspace",
+                surfaceID: "surface",
+                updatedAt: 1
+            )
+        )
+        try overwriteWorkspaceProjectionMetadata(
+            registryURL: fixture.registry.url,
+            provider: provider,
+            sessionID: sessionID,
+            workspaceID: "different-workspace"
+        )
+
+        var failure: CmuxAgentSessionRegistry.HookListProjectionValidationError?
+        do {
+            _ = try fixture.registry.hookBoundedRecentSnapshot(
+                provider: provider,
+                maximumRecords: 1
+            )
+        } catch let error as CmuxAgentSessionRegistry.HookListProjectionValidationError {
+            failure = error
+        }
+
+        let error = try #require(failure)
+        #expect(error.provider == provider)
+    }
+
+    @Test("bounded list rejects a corrupt authoritative row outside top K")
+    func boundedListValidatesOmittedRows() throws {
+        let fixture = try makeFixture()
+        let provider = "corrupt-omitted"
+        var corrupt = try record(
+            provider: provider,
+            sessionID: "embedded-identity",
+            workspaceID: "old-workspace",
+            surfaceID: "old-surface",
+            updatedAt: 1
+        )
+        corrupt.sessionID = "canonical-identity"
+        let valid = try record(
+            provider: provider,
+            sessionID: "newest-valid",
+            workspaceID: "new-workspace",
+            surfaceID: "new-surface",
+            updatedAt: 2
+        )
+        try fixture.registry.apply(provider: provider, records: [corrupt, valid])
+
+        var failure: CmuxAgentSessionRegistry.HookListProjectionValidationError?
+        do {
+            _ = try fixture.registry.hookBoundedRecentSnapshot(
+                provider: provider,
+                maximumRecords: 1
+            )
+        } catch let error as CmuxAgentSessionRegistry.HookListProjectionValidationError {
+            failure = error
+        }
+
+        let error = try #require(failure)
+        #expect(error.provider == provider)
+    }
+
+    @Test("twenty thousand list payloads receive streaming full validation")
+    func boundedListFullValidationStreamsEveryRecord() throws {
+        let fixture = try makeFixture()
+        let provider = "stream-validation"
+        let records = try (0..<20_000).map { index in
+            try record(
+                provider: provider,
+                sessionID: String(format: "session-%05d", index),
+                workspaceID: "workspace-\(index % 100)",
+                surfaceID: "surface-\(index)",
+                updatedAt: TimeInterval(index)
+            )
+        }
+        try fixture.registry.apply(provider: provider, records: records)
+
+        let decoder = JSONDecoder()
+        var validatedRecords = 0
+        var validatedSlots = 0
+        let startedAt = Date().timeIntervalSinceReferenceDate
+        let snapshots = try fixture.registry.boundedRecentSnapshotsImportingLegacy(
+            sources: [.init(
+                provider: provider,
+                url: fixture.directory.appendingPathComponent("stream-validation.json")
+            )],
+            maximumRecordsPerProvider: 100,
+            validateRecord: { validatedProvider, record in
+                #expect(validatedProvider == provider)
+                let decoded = try decoder.decode(
+                    StreamingListRecord.self,
+                    from: record.json
+                )
+                #expect(decoded.sessionId == record.sessionID)
+                validatedRecords += 1
+            },
+            validateActiveSlot: { validatedProvider, slot in
+                #expect(validatedProvider == provider)
+                let decoded = try decoder.decode(
+                    StreamingListSlot.self,
+                    from: slot.json
+                )
+                #expect(decoded.sessionId == slot.sessionID)
+                validatedSlots += 1
+            }
+        )
+        let elapsed = Date().timeIntervalSinceReferenceDate - startedAt
+        print("bounded list full-decode 20000-row elapsed: \(elapsed) seconds")
+
+        #expect(validatedRecords == 20_000)
+        #expect(validatedSlots == 0)
+        #expect(snapshots[provider]?.totalRecordCount == 20_000)
+        #expect(snapshots[provider]?.snapshot.records.count == 100)
+    }
+
     @Test("legacy reads reject oversized files before allocating their payload")
     func legacyReadHasDescriptorBound() throws {
         let fixture = try makeFixture()
@@ -1331,6 +1644,7 @@ struct CmuxAgentSessionRegistryHookHotPathTests {
             "sessionId": sessionID,
             "workspaceId": workspaceID,
             "surfaceId": surfaceID,
+            "startedAt": updatedAt,
             "updatedAt": updatedAt,
             "runtimeStatus": "running",
         ]
@@ -1526,6 +1840,45 @@ struct CmuxAgentSessionRegistryHookHotPathTests {
         )
     }
 
+    private func overwriteWorkspaceProjectionMetadata(
+        registryURL: URL,
+        provider: String,
+        sessionID: String,
+        workspaceID: String
+    ) throws {
+        var database: OpaquePointer?
+        guard sqlite3_open_v2(
+            registryURL.path,
+            &database,
+            SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX,
+            nil
+        ) == SQLITE_OK, let database else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        defer { sqlite3_close(database) }
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(
+            database,
+            """
+            UPDATE agent_sessions SET workspace_id = ?1
+            WHERE provider = ?2 AND session_id = ?3
+            """,
+            -1,
+            &statement,
+            nil
+        ) == SQLITE_OK, let statement else {
+            throw sqliteTestError(database)
+        }
+        defer { sqlite3_finalize(statement) }
+        let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+        sqlite3_bind_text(statement, 1, workspaceID, -1, transient)
+        sqlite3_bind_text(statement, 2, provider, -1, transient)
+        sqlite3_bind_text(statement, 3, sessionID, -1, transient)
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            throw sqliteTestError(database)
+        }
+    }
+
     private func slots(
         provider: String,
         sessionID: String,
@@ -1556,4 +1909,19 @@ struct CmuxAgentSessionRegistryHookHotPathTests {
             ),
         ]
     }
+}
+
+private struct StreamingListRecord: Decodable {
+    var sessionId: String
+    var workspaceId: String
+    var surfaceId: String
+    var startedAt: TimeInterval
+    var updatedAt: TimeInterval
+}
+
+private struct StreamingListSlot: Decodable {
+    var sessionId: String
+    var turnId: String?
+    var allowsNewSessionReplacement: Bool?
+    var updatedAt: TimeInterval
 }
