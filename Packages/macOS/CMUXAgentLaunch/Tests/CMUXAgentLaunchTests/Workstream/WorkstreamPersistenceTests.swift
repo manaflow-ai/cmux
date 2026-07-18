@@ -226,6 +226,53 @@ struct WorkstreamPersistenceTests {
         #expect(history.filter { $0.id == firstID }.count == 1)
     }
 
+    @Test("Receipt-pruned retry with a fresh decoded timestamp keeps one history row")
+    func prunedReceiptRetryWithoutReceivedAtKeepsOneHistoryRow() async throws {
+        let clock = ReceiptTestClock(now: Date(timeIntervalSince1970: 10_000))
+        let fixture = try ReceiptFixture()
+        defer { fixture.remove() }
+        let requestID = "delivery-retried-after-receipt-pruning"
+        let original = fixture.event(
+            requestID: requestID,
+            receivedAt: clock.now
+        )
+        let persistence = fixture.persistence(
+            receiptRetention: 100,
+            maximumReceiptCount: 1,
+            clock: { clock.now }
+        )
+        let originalID = try await persistence.appendAcknowledged(
+            fixture.item(for: original),
+            for: original
+        )
+
+        clock.advance(101)
+        let replacement = fixture.event(
+            requestID: "replacement-that-prunes-the-original-receipt",
+            receivedAt: clock.now
+        )
+        _ = try await persistence.appendAcknowledged(
+            fixture.item(for: replacement),
+            for: replacement
+        )
+        clock.advance(101)
+
+        let retryPayload = #"{"session_id":"session-a","hook_event_name":"PreToolUse","_source":"codex","tool_name":"Read","tool_input":{"path":"README.md"},"_opencode_request_id":"delivery-retried-after-receipt-pruning"}"#
+        let retry = try JSONDecoder().decode(
+            WorkstreamEvent.self,
+            from: try #require(retryPayload.data(using: .utf8))
+        )
+        #expect(retry.receivedAt != original.receivedAt)
+
+        let retryID = try await persistence.appendAcknowledged(
+            fixture.item(for: retry),
+            for: retry
+        )
+
+        #expect(retryID == originalID)
+        #expect(try fixture.historyItems().filter { $0.id == originalID }.count == 1)
+    }
+
     @Test("Receipt retention slides on retry and count pressure never evicts it")
     func retrySlidesRetentionUnderCountPressure() async throws {
         let clock = ReceiptTestClock(now: Date(timeIntervalSince1970: 20_000))
@@ -455,6 +502,15 @@ private struct ReceiptFixture {
             throw NSError(domain: "ReceiptFixture", code: 2)
         }
         return sqlite3_column_int(statement, 0) != 0
+    }
+
+    func historyItems() throws -> [WorkstreamItem] {
+        let data = try Data(contentsOf: historyURL)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try data.split(separator: 0x0A).map { line in
+            try decoder.decode(WorkstreamItem.self, from: Data(line))
+        }
     }
 
     var receiptStoreBytes: Int64 {

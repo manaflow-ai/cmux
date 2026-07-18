@@ -333,6 +333,47 @@ struct WorkstreamStoreTests {
         #expect(try await persistence.loadRecent(limit: 10).map(\.id) == [itemID])
     }
 
+    @Test("Acknowledged identity reuse with changed content is rejected without replacing the item")
+    func acknowledgedIdentityReuseWithChangedContentIsRejected() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-content-mismatch-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let persistence = WorkstreamPersistence(
+            fileURL: directory.appendingPathComponent("workstream.jsonl"),
+            receiptDatabaseURL: directory.appendingPathComponent("receipts.sqlite3")
+        )
+        let store = WorkstreamStore(persistence: persistence, ringCapacity: 10)
+        let original = WorkstreamEvent(
+            sessionId: "actionable-content-mismatch",
+            hookEventName: .permissionRequest,
+            source: "claude",
+            cwd: "/tmp",
+            toolName: "Write",
+            toolInputJSON: #"{"path":"README.md"}"#,
+            requestId: "reused-request-identity"
+        )
+        let changed = WorkstreamEvent(
+            sessionId: original.sessionId,
+            hookEventName: original.hookEventName,
+            source: original.source,
+            cwd: original.cwd,
+            toolName: original.toolName,
+            toolInputJSON: #"{"path":"SECRETS.md"}"#,
+            requestId: original.requestId
+        )
+        let itemID = try await store.ingestAcknowledged(original)
+        store.markResolved(itemID, decision: .permission(.once))
+        let itemBeforeReuse = try #require(store.items.first)
+
+        await #expect(throws: (any Error).self) {
+            try await store.ingestAcknowledged(changed)
+        }
+
+        #expect(store.items == [itemBeforeReuse])
+        #expect(try await persistence.loadRecent(limit: 10).count == 1)
+    }
+
     @Test("Telemetry payloads preserve prompt, stop, and todo content")
     func telemetryContent() {
         let store = WorkstreamStore(ringCapacity: 10)
