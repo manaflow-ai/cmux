@@ -26702,13 +26702,13 @@ const CMUX_PLUGIN_INSTALLED_KEY = Symbol.for("cmux.session.restore.plugin.instal
 const MAX_TRACKED_SESSIONS = 100;
 const MAX_ACTIVE_HOOKS = 4;
 const MAX_PENDING_HOOKS = 256;
-const MAX_PENDING_RECONCILIATION_ENDS = 10000;
+const MAX_PENDING_RECONCILIATION_HOOKS = 10000;
 const HOOK_TIMEOUT_MS = 5000;
 const HOOK_SHUTDOWN_TIMEOUT_MS = 10000;
 const messageRoles = new Map();
 const sessions = new Map();
 const pendingHooks = [];
-const pendingReconciliationEnds = new Map();
+const pendingReconciliationHooks = new Map();
 const shutdownFinalHooks = new Map();
 const activeHookSessions = new Set();
 const activeHookDispatches = new Map();
@@ -26909,7 +26909,7 @@ function hookDispatcherIsDrained() {
   }
   return activeHookCount === 0
     && pendingHooks.length === 0
-    && pendingReconciliationEnds.size === 0;
+    && pendingReconciliationHooks.size === 0;
 }
 
 function resolveHookShutdownIfNeeded() {
@@ -26919,6 +26919,28 @@ function resolveHookShutdownIfNeeded() {
   const resolve = hookShutdownResolve;
   hookShutdownResolve = null;
   resolve();
+}
+
+function resetHookDispatcherAfterShutdown() {
+  if (!drainingHooksForShutdown || !hookDispatcherIsDrained()) return false;
+  if (hookShutdownDeadline) clearTimeout(hookShutdownDeadline);
+  messageRoles.clear();
+  sessions.clear();
+  pendingHooks.length = 0;
+  pendingReconciliationHooks.clear();
+  shutdownFinalHooks.clear();
+  activeHookSessions.clear();
+  activeHookDispatches.clear();
+  reservedTerminalSessions.clear();
+  activeHookCount = 0;
+  hookDrainScheduled = false;
+  nextHookSequence = 1;
+  drainingHooksForShutdown = false;
+  hookShutdownDeadlineExpired = false;
+  hookShutdownPromise = null;
+  hookShutdownResolve = null;
+  hookShutdownDeadline = null;
+  return true;
 }
 
 function dispatchHook(invocation) {
@@ -26983,9 +27005,14 @@ function drainHookQueue() {
         break;
       }
     } else {
-      for (const [sessionId, pending] of pendingReconciliationEnds) {
+      for (const [sessionId, pending] of pendingReconciliationHooks) {
         if (activeHookSessions.has(sessionId)) continue;
-        pendingReconciliationEnds.delete(sessionId);
+        const hasEarlierOrderedHook = pendingHooks.some(
+          (ordered) => ordered.sessionId === sessionId
+            && ordered.sequence < pending.sequence
+        );
+        if (hasEarlierOrderedHook) continue;
+        pendingReconciliationHooks.delete(sessionId);
         invocation = pending;
         break;
       }
@@ -27007,7 +27034,7 @@ function drainHookQueue() {
 function enqueueShutdownFinal(invocation) {
   if (hookShutdownDeadlineExpired) return false;
   const existing = shutdownFinalHooks.get(invocation.sessionId);
-  if (existing || shutdownFinalHooks.size < MAX_PENDING_RECONCILIATION_ENDS) {
+  if (existing || shutdownFinalHooks.size < MAX_PENDING_RECONCILIATION_HOOKS) {
     if (!existing || invocation.sequence >= existing.sequence) {
       shutdownFinalHooks.set(invocation.sessionId, invocation);
     }
@@ -27017,17 +27044,17 @@ function enqueueShutdownFinal(invocation) {
   return false;
 }
 
-function enqueueReconciliationEnd(invocation) {
-  if (pendingReconciliationEnds.has(invocation.sessionId)) {
-    pendingReconciliationEnds.set(invocation.sessionId, invocation);
+function enqueueReconciliationHook(invocation) {
+  if (pendingReconciliationHooks.has(invocation.sessionId)) {
+    pendingReconciliationHooks.set(invocation.sessionId, invocation);
     scheduleHookDrain();
     return true;
   }
   // The canonical provider store retains at most 10,000 inactive rows. Keep a
-  // compact final-state intent for each possible restart reconciliation while
-  // the 256-slot ordered lifecycle queue is saturated.
-  if (pendingReconciliationEnds.size >= MAX_PENDING_RECONCILIATION_ENDS) return false;
-  pendingReconciliationEnds.set(invocation.sessionId, invocation);
+  // compact final-state intent per session while the 256-slot ordered queue is
+  // saturated. An earlier ordered hook for that session still dispatches first.
+  if (pendingReconciliationHooks.size >= MAX_PENDING_RECONCILIATION_HOOKS) return false;
+  pendingReconciliationHooks.set(invocation.sessionId, invocation);
   scheduleHookDrain();
   return true;
 }
@@ -27055,8 +27082,8 @@ function enqueueHook(invocation) {
   const isEnd = invocation.subcommand === "session-end";
   const hasTerminalReservation = reservedTerminalSessions.has(invocation.sessionId);
   if (isEnd && !hasTerminalReservation
-      && pendingReconciliationEnds.has(invocation.sessionId)) {
-    pendingReconciliationEnds.set(invocation.sessionId, invocation);
+      && pendingReconciliationHooks.has(invocation.sessionId)) {
+    pendingReconciliationHooks.set(invocation.sessionId, invocation);
     scheduleHookDrain();
     return true;
   }
@@ -27079,8 +27106,8 @@ function enqueueHook(invocation) {
     projectedCost -= 1;
   }
   if (projectedCost > MAX_PENDING_HOOKS) {
-    return isEnd && !hasTerminalReservation
-      ? enqueueReconciliationEnd(invocation)
+    return invocation.subcommand === "stop" || (isEnd && !hasTerminalReservation)
+      ? enqueueReconciliationHook(invocation)
       : false;
   }
 
@@ -27101,11 +27128,11 @@ function drainHooksForShutdown() {
   // already-running hook to finish first. This preserves start/end order
   // without serializing a saturated same-session backlog during process exit.
   for (const invocation of pendingHooks) enqueueShutdownFinal(invocation);
-  for (const invocation of pendingReconciliationEnds.values()) {
+  for (const invocation of pendingReconciliationHooks.values()) {
     enqueueShutdownFinal(invocation);
   }
   pendingHooks.length = 0;
-  pendingReconciliationEnds.clear();
+  pendingReconciliationHooks.clear();
   reservedTerminalSessions.clear();
   for (const { child, timeout } of activeHookDispatches.values()) {
     child.ref();
@@ -27208,7 +27235,9 @@ const CMUXSessionRestore = async (ctx) => {
       try {
         await drainHooksForShutdown();
       } finally {
-        delete globalThis[CMUX_PLUGIN_INSTALLED_KEY];
+        if (resetHookDispatcherAfterShutdown()) {
+          delete globalThis[CMUX_PLUGIN_INSTALLED_KEY];
+        }
       }
     },
     event: async ({ event }) => {
