@@ -250,12 +250,25 @@ extension RestorableAgentSessionIndex {
         for candidate in candidates {
             guard let workspaceID = candidate.workspaceID,
                   let projection = projections[candidate.kind.rawValue],
-                  let record = projection.recordsBySessionID[candidate.sessionID],
-                  let recordObject = try? JSONSerialization.jsonObject(
-                      with: record.json
-                  ) as? [String: Any],
+                  let record = projection.recordsBySessionID[candidate.sessionID] else {
+                continue
+            }
+            guard let recordObject = try? JSONSerialization.jsonObject(
+                with: record.json
+            ) as? [String: Any] else {
+                rejectStartupRestoreCandidate(candidate, in: &workspaces)
+                continue
+            }
+            let projectedRestoreAuthority = CmuxAgentSessionRunAuthorityProjection()
+                .projectedRestoreAuthority(recordJSON: record.json)
+            guard projectedRestoreAuthority == true else {
+                rejectStartupRestoreCandidate(candidate, in: &workspaces)
+                continue
+            }
+            guard
                   startupRecord(
                       recordObject,
+                      projectedRestoreAuthority: projectedRestoreAuthority == true,
                       matches: candidate,
                       workspaceID: workspaceID
                   ),
@@ -344,6 +357,20 @@ extension RestorableAgentSessionIndex {
         return Set(failedProviders.compactMap(RestorableAgentKind.init(rawValue:)))
     }
 
+    private static func rejectStartupRestoreCandidate(
+        _ candidate: StartupRestoreCandidate,
+        in workspaces: inout [SessionWorkspaceSnapshot]
+    ) {
+        guard var terminal = workspaces[candidate.workspaceIndex]
+            .panels[candidate.panelIndex].terminal else { return }
+        terminal.agent = nil
+        terminal.hibernation = nil
+        terminal.resumeBinding = nil
+        terminal.wasAgentRunning = false
+        workspaces[candidate.workspaceIndex]
+            .panels[candidate.panelIndex].terminal = terminal
+    }
+
     private static func suppressAutomaticStartup(
         for candidates: [StartupRestoreCandidate],
         in workspaces: inout [SessionWorkspaceSnapshot]
@@ -369,11 +396,12 @@ extension RestorableAgentSessionIndex {
 
     private static func startupRecord(
         _ record: [String: Any],
+        projectedRestoreAuthority: Bool,
         matches candidate: StartupRestoreCandidate,
         workspaceID: UUID
     ) -> Bool {
         guard record["sessionId"] as? String == candidate.sessionID,
-              record["restoreAuthority"] as? Bool != false,
+              projectedRestoreAuthority,
               record["updatedAt"] is NSNumber,
               normalizedRegistryUUID(record["workspaceId"] as? String) == workspaceID,
               normalizedRegistryUUID(record["surfaceId"] as? String) == candidate.panelID else {

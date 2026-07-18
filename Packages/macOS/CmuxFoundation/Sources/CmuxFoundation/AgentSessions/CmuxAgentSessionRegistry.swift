@@ -475,7 +475,8 @@ public struct CmuxAgentSessionRegistry: Sendable {
             identifiersEqual(recordObject["workspaceId"] as? String, candidate.workspaceID),
             identifiersEqual(recordObject["surfaceId"] as? String, candidate.surfaceID),
             recordObject["sessionState"] as? String == "hibernated",
-            recordObject["restoreAuthority"] as? Bool != false,
+            CmuxAgentSessionRunAuthorityProjection()
+                .projectedRestoreAuthority(recordJSON: record.json) == true,
             recordObject["updatedAt"] is TimeInterval,
             !hasCompletion(recordObject),
             let slotObject = try? JSONSerialization.jsonObject(with: surfaceSlot.json) as? [String: Any],

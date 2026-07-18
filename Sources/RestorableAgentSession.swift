@@ -1160,7 +1160,7 @@ struct RestorableAgentSessionIndex: Sendable {
                                              snapshots: registrySnapshots, fileManager: fileManager,
                                              decoder: decoder) else { continue }
 
-            for record in state.sessions.values where record.restoreAuthority != false && record.completedAt == nil {
+            for record in state.sessions.values where record.projectedRestoreAuthority && record.completedAt == nil {
                 var effectiveRecord = record
                 // Drop untrusted launch captures before ANY derivation: the
                 // working directory below would otherwise inherit the foreign launch cwd.
