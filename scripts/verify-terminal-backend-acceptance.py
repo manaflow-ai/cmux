@@ -32,6 +32,134 @@ SCHEMA_VERSION = 1
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 
+LINKAGE_AUDIT_SCHEMA = "cmux-terminal-linkage-fixed-roots-v1"
+LINKAGE_AUDIT_SOURCE_ROOTS = (
+    "Sources",
+    "Packages/macOS/CmuxTerminal/Sources",
+    "Packages/macOS/CmuxTerminalRenderer/Sources",
+    "Packages/macOS/CmuxBrowser/Sources",
+)
+LINKAGE_AUDIT_SOURCE_SUFFIXES = {
+    ".c",
+    ".cc",
+    ".cpp",
+    ".h",
+    ".hpp",
+    ".js",
+    ".jsx",
+    ".m",
+    ".mm",
+    ".rs",
+    ".swift",
+    ".ts",
+    ".tsx",
+    ".zig",
+}
+LINKAGE_AUDIT_METRIC_BY_CATEGORY = {
+    "backend_mode_local_terminal_constructor": (
+        "backend_mode_local_terminal_constructor_callsite_count"
+    ),
+    "backend_mode_canonical_parser_constructor": (
+        "backend_mode_canonical_parser_constructor_callsite_count"
+    ),
+    "backend_mode_pty_constructor": "backend_mode_pty_constructor_callsite_count",
+    "renderer_raw_pty_consumer": "renderer_raw_pty_consumer_callsite_count",
+    "browser_raw_pty_consumer": "browser_raw_pty_consumer_callsite_count",
+    "browser_canonical_parser_constructor": (
+        "browser_canonical_parser_constructor_callsite_count"
+    ),
+}
+LINKAGE_AUDIT_RULES: dict[str, dict[str, tuple[Any, ...]]] = {
+    "backend_mode_local_terminal_constructor": {
+        "roots": ("Sources",),
+        "patterns": (
+            (
+                "EmbeddedTerminalPanelFactory.init",
+                r"\bEmbeddedTerminalPanelFactory\b",
+            ),
+            (
+                "TerminalClientComposition.embedded",
+                r"\bTerminalClientComposition\s*\.\s*embedded\s*\(",
+            ),
+            ("legacyDirect terminal origin", r"\borigin\s*:\s*\.legacyDirect\b"),
+        ),
+    },
+    "backend_mode_canonical_parser_constructor": {
+        "roots": (
+            "Sources",
+            "Packages/macOS/CmuxTerminal/Sources",
+        ),
+        "patterns": (
+            ("ghostty_app_new", r"\bghostty_app_new\b"),
+            (
+                "ghostty_surface_new",
+                r"\bghostty_surface_new(?:_[A-Za-z0-9_]+)?\b",
+            ),
+        ),
+    },
+    "backend_mode_pty_constructor": {
+        "roots": (
+            "Sources",
+            "Packages/macOS/CmuxTerminal/Sources",
+        ),
+        "patterns": (
+            (
+                "Ghostty PTY-backed surface constructor",
+                r"\bghostty_surface_new(?:_[A-Za-z0-9_]+)?\b",
+            ),
+            (
+                "direct PTY constructor",
+                r"\b(?:forkpty|openpty|posix_openpt|grantpt|unlockpt)\b",
+            ),
+        ),
+    },
+    "renderer_raw_pty_consumer": {
+        "roots": ("Packages/macOS/CmuxTerminalRenderer/Sources",),
+        "patterns": (
+            (
+                "Ghostty runtime or surface constructor",
+                r"\bghostty_(?:app|surface)_new(?:_[A-Za-z0-9_]+)?\b",
+            ),
+            (
+                "direct PTY API",
+                r"\b(?:forkpty|openpty|posix_openpt|grantpt|unlockpt)\b",
+            ),
+            ("raw VT byte write", r"\bvt_write\b"),
+            ("daemon byte attach stream", r"\b(?:AttachFrame|AttachStream)\b"),
+        ),
+    },
+    "browser_raw_pty_consumer": {
+        "roots": ("Packages/macOS/CmuxBrowser/Sources",),
+        "patterns": (
+            (
+                "Ghostty runtime or surface constructor",
+                r"\bghostty_(?:app|surface)_new(?:_[A-Za-z0-9_]+)?\b",
+            ),
+            (
+                "direct PTY API",
+                r"\b(?:forkpty|openpty|posix_openpt|grantpt|unlockpt)\b",
+            ),
+            ("raw VT byte write", r"\bvt_write\b"),
+            ("daemon byte attach stream", r"\b(?:AttachFrame|AttachStream)\b"),
+        ),
+    },
+    "browser_canonical_parser_constructor": {
+        "roots": ("Packages/macOS/CmuxBrowser/Sources",),
+        "patterns": (
+            (
+                "Ghostty canonical parser constructor",
+                r"\bghostty_(?:app|surface|terminal)_new(?:_[A-Za-z0-9_]+)?\b",
+            ),
+            ("VTParser.init", r"\bVTParser\b"),
+            ("ghostty-vt Terminal.new", r"\bTerminal\s*::\s*new\b"),
+            (
+                "terminal parser module import",
+                r"\bimport\s+(?:GhosttyKit|GhosttyVT|XTerm)\b",
+            ),
+        ),
+    },
+}
+
 # Every manifest artifact is a small, machine-readable receipt. The receipt
 # binds the claimed result to the exact source commit, command, live PIDs, and
 # one or more hashed payloads. This prevents a passing manifest from being
@@ -598,6 +726,243 @@ def sha256_json(value: Any) -> str:
         sort_keys=True,
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _linkage_git_source_files(
+    repo_root: pathlib.Path,
+    source_commit: str,
+) -> dict[str, bytes]:
+    """Read the fixed linkage roots from one immutable Git commit."""
+    expect_commit(source_commit, "linkage audit source commit")
+    listed = subprocess.run(
+        [
+            "git",
+            "ls-tree",
+            "-r",
+            "-z",
+            "--full-tree",
+            source_commit,
+            "--",
+            *LINKAGE_AUDIT_SOURCE_ROOTS,
+        ],
+        cwd=repo_root,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if listed.returncode != 0:
+        detail = listed.stderr.decode("utf-8", errors="replace").strip()
+        raise AcceptanceError(
+            f"linkage audit could not read commit {source_commit}: {detail}"
+        )
+    identities: list[tuple[str, str]] = []
+    for raw_entry in listed.stdout.split(b"\0"):
+        if not raw_entry:
+            continue
+        try:
+            metadata, raw_path = raw_entry.split(b"\t", 1)
+            mode, object_type, object_id = metadata.decode("ascii").split()
+            relative = raw_path.decode("utf-8")
+        except (ValueError, UnicodeDecodeError) as error:
+            raise AcceptanceError("linkage audit could not parse committed source tree") from error
+        if object_type != "blob" or mode == "120000":
+            continue
+        if pathlib.PurePosixPath(relative).suffix not in LINKAGE_AUDIT_SOURCE_SUFFIXES:
+            continue
+        identities.append((relative, object_id))
+    identities.sort()
+    if not identities:
+        raise AcceptanceError("linkage audit fixed roots contain no committed source files")
+
+    batch = subprocess.run(
+        ["git", "cat-file", "--batch"],
+        cwd=repo_root,
+        check=False,
+        input="".join(f"{object_id}\n" for _, object_id in identities).encode("ascii"),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if batch.returncode != 0:
+        detail = batch.stderr.decode("utf-8", errors="replace").strip()
+        raise AcceptanceError(f"linkage audit could not read committed blobs: {detail}")
+    result: dict[str, bytes] = {}
+    cursor = 0
+    for relative, expected_object_id in identities:
+        header_end = batch.stdout.find(b"\n", cursor)
+        if header_end < 0:
+            raise AcceptanceError("linkage audit Git blob batch is truncated")
+        try:
+            object_id, object_type, raw_size = batch.stdout[cursor:header_end].decode(
+                "ascii"
+            ).split()
+            size = int(raw_size)
+        except (ValueError, UnicodeDecodeError) as error:
+            raise AcceptanceError("linkage audit Git blob header is invalid") from error
+        if object_id != expected_object_id or object_type != "blob" or size < 0:
+            raise AcceptanceError("linkage audit Git blob identity is invalid")
+        payload_start = header_end + 1
+        payload_end = payload_start + size
+        if payload_end >= len(batch.stdout) or batch.stdout[payload_end : payload_end + 1] != b"\n":
+            raise AcceptanceError("linkage audit Git blob payload is truncated")
+        result[relative] = batch.stdout[payload_start:payload_end]
+        cursor = payload_end + 1
+    if cursor != len(batch.stdout):
+        raise AcceptanceError("linkage audit Git blob batch has trailing data")
+    return result
+
+
+def _linkage_source_digest(files: dict[str, bytes]) -> str:
+    return sha256_json(
+        [
+            {"path": relative, "sha256": hashlib.sha256(payload).hexdigest()}
+            for relative, payload in sorted(files.items())
+        ]
+    )
+
+
+def _linkage_source_without_comments_and_literals(source: str) -> str:
+    """Blank comments and literals while preserving source offsets and lines."""
+    output = list(source)
+    index = 0
+    block_depth = 0
+    delimiter: str | None = None
+    while index < len(source):
+        if block_depth:
+            if source.startswith("/*", index):
+                output[index : index + 2] = "  "
+                block_depth += 1
+                index += 2
+            elif source.startswith("*/", index):
+                output[index : index + 2] = "  "
+                block_depth -= 1
+                index += 2
+            else:
+                if source[index] != "\n":
+                    output[index] = " "
+                index += 1
+            continue
+        if delimiter is not None:
+            if source.startswith(delimiter, index):
+                output[index : index + len(delimiter)] = " " * len(delimiter)
+                index += len(delimiter)
+                delimiter = None
+            elif source[index] == "\\" and len(delimiter) == 1 and index + 1 < len(source):
+                output[index : index + 2] = "  "
+                index += 2
+            else:
+                if source[index] != "\n":
+                    output[index] = " "
+                index += 1
+            continue
+        if source.startswith("//", index):
+            end = source.find("\n", index)
+            end = len(source) if end < 0 else end
+            output[index:end] = " " * (end - index)
+            index = end
+            continue
+        if source.startswith("/*", index):
+            output[index : index + 2] = "  "
+            block_depth = 1
+            index += 2
+            continue
+        if source.startswith('"""', index) or source.startswith("'''", index):
+            delimiter = source[index : index + 3]
+            output[index : index + 3] = "   "
+            index += 3
+            continue
+        if source[index] in {'"', "'"}:
+            delimiter = source[index]
+            output[index] = " "
+            index += 1
+            continue
+        index += 1
+    return "".join(output)
+
+
+def _linkage_files_for_roots(
+    files: dict[str, bytes],
+    roots: tuple[str, ...],
+) -> dict[str, bytes]:
+    return {
+        relative: payload
+        for relative, payload in files.items()
+        if any(relative == root or relative.startswith(f"{root}/") for root in roots)
+    }
+
+
+def build_linkage_audit_artifact(
+    repo_root: pathlib.Path,
+    source_commit: str,
+) -> dict[str, Any]:
+    """Build the only accepted linkage artifact from fixed roots at one commit."""
+    files = _linkage_git_source_files(repo_root, source_commit)
+    decoded: dict[str, str] = {}
+    for relative, payload in files.items():
+        try:
+            decoded[relative] = payload.decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise AcceptanceError(
+                f"linkage audit committed source is not UTF-8: {relative}"
+            ) from error
+
+    records: list[dict[str, Any]] = []
+    for category in LINKAGE_AUDIT_METRIC_BY_CATEGORY:
+        rule = LINKAGE_AUDIT_RULES[category]
+        roots = tuple(str(root) for root in rule["roots"])
+        category_files = _linkage_files_for_roots(files, roots)
+        if not category_files:
+            raise AcceptanceError(
+                f"linkage audit category {category} fixed roots contain no source files"
+            )
+        findings: list[dict[str, Any]] = []
+        for relative in sorted(category_files):
+            source = decoded[relative]
+            searchable = _linkage_source_without_comments_and_literals(source)
+            for symbol, pattern in rule["patterns"]:
+                for match in re.finditer(str(pattern), searchable, flags=re.MULTILINE):
+                    line = searchable.count("\n", 0, match.start()) + 1
+                    line_start = searchable.rfind("\n", 0, match.start()) + 1
+                    findings.append({
+                        "path": relative,
+                        "line": line,
+                        "column": match.start() - line_start + 1,
+                        "symbol": str(symbol),
+                    })
+        findings.sort(
+            key=lambda finding: (
+                finding["path"],
+                finding["line"],
+                finding["column"],
+                finding["symbol"],
+            )
+        )
+        records.append({
+            "category": category,
+            "roots": list(roots),
+            "scanned_file_count": len(category_files),
+            "scanned_source_sha256": _linkage_source_digest(category_files),
+            "findings": findings,
+        })
+
+    rule_contract = {
+        category: {
+            "roots": list(rule["roots"]),
+            "patterns": [list(pattern) for pattern in rule["patterns"]],
+        }
+        for category, rule in LINKAGE_AUDIT_RULES.items()
+    }
+    return {
+        "schema_version": 1,
+        "artifact_kind": "linkage-audit",
+        "context": {
+            "scanner_schema": LINKAGE_AUDIT_SCHEMA,
+            "source_commit": source_commit,
+            "fixed_roots": list(LINKAGE_AUDIT_SOURCE_ROOTS),
+            "scanner_rules_sha256": sha256_json(rule_contract),
+            "scanned_source_sha256": _linkage_source_digest(files),
+        },
+        "records": records,
+    }
 
 
 def validate_metric_invariants(
@@ -2195,6 +2560,9 @@ def derive_structured_metrics(
     kind: str,
     path: pathlib.Path,
     label: str,
+    *,
+    source_commit: str | None = None,
+    repo_root: pathlib.Path = REPO_ROOT,
 ) -> dict[str, Any]:
     context, records = load_raw_artifact(path, kind, label)
     if kind == "accessibility-tree":
@@ -2428,24 +2796,18 @@ def derive_structured_metrics(
             "unauthorized_state_change_count": unauthorized_changes,
         }
     if kind == "linkage-audit":
-        metric_by_category = {
-            "backend_mode_local_terminal_constructor": "backend_mode_local_terminal_constructor_callsite_count",
-            "backend_mode_canonical_parser_constructor": "backend_mode_canonical_parser_constructor_callsite_count",
-            "backend_mode_pty_constructor": "backend_mode_pty_constructor_callsite_count",
-            "renderer_raw_pty_consumer": "renderer_raw_pty_consumer_callsite_count",
-            "browser_raw_pty_consumer": "browser_raw_pty_consumer_callsite_count",
-            "browser_canonical_parser_constructor": "browser_canonical_parser_constructor_callsite_count",
-        }
-        result = {metric: 0 for metric in metric_by_category.values()}
-        for index, raw_record in enumerate(records):
-            category = _raw_string(
-                _raw_dict(raw_record, f"{label} callsite {index}").get("category"),
-                f"{label} category",
+        if source_commit is None:
+            raise AcceptanceError(f"{label} needs the manifest-bound source commit")
+        canonical = build_linkage_audit_artifact(repo_root, source_commit)
+        if context != canonical["context"] or records != canonical["records"]:
+            raise AcceptanceError(
+                f"{label} does not match the repository's deterministic commit scan; "
+                "empty or hand-authored linkage records are not evidence"
             )
-            if category not in metric_by_category:
-                raise AcceptanceError(f"{label} has unknown linkage category {category!r}")
-            result[metric_by_category[category]] += 1
-        return result
+        return {
+            LINKAGE_AUDIT_METRIC_BY_CATEGORY[record["category"]]: len(record["findings"])
+            for record in records
+        }
     if kind == "memory-report":
         values: dict[str, list[int]] = collections.defaultdict(list)
         for index, raw_record in enumerate(records):
@@ -2866,6 +3228,8 @@ def derive_payload_metrics(
     label: str,
     *,
     process_roles: dict[int, str] | None = None,
+    source_commit: str | None = None,
+    repo_root: pathlib.Path = REPO_ROOT,
 ) -> dict[str, Any] | None:
     """Derive receipt metrics from immutable raw payloads.
 
@@ -2890,7 +3254,14 @@ def derive_payload_metrics(
     if kind in VIDEO_ARTIFACT_KINDS:
         duration_ms, frame_count = validate_video(path, label)
         return {"duration_ms": duration_ms, "frame_count": frame_count}
-    return derive_structured_metrics(criterion_id, kind, path, label)
+    return derive_structured_metrics(
+        criterion_id,
+        kind,
+        path,
+        label,
+        source_commit=source_commit,
+        repo_root=repo_root,
+    )
 
 
 def validate_payload_format(kind: str, path: pathlib.Path, label: str) -> None:
@@ -3440,6 +3811,7 @@ def validate_evidence_receipt(
         }
         if artifact_kind in TRACE_ARTIFACT_KINDS
         else None,
+        source_commit=source_commit,
     )
     if derived_metrics is None:
         if expected_pass:
@@ -3613,6 +3985,37 @@ def collect_process_census(arguments: argparse.Namespace) -> pathlib.Path:
     return output
 
 
+def collect_linkage_audit(arguments: argparse.Namespace) -> pathlib.Path:
+    """Capture the fixed-root linkage scan for the manifest's exact commit."""
+    manifest_path = arguments.manifest.expanduser().resolve()
+    manifest = load_json(manifest_path)
+    spec = load_spec()
+    validate_shape(manifest, spec)
+    expected_commit, expected_submodules = assert_clean_source()
+    if manifest["source"]["commit"] != expected_commit:
+        raise AcceptanceError("linkage audit manifest is not for current clean HEAD")
+    if manifest["source"]["submodules"] != expected_submodules:
+        raise AcceptanceError("linkage audit manifest submodules are stale")
+
+    payload = build_linkage_audit_artifact(REPO_ROOT, expected_commit)
+    run_root = manifest_path.parent
+    output = (run_root / arguments.output).resolve()
+    try:
+        output.relative_to(run_root.resolve())
+    except ValueError as error:
+        raise AcceptanceError("linkage audit output escapes the evidence directory") from error
+    if output.suffix.lower() != ".json":
+        raise AcceptanceError("linkage audit output must be JSON")
+    if output.exists() and not arguments.replace:
+        raise AcceptanceError(f"linkage audit already exists: {output}; pass --replace")
+
+    after_commit, after_submodules = assert_clean_source()
+    if (after_commit, after_submodules) != (expected_commit, expected_submodules):
+        raise AcceptanceError("source changed while the linkage audit was collected")
+    atomic_write_json(output, payload)
+    return output
+
+
 def derive_receipt(arguments: argparse.Namespace) -> pathlib.Path:
     """Create a receipt whose metrics come only from its raw primary payload."""
     manifest_path = arguments.manifest.expanduser().resolve()
@@ -3661,6 +4064,7 @@ def derive_receipt(arguments: argparse.Namespace) -> pathlib.Path:
         primary,
         f"{arguments.id}/{arguments.kind} primary attachment",
         process_roles=process_roles if arguments.kind in TRACE_ARTIFACT_KINDS else None,
+        source_commit=expected_commit,
     )
     if metrics is None:
         raise AcceptanceError(
@@ -4310,6 +4714,14 @@ def parser() -> argparse.ArgumentParser:
     census_parser.add_argument("--output", required=True)
     census_parser.add_argument("--replace", action="store_true")
 
+    linkage_parser = subparsers.add_parser(
+        "collect-linkage-audit",
+        help="scan fixed production roots at the manifest-bound commit",
+    )
+    linkage_parser.add_argument("--manifest", type=pathlib.Path, required=True)
+    linkage_parser.add_argument("--output", required=True)
+    linkage_parser.add_argument("--replace", action="store_true")
+
     record_parser = subparsers.add_parser("record", help="record one check's evidence")
     record_parser.add_argument("--manifest", type=pathlib.Path, required=True)
     record_parser.add_argument("--id", required=True)
@@ -4346,6 +4758,9 @@ def main() -> int:
             print(path)
         elif arguments.operation == "collect-process-census":
             path = collect_process_census(arguments)
+            print(path)
+        elif arguments.operation == "collect-linkage-audit":
+            path = collect_linkage_audit(arguments)
             print(path)
         elif arguments.operation == "record":
             path = record(arguments)

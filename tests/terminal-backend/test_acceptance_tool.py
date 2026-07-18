@@ -536,6 +536,11 @@ class AcceptanceToolTests(unittest.TestCase):
             root = pathlib.Path(temporary)
             safe_commit = self.create_linkage_audit_repository(root)
             forbidden_sources = {
+                ".gitattributes": """
+Sources/ForbiddenOwnership.swift export-ignore
+Packages/macOS/CmuxTerminalRenderer/Sources/CmuxTerminalRendererWorker/Forbidden.swift export-ignore
+Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/Forbidden.swift export-ignore
+""",
                 "Sources/ForbiddenOwnership.swift": """
 func constructLocalFallback() {
     _ = EmbeddedTerminalPanelFactory(dependencies: dependencies)

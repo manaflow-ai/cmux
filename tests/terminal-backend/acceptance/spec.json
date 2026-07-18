@@ -68,7 +68,7 @@
       "id": "STATE-2",
       "priority": "P0",
       "observable": "No dual terminal authority",
-      "pass_condition": "Only renderer-worker PIDs consume daemon semantic scenes and perform terminal shaping. Swift consumes authenticated IOSurface frames, cmux-browser consumes daemon-authored styled rows or a renderer-frame endpoint, neither receives raw PTY output or instantiates a canonical parser, and byte-stream compatibility clients are identified separately and cannot claim canonical parity.",
+      "pass_condition": "Only renderer-worker PIDs consume daemon semantic scenes and perform terminal shaping. Swift consumes authenticated IOSurface frames, cmux-browser consumes daemon-authored styled rows or a renderer-frame endpoint, neither receives raw PTY output or instantiates a canonical parser, and byte-stream compatibility clients are identified separately and cannot claim canonical parity. Linkage counts come from the verifier's fixed production roots at the manifest source commit, not caller-authored records.",
       "required_artifact_kinds": ["protocol", "linkage-audit", "runtime-assertion"]
     },
     {
@@ -131,7 +131,7 @@
       "id": "CLEAN-1",
       "priority": "P0",
       "observable": "Legacy removal",
-      "pass_condition": "Each supported launch mode has one required production composition root; backend mode cannot construct a local Ghostty surface, parser, PTY, or bootstrap fallback capable of owning the same terminal.",
+      "pass_condition": "Each supported launch mode has one required production composition root; backend mode cannot construct a local Ghostty surface, parser, PTY, or bootstrap fallback capable of owning the same terminal. The verifier independently scans its fixed production roots at the manifest source commit and rejects empty or caller-authored linkage records.",
       "required_artifact_kinds": ["linkage-audit", "runtime-assertion"]
     }
   ]
