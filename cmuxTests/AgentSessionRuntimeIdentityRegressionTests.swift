@@ -141,6 +141,115 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(snapshots?["codex"]?.records.contains { $0.sessionID == sessionID } == true)
     }
 
+    @Test func hibernationRegistryLoadSelectsOpenPanelOwnersAndExactDetections() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hibernation-registry-projection-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let registry = CmuxAgentSessionRegistry(url: registryURL)
+        let workspaceID = UUID()
+        let panelID = UUID()
+        let activeSessionID = "active-owner"
+        let detectedSessionID = "detected-session"
+        let unrelatedSessionID = "unrelated-history"
+
+        func record(_ sessionID: String, workspaceID: UUID, panelID: UUID) throws
+            -> CmuxAgentSessionRegistry.Record {
+            CmuxAgentSessionRegistry.Record(
+                provider: "codex",
+                sessionID: sessionID,
+                updatedAt: 100,
+                json: try JSONSerialization.data(withJSONObject: [
+                    "sessionId": sessionID,
+                    "workspaceId": workspaceID.uuidString,
+                    "surfaceId": panelID.uuidString,
+                    "restoreAuthority": true,
+                    "updatedAt": 100.0,
+                ], options: [.sortedKeys])
+            )
+        }
+        let slotJSON = try JSONSerialization.data(withJSONObject: [
+            "sessionId": activeSessionID,
+            "updatedAt": 100.0,
+        ], options: [.sortedKeys])
+        try registry.apply(
+            provider: "codex",
+            records: [
+                try record(activeSessionID, workspaceID: workspaceID, panelID: panelID),
+                try record(detectedSessionID, workspaceID: UUID(), panelID: UUID()),
+                try record(unrelatedSessionID, workspaceID: UUID(), panelID: UUID()),
+            ],
+            activeSlots: [
+                .init(
+                    provider: "codex",
+                    scope: .workspace,
+                    scopeID: workspaceID.uuidString,
+                    sessionID: activeSessionID,
+                    updatedAt: 100,
+                    json: slotJSON
+                ),
+                .init(
+                    provider: "codex",
+                    scope: .surface,
+                    scopeID: panelID.uuidString,
+                    sessionID: activeSessionID,
+                    updatedAt: 100,
+                    json: slotJSON
+                ),
+            ]
+        )
+
+        let result = RestorableAgentSessionIndex.agentRegistryHibernationSnapshots(
+            [(.codex, root.appendingPathComponent("codex-hook-sessions.json"))],
+            panelKeys: [.init(workspaceId: workspaceID, panelId: panelID)],
+            exactSessionIDsByProvider: ["codex": [detectedSessionID]],
+            fileManager: .default,
+            environment: ["CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path]
+        )
+
+        #expect(result.failedProviders.isEmpty)
+        #expect(Set(result.snapshots["codex"]?.records.map(\.sessionID) ?? []) == [
+            activeSessionID, detectedSessionID,
+        ])
+        #expect(result.snapshots["codex"]?.activeSlots.count == 2)
+    }
+
+    @Test func hibernationRegistryLoadFailsClosedPerProviderAtProjectionLimit() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hibernation-registry-limit-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let registry = CmuxAgentSessionRegistry(url: registryURL)
+        for sessionID in ["first", "second"] {
+            try registry.apply(provider: "codex", records: [.init(
+                provider: "codex",
+                sessionID: sessionID,
+                updatedAt: 100,
+                json: try JSONSerialization.data(withJSONObject: [
+                    "sessionId": sessionID,
+                    "workspaceId": UUID().uuidString,
+                    "surfaceId": UUID().uuidString,
+                    "updatedAt": 100.0,
+                ], options: [.sortedKeys])
+            )])
+        }
+
+        let result = RestorableAgentSessionIndex.agentRegistryHibernationSnapshots(
+            [(.codex, root.appendingPathComponent("codex-hook-sessions.json"))],
+            panelKeys: [],
+            exactSessionIDsByProvider: ["codex": ["first", "second"]],
+            maximumRecords: 1,
+            fileManager: .default,
+            environment: ["CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path]
+        )
+
+        #expect(result.failedProviders == ["codex"])
+        #expect(result.snapshots["codex"]?.records.isEmpty == true)
+        #expect(result.snapshots["codex"]?.activeSlots.isEmpty == true)
+    }
+
     @Test func agentHookRuntimeIdentityPrefersTheConnectedSocketOverMissingOrStaleEnvironment() throws {
         let socketCapabilities: [String: Any] = [
             "runtime_id": "socket-runtime",
