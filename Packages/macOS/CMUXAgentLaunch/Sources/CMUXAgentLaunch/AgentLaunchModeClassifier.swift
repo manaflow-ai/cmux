@@ -68,9 +68,21 @@ public enum AgentLaunchModeClassifier {
             return .oneShot
         }
         let arguments = normalizedArguments(kind: kind, arguments: arguments)
-        if kind == "opencode",
-           firstPositional(in: arguments, policy: policy) == "run" {
+        let baseCommand = firstPositional(in: arguments, policy: policy)
+        if kind == "opencode", baseCommand == "run" {
             policy = AgentLaunchSanitizer.openCodeInteractiveRunPolicy
+        } else if kind == "opencode", baseCommand == "attach" {
+            // `attach` owns a small option grammar that is not valid on the root
+            // TUI. Recognize it only after proving the subcommand so those names
+            // cannot make an invalid root launch look replay-safe.
+            policy.valueOptions.formUnion([
+                "--dir", "--password", "-p", "--username", "-u",
+            ])
+        } else if kind == "codex", let baseCommand, ["resume", "fork"].contains(baseCommand) {
+            // Picker-only selector introduced by Codex 0.144.3. It must be known
+            // for lifetime classification but is never meaningful on replay.
+            policy.booleanOptions.insert("--include-non-interactive")
+            policy.droppedOptions.insert("--include-non-interactive")
         }
         let hasOneShotOption = containsOption(oneShotOptions(for: kind), in: arguments, policy: policy)
         let hasInteractiveOption = containsOption(interactiveOptions(for: kind), in: arguments, policy: policy)
@@ -107,7 +119,7 @@ public enum AgentLaunchModeClassifier {
                 return .oneShot
             }
             if interactiveCommands(for: kind).contains(command) {
-                return .interactive
+                return hasUnknownOption ? .unknown : .interactive
             }
         }
         if hasUnknownOption {
