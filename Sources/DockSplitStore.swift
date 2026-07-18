@@ -33,6 +33,7 @@ final class DockSplitStore: BonsplitDelegate {
     private let baseDirectoryProvider: () -> String?
     private let remoteBrowserSettingsProvider: () -> DockRemoteBrowserSettings
     private let browserAvailabilityProvider: () -> Bool
+    private let loadsConfiguration: Bool
     var panels: [UUID: any Panel] = [:]
     var surfaceIdToPanelId: [TabID: UUID] = [:]
     var panelCancellables: [UUID: AnyCancellable] = [:]
@@ -74,12 +75,14 @@ final class DockSplitStore: BonsplitDelegate {
     init(
         workspaceId: UUID,
         scope: DockScope = .workspace,
+        loadsConfiguration: Bool = true,
         baseDirectoryProvider: @escaping () -> String?,
         remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings = { .local },
         browserAvailabilityProvider: @escaping () -> Bool = { BrowserAvailabilitySettings.isEnabled() }
     ) {
         self.workspaceId = workspaceId
         self.scope = scope
+        self.loadsConfiguration = loadsConfiguration
         self.baseDirectoryProvider = baseDirectoryProvider
         self.remoteBrowserSettingsProvider = remoteBrowserSettingsProvider
         self.browserAvailabilityProvider = browserAvailabilityProvider
@@ -117,6 +120,9 @@ final class DockSplitStore: BonsplitDelegate {
         }
         focusHistoryNavigation.attach(host: self)
         Self.liveStoresTable.add(self)
+        if !loadsConfiguration {
+            hasLoadedConfiguration = true
+        }
     }
 
     // MARK: - Lookups
@@ -180,7 +186,7 @@ final class DockSplitStore: BonsplitDelegate {
     }
 
     private func reloadIfBaseDirectoryChanged() {
-        guard hasLoadedConfiguration else { return }
+        guard loadsConfiguration, hasLoadedConfiguration else { return }
         let rootDirectory = currentBaseDirectory()
         if configurationLoadTask != nil, rootDirectory != configurationLoadRootDirectory { reload(); return }
         guard configurationLoadTask == nil else { return }
@@ -224,9 +230,16 @@ final class DockSplitStore: BonsplitDelegate {
         removeAllPanels()
     }
 
+    func resetForSessionRestore() {
+        removeAllPanels()
+        hasLoadedConfiguration = true
+        hasAppliedConfigurationSeed = true
+    }
+
     func ensureLoaded() {
         guard !hasLoadedConfiguration else { return }
         hasLoadedConfiguration = true
+        guard loadsConfiguration else { return }
         startConfigurationLoad(replacingPanels: false)
     }
 
@@ -254,6 +267,8 @@ final class DockSplitStore: BonsplitDelegate {
         workingDirectory: String? = nil,
         environment: [String: String] = [:],
         tmuxStartCommand: String? = nil,
+        noteFilePath: String? = nil,
+        noteTitle: String? = nil,
         focus: Bool = true,
         preferredProfileID: UUID? = nil,
         bypassInsecureHTTPHostOnce: String? = nil
@@ -267,6 +282,8 @@ final class DockSplitStore: BonsplitDelegate {
             environment: environment,
             workingDirectory: workingDirectory ?? currentBaseDirectory(),
             tmuxStartCommand: tmuxStartCommand,
+            noteFilePath: noteFilePath,
+            noteTitle: noteTitle,
             preferredProfileID: preferredProfileID,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
         ) else { return nil }
@@ -299,6 +316,9 @@ final class DockSplitStore: BonsplitDelegate {
         workingDirectory: String? = nil,
         environment: [String: String] = [:],
         tmuxStartCommand: String? = nil,
+        noteFilePath: String? = nil,
+        noteTitle: String? = nil,
+        preferredProfileID: UUID? = nil,
         initialDividerPosition: CGFloat? = nil,
         focus: Bool = true
     ) -> UUID? {
@@ -309,7 +329,10 @@ final class DockSplitStore: BonsplitDelegate {
             url: url,
             environment: environment,
             workingDirectory: workingDirectory ?? currentBaseDirectory(),
-            tmuxStartCommand: tmuxStartCommand
+            tmuxStartCommand: tmuxStartCommand,
+            noteFilePath: noteFilePath,
+            noteTitle: noteTitle,
+            preferredProfileID: preferredProfileID
         ) else { return nil }
 
         guard let source = resolveSourcePanelId(sourcePanelId), let sourcePaneId = paneId(forPanelId: source) else {
@@ -420,6 +443,10 @@ final class DockSplitStore: BonsplitDelegate {
     }
 
 #if DEBUG
+    var hasPendingConfigurationWorkForTesting: Bool {
+        configurationLoadTask != nil || configurationIdentityTask != nil
+    }
+
     func markConfigurationLoadInFlightForTesting(rootDirectory: String?) -> Int {
         hasLoadedConfiguration = true; configurationLoadGeneration += 1
         configurationLoadRootDirectory = rootDirectory; configurationLoadTask = Task {}
@@ -437,6 +464,8 @@ final class DockSplitStore: BonsplitDelegate {
         environment: [String: String],
         workingDirectory: String,
         tmuxStartCommand: String? = nil,
+        noteFilePath: String? = nil,
+        noteTitle: String? = nil,
         preferredProfileID: UUID? = nil,
         bypassInsecureHTTPHostOnce: String? = nil
     ) -> (any Panel)? {
@@ -462,6 +491,15 @@ final class DockSplitStore: BonsplitDelegate {
                 preferredProfileID: preferredProfileID,
                 bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
             )
+        case .note:
+            guard let noteFilePath else { return nil }
+            return FilePreviewPanel(
+                workspaceId: workspaceId,
+                filePath: noteFilePath,
+                presentation: .note(
+                    title: noteTitle ?? String(localized: "floatingDock.note.title", defaultValue: "Notes")
+                )
+            )
         }
     }
 
@@ -480,6 +518,8 @@ final class DockSplitStore: BonsplitDelegate {
         case .browser:
             guard browserAvailabilityProvider() else { return nil }
             return makeBrowserPanel(url: def.url.flatMap { URL(string: $0) })
+        case .note:
+            return nil
         }
     }
 
@@ -520,6 +560,7 @@ final class DockSplitStore: BonsplitDelegate {
         switch kind {
         case .terminal: return "terminal"
         case .browser: return "browser"
+        case .note: return "filepreview"
         }
     }
 

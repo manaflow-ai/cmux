@@ -18,6 +18,7 @@ struct PanelContentView: View {
     let isSplit: Bool
     let appearance: PanelAppearance
     let windowAppearance: WindowAppearanceSnapshot
+    var usesTransparentContainer = false
     let customSidebarTabManager: TabManager?
     let customSidebarUnread: SidebarUnreadModel = TerminalNotificationStore.shared.sidebarUnread
     let hasUnreadNotification: Bool
@@ -72,6 +73,7 @@ struct PanelContentView: View {
                     isVisibleInUI: isVisibleInUI,
                     portalPriority: portalPriority,
                     paneOwnershipOverride: paneOwnershipOverride,
+                    usesTransparentContainer: usesTransparentContainer,
                     onRequestPanelFocus: onRequestPanelFocus
                 )
                 // Browser chrome owns panel-scoped edit/focus state. Bonsplit reuses this

@@ -18,17 +18,23 @@ struct DockPanelView: View {
     /// dims its focus ring when false so Dock and main-pane focus are mutually
     /// exclusive (the main pane dims its ring when this is true).
     var rightSidebarOwnsInputFocus: Bool = false
+    var onKeyboardFocusIntent: (() -> Void)? = nil
+    var usesTransparentBackground = false
+    var tabBarLeadingInset: CGFloat = 0
 
     @State private var appearanceConfig = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "dock.initial")
     @State private var visibilityHostId = UUID()
 
     private var appearance: PanelAppearance {
-        PanelAppearance.fromConfig(appearanceConfig)
+        if usesTransparentBackground {
+            return PanelAppearance.fromConfig(appearanceConfig, usesTransparentWindow: true)
+        }
+        return PanelAppearance.fromConfig(appearanceConfig)
     }
 
     var body: some View {
         content
-        .background(Color(nsColor: appearance.backgroundColor))
+        .background(Color(nsColor: usesTransparentBackground ? appearance.contentBackgroundColor : appearance.backgroundColor))
         .background(
             DockKeyboardFocusBridge(store: store)
                 .frame(width: 1, height: 1)
@@ -64,7 +70,7 @@ struct DockPanelView: View {
     private func refreshAppearance(reason: String) {
         let next = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "dock.\(reason)")
         appearanceConfig = next
-        store.applyGhosttyChrome(from: next)
+        store.applyGhosttyChrome(from: next, tabBarLeadingInset: tabBarLeadingInset)
     }
 
     @ViewBuilder
@@ -80,7 +86,9 @@ struct DockPanelView: View {
                 store: store,
                 appearance: appearance,
                 windowAppearance: windowAppearance,
-                rightSidebarOwnsInputFocus: rightSidebarOwnsInputFocus
+                usesTransparentBackground: usesTransparentBackground,
+                rightSidebarOwnsInputFocus: rightSidebarOwnsInputFocus,
+                onKeyboardFocusIntent: onKeyboardFocusIntent
             )
         }
     }
@@ -92,7 +100,9 @@ private struct DockSplitContentView: View {
     let store: DockSplitStore
     let appearance: PanelAppearance
     let windowAppearance: WindowAppearanceSnapshot
+    let usesTransparentBackground: Bool
     let rightSidebarOwnsInputFocus: Bool
+    let onKeyboardFocusIntent: (() -> Void)?
 
     /// Portal z-priority for Dock-hosted terminal/browser surfaces. Kept low so
     /// Dock surfaces never overlay main-area surfaces.
@@ -128,6 +138,7 @@ private struct DockSplitContentView: View {
                 isSplit: isSplit,
                 appearance: appearance,
                 windowAppearance: windowAppearance,
+                usesTransparentContainer: usesTransparentBackground,
                 customSidebarTabManager: nil,
                 hasUnreadNotification: false,
                 terminalAgentContext: "",
@@ -138,10 +149,12 @@ private struct DockSplitContentView: View {
                 },
                 onFocus: {
                     store.bonsplitController.focusPane(paneId)
-                    store.noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
+                    if let onKeyboardFocusIntent { onKeyboardFocusIntent() }
+                    else { store.noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow) }
                 },
                 onRequestPanelFocus: {
-                    store.noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
+                    if let onKeyboardFocusIntent { onKeyboardFocusIntent() }
+                    else { store.noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow) }
                     store.focusPanel(panel.id)
                 },
                 onResumeAgentHibernation: {},

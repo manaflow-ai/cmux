@@ -5302,7 +5302,7 @@ class TerminalController {
             // routed TabManager otherwise — mirroring the coordinator
             // witnesses' post-#7144 shape.
             let resolvedWindowID: UUID?
-            if let dock = self.windowDockForRouting(routing, tabManager: tabManager) {
+            if let dock = self.containerDockForSurfaceRouting(routing, tabManager: tabManager) {
                 let target = self.terminalPanel(
                     in: dock,
                     explicitSurfaceID: explicitSurfaceID,
