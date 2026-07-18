@@ -4,6 +4,88 @@ import Foundation
 import Testing
 
 @Suite struct ClaudeWrapperResumeEnvironmentTests {
+    @Test func bundledClaudeWrapperClassifiesCurrentUtilityAndSessionWidths() throws {
+        let fileManager = FileManager.default
+        let repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let wrapperURL = repoRoot.appendingPathComponent("Resources/bin/cmux-claude-wrapper", isDirectory: false)
+        let sandbox = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-claude-wrapper-widths-\(UUID().uuidString)", isDirectory: true)
+        let binDir = sandbox.appendingPathComponent("bin", isDirectory: true)
+        let homeDir = sandbox.appendingPathComponent("home", isDirectory: true)
+        let recordURL = sandbox.appendingPathComponent("record.txt", isDirectory: false)
+        let socketURL = sandbox.appendingPathComponent("cmux.sock", isDirectory: false)
+        try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: homeDir, withIntermediateDirectories: true)
+        let socketFD = try bindUnixSocket(at: socketURL.path)
+        defer {
+            Darwin.close(socketFD)
+            unlink(socketURL.path)
+            try? fileManager.removeItem(at: sandbox)
+        }
+
+        try writeExecutable(
+            binDir.appendingPathComponent("claude", isDirectory: false),
+            """
+            #!/usr/bin/env bash
+            printf '%s\\n' "$*" > \(shellQuotedForTest(recordURL.path))
+            """
+        )
+        let fakeCmuxURL = binDir.appendingPathComponent("cmux", isDirectory: false)
+        try writeExecutable(
+            fakeCmuxURL,
+            """
+            #!/usr/bin/env bash
+            if [[ "${1:-}" == "--socket" && "${3:-}" == "ping" ]]; then
+              exit 0
+            fi
+            exit 1
+            """
+        )
+
+        let utilityCases = [
+            ["--append-system-prompt-file", "/tmp/prompt file", "--teammate-mode", "auto", "gateway"],
+            ["--system-prompt-file", "/tmp/system prompt", "project"],
+            ["--prompt-suggestions", "gateway"],
+            ["--prompt-suggestions", "true", "ultrareview"],
+        ]
+        let sessionCases = [
+            ["--append-system-prompt-file", "/tmp/prompt file", "--teammate-mode", "auto", "--resume", "session-1"],
+            ["--prompt-suggestions", "true", "--resume", "session-2"],
+            ["--prompt-suggestions", "--resume", "session-3"],
+            ["--tmux"],
+        ]
+
+        for (index, arguments) in (utilityCases + sessionCases).enumerated() {
+            try? fileManager.removeItem(at: recordURL)
+            let process = Process()
+            process.executableURL = wrapperURL
+            process.arguments = arguments
+            process.environment = [
+                "PATH": "\(binDir.path):/usr/bin:/bin",
+                "HOME": homeDir.path,
+                "TMPDIR": sandbox.path,
+                "CMUX_SURFACE_ID": UUID().uuidString,
+                "CMUX_SOCKET_PATH": socketURL.path,
+                "CMUX_BUNDLED_CLI_PATH": fakeCmuxURL.path,
+            ]
+            process.standardInput = FileHandle.nullDevice
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+            try runWithBoundedWait(process, shellDescription: "cmux-claude-wrapper current widths")
+
+            let recorded = try String(contentsOf: recordURL, encoding: .utf8)
+            if index < utilityCases.count {
+                #expect(!recorded.contains("--settings"), Comment(rawValue: "\(arguments): \(recorded)"))
+                #expect(!recorded.contains("--session-id"), Comment(rawValue: "\(arguments): \(recorded)"))
+            } else {
+                #expect(recorded.contains("--settings"), Comment(rawValue: "\(arguments): \(recorded)"))
+            }
+            for argument in arguments {
+                #expect(recorded.contains(argument), Comment(rawValue: "\(arguments): \(recorded)"))
+            }
+        }
+    }
+
     @Test func bundledClaudeWrapperScrubsSessionIdentityAndPreservesTrustBypassOnResume() throws {
         let fileManager = FileManager.default
         let repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()

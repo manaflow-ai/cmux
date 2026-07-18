@@ -1563,4 +1563,26 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(result.status != 0)
         #expect(result.stdout.contains("codex-hook-sessions.json"))
     }
+
+    @Test func nonSessionStopCompletesTheLiveProcessGeneration() {
+        let lineage = AgentHookSessionLineage(
+            runId: "utility-run",
+            pid: 4242,
+            processStartedAt: 100,
+            processDescribesAgent: true,
+            processLaunchMode: .nonSession,
+            parentRunId: nil,
+            parentSessionId: nil,
+            relationship: nil,
+            restoreAuthority: false
+        )
+
+        #expect(
+            AgentPromptStopLineagePolicy().decision(
+                record: nil,
+                lineage: lineage,
+                incomingPID: 4242
+            ) == .completeRecordedGeneration(.terminalLaunch)
+        )
+    }
 }

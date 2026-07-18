@@ -3,6 +3,84 @@ import Foundation
 import XCTest
 
 final class CodexHookWriterOwnershipRegressionTests: XCTestCase {
+    func testWrapperClassifiesCurrentGlobalOptionWidthsBeforeUtilitiesAndSessions() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-wrapper-widths-\(UUID().uuidString)", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux", isDirectory: false)
+        let fakeCodex = root.appendingPathComponent("codex-real", isDirectory: false)
+        let socketPath = makeCodexHookSocketPath("widths")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        try makeCodexHookExecutableShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$*\" >> \"$TEST_CLI_CAPTURE\"",
+            "exit 0",
+        ])
+        try makeCodexHookExecutableShellFile(at: fakeCodex, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$*\" > \"$TEST_CODEX_CAPTURE\"",
+        ])
+        let wrapper = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Resources/bin/cmux-codex-wrapper", isDirectory: false)
+
+        let utilityCases = [
+            ["--remote-auth-token-env", "CODEX_TOKEN", "plugin", "list"],
+            ["--local-provider", "ollama", "plugin", "list"],
+            ["--add-dir", "/tmp/source tree", "plugin", "list"],
+            ["--image", "/tmp/a.png", "/tmp/b.png", "plugin", "list"],
+        ]
+        let sessionCases = [
+            ["--add-dir", "/tmp/source tree", "fork", "019dad34-d218-7943-b81a-eddac5c87951"],
+            ["--local-provider", "ollama", "resume", "019dad34-d218-7943-b81a-eddac5c87951"],
+            ["--remote-auth-token-env", "CODEX_TOKEN", "exec", "echo", "ok"],
+            ["--image", "/tmp/a.png", "/tmp/b.png", "exec", "echo", "ok"],
+        ]
+
+        for (index, arguments) in (utilityCases + sessionCases).enumerated() {
+            let cliCapture = root.appendingPathComponent("cli-\(index).txt", isDirectory: false)
+            let codexCapture = root.appendingPathComponent("codex-\(index).txt", isDirectory: false)
+            let result = runCodexHookProcess(
+                executablePath: wrapper.path,
+                arguments: arguments,
+                environment: [
+                    "HOME": root.path,
+                    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                    "CMUX_SURFACE_ID": "surface-widths",
+                    "CMUX_SOCKET_PATH": socketPath,
+                    "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
+                    "CMUX_CUSTOM_CODEX_PATH": fakeCodex.path,
+                    "TEST_CLI_CAPTURE": cliCapture.path,
+                    "TEST_CODEX_CAPTURE": codexCapture.path,
+                ],
+                timeout: 3
+            )
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 0, result.stderr)
+            XCTAssertEqual(
+                try String(contentsOf: codexCapture, encoding: .utf8)
+                    .trimmingCharacters(in: .newlines),
+                arguments.joined(separator: " ")
+            )
+            let cliInvocations = (try? String(contentsOf: cliCapture, encoding: .utf8)) ?? ""
+            if index < utilityCases.count {
+                XCTAssertFalse(cliInvocations.contains("hooks codex install --yes"), "\(arguments): \(cliInvocations)")
+            } else {
+                XCTAssertTrue(
+                    waitForFile(cliCapture, containing: "hooks codex install --yes", timeout: 1),
+                    "\(arguments): \(cliInvocations)"
+                )
+            }
+        }
+    }
+
     func testWrapperRoutesResumeAndForkThroughCustomCodexWithHookOwnership() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux codex custom path \(UUID().uuidString)", isDirectory: true)
