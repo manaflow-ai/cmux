@@ -172,6 +172,10 @@ struct AgentHookSessionStateWriter: Sendable {
         let hasResumeAttempt: Bool
         let runtimeEvidence: AgentRuntimeOwnershipProbe.Evidence
     }
+    private struct ProjectedRecordAuthority: Sendable {
+        let restoreAuthority: Bool
+        let runtimeID: String?
+    }
     private enum LegacyReadLockMode: Sendable, Equatable {
         case immediate
         case wait
@@ -583,9 +587,8 @@ struct AgentHookSessionStateWriter: Sendable {
                                         == request.adoptionId.uuidString,
                                       record["sessionState"] as? String
                                         == AgentSessionLifecycleState.hibernated.rawValue,
-                                      record["restoreAuthority"] as? Bool != false,
                                       !hasCompletion(record),
-                                      recordBelongsToCurrentRuntime(record),
+                                      projectedRecordCanBeMutatedByCurrentRuntime(record),
                                       let workspaceId = normalized(record["workspaceId"] as? String),
                                       let surfaceId = normalized(record["surfaceId"] as? String) else {
                                     return false
@@ -839,10 +842,9 @@ struct AgentHookSessionStateWriter: Sendable {
                     ]
                     guard let state = record["sessionState"] as? String,
                           allowedStates.contains(state),
-                          record["restoreAuthority"] as? Bool != false,
                           !hasCompletion(record),
                           record["updatedAt"] is TimeInterval,
-                          recordBelongsToCurrentRuntime(record),
+                          projectedRecordCanBeMutatedByCurrentRuntime(record),
                           let recordWorkspaceId = normalized(record["workspaceId"] as? String),
                           let recordSurfaceId = normalized(record["surfaceId"] as? String) else {
                         return false
@@ -924,10 +926,9 @@ struct AgentHookSessionStateWriter: Sendable {
                                 guard record["sessionState"] as? String
                                         == AgentSessionLifecycleState.hibernated.rawValue,
                                       record["cmuxHibernationDetached"] as? Bool != true,
-                                      record["restoreAuthority"] as? Bool != false,
                                       !hasCompletion(record),
                                       record["updatedAt"] is TimeInterval,
-                                      recordBelongsToCurrentRuntime(record),
+                                      projectedRecordCanBeMutatedByCurrentRuntime(record),
                                       let recordWorkspaceId = normalized(record["workspaceId"] as? String),
                                       let recordSurfaceId = normalized(record["surfaceId"] as? String) else {
                                     return false
@@ -1023,9 +1024,8 @@ struct AgentHookSessionStateWriter: Sendable {
                             == request.attemptId.uuidString,
                           record["sessionState"] as? String
                             == AgentSessionLifecycleState.hibernated.rawValue,
-                          record["restoreAuthority"] as? Bool != false,
                           !hasCompletion(record),
-                          recordBelongsToCurrentRuntime(record),
+                          projectedRecordCanBeMutatedByCurrentRuntime(record),
                           let workspaceId = normalized(record["workspaceId"] as? String),
                           let surfaceId = normalized(record["surfaceId"] as? String) else {
                         return false
@@ -1089,9 +1089,8 @@ struct AgentHookSessionStateWriter: Sendable {
                             == request.attemptId.uuidString,
                           record["sessionState"] as? String
                             == AgentSessionLifecycleState.restoring.rawValue,
-                          record["restoreAuthority"] as? Bool != false,
                           !hasCompletion(record),
-                          recordBelongsToCurrentRuntime(record),
+                          projectedRecordCanBeMutatedByCurrentRuntime(record),
                           let workspaceId = normalized(record["workspaceId"] as? String),
                           let surfaceId = normalized(record["surfaceId"] as? String) else {
                         return false
@@ -1486,7 +1485,7 @@ struct AgentHookSessionStateWriter: Sendable {
                 && lifecycle == AgentSessionLifecycleState.restoring.rawValue
                 && normalized(record["cmuxHibernationResumeAttemptId"] as? String) != nil)
         guard lifecycleCanBeAdopted,
-              record["restoreAuthority"] as? Bool != false,
+              projectedRecordAuthority(record)?.restoreAuthority == true,
               !hasCompletion(record),
               record["updatedAt"] is TimeInterval,
               let recordWorkspaceId = normalized(record["workspaceId"] as? String),
@@ -1590,28 +1589,39 @@ struct AgentHookSessionStateWriter: Sendable {
         return payload
     }
 
-    /// Resume authority belongs to a concrete cmux process, not only to the
-    /// stable workspace/surface UUIDs that session restore preserves. Both the
-    /// root record and its active run must still name this process before cmux
-    /// can queue provider resume input.
-    private func recordBelongsToCurrentRuntime(_ record: [String: Any]) -> Bool {
-        guard let currentRuntimeId = normalized(environment["CMUX_RUNTIME_ID"]),
-              let runtime = record["cmuxRuntime"] as? [String: Any],
-              normalized(runtime["id"] as? String) == currentRuntimeId else {
+    /// A nonempty run history is the sole source of restore and runtime
+    /// authority. Root fields remain a compatibility fallback only for legacy
+    /// records that have no runs.
+    private func projectedRecordAuthority(
+        _ record: [String: Any]
+    ) -> ProjectedRecordAuthority? {
+        guard JSONSerialization.isValidJSONObject(record),
+              let data = try? JSONSerialization.data(withJSONObject: record),
+              let projection = CmuxAgentSessionRunAuthorityProjection()
+                .projection(recordJSON: data) else {
+            return nil
+        }
+        let runtimeID: String?
+        if let run = projection.run {
+            runtimeID = normalized(run.cmuxRuntime?.id)
+        } else {
+            let runtime = record["cmuxRuntime"] as? [String: Any]
+            runtimeID = normalized(runtime?["id"] as? String)
+        }
+        return ProjectedRecordAuthority(
+            restoreAuthority: projection.restoreAuthority,
+            runtimeID: runtimeID
+        )
+    }
+
+    private func projectedRecordCanBeMutatedByCurrentRuntime(
+        _ record: [String: Any]
+    ) -> Bool {
+        guard let currentRuntimeID = normalized(environment["CMUX_RUNTIME_ID"]),
+              let authority = projectedRecordAuthority(record) else {
             return false
         }
-        guard let activeRunId = normalized(record["activeRunId"] as? String) else {
-            return true
-        }
-        guard let runs = record["runs"] as? [[String: Any]],
-              let activeRun = runs.first(where: {
-                  normalized($0["runId"] as? String) == activeRunId
-              }),
-              let activeRunRuntime = activeRun["cmuxRuntime"] as? [String: Any],
-              normalized(activeRunRuntime["id"] as? String) == currentRuntimeId else {
-            return false
-        }
-        return true
+        return authority.restoreAuthority && authority.runtimeID == currentRuntimeID
     }
 
     /// Reads and probes the prospective owner before opening the SQLite writer
