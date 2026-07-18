@@ -176,7 +176,11 @@ struct AgentHookSessionLineageResolver: Sendable {
             if identity.isCmuxTerminalHost {
                 return .none
             }
-            if AgentLaunchCaptureTrust.nativeProcessDescribesKnownAgent(
+            if AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                processName: identity.executableName,
+                arguments: identity.arguments,
+                kind: agentName
+            ) || AgentLaunchCaptureTrust.nativeProcessDescribesKnownAgent(
                 processName: identity.executableName,
                 arguments: identity.arguments
             ) {
