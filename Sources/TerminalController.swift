@@ -2560,6 +2560,7 @@ class TerminalController {
             "browser.input_keyboard",
             "browser.input_touch",
         ]
+        methods.append(contentsOf: ControlCommandExecutionPolicy.simulatorMethods)
 #if DEBUG
         methods.append(contentsOf: Self.v2DebugMethodNames)
 #endif

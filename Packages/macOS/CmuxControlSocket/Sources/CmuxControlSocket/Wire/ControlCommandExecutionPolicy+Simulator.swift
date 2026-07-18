@@ -1,7 +1,8 @@
 extension ControlCommandExecutionPolicy {
     /// Simulator calls wait for correlated replies from the isolated worker,
-    /// so none may block the main actor.
-    static let simulatorSocketWorkerMethods: Set<String> = [
+    /// so none may block the main actor. The app also publishes this set from
+    /// `system.capabilities`, keeping execution policy and discovery aligned.
+    public static let simulatorMethods: Set<String> = [
         "simulator.type",
         "simulator.web_inspector.targets",
         "simulator.web_inspector.attach",
