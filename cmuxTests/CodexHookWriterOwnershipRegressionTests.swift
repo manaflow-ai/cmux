@@ -35,16 +35,22 @@ final class CodexHookWriterOwnershipRegressionTests: XCTestCase {
             ["--remote-auth-token-env", "CODEX_TOKEN", "plugin", "list"],
             ["--local-provider", "ollama", "plugin", "list"],
             ["--add-dir", "/tmp/source tree", "plugin", "list"],
-            ["--image", "/tmp/a.png", "/tmp/b.png", "plugin", "list"],
         ]
-        let sessionCases = [
+        let sessionOrRootCases = [
             ["--add-dir", "/tmp/source tree", "fork", "019dad34-d218-7943-b81a-eddac5c87951"],
             ["--local-provider", "ollama", "resume", "019dad34-d218-7943-b81a-eddac5c87951"],
             ["--remote-auth-token-env", "CODEX_TOKEN", "exec", "echo", "ok"],
+            // Codex 0.144.3 parses --image/-i as <FILE>..., so every following
+            // bare token belongs to the root invocation. `plugin` and `exec`
+            // here are image values, not subcommands, and the wrapper must keep
+            // treating the resulting root launch as a session.
+            ["--image", "/tmp/a.png", "plugin", "list"],
+            ["-i", "/tmp/a.png", "plugin", "list"],
+            ["--image", "/tmp/a.png", "/tmp/b.png", "plugin", "list"],
             ["--image", "/tmp/a.png", "/tmp/b.png", "exec", "echo", "ok"],
         ]
 
-        for (index, arguments) in (utilityCases + sessionCases).enumerated() {
+        for (index, arguments) in (utilityCases + sessionOrRootCases).enumerated() {
             let cliCapture = root.appendingPathComponent("cli-\(index).txt", isDirectory: false)
             let codexCapture = root.appendingPathComponent("codex-\(index).txt", isDirectory: false)
             let result = runCodexHookProcess(

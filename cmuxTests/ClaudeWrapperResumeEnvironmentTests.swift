@@ -45,7 +45,7 @@ import Testing
         let utilityCases = [
             ["--append-system-prompt-file", "/tmp/prompt file", "--teammate-mode", "auto", "gateway"],
             ["--system-prompt-file", "/tmp/system prompt", "project"],
-            ["--prompt-suggestions", "gateway"],
+            ["--prompt-suggestions", "false", "gateway"],
             ["--prompt-suggestions", "true", "ultrareview"],
         ]
         let sessionCases = [
