@@ -2078,6 +2078,207 @@ struct RestorableAgentSessionIndexTests {
         )
     }
 
+    @Test
+    func testAppRestoreAuthorityMatchesCanonicalRunProjection() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-canonical-run-restore-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let dir = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        struct Fixture {
+            var name: String
+            var recordAuthority: Bool?
+            var activeRunId: String?
+            var runs: [[String: Any]]?
+            var expectedAuthority: Bool
+        }
+        let fixtures = [
+            Fixture(
+                name: "stale-promote",
+                recordAuthority: true,
+                activeRunId: "child",
+                runs: [
+                    ["runId": "root", "restoreAuthority": true, "startedAt": 1.0, "updatedAt": 1.0],
+                    ["runId": "child", "restoreAuthority": false, "startedAt": 2.0, "updatedAt": 2.0],
+                ],
+                expectedAuthority: false
+            ),
+            Fixture(
+                name: "stale-demote",
+                recordAuthority: false,
+                activeRunId: "root",
+                runs: [[
+                    "runId": "root", "restoreAuthority": true, "startedAt": 1.0, "updatedAt": 2.0,
+                ]],
+                expectedAuthority: true
+            ),
+            Fixture(
+                name: "missing-active-falls-back",
+                recordAuthority: true,
+                activeRunId: "pruned-run",
+                runs: [
+                    ["runId": "root", "restoreAuthority": true, "startedAt": 1.0, "updatedAt": 1.0],
+                    ["runId": "child", "restoreAuthority": false, "startedAt": 2.0, "updatedAt": 3.0],
+                ],
+                expectedAuthority: false
+            ),
+            Fixture(
+                name: "duplicate-authority-conflict",
+                recordAuthority: true,
+                activeRunId: "duplicate",
+                runs: [
+                    ["runId": "duplicate", "restoreAuthority": true, "startedAt": 1.0, "updatedAt": 2.0],
+                    ["runId": "duplicate", "restoreAuthority": false, "startedAt": 1.0, "updatedAt": 2.0],
+                ],
+                expectedAuthority: false
+            ),
+            Fixture(
+                name: "duplicate-process-conflict",
+                recordAuthority: true,
+                activeRunId: "duplicate",
+                runs: [
+                    [
+                        "runId": "duplicate", "pid": 101, "restoreAuthority": true,
+                        "startedAt": 1.0, "updatedAt": 2.0,
+                    ],
+                    [
+                        "runId": "duplicate", "pid": 202, "restoreAuthority": true,
+                        "startedAt": 1.0, "updatedAt": 2.0,
+                    ],
+                ],
+                expectedAuthority: false
+            ),
+            Fixture(
+                name: "duplicate-ended",
+                recordAuthority: true,
+                activeRunId: "duplicate",
+                runs: [
+                    ["runId": "duplicate", "restoreAuthority": true, "startedAt": 1.0, "updatedAt": 2.0],
+                    [
+                        "runId": "duplicate", "restoreAuthority": true, "startedAt": 1.0,
+                        "updatedAt": 2.0, "endedAt": 3.0,
+                    ],
+                ],
+                expectedAuthority: false
+            ),
+            Fixture(
+                name: "legacy-no-runs",
+                recordAuthority: nil,
+                activeRunId: nil,
+                runs: nil,
+                expectedAuthority: true
+            ),
+            Fixture(
+                name: "legacy-empty-runs-demoted",
+                recordAuthority: false,
+                activeRunId: nil,
+                runs: [],
+                expectedAuthority: false
+            ),
+        ]
+
+        var sessions: [String: [String: Any]] = [:]
+        var locations: [(fixture: Fixture, workspaceID: UUID, panelID: UUID)] = []
+        for fixture in fixtures {
+            let workspaceID = UUID()
+            let panelID = UUID()
+            let sessionID = "canonical-\(fixture.name)"
+            var record = driftedAgentHookRecord(
+                launcher: "opencode",
+                sessionId: sessionID,
+                workspaceId: workspaceID,
+                panelId: panelID,
+                recordedCwd: dir.path,
+                launchCwd: dir.path,
+                updatedAt: 10
+            )
+            record["startedAt"] = 1.0
+            if let recordAuthority = fixture.recordAuthority {
+                record["restoreAuthority"] = recordAuthority
+            } else {
+                record.removeValue(forKey: "restoreAuthority")
+            }
+            if let activeRunId = fixture.activeRunId {
+                record["activeRunId"] = activeRunId
+            }
+            if let runs = fixture.runs {
+                record["runs"] = runs
+            }
+
+            let cliRecordData = try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])
+            let cliRecord = try JSONDecoder().decode(ClaudeHookSessionRecord.self, from: cliRecordData)
+            let cliAuthority = AgentSessionRunCanonicalizer().projectedRun(
+                record: cliRecord,
+                provider: "opencode"
+            ).restoreAuthority
+            XCTAssertEqual(
+                cliAuthority,
+                fixture.expectedAuthority,
+                "The fixture must encode the intended CLI canonical projection for \(fixture.name)."
+            )
+
+            sessions[sessionID] = record
+            locations.append((fixture, workspaceID, panelID))
+        }
+        try writeHookStore(
+            root: root,
+            storeFilename: "opencode-hook-sessions.json",
+            sessions: sessions
+        )
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+        for location in locations {
+            XCTAssertEqual(
+                index.snapshot(workspaceId: location.workspaceID, panelId: location.panelID) != nil,
+                location.fixture.expectedAuthority,
+                "App restore authority must match the CLI canonical run for \(location.fixture.name)."
+            )
+        }
+    }
+
+    @Test
+    func testMalformedCanonicalRunFailsAppRestoreClosed() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-malformed-run-restore-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let dir = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let workspaceID = UUID()
+        let panelID = UUID()
+        let sessionID = "malformed-run"
+        var record = driftedAgentHookRecord(
+            launcher: "opencode",
+            sessionId: sessionID,
+            workspaceId: workspaceID,
+            panelId: panelID,
+            recordedCwd: dir.path,
+            launchCwd: dir.path,
+            updatedAt: 10
+        )
+        record["restoreAuthority"] = true
+        record["activeRunId"] = "missing-authority"
+        record["runs"] = [[
+            "runId": "missing-authority",
+            "startedAt": 1.0,
+            "updatedAt": 2.0,
+        ]]
+        try writeHookStore(
+            root: root,
+            storeFilename: "opencode-hook-sessions.json",
+            sessions: [sessionID: record]
+        )
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+        XCTAssertNil(
+            index.snapshot(workspaceId: workspaceID, panelId: panelID),
+            "A malformed nonempty run array must not fall back to stale record-level authority."
+        )
+    }
+
     private func writeHookStore(
         root: URL,
         storeFilename: String,

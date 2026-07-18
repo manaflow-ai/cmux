@@ -3671,6 +3671,69 @@ extension CMUXCLIErrorOutputRegressionTests {
     }
 
     @MainActor
+    @Test func startupReconciliationUsesCanonicalRunAuthority() throws {
+        for (name, recordAuthority, runAuthority) in [
+            ("stale-promote", true, false),
+            ("stale-demote", false, true),
+        ] {
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent(
+                    "cmux-startup-canonical-run-\(name)-\(UUID().uuidString)",
+                    isDirectory: true
+                )
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+            let environment = [
+                "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+                "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+                "CMUX_RUNTIME_ID": "startup-canonical-run-runtime",
+            ]
+            let fixture = try makeHibernatedRestoreFixture(
+                root: root,
+                sessionID: "startup-canonical-run-\(name)"
+            )
+            var savedActive = fixture.snapshot
+            let panelIndex = try #require(
+                savedActive.panels.firstIndex { $0.id == fixture.sourcePanelID }
+            )
+            var terminal = try #require(savedActive.panels[panelIndex].terminal)
+            terminal.hibernation = nil
+            terminal.wasAgentRunning = true
+            savedActive.panels[panelIndex].terminal = terminal
+            try installStartupCanonicalOwner(
+                root: root,
+                registryURL: registryURL,
+                agent: fixture.agent,
+                workspaceId: fixture.source.id,
+                surfaceId: fixture.sourcePanelID,
+                lifecycle: "hibernated",
+                hibernatedAt: 30,
+                runtime: ["id": "startup-canonical-run-runtime"],
+                recordRestoreAuthority: recordAuthority,
+                runRestoreAuthority: runAuthority
+            )
+            var appSnapshot = appSessionSnapshot(containing: savedActive)
+
+            let failures = RestorableAgentSessionIndex.prepareAgentRegistryForSessionRestore(
+                &appSnapshot,
+                homeDirectory: root.path,
+                environment: environment
+            )
+
+            #expect(failures.isEmpty)
+            let reconciled = try #require(
+                appSnapshot.windows[0].tabManager.workspaces[0]
+                    .panels.first { $0.id == fixture.sourcePanelID }?.terminal
+            )
+            #expect((reconciled.hibernation != nil) == runAuthority)
+            #expect(reconciled.wasAgentRunning == false)
+            #expect((reconciled.agent != nil) == runAuthority)
+            #expect((reconciled.resumeBinding != nil) == runAuthority)
+        }
+    }
+
+    @MainActor
     @Test func startupReconciliationPreservesCanonicalHibernationOverStaleActiveLegacy() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
@@ -5286,7 +5349,9 @@ extension CMUXCLIErrorOutputRegressionTests {
         lifecycle: String,
         hibernatedAt: TimeInterval,
         resumeAttemptId: UUID? = nil,
-        runtime: [String: Any]? = nil
+        runtime: [String: Any]? = nil,
+        recordRestoreAuthority: Bool = true,
+        runRestoreAuthority: Bool = true
     ) throws -> CmuxAgentSessionRegistry {
         let updatedAt = hibernatedAt
         let activeSlot: [String: Any] = [
@@ -5298,7 +5363,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             "workspaceId": workspaceId.uuidString,
             "surfaceId": surfaceId.uuidString,
             "sessionState": lifecycle,
-            "restoreAuthority": true,
+            "restoreAuthority": recordRestoreAuthority,
             "cmuxHibernatedAt": hibernatedAt,
             "startedAt": 10.0,
             "updatedAt": updatedAt,
@@ -5313,7 +5378,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             record["cmuxRuntime"] = runtime
             record["runs"] = [[
                 "runId": "startup-owner-run",
-                "restoreAuthority": true,
+                "restoreAuthority": runRestoreAuthority,
                 "cmuxRuntime": runtime,
                 "startedAt": 10.0,
                 "updatedAt": updatedAt,

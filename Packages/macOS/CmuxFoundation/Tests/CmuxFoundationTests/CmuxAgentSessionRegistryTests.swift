@@ -315,6 +315,69 @@ struct CmuxAgentSessionRegistryTests {
         ))
     }
 
+    @Test("canonical restore-owner verification follows run authority")
+    func canonicalRestoreOwnerVerificationFollowsRunAuthority() throws {
+        for malformedSidecar in [false, true] {
+            for (name, recordAuthority, runAuthority) in [
+                ("stale-promote", true, false),
+                ("stale-demote", false, true),
+            ] {
+                let fixture = try Fixture()
+                defer { try? FileManager.default.removeItem(at: fixture.directory) }
+                let legacyURL = fixture.directory.appendingPathComponent("codex-hook-sessions.json")
+                let sessionID = "\(name)-\(malformedSidecar ? "malformed" : "missing")"
+                let workspaceID = "11111111-1111-1111-1111-111111111111"
+                let surfaceID = "22222222-2222-2222-2222-222222222222"
+                let context = CmuxAgentSessionRegistry.RestoreOwnerContext(
+                    provider: "codex",
+                    sessionID: sessionID,
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID
+                )
+                try fixture.registry.apply(
+                    provider: "codex",
+                    records: [try fixture.record(
+                        sessionID: sessionID,
+                        updatedAt: 20,
+                        generation: CmuxAgentSessionRegistry.currentWriterGeneration,
+                        extra: [
+                            "sessionState": "hibernated",
+                            "restoreAuthority": recordAuthority,
+                            "activeRunId": "canonical-run",
+                            "runs": [[
+                                "runId": "canonical-run",
+                                "restoreAuthority": runAuthority,
+                                "startedAt": 10.0,
+                                "updatedAt": 20.0,
+                            ]],
+                        ]
+                    )],
+                    activeSlots: [try fixture.slot(
+                        provider: "codex",
+                        scope: .surface,
+                        scopeID: surfaceID,
+                        sessionID: sessionID,
+                        updatedAt: 20
+                    )]
+                )
+                if malformedSidecar {
+                    try Data("{broken".utf8).write(to: legacyURL, options: .atomic)
+                }
+
+                let result = try fixture.registry.refreshLegacySources(
+                    [.init(provider: "codex", url: legacyURL)],
+                    preservingCanonicalRestoreOwners: [context]
+                )
+
+                #expect(
+                    result.verifiedCanonicalRestoreOwners.contains(context) == runAuthority,
+                    Comment(rawValue: "\(name) must use run authority with a \(malformedSidecar ? "malformed" : "missing") sidecar")
+                )
+                #expect(result.failedProviders.contains("codex") == (malformedSidecar || !runAuthority))
+            }
+        }
+    }
+
     @Test("restore preflight imports ten thousand legacy rows within a bounded interval")
     func restorePreflightPerformance() throws {
         let fixture = try Fixture()
