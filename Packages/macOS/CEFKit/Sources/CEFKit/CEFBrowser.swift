@@ -90,6 +90,63 @@ public final class CEFBrowser {
         }
     }
 
+    /// Opens `url` in a CEF-managed Chrome-style window (real Chrome window
+    /// UI: toolbar, omnibox, extension icons). This is the only surface where
+    /// WebUI management pages work — Alloy-style embedded browsers block
+    /// chrome://extensions and friends by design (CEF issue #3859) — and the
+    /// only one with the full Chrome extension UI. The window's lifecycle is
+    /// owned by CEF/Chromium, not the app; it still counts as a live browser
+    /// for the quit-time drain. Shares cookies/extensions with embedded
+    /// browsers created against the same `profile`. `completion` runs on the
+    /// main thread with the created browser (nil on failure).
+    public static func openChromeStyleWindow(
+        url: String,
+        profile: CEFProfile? = nil,
+        completion: @escaping (CEFBrowser?) -> Void = { _ in }
+    ) {
+        precondition(Thread.isMainThread)
+        guard CEFApp.shared.isContextInitialized else {
+            completion(nil)
+            return
+        }
+
+        let clientImpl = CEFClientImpl()
+        let profileRef = profile
+        CEFApp.shared.browserCreationDidStart()
+        clientImpl.onBrowserCreated = { browser in
+            CEFApp.shared.browserCreationDidSettle()
+            browser.profile = profileRef
+            completion(browser)
+        }
+        let clientPtr = clientImpl.makeClientStruct()
+
+        var windowInfo = cef_window_info_t()
+        windowInfo.size = numericCast(MemoryLayout<cef_window_info_t>.size)
+        windowInfo.runtime_style = CEF_RUNTIME_STYLE_CHROME
+        var browserSettings = cef_browser_settings_t()
+        browserSettings.size = numericCast(MemoryLayout<cef_browser_settings_t>.size)
+
+        // Same ownership contract as create(): balance the kept profile
+        // context reference before transferring it.
+        if let contextPtr = profile?.contextPtr {
+            cefAddRef(UnsafeMutableRawPointer(contextPtr))
+        }
+        let started = withCEFString(url) { urlPtr in
+            CEFRuntime.createBrowser(
+                &windowInfo,
+                clientPtr,
+                urlPtr,
+                &browserSettings,
+                nil,
+                profile?.contextPtr
+            )
+        }
+        if started != 1 {
+            CEFApp.shared.browserCreationDidSettle()
+            completion(nil)
+        }
+    }
+
     static func childWindowInfo(parentView: NSView, frame: CGRect) -> cef_window_info_t {
         var windowInfo = cef_window_info_t()
         windowInfo.size = numericCast(MemoryLayout<cef_window_info_t>.size)
@@ -178,6 +235,11 @@ public final class CEFBrowser {
     /// Gives or removes keyboard focus for the browser view.
     public func setFocus(_ focused: Bool) {
         withHost { $0.pointee.set_focus?($0, focused ? 1 : 0) }
+    }
+
+    /// Tells Chromium whether this browser is currently visible to the user.
+    public func setHidden(_ hidden: Bool) {
+        withHost { $0.pointee.was_hidden?($0, hidden ? 1 : 0) }
     }
 
     /// Requests browser close; `browserDidClose` fires when destruction

@@ -83,6 +83,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if ProcessInfo.processInfo.environment["CEFDEMO_STRESS"] == "1" {
                 self.startStressLoop()
             }
+            // Chrome-style window check (chrome://extensions etc. only work
+            // there, not in Alloy-style embedded browsers).
+            if let chromeURL = ProcessInfo.processInfo.environment["CEFDEMO_CHROME_WINDOW_URL"] {
+                CEFBrowser.openChromeStyleWindow(url: chromeURL) { browser in
+                    self.debugLog("chrome-style window: \(browser != nil ? "created" : "FAILED") for \(chromeURL)")
+                }
+            }
+            // Popover-hosted browser check (extension-popup UX spike): can a
+            // CEF browser render inside an NSPopover's window?
+            if let popoverURL = ProcessInfo.processInfo.environment["CEFDEMO_POPOVER_URL"] {
+                self.showSpikePopover(url: popoverURL)
+            }
+        }
+    }
+
+    // MARK: Popover spike (CEFDEMO_POPOVER_URL)
+
+    private var spikePopover: NSPopover?
+    private var spikePopoverBrowser: CEFBrowser?
+
+    private func showSpikePopover(url: String) {
+        let popover = NSPopover()
+        popover.behavior = .applicationDefined
+        let controller = NSViewController()
+        let container = CEFBrowserContainerView(frame: NSRect(x: 0, y: 0, width: 380, height: 560))
+        controller.view = container
+        popover.contentViewController = controller
+        popover.contentSize = NSSize(width: 380, height: 560)
+        spikePopover = popover
+        guard let anchor = window.contentView else { return }
+        popover.show(
+            relativeTo: NSRect(x: anchor.bounds.midX, y: anchor.bounds.maxY - 8, width: 10, height: 8),
+            of: anchor,
+            preferredEdge: .minY
+        )
+        CEFBrowser.create(in: container, frame: container.bounds, url: url) { [weak self] browser in
+            self?.spikePopoverBrowser = browser
+            self?.debugLog("popover browser: \(browser != nil ? "created" : "FAILED") for \(url)")
         }
     }
 

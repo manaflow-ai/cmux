@@ -59,6 +59,8 @@ public final class CEFApp {
     public private(set) var wasEverInitialized = false
     /// The active CDP endpoint port; 0 when disabled.
     public private(set) var remoteDebuggingPort = 0
+    /// Writable unpacked-extension directories passed to Chromium for this process.
+    public private(set) var stagedExtensionDirectories: [URL] = []
     var rootCachePath: URL?
 
     private var appHandler: CEFAppHandlerImpl?
@@ -114,9 +116,12 @@ public final class CEFApp {
                 configuration.extensionDirectories,
                 rootCachePath: configuration.rootCachePath
             )
+            stagedExtensionDirectories = staged
             if !staged.isEmpty {
                 switches.append(("load-extension", staged.map(\.path).joined(separator: ",")))
             }
+        } else {
+            stagedExtensionDirectories = []
         }
 
         let handler = CEFAppHandlerImpl(browserProcessSwitches: switches)

@@ -75,3 +75,10 @@ if [[ -d "${SRCROOT}/Extensions" ]]; then
     ditto "$ext" "${APP_RESOURCES}/Extensions/${ext:t}"
   done
 fi
+# Preinstalled extensions fetched by ../scripts/fetch-extensions.sh, if any.
+if [[ -d "${SRCROOT}/../third_party/extensions" ]]; then
+  for ext in "${SRCROOT}/../third_party/extensions"/*(N/); do
+    [[ -f "${ext}/manifest.json" ]] || continue
+    ditto "$ext" "${APP_RESOURCES}/Extensions/${ext:t}"
+  done
+fi

@@ -15,6 +15,24 @@
 #   - the CEFKit test extension into Contents/Resources/CEFExtensions
 set -euo pipefail
 
+copy_preinstalled_extensions() {
+  local source_dir="$1"
+  local destination_dir="$2"
+  mkdir -p "$destination_dir"
+  [[ -d "$source_dir" ]] || return
+  for ext_dir in "$source_dir"/*(N/); do
+    [[ -f "$ext_dir/manifest.json" ]] || continue
+    ditto "$ext_dir" "$destination_dir/$(basename "$ext_dir")"
+  done
+}
+
+if [[ "${CEFKIT_COPY_EXTENSIONS_ONLY:-0}" == "1" ]]; then
+  copy_preinstalled_extensions \
+    "${CEFKIT_EXTENSION_SOURCE_DIR:?missing CEFKIT_EXTENSION_SOURCE_DIR}" \
+    "${CEFKIT_EXTENSION_DESTINATION_DIR:?missing CEFKIT_EXTENSION_DESTINATION_DIR}"
+  exit 0
+fi
+
 if [[ -z "${SRCROOT:-}" || -z "${TARGET_BUILD_DIR:-}" || -z "${FULL_PRODUCT_NAME:-}" ]]; then
   echo "copy-cef-runtime-dev.sh must run from Xcode build settings" >&2
   exit 1
@@ -123,5 +141,12 @@ make_helper_variant " (Renderer)" ".renderer"
 rm -rf "${APP_RESOURCES}/CEFExtensions"
 mkdir -p "${APP_RESOURCES}/CEFExtensions"
 ditto "${CEF_PKG}/Demo/TestExtension" "${APP_RESOURCES}/CEFExtensions/cefkit-test-extension"
+
+# Preinstalled extensions fetched by Packages/macOS/CEFKit/scripts/
+# fetch-extensions.sh (uBlock Origin, Bitwarden). Best-effort: dev builds
+# without a fetch just skip them.
+copy_preinstalled_extensions \
+  "${CEF_PKG}/third_party/extensions" \
+  "${APP_RESOURCES}/CEFExtensions"
 
 echo "copy-cef-runtime-dev: bundled CEF runtime into ${FULL_PRODUCT_NAME}"

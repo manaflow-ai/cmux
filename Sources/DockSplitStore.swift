@@ -586,6 +586,28 @@ final class DockSplitStore: BonsplitDelegate {
                 )
             }
             panelCancellables[panel.id] = cancellable
+        } else if let cefBrowser = panel as? CEFBrowserPanel {
+            let cancellable = Publishers.CombineLatest(
+                cefBrowser.$title
+                    .removeDuplicates()
+                    .coalesceLatest(for: .milliseconds(100), scheduler: RunLoop.main),
+                cefBrowser.$isLoading.removeDuplicates()
+            )
+            .sink { [weak self, weak cefBrowser] _, isLoading in
+                guard let self, let cefBrowser,
+                      let tabId = self.surfaceId(forPanelId: cefBrowser.id),
+                      let existing = self.bonsplitController.tab(tabId) else { return }
+                let title = cefBrowser.displayTitle
+                let titleUpdate: String? = existing.title == title ? nil : title
+                let loadingUpdate: Bool? = existing.isLoading == isLoading ? nil : isLoading
+                guard titleUpdate != nil || loadingUpdate != nil else { return }
+                self.bonsplitController.updateTab(
+                    tabId,
+                    title: titleUpdate,
+                    isLoading: loadingUpdate
+                )
+            }
+            panelCancellables[panel.id] = cancellable
         } else if tracksTerminalTitle, let terminal = panel as? TerminalPanel {
             let cancellable = terminal.$title
                 .removeDuplicates()

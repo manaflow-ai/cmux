@@ -70,7 +70,7 @@ extension DockSplitStore {
     func detachSurface(panelId: UUID) -> Workspace.DetachedSurfaceTransfer? {
         guard let tabId = surfaceId(forPanelId: panelId), let panel = panels[panelId] else { return nil }
         let preservedTransfer = detachedSurfaceTransfersByPanelId.removeValue(forKey: panelId)
-        let kind = (panel.panelType == .browser) ? "browser" : "terminal"
+        let kind = preservedTransfer?.kind ?? surfaceKindRawValue(for: panel.panelType)
         let icon = panel.displayIcon
         let browser = panel as? BrowserPanel
         let iconImageData = browser?.faviconPNGData
@@ -219,6 +219,8 @@ extension DockSplitStore {
             terminal.updateWorkspaceId(workspaceId)
         } else if let browser = panel as? BrowserPanel {
             browser.updateWorkspaceId(workspaceId)
+        } else if let cefBrowser = panel as? CEFBrowserPanel {
+            cefBrowser.reattachToWorkspace(workspaceId)
         }
 
         panels[detached.panelId] = panel
@@ -229,7 +231,7 @@ extension DockSplitStore {
         // lose the rescue for live agents whenever the detach-time live cwd
         // read is unavailable.
         detachedSurfaceTransfersByPanelId[detached.panelId] = detached
-        let kind = detached.kind ?? ((panel.panelType == .browser) ? "browser" : "terminal")
+        let kind = detached.kind ?? surfaceKindRawValue(for: panel.panelType)
         let restoredIconImageData = detached.panel is TerminalPanel ? nil : detached.iconImageData
         guard let newTabId = bonsplitController.createTab(
             title: detached.title,

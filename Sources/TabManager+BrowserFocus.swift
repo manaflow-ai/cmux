@@ -1,6 +1,22 @@
 import AppKit
 
 extension TabManager {
+    /// Returns the focused panel when it participates in the shared omnibar contract.
+    var focusedOmnibarHostingPanel: (any OmnibarHostingPanel)? {
+        if let app = AppDelegate.shared,
+           let context = app.mainWindowContext(for: self),
+           context.keyboardFocusCoordinator.activeRightSidebarMode == .dock,
+           let dock = context.existingWindowDock(),
+           let panelID = dock.focusedPanelId,
+           let panel = dock.panels[panelID] as? any OmnibarHostingPanel {
+            return panel
+        }
+        if let focusedBrowserPanel { return focusedBrowserPanel }
+        guard let workspace = selectedWorkspace,
+              let panelID = workspace.focusedPanelId else { return nil }
+        return workspace.panels[panelID] as? any OmnibarHostingPanel
+    }
+
     /// Returns the focused panel if it is a main-area or Dock browser.
     var focusedBrowserPanel: BrowserPanel? {
         guard let tab = selectedWorkspace else { return nil }
@@ -75,4 +91,19 @@ extension TabManager {
         if let result = performFocusedTextFilePreviewZoom({ $0.resetTextPreviewZoom() }) { return result }
         return resetZoomFocusedBrowser()
     }
+}
+
+func preferredOmnibarPanel(
+    activeDockPanel: (any OmnibarHostingPanel)?,
+    mainPanel: (any OmnibarHostingPanel)?
+) -> (any OmnibarHostingPanel)? {
+    activeDockPanel ?? mainPanel
+}
+
+@MainActor
+func omnibarFocusOwnerMatches(
+    panelId: UUID,
+    focusedPanel: (any OmnibarHostingPanel)?
+) -> Bool {
+    focusedPanel?.id == panelId
 }

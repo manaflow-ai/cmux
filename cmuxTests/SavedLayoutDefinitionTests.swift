@@ -74,6 +74,21 @@ import Testing
         _ = try JSONDecoder().decode(CmuxLayoutNode.self, from: layoutData)
     }
 
+    @Test func chromiumBrowserSurfaceRoundTripsThroughSavedLayoutJSON() throws {
+        let surface = CmuxSurfaceDefinition(
+            type: .cefBrowser,
+            name: "Chromium Docs",
+            url: "https://example.com/cef",
+            focus: true
+        )
+
+        let data = try JSONEncoder().encode(surface)
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(json["type"] as? String == "cefBrowser")
+        let decoded = try JSONDecoder().decode(CmuxSurfaceDefinition.self, from: data)
+        #expect(decoded == surface)
+    }
+
     private static var nestedLayout: CmuxLayoutNode {
         .split(
             CmuxSplitDefinition(

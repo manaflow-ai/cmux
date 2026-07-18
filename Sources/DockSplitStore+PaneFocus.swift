@@ -237,6 +237,8 @@ extension DockSplitStore {
                 browser.unfocus()
                 browser.hideBrowserPortalView(source: "dockHidden")
             }
+        } else if let browser = panel as? CEFBrowserPanel {
+            browser.setVisibleInUI(shouldBeVisible)
         }
     }
 }

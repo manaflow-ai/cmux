@@ -667,9 +667,24 @@ extension Workspace {
                 selectedConfigurationName: projectPanel.selectedConfigurationName
             )
             agentSessionSnapshot = nil
-        case .extensionBrowser:
-            return nil
-        case .cloudVMLoading:
+        case .cefBrowser:
+            guard let cefBrowserPanel = panel as? CEFBrowserPanel else { return nil }
+            terminalSnapshot = nil
+            browserSnapshot = SessionBrowserPanelSnapshot(
+                urlString: cefBrowserPanel.currentURL,
+                profileID: cefBrowserPanel.profileID,
+                shouldRenderWebView: true,
+                pageZoom: 1,
+                developerToolsVisible: false,
+                backHistoryURLStrings: nil,
+                forwardHistoryURLStrings: nil
+            )
+            markdownSnapshot = nil
+            filePreviewSnapshot = nil
+            rightSidebarToolSnapshot = nil
+            agentSessionSnapshot = nil
+            projectSnapshot = nil
+        case .extensionBrowser, .cloudVMLoading:
             return nil
         }
         return SessionPanelSnapshot(
@@ -1663,9 +1678,18 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: projectPanel.id)
             return projectPanel.id
-        case .extensionBrowser:
-            return nil
-        case .cloudVMLoading:
+        case .cefBrowser:
+            guard let cefBrowserPanel = newCEFBrowserSurface(
+                inPane: paneId,
+                url: snapshot.browser?.urlString ?? "about:blank",
+                profileID: snapshot.browser?.profileID,
+                focus: false
+            ) else {
+                return nil
+            }
+            applySessionPanelMetadata(snapshot, toPanelId: cefBrowserPanel.id)
+            return cefBrowserPanel.id
+        case .extensionBrowser, .cloudVMLoading:
             return nil
         }
     }
@@ -9282,6 +9306,9 @@ final class Workspace: Identifiable, ObservableObject {
             )
             configureBrowserPanel(browserPanel)
             installBrowserPanelSubscription(browserPanel)
+        } else if let cefBrowserPanel = detached.panel as? CEFBrowserPanel {
+            cefBrowserPanel.reattachToWorkspace(id)
+            installCEFBrowserPanelSubscription(cefBrowserPanel)
         } else if let rightSidebarToolPanel = detached.panel as? RightSidebarToolPanel {
             rightSidebarToolPanel.reattach(to: self)
         } else if let customSidebarPanel = detached.panel as? CustomSidebarPanel {
@@ -9595,7 +9622,7 @@ final class Workspace: Identifiable, ObservableObject {
             syncUnreadBadgeStateForAllPanels()
         }
 
-        if let browserPanel = panels[panelId] as? BrowserPanel {
+        if let browserPanel = panels[panelId] as? any OmnibarHostingPanel {
             maybeAutoFocusBrowserAddressBarOnPanelFocus(browserPanel, trigger: trigger)
         }
 
@@ -9609,15 +9636,15 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func maybeAutoFocusBrowserAddressBarOnPanelFocus(
-        _ browserPanel: BrowserPanel,
+        _ browserPanel: any OmnibarHostingPanel,
         trigger: FocusPanelTrigger
     ) {
         guard trigger == .standard else { return }
         guard !isCommandPaletteVisibleForWorkspaceWindow() else { return }
         guard !browserPanel.shouldSuppressOmnibarAutofocus() else { return }
-        guard browserPanel.isShowingNewTabPage || browserPanel.preferredURLStringForOmnibar() == nil else { return }
+        guard browserPanel.isContentBlankForOmnibar else { return }
 
-        _ = browserPanel.requestAddressBarFocus()
+        _ = browserPanel.requestAddressBarFocus(selectionIntent: .preserveFieldEditorSelection)
         NotificationCenter.default.post(name: .browserFocusAddressBar, object: browserPanel.id)
     }
 
@@ -12746,6 +12773,8 @@ extension Workspace: BonsplitDelegate {
             _ = newTerminalSurface(inPane: pane, inheritWorkingDirectoryFallback: true)
         case "browser":
             _ = newBrowserSurface(inPane: pane)
+        case "cefBrowser":
+            _ = newCEFBrowserSurface(inPane: pane)
         default:
             _ = newTerminalSurface(inPane: pane, inheritWorkingDirectoryFallback: true)
         }

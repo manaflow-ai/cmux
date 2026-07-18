@@ -10,29 +10,40 @@ extension Workspace {
 
     /// Surface-kind mapping used by workspace state snapshots.
     func surfaceKind(for panel: any Panel) -> String {
-        switch panel.panelType {
-        case .terminal:
-            return SurfaceKind.terminal.rawValue
-        case .browser:
-            return SurfaceKind.browser.rawValue
-        case .markdown:
-            return SurfaceKind.markdown.rawValue
-        case .filePreview:
-            return SurfaceKind.filePreview.rawValue
-        case .rightSidebarTool:
-            return SurfaceKind.rightSidebarTool.rawValue
-        case .customSidebar:
-            return SurfaceKind.customSidebar.rawValue
-        case .agentSession:
-            return SurfaceKind.agentSession.rawValue
-        case .project:
-            return SurfaceKind.project.rawValue
-        case .extensionBrowser:
-            return SurfaceKind.extensionBrowser.rawValue
-        case .cloudVMLoading:
-            return SurfaceKind.cloudVMLoading.rawValue
-        }
+        surfaceKindRawValue(for: panel.panelType)
     }
+}
+
+/// Canonical mapping shared by every container that serializes a panel into
+/// Bonsplit or a detached-surface transfer.
+func surfaceKindRawValue(for panelType: PanelType) -> String {
+    switch panelType {
+    case .terminal:
+        return SurfaceKind.terminal.rawValue
+    case .browser:
+        return SurfaceKind.browser.rawValue
+    case .cefBrowser:
+        return SurfaceKind.cefBrowser.rawValue
+    case .markdown:
+        return SurfaceKind.markdown.rawValue
+    case .filePreview:
+        return SurfaceKind.filePreview.rawValue
+    case .rightSidebarTool:
+        return SurfaceKind.rightSidebarTool.rawValue
+    case .customSidebar:
+        return SurfaceKind.customSidebar.rawValue
+    case .agentSession:
+        return SurfaceKind.agentSession.rawValue
+    case .project:
+        return SurfaceKind.project.rawValue
+    case .extensionBrowser:
+        return SurfaceKind.extensionBrowser.rawValue
+    case .cloudVMLoading:
+        return SurfaceKind.cloudVMLoading.rawValue
+    }
+}
+
+extension Workspace {
 
     /// Select the next surface in the currently focused split pane, or in
     /// workspace Canvas order when Canvas layout is active.

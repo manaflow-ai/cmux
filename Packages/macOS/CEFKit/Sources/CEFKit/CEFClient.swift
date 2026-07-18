@@ -3,6 +3,8 @@ import Foundation
 
 /// Browser lifecycle and state callbacks, delivered on the main thread.
 public protocol CEFBrowserDelegate: AnyObject {
+    /// Returns whether a main-frame navigation may proceed.
+    func browser(_ browser: CEFBrowser, shouldAllowNavigationTo url: String) -> Bool
     /// The main frame's address changed.
     func browser(_ browser: CEFBrowser, didUpdateURL url: String)
     /// The page title changed.
@@ -11,10 +13,14 @@ public protocol CEFBrowserDelegate: AnyObject {
     func browser(_ browser: CEFBrowser, didUpdateLoadingState isLoading: Bool, canGoBack: Bool, canGoForward: Bool)
     /// Browser destruction completed; the browser is unusable afterwards.
     func browserDidClose(_ browser: CEFBrowser)
+    /// A page requested a popup; the embedder must route it to an owned surface.
+    func browser(_ browser: CEFBrowser, didRequestPopupTo url: String)
 }
 
 /// All delegate callbacks are optional.
 public extension CEFBrowserDelegate {
+    /// Default allow.
+    func browser(_ browser: CEFBrowser, shouldAllowNavigationTo url: String) -> Bool { true }
     /// Default no-op.
     func browser(_ browser: CEFBrowser, didUpdateURL url: String) {}
     /// Default no-op.
@@ -23,6 +29,7 @@ public extension CEFBrowserDelegate {
     func browser(_ browser: CEFBrowser, didUpdateLoadingState isLoading: Bool, canGoBack: Bool, canGoForward: Bool) {}
     /// Default no-op.
     func browserDidClose(_ browser: CEFBrowser) {}
+    func browser(_ browser: CEFBrowser, didRequestPopupTo url: String) {}
 }
 
 /// Backs one cef_client_t and its sub-handlers. All sub-handler structs share
@@ -35,12 +42,14 @@ final class CEFClientImpl {
     var onBrowserCreated: ((CEFBrowser) -> Void)?
     /// Fires after each main-frame load completes.
     var onLoadEnd: ((CEFBrowser) -> Void)?
+    var onPopupRequestedForTesting: ((String) -> Void)?
     /// Strong reference cycle browser<->client is broken in on_before_close.
     private var pendingBrowser: CEFBrowser?
 
     private var lifeSpanPtr: UnsafeMutablePointer<cef_life_span_handler_t>?
     private var loadPtr: UnsafeMutablePointer<cef_load_handler_t>?
     private var displayPtr: UnsafeMutablePointer<cef_display_handler_t>?
+    private var requestPtr: UnsafeMutablePointer<cef_request_handler_t>?
 
     func makeClientStruct() -> UnsafeMutablePointer<cef_client_t> {
         let ptr = CEFHandler.allocate(cef_client_t.self, object: self)
@@ -62,6 +71,13 @@ final class CEFClientImpl {
             guard let selfPtr else { return nil }
             let impl = CEFHandler.object(CEFClientImpl.self, from: selfPtr)
             let handler = impl.ensureDisplayHandler()
+            CEFHandler.retain(handler)
+            return handler
+        }
+        ptr.pointee.get_request_handler = { selfPtr in
+            guard let selfPtr else { return nil }
+            let impl = CEFHandler.object(CEFClientImpl.self, from: selfPtr)
+            let handler = impl.ensureRequestHandler()
             CEFHandler.retain(handler)
             return handler
         }
@@ -90,6 +106,10 @@ final class CEFClientImpl {
             displayPtr = nil
             cefRelease(UnsafeMutableRawPointer(ptr))
         }
+        if let ptr = requestPtr {
+            requestPtr = nil
+            cefRelease(UnsafeMutableRawPointer(ptr))
+        }
     }
 
     func browserWasCreated(_ browser: CEFBrowser) {
@@ -104,6 +124,19 @@ final class CEFClientImpl {
     private func ensureLifeSpanHandler() -> UnsafeMutablePointer<cef_life_span_handler_t> {
         if let existing = lifeSpanPtr { return existing }
         let ptr = CEFHandler.allocate(cef_life_span_handler_t.self, object: self)
+        // This client owns exactly one browser. Allowing CEF to create a
+        // secondary browser with the same client would bypass CEFBrowser's
+        // ownership and shutdown accounting, so popup entry points fail
+        // closed until cmux has an explicit owned-popup routing contract.
+        ptr.pointee.on_before_popup = { selfPtr, _, _, _, targetURL, _, _, _, _, _, _, _, _, _ in
+            guard let selfPtr, let targetURL = String(cefString: targetURL) else { return 1 }
+            let impl = CEFHandler.object(CEFClientImpl.self, from: selfPtr)
+            impl.onPopupRequestedForTesting?(targetURL)
+            if let browser = impl.browser {
+                impl.delegate?.browser(browser, didRequestPopupTo: targetURL)
+            }
+            return 1
+        }
         ptr.pointee.on_after_created = { selfPtr, browserPtr in
             guard let selfPtr, let browserPtr else { return }
             let impl = CEFHandler.object(CEFClientImpl.self, from: selfPtr)
@@ -168,6 +201,22 @@ final class CEFClientImpl {
             impl.delegate?.browser(browser, didUpdateTitle: title)
         }
         displayPtr = ptr
+        return ptr
+    }
+
+    private func ensureRequestHandler() -> UnsafeMutablePointer<cef_request_handler_t> {
+        if let existing = requestPtr { return existing }
+        let ptr = CEFHandler.allocate(cef_request_handler_t.self, object: self)
+        ptr.pointee.on_before_browse = { selfPtr, _, frame, request, _, _ in
+            guard let selfPtr, let frame, let request,
+                  frame.pointee.is_main?(frame) != 0 else { return 0 }
+            let impl = CEFHandler.object(CEFClientImpl.self, from: selfPtr)
+            guard let browser = impl.browser,
+                  let userFreeURL = request.pointee.get_url?(request),
+                  let url = String(consumingCEFUserFree: userFreeURL) else { return 0 }
+            return impl.delegate?.browser(browser, shouldAllowNavigationTo: url) == false ? 1 : 0
+        }
+        requestPtr = ptr
         return ptr
     }
 }

@@ -5507,7 +5507,7 @@ struct ContentView: View {
         switch panelType {
         case .terminal:
             return String(localized: "commandPalette.kind.terminal", defaultValue: "Terminal")
-        case .browser:
+        case .browser, .cefBrowser:
             return String(localized: "commandPalette.kind.browser", defaultValue: "Browser")
         case .markdown:
             return String(localized: "commandPalette.kind.markdown", defaultValue: "Markdown")
@@ -5531,8 +5531,8 @@ struct ContentView: View {
         switch panelType {
         case .terminal:
             return ["terminal", "shell", "console"]
-        case .browser:
-            return ["browser", "web", "page"]
+        case .browser, .cefBrowser:
+            return ["chromium", "cef", "chrome", "browser", "web", "page"]
         case .markdown:
             return ["markdown", "note", "preview"]
         case .filePreview:
@@ -6181,7 +6181,14 @@ struct ContentView: View {
             let panelIsRemoteTerminal = workspace.isRemoteTerminalSurface(panelId)
             snapshot.setBool(CommandPaletteContextKeys.hasFocusedPanel, true)
             snapshot.setString(CommandPaletteContextKeys.panelName, panelDisplayName(workspace: workspace, panelId: panelId, fallback: panelContext.panel.displayTitle))
-            snapshot.setBool(CommandPaletteContextKeys.panelIsBrowser, panelContext.panel.panelType == .browser)
+            snapshot.setBool(
+                CommandPaletteContextKeys.panelIsBrowser,
+                panelContext.panel.panelType == .browser
+            )
+            snapshot.setBool(
+                CommandPaletteContextKeys.panelHasOmnibar,
+                panelContext.panel is any OmnibarHostingPanel
+            )
             if let browserPanel = panelContext.panel as? BrowserPanel {
                 snapshot.setBool(CommandPaletteContextKeys.panelBrowserFocusModeActive, browserPanel.isBrowserFocusModeActive)
             }
@@ -6952,7 +6959,7 @@ struct ContentView: View {
                 subtitle: browserPanelSubtitle,
                 shortcutHint: "⌘[",
                 keywords: ["browser", "back", "history"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
+                when: { $0.bool(CommandPaletteContextKeys.panelHasOmnibar) }
             )
         )
         contributions.append(
@@ -6962,7 +6969,7 @@ struct ContentView: View {
                 subtitle: browserPanelSubtitle,
                 shortcutHint: "⌘]",
                 keywords: ["browser", "forward", "history"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
+                when: { $0.bool(CommandPaletteContextKeys.panelHasOmnibar) }
             )
         )
         contributions.append(
@@ -6972,7 +6979,7 @@ struct ContentView: View {
                 subtitle: browserPanelSubtitle,
                 shortcutHint: "⌘R",
                 keywords: ["browser", "reload", "refresh"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
+                when: { $0.bool(CommandPaletteContextKeys.panelHasOmnibar) }
             )
         )
         contributions.append(
@@ -6991,7 +6998,7 @@ struct ContentView: View {
                 subtitle: browserPanelSubtitle,
                 shortcutHint: "⌘L",
                 keywords: ["browser", "address", "omnibar", "url"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
+                when: { $0.bool(CommandPaletteContextKeys.panelHasOmnibar) }
             )
         )
         contributions.append(
@@ -7907,13 +7914,13 @@ struct ContentView: View {
         }
 
         registry.register(commandId: "palette.browserBack") {
-            tabManager.focusedBrowserPanel?.goBack()
+            tabManager.focusedOmnibarHostingPanel?.goBack()
         }
         registry.register(commandId: "palette.browserForward") {
-            tabManager.focusedBrowserPanel?.goForward()
+            tabManager.focusedOmnibarHostingPanel?.goForward()
         }
         registry.register(commandId: "palette.browserReload") {
-            tabManager.focusedBrowserPanel?.reload()
+            tabManager.focusedOmnibarHostingPanel?.reload()
         }
         registry.register(commandId: "palette.browserOpenDefault") {
             if !openFocusedBrowserInDefaultBrowser() {
@@ -9394,7 +9401,7 @@ struct ContentView: View {
     }
 
     private func focusFocusedBrowserAddressBar() -> Bool {
-        guard let panel = tabManager.focusedBrowserPanel else { return false }
+        guard let panel = tabManager.focusedOmnibarHostingPanel else { return false }
         _ = panel.requestAddressBarFocus(selectionIntent: .selectAll)
         NotificationCenter.default.post(name: .browserFocusAddressBar, object: panel.id)
         return true
@@ -10992,7 +10999,7 @@ struct VerticalTabsSidebar: View {
             return .filePreview
         case .rightSidebarTool:
             return .rightSidebarTool
-        case .customSidebar:
+        case .cefBrowser, .customSidebar:
             return .unknown
         case .agentSession:
             return .agentSession

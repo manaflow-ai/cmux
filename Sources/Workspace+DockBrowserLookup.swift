@@ -1,7 +1,18 @@
 import AppKit
 import CmuxCore
 
+func resolveFocusedOmnibarPanel(
+    windowDockPanel: (any OmnibarHostingPanel)?,
+    workspacePanel: (any OmnibarHostingPanel)?
+) -> (any OmnibarHostingPanel)? {
+    windowDockPanel ?? workspacePanel
+}
+
 extension Workspace {
+    func omnibarPanelIncludingDock(for panelId: UUID) -> (any OmnibarHostingPanel)? {
+        (panels[panelId] ?? _dockSplit?.panels[panelId]) as? any OmnibarHostingPanel
+    }
+
     func browserPanelIncludingDock(for panelId: UUID) -> BrowserPanel? {
         browserPanel(for: panelId) ?? dockBrowserPanel(for: panelId)
     }
