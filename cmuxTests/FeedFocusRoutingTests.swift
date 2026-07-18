@@ -183,6 +183,39 @@ import Testing
         #expect(GhosttySurfaceScrollView.flashCount(for: targetPanel.id) == 1)
     }
 
+    @Test func feedFocusUsesLiveSurfaceOwnerWhenPersistedWorkspaceRemainsDormant() throws {
+        let appDelegate = AppDelegate()
+        let liveManager = TabManager()
+        let targetWorkspace = try #require(liveManager.selectedWorkspace)
+        let targetPanel = try #require(targetWorkspace.focusedTerminalPanel)
+        let targetSurfaceID = try #require(
+            targetWorkspace.surfaceIdFromPanelId(targetPanel.id)?.uuid
+        )
+        let feedWorkspace = liveManager.addWorkspace()
+        let dormantManager = TabManager()
+        let persistedWorkspace = try #require(dormantManager.selectedWorkspace)
+        let liveWindowID = appDelegate.registerMainWindowContextForTesting(
+            tabManager: liveManager
+        )
+        let dormantWindowID = appDelegate.registerMainWindowContextForTesting(
+            tabManager: dormantManager
+        )
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: dormantWindowID)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: liveWindowID)
+        }
+        GhosttySurfaceScrollView.resetFlashCounts()
+
+        #expect(liveManager.selectedTabId == feedWorkspace.id)
+        #expect(appDelegate.routeFeedFocus(
+            workspaceId: persistedWorkspace.id.uuidString,
+            surfaceId: targetSurfaceID.uuidString
+        ))
+        #expect(liveManager.selectedTabId == targetWorkspace.id)
+        #expect(targetWorkspace.focusedPanelId == targetPanel.id)
+        #expect(GhosttySurfaceScrollView.flashCount(for: targetPanel.id) == 1)
+    }
+
     @Test func feedOnlyWorkspaceJumpKeepsLiveTerminalSelectedAfterFocusSettles() async throws {
         let appDelegate = AppDelegate()
         let manager = TabManager()
