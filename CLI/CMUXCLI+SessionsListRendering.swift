@@ -14,8 +14,18 @@ extension CMUXCLI {
         let sessionDir = (payload["session_dir"] as? String) ?? "-"
         let activeWorkspace = ((payload["active_for_workspace"] as? Bool) == true) ? "yes" : "no"
         let activeSurface = ((payload["active_for_surface"] as? Bool) == true) ? "yes" : "no"
+        let effectiveState = (payload["effective_state"] as? String) ?? "unknown"
+        let activityState = ((payload["activity"] as? [String: Any])?["state"] as? String) ?? "unknown"
+        let identitySource = (payload["identity_source"] as? String) ?? "unknown"
+        let stateSource = (payload["state_source"] as? String) ?? "unknown"
+        let restoreOwner = ((payload["restore_authority"] as? Bool) == true) ? "yes" : "no"
         var parts = [
             "\(agent) \(sessionId)",
+            "state=\(effectiveState)",
+            "activity=\(activityState)",
+            "identity=\(identitySource)",
+            "state_source=\(stateSource)",
+            "restore_owner=\(restoreOwner)",
             "workspace=\(workspaceId)",
             "surface=\(surfaceId)",
             "cwd=\(cwd)",
