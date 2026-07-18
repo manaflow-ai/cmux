@@ -659,7 +659,8 @@ enum FeedJumpResolver {
         guard let dash = workstreamId.firstIndex(of: "-") else { return nil }
         let agent = String(workstreamId[..<dash])
         let sessionId = String(workstreamId[workstreamId.index(after: dash)...])
-        guard !agent.isEmpty, !sessionId.isEmpty else { return nil }
+        guard CmuxVaultAgentRegistration.isValidID(agent),
+              !sessionId.isEmpty else { return nil }
         return (agent, sessionId)
     }
 
@@ -667,6 +668,7 @@ enum FeedJumpResolver {
         _ workstreamId: String,
         provider: String
     ) -> (agent: String, sessionId: String)? {
+        guard CmuxVaultAgentRegistration.isValidID(provider) else { return nil }
         let prefix = provider + "-"
         guard workstreamId.hasPrefix(prefix) else { return nil }
         let sessionId = String(workstreamId.dropFirst(prefix.count))
