@@ -6,6 +6,7 @@
 use std::collections::VecDeque;
 use std::error::Error;
 use std::fmt;
+use std::mem::size_of;
 
 use uuid::Uuid;
 
@@ -25,6 +26,9 @@ const MAXIMUM_DIMENSION: u32 = 16_384;
 const MAXIMUM_PIXEL_COUNT: u64 = 134_217_728;
 const MAXIMUM_BACKING_SCALE_FACTOR: f64 = 16.0;
 const MAXIMUM_RETIRED_PRESENTATION_FENCES: usize = 8_192;
+const MAXIMUM_RETIRED_PRESENTATION_FENCE_BYTES: usize = 512 * 1_024;
+const MAXIMUM_PRESENTATION_GENERATION_TOMBSTONES: usize = 8_192;
+const MAXIMUM_PRESENTATION_GENERATION_TOMBSTONE_BYTES: usize = 512 * 1_024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RendererControlError {
@@ -357,6 +361,43 @@ impl RendererControlMessage {
             Self::PresentationReady(_) => RendererControlMessageType::PresentationReady,
         }
     }
+
+    /// Return the exact encoded frame length after validating all variable
+    /// payload bounds, without allocating an encoding buffer.
+    pub(crate) fn encoded_frame_length(&self) -> Result<usize, RendererControlError> {
+        validated_payload_length(self)?
+            .checked_add(RENDERER_CONTROL_HEADER_LENGTH)
+            .ok_or(RendererControlError::InvalidPayloadLength)
+    }
+
+    /// Return bytes retained directly by this owned message.
+    ///
+    /// This includes the enum's inline storage and every owned buffer's
+    /// allocated capacity. Allocator bookkeeping is intentionally excluded;
+    /// queue count caps bound that fixed per-allocation overhead separately.
+    #[cfg(test)]
+    pub(crate) fn retained_byte_count(&self) -> usize {
+        size_of::<Self>().saturating_add(self.dynamic_retained_byte_count())
+    }
+
+    pub(crate) fn dynamic_retained_byte_count(&self) -> usize {
+        match self {
+            Self::UpsertPresentation(value) => value
+                .frame_endpoint_service
+                .capacity()
+                .saturating_add(value.frame_endpoint_capability.capacity())
+                .saturating_add(value.resolved_config.capacity()),
+            Self::SemanticScene(value) => value.bytes.capacity(),
+            Self::Fatal(value) => value.diagnostic.capacity(),
+            Self::Bootstrap(_)
+            | Self::RemovePresentation(_)
+            | Self::FrameRelease(_)
+            | Self::Shutdown
+            | Self::Ready(_)
+            | Self::NeedsFullScene(_)
+            | Self::PresentationReady(_) => 0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -464,12 +505,9 @@ impl RendererControlWire {
             return Err(RendererControlError::UnexpectedDirection);
         }
         let message_type = envelope.message.message_type();
-        let payload = Self::encode_payload(&envelope.message)?;
-        let (minimum, maximum) = message_type.payload_bounds();
-        if !(minimum..=maximum).contains(&payload.len()) {
-            return Err(RendererControlError::InvalidPayloadLength);
-        }
-        let mut frame = Vec::with_capacity(RENDERER_CONTROL_HEADER_LENGTH + payload.len());
+        let payload_length = validated_payload_length(&envelope.message)?;
+        let frame_length = envelope.message.encoded_frame_length()?;
+        let mut frame = Vec::with_capacity(frame_length);
         frame.extend_from_slice(&MAGIC);
         frame.extend_from_slice(&RENDERER_CONTROL_VERSION.to_be_bytes());
         frame.extend_from_slice(&(RENDERER_CONTROL_HEADER_LENGTH as u16).to_be_bytes());
@@ -478,8 +516,9 @@ impl RendererControlWire {
         frame.extend_from_slice(&0_u16.to_be_bytes());
         frame.extend_from_slice(&0_u32.to_be_bytes());
         frame.extend_from_slice(&envelope.sequence.to_be_bytes());
-        frame.extend_from_slice(&(payload.len() as u64).to_be_bytes());
-        frame.extend_from_slice(&payload);
+        frame.extend_from_slice(&(payload_length as u64).to_be_bytes());
+        Self::encode_payload(&envelope.message, &mut frame)?;
+        debug_assert_eq!(frame.len(), frame_length);
         Ok(frame)
     }
 
@@ -566,8 +605,12 @@ impl RendererControlWire {
         Ok((direction, sequence, RENDERER_CONTROL_HEADER_LENGTH + payload_length))
     }
 
-    fn encode_payload(message: &RendererControlMessage) -> Result<Vec<u8>, RendererControlError> {
-        let mut payload = Vec::new();
+    fn encode_payload(
+        message: &RendererControlMessage,
+        payload: &mut Vec<u8>,
+    ) -> Result<(), RendererControlError> {
+        let start = payload.len();
+        let expected_length = validated_payload_length(message)?;
         match message {
             RendererControlMessage::Bootstrap(value) => {
                 validate_identity(value.daemon_instance_id)?;
@@ -575,27 +618,27 @@ impl RendererControlWire {
                 if value.renderer_epoch == 0 {
                     return Err(RendererControlError::ZeroRendererEpoch);
                 }
-                append_uuid(&mut payload, value.daemon_instance_id);
-                append_uuid(&mut payload, value.workspace_id);
-                append_u64(&mut payload, value.renderer_epoch);
-                append_u64(&mut payload, 0);
+                append_uuid(payload, value.daemon_instance_id);
+                append_uuid(payload, value.workspace_id);
+                append_u64(payload, value.renderer_epoch);
+                append_u64(payload, 0);
             }
             RendererControlMessage::UpsertPresentation(value) => {
                 validate_presentation(value)?;
-                append_uuid(&mut payload, value.terminal_id);
-                append_u64(&mut payload, value.terminal_epoch);
-                append_uuid(&mut payload, value.presentation_id);
-                append_u64(&mut payload, value.presentation_generation);
-                append_u32(&mut payload, value.width);
-                append_u32(&mut payload, value.height);
-                append_u64(&mut payload, value.backing_scale_factor.to_bits());
-                append_u32(&mut payload, value.pixel_format as u32);
-                append_u32(&mut payload, value.color_space as u32);
-                append_u64(&mut payload, value.resolved_config_revision);
-                append_u16(&mut payload, value.frame_endpoint_service.len() as u16);
-                append_u16(&mut payload, value.frame_endpoint_capability.len() as u16);
-                append_u32(&mut payload, 0);
-                append_u64(&mut payload, value.resolved_config.len() as u64);
+                append_uuid(payload, value.terminal_id);
+                append_u64(payload, value.terminal_epoch);
+                append_uuid(payload, value.presentation_id);
+                append_u64(payload, value.presentation_generation);
+                append_u32(payload, value.width);
+                append_u32(payload, value.height);
+                append_u64(payload, value.backing_scale_factor.to_bits());
+                append_u32(payload, value.pixel_format as u32);
+                append_u32(payload, value.color_space as u32);
+                append_u64(payload, value.resolved_config_revision);
+                append_u16(payload, value.frame_endpoint_service.len() as u16);
+                append_u16(payload, value.frame_endpoint_capability.len() as u16);
+                append_u32(payload, 0);
+                append_u64(payload, value.resolved_config.len() as u64);
                 payload.extend_from_slice(value.frame_endpoint_service.as_bytes());
                 payload.extend_from_slice(&value.frame_endpoint_capability);
                 payload.extend_from_slice(&value.resolved_config);
@@ -604,11 +647,11 @@ impl RendererControlWire {
                 validate_identity(value.terminal_id)?;
                 validate_identity(value.presentation_id)?;
                 validate_generation(value.presentation_generation)?;
-                append_uuid(&mut payload, value.terminal_id);
-                append_u64(&mut payload, value.terminal_epoch);
-                append_uuid(&mut payload, value.presentation_id);
-                append_u64(&mut payload, value.presentation_generation);
-                append_u64(&mut payload, 0);
+                append_uuid(payload, value.terminal_id);
+                append_u64(payload, value.terminal_epoch);
+                append_uuid(payload, value.presentation_id);
+                append_u64(payload, value.presentation_generation);
+                append_u64(payload, 0);
             }
             RendererControlMessage::SemanticScene(value) => {
                 validate_identity(value.terminal_id)?;
@@ -617,14 +660,14 @@ impl RendererControlWire {
                 if value.bytes.len() > MAXIMUM_SEMANTIC_SCENE_LENGTH {
                     return Err(RendererControlError::SemanticSceneTooLarge);
                 }
-                append_uuid(&mut payload, value.terminal_id);
-                append_u64(&mut payload, value.terminal_epoch);
-                append_uuid(&mut payload, value.presentation_id);
-                append_u64(&mut payload, value.presentation_generation);
-                append_u64(&mut payload, value.canonical_sequence);
-                append_u64(&mut payload, value.presentation_sequence);
-                append_u64(&mut payload, value.bytes.len() as u64);
-                append_u64(&mut payload, 0);
+                append_uuid(payload, value.terminal_id);
+                append_u64(payload, value.terminal_epoch);
+                append_uuid(payload, value.presentation_id);
+                append_u64(payload, value.presentation_generation);
+                append_u64(payload, value.canonical_sequence);
+                append_u64(payload, value.presentation_sequence);
+                append_u64(payload, value.bytes.len() as u64);
+                append_u64(payload, 0);
                 payload.extend_from_slice(&value.bytes);
             }
             RendererControlMessage::FrameRelease(value) => {
@@ -635,48 +678,48 @@ impl RendererControlWire {
                     return Err(RendererControlError::ZeroRendererEpoch);
                 }
                 validate_generation(value.presentation_generation)?;
-                append_uuid(&mut payload, value.daemon_instance_id);
-                append_u64(&mut payload, value.renderer_epoch);
-                append_uuid(&mut payload, value.terminal_id);
-                append_u64(&mut payload, value.terminal_epoch);
-                append_u64(&mut payload, value.terminal_sequence);
-                append_uuid(&mut payload, value.presentation_id);
-                append_u64(&mut payload, value.presentation_generation);
-                append_u64(&mut payload, value.frame_sequence);
-                append_u32(&mut payload, value.surface_id);
-                append_u32(&mut payload, 0);
+                append_uuid(payload, value.daemon_instance_id);
+                append_u64(payload, value.renderer_epoch);
+                append_uuid(payload, value.terminal_id);
+                append_u64(payload, value.terminal_epoch);
+                append_u64(payload, value.terminal_sequence);
+                append_uuid(payload, value.presentation_id);
+                append_u64(payload, value.presentation_generation);
+                append_u64(payload, value.frame_sequence);
+                append_u32(payload, value.surface_id);
+                append_u32(payload, 0);
             }
-            RendererControlMessage::Shutdown => append_u64(&mut payload, 0),
+            RendererControlMessage::Shutdown => append_u64(payload, 0),
             RendererControlMessage::Ready(value) => {
                 if value.process_id == 0 {
                     return Err(RendererControlError::InvalidProcessIdentity);
                 }
                 value.scene_capabilities.validate()?;
-                append_u32(&mut payload, value.process_id);
-                append_u32(&mut payload, value.effective_user_id);
-                append_u64(&mut payload, value.scene_capabilities.bits());
-                append_u64(&mut payload, 0);
+                append_u32(payload, value.process_id);
+                append_u32(payload, value.effective_user_id);
+                append_u64(payload, value.scene_capabilities.bits());
+                append_u64(payload, 0);
             }
             RendererControlMessage::NeedsFullScene(value) => {
                 validate_identity(value.terminal_id)?;
                 validate_identity(value.presentation_id)?;
                 validate_generation(value.presentation_generation)?;
-                append_uuid(&mut payload, value.terminal_id);
-                append_u64(&mut payload, value.terminal_epoch);
-                append_uuid(&mut payload, value.presentation_id);
-                append_u64(&mut payload, value.presentation_generation);
-                append_u64(&mut payload, value.last_canonical_sequence);
-                append_u64(&mut payload, value.last_presentation_sequence);
-                append_u32(&mut payload, value.reason as u32);
-                append_u32(&mut payload, 0);
+                append_uuid(payload, value.terminal_id);
+                append_u64(payload, value.terminal_epoch);
+                append_uuid(payload, value.presentation_id);
+                append_u64(payload, value.presentation_generation);
+                append_u64(payload, value.last_canonical_sequence);
+                append_u64(payload, value.last_presentation_sequence);
+                append_u32(payload, value.reason as u32);
+                append_u32(payload, 0);
             }
             RendererControlMessage::Fatal(value) => {
                 if value.diagnostic.len() > MAXIMUM_DIAGNOSTIC_LENGTH {
                     return Err(RendererControlError::DiagnosticTooLarge);
                 }
-                append_u32(&mut payload, value.code as u32);
-                append_u32(&mut payload, value.diagnostic.len() as u32);
-                append_u64(&mut payload, 0);
+                append_u32(payload, value.code as u32);
+                append_u32(payload, value.diagnostic.len() as u32);
+                append_u64(payload, 0);
                 payload.extend_from_slice(value.diagnostic.as_bytes());
             }
             RendererControlMessage::PresentationReady(value) => {
@@ -692,24 +735,25 @@ impl RendererControlWire {
                 {
                     return Err(RendererControlError::InvalidDimensions);
                 }
-                append_uuid(&mut payload, value.terminal_id);
-                append_u64(&mut payload, value.terminal_epoch);
-                append_uuid(&mut payload, value.presentation_id);
-                append_u64(&mut payload, value.presentation_generation);
-                append_u64(&mut payload, value.canonical_sequence);
-                append_u64(&mut payload, value.presentation_sequence);
-                append_u32(&mut payload, value.columns);
-                append_u32(&mut payload, value.rows);
-                append_u32(&mut payload, value.cell_width);
-                append_u32(&mut payload, value.cell_height);
-                append_u32(&mut payload, value.padding_top);
-                append_u32(&mut payload, value.padding_right);
-                append_u32(&mut payload, value.padding_bottom);
-                append_u32(&mut payload, value.padding_left);
-                append_u64(&mut payload, 0);
+                append_uuid(payload, value.terminal_id);
+                append_u64(payload, value.terminal_epoch);
+                append_uuid(payload, value.presentation_id);
+                append_u64(payload, value.presentation_generation);
+                append_u64(payload, value.canonical_sequence);
+                append_u64(payload, value.presentation_sequence);
+                append_u32(payload, value.columns);
+                append_u32(payload, value.rows);
+                append_u32(payload, value.cell_width);
+                append_u32(payload, value.cell_height);
+                append_u32(payload, value.padding_top);
+                append_u32(payload, value.padding_right);
+                append_u32(payload, value.padding_bottom);
+                append_u32(payload, value.padding_left);
+                append_u64(payload, 0);
             }
         }
-        Ok(payload)
+        debug_assert_eq!(payload.len().saturating_sub(start), expected_length);
+        Ok(())
     }
 
     fn decode_payload(
@@ -942,6 +986,98 @@ impl RendererControlWire {
         }
         Ok(message)
     }
+}
+
+fn validated_payload_length(
+    message: &RendererControlMessage,
+) -> Result<usize, RendererControlError> {
+    let length = match message {
+        RendererControlMessage::Bootstrap(value) => {
+            validate_identity(value.daemon_instance_id)?;
+            validate_identity(value.workspace_id)?;
+            if value.renderer_epoch == 0 {
+                return Err(RendererControlError::ZeroRendererEpoch);
+            }
+            48
+        }
+        RendererControlMessage::UpsertPresentation(value) => {
+            validate_presentation(value)?;
+            96_usize
+                .checked_add(value.frame_endpoint_service.len())
+                .and_then(|length| length.checked_add(value.frame_endpoint_capability.len()))
+                .and_then(|length| length.checked_add(value.resolved_config.len()))
+                .ok_or(RendererControlError::InvalidPayloadLength)?
+        }
+        RendererControlMessage::RemovePresentation(value) => {
+            validate_identity(value.terminal_id)?;
+            validate_identity(value.presentation_id)?;
+            validate_generation(value.presentation_generation)?;
+            56
+        }
+        RendererControlMessage::SemanticScene(value) => {
+            validate_identity(value.terminal_id)?;
+            validate_identity(value.presentation_id)?;
+            validate_generation(value.presentation_generation)?;
+            if value.bytes.len() > MAXIMUM_SEMANTIC_SCENE_LENGTH {
+                return Err(RendererControlError::SemanticSceneTooLarge);
+            }
+            80_usize
+                .checked_add(value.bytes.len())
+                .ok_or(RendererControlError::InvalidPayloadLength)?
+        }
+        RendererControlMessage::FrameRelease(value) => {
+            validate_identity(value.daemon_instance_id)?;
+            validate_identity(value.terminal_id)?;
+            validate_identity(value.presentation_id)?;
+            if value.renderer_epoch == 0 {
+                return Err(RendererControlError::ZeroRendererEpoch);
+            }
+            validate_generation(value.presentation_generation)?;
+            96
+        }
+        RendererControlMessage::Shutdown => 8,
+        RendererControlMessage::Ready(value) => {
+            if value.process_id == 0 {
+                return Err(RendererControlError::InvalidProcessIdentity);
+            }
+            value.scene_capabilities.validate()?;
+            24
+        }
+        RendererControlMessage::NeedsFullScene(value) => {
+            validate_identity(value.terminal_id)?;
+            validate_identity(value.presentation_id)?;
+            validate_generation(value.presentation_generation)?;
+            72
+        }
+        RendererControlMessage::Fatal(value) => {
+            if value.diagnostic.len() > MAXIMUM_DIAGNOSTIC_LENGTH {
+                return Err(RendererControlError::DiagnosticTooLarge);
+            }
+            16_usize
+                .checked_add(value.diagnostic.len())
+                .ok_or(RendererControlError::InvalidPayloadLength)?
+        }
+        RendererControlMessage::PresentationReady(value) => {
+            validate_identity(value.terminal_id)?;
+            validate_identity(value.presentation_id)?;
+            validate_generation(value.presentation_generation)?;
+            if value.canonical_sequence == 0
+                || value.presentation_sequence == 0
+                || value.columns == 0
+                || value.rows == 0
+                || value.cell_width == 0
+                || value.cell_height == 0
+            {
+                return Err(RendererControlError::InvalidDimensions);
+            }
+            104
+        }
+    };
+    let (minimum, maximum) = message.message_type().payload_bounds();
+    if !(minimum..=maximum).contains(&length) {
+        return Err(RendererControlError::InvalidPayloadLength);
+    }
+    Ok(length)
 }
 
 fn validate_identity(value: Uuid) -> Result<(), RendererControlError> {
@@ -1223,12 +1359,90 @@ enum RendererControlSessionPhase {
     Failed,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RendererPresentationFence {
+    terminal_id: Uuid,
+    terminal_epoch: u64,
+    presentation_id: Uuid,
+    presentation_generation: u64,
+}
+
+impl From<&RendererPresentationAttachment> for RendererPresentationFence {
+    fn from(value: &RendererPresentationAttachment) -> Self {
+        Self {
+            terminal_id: value.terminal_id,
+            terminal_epoch: value.terminal_epoch,
+            presentation_id: value.presentation_id,
+            presentation_generation: value.presentation_generation,
+        }
+    }
+}
+
+#[derive(Default)]
+struct RendererPresentationGenerationTombstones {
+    highest: std::collections::HashMap<Uuid, u64>,
+    insertion_order: VecDeque<(Uuid, u64)>,
+}
+
+impl RendererPresentationGenerationTombstones {
+    fn highest(&self, presentation_id: Uuid) -> Option<u64> {
+        self.highest.get(&presentation_id).copied()
+    }
+
+    fn record(&mut self, presentation_id: Uuid, generation: u64) {
+        self.highest.insert(presentation_id, generation);
+        self.insertion_order.push_back((presentation_id, generation));
+        while self.insertion_order.len() > MAXIMUM_PRESENTATION_GENERATION_TOMBSTONES
+            || self.logical_byte_count() > MAXIMUM_PRESENTATION_GENERATION_TOMBSTONE_BYTES
+        {
+            self.evict_oldest();
+        }
+        while !self.insertion_order.is_empty()
+            && self.retained_byte_count() > MAXIMUM_PRESENTATION_GENERATION_TOMBSTONE_BYTES
+        {
+            let target = self.insertion_order.len().saturating_mul(3) / 4;
+            while self.insertion_order.len() > target {
+                self.evict_oldest();
+            }
+            self.highest.shrink_to_fit();
+            self.insertion_order.shrink_to_fit();
+        }
+    }
+
+    fn clear(&mut self) {
+        *self = Self::default();
+    }
+
+    fn evict_oldest(&mut self) {
+        let Some((retired_id, retired_generation)) = self.insertion_order.pop_front() else {
+            return;
+        };
+        if self.highest.get(&retired_id) == Some(&retired_generation) {
+            self.highest.remove(&retired_id);
+        }
+    }
+
+    fn logical_byte_count(&self) -> usize {
+        self.insertion_order
+            .len()
+            .saturating_mul(size_of::<(Uuid, u64)>())
+            .saturating_add(self.highest.len().saturating_mul(size_of::<(Uuid, u64)>()))
+    }
+
+    fn retained_byte_count(&self) -> usize {
+        self.insertion_order
+            .capacity()
+            .saturating_mul(size_of::<(Uuid, u64)>())
+            .saturating_add(self.highest.capacity().saturating_mul(size_of::<(Uuid, u64)>()))
+    }
+}
+
 pub struct RendererControlSessionStateMachine {
     phase: RendererControlSessionPhase,
     bootstrap: Option<RendererBootstrap>,
-    presentations: std::collections::HashMap<Uuid, RendererPresentationAttachment>,
-    retired_presentations: VecDeque<RendererPresentationAttachment>,
-    highest_presentation_generations: std::collections::HashMap<Uuid, u64>,
+    presentations: std::collections::HashMap<Uuid, RendererPresentationFence>,
+    retired_presentations: VecDeque<RendererPresentationFence>,
+    presentation_generation_tombstones: RendererPresentationGenerationTombstones,
     last_scene_sequences: std::collections::HashMap<Uuid, (u64, u64)>,
     next_daemon_sequence: Option<u64>,
     next_worker_sequence: Option<u64>,
@@ -1241,7 +1455,7 @@ impl RendererControlSessionStateMachine {
             bootstrap: None,
             presentations: std::collections::HashMap::new(),
             retired_presentations: VecDeque::new(),
-            highest_presentation_generations: std::collections::HashMap::new(),
+            presentation_generation_tombstones: RendererPresentationGenerationTombstones::default(),
             last_scene_sequences: std::collections::HashMap::new(),
             next_daemon_sequence: Some(1),
             next_worker_sequence: Some(1),
@@ -1271,7 +1485,7 @@ impl RendererControlSessionStateMachine {
             self.phase = RendererControlSessionPhase::Failed;
             self.presentations.clear();
             self.retired_presentations.clear();
-            self.highest_presentation_generations.clear();
+            self.presentation_generation_tombstones.clear();
             self.last_scene_sequences.clear();
         }
         result
@@ -1357,18 +1571,17 @@ impl RendererControlSessionStateMachine {
                     return Err(RendererControlError::InvalidTransition);
                 }
                 if let Some(previous_generation) =
-                    self.highest_presentation_generations.get(&value.presentation_id)
-                    && value.presentation_generation <= *previous_generation
+                    self.presentation_generation_tombstones.highest(value.presentation_id)
+                    && value.presentation_generation <= previous_generation
                 {
                     return Err(RendererControlError::InvalidTransition);
                 }
-                if let Some(previous) =
-                    self.presentations.insert(value.presentation_id, value.clone())
-                {
+                let fence = RendererPresentationFence::from(value);
+                if let Some(previous) = self.presentations.insert(value.presentation_id, fence) {
                     self.retire_presentation(previous);
                 }
-                self.highest_presentation_generations
-                    .insert(value.presentation_id, value.presentation_generation);
+                self.presentation_generation_tombstones
+                    .record(value.presentation_id, value.presentation_generation);
                 self.last_scene_sequences.remove(&value.presentation_id);
                 Ok(())
             }
@@ -1455,8 +1668,8 @@ impl RendererControlSessionStateMachine {
             }
             RendererControlMessage::Shutdown | RendererControlMessage::Fatal(_) => {
                 self.presentations.clear();
-                self.retired_presentations.clear();
-                self.highest_presentation_generations.clear();
+                self.retired_presentations = VecDeque::new();
+                self.presentation_generation_tombstones.clear();
                 self.last_scene_sequences.clear();
                 self.phase = RendererControlSessionPhase::Terminal;
                 Ok(())
@@ -1504,11 +1717,28 @@ impl RendererControlSessionStateMachine {
         }
     }
 
-    fn retire_presentation(&mut self, presentation: RendererPresentationAttachment) {
-        self.retired_presentations.push_back(presentation);
-        while self.retired_presentations.len() > MAXIMUM_RETIRED_PRESENTATION_FENCES {
+    fn retire_presentation(&mut self, presentation: RendererPresentationFence) {
+        while self.retired_presentations.len() >= MAXIMUM_RETIRED_PRESENTATION_FENCES
+            || self
+                .retired_presentations
+                .len()
+                .saturating_add(1)
+                .saturating_mul(size_of::<RendererPresentationFence>())
+                > MAXIMUM_RETIRED_PRESENTATION_FENCE_BYTES
+        {
             self.retired_presentations.pop_front();
         }
+        self.retired_presentations.push_back(presentation);
+        while !self.retired_presentations.is_empty()
+            && self.retired_presentation_byte_count() > MAXIMUM_RETIRED_PRESENTATION_FENCE_BYTES
+        {
+            self.retired_presentations.pop_front();
+            self.retired_presentations.shrink_to_fit();
+        }
+    }
+
+    fn retired_presentation_byte_count(&self) -> usize {
+        self.retired_presentations.capacity().saturating_mul(size_of::<RendererPresentationFence>())
     }
 }
 
@@ -1519,7 +1749,7 @@ impl Default for RendererControlSessionStateMachine {
 }
 
 fn presentation_matches(
-    attached: &RendererPresentationAttachment,
+    attached: &RendererPresentationFence,
     terminal_id: Uuid,
     terminal_epoch: u64,
     presentation_generation: u64,
@@ -1773,8 +2003,10 @@ mod tests {
             )),
         ];
         for message in messages {
+            let expected_length = message.encoded_frame_length().unwrap();
             let envelope = envelope(message, 1);
             let encoded = RendererControlWire::encode(&envelope).unwrap();
+            assert_eq!(encoded.len(), expected_length);
             assert_eq!(RendererControlWire::decode(&encoded).unwrap(), envelope);
         }
     }
@@ -1940,6 +2172,10 @@ mod tests {
                 vec![0; MAXIMUM_SEMANTIC_SCENE_LENGTH + 1],
             )),
             1,
+        );
+        assert_eq!(
+            one_over_scene.message.encoded_frame_length().unwrap_err(),
+            RendererControlError::SemanticSceneTooLarge
         );
         assert_eq!(
             RendererControlWire::encode(&one_over_scene).unwrap_err(),
@@ -2148,6 +2384,86 @@ mod tests {
                 4,
             ))
             .unwrap();
+    }
+
+    #[test]
+    fn presentation_release_fences_and_generation_tombstones_are_compact_and_byte_bounded() {
+        let mut state = RendererControlSessionStateMachine::new();
+        state.accept(&envelope(RendererControlMessage::Bootstrap(bootstrap()), 1)).unwrap();
+        state.accept(&envelope(RendererControlMessage::Ready(ready()), 1)).unwrap();
+
+        state
+            .accept(&envelope(
+                RendererControlMessage::UpsertPresentation(attachment(
+                    terminal_a(),
+                    presentation_a(),
+                    1,
+                    vec![0x5c; MAXIMUM_RESOLVED_CONFIG_LENGTH],
+                )),
+                2,
+            ))
+            .unwrap();
+        state
+            .accept(&envelope(
+                RendererControlMessage::UpsertPresentation(attachment(
+                    terminal_a(),
+                    presentation_a(),
+                    2,
+                    vec![],
+                )),
+                3,
+            ))
+            .unwrap();
+        assert_eq!(state.retired_presentations.len(), 1);
+        assert!(state.retired_presentation_byte_count() >= size_of::<RendererPresentationFence>());
+        assert!(
+            state.retired_presentation_byte_count() < MAXIMUM_RESOLVED_CONFIG_LENGTH,
+            "retired release fences must not retain resolved configuration"
+        );
+
+        let mut sequence = 4_u64;
+        for suffix in 1_u128..=12_000 {
+            let presentation_id =
+                Uuid::from_u128(0x9000_0000_0000_4000_8000_0000_0000_0000 + suffix);
+            state
+                .accept(&envelope(
+                    RendererControlMessage::UpsertPresentation(attachment(
+                        terminal_a(),
+                        presentation_id,
+                        1,
+                        vec![],
+                    )),
+                    sequence,
+                ))
+                .unwrap();
+            sequence += 1;
+            state
+                .accept(&envelope(
+                    RendererControlMessage::RemovePresentation(RendererPresentationRemoval {
+                        terminal_id: terminal_a(),
+                        terminal_epoch: 9,
+                        presentation_id,
+                        presentation_generation: 1,
+                    }),
+                    sequence,
+                ))
+                .unwrap();
+            sequence += 1;
+        }
+
+        assert!(state.retired_presentations.len() <= MAXIMUM_RETIRED_PRESENTATION_FENCES);
+        assert!(
+            state.retired_presentation_byte_count() <= MAXIMUM_RETIRED_PRESENTATION_FENCE_BYTES
+        );
+        assert!(
+            state.presentation_generation_tombstones.insertion_order.len()
+                <= MAXIMUM_PRESENTATION_GENERATION_TOMBSTONES
+        );
+        assert!(
+            state.presentation_generation_tombstones.retained_byte_count()
+                <= MAXIMUM_PRESENTATION_GENERATION_TOMBSTONE_BYTES
+        );
+        assert_eq!(state.presentations.len(), 1);
     }
 
     #[test]

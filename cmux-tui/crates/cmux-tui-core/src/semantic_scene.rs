@@ -9,7 +9,7 @@ use std::sync::mpsc::{
     Receiver, RecvError, RecvTimeoutError, SyncSender, TryRecvError, TrySendError, sync_channel,
 };
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use ghostty_vt::{
     EncodedRenderScene, RenderSceneEncoder, RenderSceneError, RenderSceneLimits,
@@ -23,6 +23,55 @@ pub const SEMANTIC_SCENE_EVENT_CAPACITY: usize = 2;
 
 /// Hard upper bound for the caller-selected live event capacity.
 pub const SEMANTIC_SCENE_MAX_EVENT_CAPACITY: usize = 8;
+
+const SEMANTIC_SCENE_CAPTURE_LOCK_BUDGET: Duration = Duration::from_millis(8);
+const SEMANTIC_SCENE_CAPTURE_BUCKET_UPPER_NANOS: [u64; 9] =
+    [100_000, 250_000, 500_000, 1_000_000, 2_000_000, 4_000_000, 8_000_000, 16_000_000, u64::MAX];
+
+#[derive(Debug, Default)]
+struct SemanticSceneCaptureTiming {
+    samples: u64,
+    total_nanos: u128,
+    maximum_nanos: u64,
+    over_budget: u64,
+    encoded_scenes: u64,
+    backpressured_attachments: u64,
+    buckets: [u64; SEMANTIC_SCENE_CAPTURE_BUCKET_UPPER_NANOS.len()],
+}
+
+impl SemanticSceneCaptureTiming {
+    fn record(&mut self, duration: Duration, encoded_scenes: usize, backpressured: usize) {
+        let nanos = u64::try_from(duration.as_nanos()).unwrap_or(u64::MAX);
+        self.samples = self.samples.saturating_add(1);
+        self.total_nanos = self.total_nanos.saturating_add(u128::from(nanos));
+        self.maximum_nanos = self.maximum_nanos.max(nanos);
+        self.encoded_scenes =
+            self.encoded_scenes.saturating_add(u64::try_from(encoded_scenes).unwrap_or(u64::MAX));
+        self.backpressured_attachments = self
+            .backpressured_attachments
+            .saturating_add(u64::try_from(backpressured).unwrap_or(u64::MAX));
+        if duration > SEMANTIC_SCENE_CAPTURE_LOCK_BUDGET {
+            self.over_budget = self.over_budget.saturating_add(1);
+        }
+        let bucket = SEMANTIC_SCENE_CAPTURE_BUCKET_UPPER_NANOS
+            .iter()
+            .position(|upper| nanos <= *upper)
+            .unwrap_or(SEMANTIC_SCENE_CAPTURE_BUCKET_UPPER_NANOS.len() - 1);
+        self.buckets[bucket] = self.buckets[bucket].saturating_add(1);
+    }
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SemanticSceneCaptureTimingSnapshot {
+    pub samples: u64,
+    pub total_nanos: u128,
+    pub maximum_nanos: u64,
+    pub over_budget: u64,
+    pub encoded_scenes: u64,
+    pub backpressured_attachments: u64,
+    pub buckets: [u64; SEMANTIC_SCENE_CAPTURE_BUCKET_UPPER_NANOS.len()],
+}
 
 /// Exact identity of one daemon-owned terminal state lifetime.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -486,6 +535,7 @@ struct SemanticSceneTap {
 #[derive(Default)]
 pub(crate) struct SemanticSceneHub {
     attachments: Vec<SemanticSceneTap>,
+    capture_timing: SemanticSceneCaptureTiming,
 }
 
 impl SemanticSceneHub {
@@ -498,6 +548,7 @@ impl SemanticSceneHub {
         wake: SyncSender<u64>,
     ) -> Result<SemanticSceneAttachment, SemanticSceneAttachError> {
         Self::validate_attachment(actual_terminal, content_sequence, &options)?;
+        let capture_started = Instant::now();
 
         let mut encoder = RenderSceneEncoder::new()
             .map_err(SemanticSceneFailure::from)
@@ -539,6 +590,7 @@ impl SemanticSceneHub {
             next_presentation_sequence: 2,
             needs_full: false,
         });
+        self.capture_timing.record(capture_started.elapsed(), 1, 0);
 
         Ok(SemanticSceneAttachment {
             initial,
@@ -557,7 +609,10 @@ impl SemanticSceneHub {
             return false;
         }
 
+        let capture_started = Instant::now();
         let mut worked = false;
+        let mut encoded_scenes = 0_usize;
+        let mut backpressured_attachments = 0_usize;
         self.attachments.retain_mut(|attachment| {
             if attachment.lifecycle.is_canceled() {
                 return false;
@@ -588,6 +643,7 @@ impl SemanticSceneHub {
                 attachment.encoder.reset();
                 attachment.needs_full = true;
                 attachment.lifecycle.mark_needs_full();
+                backpressured_attachments = backpressured_attachments.saturating_add(1);
                 return true;
             }
 
@@ -654,6 +710,7 @@ impl SemanticSceneHub {
                 canonical_kind,
                 encoded,
             };
+            encoded_scenes = encoded_scenes.saturating_add(1);
             match attachment.sender.try_send(SemanticSceneEvent::Scene(frame)) {
                 Ok(()) => {
                     attachment.delivered_content_sequence = content_sequence;
@@ -669,6 +726,7 @@ impl SemanticSceneHub {
                     attachment.encoder.reset();
                     attachment.needs_full = true;
                     attachment.lifecycle.mark_needs_full();
+                    backpressured_attachments = backpressured_attachments.saturating_add(1);
                     true
                 }
                 Err(TrySendError::Disconnected(_)) => {
@@ -678,11 +736,29 @@ impl SemanticSceneHub {
                 }
             }
         });
+        self.capture_timing.record(
+            capture_started.elapsed(),
+            encoded_scenes,
+            backpressured_attachments,
+        );
         worked
     }
 
     pub(crate) fn attachment_count(&self) -> usize {
         self.attachments.len()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn capture_timing_snapshot(&self) -> SemanticSceneCaptureTimingSnapshot {
+        SemanticSceneCaptureTimingSnapshot {
+            samples: self.capture_timing.samples,
+            total_nanos: self.capture_timing.total_nanos,
+            maximum_nanos: self.capture_timing.maximum_nanos,
+            over_budget: self.capture_timing.over_budget,
+            encoded_scenes: self.capture_timing.encoded_scenes,
+            backpressured_attachments: self.capture_timing.backpressured_attachments,
+            buckets: self.capture_timing.buckets,
+        }
     }
 
     fn fail_attachment(
@@ -760,5 +836,82 @@ impl SemanticSceneHub {
             preedit,
             limits: capture.limits,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ghostty_vt::Callbacks;
+
+    use super::*;
+
+    fn attachment_options(
+        terminal: SemanticSceneTerminalIdentity,
+        presentation_id: PresentationId,
+    ) -> SemanticSceneAttachmentOptions {
+        let mut options = SemanticSceneAttachmentOptions::new(
+            terminal,
+            SemanticScenePresentationIdentity { presentation_id, generation: 1 },
+        );
+        options.event_capacity = 1;
+        options
+    }
+
+    #[test]
+    fn stalled_attachment_capture_is_bounded_and_reports_lock_hold_distribution() {
+        let mut terminal = Terminal::new(240, 80, 10_000, Callbacks::default()).unwrap();
+        let identity =
+            SemanticSceneTerminalIdentity { terminal_id: SurfaceUuid::new(), runtime_epoch: 1 };
+        let (wake, _wake_receiver) = sync_channel(1);
+        let mut hub = SemanticSceneHub::default();
+        let slow = hub
+            .attach_locked(
+                &mut terminal,
+                identity,
+                1,
+                attachment_options(identity, PresentationId::new()),
+                wake.clone(),
+            )
+            .unwrap();
+        let steady = hub
+            .attach_locked(
+                &mut terminal,
+                identity,
+                1,
+                attachment_options(identity, PresentationId::new()),
+                wake,
+            )
+            .unwrap();
+
+        const MUTATIONS: u64 = 1_024;
+        for sequence in 2..=MUTATIONS + 1 {
+            terminal.vt_write(format!("{sequence:04} renderer saturation\r\n").as_bytes());
+            assert!(hub.capture_locked(&mut terminal, identity, sequence));
+            let SemanticSceneEvent::Scene(frame) = steady.events.try_recv().unwrap() else {
+                panic!("steady attachment failed during saturation")
+            };
+            assert_eq!(frame.content_sequence, sequence);
+        }
+
+        let timing = hub.capture_timing_snapshot();
+        let bucket_samples = timing.buckets.iter().copied().sum::<u64>();
+        let mean_nanos = timing.total_nanos / u128::from(timing.samples.max(1));
+        eprintln!(
+            "semantic-scene terminal-lock capture: samples={} buckets={:?} mean_ns={} max_ns={} over_8ms={} encoded={} backpressured={}",
+            timing.samples,
+            timing.buckets,
+            mean_nanos,
+            timing.maximum_nanos,
+            timing.over_budget,
+            timing.encoded_scenes,
+            timing.backpressured_attachments,
+        );
+
+        assert_eq!(bucket_samples, timing.samples);
+        assert_eq!(timing.samples, MUTATIONS + 2);
+        assert_eq!(timing.backpressured_attachments, MUTATIONS - 1);
+        assert_eq!(timing.encoded_scenes, MUTATIONS + 3);
+        assert!(slow.control.needs_full_scene());
+        assert!(!steady.control.needs_full_scene());
     }
 }

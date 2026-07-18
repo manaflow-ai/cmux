@@ -436,6 +436,28 @@ No control path may wait forever for a Mach right, worker connection, fence, or
 release acknowledgement. Deadlines are explicit and cancellation follows the
 presentation lifecycle.
 
+Renderer control queues have one supervisor-wide retained-memory envelope.
+The coordinator admits at most 1,024 commands and 72 MiB. Each worker outbox
+admits at most 128 messages and 72 MiB. Across the coordinator and every worker,
+the supervisor admits at most 4,096 logical messages and 256 MiB. One message
+slot and 1 KiB remain reserved for recovery. A 1,024-worker ceiling plus fixed
+queue capacities gives queue objects and empty-but-previously-full storage a
+fixed worst-case size; that full size is deducted from the 256 MiB envelope.
+Owned `String` and `Vec` capacities are charged exactly. One worker read poll is
+also capped at 1 MiB.
+
+An oversized message is rejected from its validated encoded length before an
+encoding buffer is allocated. Queue overflow never combines opaque scene
+deltas. The supervisor drops only the affected workspace's pending renderer
+state, terminates that worker, and increments its renderer epoch. After the new
+process authenticates with `WorkerReady`, cmuxd sends current presentation state
+and a full semantic scene. Other workspaces and topology commands remain live.
+
+Released-presentation fences store only terminal, presentation, epoch, and
+generation identity. Retired fences and generation tombstones each have an
+8,192-entry and 512 KiB limit. Large configuration and capability buffers are
+not retained after presentation removal.
+
 Metal System Trace evidence must contain both exact process IDs. The renderer
 PID must own command buffers labeled `cmux Ghostty worker semantic-scene
 render`, render encoders labeled `Ghostty terminal glyph render pass`, and
@@ -468,6 +490,15 @@ is presentation input; IME commit is terminal input.
 The standalone renderer constructor must not create `Surface`, termio, a PTY,
 or a canonical terminal. Its external Metal presenter publishes only after GPU
 completion.
+
+Semantic-scene capture records terminal-lock duration in buckets ending at 100
+microseconds, 250 microseconds, 500 microseconds, 1, 2, 4, 8, and 16
+milliseconds, with a final overflow bucket. Captures over 8 milliseconds are
+counted separately, along with encoded scenes and skipped backpressured
+attachments. Ghostty's current API snapshots and encodes in one call, so moving
+encoding outside the terminal lock requires a new owned snapshot API. Until
+that API exists, bounded attachments are skipped before encoding and lock timing
+remains an acceptance metric.
 
 ## Persistence and lifecycle
 

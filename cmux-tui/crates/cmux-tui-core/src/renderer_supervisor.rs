@@ -12,6 +12,7 @@ use std::fmt;
 use std::io;
 #[cfg(unix)]
 use std::io::Write;
+use std::mem::size_of;
 use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
 #[cfg(unix)]
@@ -22,10 +23,11 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use crate::renderer_control::{
-    RendererBootstrap, RendererControlDirection, RendererControlEncoder, RendererControlEnvelope,
-    RendererControlError, RendererControlIncrementalDecoder, RendererControlMessage,
-    RendererControlSessionStateMachine, RendererControlWire, RendererNeedsFullScene,
-    RendererPresentationReady, RendererSceneCapabilities, RendererWorkerReady,
+    MAXIMUM_RENDERER_CONTROL_FRAME_LENGTH, RendererBootstrap, RendererControlDirection,
+    RendererControlEncoder, RendererControlEnvelope, RendererControlError,
+    RendererControlIncrementalDecoder, RendererControlMessage, RendererControlSessionStateMachine,
+    RendererControlWire, RendererNeedsFullScene, RendererPresentationReady,
+    RendererSceneCapabilities, RendererWorkerReady,
 };
 use crate::{DaemonInstanceId, PresentationId, WorkspaceUuid};
 use serde::Serialize;
@@ -33,7 +35,39 @@ use serde::Serialize;
 const DEFAULT_HELPER_NAME: &str = "cmux-terminal-renderer";
 const CONTROL_FD: i32 = 198;
 const CHILD_POLL_INTERVAL: Duration = Duration::from_millis(100);
-const MAXIMUM_COMMAND_QUEUE_LENGTH: usize = 8_192;
+const MAXIMUM_COMMAND_QUEUE_LENGTH: usize = 1_024;
+const MAXIMUM_COMMAND_QUEUE_BYTES: usize = 72 * 1_024 * 1_024;
+const COMMAND_QUEUE_RECOVERY_RESERVE_BYTES: usize = 1_024;
+const MAXIMUM_COMMAND_QUEUE_ALLOCATED_SLOTS: usize = MAXIMUM_COMMAND_QUEUE_LENGTH * 2;
+const MAXIMUM_WORKER_OUTBOX_LENGTH: usize = 128;
+const MAXIMUM_WORKER_OUTBOX_BYTES: usize = 72 * 1_024 * 1_024;
+const MAXIMUM_WORKER_OUTBOX_ALLOCATED_SLOTS: usize = MAXIMUM_WORKER_OUTBOX_LENGTH * 2;
+const MAXIMUM_WORKER_RECEIVE_BATCH_BYTES: usize = 1_024 * 1_024;
+const MAXIMUM_RENDERER_WORKERS: usize = 1_024;
+const MAXIMUM_SUPERVISOR_QUEUED_MESSAGES: usize = 4_096;
+const MAXIMUM_SUPERVISOR_QUEUED_BYTES: usize = 256 * 1_024 * 1_024;
+const SUPERVISOR_RECOVERY_RESERVE_MESSAGES: usize = 1;
+const SUPERVISOR_RECOVERY_RESERVE_BYTES: usize = 1_024;
+const COORDINATOR_QUEUE_FIXED_STORAGE_BYTES: usize = size_of::<CoordinatorState>()
+    + MAXIMUM_COMMAND_QUEUE_ALLOCATED_SLOTS * size_of::<AccountedCoordinatorCommand>();
+const WORKER_OUTBOX_FIXED_STORAGE_BYTES: usize = size_of::<BoundedWorkerOutbox>()
+    + MAXIMUM_WORKER_OUTBOX_ALLOCATED_SLOTS * size_of::<AccountedRendererMessage>();
+const MAXIMUM_SUPERVISOR_FIXED_QUEUE_STORAGE_BYTES: usize = COORDINATOR_QUEUE_FIXED_STORAGE_BYTES
+    + MAXIMUM_RENDERER_WORKERS * WORKER_OUTBOX_FIXED_STORAGE_BYTES;
+const _: () = assert!(
+    MAXIMUM_SUPERVISOR_FIXED_QUEUE_STORAGE_BYTES + SUPERVISOR_RECOVERY_RESERVE_BYTES
+        < MAXIMUM_SUPERVISOR_QUEUED_BYTES
+);
+const _: () = assert!(
+    COORDINATOR_QUEUE_FIXED_STORAGE_BYTES
+        + COMMAND_QUEUE_RECOVERY_RESERVE_BYTES
+        + MAXIMUM_RENDERER_CONTROL_FRAME_LENGTH
+        <= MAXIMUM_COMMAND_QUEUE_BYTES
+);
+const _: () = assert!(
+    WORKER_OUTBOX_FIXED_STORAGE_BYTES + MAXIMUM_RENDERER_CONTROL_FRAME_LENGTH
+        <= MAXIMUM_WORKER_OUTBOX_BYTES
+);
 
 /// Renderer workers receive resolved terminal configuration over their private
 /// control channel. They only need process-local paths and locale state from
@@ -206,7 +240,8 @@ impl RendererSupervisor {
         config.validate()?;
         let clock = SystemSupervisorClock::new();
         let spawner = CommandRendererSpawner::new(config.executable.clone());
-        let shared = Arc::new(Shared::default());
+        let queue_budget = Arc::new(SupervisorQueueBudget::default());
+        let shared = Arc::new(Shared::new(queue_budget.clone()));
         let coordinator_shared = shared.clone();
         let coordinator = thread::Builder::new()
             .name("cmux-renderer-supervisor".to_owned())
@@ -217,6 +252,7 @@ impl RendererSupervisor {
                     config.daemon_instance_id,
                     config.initial_restart_delay,
                     config.maximum_restart_delay,
+                    queue_budget,
                 );
                 coordinator_loop(&coordinator_shared, &mut core);
             })?;
@@ -245,6 +281,8 @@ impl RendererSupervisor {
         &self,
         workspace_uuids: BTreeSet<WorkspaceUuid>,
     ) -> Result<(), RendererSupervisorError> {
+        let mut workspace_uuids = workspace_uuids.into_iter().collect::<Vec<_>>();
+        workspace_uuids.shrink_to_fit();
         self.enqueue(CoordinatorCommand::RetainWorkspaces { workspace_uuids })
     }
 
@@ -262,6 +300,7 @@ impl RendererSupervisor {
                 RendererControlError::UnexpectedDirection,
             ));
         }
+        message.encoded_frame_length()?;
         self.enqueue(CoordinatorCommand::Send { workspace_uuid, message })
     }
 
@@ -284,6 +323,9 @@ impl RendererSupervisor {
             return Err(RendererSupervisorError::Protocol(
                 RendererControlError::UnexpectedDirection,
             ));
+        }
+        for message in &messages {
+            message.encoded_frame_length()?;
         }
         self.enqueue(CoordinatorCommand::SendIfEpoch { workspace_uuid, renderer_epoch, messages })
     }
@@ -320,10 +362,7 @@ impl RendererSupervisor {
         if state.stopping {
             return Err(RendererSupervisorError::Stopped);
         }
-        if state.commands.len() >= MAXIMUM_COMMAND_QUEUE_LENGTH {
-            return Err(RendererSupervisorError::QueueFull);
-        }
-        state.commands.push_back(command);
+        state.enqueue(command)?;
         self.shared.changed.notify_one();
         Ok(())
     }
@@ -342,7 +381,6 @@ impl Drop for RendererSupervisor {
     }
 }
 
-#[derive(Default)]
 struct Shared {
     state: Mutex<CoordinatorState>,
     statuses: Mutex<Vec<RendererWorkerStatus>>,
@@ -350,10 +388,107 @@ struct Shared {
     changed: Condvar,
 }
 
-#[derive(Default)]
+impl Shared {
+    fn new(queue_budget: Arc<SupervisorQueueBudget>) -> Self {
+        Self {
+            state: Mutex::new(CoordinatorState::new(queue_budget)),
+            statuses: Mutex::new(Vec::new()),
+            event_handler: Mutex::new(None),
+            changed: Condvar::new(),
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct SupervisorQueueUsage {
+    messages: usize,
+    bytes: usize,
+}
+
+struct SupervisorQueueBudget {
+    usage: Mutex<SupervisorQueueUsage>,
+}
+
+impl Default for SupervisorQueueBudget {
+    fn default() -> Self {
+        Self {
+            usage: Mutex::new(SupervisorQueueUsage {
+                messages: 0,
+                bytes: MAXIMUM_SUPERVISOR_FIXED_QUEUE_STORAGE_BYTES,
+            }),
+        }
+    }
+}
+
+impl SupervisorQueueBudget {
+    fn try_reserve_normal(&self, messages: usize, bytes: usize) -> bool {
+        self.try_reserve(
+            messages,
+            bytes,
+            MAXIMUM_SUPERVISOR_QUEUED_MESSAGES.saturating_sub(SUPERVISOR_RECOVERY_RESERVE_MESSAGES),
+            MAXIMUM_SUPERVISOR_QUEUED_BYTES.saturating_sub(SUPERVISOR_RECOVERY_RESERVE_BYTES),
+        )
+    }
+
+    fn try_reserve_recovery(&self, messages: usize, bytes: usize) -> bool {
+        self.try_reserve(
+            messages,
+            bytes,
+            MAXIMUM_SUPERVISOR_QUEUED_MESSAGES,
+            MAXIMUM_SUPERVISOR_QUEUED_BYTES,
+        )
+    }
+
+    fn try_reserve(
+        &self,
+        messages: usize,
+        bytes: usize,
+        message_limit: usize,
+        byte_limit: usize,
+    ) -> bool {
+        let mut usage = self.usage.lock().unwrap();
+        if usage.messages.saturating_add(messages) > message_limit
+            || usage.bytes.saturating_add(bytes) > byte_limit
+        {
+            return false;
+        }
+        usage.messages += messages;
+        usage.bytes += bytes;
+        true
+    }
+
+    fn release(&self, messages: usize, bytes: usize) {
+        let mut usage = self.usage.lock().unwrap();
+        usage.messages = usage
+            .messages
+            .checked_sub(messages)
+            .expect("renderer queue message accounting underflow");
+        usage.bytes =
+            usage.bytes.checked_sub(bytes).expect("renderer queue byte accounting underflow");
+        assert!(
+            usage.bytes >= MAXIMUM_SUPERVISOR_FIXED_QUEUE_STORAGE_BYTES,
+            "renderer queue fixed-storage reserve was released"
+        );
+    }
+
+    #[cfg(test)]
+    fn snapshot(&self) -> SupervisorQueueUsage {
+        *self.usage.lock().unwrap()
+    }
+}
+
 struct CoordinatorState {
-    commands: VecDeque<CoordinatorCommand>,
+    commands: VecDeque<AccountedCoordinatorCommand>,
+    queue_budget: Arc<SupervisorQueueBudget>,
+    retained_command_messages: usize,
+    retained_command_dynamic_bytes: usize,
     stopping: bool,
+}
+
+struct AccountedCoordinatorCommand {
+    command: CoordinatorCommand,
+    retained_messages: usize,
+    dynamic_bytes: usize,
 }
 
 enum CoordinatorCommand {
@@ -365,7 +500,7 @@ enum CoordinatorCommand {
         presentation_id: PresentationId,
     },
     RetainWorkspaces {
-        workspace_uuids: BTreeSet<WorkspaceUuid>,
+        workspace_uuids: Vec<WorkspaceUuid>,
     },
     Send {
         workspace_uuid: WorkspaceUuid,
@@ -380,6 +515,196 @@ enum CoordinatorCommand {
         workspace_uuid: WorkspaceUuid,
         reply: SyncSender<Option<RendererWorkerStatus>>,
     },
+    RecoverWorkspaceOverflow {
+        workspace_uuid: WorkspaceUuid,
+    },
+}
+
+impl CoordinatorState {
+    fn new(queue_budget: Arc<SupervisorQueueBudget>) -> Self {
+        let commands = VecDeque::with_capacity(MAXIMUM_COMMAND_QUEUE_LENGTH);
+        assert!(
+            commands.capacity() <= MAXIMUM_COMMAND_QUEUE_ALLOCATED_SLOTS,
+            "coordinator queue allocation exceeded its fixed-storage reserve"
+        );
+        Self {
+            commands,
+            queue_budget,
+            retained_command_messages: 0,
+            retained_command_dynamic_bytes: 0,
+            stopping: false,
+        }
+    }
+
+    fn enqueue(&mut self, command: CoordinatorCommand) -> Result<(), RendererSupervisorError> {
+        let retained_messages = command.retained_message_count();
+        let dynamic_bytes = command.dynamic_retained_byte_count();
+        let normal_count_limit = MAXIMUM_COMMAND_QUEUE_LENGTH.saturating_sub(1);
+        let normal_byte_limit = MAXIMUM_COMMAND_QUEUE_BYTES
+            .saturating_sub(COORDINATOR_QUEUE_FIXED_STORAGE_BYTES)
+            .saturating_sub(COMMAND_QUEUE_RECOVERY_RESERVE_BYTES);
+        if self.commands.len() < normal_count_limit
+            && self.retained_command_dynamic_bytes.saturating_add(dynamic_bytes)
+                <= normal_byte_limit
+            && self.queue_budget.try_reserve_normal(retained_messages, dynamic_bytes)
+        {
+            self.push_accounted(command, retained_messages, dynamic_bytes);
+            return Ok(());
+        }
+
+        let Some(workspace_uuid) = command.recoverable_workspace() else {
+            return Err(RendererSupervisorError::QueueFull);
+        };
+        self.schedule_overflow_recovery(workspace_uuid)
+    }
+
+    fn schedule_overflow_recovery(
+        &mut self,
+        workspace_uuid: WorkspaceUuid,
+    ) -> Result<(), RendererSupervisorError> {
+        let mut removed_messages = 0_usize;
+        let mut removed_dynamic_bytes = 0_usize;
+        let mut retained_messages = 0_usize;
+        let mut retained_dynamic_bytes = 0_usize;
+        self.commands.retain(|queued| {
+            let keep = queued.command.recoverable_workspace() != Some(workspace_uuid);
+            if keep {
+                retained_messages = retained_messages.saturating_add(queued.retained_messages);
+                retained_dynamic_bytes =
+                    retained_dynamic_bytes.saturating_add(queued.dynamic_bytes);
+            } else {
+                removed_messages = removed_messages.saturating_add(queued.retained_messages);
+                removed_dynamic_bytes = removed_dynamic_bytes.saturating_add(queued.dynamic_bytes);
+            }
+            keep
+        });
+        self.queue_budget.release(removed_messages, removed_dynamic_bytes);
+        self.retained_command_messages = retained_messages;
+        self.retained_command_dynamic_bytes = retained_dynamic_bytes;
+
+        if self.commands.iter().any(|queued| {
+            matches!(
+                queued.command,
+                CoordinatorCommand::RecoverWorkspaceOverflow { workspace_uuid: queued_workspace }
+                    if queued_workspace == workspace_uuid
+            )
+        }) {
+            return Ok(());
+        }
+
+        let recovery = CoordinatorCommand::RecoverWorkspaceOverflow { workspace_uuid };
+        let recovery_messages = recovery.retained_message_count();
+        let recovery_dynamic_bytes = recovery.dynamic_retained_byte_count();
+        if self.commands.len() >= MAXIMUM_COMMAND_QUEUE_LENGTH
+            || COORDINATOR_QUEUE_FIXED_STORAGE_BYTES
+                .saturating_add(self.retained_command_dynamic_bytes)
+                .saturating_add(recovery_dynamic_bytes)
+                > MAXIMUM_COMMAND_QUEUE_BYTES
+            || !self.queue_budget.try_reserve_recovery(recovery_messages, recovery_dynamic_bytes)
+        {
+            return Err(RendererSupervisorError::QueueFull);
+        }
+        self.push_accounted(recovery, recovery_messages, recovery_dynamic_bytes);
+        Ok(())
+    }
+
+    fn push_accounted(
+        &mut self,
+        command: CoordinatorCommand,
+        retained_messages: usize,
+        dynamic_bytes: usize,
+    ) {
+        self.retained_command_messages =
+            self.retained_command_messages.saturating_add(retained_messages);
+        self.retained_command_dynamic_bytes =
+            self.retained_command_dynamic_bytes.saturating_add(dynamic_bytes);
+        self.commands.push_back(AccountedCoordinatorCommand {
+            command,
+            retained_messages,
+            dynamic_bytes,
+        });
+    }
+
+    fn pop_front(&mut self) -> Option<CoordinatorCommand> {
+        let queued = self.commands.pop_front()?;
+        self.retained_command_messages =
+            self.retained_command_messages.saturating_sub(queued.retained_messages);
+        self.retained_command_dynamic_bytes =
+            self.retained_command_dynamic_bytes.saturating_sub(queued.dynamic_bytes);
+        self.queue_budget.release(queued.retained_messages, queued.dynamic_bytes);
+        Some(queued.command)
+    }
+
+    #[cfg(test)]
+    fn retained_byte_count(&self) -> usize {
+        size_of::<Self>()
+            .saturating_add(
+                self.commands.capacity().saturating_mul(size_of::<AccountedCoordinatorCommand>()),
+            )
+            .saturating_add(self.retained_command_dynamic_bytes)
+    }
+}
+
+impl Default for CoordinatorState {
+    fn default() -> Self {
+        Self::new(Arc::new(SupervisorQueueBudget::default()))
+    }
+}
+
+impl Drop for CoordinatorState {
+    fn drop(&mut self) {
+        self.queue_budget
+            .release(self.retained_command_messages, self.retained_command_dynamic_bytes);
+    }
+}
+
+impl CoordinatorCommand {
+    fn recoverable_workspace(&self) -> Option<WorkspaceUuid> {
+        match self {
+            Self::Send { workspace_uuid, .. } | Self::SendIfEpoch { workspace_uuid, .. } => {
+                Some(*workspace_uuid)
+            }
+            Self::SetPresentation { .. }
+            | Self::RemovePresentation { .. }
+            | Self::RetainWorkspaces { .. }
+            | Self::WorkspaceStatus { .. }
+            | Self::RecoverWorkspaceOverflow { .. } => None,
+        }
+    }
+
+    fn retained_message_count(&self) -> usize {
+        match self {
+            Self::SendIfEpoch { messages, .. } => messages.len(),
+            Self::SetPresentation { .. }
+            | Self::RemovePresentation { .. }
+            | Self::RetainWorkspaces { .. }
+            | Self::Send { .. }
+            | Self::WorkspaceStatus { .. }
+            | Self::RecoverWorkspaceOverflow { .. } => 1,
+        }
+    }
+
+    fn dynamic_retained_byte_count(&self) -> usize {
+        match self {
+            Self::RetainWorkspaces { workspace_uuids } => {
+                workspace_uuids.capacity().saturating_mul(size_of::<WorkspaceUuid>())
+            }
+            Self::Send { message, .. } => message.dynamic_retained_byte_count(),
+            Self::SendIfEpoch { messages, .. } => messages
+                .capacity()
+                .saturating_mul(size_of::<RendererControlMessage>())
+                .saturating_add(
+                    messages
+                        .iter()
+                        .map(RendererControlMessage::dynamic_retained_byte_count)
+                        .fold(0_usize, usize::saturating_add),
+                ),
+            Self::SetPresentation { .. }
+            | Self::RemovePresentation { .. }
+            | Self::WorkspaceStatus { .. }
+            | Self::RecoverWorkspaceOverflow { .. } => 0,
+        }
+    }
 }
 
 fn coordinator_loop<S, C>(shared: &Shared, core: &mut SupervisorCore<S, C>)
@@ -388,7 +713,7 @@ where
     C: SupervisorClock,
 {
     loop {
-        let commands = {
+        let command = {
             let mut state = shared.state.lock().unwrap();
             if state.commands.is_empty() && !state.stopping {
                 let timeout = core.next_wake_after().min(CHILD_POLL_INTERVAL);
@@ -400,10 +725,10 @@ where
                 *shared.statuses.lock().unwrap() = Vec::new();
                 return;
             }
-            state.commands.drain(..).collect::<Vec<_>>()
+            state.pop_front()
         };
 
-        for command in commands {
+        if let Some(command) = command {
             match command {
                 CoordinatorCommand::SetPresentation { presentation_id, workspace_uuid } => {
                     core.set_presentation_workspace(presentation_id, workspace_uuid);
@@ -428,6 +753,12 @@ where
                         .into_iter()
                         .find(|status| status.workspace_uuid == workspace_uuid);
                     let _ = reply.send(status);
+                }
+                CoordinatorCommand::RecoverWorkspaceOverflow { workspace_uuid } => {
+                    core.worker_failed(
+                        workspace_uuid,
+                        "renderer control queue overflow; forcing full scene recovery".to_owned(),
+                    );
                 }
             }
         }
@@ -488,6 +819,112 @@ trait RendererSpawner: Send + 'static {
     fn spawn(&mut self, request: &SpawnRequest) -> io::Result<Self::Process>;
 }
 
+struct AccountedRendererMessage {
+    message: RendererControlMessage,
+    dynamic_bytes: usize,
+}
+
+struct BoundedWorkerOutbox {
+    messages: VecDeque<AccountedRendererMessage>,
+    retained_dynamic_bytes: usize,
+    queue_budget: Arc<SupervisorQueueBudget>,
+}
+
+impl BoundedWorkerOutbox {
+    fn new(queue_budget: Arc<SupervisorQueueBudget>) -> Self {
+        let messages = VecDeque::with_capacity(MAXIMUM_WORKER_OUTBOX_LENGTH);
+        assert!(
+            messages.capacity() <= MAXIMUM_WORKER_OUTBOX_ALLOCATED_SLOTS,
+            "worker outbox allocation exceeded its fixed-storage reserve"
+        );
+        Self { messages, retained_dynamic_bytes: 0, queue_budget }
+    }
+
+    fn try_push(&mut self, message: RendererControlMessage) -> Result<(), RendererSupervisorError> {
+        message.encoded_frame_length()?;
+        let dynamic_bytes = message.dynamic_retained_byte_count();
+        let dynamic_byte_limit =
+            MAXIMUM_WORKER_OUTBOX_BYTES.saturating_sub(WORKER_OUTBOX_FIXED_STORAGE_BYTES);
+        if self.messages.len() >= MAXIMUM_WORKER_OUTBOX_LENGTH
+            || self.retained_dynamic_bytes.saturating_add(dynamic_bytes) > dynamic_byte_limit
+            || !self.queue_budget.try_reserve_normal(1, dynamic_bytes)
+        {
+            return Err(RendererSupervisorError::QueueFull);
+        }
+        self.retained_dynamic_bytes = self.retained_dynamic_bytes.saturating_add(dynamic_bytes);
+        self.messages.push_back(AccountedRendererMessage { message, dynamic_bytes });
+        Ok(())
+    }
+
+    fn try_extend(
+        &mut self,
+        messages: Vec<RendererControlMessage>,
+    ) -> Result<(), RendererSupervisorError> {
+        let additional_count = messages.len();
+        let mut additional_dynamic_bytes = 0_usize;
+        for message in &messages {
+            message.encoded_frame_length()?;
+            additional_dynamic_bytes =
+                additional_dynamic_bytes.saturating_add(message.dynamic_retained_byte_count());
+        }
+        let dynamic_byte_limit =
+            MAXIMUM_WORKER_OUTBOX_BYTES.saturating_sub(WORKER_OUTBOX_FIXED_STORAGE_BYTES);
+        if self.messages.len().saturating_add(additional_count) > MAXIMUM_WORKER_OUTBOX_LENGTH
+            || self.retained_dynamic_bytes.saturating_add(additional_dynamic_bytes)
+                > dynamic_byte_limit
+            || !self.queue_budget.try_reserve_normal(additional_count, additional_dynamic_bytes)
+        {
+            return Err(RendererSupervisorError::QueueFull);
+        }
+        for message in messages {
+            let dynamic_bytes = message.dynamic_retained_byte_count();
+            self.messages.push_back(AccountedRendererMessage { message, dynamic_bytes });
+        }
+        self.retained_dynamic_bytes =
+            self.retained_dynamic_bytes.saturating_add(additional_dynamic_bytes);
+        Ok(())
+    }
+
+    fn pop_front(&mut self) -> Option<RendererControlMessage> {
+        let queued = self.messages.pop_front()?;
+        self.retained_dynamic_bytes =
+            self.retained_dynamic_bytes.saturating_sub(queued.dynamic_bytes);
+        self.queue_budget.release(1, queued.dynamic_bytes);
+        Some(queued.message)
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.messages.len()
+    }
+
+    #[cfg(test)]
+    fn retained_byte_count(&self) -> usize {
+        size_of::<Self>()
+            .saturating_add(
+                self.messages.capacity().saturating_mul(size_of::<AccountedRendererMessage>()),
+            )
+            .saturating_add(self.retained_dynamic_bytes)
+    }
+
+    #[cfg(test)]
+    fn retained_dynamic_byte_count(&self) -> usize {
+        self.retained_dynamic_bytes
+    }
+}
+
+impl Default for BoundedWorkerOutbox {
+    fn default() -> Self {
+        Self::new(Arc::new(SupervisorQueueBudget::default()))
+    }
+}
+
+impl Drop for BoundedWorkerOutbox {
+    fn drop(&mut self) {
+        self.queue_budget.release(self.messages.len(), self.retained_dynamic_bytes);
+    }
+}
+
 struct Worker<P> {
     process: Option<P>,
     epoch: u64,
@@ -499,7 +936,7 @@ struct Worker<P> {
     encoder: Option<RendererControlEncoder>,
     decoder: Option<RendererControlIncrementalDecoder>,
     session: Option<RendererControlSessionStateMachine>,
-    outbox: VecDeque<RendererControlMessage>,
+    outbox: BoundedWorkerOutbox,
     effective_user_id: Option<u32>,
     scene_capabilities: Option<RendererSceneCapabilities>,
 }
@@ -516,6 +953,7 @@ where
     maximum_restart_delay: Duration,
     presentations: BTreeMap<PresentationId, WorkspaceUuid>,
     workers: BTreeMap<WorkspaceUuid, Worker<S::Process>>,
+    queue_budget: Arc<SupervisorQueueBudget>,
     next_epoch: Option<u64>,
     events: VecDeque<RendererSupervisorEvent>,
 }
@@ -531,6 +969,7 @@ where
         daemon_instance_id: DaemonInstanceId,
         initial_restart_delay: Duration,
         maximum_restart_delay: Duration,
+        queue_budget: Arc<SupervisorQueueBudget>,
     ) -> Self {
         Self {
             spawner,
@@ -540,6 +979,7 @@ where
             maximum_restart_delay,
             presentations: BTreeMap::new(),
             workers: BTreeMap::new(),
+            queue_budget,
             next_epoch: Some(1),
             events: VecDeque::new(),
         }
@@ -566,7 +1006,7 @@ where
         self.reconcile();
     }
 
-    fn retain_workspaces(&mut self, workspace_uuids: &BTreeSet<WorkspaceUuid>) {
+    fn retain_workspaces(&mut self, workspace_uuids: &[WorkspaceUuid]) {
         self.presentations.retain(|_, workspace_uuid| workspace_uuids.contains(workspace_uuid));
         self.reconcile();
     }
@@ -596,6 +1036,9 @@ where
         }
         for workspace in desired {
             if !self.workers.contains_key(&workspace) {
+                if self.workers.len() >= MAXIMUM_RENDERER_WORKERS {
+                    continue;
+                }
                 self.spawn_initial(workspace);
             }
         }
@@ -610,7 +1053,8 @@ where
     fn spawn_initial(&mut self, workspace_uuid: WorkspaceUuid) {
         match self.allocate_epoch() {
             Ok(epoch) => {
-                let worker = self.spawn_worker(workspace_uuid, epoch, 0, 0, VecDeque::new());
+                let outbox = BoundedWorkerOutbox::new(self.queue_budget.clone());
+                let worker = self.spawn_worker(workspace_uuid, epoch, 0, 0, outbox);
                 self.workers.insert(workspace_uuid, worker);
             }
             Err(error) => {
@@ -627,7 +1071,7 @@ where
                         encoder: None,
                         decoder: None,
                         session: None,
-                        outbox: VecDeque::new(),
+                        outbox: BoundedWorkerOutbox::new(self.queue_budget.clone()),
                         effective_user_id: None,
                         scene_capabilities: None,
                     },
@@ -642,7 +1086,7 @@ where
         epoch: u64,
         restart_count: u64,
         failure_streak: u32,
-        outbox: VecDeque<RendererControlMessage>,
+        outbox: BoundedWorkerOutbox,
     ) -> Worker<S::Process> {
         let request = SpawnRequest {
             daemon_instance_id: self.daemon_instance_id,
@@ -717,7 +1161,7 @@ where
         restart_count: u64,
         failure_streak: u32,
         error: String,
-        outbox: VecDeque<RendererControlMessage>,
+        outbox: BoundedWorkerOutbox,
     ) -> Worker<S::Process> {
         let delay = restart_delay(
             workspace_uuid,
@@ -751,11 +1195,11 @@ where
             .workers
             .get_mut(&workspace_uuid)
             .ok_or(RendererSupervisorError::UnknownWorkspace(workspace_uuid))?;
-        if worker.state != RendererWorkerState::Ready {
-            worker.outbox.push_back(message);
-            return Ok(());
+        worker.outbox.try_push(message)?;
+        if worker.state == RendererWorkerState::Ready {
+            flush_worker_outbox(worker)?;
         }
-        send_control_message(worker, message)
+        Ok(())
     }
 
     fn send_if_epoch(
@@ -772,9 +1216,8 @@ where
             if worker.epoch != renderer_epoch || worker.state != RendererWorkerState::Ready {
                 return Ok(());
             }
-            for message in messages {
-                send_control_message(worker, message)?;
-            }
+            worker.outbox.try_extend(messages)?;
+            flush_worker_outbox(worker)?;
             Ok::<(), RendererSupervisorError>(())
         })();
         if let Err(error) = result {
@@ -901,9 +1344,7 @@ where
                 worker.last_error = None;
                 worker.effective_user_id = Some(ready.effective_user_id);
                 worker.scene_capabilities = Some(ready.scene_capabilities);
-                while let Some(message) = worker.outbox.pop_front() {
-                    send_control_message(worker, message)?;
-                }
+                flush_worker_outbox(worker)?;
                 self.events.push_back(RendererSupervisorEvent::WorkerReady {
                     workspace_uuid,
                     renderer_epoch,
@@ -950,13 +1391,14 @@ where
             let _ = process.terminate_and_wait();
         }
         previous.process = None;
+        let outbox = BoundedWorkerOutbox::new(self.queue_budget.clone());
         let backoff = self.backoff_worker(
             workspace_uuid,
             previous.epoch,
             previous.restart_count.saturating_add(1),
             previous.failure_streak.saturating_add(1),
             error,
-            previous.outbox,
+            outbox,
         );
         self.workers.insert(workspace_uuid, backoff);
     }
@@ -966,6 +1408,7 @@ where
         let epoch = match self.allocate_epoch() {
             Ok(epoch) => epoch,
             Err(error) => {
+                let outbox = BoundedWorkerOutbox::new(self.queue_budget.clone());
                 self.workers.insert(
                     workspace_uuid,
                     self.backoff_worker(
@@ -974,18 +1417,19 @@ where
                         previous.restart_count,
                         previous.failure_streak,
                         error.to_string(),
-                        previous.outbox,
+                        outbox,
                     ),
                 );
                 return;
             }
         };
+        let outbox = BoundedWorkerOutbox::new(self.queue_budget.clone());
         let worker = self.spawn_worker(
             workspace_uuid,
             epoch,
             previous.restart_count,
             previous.failure_streak,
-            previous.outbox,
+            outbox,
         );
         self.workers.insert(workspace_uuid, worker);
     }
@@ -1042,6 +1486,15 @@ fn send_control_message<P: RendererProcess>(
     let envelope = RendererControlWire::decode(&frame)?;
     worker.session.as_mut().unwrap().accept(&envelope)?;
     worker.process.as_mut().unwrap().send(&frame)?;
+    Ok(())
+}
+
+fn flush_worker_outbox<P: RendererProcess>(
+    worker: &mut Worker<P>,
+) -> Result<(), RendererSupervisorError> {
+    while let Some(message) = worker.outbox.pop_front() {
+        send_control_message(worker, message)?;
+    }
     Ok(())
 }
 
@@ -1194,12 +1647,14 @@ impl RendererProcess for CommandRendererProcess {
         use std::os::fd::AsRawFd;
 
         let mut buffer = [0_u8; 64 * 1024];
-        loop {
+        while destination.len() < MAXIMUM_WORKER_RECEIVE_BATCH_BYTES {
+            let remaining = MAXIMUM_WORKER_RECEIVE_BATCH_BYTES - destination.len();
+            let receive_length = remaining.min(buffer.len());
             let count = unsafe {
                 libc::recv(
                     self.stream.as_raw_fd(),
                     buffer.as_mut_ptr().cast(),
-                    buffer.len(),
+                    receive_length,
                     libc::MSG_DONTWAIT,
                 )
             };
@@ -1216,6 +1671,7 @@ impl RendererProcess for CommandRendererProcess {
             }
             return Err(error);
         }
+        Ok(ReceiveResult::Open)
     }
 
     fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
@@ -1262,9 +1718,9 @@ mod tests {
     use std::os::unix::process::ExitStatusExt;
 
     use crate::renderer_control::{
-        RendererColorSpace, RendererNeedsFullSceneReason, RendererPixelFormat,
-        RendererPresentationAttachment, RendererPresentationRemoval, RendererSceneCapabilities,
-        RendererSemanticScene, RendererWorkerReady,
+        RendererColorSpace, RendererFrameRelease, RendererNeedsFullSceneReason,
+        RendererPixelFormat, RendererPresentationAttachment, RendererPresentationRemoval,
+        RendererSceneCapabilities, RendererSemanticScene, RendererWorkerReady,
     };
 
     use super::*;
@@ -1443,12 +1899,21 @@ mod tests {
         spawner: FakeSpawner,
         clock: ManualClock,
     ) -> SupervisorCore<FakeSpawner, ManualClock> {
+        new_core_with_budget(spawner, clock, Arc::new(SupervisorQueueBudget::default()))
+    }
+
+    fn new_core_with_budget(
+        spawner: FakeSpawner,
+        clock: ManualClock,
+        queue_budget: Arc<SupervisorQueueBudget>,
+    ) -> SupervisorCore<FakeSpawner, ManualClock> {
         SupervisorCore::new(
             spawner,
             clock,
             daemon(),
             Duration::from_millis(100),
             Duration::from_secs(5),
+            queue_budget,
         )
     }
 
@@ -1506,6 +1971,588 @@ mod tests {
             presentation_sequence,
             bytes: bytes.to_vec(),
         }
+    }
+
+    fn release(presentation_id: PresentationId, renderer_epoch: u64) -> RendererFrameRelease {
+        RendererFrameRelease {
+            daemon_instance_id: daemon().as_uuid(),
+            renderer_epoch,
+            terminal_id: terminal(),
+            terminal_epoch: 9,
+            terminal_sequence: 1,
+            presentation_id: presentation_id.as_uuid(),
+            presentation_generation: 1,
+            frame_sequence: 1,
+            surface_id: 1,
+        }
+    }
+
+    #[test]
+    fn coordinator_queue_caps_count_and_exact_retained_bytes_and_preserves_other_workspaces() {
+        let workspace_a = workspace("20000000-0000-4000-8000-000000000030");
+        let workspace_b = workspace("20000000-0000-4000-8000-000000000031");
+        let presentation = presentation("30000000-0000-4000-8000-000000000030");
+        let mut state = CoordinatorState::default();
+
+        state
+            .enqueue(CoordinatorCommand::Send {
+                workspace_uuid: workspace_b,
+                message: RendererControlMessage::FrameRelease(release(presentation, 1)),
+            })
+            .unwrap();
+        for _ in 1..MAXIMUM_COMMAND_QUEUE_LENGTH - 1 {
+            state
+                .enqueue(CoordinatorCommand::Send {
+                    workspace_uuid: workspace_a,
+                    message: RendererControlMessage::FrameRelease(release(presentation, 1)),
+                })
+                .unwrap();
+        }
+        assert_eq!(state.commands.len(), MAXIMUM_COMMAND_QUEUE_LENGTH - 1);
+        assert!(state.retained_byte_count() < MAXIMUM_COMMAND_QUEUE_BYTES);
+
+        state
+            .enqueue(CoordinatorCommand::Send {
+                workspace_uuid: workspace_a,
+                message: RendererControlMessage::FrameRelease(release(presentation, 1)),
+            })
+            .unwrap();
+
+        assert!(state.commands.len() <= MAXIMUM_COMMAND_QUEUE_LENGTH);
+        assert!(state.retained_byte_count() <= MAXIMUM_COMMAND_QUEUE_BYTES);
+        assert_eq!(
+            state.retained_command_dynamic_bytes,
+            state.commands.iter().map(|queued| queued.dynamic_bytes).sum::<usize>()
+        );
+        assert!(state.commands.iter().any(|queued| matches!(
+            queued.command,
+            CoordinatorCommand::Send { workspace_uuid, .. } if workspace_uuid == workspace_b
+        )));
+        assert!(!state.commands.iter().any(|queued| matches!(
+            queued.command,
+            CoordinatorCommand::Send { workspace_uuid, .. } if workspace_uuid == workspace_a
+        )));
+        assert!(state.commands.iter().any(|queued| matches!(
+            queued.command,
+            CoordinatorCommand::RecoverWorkspaceOverflow { workspace_uuid }
+                if workspace_uuid == workspace_a
+        )));
+    }
+
+    #[test]
+    fn oversized_retained_scene_schedules_recovery_without_encoding_amplification() {
+        let workspace = workspace("20000000-0000-4000-8000-000000000032");
+        let presentation = presentation("30000000-0000-4000-8000-000000000032");
+        let mut bytes = Vec::with_capacity(MAXIMUM_COMMAND_QUEUE_BYTES);
+        bytes.push(0xa5);
+        let message = RendererControlMessage::SemanticScene(RendererSemanticScene {
+            terminal_id: terminal(),
+            terminal_epoch: 9,
+            presentation_id: presentation.as_uuid(),
+            presentation_generation: 1,
+            canonical_sequence: 1,
+            presentation_sequence: 1,
+            bytes,
+        });
+        assert_eq!(message.encoded_frame_length().unwrap(), 113);
+        assert!(message.retained_byte_count() >= MAXIMUM_COMMAND_QUEUE_BYTES);
+
+        let mut state = CoordinatorState::default();
+        state.enqueue(CoordinatorCommand::Send { workspace_uuid: workspace, message }).unwrap();
+
+        assert_eq!(state.commands.len(), 1);
+        assert!(matches!(
+            state.commands.front().map(|queued| &queued.command),
+            Some(CoordinatorCommand::RecoverWorkspaceOverflow { workspace_uuid })
+                if *workspace_uuid == workspace
+        ));
+        assert_eq!(state.retained_command_dynamic_bytes, 0);
+        assert!(state.retained_byte_count() <= COORDINATOR_QUEUE_FIXED_STORAGE_BYTES);
+    }
+
+    #[test]
+    fn bounded_worker_outbox_rejects_count_and_bytes_atomically() {
+        let presentation = presentation("30000000-0000-4000-8000-000000000033");
+        let mut count_limited = BoundedWorkerOutbox::default();
+        for _ in 0..MAXIMUM_WORKER_OUTBOX_LENGTH {
+            count_limited
+                .try_push(RendererControlMessage::FrameRelease(release(presentation, 1)))
+                .unwrap();
+        }
+        let count_bytes = count_limited.retained_byte_count();
+        assert_eq!(count_limited.len(), MAXIMUM_WORKER_OUTBOX_LENGTH);
+        assert_eq!(
+            count_limited
+                .try_push(RendererControlMessage::FrameRelease(release(presentation, 1)))
+                .unwrap_err(),
+            RendererSupervisorError::QueueFull
+        );
+        assert_eq!(count_limited.len(), MAXIMUM_WORKER_OUTBOX_LENGTH);
+        assert_eq!(count_limited.retained_byte_count(), count_bytes);
+
+        let mut oversized_bytes = Vec::with_capacity(MAXIMUM_WORKER_OUTBOX_BYTES);
+        oversized_bytes.push(0x5a);
+        let oversized = RendererControlMessage::SemanticScene(RendererSemanticScene {
+            terminal_id: terminal(),
+            terminal_epoch: 9,
+            presentation_id: presentation.as_uuid(),
+            presentation_generation: 1,
+            canonical_sequence: 1,
+            presentation_sequence: 1,
+            bytes: oversized_bytes,
+        });
+        let mut byte_limited = BoundedWorkerOutbox::default();
+        assert_eq!(
+            byte_limited.try_push(oversized).unwrap_err(),
+            RendererSupervisorError::QueueFull
+        );
+        assert_eq!(byte_limited.len(), 0);
+        assert_eq!(byte_limited.retained_dynamic_byte_count(), 0);
+        assert!(byte_limited.retained_byte_count() <= WORKER_OUTBOX_FIXED_STORAGE_BYTES);
+    }
+
+    #[test]
+    fn supervisor_aggregate_byte_budget_covers_every_worker_outbox() {
+        let queue_budget = Arc::new(SupervisorQueueBudget::default());
+        let baseline = queue_budget.snapshot();
+        let presentation = presentation("30000000-0000-4000-8000-000000000036");
+        let mut outboxes =
+            (0..4).map(|_| BoundedWorkerOutbox::new(queue_budget.clone())).collect::<Vec<_>>();
+
+        for (index, outbox) in outboxes.iter_mut().enumerate().take(3) {
+            let mut bytes = Vec::with_capacity(MAXIMUM_SUPERVISOR_QUEUED_BYTES / 4);
+            bytes.push(index as u8);
+            outbox
+                .try_push(RendererControlMessage::SemanticScene(RendererSemanticScene {
+                    terminal_id: terminal(),
+                    terminal_epoch: 9,
+                    presentation_id: presentation.as_uuid(),
+                    presentation_generation: 1,
+                    canonical_sequence: index as u64 + 1,
+                    presentation_sequence: index as u64 + 1,
+                    bytes,
+                }))
+                .unwrap();
+        }
+
+        let before_rejection = queue_budget.snapshot();
+        assert_eq!(before_rejection.messages, 3);
+        assert_eq!(
+            before_rejection.bytes,
+            baseline.bytes
+                + outboxes
+                    .iter()
+                    .map(BoundedWorkerOutbox::retained_dynamic_byte_count)
+                    .sum::<usize>()
+        );
+        assert!(
+            before_rejection.bytes
+                <= MAXIMUM_SUPERVISOR_QUEUED_BYTES - SUPERVISOR_RECOVERY_RESERVE_BYTES
+        );
+
+        let mut bytes = Vec::with_capacity(MAXIMUM_SUPERVISOR_QUEUED_BYTES / 4);
+        bytes.push(0xff);
+        assert_eq!(
+            outboxes[3]
+                .try_push(RendererControlMessage::SemanticScene(RendererSemanticScene {
+                    terminal_id: terminal(),
+                    terminal_epoch: 9,
+                    presentation_id: presentation.as_uuid(),
+                    presentation_generation: 1,
+                    canonical_sequence: 4,
+                    presentation_sequence: 4,
+                    bytes,
+                }))
+                .unwrap_err(),
+            RendererSupervisorError::QueueFull
+        );
+        assert_eq!(queue_budget.snapshot(), before_rejection);
+        assert_eq!(outboxes[3].len(), 0);
+
+        drop(outboxes);
+        assert_eq!(queue_budget.snapshot(), baseline);
+    }
+
+    #[test]
+    fn fixed_queue_storage_and_worker_count_stay_bounded_through_churn() {
+        let queue_budget = Arc::new(SupervisorQueueBudget::default());
+        let baseline = queue_budget.snapshot();
+        assert_eq!(baseline.messages, 0);
+        assert_eq!(baseline.bytes, MAXIMUM_SUPERVISOR_FIXED_QUEUE_STORAGE_BYTES);
+        assert!(baseline.bytes < MAXIMUM_SUPERVISOR_QUEUED_BYTES);
+        let presentation = PresentationId::new();
+
+        for _ in 0..256 {
+            let mut outbox = BoundedWorkerOutbox::new(queue_budget.clone());
+            let allocated_slots = outbox.messages.capacity();
+            assert!(allocated_slots <= MAXIMUM_WORKER_OUTBOX_ALLOCATED_SLOTS);
+            for _ in 0..MAXIMUM_WORKER_OUTBOX_LENGTH {
+                outbox
+                    .try_push(RendererControlMessage::FrameRelease(release(presentation, 1)))
+                    .unwrap();
+            }
+            assert_eq!(queue_budget.snapshot().messages, MAXIMUM_WORKER_OUTBOX_LENGTH);
+            assert_eq!(queue_budget.snapshot().bytes, baseline.bytes);
+            while outbox.pop_front().is_some() {}
+            assert_eq!(outbox.messages.capacity(), allocated_slots);
+            assert!(outbox.retained_byte_count() <= WORKER_OUTBOX_FIXED_STORAGE_BYTES);
+            assert_eq!(queue_budget.snapshot(), baseline);
+            drop(outbox);
+            assert_eq!(queue_budget.snapshot(), baseline);
+        }
+
+        let mut coordinator = CoordinatorState::new(queue_budget.clone());
+        for _ in 0..MAXIMUM_COMMAND_QUEUE_LENGTH - 1 {
+            coordinator
+                .enqueue(CoordinatorCommand::Send {
+                    workspace_uuid: WorkspaceUuid::new(),
+                    message: RendererControlMessage::FrameRelease(release(presentation, 1)),
+                })
+                .unwrap();
+        }
+        assert_eq!(queue_budget.snapshot().messages, MAXIMUM_COMMAND_QUEUE_LENGTH - 1);
+        while coordinator.pop_front().is_some() {}
+        assert!(coordinator.commands.capacity() <= MAXIMUM_COMMAND_QUEUE_ALLOCATED_SLOTS);
+        assert!(coordinator.retained_byte_count() <= COORDINATOR_QUEUE_FIXED_STORAGE_BYTES);
+        assert_eq!(queue_budget.snapshot(), baseline);
+
+        let spawner = FakeSpawner::default();
+        let mut core =
+            new_core_with_budget(spawner.clone(), ManualClock::default(), queue_budget.clone());
+        for _ in 0..MAXIMUM_RENDERER_WORKERS + 64 {
+            core.set_presentation_workspace(PresentationId::new(), Some(WorkspaceUuid::new()));
+        }
+        assert_eq!(core.workers.len(), MAXIMUM_RENDERER_WORKERS);
+        assert_eq!(spawner.spawn_count(), MAXIMUM_RENDERER_WORKERS);
+        assert!(core.workers.values().all(|worker| {
+            worker.outbox.messages.capacity() <= MAXIMUM_WORKER_OUTBOX_ALLOCATED_SLOTS
+        }));
+        assert_eq!(queue_budget.snapshot(), baseline);
+
+        core.presentations.clear();
+        core.reconcile();
+        assert!(core.workers.is_empty());
+        assert_eq!(queue_budget.snapshot(), baseline);
+        core.set_presentation_workspace(PresentationId::new(), Some(WorkspaceUuid::new()));
+        assert_eq!(core.workers.len(), 1);
+        assert_eq!(spawner.spawn_count(), MAXIMUM_RENDERER_WORKERS + 1);
+
+        drop(core);
+        drop(coordinator);
+        assert_eq!(queue_budget.snapshot(), baseline);
+    }
+
+    #[test]
+    fn supervisor_aggregate_message_saturation_preserves_topology_and_recovers_one_workspace() {
+        const SATURATED_WORKERS: usize = 24;
+
+        let spawner = FakeSpawner::default();
+        let clock = ManualClock::default();
+        let queue_budget = Arc::new(SupervisorQueueBudget::default());
+        let baseline = queue_budget.snapshot();
+        let mut core = new_core_with_budget(spawner.clone(), clock.clone(), queue_budget.clone());
+        let workspaces = (0..SATURATED_WORKERS).map(|_| WorkspaceUuid::new()).collect::<Vec<_>>();
+        let presentations =
+            (0..SATURATED_WORKERS).map(|_| PresentationId::new()).collect::<Vec<_>>();
+
+        for (&workspace_uuid, &presentation_id) in workspaces.iter().zip(&presentations) {
+            core.set_presentation_workspace(presentation_id, Some(workspace_uuid));
+            for sequence in 1..=MAXIMUM_WORKER_OUTBOX_LENGTH as u64 {
+                core.send(
+                    workspace_uuid,
+                    RendererControlMessage::SemanticScene(scene(
+                        presentation_id,
+                        1,
+                        sequence,
+                        sequence,
+                        b"stalled-delta",
+                    )),
+                )
+                .unwrap();
+            }
+        }
+        assert_eq!(
+            queue_budget.snapshot().messages,
+            SATURATED_WORKERS * MAXIMUM_WORKER_OUTBOX_LENGTH
+        );
+
+        let continuity_workspace = WorkspaceUuid::new();
+        let continuity_presentation = PresentationId::new();
+        let target_workspace = workspaces[0];
+        let target_presentation = presentations[0];
+        let target_before = core.workers[&target_workspace].epoch;
+        let target_old_pid = core.workers[&target_workspace].process.as_ref().unwrap().pid();
+        let mut coordinator = CoordinatorState::new(queue_budget.clone());
+        for _ in 0..MAXIMUM_COMMAND_QUEUE_LENGTH - 1 {
+            coordinator
+                .enqueue(CoordinatorCommand::SetPresentation {
+                    presentation_id: continuity_presentation,
+                    workspace_uuid: Some(continuity_workspace),
+                })
+                .unwrap();
+        }
+        assert_eq!(queue_budget.snapshot().messages, MAXIMUM_SUPERVISOR_QUEUED_MESSAGES - 1);
+
+        coordinator
+            .enqueue(CoordinatorCommand::Send {
+                workspace_uuid: target_workspace,
+                message: RendererControlMessage::SemanticScene(scene(
+                    target_presentation,
+                    1,
+                    129,
+                    129,
+                    b"overflow",
+                )),
+            })
+            .unwrap();
+        let saturated = queue_budget.snapshot();
+        assert_eq!(saturated.messages, MAXIMUM_SUPERVISOR_QUEUED_MESSAGES);
+        assert!(saturated.bytes <= MAXIMUM_SUPERVISOR_QUEUED_BYTES);
+        assert_eq!(coordinator.commands.len(), MAXIMUM_COMMAND_QUEUE_LENGTH);
+        assert_eq!(
+            coordinator
+                .commands
+                .iter()
+                .filter(|queued| matches!(
+                    queued.command,
+                    CoordinatorCommand::SetPresentation { .. }
+                ))
+                .count(),
+            MAXIMUM_COMMAND_QUEUE_LENGTH - 1
+        );
+        assert!(coordinator.commands.iter().any(|queued| matches!(
+            queued.command,
+            CoordinatorCommand::RecoverWorkspaceOverflow { workspace_uuid }
+                if workspace_uuid == target_workspace
+        )));
+
+        while let Some(command) = coordinator.pop_front() {
+            match command {
+                CoordinatorCommand::SetPresentation { presentation_id, workspace_uuid } => {
+                    core.set_presentation_workspace(presentation_id, workspace_uuid);
+                }
+                CoordinatorCommand::RecoverWorkspaceOverflow { workspace_uuid } => {
+                    core.worker_failed(
+                        workspace_uuid,
+                        "aggregate renderer queue overflow; forcing full scene recovery".to_owned(),
+                    );
+                }
+                _ => panic!("aggregate saturation test queued an unexpected command"),
+            }
+        }
+        assert_eq!(core.presentations[&continuity_presentation], continuity_workspace);
+        assert_eq!(spawner.spawn_count(), SATURATED_WORKERS + 1);
+        assert_eq!(core.workers[&target_workspace].state, RendererWorkerState::Backoff);
+        assert_eq!(core.workers[&target_workspace].outbox.len(), 0);
+        assert_eq!(
+            queue_budget.snapshot().messages,
+            (SATURATED_WORKERS - 1) * MAXIMUM_WORKER_OUTBOX_LENGTH
+        );
+
+        let continuity = core
+            .statuses()
+            .into_iter()
+            .find(|status| status.workspace_uuid == continuity_workspace)
+            .unwrap();
+        let continuity_pid = continuity.pid.unwrap();
+        core.accept_worker_envelope(
+            continuity_workspace,
+            continuity.renderer_epoch,
+            continuity_pid,
+            ready_envelope(continuity_pid),
+        )
+        .unwrap();
+        core.send_if_epoch(
+            continuity_workspace,
+            continuity.renderer_epoch,
+            vec![
+                RendererControlMessage::UpsertPresentation(attachment(continuity_presentation, 1)),
+                RendererControlMessage::SemanticScene(scene(
+                    continuity_presentation,
+                    1,
+                    1,
+                    1,
+                    b"continuity-full",
+                )),
+            ],
+        );
+        assert_eq!(spawner.messages(continuity_pid).len(), 3);
+
+        clock.advance(Duration::from_millis(121));
+        core.tick();
+        let target_after = core
+            .statuses()
+            .into_iter()
+            .find(|status| status.workspace_uuid == target_workspace)
+            .unwrap();
+        let target_new_pid = target_after.pid.unwrap();
+        assert_ne!(target_after.renderer_epoch, target_before);
+        assert_ne!(target_new_pid, target_old_pid);
+        core.accept_worker_envelope(
+            target_workspace,
+            target_after.renderer_epoch,
+            target_new_pid,
+            ready_envelope(target_new_pid),
+        )
+        .unwrap();
+        core.send_if_epoch(
+            target_workspace,
+            target_after.renderer_epoch,
+            vec![
+                RendererControlMessage::UpsertPresentation(attachment(target_presentation, 1)),
+                RendererControlMessage::SemanticScene(scene(
+                    target_presentation,
+                    1,
+                    129,
+                    1,
+                    b"fresh-full",
+                )),
+            ],
+        );
+        assert_eq!(spawner.messages(target_old_pid).len(), 1);
+        let recovered = spawner.messages(target_new_pid);
+        assert_eq!(recovered.len(), 3);
+        assert!(matches!(
+            &recovered[2],
+            RendererControlMessage::SemanticScene(scene) if scene.bytes == b"fresh-full"
+        ));
+        assert_eq!(
+            queue_budget.snapshot().messages,
+            (SATURATED_WORKERS - 1) * MAXIMUM_WORKER_OUTBOX_LENGTH
+        );
+
+        drop(coordinator);
+        drop(core);
+        assert_eq!(queue_budget.snapshot(), baseline);
+    }
+
+    #[test]
+    fn starting_worker_saturation_restarts_only_that_workspace_and_drops_stale_scenes() {
+        let spawner = FakeSpawner::default();
+        let clock = ManualClock::default();
+        let mut core = new_core(spawner.clone(), clock.clone());
+        let workspace_a = workspace("20000000-0000-4000-8000-000000000034");
+        let workspace_b = workspace("20000000-0000-4000-8000-000000000035");
+        let presentation_a = presentation("30000000-0000-4000-8000-000000000034");
+        let presentation_b = presentation("30000000-0000-4000-8000-000000000035");
+        core.set_presentation_workspace(presentation_a, Some(workspace_a));
+        core.set_presentation_workspace(presentation_b, Some(workspace_b));
+        let status_a = core
+            .statuses()
+            .into_iter()
+            .find(|status| status.workspace_uuid == workspace_a)
+            .unwrap();
+        let status_b = core
+            .statuses()
+            .into_iter()
+            .find(|status| status.workspace_uuid == workspace_b)
+            .unwrap();
+        let old_pid_a = status_a.pid.unwrap();
+        let pid_b = status_b.pid.unwrap();
+        core.accept_worker_envelope(
+            workspace_b,
+            status_b.renderer_epoch,
+            pid_b,
+            ready_envelope(pid_b),
+        )
+        .unwrap();
+        core.take_events();
+
+        for sequence in 1..=MAXIMUM_WORKER_OUTBOX_LENGTH as u64 {
+            core.send(
+                workspace_a,
+                RendererControlMessage::SemanticScene(scene(
+                    presentation_a,
+                    1,
+                    sequence,
+                    sequence,
+                    b"stale",
+                )),
+            )
+            .unwrap();
+        }
+        assert_eq!(core.workers[&workspace_a].outbox.len(), MAXIMUM_WORKER_OUTBOX_LENGTH);
+        let overflow = core
+            .send(
+                workspace_a,
+                RendererControlMessage::SemanticScene(scene(
+                    presentation_a,
+                    1,
+                    129,
+                    129,
+                    b"overflow",
+                )),
+            )
+            .unwrap_err();
+        assert_eq!(overflow, RendererSupervisorError::QueueFull);
+        core.worker_failed(workspace_a, overflow.to_string());
+
+        assert_eq!(core.statuses().len(), 2);
+        assert_eq!(core.workers[&workspace_a].state, RendererWorkerState::Backoff);
+        assert_eq!(core.workers[&workspace_a].outbox.len(), 0);
+        assert_eq!(core.workers[&workspace_b].state, RendererWorkerState::Ready);
+        core.send_if_epoch(
+            workspace_b,
+            status_b.renderer_epoch,
+            vec![
+                RendererControlMessage::UpsertPresentation(attachment(presentation_b, 1)),
+                RendererControlMessage::SemanticScene(scene(
+                    presentation_b,
+                    1,
+                    1,
+                    1,
+                    b"workspace-b-full",
+                )),
+            ],
+        );
+        assert_eq!(spawner.messages(pid_b).len(), 3);
+
+        clock.advance(Duration::from_millis(121));
+        core.tick();
+        let restarted = core
+            .statuses()
+            .into_iter()
+            .find(|status| status.workspace_uuid == workspace_a)
+            .unwrap();
+        let new_pid_a = restarted.pid.unwrap();
+        assert_ne!(new_pid_a, old_pid_a);
+        assert_ne!(restarted.renderer_epoch, status_a.renderer_epoch);
+        core.accept_worker_envelope(
+            workspace_a,
+            restarted.renderer_epoch,
+            new_pid_a,
+            ready_envelope(new_pid_a),
+        )
+        .unwrap();
+        assert!(core.take_events().iter().any(|event| matches!(
+            event,
+            RendererSupervisorEvent::WorkerReady { workspace_uuid, renderer_epoch, .. }
+                if *workspace_uuid == workspace_a
+                    && *renderer_epoch == restarted.renderer_epoch
+        )));
+        core.send_if_epoch(
+            workspace_a,
+            restarted.renderer_epoch,
+            vec![
+                RendererControlMessage::UpsertPresentation(attachment(presentation_a, 1)),
+                RendererControlMessage::SemanticScene(scene(
+                    presentation_a,
+                    1,
+                    129,
+                    1,
+                    b"fresh-full",
+                )),
+            ],
+        );
+
+        assert_eq!(spawner.messages(old_pid_a).len(), 1);
+        let recovered = spawner.messages(new_pid_a);
+        assert_eq!(recovered.len(), 3);
+        assert!(matches!(
+            &recovered[2],
+            RendererControlMessage::SemanticScene(scene) if scene.bytes == b"fresh-full"
+        ));
+        assert_eq!(spawner.record(old_pid_a), (true, true, 1));
     }
 
     #[test]
@@ -1850,7 +2897,7 @@ mod tests {
             .pid
             .unwrap();
 
-        core.retain_workspaces(&BTreeSet::from([retained]));
+        core.retain_workspaces(&[retained]);
 
         assert_eq!(core.statuses().len(), 1);
         assert_eq!(core.statuses()[0].workspace_uuid, retained);

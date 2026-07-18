@@ -34,6 +34,16 @@ On reconnect, re-attach and rebuild from the fresh `render-state`; discard cache
 
 Implementation note: ghostty-vt damage is consume-once because `walk_rows` clears the dirty flags. A server driving its local TUI plus any number of render attachments must build each frame once and fan that shared frame out to all consumers. Deltas are per-consumer only in delivery; damage computation is shared, not repeated per consumer.
 
+## Renderer Worker Backpressure
+
+This section describes cmuxd's private renderer-worker transport, not the public protocol-v7 attach stream.
+
+The coordinator queue is limited to 1,024 commands and 72 MiB. Each workspace worker outbox is limited to 128 messages and 72 MiB. One shared budget covers the coordinator and all outboxes: 4,096 logical messages and 256 MiB, with one message and 1 KiB reserved for recovery. The shared byte envelope includes a fixed worst-case reserve for the coordinator queue plus 1,024 fixed-capacity worker outboxes; variable `String` and `Vec` capacities are charged exactly.
+
+The daemon validates a message's encoded length before queueing or allocating its frame. It does not merge semantic-scene deltas because their contents are opaque to the supervisor. Overflow discards pending state only for that workspace, restarts its worker with a new renderer epoch, and sends current presentation state plus a full scene after the replacement authenticates. Other workers and topology commands keep their order. One worker receive poll reads at most 1 MiB.
+
+Released presentations retain compact identity fences rather than attachment configuration. Retired fences and presentation-generation tombstones each have an 8,192-entry and 512 KiB limit.
+
 ## Shared Render Types
 
 `Cursor`:
