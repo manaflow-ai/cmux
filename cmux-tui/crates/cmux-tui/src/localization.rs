@@ -12,16 +12,11 @@ pub(crate) struct PairingMessages {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ForeignViewportMessages {
     pub sized_by_another_client: &'static str,
-    pub type_to_take_over: &'static str,
-    pub separator: &'static str,
 }
 
 impl ForeignViewportMessages {
     pub fn hint(&self, cols: u16, rows: u16) -> String {
-        format!(
-            "{} ({cols}x{rows}){}{}",
-            self.sized_by_another_client, self.separator, self.type_to_take_over
-        )
+        format!("{} ({cols}x{rows})", self.sized_by_another_client)
     }
 }
 
@@ -41,8 +36,6 @@ static ENGLISH: Catalog = Catalog {
     },
     foreign_viewport: ForeignViewportMessages {
         sized_by_another_client: "sized by another client",
-        type_to_take_over: "type to take over",
-        separator: ", ",
     },
 };
 
@@ -56,8 +49,6 @@ static JAPANESE: Catalog = Catalog {
     },
     foreign_viewport: ForeignViewportMessages {
         sized_by_another_client: "別のクライアントがサイズを決定中",
-        type_to_take_over: "入力すると引き継ぎます",
-        separator: "。",
     },
 };
 
@@ -90,10 +81,7 @@ mod tests {
 
     #[test]
     fn foreign_viewport_hints_describe_state_without_promising_input_takeover() {
-        assert_eq!(
-            ENGLISH.foreign_viewport.hint(12, 5),
-            "sized by another client (12x5)"
-        );
+        assert_eq!(ENGLISH.foreign_viewport.hint(12, 5), "sized by another client (12x5)");
         assert_eq!(
             JAPANESE.foreign_viewport.hint(12, 5),
             "別のクライアントがサイズを決定中 (12x5)"
