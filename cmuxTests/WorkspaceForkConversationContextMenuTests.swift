@@ -4479,6 +4479,54 @@ struct WorkspaceForkConversationContextMenuTests {
     }
 
     @Test
+    func persistedBuiltInRegistrationsGainNewForkTemplatesWithoutOverridingProjects() throws {
+        for current in [
+            CmuxVaultAgentRegistration.builtInGrok,
+            CmuxVaultAgentRegistration.builtInCampfire,
+        ] {
+            var historical = current
+            historical.forkCommand = nil
+            let persisted = SessionRestorableAgentSnapshot(
+                kind: .custom(current.id),
+                sessionId: "session-123",
+                workingDirectory: "/tmp/repo",
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: current.id,
+                    executablePath: current.defaultExecutable,
+                    arguments: [current.defaultExecutable],
+                    workingDirectory: "/tmp/repo",
+                    environment: nil,
+                    capturedAt: 123,
+                    source: "process"
+                ),
+                registration: historical
+            )
+
+            let decoded = try JSONDecoder().decode(
+                SessionRestorableAgentSnapshot.self,
+                from: JSONEncoder().encode(persisted)
+            )
+            #expect(decoded.registration == current)
+            #expect(decoded.forkCommand != nil)
+
+            var projectOverride = historical
+            projectOverride.name = "Project \(current.name)"
+            let decodedOverride = try JSONDecoder().decode(
+                SessionRestorableAgentSnapshot.self,
+                from: JSONEncoder().encode(SessionRestorableAgentSnapshot(
+                    kind: .custom(current.id),
+                    sessionId: "session-123",
+                    workingDirectory: "/tmp/repo",
+                    launchCommand: persisted.launchCommand,
+                    registration: projectOverride
+                ))
+            )
+            #expect(decodedOverride.registration == projectOverride)
+            #expect(decodedOverride.forkCommand == nil)
+        }
+    }
+
+    @Test
     func directOpenCodePresentationStaysVisibleWhileValidationRefreshes() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
