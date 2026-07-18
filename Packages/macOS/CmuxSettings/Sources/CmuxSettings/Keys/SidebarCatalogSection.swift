@@ -27,8 +27,10 @@ public struct SidebarCatalogSection: SettingCatalogSection {
     /// Bool-backed to match the legacy in-app store. The on-disk key
     /// `sidebarBranchVerticalLayout` is written as a Bool by every
     /// shipped cmux build; using an enum here would silently revert
-    /// every user with a saved preference. `true` means vertical
-    /// (branch and directory stacked on their own lines).
+    /// every user with a saved preference. `true` means vertical branch
+    /// topology (each panel's branch/directory record gets its own row).
+    /// `stackBranchDirectory` independently controls whether the branch and
+    /// directory within each record share a row or use separate subrows.
     public let branchVerticalLayout = DefaultsKey<Bool>(
         id: "sidebar.branchVerticalLayout",
         defaultValue: true,
