@@ -254,6 +254,15 @@ pub(crate) enum PersistedSurfaceKind {
     Terminal {
         launch: PersistedLaunchRecipe,
     },
+    /// Ghostty parser/render state fed by an external producer such as tmux.
+    /// It deliberately has no command recipe, so recovery cannot accidentally
+    /// turn a remote mirror into a local shell.
+    ExternalTerminal {
+        cols: u16,
+        rows: u16,
+        scrollback: usize,
+        no_reflow: bool,
+    },
     /// Browser placement is durable, but its URL and engine state are not.
     /// URLs may contain bearer credentials, query secrets, and private data.
     Browser,
@@ -351,6 +360,11 @@ pub(crate) struct PersistedTombstone {
 #[serde(deny_unknown_fields)]
 pub(crate) struct PersistedIdempotencyResult {
     pub key: String,
+    /// SHA-256 of the complete canonical request payload. Older internal
+    /// records deserialize as empty and are never accepted as canonical
+    /// replays because their payload identity cannot be proven.
+    #[serde(default)]
+    pub payload_digest: String,
     pub committed_topology_revision: u64,
     pub workspaces: Vec<WorkspaceUuid>,
     pub screens: Vec<ScreenUuid>,
@@ -538,6 +552,14 @@ impl DurableSession {
                     "one mutation cannot fit within the bounded journal",
                 ));
             }
+        }
+
+        #[cfg(test)]
+        if std::env::var("CMUX_TEST_FAIL_DURABLE_APPEND").ok().as_deref() == Some("1") {
+            return Err(StateStoreError::io(
+                &self.journal_path,
+                std::io::Error::other("injected durable append failure"),
+            ));
         }
 
         append_synced(&self.journal_path, &bytes)?;
@@ -1296,8 +1318,19 @@ fn validate_snapshot(path: &Path, state: &PersistedSessionState) -> Result<(), S
         if let Some(name) = &surface.name {
             validate_name(path, name, "surface name")?;
         }
-        if let PersistedSurfaceKind::Terminal { launch } = &surface.kind {
-            validate_launch_recipe(path, launch)?;
+        match &surface.kind {
+            PersistedSurfaceKind::Terminal { launch } => {
+                validate_launch_recipe(path, launch)?;
+            }
+            PersistedSurfaceKind::ExternalTerminal { cols, rows, scrollback, .. } => {
+                if *cols == 0 || *rows == 0 || *scrollback > 10_000_000 {
+                    return Err(StateStoreError::corrupt(
+                        path,
+                        "invalid persisted external terminal recipe",
+                    ));
+                }
+            }
+            PersistedSurfaceKind::Browser => {}
         }
     }
     if surface_ids != referenced_surfaces {
@@ -1372,6 +1405,18 @@ fn validate_snapshot(path: &Path, state: &PersistedSessionState) -> Result<(), S
     let mut idempotency_keys = BTreeSet::new();
     for result in &state.idempotency_results {
         validate_idempotency_key(path, &result.key)?;
+        if !result.payload_digest.is_empty()
+            && (result.payload_digest.len() != 64
+                || !result
+                    .payload_digest
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f')))
+        {
+            return Err(StateStoreError::corrupt(
+                path,
+                "invalid retained idempotency payload digest",
+            ));
+        }
         if result.committed_topology_revision > state.topology_revision
             || !idempotency_keys.insert(result.key.as_str())
         {
@@ -1819,6 +1864,7 @@ mod tests {
     fn result(key: &str, revision: u64) -> PersistedIdempotencyResult {
         PersistedIdempotencyResult {
             key: key.to_string(),
+            payload_digest: String::new(),
             committed_topology_revision: revision,
             workspaces: Vec::new(),
             screens: Vec::new(),
@@ -2247,14 +2293,14 @@ mod tests {
         let reader_uuid = Uuid::new_v4();
         let (mut state, surface_uuid) = state_with_terminal(opened.snapshot.session_id);
         state.activity_sequence = 7;
-        state.activity_facts.push(crate::TerminalActivityFact {
+        state.activity_facts.push(TerminalActivityFact {
             surface_uuid,
             sequence: 7,
             kind: crate::TerminalActivityKind::Notification,
             notification: 41,
             level: crate::NotificationLevel::Warning,
         });
-        state.activity_receipts.push(crate::TerminalActivityReadReceipt {
+        state.activity_receipts.push(TerminalActivityReadReceipt {
             reader_uuid,
             surface_uuid,
             seen_sequence: 7,
@@ -2274,7 +2320,7 @@ mod tests {
         let path = PathBuf::from("activity-validation");
         let (mut state, surface_uuid) = state_with_terminal(SessionId::new());
         state.activity_sequence = 2;
-        state.activity_facts.push(crate::TerminalActivityFact {
+        state.activity_facts.push(TerminalActivityFact {
             surface_uuid,
             sequence: 2,
             kind: crate::TerminalActivityKind::Notification,
@@ -2291,7 +2337,7 @@ mod tests {
         assert!(validate_snapshot(&path, &future_fact).is_err());
 
         let mut future_receipt = state.clone();
-        future_receipt.activity_receipts.push(crate::TerminalActivityReadReceipt {
+        future_receipt.activity_receipts.push(TerminalActivityReadReceipt {
             reader_uuid: Uuid::new_v4(),
             surface_uuid,
             seen_sequence: 3,
@@ -2300,7 +2346,7 @@ mod tests {
 
         let mut too_many_readers = state;
         too_many_readers.activity_receipts = (0..=MAX_TERMINAL_ACTIVITY_READERS)
-            .map(|index| crate::TerminalActivityReadReceipt {
+            .map(|index| TerminalActivityReadReceipt {
                 reader_uuid: Uuid::from_u128(index as u128 + 1),
                 surface_uuid,
                 seen_sequence: 2,

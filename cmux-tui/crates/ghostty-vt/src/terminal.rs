@@ -522,6 +522,13 @@ impl Terminal {
         unsafe { sys::ghostty_terminal_vt_write(self.raw, data.as_ptr(), data.len()) }
     }
 
+    /// Reset parser, screen, scrollback, modes, and metadata while preserving
+    /// this terminal allocation and its host callbacks.
+    pub fn reset(&mut self) {
+        self.cursor_override = CursorOverrideTracker::default();
+        unsafe { sys::ghostty_terminal_reset(self.raw) }
+    }
+
     /// Whether the current cursor style/blink came from an active DECSCUSR
     /// override rather than the embedder defaults.
     pub fn cursor_overridden(&self) -> bool {

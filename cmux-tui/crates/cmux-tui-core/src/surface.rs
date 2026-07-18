@@ -23,6 +23,7 @@ use ghostty_vt::{
     SelectionPoint, SelectionSnapshot, Terminal,
 };
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
+use sha2::{Digest, Sha256};
 
 use crate::accessibility::{
     TerminalAccessibilityIdentity, TerminalAccessibilitySnapshot,
@@ -372,6 +373,162 @@ pub enum SurfaceKind {
     Browser,
 }
 
+const EXTERNAL_TERMINAL_EGRESS_MAX_BYTES: usize = 1024 * 1024;
+
+/// Registered process identity allowed to feed and drain one parser-only
+/// terminal. A replacement connection must claim a new generation before any
+/// output is accepted, fencing late work from a dead Swift shell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ExternalTerminalOwner {
+    pub client_uuid: uuid::Uuid,
+    pub process_instance_uuid: uuid::Uuid,
+    pub connection_id: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ExternalTerminalClaimReceipt {
+    pub request_id: uuid::Uuid,
+    pub owner_generation: u64,
+    pub required_output_generation: u64,
+    pub replayed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ExternalTerminalOutputReceipt {
+    pub request_id: uuid::Uuid,
+    pub owner_generation: u64,
+    pub output_generation: u64,
+    pub accepted_sequence: u64,
+    pub next_sequence: u64,
+    pub egress: Vec<u8>,
+    pub replayed: bool,
+}
+
+#[derive(Debug, Clone)]
+struct ExternalClaimReplay {
+    owner: ExternalTerminalOwner,
+    receipt: ExternalTerminalClaimReceipt,
+}
+
+#[derive(Debug, Clone)]
+struct ExternalOutputReplay {
+    digest: [u8; 32],
+    receipt: ExternalTerminalOutputReceipt,
+}
+
+#[derive(Debug, Default)]
+struct ExternalTerminalState {
+    owner: Option<ExternalTerminalOwner>,
+    owner_generation: u64,
+    output_generation: u64,
+    next_output_sequence: u64,
+    requires_reset: bool,
+    egress: Vec<u8>,
+    overflowed: bool,
+    last_claim: Option<ExternalClaimReplay>,
+    last_reset: Option<ExternalOutputReplay>,
+    last_output: Option<ExternalOutputReplay>,
+}
+
+struct ExternalTerminalRuntime {
+    /// Serializes claims, generation resets, and ordered output parsing.
+    operation: Mutex<()>,
+    state: Mutex<ExternalTerminalState>,
+    no_reflow: bool,
+    scrollback: usize,
+}
+
+impl ExternalTerminalRuntime {
+    fn new(no_reflow: bool, scrollback: usize) -> Self {
+        Self {
+            operation: Mutex::new(()),
+            state: Mutex::new(ExternalTerminalState {
+                requires_reset: true,
+                next_output_sequence: 1,
+                ..ExternalTerminalState::default()
+            }),
+            no_reflow,
+            scrollback,
+        }
+    }
+
+    fn append_egress(&self, bytes: &[u8]) -> std::io::Result<()> {
+        if bytes.is_empty() {
+            return Ok(());
+        }
+        let mut state = self.state.lock().unwrap();
+        let Some(next_len) = state.egress.len().checked_add(bytes.len()) else {
+            state.egress.clear();
+            state.overflowed = true;
+            state.requires_reset = true;
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::OutOfMemory,
+                "external terminal egress size overflow",
+            ));
+        };
+        if next_len > EXTERNAL_TERMINAL_EGRESS_MAX_BYTES {
+            state.egress.clear();
+            state.overflowed = true;
+            state.requires_reset = true;
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                "external terminal egress queue overflow",
+            ));
+        }
+        state.egress.extend_from_slice(bytes);
+        Ok(())
+    }
+
+    fn write_input(&self, bytes: &[u8]) -> std::io::Result<()> {
+        let _operation = self.operation.lock().unwrap();
+        {
+            let state = self.state.lock().unwrap();
+            if state.owner.is_none() || state.requires_reset || state.overflowed {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::NotConnected,
+                    "external terminal owner must claim and reset before input",
+                ));
+            }
+        }
+        self.append_egress(bytes)
+    }
+}
+
+impl std::fmt::Debug for ExternalTerminalRuntime {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ExternalTerminalRuntime")
+            .field("no_reflow", &self.no_reflow)
+            .field("scrollback", &self.scrollback)
+            .finish_non_exhaustive()
+    }
+}
+
+fn validate_external_owner(
+    state: &ExternalTerminalState,
+    owner: ExternalTerminalOwner,
+    owner_generation: u64,
+) -> anyhow::Result<()> {
+    if state.owner != Some(owner) || state.owner_generation != owner_generation {
+        anyhow::bail!(
+            "external terminal owner changed: expected generation {}, got {owner_generation}",
+            state.owner_generation
+        );
+    }
+    Ok(())
+}
+
+fn external_request_digest(domain: &[u8], fields: &[&[u8]]) -> [u8; 32] {
+    let mut digest = Sha256::new();
+    digest.update((domain.len() as u64).to_be_bytes());
+    digest.update(domain);
+    for field in fields {
+        digest.update((field.len() as u64).to_be_bytes());
+        digest.update(field);
+    }
+    digest.finalize().into()
+}
+
 impl SurfaceKind {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -493,6 +650,9 @@ pub struct PtySurface {
     writer: Mutex<Box<dyn Write + Send>>,
     master: Mutex<Box<dyn MasterPty + Send>>,
     killer: Mutex<Box<dyn ChildKiller + Send>>,
+    /// Present only when Ghostty state is fed by an external producer and no
+    /// local PTY or child process exists.
+    external: Option<Arc<ExternalTerminalRuntime>>,
     pid: Option<u32>,
     command: Vec<String>,
     tty_name: Option<PathBuf>,
@@ -633,6 +793,7 @@ impl Surface {
             writer: Mutex::new(writer),
             master: Mutex::new(pty.master),
             killer: Mutex::new(killer),
+            external: None,
             pid,
             command: argv,
             tty_name,
@@ -728,7 +889,7 @@ impl Surface {
                     pty.dead.store(true, Ordering::Release);
                 }
                 if let Some(mux) = mux.upgrade() {
-                    mux.surface_exited(surface.id);
+                    mux.surface_runtime_exited(&surface);
                 }
             }
         })?;
@@ -738,6 +899,91 @@ impl Surface {
             let _ = child.wait();
         })?;
 
+        Ok(surface)
+    }
+
+    /// Create Ghostty parser, semantic scene, and renderer state without
+    /// opening a PTY or spawning a child. External output must cross the
+    /// owner/generation/sequence-fenced APIs below.
+    pub(crate) fn spawn_external_with_uuid(
+        id: SurfaceId,
+        uuid: crate::SurfaceUuid,
+        mut opts: SurfaceOptions,
+        no_reflow: bool,
+        mux: Weak<Mux>,
+    ) -> anyhow::Result<Arc<Surface>> {
+        opts.cols = opts.cols.max(1);
+        opts.rows = opts.rows.max(1);
+        let semantic_identity = SemanticSceneTerminalIdentity::random(uuid)?;
+        let external = Arc::new(ExternalTerminalRuntime::new(no_reflow, opts.scrollback));
+        let callbacks = Callbacks {
+            on_pty_write: Some(Box::new({
+                let external = external.clone();
+                move |bytes| {
+                    let _ = external.append_egress(bytes);
+                }
+            })),
+            on_bell: Some(Box::new({
+                let mux = mux.clone();
+                move || {
+                    if let Some(mux) = mux.upgrade() {
+                        mux.emit(MuxEvent::Bell(id));
+                    }
+                }
+            })),
+            ..Callbacks::default()
+        };
+        let mut term = Terminal::new(opts.cols, opts.rows, opts.scrollback, callbacks)?;
+        term.resize(opts.cols, opts.rows, 8, 16)?;
+        if let Some(mux) = mux.upgrade() {
+            let colors = mux.default_colors();
+            term.set_default_colors(colors.fg, colors.bg, colors.cursor);
+            term.set_default_palette(&colors.palette);
+            term.set_default_cursor(colors.cursor_style, colors.cursor_blink);
+        }
+        let mut mouse_encoders = MouseEncoders::new()?;
+        mouse_encoders.sync_from_terminal(&term);
+        let render_state = RenderState::new()?;
+        let (frame_requests, frame_rx) = sync_channel(1);
+        let surface = Arc::new(Surface::Pty(PtySurface {
+            meta: SurfaceMeta { id, uuid, name: Mutex::new(None), selection: Mutex::new(None) },
+            term: Mutex::new(term),
+            mouse_encoders: Mutex::new(mouse_encoders),
+            interaction: Mutex::new(TerminalInteractionState::default()),
+            writer: Mutex::new(Box::new(std::io::sink())),
+            master: Mutex::new(Box::new(ParserOnlyMasterPty::new(opts.cols, opts.rows))),
+            killer: Mutex::new(Box::new(ParserOnlyChildKiller)),
+            external: Some(external),
+            pid: None,
+            command: Vec::new(),
+            tty_name: None,
+            cwd: None,
+            wait_after_command: false,
+            dead: AtomicBool::new(false),
+            dirty: AtomicBool::new(false),
+            title: Mutex::new(String::new()),
+            pwd: Mutex::new(None),
+            size: Mutex::new((opts.cols, opts.rows)),
+            mux,
+            taps: Mutex::new(Vec::new()),
+            render: Mutex::new(RenderHub {
+                state: Box::new(render_state),
+                built_generation: 0,
+                latest: None,
+                taps: Vec::new(),
+            }),
+            semantic_scenes: Mutex::new(SemanticSceneHub::default()),
+            semantic_attachment_count: AtomicUsize::new(0),
+            semantic_identity,
+            render_generation: AtomicU64::new(1),
+            accessibility_content_revision: AtomicU64::new(1),
+            accessibility_viewport_revision: AtomicU64::new(1),
+            accessibility_focus_revision: AtomicU64::new(1),
+            accessibility_demanded: AtomicBool::new(false),
+            accessibility_frames: Mutex::new(VecDeque::new()),
+            frame_requests,
+        }));
+        spawn_frame_producer(&surface, frame_rx)?;
         Ok(surface)
     }
 
@@ -811,6 +1057,7 @@ impl Surface {
                 tty_name: PathBuf::from(format!("/dev/ttys{id}")),
             })),
             killer: Mutex::new(Box::new(TestChildKiller)),
+            external: None,
             pid: Some(id as u32),
             command: opts.command.unwrap_or_else(|| vec![platform::default_shell()]),
             tty_name: Some(PathBuf::from(format!("/dev/ttys{id}"))),
@@ -867,6 +1114,292 @@ impl Surface {
         }
     }
 
+    pub(crate) fn is_external_terminal(&self) -> bool {
+        self.as_pty().is_some_and(|pty| pty.external.is_some())
+    }
+
+    pub(crate) fn external_terminal_recipe(&self) -> Option<(u16, u16, usize, bool)> {
+        let pty = self.as_pty()?;
+        let external = pty.external.as_ref()?;
+        let (cols, rows) = *pty.size.lock().unwrap();
+        Some((cols, rows, external.scrollback, external.no_reflow))
+    }
+
+    pub(crate) fn claim_external_terminal(
+        &self,
+        owner: ExternalTerminalOwner,
+        request_id: uuid::Uuid,
+    ) -> anyhow::Result<ExternalTerminalClaimReceipt> {
+        if request_id.is_nil() {
+            anyhow::bail!("external terminal claim request_id must be nonzero");
+        }
+        let external = self
+            .as_pty()
+            .and_then(|pty| pty.external.as_ref())
+            .ok_or_else(|| anyhow::anyhow!("surface {} is not an external terminal", self.id))?;
+        let _operation = external.operation.lock().unwrap();
+        let mut state = external.state.lock().unwrap();
+        if let Some(replay) = &state.last_claim
+            && replay.receipt.request_id == request_id
+        {
+            if replay.owner != owner {
+                anyhow::bail!("external terminal claim request_id payload changed");
+            }
+            let mut receipt = replay.receipt.clone();
+            receipt.replayed = true;
+            return Ok(receipt);
+        }
+        let owner_generation = state
+            .owner_generation
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("external terminal owner generation exhausted"))?;
+        let required_output_generation = state
+            .output_generation
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("external terminal output generation exhausted"))?;
+        state.owner = Some(owner);
+        state.owner_generation = owner_generation;
+        state.requires_reset = true;
+        state.egress.clear();
+        state.overflowed = false;
+        state.last_reset = None;
+        state.last_output = None;
+        let receipt = ExternalTerminalClaimReceipt {
+            request_id,
+            owner_generation,
+            required_output_generation,
+            replayed: false,
+        };
+        state.last_claim = Some(ExternalClaimReplay { owner, receipt: receipt.clone() });
+        Ok(receipt)
+    }
+
+    pub(crate) fn reset_external_terminal(
+        &self,
+        owner: ExternalTerminalOwner,
+        owner_generation: u64,
+        request_id: uuid::Uuid,
+        output_generation: u64,
+        cols: u16,
+        rows: u16,
+        seed: &[u8],
+    ) -> anyhow::Result<ExternalTerminalOutputReceipt> {
+        if request_id.is_nil() || output_generation == 0 || cols == 0 || rows == 0 {
+            anyhow::bail!("external terminal reset identity, generation, and size must be nonzero");
+        }
+        let pty = self
+            .as_pty()
+            .ok_or_else(|| anyhow::anyhow!("surface {} is not a terminal", self.id))?;
+        let external = pty
+            .external
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("surface {} is not an external terminal", self.id))?;
+        let digest = external_request_digest(
+            b"reset",
+            &[
+                &owner_generation.to_be_bytes(),
+                &output_generation.to_be_bytes(),
+                &cols.to_be_bytes(),
+                &rows.to_be_bytes(),
+                seed,
+            ],
+        );
+        let _operation = external.operation.lock().unwrap();
+        {
+            let mut state = external.state.lock().unwrap();
+            if let Some(replay) = &state.last_reset
+                && replay.receipt.request_id == request_id
+            {
+                if replay.digest != digest {
+                    anyhow::bail!("external terminal reset request_id payload changed");
+                }
+                let mut receipt = replay.receipt.clone();
+                receipt.replayed = true;
+                return Ok(receipt);
+            }
+            validate_external_owner(&state, owner, owner_generation)?;
+            let required = state
+                .output_generation
+                .checked_add(1)
+                .ok_or_else(|| anyhow::anyhow!("external terminal output generation exhausted"))?;
+            if output_generation != required {
+                anyhow::bail!(
+                    "external terminal reset generation changed: expected {required}, got {output_generation}"
+                );
+            }
+            state.requires_reset = true;
+            state.egress.clear();
+            state.overflowed = false;
+        }
+
+        let generation = {
+            let mut term = pty.term.lock().unwrap();
+            term.reset();
+            let restore_wraparound = external.no_reflow && term.mode(7, false);
+            if restore_wraparound {
+                let _ = term.set_mode(7, false, false);
+            }
+            term.resize(cols, rows, 8, 16)?;
+            if restore_wraparound {
+                let _ = term.set_mode(7, false, true);
+            }
+            if !seed.is_empty() {
+                term.vt_write(seed);
+            }
+            pty.refresh_active_search_locked(&mut term)?;
+            pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
+            *pty.size.lock().unwrap() = (cols, rows);
+            let _ = pty.master.lock().unwrap().resize(PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            });
+            let replay = term.vt_replay_bounded(VT_REPLAY_MAX_BYTES).unwrap_or_default();
+            pty.broadcast_attach_frame(AttachFrame::Resized { cols, rows, replay });
+            let title = term.title().unwrap_or_default();
+            *pty.title.lock().unwrap() = title;
+            *pty.pwd.lock().unwrap() = term.pwd();
+            pty.accessibility_content_revision.fetch_add(1, Ordering::AcqRel);
+            pty.accessibility_viewport_revision.fetch_add(1, Ordering::AcqRel);
+            pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
+        };
+        pty.request_frame(generation);
+        if !pty.dirty.swap(true, Ordering::AcqRel)
+            && let Some(mux) = pty.mux.upgrade()
+        {
+            mux.emit(MuxEvent::SurfaceOutput(self.id));
+        }
+
+        let mut state = external.state.lock().unwrap();
+        state.output_generation = output_generation;
+        state.next_output_sequence = 1;
+        if state.overflowed {
+            state.requires_reset = true;
+            anyhow::bail!("external terminal reset egress overflowed; another reset is required");
+        }
+        state.requires_reset = false;
+        let egress = std::mem::take(&mut state.egress);
+        let receipt = ExternalTerminalOutputReceipt {
+            request_id,
+            owner_generation,
+            output_generation,
+            accepted_sequence: 0,
+            next_sequence: 1,
+            egress,
+            replayed: false,
+        };
+        state.last_reset = Some(ExternalOutputReplay { digest, receipt: receipt.clone() });
+        state.last_output = None;
+        Ok(receipt)
+    }
+
+    pub(crate) fn apply_external_terminal_output(
+        &self,
+        owner: ExternalTerminalOwner,
+        owner_generation: u64,
+        request_id: uuid::Uuid,
+        output_generation: u64,
+        sequence: u64,
+        bytes: &[u8],
+    ) -> anyhow::Result<ExternalTerminalOutputReceipt> {
+        if request_id.is_nil() || output_generation == 0 || sequence == 0 {
+            anyhow::bail!("external terminal output request and sequence must be nonzero");
+        }
+        let pty = self
+            .as_pty()
+            .ok_or_else(|| anyhow::anyhow!("surface {} is not a terminal", self.id))?;
+        let external = pty
+            .external
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("surface {} is not an external terminal", self.id))?;
+        let digest = external_request_digest(
+            b"output",
+            &[
+                &owner_generation.to_be_bytes(),
+                &output_generation.to_be_bytes(),
+                &sequence.to_be_bytes(),
+                bytes,
+            ],
+        );
+        let _operation = external.operation.lock().unwrap();
+        {
+            let state = external.state.lock().unwrap();
+            if let Some(replay) = &state.last_output
+                && replay.receipt.request_id == request_id
+            {
+                if replay.digest != digest {
+                    anyhow::bail!("external terminal output request_id payload changed");
+                }
+                let mut receipt = replay.receipt.clone();
+                receipt.replayed = true;
+                return Ok(receipt);
+            }
+            validate_external_owner(&state, owner, owner_generation)?;
+            if state.requires_reset {
+                anyhow::bail!(
+                    "external terminal requires reset-and-seed for this generation before output"
+                );
+            }
+            if output_generation != state.output_generation {
+                anyhow::bail!(
+                    "external terminal output generation changed: expected {}, got {output_generation}",
+                    state.output_generation
+                );
+            }
+            if sequence != state.next_output_sequence {
+                anyhow::bail!(
+                    "external terminal output sequence changed: expected {}, got {sequence}",
+                    state.next_output_sequence
+                );
+            }
+        }
+
+        if let Err(error) = self.inject_terminal_output(bytes) {
+            external.state.lock().unwrap().requires_reset = true;
+            return Err(error);
+        }
+        let mut state = external.state.lock().unwrap();
+        if state.overflowed {
+            state.requires_reset = true;
+            anyhow::bail!("external terminal egress overflowed; a generation reset is required");
+        }
+        let next_sequence = sequence
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("external terminal output sequence exhausted"))?;
+        state.next_output_sequence = next_sequence;
+        let egress = std::mem::take(&mut state.egress);
+        let receipt = ExternalTerminalOutputReceipt {
+            request_id,
+            owner_generation,
+            output_generation,
+            accepted_sequence: sequence,
+            next_sequence,
+            egress,
+            replayed: false,
+        };
+        state.last_output = Some(ExternalOutputReplay { digest, receipt: receipt.clone() });
+        Ok(receipt)
+    }
+
+    pub(crate) fn drain_external_terminal_egress(
+        &self,
+        owner: ExternalTerminalOwner,
+        owner_generation: u64,
+    ) -> anyhow::Result<Vec<u8>> {
+        let external = self
+            .as_pty()
+            .and_then(|pty| pty.external.as_ref())
+            .ok_or_else(|| anyhow::anyhow!("surface {} is not an external terminal", self.id))?;
+        let _operation = external.operation.lock().unwrap();
+        let mut state = external.state.lock().unwrap();
+        validate_external_owner(&state, owner, owner_generation)?;
+        if state.requires_reset || state.overflowed {
+            anyhow::bail!("external terminal requires a generation reset before egress drain");
+        }
+        Ok(std::mem::take(&mut state.egress))
+    }
+
     /// Write input bytes to the PTY child.
     pub fn write_bytes(&self, bytes: &[u8]) -> std::io::Result<()> {
         let Some(pty) = self.as_pty() else {
@@ -875,6 +1408,9 @@ impl Surface {
                 "browser surface does not accept PTY bytes",
             ));
         };
+        if let Some(external) = &pty.external {
+            return external.write_input(bytes);
+        }
         let mut writer = pty.writer.lock().unwrap();
         writer.write_all(bytes)?;
         writer.flush()
@@ -896,6 +1432,18 @@ impl Surface {
             let term = pty.term.lock().unwrap();
             term.mode(2004, false)
         };
+        if let Some(external) = &pty.external {
+            let mut encoded =
+                Vec::with_capacity(bytes.len().saturating_add(if bracketed { 12 } else { 0 }));
+            if bracketed {
+                encoded.extend_from_slice(b"\x1b[200~");
+            }
+            encoded.extend_from_slice(bytes);
+            if bracketed {
+                encoded.extend_from_slice(b"\x1b[201~");
+            }
+            return external.write_input(&encoded);
+        }
         let mut writer = pty.writer.lock().unwrap();
         if bracketed {
             writer.write_all(b"\x1b[200~")?;
@@ -988,24 +1536,42 @@ impl Surface {
         let Some(pty) = self.as_pty() else {
             anyhow::bail!("browser surface does not have a VT terminal");
         };
-        let generation = {
+        let (generation, scroll_changed, title_changed) = {
             let mut term = pty.term.lock().unwrap();
             let before = terminal_scroll_position(&term);
             term.vt_write(bytes);
             pty.refresh_active_search_locked(&mut term)?;
             pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
             pty.broadcast_attach_output(bytes);
-            if terminal_scroll_position(&term) != before {
+            let after = terminal_scroll_position(&term);
+            if after != before {
                 pty.accessibility_viewport_revision.fetch_add(1, Ordering::AcqRel);
+                broadcast_render_scroll_locked(pty, after);
             }
+            let title = term.title().unwrap_or_default();
+            let title_changed = *pty.title.lock().unwrap() != title;
+            if title_changed {
+                *pty.title.lock().unwrap() = title;
+            }
+            *pty.pwd.lock().unwrap() = term.pwd();
             pty.accessibility_content_revision.fetch_add(1, Ordering::AcqRel);
-            pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
+            (
+                pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1,
+                (after != before).then_some(after),
+                title_changed,
+            )
         };
         pty.request_frame(generation);
-        if !pty.dirty.swap(true, Ordering::AcqRel)
-            && let Some(mux) = pty.mux.upgrade()
-        {
-            mux.emit(MuxEvent::SurfaceOutput(self.id));
+        if let Some(mux) = pty.mux.upgrade() {
+            if !pty.dirty.swap(true, Ordering::AcqRel) {
+                mux.emit(MuxEvent::SurfaceOutput(self.id));
+            }
+            if let Some((offset, at_bottom)) = scroll_changed {
+                mux.emit(MuxEvent::ScrollChanged { surface: self.id, offset, at_bottom });
+            }
+            if title_changed {
+                mux.emit(MuxEvent::TitleChanged { surface: self.id, title: self.title().into() });
+            }
         }
         Ok(())
     }
@@ -1931,6 +2497,14 @@ impl Surface {
     pub fn kill(&self) {
         match self {
             Surface::Pty(pty) => {
+                if let Some(external) = &pty.external {
+                    let _operation = external.operation.lock().unwrap();
+                    let mut state = external.state.lock().unwrap();
+                    state.owner = None;
+                    state.requires_reset = true;
+                    state.egress.clear();
+                    pty.dead.store(true, Ordering::Release);
+                }
                 let _ = pty.killer.lock().unwrap().kill();
             }
             Surface::Browser(browser) => browser.kill(),
@@ -2075,6 +2649,63 @@ fn search_scene_highlights(result: &SearchSelection) -> Vec<RenderSceneHighlight
             }
         })
         .collect()
+}
+
+struct ParserOnlyMasterPty {
+    size: Mutex<PtySize>,
+}
+
+impl ParserOnlyMasterPty {
+    fn new(cols: u16, rows: u16) -> Self {
+        Self { size: Mutex::new(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 }) }
+    }
+}
+
+impl MasterPty for ParserOnlyMasterPty {
+    fn resize(&self, size: PtySize) -> anyhow::Result<()> {
+        *self.size.lock().unwrap() = size;
+        Ok(())
+    }
+
+    fn get_size(&self) -> anyhow::Result<PtySize> {
+        Ok(*self.size.lock().unwrap())
+    }
+
+    fn try_clone_reader(&self) -> anyhow::Result<Box<dyn Read + Send>> {
+        Ok(Box::new(std::io::empty()))
+    }
+
+    fn take_writer(&self) -> anyhow::Result<Box<dyn Write + Send>> {
+        Ok(Box::new(std::io::sink()))
+    }
+
+    #[cfg(unix)]
+    fn process_group_leader(&self) -> Option<libc::pid_t> {
+        None
+    }
+
+    #[cfg(unix)]
+    fn as_raw_fd(&self) -> Option<std::os::unix::io::RawFd> {
+        None
+    }
+
+    #[cfg(unix)]
+    fn tty_name(&self) -> Option<PathBuf> {
+        None
+    }
+}
+
+#[derive(Debug)]
+struct ParserOnlyChildKiller;
+
+impl ChildKiller for ParserOnlyChildKiller {
+    fn kill(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
+        Box::new(Self)
+    }
 }
 
 #[cfg(test)]
@@ -2334,7 +2965,15 @@ impl PtySurface {
             pixel_height: 0,
         });
         // Nominal cell metrics; only pixel size reports observe these.
+        let suppress_reflow = self.external.as_ref().is_some_and(|external| external.no_reflow);
+        let restore_wraparound = suppress_reflow && term.mode(7, false);
+        if restore_wraparound {
+            let _ = term.set_mode(7, false, false);
+        }
         let _ = term.resize(cols, rows, 8, 16);
+        if restore_wraparound {
+            let _ = term.set_mode(7, false, true);
+        }
         let _ = self.refresh_active_search_locked(&mut term);
         let replay = term.vt_replay_bounded(VT_REPLAY_MAX_BYTES).unwrap_or_default();
         self.broadcast_attach_frame(AttachFrame::Resized { cols, rows, replay });
@@ -2492,6 +3131,139 @@ mod tests {
                 panic!("expected semantic scene, got failure: {error}")
             }
         }
+    }
+
+    fn external_owner(connection_id: u64) -> ExternalTerminalOwner {
+        ExternalTerminalOwner {
+            client_uuid: uuid::Uuid::from_u128(11),
+            process_instance_uuid: uuid::Uuid::from_u128(12),
+            connection_id,
+        }
+    }
+
+    #[test]
+    fn external_terminal_has_no_child_and_fences_ordered_output() {
+        let surface = Surface::spawn_external_with_uuid(
+            71,
+            crate::SurfaceUuid::new(),
+            SurfaceOptions { cols: 8, rows: 2, ..SurfaceOptions::default() },
+            true,
+            Weak::new(),
+        )
+        .unwrap();
+        assert!(surface.is_external_terminal());
+        assert_eq!(surface.process_id(), None);
+        assert_eq!(surface.tty_name(), None);
+        assert!(surface.write_bytes(b"input-before-reset").is_err());
+
+        let owner = external_owner(9);
+        let claim = surface.claim_external_terminal(owner, uuid::Uuid::from_u128(21)).unwrap();
+        assert_eq!(claim.owner_generation, 1);
+        assert_eq!(claim.required_output_generation, 1);
+        let reset = surface
+            .reset_external_terminal(
+                owner,
+                claim.owner_generation,
+                uuid::Uuid::from_u128(22),
+                claim.required_output_generation,
+                8,
+                2,
+                b"seed",
+            )
+            .unwrap();
+        assert_eq!(reset.next_sequence, 1);
+
+        let output_request = uuid::Uuid::from_u128(23);
+        let first = surface
+            .apply_external_terminal_output(
+                owner,
+                claim.owner_generation,
+                output_request,
+                claim.required_output_generation,
+                1,
+                b"\x1b[6n",
+            )
+            .unwrap();
+        assert_eq!(first.accepted_sequence, 1);
+        assert_eq!(first.next_sequence, 2);
+        assert!(!first.egress.is_empty(), "cursor report must route back to the external owner");
+        let replay = surface
+            .apply_external_terminal_output(
+                owner,
+                claim.owner_generation,
+                output_request,
+                claim.required_output_generation,
+                1,
+                b"\x1b[6n",
+            )
+            .unwrap();
+        assert!(replay.replayed);
+        assert_eq!(replay.egress, first.egress);
+        assert!(
+            surface
+                .apply_external_terminal_output(
+                    owner,
+                    claim.owner_generation,
+                    uuid::Uuid::from_u128(24),
+                    claim.required_output_generation,
+                    1,
+                    b"late",
+                )
+                .unwrap_err()
+                .to_string()
+                .contains("expected 2")
+        );
+
+        surface.write_bytes(b"hello").unwrap();
+        assert_eq!(
+            surface.drain_external_terminal_egress(owner, claim.owner_generation).unwrap(),
+            b"hello"
+        );
+    }
+
+    #[test]
+    fn replacing_external_owner_requires_a_new_reset_generation() {
+        let surface = Surface::spawn_external_with_uuid(
+            72,
+            crate::SurfaceUuid::new(),
+            SurfaceOptions::default(),
+            false,
+            Weak::new(),
+        )
+        .unwrap();
+        let first_owner = external_owner(1);
+        let first =
+            surface.claim_external_terminal(first_owner, uuid::Uuid::from_u128(31)).unwrap();
+        surface
+            .reset_external_terminal(
+                first_owner,
+                first.owner_generation,
+                uuid::Uuid::from_u128(32),
+                first.required_output_generation,
+                80,
+                24,
+                b"old",
+            )
+            .unwrap();
+
+        let replacement = external_owner(2);
+        let second =
+            surface.claim_external_terminal(replacement, uuid::Uuid::from_u128(33)).unwrap();
+        assert_eq!(second.owner_generation, first.owner_generation + 1);
+        assert_eq!(second.required_output_generation, first.required_output_generation + 1);
+        assert!(
+            surface
+                .apply_external_terminal_output(
+                    first_owner,
+                    first.owner_generation,
+                    uuid::Uuid::from_u128(34),
+                    first.required_output_generation,
+                    1,
+                    b"stale",
+                )
+                .is_err()
+        );
+        assert!(surface.write_bytes(b"before-new-seed").is_err());
     }
 
     #[test]

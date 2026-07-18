@@ -8,7 +8,9 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use serde::Serialize;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 use crate::browser::{self, BrowserBootstrap, BrowserRuntime};
 use crate::event_bus::{MuxEventBroadcaster, MuxEventReceiver};
@@ -38,7 +40,10 @@ use crate::state_store::{
     PersistedPane, PersistedScreen, PersistedSessionState, PersistedSplitDirection,
     PersistedSurface, PersistedSurfaceKind, PersistedTombstone, PersistedWorkspace, StateStore,
 };
-use crate::surface::{DefaultColors, Surface, SurfaceOptions};
+use crate::surface::{
+    DefaultColors, ExternalTerminalClaimReceipt, ExternalTerminalOutputReceipt,
+    ExternalTerminalOwner, Surface, SurfaceOptions,
+};
 use crate::terminal_activity::{
     LEGACY_TERMINAL_ACTIVITY_READER_UUID, NotificationLevel, TerminalActivityFact,
     TerminalActivityReadReceipt, TerminalActivitySnapshot, TerminalActivityState,
@@ -391,9 +396,7 @@ fn validate_terminal_launch_request(request: &TerminalLaunchRequest) -> anyhow::
         anyhow::bail!("terminal launch command must be non-empty when supplied");
     }
     if request.argv.as_ref().is_some_and(|argv| argv.len() > MAX_TERMINAL_LAUNCH_ARGUMENTS) {
-        anyhow::bail!(
-            "terminal launch argv exceeds {MAX_TERMINAL_LAUNCH_ARGUMENTS} arguments"
-        );
+        anyhow::bail!("terminal launch argv exceeds {MAX_TERMINAL_LAUNCH_ARGUMENTS} arguments");
     }
     if request.env.len() > MAX_TERMINAL_LAUNCH_ENVIRONMENT {
         anyhow::bail!(
@@ -404,11 +407,7 @@ fn validate_terminal_launch_request(request: &TerminalLaunchRequest) -> anyhow::
         validate_terminal_launch_text("cwd", cwd, MAX_TERMINAL_LAUNCH_CWD_BYTES)?;
     }
     if let Some(command) = &request.command {
-        validate_terminal_launch_text(
-            "command",
-            command,
-            MAX_TERMINAL_LAUNCH_STRING_BYTES,
-        )?;
+        validate_terminal_launch_text("command", command, MAX_TERMINAL_LAUNCH_STRING_BYTES)?;
     }
     if let Some(argv) = &request.argv {
         for argument in argv {
@@ -470,10 +469,42 @@ fn validate_terminal_launch_text(
     Ok(())
 }
 
+fn validate_browser_url(url: &str) -> anyhow::Result<()> {
+    if url.is_empty() {
+        anyhow::bail!("browser URL must not be empty");
+    }
+    validate_terminal_launch_text("browser URL", url, MAX_TERMINAL_LAUNCH_STRING_BYTES)
+}
+
 fn valid_terminal_environment_name(name: &str) -> bool {
     let mut bytes = name.bytes();
     matches!(bytes.next(), Some(b'A'..=b'Z' | b'a'..=b'z' | b'_'))
         && bytes.all(|byte| matches!(byte, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'_'))
+}
+
+fn canonical_payload_digest<T: Serialize>(operation: &str, payload: &T) -> anyhow::Result<String> {
+    let encoded = serde_json::to_vec(&(operation, payload))?;
+    let bytes = Sha256::digest(encoded);
+    let mut result = String::with_capacity(bytes.len() * 2);
+    use std::fmt::Write as _;
+    for byte in bytes {
+        write!(&mut result, "{byte:02x}").expect("writing into String cannot fail");
+    }
+    Ok(result)
+}
+
+fn canonical_split_direction(dir: SplitDir) -> &'static str {
+    match dir {
+        SplitDir::Right => "right",
+        SplitDir::Down => "down",
+    }
+}
+
+fn canonical_digest_from_key(key: &str) -> Option<&str> {
+    let mut components = key.rsplit(':');
+    let _request_id = components.next()?;
+    let digest = components.next()?;
+    (key.starts_with("canonical:") && digest.len() == 64).then_some(digest)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -489,7 +520,7 @@ pub(crate) struct EnsureTerminalPlacement {
     pub surface_uuid: SurfaceUuid,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub(crate) struct TerminalLaunchRequest {
     pub cwd: Option<String>,
     pub argv: Option<Vec<String>>,
@@ -534,10 +565,7 @@ pub(crate) struct CanonicalSurfacePlacement {
 
 enum CanonicalMutationStart {
     Fresh { key: String },
-    Replay {
-        receipt: CanonicalMutationReceipt,
-        result: PersistedIdempotencyResult,
-    },
+    Replay { receipt: CanonicalMutationReceipt, result: PersistedIdempotencyResult },
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -943,6 +971,7 @@ impl CanonicalState {
         self.retain_deleted_targets(operation, &targets, revision);
         let result = PersistedIdempotencyResult {
             key: key.clone(),
+            payload_digest: canonical_digest_from_key(&key).unwrap_or_default().to_string(),
             committed_topology_revision: revision,
             workspaces: targets.workspaces.clone(),
             screens: targets.screens.clone(),
@@ -1162,6 +1191,12 @@ fn persisted_snapshot(
             .get(&surface_id)
             .ok_or_else(|| anyhow::anyhow!("ordered surface disappeared during snapshot"))?;
         let kind = match surface.kind() {
+            crate::SurfaceKind::Pty if surface.is_external_terminal() => {
+                let (cols, rows, scrollback, no_reflow) = surface
+                    .external_terminal_recipe()
+                    .expect("external terminal reports its durable recipe");
+                PersistedSurfaceKind::ExternalTerminal { cols, rows, scrollback, no_reflow }
+            }
             crate::SurfaceKind::Pty => PersistedSurfaceKind::Terminal {
                 launch: canonical.launch_recipes.get(&surface.uuid).cloned().ok_or_else(|| {
                     anyhow::anyhow!("terminal {} has no durable launch recipe", surface.uuid)
@@ -1910,6 +1945,21 @@ impl Mux {
                 PersistedSurfaceKind::Terminal { launch } => {
                     self.restore_persisted_terminal(id, persisted.uuid, launch)?
                 }
+                PersistedSurfaceKind::ExternalTerminal { cols, rows, scrollback, no_reflow } => {
+                    let mut opts = self.surface_options.lock().unwrap().clone();
+                    opts.cols = (*cols).max(1);
+                    opts.rows = (*rows).max(1);
+                    opts.scrollback = *scrollback;
+                    let surface = Surface::spawn_external_with_uuid(
+                        id,
+                        persisted.uuid,
+                        opts,
+                        *no_reflow,
+                        Arc::downgrade(self),
+                    )?;
+                    self.state.lock().unwrap().surfaces.insert(id, surface.clone());
+                    (surface, None)
+                }
                 PersistedSurfaceKind::Browser => {
                     let opts = self.surface_options.lock().unwrap().clone();
                     let cell_pixels = *self.cell_pixels.lock().unwrap();
@@ -2280,11 +2330,9 @@ impl Mux {
         validate_terminal_launch_request(launch)?;
         let command = match (&launch.argv, &launch.command) {
             (Some(argv), None) => Some(argv.clone()),
-            (None, Some(command)) => Some(vec![
-                crate::platform::default_shell(),
-                "-lc".to_string(),
-                command.clone(),
-            ]),
+            (None, Some(command)) => {
+                Some(vec![crate::platform::default_shell(), "-lc".to_string(), command.clone()])
+            }
             (None, None) => None,
             (Some(_), Some(_)) => unreachable!("launch validation rejects two command forms"),
         };
@@ -2305,7 +2353,8 @@ impl Mux {
         surface: &Arc<Surface>,
         launch: &TerminalLaunchRequest,
     ) -> anyhow::Result<()> {
-        if let Some(initial_input) = launch.initial_input.as_ref().filter(|input| !input.is_empty()) {
+        if let Some(initial_input) = launch.initial_input.as_ref().filter(|input| !input.is_empty())
+        {
             surface.write_bytes(initial_input.as_bytes())?;
         }
         Ok(())
@@ -2449,21 +2498,48 @@ impl Mux {
         size: Option<(u16, u16)>,
     ) -> Arc<Surface> {
         let (id, uuid) = self.entity_ids.surface();
+        let surface = self.create_browser_surface_with_uuid(id, uuid, url.clone(), size);
+        self.state.lock().unwrap().surfaces.insert(id, surface.clone());
+        self.start_browser_bootstrap(surface.clone(), BrowserBootstrap::Create { url }, None);
+        surface
+    }
+
+    /// Constructs a browser runtime without publishing it into canonical
+    /// topology or starting asynchronous CDP work. Canonical mutations use
+    /// this seam so failed revision/durability checks cannot leak a surface.
+    fn create_browser_surface_with_uuid(
+        self: &Arc<Self>,
+        id: SurfaceId,
+        uuid: SurfaceUuid,
+        url: String,
+        size: Option<(u16, u16)>,
+    ) -> Arc<Surface> {
         let opts = self.surface_options.lock().unwrap().clone();
         let size = self.resolve_client_size(size, (opts.cols, opts.rows));
         let cell_pixels = *self.cell_pixels.lock().unwrap();
-        let surface = browser::new_surface_with_uuid(
+        browser::new_surface_with_uuid(
             id,
             uuid,
-            url.clone(),
+            url,
             size,
             cell_pixels,
             &opts,
             Arc::downgrade(self),
-        );
-        self.state.lock().unwrap().surfaces.insert(id, surface.clone());
-        self.start_browser_bootstrap(surface.clone(), BrowserBootstrap::Create { url }, None);
-        surface
+        )
+    }
+
+    fn create_external_terminal_with_uuid(
+        self: &Arc<Self>,
+        id: SurfaceId,
+        uuid: SurfaceUuid,
+        size: (u16, u16),
+        no_reflow: bool,
+    ) -> anyhow::Result<Arc<Surface>> {
+        let mut opts = self.surface_options.lock().unwrap().clone();
+        let (cols, rows) = self.resolve_client_size(Some(size), (opts.cols, opts.rows));
+        opts.cols = cols;
+        opts.rows = rows;
+        Surface::spawn_external_with_uuid(id, uuid, opts, no_reflow, Arc::downgrade(self))
     }
 
     fn resolve_client_size(
@@ -3043,6 +3119,7 @@ impl Mux {
         state: &CanonicalState,
         expectation: CanonicalMutationExpectation,
         operation: &str,
+        payload_digest: &str,
     ) -> anyhow::Result<CanonicalMutationStart> {
         if expectation.request_id.is_nil() {
             anyhow::bail!("canonical mutation request_id must be nonzero");
@@ -3058,8 +3135,16 @@ impl Mux {
                 self.session_id
             );
         }
-        let key = format!("canonical:{operation}:{}", expectation.request_id);
+        if payload_digest.len() != 64
+            || !payload_digest.bytes().all(|byte| byte.is_ascii_hexdigit())
+        {
+            anyhow::bail!("canonical mutation payload digest is invalid");
+        }
+        let key = format!("canonical:{operation}:{payload_digest}:{}", expectation.request_id);
         if let Some(result) = state.idempotency_results.iter().find(|result| result.key == key) {
+            if result.payload_digest != payload_digest {
+                anyhow::bail!("canonical mutation retained payload digest is inconsistent");
+            }
             let revision = result.committed_topology_revision;
             return Ok(CanonicalMutationStart::Replay {
                 receipt: CanonicalMutationReceipt {
@@ -3074,9 +3159,16 @@ impl Mux {
             });
         }
         let request_suffix = format!(":{}", expectation.request_id);
-        if state.idempotency_results.iter().any(|result| {
+        if let Some(previous) = state.idempotency_results.iter().find(|result| {
             result.key.starts_with("canonical:") && result.key.ends_with(&request_suffix)
         }) {
+            let same_operation = previous.key.strip_prefix("canonical:").is_some_and(|suffix| {
+                suffix.starts_with(operation)
+                    && suffix.as_bytes().get(operation.len()) == Some(&b':')
+            });
+            if same_operation {
+                anyhow::bail!("canonical mutation request_id payload changed");
+            }
             anyhow::bail!("canonical mutation request_id was already used by another operation");
         }
         let revision = state.topology.revision();
@@ -4461,7 +4553,8 @@ impl Mux {
             Some((request.cols, request.rows)),
             None,
         )?;
-        if let Some(initial_input) = request.initial_input.as_ref().filter(|input| !input.is_empty())
+        if let Some(initial_input) =
+            request.initial_input.as_ref().filter(|input| !input.is_empty())
         {
             #[cfg(test)]
             self.ensure_terminal_initial_writes.fetch_add(1, Ordering::Relaxed);
@@ -4731,7 +4824,8 @@ impl Mux {
                     return Err(error);
                 }
             };
-            if let Some(initial_input) = request.initial_input.as_ref().filter(|input| !input.is_empty())
+            if let Some(initial_input) =
+                request.initial_input.as_ref().filter(|input| !input.is_empty())
             {
                 #[cfg(test)]
                 self.ensure_terminal_initial_writes.fetch_add(1, Ordering::Relaxed);
@@ -5107,11 +5201,7 @@ impl Mux {
         Ok(placement)
     }
 
-    fn rehome_renderer_presentations(
-        &self,
-        surface: SurfaceId,
-        workspace_uuid: WorkspaceUuid,
-    ) {
+    fn rehome_renderer_presentations(&self, surface: SurfaceId, workspace_uuid: WorkspaceUuid) {
         let Some(surface_uuid) = self.with_state(|state| state.surface_uuid(surface)) else {
             return;
         };
@@ -5127,8 +5217,7 @@ impl Mux {
             .collect::<Vec<_>>();
         for presentation_id in presentations {
             self.invalidate_renderer_presentation(presentation_id);
-            let _ =
-                self.set_renderer_presentation_workspace(presentation_id, Some(workspace_uuid));
+            let _ = self.set_renderer_presentation_workspace(presentation_id, Some(workspace_uuid));
         }
     }
 
@@ -5155,6 +5244,10 @@ impl Mux {
                 MAX_TERMINAL_LAUNCH_STRING_BYTES,
             )?;
         }
+        let payload_digest = canonical_payload_digest(
+            "new-workspace",
+            &(workspace_uuid, surface_uuid, &name, size, &launch),
+        )?;
         let _mutation = self.ensure_terminal_lock.lock().unwrap();
         let key = {
             let state = self.state.lock().unwrap();
@@ -5162,6 +5255,7 @@ impl Mux {
                 &state,
                 expectation,
                 "new-workspace",
+                &payload_digest,
             )? {
                 CanonicalMutationStart::Replay { receipt, result } => {
                     if !result.workspaces.contains(&workspace_uuid)
@@ -5169,11 +5263,7 @@ impl Mux {
                     {
                         anyhow::bail!("canonical mutation request_id payload changed");
                     }
-                    return canonical_surface_placement_for_uuid(
-                        &state,
-                        surface_uuid,
-                        receipt,
-                    );
+                    return canonical_surface_placement_for_uuid(&state, surface_uuid, receipt);
                 }
                 CanonicalMutationStart::Fresh { key } => key,
             }
@@ -5203,6 +5293,7 @@ impl Mux {
                 &state,
                 expectation,
                 "new-workspace",
+                &payload_digest,
             )? {
                 CanonicalMutationStart::Fresh { key: current } if current == key => {}
                 CanonicalMutationStart::Fresh { .. } => {
@@ -5233,8 +5324,7 @@ impl Mux {
                     active_at: self.next_active_at(),
                 },
             );
-            let workspace_name =
-                name.unwrap_or_else(|| format!("{}", state.workspaces.len() + 1));
+            let workspace_name = name.unwrap_or_else(|| format!("{}", state.workspaces.len() + 1));
             state.workspaces.push(Workspace {
                 id: workspace_id,
                 uuid: workspace_uuid,
@@ -5276,6 +5366,882 @@ impl Mux {
         Ok(placement)
     }
 
+    /// Materializes one exactly identified terminal in the active pane of an
+    /// existing canonical workspace.
+    pub(crate) fn canonical_materialize_terminal(
+        self: &Arc<Self>,
+        expectation: CanonicalMutationExpectation,
+        workspace_uuid: WorkspaceUuid,
+        surface_uuid: SurfaceUuid,
+        size: Option<(u16, u16)>,
+        mut launch: TerminalLaunchRequest,
+    ) -> anyhow::Result<CanonicalSurfacePlacement> {
+        validate_terminal_launch_request(&launch)?;
+        if workspace_uuid.as_uuid().is_nil() || surface_uuid.as_uuid().is_nil() {
+            anyhow::bail!("canonical materialization UUIDs must be nonzero");
+        }
+        let payload_digest = canonical_payload_digest(
+            "materialize-terminal",
+            &(workspace_uuid, surface_uuid, size, &launch),
+        )?;
+        let _mutation = self.ensure_terminal_lock.lock().unwrap();
+        let (key, target_pane_uuid, inherited_cwd) = {
+            let state = self.state.lock().unwrap();
+            let key = match self.canonical_mutation_start(
+                &state,
+                expectation,
+                "materialize-terminal",
+                &payload_digest,
+            )? {
+                CanonicalMutationStart::Replay { receipt, result } => {
+                    if !result.workspaces.contains(&workspace_uuid)
+                        || !result.surfaces.contains(&surface_uuid)
+                    {
+                        anyhow::bail!("canonical mutation request_id payload changed");
+                    }
+                    return canonical_surface_placement_for_uuid(&state, surface_uuid, receipt);
+                }
+                CanonicalMutationStart::Fresh { key } => key,
+            };
+            let workspace_index = state
+                .indexed_workspace_index_by_uuid(workspace_uuid)
+                .ok_or_else(|| anyhow::anyhow!("unknown canonical workspace {workspace_uuid}"))?;
+            let screen = state.workspaces[workspace_index]
+                .screens
+                .get(state.workspaces[workspace_index].active_screen)
+                .ok_or_else(|| anyhow::anyhow!("canonical workspace has no active screen"))?;
+            let pane = state
+                .panes
+                .get(&screen.active_pane)
+                .ok_or_else(|| anyhow::anyhow!("canonical workspace active pane is missing"))?;
+            if state.indexed_surface_id_by_uuid(surface_uuid).is_some()
+                || state.tombstones.iter().any(|tombstone| {
+                    tombstone.kind == PersistedEntityKind::Surface
+                        && tombstone.uuid == surface_uuid.as_uuid()
+                })
+            {
+                anyhow::bail!(
+                    "canonical materialized surface identity already exists or is tombstoned"
+                );
+            }
+            let inherited =
+                pane.active_surface().and_then(|surface| state.surfaces.get(&surface).cloned());
+            (key, pane.uuid, inherited)
+        };
+        if launch.cwd.is_none() {
+            launch.cwd = inherited_cwd.and_then(|surface| surface.pwd());
+        }
+        let (surface_id, _) = self.entity_ids.surface();
+        let (surface, recipe) =
+            self.create_surface_for_launch(surface_id, surface_uuid, &launch, size)?;
+        if let Err(error) = self.write_terminal_initial_input(&surface, &launch) {
+            surface.kill();
+            return Err(error);
+        }
+        let transaction = (|| -> anyhow::Result<CanonicalSurfacePlacement> {
+            let mut state = self.state.lock().unwrap();
+            match self.canonical_mutation_start(
+                &state,
+                expectation,
+                "materialize-terminal",
+                &payload_digest,
+            )? {
+                CanonicalMutationStart::Fresh { key: current } if current == key => {}
+                _ => anyhow::bail!("canonical materialization fence changed during spawn"),
+            }
+            let workspace_index = state
+                .indexed_workspace_index_by_uuid(workspace_uuid)
+                .ok_or_else(|| anyhow::anyhow!("canonical workspace disappeared during spawn"))?;
+            let target_pane = state
+                .pane_id_by_uuid(target_pane_uuid)
+                .ok_or_else(|| anyhow::anyhow!("canonical active pane disappeared during spawn"))?;
+            let (actual_workspace_index, screen_index) = state
+                .screen_of(target_pane)
+                .ok_or_else(|| anyhow::anyhow!("canonical active pane has no screen"))?;
+            if actual_workspace_index != workspace_index {
+                anyhow::bail!("canonical active pane moved to another workspace during spawn");
+            }
+            if state.indexed_surface_id_by_uuid(surface_uuid).is_some() {
+                anyhow::bail!("canonical materialized surface UUID appeared during spawn");
+            }
+            state.surfaces.insert(surface.id, surface.clone());
+            state.launch_recipes.insert(surface_uuid, recipe);
+            let pane = state
+                .panes
+                .get_mut(&target_pane)
+                .expect("stable active pane resolved immediately before attach");
+            pane.tabs.push(surface.id);
+            pane.active_tab = pane.tabs.len() - 1;
+            pane.active_at = self.next_active_at();
+            state.active_workspace = workspace_index;
+            state.workspaces[workspace_index].active_screen = screen_index;
+            state.workspaces[workspace_index].screens[screen_index].active_pane = target_pane;
+            let targets = TopologyTargets::from_legacy(
+                &state,
+                Some(state.workspaces[workspace_index].id),
+                Some(state.workspaces[workspace_index].screens[screen_index].id),
+                Some(target_pane),
+                Some(surface.id),
+            );
+            let receipt = self.commit_canonical_mutation(
+                &mut state,
+                TopologyOperation::SurfaceAttached,
+                targets,
+                key,
+            );
+            canonical_surface_placement_for_uuid(&state, surface_uuid, receipt)
+        })();
+        let placement = match transaction {
+            Ok(placement) => placement,
+            Err(error) => {
+                surface.kill();
+                return Err(error);
+            }
+        };
+        self.emit(MuxEvent::TreeChanged);
+        self.reap_if_dead(&surface);
+        Ok(placement)
+    }
+
+    /// Materializes one parser-only terminal in the active pane of an existing
+    /// canonical workspace. This surface owns Ghostty state and rendering but
+    /// intentionally owns no PTY or child process.
+    pub(crate) fn canonical_materialize_external_terminal(
+        self: &Arc<Self>,
+        expectation: CanonicalMutationExpectation,
+        workspace_uuid: WorkspaceUuid,
+        surface_uuid: SurfaceUuid,
+        size: (u16, u16),
+        no_reflow: bool,
+    ) -> anyhow::Result<CanonicalSurfacePlacement> {
+        if workspace_uuid.as_uuid().is_nil()
+            || surface_uuid.as_uuid().is_nil()
+            || size.0 == 0
+            || size.1 == 0
+        {
+            anyhow::bail!("canonical external terminal identity and size must be nonzero");
+        }
+        let payload_digest = canonical_payload_digest(
+            "materialize-external-terminal",
+            &(workspace_uuid, surface_uuid, size, no_reflow),
+        )?;
+        let _mutation = self.ensure_terminal_lock.lock().unwrap();
+        let (key, target_pane_uuid) = {
+            let state = self.state.lock().unwrap();
+            let key = match self.canonical_mutation_start(
+                &state,
+                expectation,
+                "materialize-external-terminal",
+                &payload_digest,
+            )? {
+                CanonicalMutationStart::Replay { receipt, result } => {
+                    if !result.workspaces.contains(&workspace_uuid)
+                        || !result.surfaces.contains(&surface_uuid)
+                    {
+                        anyhow::bail!("canonical mutation request_id payload changed");
+                    }
+                    return canonical_surface_placement_for_uuid(&state, surface_uuid, receipt);
+                }
+                CanonicalMutationStart::Fresh { key } => key,
+            };
+            let workspace_index = state
+                .indexed_workspace_index_by_uuid(workspace_uuid)
+                .ok_or_else(|| anyhow::anyhow!("unknown canonical workspace {workspace_uuid}"))?;
+            let screen = state.workspaces[workspace_index]
+                .screens
+                .get(state.workspaces[workspace_index].active_screen)
+                .ok_or_else(|| anyhow::anyhow!("canonical workspace has no active screen"))?;
+            let pane = state
+                .panes
+                .get(&screen.active_pane)
+                .ok_or_else(|| anyhow::anyhow!("canonical workspace active pane is missing"))?;
+            if state.indexed_surface_id_by_uuid(surface_uuid).is_some()
+                || state.tombstones.iter().any(|tombstone| {
+                    tombstone.kind == PersistedEntityKind::Surface
+                        && tombstone.uuid == surface_uuid.as_uuid()
+                })
+            {
+                anyhow::bail!(
+                    "canonical external surface identity already exists or is tombstoned"
+                );
+            }
+            (key, pane.uuid)
+        };
+        let (surface_id, _) = self.entity_ids.surface();
+        let surface =
+            self.create_external_terminal_with_uuid(surface_id, surface_uuid, size, no_reflow)?;
+        let transaction = (|| -> anyhow::Result<CanonicalSurfacePlacement> {
+            let mut state = self.state.lock().unwrap();
+            match self.canonical_mutation_start(
+                &state,
+                expectation,
+                "materialize-external-terminal",
+                &payload_digest,
+            )? {
+                CanonicalMutationStart::Fresh { key: current } if current == key => {}
+                _ => anyhow::bail!("canonical external terminal fence changed during creation"),
+            }
+            let workspace_index =
+                state.indexed_workspace_index_by_uuid(workspace_uuid).ok_or_else(|| {
+                    anyhow::anyhow!("canonical workspace disappeared during creation")
+                })?;
+            let target_pane = state.pane_id_by_uuid(target_pane_uuid).ok_or_else(|| {
+                anyhow::anyhow!("canonical active pane disappeared during creation")
+            })?;
+            let (actual_workspace_index, screen_index) = state
+                .screen_of(target_pane)
+                .ok_or_else(|| anyhow::anyhow!("canonical active pane has no screen"))?;
+            if actual_workspace_index != workspace_index {
+                anyhow::bail!("canonical active pane moved to another workspace during creation");
+            }
+            if state.indexed_surface_id_by_uuid(surface_uuid).is_some() {
+                anyhow::bail!("canonical external surface UUID appeared during creation");
+            }
+            state.surfaces.insert(surface.id, surface.clone());
+            let pane = state
+                .panes
+                .get_mut(&target_pane)
+                .expect("stable active pane resolved immediately before external attach");
+            pane.tabs.push(surface.id);
+            pane.active_tab = pane.tabs.len() - 1;
+            pane.active_at = self.next_active_at();
+            state.active_workspace = workspace_index;
+            state.workspaces[workspace_index].active_screen = screen_index;
+            state.workspaces[workspace_index].screens[screen_index].active_pane = target_pane;
+            let targets = TopologyTargets::from_legacy(
+                &state,
+                Some(state.workspaces[workspace_index].id),
+                Some(state.workspaces[workspace_index].screens[screen_index].id),
+                Some(target_pane),
+                Some(surface.id),
+            );
+            let receipt = self.commit_canonical_mutation(
+                &mut state,
+                TopologyOperation::SurfaceAttached,
+                targets,
+                key,
+            );
+            canonical_surface_placement_for_uuid(&state, surface_uuid, receipt)
+        })();
+        let placement = match transaction {
+            Ok(placement) => placement,
+            Err(error) => {
+                surface.kill();
+                return Err(error);
+            }
+        };
+        self.emit(MuxEvent::TreeChanged);
+        Ok(placement)
+    }
+
+    pub(crate) fn claim_external_terminal(
+        &self,
+        surface_uuid: SurfaceUuid,
+        owner: ExternalTerminalOwner,
+        request_id: uuid::Uuid,
+    ) -> anyhow::Result<ExternalTerminalClaimReceipt> {
+        let _lifecycle = self.terminal_control_lifecycle.read().unwrap();
+        let surface = self.surface_by_uuid(surface_uuid)?;
+        surface.claim_external_terminal(owner, request_id)
+    }
+
+    pub(crate) fn reset_external_terminal(
+        &self,
+        surface_uuid: SurfaceUuid,
+        owner: ExternalTerminalOwner,
+        owner_generation: u64,
+        request_id: uuid::Uuid,
+        output_generation: u64,
+        cols: u16,
+        rows: u16,
+        seed: &[u8],
+    ) -> anyhow::Result<ExternalTerminalOutputReceipt> {
+        let _lifecycle = self.terminal_control_lifecycle.read().unwrap();
+        let surface = self.surface_by_uuid(surface_uuid)?;
+        surface.reset_external_terminal(
+            owner,
+            owner_generation,
+            request_id,
+            output_generation,
+            cols,
+            rows,
+            seed,
+        )
+    }
+
+    pub(crate) fn apply_external_terminal_output(
+        &self,
+        surface_uuid: SurfaceUuid,
+        owner: ExternalTerminalOwner,
+        owner_generation: u64,
+        request_id: uuid::Uuid,
+        output_generation: u64,
+        sequence: u64,
+        bytes: &[u8],
+    ) -> anyhow::Result<ExternalTerminalOutputReceipt> {
+        let _lifecycle = self.terminal_control_lifecycle.read().unwrap();
+        let surface = self.surface_by_uuid(surface_uuid)?;
+        surface.apply_external_terminal_output(
+            owner,
+            owner_generation,
+            request_id,
+            output_generation,
+            sequence,
+            bytes,
+        )
+    }
+
+    pub(crate) fn drain_external_terminal_egress(
+        &self,
+        surface_uuid: SurfaceUuid,
+        owner: ExternalTerminalOwner,
+        owner_generation: u64,
+    ) -> anyhow::Result<Vec<u8>> {
+        let _lifecycle = self.terminal_control_lifecycle.read().unwrap();
+        let surface = self.surface_by_uuid(surface_uuid)?;
+        surface.drain_external_terminal_egress(owner, owner_generation)
+    }
+
+    fn surface_by_uuid(&self, surface_uuid: SurfaceUuid) -> anyhow::Result<Arc<Surface>> {
+        let state = self.state.lock().unwrap();
+        let surface_id = state
+            .indexed_surface_id_by_uuid(surface_uuid)
+            .ok_or_else(|| anyhow::anyhow!("unknown canonical surface {surface_uuid}"))?;
+        state
+            .surfaces
+            .get(&surface_id)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("canonical surface runtime is missing"))
+    }
+
+    /// Atomically replaces one daemon-owned PTY runtime while preserving its
+    /// stable surface UUID and canonical pane/tab position. The retired child
+    /// remains invisible to topology readers after the single durable commit.
+    pub(crate) fn canonical_respawn_terminal(
+        self: &Arc<Self>,
+        expectation: CanonicalMutationExpectation,
+        surface_uuid: SurfaceUuid,
+        size: Option<(u16, u16)>,
+        mut launch: TerminalLaunchRequest,
+    ) -> anyhow::Result<CanonicalSurfacePlacement> {
+        validate_terminal_launch_request(&launch)?;
+        if surface_uuid.as_uuid().is_nil() {
+            anyhow::bail!("canonical respawn surface UUID must be nonzero");
+        }
+        let payload_digest =
+            canonical_payload_digest("respawn-terminal", &(surface_uuid, size, &launch))?;
+        let _mutation = self.ensure_terminal_lock.lock().unwrap();
+        let (key, old_surface, resolved_size, inherited_cwd, inherited_name) = {
+            let state = self.state.lock().unwrap();
+            let key = match self.canonical_mutation_start(
+                &state,
+                expectation,
+                "respawn-terminal",
+                &payload_digest,
+            )? {
+                CanonicalMutationStart::Replay { receipt, result } => {
+                    if !result.surfaces.contains(&surface_uuid) {
+                        anyhow::bail!("canonical mutation request_id payload changed");
+                    }
+                    return canonical_surface_placement_for_uuid(&state, surface_uuid, receipt);
+                }
+                CanonicalMutationStart::Fresh { key } => key,
+            };
+            let old_surface_id = state
+                .indexed_surface_id_by_uuid(surface_uuid)
+                .ok_or_else(|| anyhow::anyhow!("unknown canonical terminal {surface_uuid}"))?;
+            let old_surface = state
+                .surfaces
+                .get(&old_surface_id)
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("canonical terminal runtime is missing"))?;
+            if old_surface.kind() != crate::SurfaceKind::Pty || old_surface.is_external_terminal() {
+                anyhow::bail!("canonical respawn requires a daemon-owned PTY terminal");
+            }
+            if state.indexed_pane_of(old_surface_id).is_none() {
+                anyhow::bail!("canonical terminal is outside topology");
+            }
+            (
+                key,
+                old_surface.clone(),
+                size.or_else(|| Some(old_surface.size())),
+                old_surface.pwd(),
+                old_surface.name(),
+            )
+        };
+        if launch.cwd.is_none() {
+            launch.cwd = inherited_cwd;
+        }
+        let (new_surface_id, _) = self.entity_ids.surface();
+        let (new_surface, recipe) =
+            self.create_surface_for_launch(new_surface_id, surface_uuid, &launch, resolved_size)?;
+        new_surface.set_name(inherited_name);
+        if let Err(error) = self.write_terminal_initial_input(&new_surface, &launch) {
+            new_surface.kill();
+            return Err(error);
+        }
+
+        let _terminal_control = self.terminal_control_lifecycle.write().unwrap();
+        let transaction = (|| -> anyhow::Result<CanonicalSurfacePlacement> {
+            let mut state = self.state.lock().unwrap();
+            match self.canonical_mutation_start(
+                &state,
+                expectation,
+                "respawn-terminal",
+                &payload_digest,
+            )? {
+                CanonicalMutationStart::Fresh { key: current } if current == key => {}
+                _ => anyhow::bail!("canonical respawn fence changed during spawn"),
+            }
+            let current_surface_id = state
+                .indexed_surface_id_by_uuid(surface_uuid)
+                .ok_or_else(|| anyhow::anyhow!("canonical terminal disappeared during respawn"))?;
+            if current_surface_id != old_surface.id
+                || !state
+                    .surfaces
+                    .get(&current_surface_id)
+                    .is_some_and(|surface| Arc::ptr_eq(surface, &old_surface))
+            {
+                anyhow::bail!("canonical terminal runtime changed during respawn");
+            }
+            let pane_id = state.indexed_pane_of(current_surface_id).ok_or_else(|| {
+                anyhow::anyhow!("canonical terminal left topology during respawn")
+            })?;
+            let tab_index = state
+                .panes
+                .get(&pane_id)
+                .and_then(|pane| {
+                    pane.tabs.iter().position(|surface| *surface == current_surface_id)
+                })
+                .ok_or_else(|| {
+                    anyhow::anyhow!("canonical terminal tab disappeared during respawn")
+                })?;
+            state.discard_surface_runtime(current_surface_id);
+            state.surfaces.insert(new_surface.id, new_surface.clone());
+            state.launch_recipes.insert(surface_uuid, recipe);
+            let pane = state
+                .panes
+                .get_mut(&pane_id)
+                .expect("respawn pane resolved immediately before replacement");
+            pane.tabs[tab_index] = new_surface.id;
+            let targets = TopologyTargets::from_legacy(
+                &state,
+                None,
+                None,
+                Some(pane_id),
+                Some(new_surface.id),
+            );
+            let receipt = self.commit_canonical_mutation(
+                &mut state,
+                TopologyOperation::SurfaceReplaced,
+                targets,
+                key,
+            );
+            Ok(canonical_surface_placement_for_uuid(&state, surface_uuid, receipt)
+                .expect("committed respawn surface remains in canonical topology"))
+        })();
+        let placement = match transaction {
+            Ok(placement) => placement,
+            Err(error) => {
+                new_surface.kill();
+                return Err(error);
+            }
+        };
+
+        self.terminal_authority.retire_terminal(surface_uuid);
+        let renderer_presentations = self
+            .renderer_presentations
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|(presentation_id, runtime)| {
+                (runtime.attachment.terminal_id == surface_uuid.as_uuid())
+                    .then_some(*presentation_id)
+            })
+            .collect::<Vec<_>>();
+        for presentation_id in renderer_presentations {
+            self.invalidate_renderer_presentation(presentation_id);
+        }
+        self.purge_surface_side_tables(old_surface.id);
+        let changed_clients = self.control_clients.clear_surface_sizes(old_surface.id);
+        self.emit_client_sizing_changes(changed_clients);
+        old_surface.kill();
+        drop(_terminal_control);
+
+        self.emit(MuxEvent::TreeChanged);
+        self.reap_if_dead(&new_surface);
+        Ok(placement)
+    }
+
+    /// Creates an exactly identified daemon-owned browser in a new workspace.
+    /// CDP bootstrap starts only after the canonical topology and idempotency
+    /// result have been durably committed.
+    pub(crate) fn canonical_new_browser_workspace(
+        self: &Arc<Self>,
+        expectation: CanonicalMutationExpectation,
+        workspace_uuid: WorkspaceUuid,
+        surface_uuid: SurfaceUuid,
+        name: Option<String>,
+        url: String,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<CanonicalSurfacePlacement> {
+        validate_browser_url(&url)?;
+        if workspace_uuid.as_uuid().is_nil() || surface_uuid.as_uuid().is_nil() {
+            anyhow::bail!("canonical browser creation UUIDs must be nonzero");
+        }
+        if let Some(name) = &name {
+            validate_terminal_launch_text(
+                "workspace name",
+                name,
+                MAX_TERMINAL_LAUNCH_STRING_BYTES,
+            )?;
+        }
+        let payload_digest = canonical_payload_digest(
+            "new-browser-workspace",
+            &(workspace_uuid, surface_uuid, &name, &url, size),
+        )?;
+        let _mutation = self.ensure_terminal_lock.lock().unwrap();
+        let key = {
+            let state = self.state.lock().unwrap();
+            match self.canonical_mutation_start(
+                &state,
+                expectation,
+                "new-browser-workspace",
+                &payload_digest,
+            )? {
+                CanonicalMutationStart::Replay { receipt, result } => {
+                    if !result.workspaces.contains(&workspace_uuid)
+                        || !result.surfaces.contains(&surface_uuid)
+                    {
+                        anyhow::bail!("canonical mutation request_id payload changed");
+                    }
+                    return canonical_surface_placement_for_uuid(&state, surface_uuid, receipt);
+                }
+                CanonicalMutationStart::Fresh { key } => key,
+            }
+        };
+        {
+            let state = self.state.lock().unwrap();
+            if state.indexed_workspace_index_by_uuid(workspace_uuid).is_some()
+                || state.indexed_surface_id_by_uuid(surface_uuid).is_some()
+                || state.tombstones.iter().any(|tombstone| {
+                    tombstone.uuid == workspace_uuid.as_uuid()
+                        || tombstone.uuid == surface_uuid.as_uuid()
+                })
+            {
+                anyhow::bail!(
+                    "canonical browser creation identity already exists or is tombstoned"
+                );
+            }
+        }
+        let (surface_id, _) = self.entity_ids.surface();
+        let surface =
+            self.create_browser_surface_with_uuid(surface_id, surface_uuid, url.clone(), size);
+        let transaction = (|| -> anyhow::Result<CanonicalSurfacePlacement> {
+            let mut state = self.state.lock().unwrap();
+            match self.canonical_mutation_start(
+                &state,
+                expectation,
+                "new-browser-workspace",
+                &payload_digest,
+            )? {
+                CanonicalMutationStart::Fresh { key: current } if current == key => {}
+                _ => anyhow::bail!("canonical browser workspace fence changed during creation"),
+            }
+            if state.indexed_workspace_index_by_uuid(workspace_uuid).is_some()
+                || state.indexed_surface_id_by_uuid(surface_uuid).is_some()
+            {
+                anyhow::bail!("canonical browser identity appeared during creation");
+            }
+            let (pane_id, pane_uuid) = self.entity_ids.pane();
+            let (screen_id, screen_uuid) = self.entity_ids.screen();
+            let (workspace_id, _) = self.entity_ids.workspace();
+            state.surfaces.insert(surface.id, surface.clone());
+            state.panes.insert(
+                pane_id,
+                Pane {
+                    id: pane_id,
+                    uuid: pane_uuid,
+                    name: None,
+                    tabs: vec![surface.id],
+                    active_tab: 0,
+                    active_at: self.next_active_at(),
+                },
+            );
+            let workspace_name = name.unwrap_or_else(|| format!("{}", state.workspaces.len() + 1));
+            state.workspaces.push(Workspace {
+                id: workspace_id,
+                uuid: workspace_uuid,
+                name: workspace_name,
+                screens: vec![Screen {
+                    id: screen_id,
+                    uuid: screen_uuid,
+                    name: None,
+                    root: Node::Leaf(pane_id),
+                    active_pane: pane_id,
+                    zoomed_pane: None,
+                }],
+                active_screen: 0,
+            });
+            state.active_workspace = state.workspaces.len() - 1;
+            let targets = TopologyTargets {
+                workspaces: vec![workspace_uuid],
+                screens: vec![screen_uuid],
+                panes: vec![pane_uuid],
+                surfaces: vec![surface_uuid],
+            };
+            let receipt = self.commit_canonical_mutation(
+                &mut state,
+                TopologyOperation::WorkspaceCreated,
+                targets,
+                key,
+            );
+            canonical_surface_placement_for_uuid(&state, surface_uuid, receipt)
+        })();
+        let placement = match transaction {
+            Ok(placement) => placement,
+            Err(error) => {
+                surface.kill();
+                return Err(error);
+            }
+        };
+        self.emit(MuxEvent::TreeChanged);
+        self.start_browser_bootstrap(surface.clone(), BrowserBootstrap::Create { url }, None);
+        self.reap_if_dead(&surface);
+        Ok(placement)
+    }
+
+    /// Creates an exactly identified daemon-owned browser tab in a stable pane.
+    pub(crate) fn canonical_new_browser_tab(
+        self: &Arc<Self>,
+        expectation: CanonicalMutationExpectation,
+        pane_uuid: PaneUuid,
+        surface_uuid: SurfaceUuid,
+        url: String,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<CanonicalSurfacePlacement> {
+        validate_browser_url(&url)?;
+        if pane_uuid.as_uuid().is_nil() || surface_uuid.as_uuid().is_nil() {
+            anyhow::bail!("canonical browser tab UUIDs must be nonzero");
+        }
+        let payload_digest =
+            canonical_payload_digest("new-browser-tab", &(pane_uuid, surface_uuid, &url, size))?;
+        let _mutation = self.ensure_terminal_lock.lock().unwrap();
+        let key = {
+            let state = self.state.lock().unwrap();
+            let key = match self.canonical_mutation_start(
+                &state,
+                expectation,
+                "new-browser-tab",
+                &payload_digest,
+            )? {
+                CanonicalMutationStart::Replay { receipt, result } => {
+                    if !result.panes.contains(&pane_uuid)
+                        || !result.surfaces.contains(&surface_uuid)
+                    {
+                        anyhow::bail!("canonical mutation request_id payload changed");
+                    }
+                    return canonical_surface_placement_for_uuid(&state, surface_uuid, receipt);
+                }
+                CanonicalMutationStart::Fresh { key } => key,
+            };
+            if state.pane_id_by_uuid(pane_uuid).is_none() {
+                anyhow::bail!("unknown canonical pane {pane_uuid}");
+            }
+            if state.indexed_surface_id_by_uuid(surface_uuid).is_some() {
+                anyhow::bail!("canonical browser surface UUID already exists");
+            }
+            key
+        };
+        let (surface_id, _) = self.entity_ids.surface();
+        let surface =
+            self.create_browser_surface_with_uuid(surface_id, surface_uuid, url.clone(), size);
+        let transaction = (|| -> anyhow::Result<CanonicalSurfacePlacement> {
+            let mut state = self.state.lock().unwrap();
+            match self.canonical_mutation_start(
+                &state,
+                expectation,
+                "new-browser-tab",
+                &payload_digest,
+            )? {
+                CanonicalMutationStart::Fresh { key: current } if current == key => {}
+                _ => anyhow::bail!("canonical browser tab fence changed during creation"),
+            }
+            let pane_id = state
+                .pane_id_by_uuid(pane_uuid)
+                .ok_or_else(|| anyhow::anyhow!("canonical pane disappeared during creation"))?;
+            if state.indexed_surface_id_by_uuid(surface_uuid).is_some() {
+                anyhow::bail!("canonical browser surface UUID appeared during creation");
+            }
+            state.surfaces.insert(surface.id, surface.clone());
+            let pane = state
+                .panes
+                .get_mut(&pane_id)
+                .expect("stable pane resolved immediately before browser attach");
+            pane.tabs.push(surface.id);
+            pane.active_tab = pane.tabs.len() - 1;
+            pane.active_at = self.next_active_at();
+            let (workspace_index, screen_index) =
+                state.screen_of(pane_id).expect("canonical pane belongs to a screen");
+            state.active_workspace = workspace_index;
+            state.workspaces[workspace_index].active_screen = screen_index;
+            state.workspaces[workspace_index].screens[screen_index].active_pane = pane_id;
+            let targets =
+                TopologyTargets::from_legacy(&state, None, None, Some(pane_id), Some(surface.id));
+            let receipt = self.commit_canonical_mutation(
+                &mut state,
+                TopologyOperation::SurfaceAttached,
+                targets,
+                key,
+            );
+            canonical_surface_placement_for_uuid(&state, surface_uuid, receipt)
+        })();
+        let placement = match transaction {
+            Ok(placement) => placement,
+            Err(error) => {
+                surface.kill();
+                return Err(error);
+            }
+        };
+        self.emit(MuxEvent::TreeChanged);
+        self.start_browser_bootstrap(surface.clone(), BrowserBootstrap::Create { url }, None);
+        self.reap_if_dead(&surface);
+        Ok(placement)
+    }
+
+    /// Creates an exactly identified daemon-owned browser in a new pane next
+    /// to a stable target pane.
+    pub(crate) fn canonical_split_browser_pane(
+        self: &Arc<Self>,
+        expectation: CanonicalMutationExpectation,
+        target_pane_uuid: PaneUuid,
+        surface_uuid: SurfaceUuid,
+        dir: SplitDir,
+        insert_first: bool,
+        ratio: f32,
+        url: String,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<CanonicalSurfacePlacement> {
+        validate_browser_url(&url)?;
+        if !ratio.is_finite() || ratio <= 0.0 || ratio >= 1.0 {
+            anyhow::bail!("split ratio must be finite and between zero and one");
+        }
+        if target_pane_uuid.as_uuid().is_nil() || surface_uuid.as_uuid().is_nil() {
+            anyhow::bail!("canonical browser split UUIDs must be nonzero");
+        }
+        let payload_digest = canonical_payload_digest(
+            "split-browser-pane",
+            &(
+                target_pane_uuid,
+                surface_uuid,
+                canonical_split_direction(dir),
+                insert_first,
+                ratio,
+                &url,
+                size,
+            ),
+        )?;
+        let _mutation = self.ensure_terminal_lock.lock().unwrap();
+        let key = {
+            let state = self.state.lock().unwrap();
+            let key = match self.canonical_mutation_start(
+                &state,
+                expectation,
+                "split-browser-pane",
+                &payload_digest,
+            )? {
+                CanonicalMutationStart::Replay { receipt, result } => {
+                    if !result.surfaces.contains(&surface_uuid) {
+                        anyhow::bail!("canonical mutation request_id payload changed");
+                    }
+                    return canonical_surface_placement_for_uuid(&state, surface_uuid, receipt);
+                }
+                CanonicalMutationStart::Fresh { key } => key,
+            };
+            if state.pane_id_by_uuid(target_pane_uuid).is_none() {
+                anyhow::bail!("unknown canonical pane {target_pane_uuid}");
+            }
+            if state.indexed_surface_id_by_uuid(surface_uuid).is_some() {
+                anyhow::bail!("canonical browser surface UUID already exists");
+            }
+            key
+        };
+        let (surface_id, _) = self.entity_ids.surface();
+        let surface =
+            self.create_browser_surface_with_uuid(surface_id, surface_uuid, url.clone(), size);
+        let transaction = (|| -> anyhow::Result<(CanonicalSurfacePlacement, ScreenId)> {
+            let mut state = self.state.lock().unwrap();
+            match self.canonical_mutation_start(
+                &state,
+                expectation,
+                "split-browser-pane",
+                &payload_digest,
+            )? {
+                CanonicalMutationStart::Fresh { key: current } if current == key => {}
+                _ => anyhow::bail!("canonical browser split fence changed during creation"),
+            }
+            let target = state
+                .pane_id_by_uuid(target_pane_uuid)
+                .ok_or_else(|| anyhow::anyhow!("canonical target pane disappeared"))?;
+            if state.indexed_surface_id_by_uuid(surface_uuid).is_some() {
+                anyhow::bail!("canonical browser surface UUID appeared during creation");
+            }
+            let (workspace_index, screen_index) = state
+                .screen_of(target)
+                .ok_or_else(|| anyhow::anyhow!("canonical target pane has no screen"))?;
+            let (pane_id, pane_uuid) = self.entity_ids.pane();
+            let mut root = state.workspaces[workspace_index].screens[screen_index].root.clone();
+            if !root.split_leaf(target, dir, pane_id, insert_first, ratio) {
+                anyhow::bail!("canonical target pane disappeared before browser split commit");
+            }
+            state.surfaces.insert(surface.id, surface.clone());
+            state.panes.insert(
+                pane_id,
+                Pane {
+                    id: pane_id,
+                    uuid: pane_uuid,
+                    name: None,
+                    tabs: vec![surface.id],
+                    active_tab: 0,
+                    active_at: self.next_active_at(),
+                },
+            );
+            let workspace_uuid = state.workspaces[workspace_index].uuid;
+            let screen = &mut state.workspaces[workspace_index].screens[screen_index];
+            screen.root = root;
+            screen.active_pane = pane_id;
+            let screen_id = screen.id;
+            let screen_uuid = screen.uuid;
+            state.active_workspace = workspace_index;
+            state.workspaces[workspace_index].active_screen = screen_index;
+            let targets = TopologyTargets {
+                workspaces: vec![workspace_uuid],
+                screens: vec![screen_uuid],
+                panes: vec![target_pane_uuid, pane_uuid],
+                surfaces: vec![surface_uuid],
+            };
+            let receipt = self.commit_canonical_mutation(
+                &mut state,
+                TopologyOperation::PaneSplit,
+                targets,
+                key,
+            );
+            Ok((canonical_surface_placement_for_uuid(&state, surface_uuid, receipt)?, screen_id))
+        })();
+        let (placement, screen) = match transaction {
+            Ok(result) => result,
+            Err(error) => {
+                surface.kill();
+                return Err(error);
+            }
+        };
+        self.emit(MuxEvent::TreeChanged);
+        self.emit(MuxEvent::LayoutChanged(screen));
+        self.start_browser_bootstrap(surface.clone(), BrowserBootstrap::Create { url }, None);
+        self.reap_if_dead(&surface);
+        Ok(placement)
+    }
+
     /// Creates an exactly identified terminal tab in one stable pane.
     pub(crate) fn canonical_new_tab(
         self: &Arc<Self>,
@@ -5289,21 +6255,24 @@ impl Mux {
         if pane_uuid.as_uuid().is_nil() || surface_uuid.as_uuid().is_nil() {
             anyhow::bail!("canonical tab UUIDs must be nonzero");
         }
+        let payload_digest =
+            canonical_payload_digest("new-tab", &(pane_uuid, surface_uuid, size, &launch))?;
         let _mutation = self.ensure_terminal_lock.lock().unwrap();
         let (key, inherited_cwd) = {
             let state = self.state.lock().unwrap();
-            let key = match self.canonical_mutation_start(&state, expectation, "new-tab")? {
+            let key = match self.canonical_mutation_start(
+                &state,
+                expectation,
+                "new-tab",
+                &payload_digest,
+            )? {
                 CanonicalMutationStart::Replay { receipt, result } => {
                     if !result.panes.contains(&pane_uuid)
                         || !result.surfaces.contains(&surface_uuid)
                     {
                         anyhow::bail!("canonical mutation request_id payload changed");
                     }
-                    return canonical_surface_placement_for_uuid(
-                        &state,
-                        surface_uuid,
-                        receipt,
-                    );
+                    return canonical_surface_placement_for_uuid(&state, surface_uuid, receipt);
                 }
                 CanonicalMutationStart::Fresh { key } => key,
             };
@@ -5332,7 +6301,7 @@ impl Mux {
         }
         let transaction = (|| -> anyhow::Result<CanonicalSurfacePlacement> {
             let mut state = self.state.lock().unwrap();
-            match self.canonical_mutation_start(&state, expectation, "new-tab")? {
+            match self.canonical_mutation_start(&state, expectation, "new-tab", &payload_digest)? {
                 CanonicalMutationStart::Fresh { key: current } if current == key => {}
                 _ => anyhow::bail!("canonical new-tab fence changed during spawn"),
             }
@@ -5351,19 +6320,13 @@ impl Mux {
             pane.tabs.push(surface.id);
             pane.active_tab = pane.tabs.len() - 1;
             pane.active_at = self.next_active_at();
-            let (workspace_index, screen_index) = state
-                .screen_of(pane_id)
-                .expect("canonical pane belongs to a screen");
+            let (workspace_index, screen_index) =
+                state.screen_of(pane_id).expect("canonical pane belongs to a screen");
             state.active_workspace = workspace_index;
             state.workspaces[workspace_index].active_screen = screen_index;
             state.workspaces[workspace_index].screens[screen_index].active_pane = pane_id;
-            let targets = TopologyTargets::from_legacy(
-                &state,
-                None,
-                None,
-                Some(pane_id),
-                Some(surface.id),
-            );
+            let targets =
+                TopologyTargets::from_legacy(&state, None, None, Some(pane_id), Some(surface.id));
             let receipt = self.commit_canonical_mutation(
                 &mut state,
                 TopologyOperation::SurfaceAttached,
@@ -5401,19 +6364,32 @@ impl Mux {
         if !ratio.is_finite() || ratio <= 0.0 || ratio >= 1.0 {
             anyhow::bail!("split ratio must be finite and between zero and one");
         }
+        let payload_digest = canonical_payload_digest(
+            "split-pane",
+            &(
+                target_pane_uuid,
+                surface_uuid,
+                canonical_split_direction(dir),
+                insert_first,
+                ratio,
+                size,
+                &launch,
+            ),
+        )?;
         let _mutation = self.ensure_terminal_lock.lock().unwrap();
         let (key, inherited_cwd) = {
             let state = self.state.lock().unwrap();
-            let key = match self.canonical_mutation_start(&state, expectation, "split-pane")? {
+            let key = match self.canonical_mutation_start(
+                &state,
+                expectation,
+                "split-pane",
+                &payload_digest,
+            )? {
                 CanonicalMutationStart::Replay { receipt, result } => {
                     if !result.surfaces.contains(&surface_uuid) {
                         anyhow::bail!("canonical mutation request_id payload changed");
                     }
-                    return canonical_surface_placement_for_uuid(
-                        &state,
-                        surface_uuid,
-                        receipt,
-                    );
+                    return canonical_surface_placement_for_uuid(&state, surface_uuid, receipt);
                 }
                 CanonicalMutationStart::Fresh { key } => key,
             };
@@ -5442,7 +6418,12 @@ impl Mux {
         }
         let transaction = (|| -> anyhow::Result<(CanonicalSurfacePlacement, ScreenId)> {
             let mut state = self.state.lock().unwrap();
-            match self.canonical_mutation_start(&state, expectation, "split-pane")? {
+            match self.canonical_mutation_start(
+                &state,
+                expectation,
+                "split-pane",
+                &payload_digest,
+            )? {
                 CanonicalMutationStart::Fresh { key: current } if current == key => {}
                 _ => anyhow::bail!("canonical split-pane fence changed during spawn"),
             }
@@ -5493,10 +6474,7 @@ impl Mux {
                 targets,
                 key,
             );
-            Ok((
-                canonical_surface_placement_for_uuid(&state, surface_uuid, receipt)?,
-                screen_id,
-            ))
+            Ok((canonical_surface_placement_for_uuid(&state, surface_uuid, receipt)?, screen_id))
         })();
         let (placement, screen) = match transaction {
             Ok(result) => result,
@@ -5526,19 +6504,24 @@ impl Mux {
         if !ratio.is_finite() || ratio <= 0.0 || ratio >= 1.0 {
             anyhow::bail!("split ratio must be finite and between zero and one");
         }
+        let payload_digest = canonical_payload_digest(
+            "split-tab",
+            &(surface_uuid, target_pane_uuid, canonical_split_direction(dir), insert_first, ratio),
+        )?;
         let _mutation = self.ensure_terminal_lock.lock().unwrap();
         let (placement, screen_id, source_workspace, target_workspace, surface_id) = {
             let mut state = self.state.lock().unwrap();
-            let key = match self.canonical_mutation_start(&state, expectation, "split-tab")? {
+            let key = match self.canonical_mutation_start(
+                &state,
+                expectation,
+                "split-tab",
+                &payload_digest,
+            )? {
                 CanonicalMutationStart::Replay { receipt, result } => {
                     if !result.surfaces.contains(&surface_uuid) {
                         anyhow::bail!("canonical mutation request_id payload changed");
                     }
-                    return canonical_surface_placement_for_uuid(
-                        &state,
-                        surface_uuid,
-                        receipt,
-                    );
+                    return canonical_surface_placement_for_uuid(&state, surface_uuid, receipt);
                 }
                 CanonicalMutationStart::Fresh { key } => key,
             };
@@ -5558,8 +6541,7 @@ impl Mux {
             let source = state
                 .pane_of(surface)
                 .ok_or_else(|| anyhow::anyhow!("canonical surface has no source pane"))?;
-            if source == target
-                && state.panes.get(&source).is_none_or(|pane| pane.tabs.len() <= 1)
+            if source == target && state.panes.get(&source).is_none_or(|pane| pane.tabs.len() <= 1)
             {
                 anyhow::bail!("cannot move a pane's only tab into a split of itself");
             }
@@ -5640,11 +6622,17 @@ impl Mux {
         expectation: CanonicalMutationExpectation,
         pane_uuid: PaneUuid,
     ) -> anyhow::Result<CanonicalMutationReceipt> {
+        let payload_digest = canonical_payload_digest("close-pane", &pane_uuid)?;
         let _mutation = self.ensure_terminal_lock.lock().unwrap();
         let _terminal_control = self.terminal_control_lifecycle.write().unwrap();
         let (receipt, closed) = {
             let mut state = self.state.lock().unwrap();
-            let key = match self.canonical_mutation_start(&state, expectation, "close-pane")? {
+            let key = match self.canonical_mutation_start(
+                &state,
+                expectation,
+                "close-pane",
+                &payload_digest,
+            )? {
                 CanonicalMutationStart::Replay { receipt, result } => {
                     if !result.panes.contains(&pane_uuid) {
                         anyhow::bail!("canonical mutation request_id payload changed");
@@ -5660,13 +6648,8 @@ impl Mux {
             let changed_screens = unique_screen_ids(
                 tabs.iter().filter_map(|surface| surface_screen_id(&state, *surface)),
             );
-            let targets = TopologyTargets::from_legacy(
-                &state,
-                None,
-                None,
-                Some(pane),
-                tabs.iter().copied(),
-            );
+            let targets =
+                TopologyTargets::from_legacy(&state, None, None, Some(pane), tabs.iter().copied());
             let mut removed = Vec::with_capacity(tabs.len());
             for surface in &tabs {
                 if let Some(runtime) = remove_surface(&mut state, *surface) {
@@ -5697,6 +6680,7 @@ impl Mux {
         expectation: CanonicalMutationExpectation,
         workspace_uuid: WorkspaceUuid,
     ) -> anyhow::Result<CanonicalMutationReceipt> {
+        let payload_digest = canonical_payload_digest("close-workspace", &workspace_uuid)?;
         let _mutation = self.ensure_terminal_lock.lock().unwrap();
         let _terminal_control = self.terminal_control_lifecycle.write().unwrap();
         let (receipt, closed) = {
@@ -5705,6 +6689,7 @@ impl Mux {
                 &state,
                 expectation,
                 "close-workspace",
+                &payload_digest,
             )? {
                 CanonicalMutationStart::Replay { receipt, result } => {
                     if !result.workspaces.contains(&workspace_uuid) {
@@ -5723,11 +6708,13 @@ impl Mux {
                 .iter()
                 .flat_map(|screen| screen_tabs(&state, screen))
                 .collect::<Vec<_>>();
-            let panes = tabs.iter().filter_map(|surface| state.pane_of(*surface)).collect::<Vec<_>>();
+            let panes =
+                tabs.iter().filter_map(|surface| state.pane_of(*surface)).collect::<Vec<_>>();
             let changed_screens = unique_screen_ids(
                 tabs.iter().filter_map(|surface| surface_screen_id(&state, *surface)),
             );
-            let targets = topology_targets_many(&state, &[workspace], &changed_screens, &panes, &tabs);
+            let targets =
+                topology_targets_many(&state, &[workspace], &changed_screens, &panes, &tabs);
             let mut removed = Vec::with_capacity(tabs.len());
             for surface in &tabs {
                 if let Some(runtime) = remove_surface(&mut state, *surface) {
@@ -5759,11 +6746,9 @@ impl Mux {
         workspace_uuid: WorkspaceUuid,
         name: String,
     ) -> anyhow::Result<CanonicalMutationReceipt> {
-        validate_terminal_launch_text(
-            "workspace name",
-            &name,
-            MAX_TERMINAL_LAUNCH_STRING_BYTES,
-        )?;
+        validate_terminal_launch_text("workspace name", &name, MAX_TERMINAL_LAUNCH_STRING_BYTES)?;
+        let payload_digest =
+            canonical_payload_digest("rename-workspace", &(workspace_uuid, &name))?;
         let _mutation = self.ensure_terminal_lock.lock().unwrap();
         let receipt = {
             let mut state = self.state.lock().unwrap();
@@ -5771,6 +6756,7 @@ impl Mux {
                 &state,
                 expectation,
                 "rename-workspace",
+                &payload_digest,
             )? {
                 CanonicalMutationStart::Replay { receipt, result } => {
                     if !result.workspaces.contains(&workspace_uuid) {
@@ -5801,11 +6787,8 @@ impl Mux {
         surface_uuid: SurfaceUuid,
         name: String,
     ) -> anyhow::Result<CanonicalMutationReceipt> {
-        validate_terminal_launch_text(
-            "surface name",
-            &name,
-            MAX_TERMINAL_LAUNCH_STRING_BYTES,
-        )?;
+        validate_terminal_launch_text("surface name", &name, MAX_TERMINAL_LAUNCH_STRING_BYTES)?;
+        let payload_digest = canonical_payload_digest("rename-surface", &(surface_uuid, &name))?;
         let _mutation = self.ensure_terminal_lock.lock().unwrap();
         let receipt = {
             let mut state = self.state.lock().unwrap();
@@ -5813,6 +6796,7 @@ impl Mux {
                 &state,
                 expectation,
                 "rename-surface",
+                &payload_digest,
             )? {
                 CanonicalMutationStart::Replay { receipt, result } => {
                     if !result.surfaces.contains(&surface_uuid) {
@@ -5826,13 +6810,7 @@ impl Mux {
                 .indexed_surface_id_by_uuid(surface_uuid)
                 .ok_or_else(|| anyhow::anyhow!("unknown canonical surface {surface_uuid}"))?;
             state.surfaces[&surface].set_name((!name.is_empty()).then_some(name));
-            let targets = TopologyTargets::from_legacy(
-                &state,
-                None,
-                None,
-                None,
-                Some(surface),
-            );
+            let targets = TopologyTargets::from_legacy(&state, None, None, None, Some(surface));
             self.commit_canonical_mutation(
                 &mut state,
                 TopologyOperation::SurfaceRenamed,
@@ -5851,10 +6829,17 @@ impl Mux {
         pane_uuid: PaneUuid,
         index: usize,
     ) -> anyhow::Result<CanonicalMutationReceipt> {
+        let payload_digest =
+            canonical_payload_digest("move-tab", &(surface_uuid, pane_uuid, index))?;
         let _mutation = self.ensure_terminal_lock.lock().unwrap();
         let (receipt, surface, source_workspace, target_workspace) = {
             let mut state = self.state.lock().unwrap();
-            let key = match self.canonical_mutation_start(&state, expectation, "move-tab")? {
+            let key = match self.canonical_mutation_start(
+                &state,
+                expectation,
+                "move-tab",
+                &payload_digest,
+            )? {
                 CanonicalMutationStart::Replay { receipt, result } => {
                     if !result.surfaces.contains(&surface_uuid)
                         || !result.panes.contains(&pane_uuid)
@@ -5879,10 +6864,11 @@ impl Mux {
                 .screen_of(source_pane)
                 .map(|(wi, _)| state.workspaces[wi].uuid)
                 .ok_or_else(|| anyhow::anyhow!("source pane has no workspace"))?;
-            let target_workspace = state
-                .screen_of(pane)
-                .map(|(wi, _)| state.workspaces[wi].uuid)
-                .ok_or_else(|| anyhow::anyhow!("target pane has no workspace"))?;
+            let target_workspace =
+                state
+                    .screen_of(pane)
+                    .map(|(wi, _)| state.workspaces[wi].uuid)
+                    .ok_or_else(|| anyhow::anyhow!("target pane has no workspace"))?;
             let mut candidate = state.value.clone();
             let _ = move_tab_in_state(&mut candidate, surface, pane, index);
             CanonicalTopologyIndex::build(&candidate)?;
@@ -5917,10 +6903,17 @@ impl Mux {
         if surface_uuids.len() > MAX_ENSURE_TERMINAL_BATCH_SIZE {
             anyhow::bail!("canonical tab reorder exceeds maximum entity count");
         }
+        let payload_digest =
+            canonical_payload_digest("reorder-tabs", &(pane_uuid, &surface_uuids))?;
         let _mutation = self.ensure_terminal_lock.lock().unwrap();
         let receipt = {
             let mut state = self.state.lock().unwrap();
-            let key = match self.canonical_mutation_start(&state, expectation, "reorder-tabs")? {
+            let key = match self.canonical_mutation_start(
+                &state,
+                expectation,
+                "reorder-tabs",
+                &payload_digest,
+            )? {
                 CanonicalMutationStart::Replay { receipt, result } => {
                     if !result.panes.contains(&pane_uuid) {
                         anyhow::bail!("canonical mutation request_id payload changed");
@@ -5981,6 +6974,7 @@ impl Mux {
         if workspace_uuids.len() > MAX_ENSURE_TERMINAL_BATCH_SIZE {
             anyhow::bail!("canonical workspace reorder exceeds maximum entity count");
         }
+        let payload_digest = canonical_payload_digest("reorder-workspaces", &workspace_uuids)?;
         let _mutation = self.ensure_terminal_lock.lock().unwrap();
         let receipt = {
             let mut state = self.state.lock().unwrap();
@@ -5988,6 +6982,7 @@ impl Mux {
                 &state,
                 expectation,
                 "reorder-workspaces",
+                &payload_digest,
             )? {
                 CanonicalMutationStart::Replay { receipt, result } => {
                     if result.workspaces != workspace_uuids {
@@ -5998,7 +6993,8 @@ impl Mux {
                 CanonicalMutationStart::Fresh { key } => key,
             };
             let mut seen = HashSet::with_capacity(workspace_uuids.len());
-            let current = state.workspaces.iter().map(|workspace| workspace.uuid).collect::<Vec<_>>();
+            let current =
+                state.workspaces.iter().map(|workspace| workspace.uuid).collect::<Vec<_>>();
             if workspace_uuids.len() != current.len()
                 || workspace_uuids.iter().any(|uuid| !seen.insert(*uuid))
                 || workspace_uuids.iter().copied().collect::<HashSet<_>>()
@@ -6006,7 +7002,8 @@ impl Mux {
             {
                 anyhow::bail!("canonical workspace reorder must be an exact session permutation");
             }
-            let active_uuid = state.workspaces.get(state.active_workspace).map(|workspace| workspace.uuid);
+            let active_uuid =
+                state.workspaces.get(state.active_workspace).map(|workspace| workspace.uuid);
             let mut by_uuid = std::mem::take(&mut state.workspaces)
                 .into_iter()
                 .map(|workspace| (workspace.uuid, workspace))
@@ -6016,15 +7013,14 @@ impl Mux {
                 .map(|uuid| by_uuid.remove(uuid).expect("exact permutation validated"))
                 .collect();
             state.active_workspace = active_uuid
-                .and_then(|uuid| state.workspaces.iter().position(|workspace| workspace.uuid == uuid))
+                .and_then(|uuid| {
+                    state.workspaces.iter().position(|workspace| workspace.uuid == uuid)
+                })
                 .unwrap_or(0);
             self.commit_canonical_mutation(
                 &mut state,
                 TopologyOperation::WorkspaceMoved,
-                TopologyTargets {
-                    workspaces: workspace_uuids,
-                    ..TopologyTargets::default()
-                },
+                TopologyTargets { workspaces: workspace_uuids, ..TopologyTargets::default() },
                 key,
             )
         };
@@ -6050,6 +7046,10 @@ impl Mux {
                 MAX_TERMINAL_LAUNCH_STRING_BYTES,
             )?;
         }
+        let payload_digest = canonical_payload_digest(
+            "move-tab-to-new-workspace",
+            &(surface_uuid, workspace_uuid, &name, index),
+        )?;
         let _mutation = self.ensure_terminal_lock.lock().unwrap();
         let (placement, surface, old_workspace) = {
             let mut state = self.state.lock().unwrap();
@@ -6057,6 +7057,7 @@ impl Mux {
                 &state,
                 expectation,
                 "move-tab-to-new-workspace",
+                &payload_digest,
             )? {
                 CanonicalMutationStart::Replay { receipt, result } => {
                     if !result.workspaces.contains(&workspace_uuid)
@@ -6064,11 +7065,7 @@ impl Mux {
                     {
                         anyhow::bail!("canonical mutation request_id payload changed");
                     }
-                    return canonical_surface_placement_for_uuid(
-                        &state,
-                        surface_uuid,
-                        receipt,
-                    );
+                    return canonical_surface_placement_for_uuid(&state, surface_uuid, receipt);
                 }
                 CanonicalMutationStart::Fresh { key } => key,
             };
@@ -6078,7 +7075,9 @@ impl Mux {
                         && tombstone.uuid == workspace_uuid.as_uuid()
                 })
             {
-                anyhow::bail!("canonical destination workspace identity already exists or is tombstoned");
+                anyhow::bail!(
+                    "canonical destination workspace identity already exists or is tombstoned"
+                );
             }
             let surface = state
                 .surface_id_by_uuid(surface_uuid)
@@ -6095,7 +7094,8 @@ impl Mux {
             let (screen_id, screen_uuid) = self.entity_ids.screen();
             let (workspace_id, _) = self.entity_ids.workspace();
             let mut candidate = state.value.clone();
-            let insertion = index.unwrap_or(candidate.workspaces.len()).min(candidate.workspaces.len());
+            let insertion =
+                index.unwrap_or(candidate.workspaces.len()).min(candidate.workspaces.len());
             candidate.panes.insert(
                 pane_id,
                 Pane {
@@ -6170,6 +7170,10 @@ impl Mux {
         if !ratio.is_finite() || ratio <= 0.0 || ratio >= 1.0 {
             anyhow::bail!("split ratio must be finite and between zero and one");
         }
+        let payload_digest = canonical_payload_digest(
+            "set-split-ratio",
+            &(pane_uuid, canonical_split_direction(dir), target_in_first, ratio),
+        )?;
         let _mutation = self.ensure_terminal_lock.lock().unwrap();
         let (receipt, screen_id) = {
             let mut state = self.state.lock().unwrap();
@@ -6177,6 +7181,7 @@ impl Mux {
                 &state,
                 expectation,
                 "set-split-ratio",
+                &payload_digest,
             )? {
                 CanonicalMutationStart::Replay { receipt, result } => {
                     if !result.panes.contains(&pane_uuid) {
@@ -6193,12 +7198,8 @@ impl Mux {
                 .screen_of(pane)
                 .ok_or_else(|| anyhow::anyhow!("canonical pane has no screen"))?;
             let screen = &mut state.workspaces[workspace_index].screens[screen_index];
-            if screen.root.set_deepest_ratio_on_edge(
-                pane,
-                dir,
-                target_in_first,
-                ratio,
-            ) == ChangeState::Missing
+            if screen.root.set_deepest_ratio_on_edge(pane, dir, target_in_first, ratio)
+                == ChangeState::Missing
             {
                 anyhow::bail!("canonical pane has no split on requested edge");
             }
@@ -6886,14 +7887,7 @@ impl Mux {
         dir: SplitDir,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
-        self.split_with_launch(
-            target,
-            dir,
-            false,
-            0.5,
-            size,
-            TerminalLaunchRequest::default(),
-        )
+        self.split_with_launch(target, dir, false, 0.5, size, TerminalLaunchRequest::default())
     }
 
     pub(crate) fn split_with_launch(
@@ -7010,8 +8004,7 @@ impl Mux {
             if !state.panes.contains_key(&target) {
                 anyhow::bail!("unknown pane {target}");
             }
-            if source == target
-                && state.panes.get(&source).is_none_or(|pane| pane.tabs.len() <= 1)
+            if source == target && state.panes.get(&source).is_none_or(|pane| pane.tabs.len() <= 1)
             {
                 anyhow::bail!("cannot move a pane's only tab into a split of itself");
             }
@@ -7023,9 +8016,8 @@ impl Mux {
                 .screen_of(target)
                 .ok_or_else(|| anyhow::anyhow!("target pane is outside canonical topology"))?;
             let target_workspace_uuid = state.workspaces[target_workspace_index].uuid;
-            let target_screen_id = state.workspaces[target_workspace_index].screens
-                [target_screen_index]
-                .id;
+            let target_screen_id =
+                state.workspaces[target_workspace_index].screens[target_screen_index].id;
             let split = state.workspaces[target_workspace_index].screens[target_screen_index]
                 .root
                 .split_leaf(target, dir, pane_id, insert_first, ratio);
@@ -7141,13 +8133,8 @@ impl Mux {
                 .position(|workspace| workspace.id == workspace_id)
                 .expect("new workspace remains present after tab move");
             state.active_workspace = workspace_index;
-            let mut targets = TopologyTargets::from_legacy(
-                &state,
-                None,
-                None,
-                Some(source_pane),
-                Some(surface),
-            );
+            let mut targets =
+                TopologyTargets::from_legacy(&state, None, None, Some(source_pane), Some(surface));
             targets.merge(TopologyTargets::from_legacy(
                 &state,
                 Some(workspace_id),
@@ -7503,6 +8490,19 @@ impl Mux {
     /// Called by a surface's reader thread when its child exits. The mux
     /// reaps the surface out of the tree itself, so frontends only need to
     /// drop their render state.
+    pub(crate) fn surface_runtime_exited(&self, exited: &Arc<Surface>) {
+        let Some(current) = self.surface(exited.id) else {
+            return;
+        };
+        if !Arc::ptr_eq(&current, exited) {
+            // Runtime replacement deliberately reuses neither the child nor
+            // its reader. A late EOF from the retired runtime must not close
+            // the newly committed terminal that now occupies this handle.
+            return;
+        }
+        self.surface_exited(exited.id);
+    }
+
     pub fn surface_exited(&self, id: SurfaceId) {
         if self.sidebar_surface_exited(id) {
             self.emit(MuxEvent::SurfaceExited(id));
@@ -8564,6 +9564,32 @@ mod tests {
         assert!(replay.receipt.replayed);
         assert_eq!(mux.topology_snapshot(), committed);
 
+        let changed_name = mux.canonical_new_workspace(
+            canonical_expectation(&mux, request_id, 0),
+            workspace_uuid,
+            surface_uuid,
+            Some("changed".into()),
+            Some((80, 24)),
+            TerminalLaunchRequest::default(),
+        );
+        assert!(changed_name.unwrap_err().to_string().contains("payload changed"));
+
+        let changed_launch = mux.canonical_new_workspace(
+            canonical_expectation(&mux, request_id, 0),
+            workspace_uuid,
+            surface_uuid,
+            Some("canonical".into()),
+            Some((80, 24)),
+            TerminalLaunchRequest {
+                command: Some("printf must-not-run".into()),
+                env: vec![("LANG".into(), "C".into())],
+                initial_input: Some("changed-input".into()),
+                ..TerminalLaunchRequest::default()
+            },
+        );
+        assert!(changed_launch.unwrap_err().to_string().contains("payload changed"));
+        assert_eq!(mux.topology_snapshot(), committed);
+
         let changed_payload = mux.canonical_new_workspace(
             canonical_expectation(&mux, request_id, 0),
             workspace_uuid,
@@ -8584,6 +9610,47 @@ mod tests {
             TerminalLaunchRequest::default(),
         );
         assert!(stale.is_err());
+        assert_eq!(mux.topology_snapshot(), committed);
+    }
+
+    #[test]
+    fn canonical_replay_rejects_changed_non_creation_order() {
+        let mux = test_mux();
+        let first_surface = SurfaceUuid::new();
+        let first = mux
+            .canonical_new_workspace(
+                canonical_expectation(&mux, uuid::Uuid::new_v4(), 0),
+                WorkspaceUuid::new(),
+                first_surface,
+                None,
+                Some((80, 24)),
+                TerminalLaunchRequest::default(),
+            )
+            .unwrap();
+        let second_surface = SurfaceUuid::new();
+        mux.canonical_new_tab(
+            canonical_expectation(&mux, uuid::Uuid::new_v4(), 1),
+            first.pane_uuid,
+            second_surface,
+            Some((80, 24)),
+            TerminalLaunchRequest::default(),
+        )
+        .unwrap();
+
+        let request_id = uuid::Uuid::new_v4();
+        mux.canonical_reorder_tabs(
+            canonical_expectation(&mux, request_id, 2),
+            first.pane_uuid,
+            vec![second_surface, first_surface],
+        )
+        .unwrap();
+        let committed = mux.topology_snapshot();
+        let changed_order = mux.canonical_reorder_tabs(
+            canonical_expectation(&mux, request_id, 2),
+            first.pane_uuid,
+            vec![first_surface, second_surface],
+        );
+        assert!(changed_order.unwrap_err().to_string().contains("payload changed"));
         assert_eq!(mux.topology_snapshot(), committed);
     }
 
@@ -8623,6 +9690,89 @@ mod tests {
         assert!(failed.is_err());
         assert_eq!(mux.topology_snapshot(), before);
         assert_eq!(mux.canonical_topology_revision(), 2);
+    }
+
+    #[test]
+    fn canonical_materialize_and_respawn_replace_runtime_once_and_ignore_stale_exit() {
+        let mux = test_mux();
+        let workspace_uuid = WorkspaceUuid::new();
+        let initial = mux
+            .canonical_new_workspace(
+                canonical_expectation(&mux, uuid::Uuid::new_v4(), 0),
+                workspace_uuid,
+                SurfaceUuid::new(),
+                None,
+                Some((80, 24)),
+                TerminalLaunchRequest::default(),
+            )
+            .unwrap();
+        let surface_uuid = SurfaceUuid::new();
+        let materialized = mux
+            .canonical_materialize_terminal(
+                canonical_expectation(&mux, uuid::Uuid::new_v4(), 1),
+                workspace_uuid,
+                surface_uuid,
+                Some((100, 30)),
+                TerminalLaunchRequest::default(),
+            )
+            .unwrap();
+        assert_eq!(materialized.workspace_uuid, workspace_uuid);
+        assert_eq!(materialized.pane_uuid, initial.pane_uuid);
+        let old_surface = mux.surface(materialized.surface).unwrap();
+        let old_epoch = old_surface.semantic_scene_terminal_identity().unwrap().runtime_epoch;
+
+        let request_id = uuid::Uuid::new_v4();
+        let respawned = mux
+            .canonical_respawn_terminal(
+                canonical_expectation(&mux, request_id, 2),
+                surface_uuid,
+                Some((120, 40)),
+                TerminalLaunchRequest {
+                    env: vec![("RESPAWN_TEST".into(), "1".into())],
+                    ..TerminalLaunchRequest::default()
+                },
+            )
+            .unwrap();
+        assert_ne!(respawned.surface, materialized.surface);
+        assert_eq!(respawned.surface_uuid, surface_uuid);
+        assert!(mux.surface(materialized.surface).is_none());
+        let replacement = mux.surface(respawned.surface).unwrap();
+        assert_ne!(
+            replacement.semantic_scene_terminal_identity().unwrap().runtime_epoch,
+            old_epoch
+        );
+        assert_eq!(replacement.size(), (120, 40));
+
+        mux.surface_runtime_exited(&old_surface);
+        assert!(Arc::ptr_eq(&mux.surface(respawned.surface).unwrap(), &replacement));
+
+        let committed = mux.topology_snapshot();
+        let replay = mux
+            .canonical_respawn_terminal(
+                canonical_expectation(&mux, request_id, 2),
+                surface_uuid,
+                Some((120, 40)),
+                TerminalLaunchRequest {
+                    env: vec![("RESPAWN_TEST".into(), "1".into())],
+                    ..TerminalLaunchRequest::default()
+                },
+            )
+            .unwrap();
+        assert!(replay.receipt.replayed);
+        assert_eq!(replay.surface, respawned.surface);
+        assert_eq!(mux.topology_snapshot(), committed);
+
+        let changed = mux.canonical_respawn_terminal(
+            canonical_expectation(&mux, request_id, 2),
+            surface_uuid,
+            Some((120, 40)),
+            TerminalLaunchRequest {
+                env: vec![("RESPAWN_TEST".into(), "changed".into())],
+                ..TerminalLaunchRequest::default()
+            },
+        );
+        assert!(changed.unwrap_err().to_string().contains("payload changed"));
+        assert_eq!(mux.topology_snapshot(), committed);
     }
 
     #[test]
@@ -10892,6 +12042,102 @@ mod tests {
     }
 
     #[test]
+    fn daemon_restart_restores_external_terminal_recipe_without_owner_or_child() {
+        let directory = PersistenceTestDirectory::new("external-terminal-restart");
+        let store = StateStore::new(&directory.0);
+        let workspace_uuid = WorkspaceUuid::new();
+        let bootstrap_surface_uuid = SurfaceUuid::new();
+        let external_surface_uuid = SurfaceUuid::new();
+        let first =
+            Mux::recover_from_state_store_for_test("main", SurfaceOptions::default(), &store)
+                .unwrap();
+        first
+            .canonical_new_workspace(
+                canonical_expectation(&first, uuid::Uuid::new_v4(), 0),
+                workspace_uuid,
+                bootstrap_surface_uuid,
+                Some("remote".to_string()),
+                Some((80, 24)),
+                TerminalLaunchRequest {
+                    argv: Some(vec!["/bin/cat".to_string()]),
+                    ..TerminalLaunchRequest::default()
+                },
+            )
+            .unwrap();
+        first
+            .canonical_materialize_external_terminal(
+                canonical_expectation(&first, uuid::Uuid::new_v4(), 1),
+                workspace_uuid,
+                external_surface_uuid,
+                (132, 43),
+                true,
+            )
+            .unwrap();
+        let original_id =
+            first.with_state(|state| state.surface_id_by_uuid(external_surface_uuid)).unwrap();
+        let original = first.surface(original_id).unwrap();
+        assert!(original.is_external_terminal());
+        assert_eq!(original.external_terminal_recipe(), Some((132, 43, 10_000, true)));
+        assert_eq!(original.process_id(), None);
+        assert_eq!(original.tty_name(), None);
+        let old_owner = ExternalTerminalOwner {
+            client_uuid: uuid::Uuid::new_v4(),
+            process_instance_uuid: uuid::Uuid::new_v4(),
+            connection_id: 11,
+        };
+        let old_claim = first
+            .claim_external_terminal(external_surface_uuid, old_owner, uuid::Uuid::new_v4())
+            .unwrap();
+        first
+            .reset_external_terminal(
+                external_surface_uuid,
+                old_owner,
+                old_claim.owner_generation,
+                uuid::Uuid::new_v4(),
+                old_claim.required_output_generation,
+                132,
+                43,
+                b"persisted only by the Swift source of truth",
+            )
+            .unwrap();
+        drop(original);
+        drop(first);
+
+        let restored =
+            Mux::recover_from_state_store_for_test("main", SurfaceOptions::default(), &store)
+                .unwrap();
+        let restored_id = restored
+            .with_state(|state| state.surface_id_by_uuid(external_surface_uuid))
+            .expect("stable external terminal UUID restored");
+        let surface = restored.surface(restored_id).unwrap();
+        assert!(surface.is_external_terminal());
+        assert_eq!(surface.external_terminal_recipe(), Some((132, 43, 10_000, true)));
+        assert_eq!(surface.process_id(), None);
+        assert_eq!(surface.tty_name(), None);
+
+        let replacement_owner = ExternalTerminalOwner {
+            client_uuid: uuid::Uuid::new_v4(),
+            process_instance_uuid: uuid::Uuid::new_v4(),
+            connection_id: 12,
+        };
+        let replacement_claim = restored
+            .claim_external_terminal(external_surface_uuid, replacement_owner, uuid::Uuid::new_v4())
+            .unwrap();
+        assert_eq!(replacement_claim.owner_generation, 1);
+        assert_eq!(replacement_claim.required_output_generation, 1);
+        let before_reset = restored.apply_external_terminal_output(
+            external_surface_uuid,
+            replacement_owner,
+            replacement_claim.owner_generation,
+            uuid::Uuid::new_v4(),
+            replacement_claim.required_output_generation,
+            1,
+            b"late output",
+        );
+        assert!(before_reset.unwrap_err().to_string().contains("reset-and-seed"));
+    }
+
+    #[test]
     fn daemon_restart_restores_activity_and_independent_reader_receipts() {
         let directory = PersistenceTestDirectory::new("activity-restart");
         let store = StateStore::new(&directory.0);
@@ -11131,6 +12377,7 @@ mod tests {
             canonical.idempotency_results = (0..MAX_PERSISTED_IDEMPOTENCY_RESULTS)
                 .map(|index| PersistedIdempotencyResult {
                     key: format!("seed-{index}"),
+                    payload_digest: String::new(),
                     committed_topology_revision: index as u64,
                     workspaces: Vec::new(),
                     screens: Vec::new(),

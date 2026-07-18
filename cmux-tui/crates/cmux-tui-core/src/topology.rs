@@ -21,6 +21,7 @@ pub enum TopologyOperation {
     ScreenCreated,
     PaneSplit,
     SurfaceAttached,
+    SurfaceReplaced,
     SurfaceClosed,
     PaneClosed,
     ScreenClosed,

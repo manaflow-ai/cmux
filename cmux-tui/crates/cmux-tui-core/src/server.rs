@@ -61,7 +61,8 @@ use crate::projection_state::{
 };
 use crate::renderer_control::{RendererColorSpace, RendererFrameRelease, RendererPixelFormat};
 use crate::surface::{
-    AttachLifecycle, MouseSelectionAutoscrollDirection, TerminalInteractionSnapshot,
+    AttachLifecycle, ExternalTerminalClaimReceipt, ExternalTerminalOutputReceipt,
+    ExternalTerminalOwner, MouseSelectionAutoscrollDirection, TerminalInteractionSnapshot,
 };
 use crate::terminal_authority::{
     AutomationInputScope, BeginTerminalOperation, DEFAULT_TERMINAL_LEASE_TTL_MS,
@@ -916,6 +917,121 @@ enum Command {
         #[serde(default)]
         rows: Option<u16>,
     },
+    CanonicalMaterializeTerminal {
+        #[serde(flatten)]
+        mutation: CanonicalMutationWire,
+        workspace_uuid: WorkspaceUuid,
+        surface_uuid: SurfaceUuid,
+        #[serde(default)]
+        cwd: Option<String>,
+        #[serde(default)]
+        argv: Option<Vec<String>>,
+        #[serde(default)]
+        command: Option<String>,
+        #[serde(default)]
+        env: Vec<EnsureTerminalEnvironment>,
+        #[serde(default)]
+        initial_input: Option<String>,
+        #[serde(default)]
+        wait_after_command: bool,
+        #[serde(default)]
+        cols: Option<u16>,
+        #[serde(default)]
+        rows: Option<u16>,
+    },
+    CanonicalRespawnTerminal {
+        #[serde(flatten)]
+        mutation: CanonicalMutationWire,
+        surface_uuid: SurfaceUuid,
+        #[serde(default)]
+        cwd: Option<String>,
+        #[serde(default)]
+        argv: Option<Vec<String>>,
+        #[serde(default)]
+        command: Option<String>,
+        #[serde(default)]
+        env: Vec<EnsureTerminalEnvironment>,
+        #[serde(default)]
+        initial_input: Option<String>,
+        #[serde(default)]
+        wait_after_command: bool,
+        #[serde(default)]
+        cols: Option<u16>,
+        #[serde(default)]
+        rows: Option<u16>,
+    },
+    CanonicalMaterializeExternalTerminal {
+        #[serde(flatten)]
+        mutation: CanonicalMutationWire,
+        workspace_uuid: WorkspaceUuid,
+        surface_uuid: SurfaceUuid,
+        cols: u16,
+        rows: u16,
+        #[serde(default)]
+        no_reflow: bool,
+    },
+    CanonicalNewBrowserWorkspace {
+        #[serde(flatten)]
+        mutation: CanonicalMutationWire,
+        workspace_uuid: WorkspaceUuid,
+        surface_uuid: SurfaceUuid,
+        #[serde(default)]
+        name: Option<String>,
+        url: String,
+        #[serde(default)]
+        cols: Option<u16>,
+        #[serde(default)]
+        rows: Option<u16>,
+    },
+    CanonicalNewBrowserTab {
+        #[serde(flatten)]
+        mutation: CanonicalMutationWire,
+        pane_uuid: crate::PaneUuid,
+        surface_uuid: SurfaceUuid,
+        url: String,
+        #[serde(default)]
+        cols: Option<u16>,
+        #[serde(default)]
+        rows: Option<u16>,
+    },
+    CanonicalSplitBrowserPane {
+        #[serde(flatten)]
+        mutation: CanonicalMutationWire,
+        pane_uuid: crate::PaneUuid,
+        surface_uuid: SurfaceUuid,
+        dir: String,
+        ratio: f32,
+        url: String,
+        #[serde(default)]
+        cols: Option<u16>,
+        #[serde(default)]
+        rows: Option<u16>,
+    },
+    ClaimExternalTerminal {
+        surface_uuid: SurfaceUuid,
+        request_id: uuid::Uuid,
+    },
+    ResetExternalTerminal {
+        surface_uuid: SurfaceUuid,
+        owner_generation: u64,
+        request_id: uuid::Uuid,
+        output_generation: u64,
+        cols: u16,
+        rows: u16,
+        seed: String,
+    },
+    ExternalTerminalOutput {
+        surface_uuid: SurfaceUuid,
+        owner_generation: u64,
+        request_id: uuid::Uuid,
+        output_generation: u64,
+        sequence: u64,
+        data: String,
+    },
+    DrainExternalTerminalEgress {
+        surface_uuid: SurfaceUuid,
+        owner_generation: u64,
+    },
     CanonicalSplitPane {
         #[serde(flatten)]
         mutation: CanonicalMutationWire,
@@ -1180,6 +1296,12 @@ impl Command {
         match self {
             Self::CanonicalNewWorkspace { mutation, .. }
             | Self::CanonicalNewTab { mutation, .. }
+            | Self::CanonicalMaterializeTerminal { mutation, .. }
+            | Self::CanonicalRespawnTerminal { mutation, .. }
+            | Self::CanonicalMaterializeExternalTerminal { mutation, .. }
+            | Self::CanonicalNewBrowserWorkspace { mutation, .. }
+            | Self::CanonicalNewBrowserTab { mutation, .. }
+            | Self::CanonicalSplitBrowserPane { mutation, .. }
             | Self::CanonicalSplitPane { mutation, .. }
             | Self::CanonicalSplitTab { mutation, .. }
             | Self::CanonicalClosePane { mutation, .. }
@@ -1234,6 +1356,7 @@ const MAX_SERVER_CONNECTIONS: usize = 64;
 const MAX_TOPOLOGY_STREAMS: u64 = 256;
 const WEBSOCKET_AUTH_MAX_BYTES: usize = 4 * 1024;
 const CONTROL_MESSAGE_MAX_BYTES: usize = 4 * 1024 * 1024;
+const EXTERNAL_TERMINAL_PAYLOAD_MAX_BYTES: usize = 2 * 1024 * 1024;
 const WEBSOCKET_MESSAGE_MAX_BYTES: usize = CONTROL_MESSAGE_MAX_BYTES;
 /// One mux-wide ceiling covering Unix line buffers, WebSocket frame reads, and
 /// conservatively estimated allocations made while decoding admitted JSON.
@@ -1468,6 +1591,14 @@ fn command_admission_policy(command: &str) -> CommandAdmissionPolicy {
         | "ensure-terminals"
         | "canonical-new-workspace"
         | "canonical-new-tab"
+        | "canonical-materialize-terminal"
+        | "canonical-respawn-terminal"
+        | "canonical-materialize-external-terminal"
+        | "canonical-new-browser-workspace"
+        | "canonical-new-browser-tab"
+        | "canonical-split-browser-pane"
+        | "reset-external-terminal"
+        | "external-terminal-output"
         | "canonical-split-pane"
         | "update-projection-state"
         | "update-projection-states"
@@ -1500,7 +1631,6 @@ fn command_admission_policy(command: &str) -> CommandAdmissionPolicy {
             | "vt-state"
             | "pane-neighbor"
             | "process-info"
-            | "set-client-info"
             | "subscribe"
             | "subscribe-topology"
             | "attach-surface"
@@ -1514,6 +1644,12 @@ fn command_admission_policy(command: &str) -> CommandAdmissionPolicy {
             | "reparent-terminal"
             | "canonical-new-workspace"
             | "canonical-new-tab"
+            | "canonical-materialize-terminal"
+            | "canonical-respawn-terminal"
+            | "canonical-materialize-external-terminal"
+            | "canonical-new-browser-workspace"
+            | "canonical-new-browser-tab"
+            | "canonical-split-browser-pane"
             | "canonical-split-pane"
             | "canonical-split-tab"
             | "canonical-close-pane"
@@ -1620,6 +1756,10 @@ fn command_admission_policy(command: &str) -> CommandAdmissionPolicy {
             | "list-clients"
             | "pairing-response"
             | "copy"
+            | "claim-external-terminal"
+            | "reset-external-terminal"
+            | "external-terminal-output"
+            | "drain-external-terminal-egress"
     ) {
         policy.permission = Some(ConnectionPermission::Frontend);
     }
@@ -1628,6 +1768,12 @@ fn command_admission_policy(command: &str) -> CommandAdmissionPolicy {
         "activate-terminal-presentation"
             | "canonical-new-workspace"
             | "canonical-new-tab"
+            | "canonical-materialize-terminal"
+            | "canonical-respawn-terminal"
+            | "canonical-materialize-external-terminal"
+            | "canonical-new-browser-workspace"
+            | "canonical-new-browser-tab"
+            | "canonical-split-browser-pane"
             | "canonical-split-pane"
             | "canonical-split-tab"
             | "canonical-close-pane"
@@ -1663,6 +1809,10 @@ fn command_admission_policy(command: &str) -> CommandAdmissionPolicy {
             | "terminal-delegated-input"
             | "terminal-geometry"
             | "terminal-request-status"
+            | "claim-external-terminal"
+            | "reset-external-terminal"
+            | "external-terminal-output"
+            | "drain-external-terminal-egress"
             | "acknowledge-terminal-request"
             | "terminal-activity-snapshot"
             | "mark-terminal-seen"
@@ -3606,6 +3756,48 @@ fn canonical_surface_placement_json(placement: CanonicalSurfacePlacement) -> Val
     object.insert("surface".into(), json!(placement.surface));
     object.insert("surface_uuid".into(), json!(placement.surface_uuid));
     value
+}
+
+fn external_terminal_owner(mux: &Mux, client: u64) -> anyhow::Result<ExternalTerminalOwner> {
+    let (client_uuid, process_instance_uuid, _) =
+        mux.control_clients.protocol_identity(client, 9)?;
+    Ok(ExternalTerminalOwner { client_uuid, process_instance_uuid, connection_id: client })
+}
+
+fn decode_external_terminal_payload(field: &str, encoded: &str) -> anyhow::Result<Vec<u8>> {
+    if encoded.len() > EXTERNAL_TERMINAL_PAYLOAD_MAX_BYTES.saturating_mul(4).div_ceil(3) + 4 {
+        anyhow::bail!(
+            "external terminal {field} exceeds {EXTERNAL_TERMINAL_PAYLOAD_MAX_BYTES} decoded bytes"
+        );
+    }
+    let bytes = base64::engine::general_purpose::STANDARD.decode(encoded)?;
+    if bytes.len() > EXTERNAL_TERMINAL_PAYLOAD_MAX_BYTES {
+        anyhow::bail!(
+            "external terminal {field} exceeds {EXTERNAL_TERMINAL_PAYLOAD_MAX_BYTES} decoded bytes"
+        );
+    }
+    Ok(bytes)
+}
+
+fn external_terminal_claim_json(receipt: ExternalTerminalClaimReceipt) -> Value {
+    json!({
+        "request_id": receipt.request_id,
+        "owner_generation": receipt.owner_generation,
+        "required_output_generation": receipt.required_output_generation,
+        "replayed": receipt.replayed,
+    })
+}
+
+fn external_terminal_output_json(receipt: ExternalTerminalOutputReceipt) -> Value {
+    json!({
+        "request_id": receipt.request_id,
+        "owner_generation": receipt.owner_generation,
+        "output_generation": receipt.output_generation,
+        "accepted_sequence": receipt.accepted_sequence,
+        "next_sequence": receipt.next_sequence,
+        "egress": base64::engine::general_purpose::STANDARD.encode(receipt.egress),
+        "replayed": receipt.replayed,
+    })
 }
 
 fn parse_direction(dir: &str) -> anyhow::Result<Direction> {
@@ -6855,6 +7047,165 @@ fn handle_command(
             optional_surface_size(cols, rows),
             terminal_launch_request(cwd, argv, command, env, initial_input, wait_after_command),
         )?)),
+        Command::CanonicalMaterializeTerminal {
+            mutation,
+            workspace_uuid,
+            surface_uuid,
+            cwd,
+            argv,
+            command,
+            env,
+            initial_input,
+            wait_after_command,
+            cols,
+            rows,
+        } => Ok(canonical_surface_placement_json(mux.canonical_materialize_terminal(
+            mutation.into(),
+            workspace_uuid,
+            surface_uuid,
+            optional_surface_size(cols, rows),
+            terminal_launch_request(cwd, argv, command, env, initial_input, wait_after_command),
+        )?)),
+        Command::CanonicalRespawnTerminal {
+            mutation,
+            surface_uuid,
+            cwd,
+            argv,
+            command,
+            env,
+            initial_input,
+            wait_after_command,
+            cols,
+            rows,
+        } => Ok(canonical_surface_placement_json(mux.canonical_respawn_terminal(
+            mutation.into(),
+            surface_uuid,
+            optional_surface_size(cols, rows),
+            terminal_launch_request(cwd, argv, command, env, initial_input, wait_after_command),
+        )?)),
+        Command::CanonicalMaterializeExternalTerminal {
+            mutation,
+            workspace_uuid,
+            surface_uuid,
+            cols,
+            rows,
+            no_reflow,
+        } => Ok(canonical_surface_placement_json(mux.canonical_materialize_external_terminal(
+            mutation.into(),
+            workspace_uuid,
+            surface_uuid,
+            (cols, rows),
+            no_reflow,
+        )?)),
+        Command::CanonicalNewBrowserWorkspace {
+            mutation,
+            workspace_uuid,
+            surface_uuid,
+            name,
+            url,
+            cols,
+            rows,
+        } => Ok(canonical_surface_placement_json(mux.canonical_new_browser_workspace(
+            mutation.into(),
+            workspace_uuid,
+            surface_uuid,
+            name,
+            url,
+            optional_surface_size(cols, rows),
+        )?)),
+        Command::CanonicalNewBrowserTab { mutation, pane_uuid, surface_uuid, url, cols, rows } => {
+            Ok(canonical_surface_placement_json(mux.canonical_new_browser_tab(
+                mutation.into(),
+                pane_uuid,
+                surface_uuid,
+                url,
+                optional_surface_size(cols, rows),
+            )?))
+        }
+        Command::CanonicalSplitBrowserPane {
+            mutation,
+            pane_uuid,
+            surface_uuid,
+            dir,
+            ratio,
+            url,
+            cols,
+            rows,
+        } => {
+            let (split_dir, insert_first) = parse_canonical_split_edge(&dir)?;
+            Ok(canonical_surface_placement_json(mux.canonical_split_browser_pane(
+                mutation.into(),
+                pane_uuid,
+                surface_uuid,
+                split_dir,
+                insert_first,
+                ratio,
+                url,
+                optional_surface_size(cols, rows),
+            )?))
+        }
+        Command::ClaimExternalTerminal { surface_uuid, request_id } => {
+            let _client_lifecycle = mux.control_clients.read_lifecycle();
+            Ok(external_terminal_claim_json(mux.claim_external_terminal(
+                surface_uuid,
+                external_terminal_owner(mux, client)?,
+                request_id,
+            )?))
+        }
+        Command::ResetExternalTerminal {
+            surface_uuid,
+            owner_generation,
+            request_id,
+            output_generation,
+            cols,
+            rows,
+            seed,
+        } => {
+            let _client_lifecycle = mux.control_clients.read_lifecycle();
+            let seed = decode_external_terminal_payload("seed", &seed)?;
+            Ok(external_terminal_output_json(mux.reset_external_terminal(
+                surface_uuid,
+                external_terminal_owner(mux, client)?,
+                owner_generation,
+                request_id,
+                output_generation,
+                cols,
+                rows,
+                &seed,
+            )?))
+        }
+        Command::ExternalTerminalOutput {
+            surface_uuid,
+            owner_generation,
+            request_id,
+            output_generation,
+            sequence,
+            data,
+        } => {
+            let _client_lifecycle = mux.control_clients.read_lifecycle();
+            let data = decode_external_terminal_payload("output", &data)?;
+            Ok(external_terminal_output_json(mux.apply_external_terminal_output(
+                surface_uuid,
+                external_terminal_owner(mux, client)?,
+                owner_generation,
+                request_id,
+                output_generation,
+                sequence,
+                &data,
+            )?))
+        }
+        Command::DrainExternalTerminalEgress { surface_uuid, owner_generation } => {
+            let _client_lifecycle = mux.control_clients.read_lifecycle();
+            Ok(json!({
+                "egress": base64::engine::general_purpose::STANDARD.encode(
+                    mux.drain_external_terminal_egress(
+                        surface_uuid,
+                        external_terminal_owner(mux, client)?,
+                        owner_generation,
+                    )?
+                ),
+            }))
+        }
         Command::CanonicalSplitPane {
             mutation,
             pane_uuid,
@@ -8098,7 +8449,6 @@ mod tests {
             "vt-state",
             "pane-neighbor",
             "process-info",
-            "set-client-info",
             "subscribe",
             "subscribe-topology",
             "attach-surface",
@@ -8109,6 +8459,7 @@ mod tests {
             "focus-direction",
             "terminal-input",
             "terminal-geometry",
+            "set-client-info",
             "new-workspace",
             "close-workspace",
             "future-unclassified-command",
@@ -8125,6 +8476,10 @@ mod tests {
             "configure-renderer-presentation",
             "list-clients",
             "pairing-response",
+            "claim-external-terminal",
+            "reset-external-terminal",
+            "external-terminal-output",
+            "drain-external-terminal-egress",
         ] {
             assert_eq!(
                 command_admission_policy(command).permission,
@@ -8297,6 +8652,318 @@ mod tests {
 
         assert_eq!(canonical_state_digest(&mux), before);
         assert_eq!(mux.canonical_topology_revision(), before_revision);
+    }
+
+    #[test]
+    fn external_terminal_wire_has_no_child_and_fences_owner_generation_and_sequence() {
+        let mux = test_mux();
+        mux.new_workspace(Some("remote".into()), Some((80, 24))).unwrap();
+        let workspace_uuid = mux.topology_snapshot().topology["workspaces"][0]["uuid"]
+            .as_str()
+            .unwrap()
+            .parse::<WorkspaceUuid>()
+            .unwrap();
+        let surface_uuid = SurfaceUuid::new();
+        let request_id = uuid::Uuid::new_v4();
+        let (writer, outbound) = test_writer_and_outbound();
+        let (client, _, registration) =
+            register_v9_client_kind(&mux, &writer, ClientTransport::Unix, "swift-shell");
+        let lease = topology_lease(&registration);
+        let base_revision = mux.canonical_topology_revision();
+        let materialize = json!({
+            "id": 51,
+            "cmd": "canonical-materialize-external-terminal",
+            "request_id": request_id,
+            "daemon_instance_id": mux.daemon_instance_id,
+            "session_id": mux.session_id,
+            "expected_revision": base_revision,
+            "topology_lease_id": lease.id,
+            "topology_lease_generation": lease.generation,
+            "workspace_uuid": workspace_uuid,
+            "surface_uuid": surface_uuid,
+            "cols": 80,
+            "rows": 24,
+            "no_reflow": true,
+        })
+        .to_string();
+        assert!(handle_message(&mux, client, &materialize, &writer));
+        let created: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(created["ok"], true);
+        assert_eq!(created["data"]["surface_uuid"], surface_uuid.to_string());
+        let surface_id = created["data"]["surface"].as_u64().unwrap();
+        let surface = mux.surface(surface_id).unwrap();
+        assert!(surface.is_external_terminal());
+        assert_eq!(surface.process_id(), None);
+        assert_eq!(surface.tty_name(), None);
+
+        assert!(handle_message(&mux, client, &materialize, &writer));
+        let replayed: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(replayed["data"]["replayed"], true);
+
+        let claim_request = uuid::Uuid::new_v4();
+        assert!(handle_message(
+            &mux,
+            client,
+            &json!({
+                "id": 52,
+                "cmd": "claim-external-terminal",
+                "surface_uuid": surface_uuid,
+                "request_id": claim_request,
+            })
+            .to_string(),
+            &writer,
+        ));
+        let claim: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        let owner_generation = claim["data"]["owner_generation"].as_u64().unwrap();
+        let output_generation = claim["data"]["required_output_generation"].as_u64().unwrap();
+
+        assert!(handle_message(
+            &mux,
+            client,
+            &json!({
+                "id": 53,
+                "cmd": "reset-external-terminal",
+                "surface_uuid": surface_uuid,
+                "owner_generation": owner_generation,
+                "request_id": uuid::Uuid::new_v4(),
+                "output_generation": output_generation,
+                "cols": 80,
+                "rows": 24,
+                "seed": base64::engine::general_purpose::STANDARD.encode(b"seed"),
+            })
+            .to_string(),
+            &writer,
+        ));
+        let reset: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(reset["data"]["accepted_sequence"], 0);
+        assert_eq!(reset["data"]["next_sequence"], 1);
+
+        let output_request = uuid::Uuid::new_v4();
+        let output = json!({
+            "id": 54,
+            "cmd": "external-terminal-output",
+            "surface_uuid": surface_uuid,
+            "owner_generation": owner_generation,
+            "request_id": output_request,
+            "output_generation": output_generation,
+            "sequence": 1,
+            "data": base64::engine::general_purpose::STANDARD.encode(b" next"),
+        })
+        .to_string();
+        assert!(handle_message(&mux, client, &output, &writer));
+        let accepted: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(accepted["data"]["accepted_sequence"], 1);
+        assert_eq!(accepted["data"]["next_sequence"], 2);
+
+        let retired_owner = external_terminal_owner(&mux, client).unwrap();
+        assert!(disconnect_client(&mux, client, false));
+        let disconnected = handle_command(
+            &mux,
+            client,
+            Command::ExternalTerminalOutput {
+                surface_uuid,
+                owner_generation,
+                request_id: uuid::Uuid::new_v4(),
+                output_generation,
+                sequence: 2,
+                data: base64::engine::general_purpose::STANDARD.encode(b"disconnected"),
+            },
+            &writer,
+        );
+        assert!(disconnected.unwrap_err().to_string().contains("unknown client"));
+
+        let (replacement_writer, replacement_outbound) = test_writer_and_outbound();
+        let (replacement, _, _) = register_v9_client_kind(
+            &mux,
+            &replacement_writer,
+            ClientTransport::Unix,
+            "swift-shell",
+        );
+        assert!(handle_message(
+            &mux,
+            replacement,
+            &json!({
+                "id": 55,
+                "cmd": "claim-external-terminal",
+                "surface_uuid": surface_uuid,
+                "request_id": uuid::Uuid::new_v4(),
+            })
+            .to_string(),
+            &replacement_writer,
+        ));
+        let replacement_claim: Value =
+            serde_json::from_str(&replacement_outbound.try_pop().unwrap()).unwrap();
+        assert!(replacement_claim["data"]["owner_generation"].as_u64().unwrap() > owner_generation);
+
+        let stale_queued_output = mux.apply_external_terminal_output(
+            surface_uuid,
+            retired_owner,
+            owner_generation,
+            uuid::Uuid::new_v4(),
+            output_generation,
+            2,
+            b"stale queued output",
+        );
+        assert!(stale_queued_output.unwrap_err().to_string().contains("owner changed"));
+    }
+
+    #[test]
+    fn canonical_browser_workspace_wire_commits_frontend_optional_projection_once() {
+        let mux = test_mux();
+        let workspace_uuid = WorkspaceUuid::new();
+        let surface_uuid = SurfaceUuid::new();
+        let request_id = uuid::Uuid::new_v4();
+        let (writer, outbound) = test_writer_and_outbound();
+        let (client, _, registration) =
+            register_v9_client_kind(&mux, &writer, ClientTransport::Unix, "swift-shell");
+        let lease = topology_lease(&registration);
+        let message = json!({
+            "id": 61,
+            "cmd": "canonical-new-browser-workspace",
+            "request_id": request_id,
+            "daemon_instance_id": mux.daemon_instance_id,
+            "session_id": mux.session_id,
+            "expected_revision": 0,
+            "topology_lease_id": lease.id,
+            "topology_lease_generation": lease.generation,
+            "workspace_uuid": workspace_uuid,
+            "surface_uuid": surface_uuid,
+            "name": "browser",
+            "url": "about:blank",
+            "cols": 100,
+            "rows": 35,
+        })
+        .to_string();
+
+        assert!(handle_message(&mux, client, &message, &writer));
+        let created: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(created["ok"], true);
+        assert_eq!(created["data"]["workspace_uuid"], workspace_uuid.to_string());
+        assert_eq!(created["data"]["surface_uuid"], surface_uuid.to_string());
+        assert_eq!(created["data"]["revision"], 1);
+        assert_eq!(created["data"]["replayed"], false);
+
+        let snapshot = mux.topology_snapshot();
+        let tab = &snapshot.topology["workspaces"][0]["screens"][0]["panes"][0]["tabs"][0];
+        assert_eq!(tab["uuid"], surface_uuid.to_string());
+        assert_eq!(tab["kind"], "browser");
+        assert_eq!(tab["browser_endpoint"]["transport"], "cmuxd-png-frame-stream-v1");
+        assert_eq!(tab["browser_endpoint"]["frontend_projection"], "frontend-optional");
+
+        assert!(handle_message(&mux, client, &message, &writer));
+        let replayed: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(replayed["data"]["revision"], 1);
+        assert_eq!(replayed["data"]["replayed"], true);
+        assert_eq!(mux.canonical_topology_revision(), 1);
+    }
+
+    struct DurableAcknowledgementSink {
+        path: PathBuf,
+    }
+
+    impl DurableAcknowledgementSink {
+        fn append(&self, value: &Value) -> std::io::Result<()> {
+            let mut file =
+                std::fs::OpenOptions::new().create(true).append(true).open(&self.path)?;
+            serde_json::to_writer(&mut file, value)?;
+            file.write_all(b"\n")?;
+            file.sync_all()
+        }
+    }
+
+    impl MessageSink for DurableAcknowledgementSink {
+        fn send_initial(&self, value: &Value, _stream: &OutboundStream) -> std::io::Result<()> {
+            self.append(value)
+        }
+
+        fn send_stream(&self, value: &Value, _stream: &OutboundStream) -> std::io::Result<()> {
+            self.append(value)
+        }
+
+        fn send_control(&self, value: &Value) -> std::io::Result<()> {
+            self.append(value)
+        }
+
+        fn send_terminal(&self, value: &Value, _stream: &OutboundStream) -> std::io::Result<()> {
+            self.append(value)
+        }
+
+        fn is_open(&self) -> bool {
+            true
+        }
+
+        fn close(&self) {}
+    }
+
+    #[test]
+    fn durable_append_failure_child_aborts_before_response() {
+        let Some(root) = std::env::var_os("CMUX_TEST_DURABILITY_ROOT") else { return };
+        let acknowledgement_path = std::env::var_os("CMUX_TEST_DURABILITY_ACK")
+            .map(PathBuf::from)
+            .expect("durability child acknowledgement path");
+        let store = crate::state_store::StateStore::new(PathBuf::from(root));
+        let mux = Mux::recover_from_state_store(
+            "durability-fail-stop",
+            SurfaceOptions::default(),
+            &store,
+        )
+        .unwrap();
+        let writer = MessageWriter::new(DurableAcknowledgementSink { path: acknowledgement_path });
+        let (client, _, registration) =
+            register_v9_client_kind(&mux, &writer, ClientTransport::Unix, "swift-shell");
+        let lease = topology_lease(&registration);
+        let message = json!({
+            "id": 71,
+            "cmd": "canonical-new-browser-workspace",
+            "request_id": uuid::Uuid::new_v4(),
+            "daemon_instance_id": mux.daemon_instance_id,
+            "session_id": mux.session_id,
+            "expected_revision": 0,
+            "topology_lease_id": lease.id,
+            "topology_lease_generation": lease.generation,
+            "workspace_uuid": WorkspaceUuid::new(),
+            "surface_uuid": SurfaceUuid::new(),
+            "url": "about:blank",
+        })
+        .to_string();
+
+        let _ = handle_message(&mux, client, &message, &writer);
+        panic!("injected durable append failure returned instead of aborting");
+    }
+
+    #[test]
+    fn durable_append_failure_is_fail_stop_before_acknowledgement() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-durable-fail-stop-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let acknowledgement_path = root.join("acknowledgements.jsonl");
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .arg("--exact")
+            .arg("server::tests::durable_append_failure_child_aborts_before_response")
+            .arg("--nocapture")
+            .env("CMUX_TEST_DURABILITY_ROOT", &root)
+            .env("CMUX_TEST_DURABILITY_ACK", &acknowledgement_path)
+            .env("CMUX_TEST_FAIL_DURABLE_APPEND", "1")
+            .output()
+            .unwrap();
+
+        assert!(!output.status.success(), "durability child unexpectedly returned success");
+        let acknowledgements = std::fs::read_to_string(&acknowledgement_path).unwrap_or_default();
+        assert!(
+            acknowledgements.is_empty(),
+            "mutation response escaped before durable append: {acknowledgements}"
+        );
+        let reopened = crate::state_store::StateStore::new(&root)
+            .open_session("durability-fail-stop")
+            .unwrap();
+        assert_eq!(reopened.snapshot.topology_revision, 0);
+        assert!(reopened.snapshot.workspaces.is_empty());
+        assert!(reopened.snapshot.surfaces.is_empty());
+        assert!(reopened.snapshot.idempotency_results.is_empty());
+        drop(reopened.durable);
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
