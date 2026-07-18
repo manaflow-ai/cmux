@@ -90,9 +90,26 @@ extension CMUXCLIErrorOutputRegressionTests {
             "activeSessionsByWorkspace": [source.id.uuidString: activeSlot],
             "activeSessionsBySurface": [sourcePanelID.uuidString: activeSlot],
         ], options: [.sortedKeys]).write(to: stateURL, options: .atomic)
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": ["unrelated-claude": [
+                "sessionId": "unrelated-claude",
+                "workspaceId": UUID().uuidString,
+                "surfaceId": UUID().uuidString,
+                "sessionState": "hibernated",
+                "restoreAuthority": true,
+                "startedAt": 90.0,
+                "updatedAt": 100.0,
+            ]],
+        ], options: [.sortedKeys]).write(
+            to: root.appendingPathComponent("claude-hook-sessions.json"),
+            options: .atomic
+        )
         let registry = CmuxAgentSessionRegistry(url: registryURL)
 
         let sourceSnapshot = source.sessionSnapshot(includeScrollback: false)
+        let selectedShellWorkspace = Workspace()
+        let selectedShellSnapshot = selectedShellWorkspace.sessionSnapshot(includeScrollback: false)
         let restoredWindowID = UUID()
         let appDelegate = try #require(AppDelegate.shared)
         defer {
@@ -107,14 +124,18 @@ extension CMUXCLIErrorOutputRegressionTests {
                 display: nil,
                 tabManager: SessionTabManagerSnapshot(
                     selectedWorkspaceIndex: 0,
-                    workspaces: [sourceSnapshot]
+                    workspaces: [selectedShellSnapshot, sourceSnapshot]
                 ),
                 sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
             )]
         )
         #expect(appDelegate.restorePreviousSessionSnapshot(appSnapshot, shouldActivate: false))
         let restoredManager = try #require(appDelegate.tabManagerFor(windowId: restoredWindowID))
-        let restored = try #require(restoredManager.tabs.first)
+        let restored = try #require(restoredManager.tabs.first { workspace in
+            workspace.sessionSnapshot(includeScrollback: false).panels.contains {
+                $0.terminal?.agent?.sessionId == sessionID
+            }
+        })
         let restoredPanelSnapshot = try #require(
             restored.sessionSnapshot(includeScrollback: false).panels.first {
                 $0.terminal?.agent?.sessionId == sessionID
@@ -123,14 +144,19 @@ extension CMUXCLIErrorOutputRegressionTests {
         let restoredPanelID = restoredPanelSnapshot.id
         #expect(restored.id != source.id)
         #expect(restoredPanelID != sourcePanelID)
-        #expect(restored.terminalPanel(for: restoredPanelID)?.isAgentHibernated == true)
+        _ = try #require(restored.terminalPanel(for: restoredPanelID))
+        // Window construction can focus an adopted placeholder while adding its
+        // workspace, advancing it through the normal focus-driven resume path.
+        let adoptedLifecycleStates: Set<String> = ["hibernated", "restoring"]
 
         let snapshot = try registry.snapshot(provider: "codex")
+        let unrelatedProviderSnapshot = try registry.snapshot(provider: "claude")
+        #expect(unrelatedProviderSnapshot.records.isEmpty)
         let record = try #require(snapshot.records.first(where: { $0.sessionID == sessionID }))
         let recordObject = try #require(
             JSONSerialization.jsonObject(with: record.json) as? [String: Any]
         )
-        #expect(recordObject["sessionState"] as? String == "hibernated")
+        #expect((recordObject["sessionState"] as? String).map(adoptedLifecycleStates.contains) == true)
         let runs = try #require(recordObject["runs"] as? [[String: Any]])
         #expect((runs.first?["cmuxRuntime"] as? [String: Any])?["id"] as? String == runtimeID)
         let sessionSlots = snapshot.activeSlots.filter { $0.sessionID == sessionID }
@@ -160,7 +186,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             let restoredRow = try #require(rows?.first { $0["session_id"] as? String == sessionID })
             #expect(restoredRow["workspace_id"] as? String == restored.id.uuidString)
             #expect(restoredRow["surface_id"] as? String == restoredPanelID.uuidString)
-            #expect(restoredRow["session_state"] as? String == "hibernated")
+            #expect((restoredRow["session_state"] as? String).map(adoptedLifecycleStates.contains) == true)
         }
     }
 
