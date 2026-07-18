@@ -17,11 +17,19 @@ describe("shared workspace visual chrome", () => {
     const css = await readFile(shareStylesPath, "utf8");
 
     expect(css).toContain("--cmux-window: #20211d");
-    expect(css).toContain("--cmux-sidebar: #24251f");
     expect(css).toContain("--cmux-separator: #383933");
     expect(css).not.toMatch(/(?:linear|radial|conic)-gradient/u);
     expect(css).not.toContain("backdrop-filter");
     expect(css).not.toContain("box-shadow");
+  });
+
+  test("shares workspace content without drawing or reserving a sidebar", async () => {
+    const css = await readFile(shareStylesPath, "utf8");
+
+    expect(css).not.toContain("--cmux-sidebar");
+    expect(css).not.toContain(".share-stage-shell::before");
+    expect(css).not.toContain("padding: 8px 8px 8px 228px");
+    expect(css).toContain("padding: 31px 8px 8px");
   });
 
   test("keeps a fixed workspace viewport with a compact mobile layout", async () => {

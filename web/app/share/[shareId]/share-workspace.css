@@ -15,7 +15,6 @@ body {
 
 .share-page {
   --cmux-window: #20211d;
-  --cmux-sidebar: #24251f;
   --cmux-titlebar: #272822;
   --cmux-pane: #1b1c19;
   --cmux-panel: #242520;
@@ -94,40 +93,29 @@ body {
   display: grid;
   align-items: center;
   justify-items: center;
-  padding: 8px 8px 8px 228px;
+  padding: 31px 8px 8px;
   background: var(--cmux-window);
-}
-
-.share-stage-shell::before {
-  position: absolute;
-  z-index: 0;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 219px;
-  border-right: 1px solid var(--cmux-separator);
-  background: var(--cmux-sidebar);
-  content: "";
 }
 
 .share-workspace-title {
   position: absolute;
   z-index: 2;
-  top: 32px;
-  left: 7px;
-  width: 205px;
+  top: 4px;
+  right: 8px;
+  left: 8px;
+  width: auto;
   min-width: 0;
-  height: 44px;
+  height: 22px;
   display: flex;
   align-items: center;
   gap: 7px;
   overflow: hidden;
-  padding: 0 10px;
-  border: 1px solid #168bea;
-  border-radius: 5px;
-  background: #087ee1;
-  color: #fff;
-  font-size: 11px;
+  padding: 0 8px;
+  border: 1px solid var(--cmux-separator);
+  border-radius: 3px;
+  background: #30312c;
+  color: #dedfd8;
+  font-size: 10px;
   font-weight: 550;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -560,15 +548,6 @@ body {
   .share-stage-shell {
     bottom: 154px;
     padding: 31px 5px 5px;
-  }
-
-  .share-stage-shell::before {
-    right: 0;
-    bottom: auto;
-    width: auto;
-    height: 27px;
-    border-right: 0;
-    border-bottom: 1px solid var(--cmux-separator);
   }
 
   .share-workspace-title {
