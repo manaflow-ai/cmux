@@ -10142,7 +10142,8 @@ struct CMUXCLI {
             remoteShellCommand: remoteShellCommand
         )
         var authScriptLines: [String] = []
-        let authenticationLockPath = SSHConnectionSharingOptions().foregroundAuthenticationLockPath(
+        let sharingOptions = SSHConnectionSharingOptions()
+        let authenticationLockPath = sharingOptions.foregroundAuthenticationLockPath(
             destination: options.destination,
             port: options.port,
             options: effectiveSSHOptions(options.sshOptions, remoteRelayPort: options.remoteRelayPort)
@@ -10181,10 +10182,7 @@ struct CMUXCLI {
             authScriptLines.append(localCommandScript)
         }
         if authenticationLockPath != nil {
-            authScriptLines += [
-                "zsystem flock -u \"$cmux_ssh_auth_lock_fd\" || exit 255",
-                "trap - EXIT HUP INT TERM",
-            ]
+            authScriptLines += sharingOptions.successfulForegroundAuthenticationCleanupShellLines()
         }
         let authScriptBody = authScriptLines.joined(separator: "\n")
         let authScript = authenticationLockPath == nil
