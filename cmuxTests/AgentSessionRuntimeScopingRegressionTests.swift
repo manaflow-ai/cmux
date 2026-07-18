@@ -1380,6 +1380,151 @@ extension CMUXCLIErrorOutputRegressionTests {
     }
 
     @MainActor
+    @Test func workspaceTeardownBeforeAdoptionCommitKeepsCanonicalBindingAdoptableByNextLaunch() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-restored-adoption-precommit-teardown-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let overrides = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            "CMUX_RUNTIME_ID": "restore-precommit-teardown-runtime",
+        ]
+        let previousEnvironment = overrides.keys.map { ($0, ProcessInfo.processInfo.environment[$0]) }
+        for (key, value) in overrides { setenv(key, value, 1) }
+        defer {
+            for (key, value) in previousEnvironment {
+                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            }
+        }
+
+        weak var weakSource: Workspace?
+        let fixture: (
+            snapshot: SessionWorkspaceSnapshot,
+            sourceWorkspaceID: UUID,
+            sourcePanelID: UUID,
+            agent: SessionRestorableAgentSnapshot
+        ) = try {
+            let fixture = try makeHibernatedRestoreFixture(
+                root: root,
+                sessionID: "restore-precommit-teardown-session"
+            )
+            weakSource = fixture.source
+            _ = try installHibernatedAuthority(
+                root: root,
+                registryURL: registryURL,
+                agent: fixture.agent,
+                workspaceId: fixture.source.id,
+                surfaceId: fixture.sourcePanelID
+            )
+            return (
+                fixture.snapshot,
+                fixture.source.id,
+                fixture.sourcePanelID,
+                fixture.agent
+            )
+        }()
+        #expect(weakSource == nil)
+        let registry = CmuxAgentSessionRegistry(url: registryURL)
+
+        var database: OpaquePointer?
+        #expect(sqlite3_open(registryURL.path, &database) == SQLITE_OK)
+        let lockedDatabase = try #require(database)
+        defer { sqlite3_close(lockedDatabase) }
+        #expect(sqlite3_exec(lockedDatabase, "BEGIN IMMEDIATE", nil, nil, nil) == SQLITE_OK)
+        var databaseIsLocked = true
+        defer {
+            if databaseIsLocked {
+                sqlite3_exec(lockedDatabase, "ROLLBACK", nil, nil, nil)
+            }
+        }
+
+        let adoptionWaitStarted = AgentSessionAsyncGate()
+        let allowCanceledWaitToFinish = AgentSessionAsyncGate()
+        let launchAOwnerReleased = AgentSessionAsyncGate()
+        weak var weakLaunchA: Workspace?
+        var launchA: Workspace? = Workspace()
+        weakLaunchA = launchA
+        var launchAWorkspaceID: UUID?
+        var launchAPanelID: UUID?
+        var launchASnapshot: SessionWorkspaceSnapshot?
+        do {
+            let workspace = try #require(launchA)
+            launchAWorkspaceID = workspace.id
+            workspace.debugRestoredAgentHibernationAdoptionWaitHandler = { requests in
+                await adoptionWaitStarted.open()
+                await allowCanceledWaitToFinish.waitUntilOpen()
+                return Dictionary(uniqueKeysWithValues: requests.map { ($0.surfaceId, .unavailable) })
+            }
+            workspace.debugRestoredAgentHibernationAdoptionWaitOwnerReleased = {
+                Task { await launchAOwnerReleased.open() }
+            }
+            workspace.setAgentHibernationAutoResumePresentationVisible(true)
+            let mapping = workspace.restoreSessionSnapshot(fixture.snapshot)
+            let panelID = try #require(mapping[fixture.sourcePanelID])
+            launchAPanelID = panelID
+            let panel = try #require(workspace.terminalPanel(for: panelID))
+            #expect(panel.isAgentHibernated)
+            await adoptionWaitStarted.waitUntilOpen()
+            launchASnapshot = workspace.sessionSnapshot(includeScrollback: false)
+        }
+        let workspaceIDAfterFirstRestore = try #require(launchAWorkspaceID)
+        let panelIDAfterFirstRestore = try #require(launchAPanelID)
+        let snapshotAfterFirstRestore = try #require(launchASnapshot)
+        #expect(workspaceIDAfterFirstRestore != fixture.sourceWorkspaceID)
+        #expect(snapshotAfterFirstRestore.workspaceId == workspaceIDAfterFirstRestore)
+        #expect(snapshotAfterFirstRestore.panels.contains { $0.id == panelIDAfterFirstRestore })
+
+        launchA = nil
+        #expect(weakLaunchA == nil)
+        #expect(sqlite3_exec(lockedDatabase, "ROLLBACK", nil, nil, nil) == SQLITE_OK)
+        databaseIsLocked = false
+        await allowCanceledWaitToFinish.open()
+        await launchAOwnerReleased.waitUntilOpen()
+
+        let precommitSnapshot = try registry.snapshot(provider: "codex")
+        let precommitRecord = try #require(
+            precommitSnapshot.records.first { $0.sessionID == fixture.agent.sessionId }
+        )
+        let precommitObject = try #require(
+            JSONSerialization.jsonObject(with: precommitRecord.json) as? [String: Any]
+        )
+        #expect(precommitObject["workspaceId"] as? String == fixture.sourceWorkspaceID.uuidString)
+        #expect(precommitObject["surfaceId"] as? String == fixture.sourcePanelID.uuidString)
+        #expect(Set(precommitSnapshot.activeSlots.map(\.scopeID)) == [
+            fixture.sourceWorkspaceID.uuidString,
+            fixture.sourcePanelID.uuidString,
+        ])
+
+        let launchB = Workspace()
+        let launchBMapping = launchB.restoreSessionSnapshot(snapshotAfterFirstRestore)
+        let launchBPanelID = try #require(launchBMapping[panelIDAfterFirstRestore])
+        let launchBPanel = try #require(launchB.terminalPanel(for: launchBPanelID))
+        #expect(launchB.id != workspaceIDAfterFirstRestore)
+        #expect(launchBPanel.isAgentHibernated)
+        #expect(
+            launchB.restoredAgentSnapshotForTesting(panelId: launchBPanelID)?.sessionId
+                == fixture.agent.sessionId
+        )
+
+        let reboundSnapshot = try registry.snapshot(provider: "codex")
+        let reboundRecord = try #require(
+            reboundSnapshot.records.first { $0.sessionID == fixture.agent.sessionId }
+        )
+        let reboundObject = try #require(
+            JSONSerialization.jsonObject(with: reboundRecord.json) as? [String: Any]
+        )
+        #expect(reboundObject["workspaceId"] as? String == launchB.id.uuidString)
+        #expect(reboundObject["surfaceId"] as? String == launchBPanelID.uuidString)
+        #expect(reboundObject["sessionState"] as? String == "hibernated")
+        #expect(Set(reboundSnapshot.activeSlots.map(\.scopeID)) == [
+            launchB.id.uuidString,
+            launchBPanelID.uuidString,
+        ])
+    }
+
+    @MainActor
     @Test func hiddenPanelRetainsCommittedAdoptionAndResumesWhenVisibleAgain() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-restored-adoption-hidden-\(UUID().uuidString)", isDirectory: true)
