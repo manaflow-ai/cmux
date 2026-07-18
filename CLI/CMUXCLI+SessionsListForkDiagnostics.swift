@@ -16,7 +16,7 @@ extension CMUXCLI {
         // projection. Transcript lookup only verifies that identity.
         let diagnosticRecord = record
         let storedPIDExists = processExistenceLookup(diagnosticRecord.pid)
-        let recordHasDurableResumeEvidence = agentHookRecordIsRestorable(
+        let recordHasDurableResumeEvidence = agentHookRecordHasDurableResumeEvidence(
             agent: agent,
             record: diagnosticRecord,
             claudeTranscriptLookup: claudeTranscriptLookup
@@ -153,8 +153,20 @@ extension CMUXCLI {
         record: ClaudeHookSessionRecord,
         claudeTranscriptLookup: SessionsListClaudeTranscriptLookupCache
     ) -> Bool {
-        guard record.restoreAuthority != false,
-              sessionsListNormalized(record.launchCommand?.source)?.lowercased() != "rejected" else {
+        guard record.restoreAuthority != false else { return false }
+        return agentHookRecordHasDurableResumeEvidence(
+            agent: agent,
+            record: record,
+            claudeTranscriptLookup: claudeTranscriptLookup
+        )
+    }
+
+    private func agentHookRecordHasDurableResumeEvidence(
+        agent: String,
+        record: ClaudeHookSessionRecord,
+        claudeTranscriptLookup: SessionsListClaudeTranscriptLookupCache
+    ) -> Bool {
+        guard sessionsListNormalized(record.launchCommand?.source)?.lowercased() != "rejected" else {
             return false
         }
         if agent == "gemini" {
