@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import re
+import runpy
 import subprocess
 import sys
 import tempfile
@@ -11,6 +13,18 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "cmux_unit_test_shard.py"
+WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+REQUIRED_HOOK_GATE_SELECTORS = {
+    "cmuxTests/AgentHookDeliveryQueueTests",
+    "cmuxTests/AgentNotificationRegressionTests",
+    "cmuxTests/CLICodexHookTimeoutRegressionTests",
+    "cmuxTests/CLIHookNoResponseTests",
+    "cmuxTests/CMUXCLIErrorOutputRegressionTests",
+    "cmuxTests/ClaudeHookLifecycleCleanupTests",
+    "cmuxTests/ClaudeHookLiveDeliveryTargetTests",
+    "cmuxTests/ClaudeHookPIDAuthenticationTests",
+    "cmuxTests/FeedCoordinatorTests",
+}
 
 
 def write_large_suite_fixture(test_root: Path) -> None:
@@ -218,6 +232,31 @@ final class {name}: XCTestCase {{
 
 
 def main() -> int:
+    focused_gate_selectors = set(
+        runpy.run_path(str(HELPER))["FOCUSED_GATE_SELECTORS"]
+    )
+    missing_hook_gates = REQUIRED_HOOK_GATE_SELECTORS - focused_gate_selectors
+    if missing_hook_gates:
+        print(
+            "FAIL: hook suites missing from FOCUSED_GATE_SELECTORS: "
+            f"{sorted(missing_hook_gates)}"
+        )
+        return 1
+
+    workflow_selectors = set(
+        re.findall(
+            r"-only-testing:(cmuxTests/[A-Za-z_][A-Za-z0-9_]*)",
+            WORKFLOW.read_text(encoding="utf-8"),
+        )
+    )
+    missing_workflow_gates = focused_gate_selectors - workflow_selectors
+    if missing_workflow_gates:
+        print(
+            "FAIL: focused selectors missing from strict ci.yml invocations: "
+            f"{sorted(missing_workflow_gates)}"
+        )
+        return 1
+
     with tempfile.TemporaryDirectory() as tmp:
         tmp_root = Path(tmp)
         test_root = tmp_root / "cmuxTests"
@@ -293,12 +332,9 @@ def main() -> int:
                 print(f"FAIL: repo shard helper exited {result.returncode}")
                 return 1
             shard_selectors = output.read_text(encoding="utf-8").splitlines()
-            for focused_selector in (
-                "-only-testing:cmuxTests/BrowserSystemProxyMirrorTests",
-                "-only-testing:cmuxTests/CLISSHSessionAttachAnchorTests",
-                "-only-testing:cmuxTests/GhosttyOptionAsAltModsTests",
-                "-only-testing:cmuxTests/RemoteTmuxMirrorLayoutIdentityTests",
-            ):
+            for focused_selector in {
+                f"-only-testing:{selector}" for selector in focused_gate_selectors
+            }:
                 if focused_selector in shard_selectors:
                     print(f"FAIL: focused gate selector should not be folded into shard: {focused_selector}")
                     return 1

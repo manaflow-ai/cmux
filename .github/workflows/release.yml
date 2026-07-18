@@ -276,6 +276,8 @@ jobs:
           CODEX_HOOK_CLIENT="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-codex-hook-client"
           HOOK_SUPERVISOR="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-agent-hook-supervisor"
           DIFF_SIDECAR="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-diff-sidecar"
+          test -f "$CODEX_HOOK_CLIENT" && test -x "$CODEX_HOOK_CLIENT"
+          test -f "$HOOK_SUPERVISOR" && test -x "$HOOK_SUPERVISOR"
           APP_ARCHS="$(lipo -archs "$APP_BINARY")"
           CLI_ARCHS="$(lipo -archs "$CLI_BINARY")"
           HELPER_ARCHS="$(lipo -archs "$HELPER_BINARY")"

@@ -13,10 +13,15 @@
 # Optional env:
 #   CMUX_HELPER_ENTITLEMENTS  (default: cmux-helper.entitlements)
 #   CMUX_TIMESTAMP             set to "none" for un-timestamped local sigs
+# Test-only tool injection:
+#   CMUX_CODESIGN_TOOL
+#   CMUX_VERIFY_COMMAND_PALETTE_TOOL
+#   CMUX_VERIFY_DIFF_SIDECAR_TOOL
 #
 # Signs in the Apple-documented inside-out order:
-#   1. CLI helpers under Contents/Resources/bin/* with minimal
-#      hardened-runtime entitlements (no application-identifier).
+#   1. CLI helpers under Contents/Resources/bin/* with minimal hardened-runtime
+#      entitlements. Hook transport helpers are entitlement-free because they
+#      only perform local IPC and process supervision.
 #   2. Each nested plugin under Contents/PlugIns/* with --deep.
 #   3. Each nested framework under Contents/Frameworks/* with --deep
 #      (covers Sparkle's XPCServices and Updater.app).
@@ -37,6 +42,9 @@ APP_PATH="$1"
 APP_ENTITLEMENTS="$2"
 IDENTITY="$3"
 HELPER_ENTITLEMENTS="${CMUX_HELPER_ENTITLEMENTS:-cmux-helper.entitlements}"
+CODESIGN_TOOL="${CMUX_CODESIGN_TOOL:-/usr/bin/codesign}"
+VERIFY_COMMAND_PALETTE_TOOL="${CMUX_VERIFY_COMMAND_PALETTE_TOOL:-$SCRIPT_DIR/verify-command-palette-nucleo-ffi-artifact.sh}"
+VERIFY_DIFF_SIDECAR_TOOL="${CMUX_VERIFY_DIFF_SIDECAR_TOOL:-$SCRIPT_DIR/verify-diff-sidecar-artifact.sh}"
 
 if [[ ! -d "$APP_PATH" ]]; then
   echo "error: app bundle not found at $APP_PATH" >&2
@@ -63,14 +71,21 @@ COMMON=(--force --options runtime "${TS_FLAG[@]}" --sign "$IDENTITY")
 for helper in "$APP_PATH/Contents/Resources/bin"/*; do
   [[ -f "$helper" && -x "$helper" ]] || continue
   echo "==> signing helper $(basename "$helper")"
-  /usr/bin/codesign "${COMMON[@]}" --entitlements "$HELPER_ENTITLEMENTS" "$helper"
+  case "$(basename "$helper")" in
+    cmux-codex-hook-client|cmux-agent-hook-supervisor)
+      "$CODESIGN_TOOL" "${COMMON[@]}" "$helper"
+      ;;
+    *)
+      "$CODESIGN_TOOL" "${COMMON[@]}" --entitlements "$HELPER_ENTITLEMENTS" "$helper"
+      ;;
+  esac
 done
 
 # 2. Plugins
 if [[ -d "$APP_PATH/Contents/PlugIns" ]]; then
   while IFS= read -r -d '' plugin; do
     echo "==> signing plugin $(basename "$plugin")"
-    /usr/bin/codesign "${COMMON[@]}" --deep "$plugin"
+    "$CODESIGN_TOOL" "${COMMON[@]}" --deep "$plugin"
   done < <(find "$APP_PATH/Contents/PlugIns" -mindepth 1 -maxdepth 1 -print0)
 fi
 
@@ -79,18 +94,18 @@ if [[ -d "$APP_PATH/Contents/Frameworks" ]]; then
   "$SCRIPT_DIR/remove-sparkle-sandbox-xpc-services.sh" "$APP_PATH"
   while IFS= read -r -d '' framework; do
     echo "==> signing framework $(basename "$framework")"
-    /usr/bin/codesign "${COMMON[@]}" --deep "$framework"
+    "$CODESIGN_TOOL" "${COMMON[@]}" --deep "$framework"
   done < <(find "$APP_PATH/Contents/Frameworks" -mindepth 1 -maxdepth 1 -print0)
 fi
 
 # 4. Main app bundle (no --deep).
 echo "==> signing main bundle"
-/usr/bin/codesign "${COMMON[@]}" --entitlements "$APP_ENTITLEMENTS" "$APP_PATH"
+"$CODESIGN_TOOL" "${COMMON[@]}" --entitlements "$APP_ENTITLEMENTS" "$APP_PATH"
 
 echo "==> verifying"
-/usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
-"$SCRIPT_DIR/verify-command-palette-nucleo-ffi-artifact.sh" "$APP_PATH"
-"$SCRIPT_DIR/verify-diff-sidecar-artifact.sh" \
+"$CODESIGN_TOOL" --verify --deep --strict --verbose=2 "$APP_PATH"
+"$VERIFY_COMMAND_PALETTE_TOOL" "$APP_PATH"
+"$VERIFY_DIFF_SIDECAR_TOOL" \
   "$APP_PATH/Contents/Resources/bin/cmux-diff-sidecar" \
   --require-signed
 
@@ -98,12 +113,12 @@ APP_ID="$(/usr/libexec/PlistBuddy -c "Print :com.apple.application-identifier" \
   /dev/stdin <<<"$(plutil -convert xml1 -o - "$APP_ENTITLEMENTS")" 2>/dev/null || true)"
 
 if [[ -n "$APP_ID" ]]; then
-  /usr/bin/codesign -d --entitlements :- "$APP_PATH" 2>&1 | grep -q "$APP_ID" || {
+  "$CODESIGN_TOOL" -d --entitlements :- "$APP_PATH" 2>&1 | grep -q "$APP_ID" || {
     echo "error: signed app missing application-identifier $APP_ID" >&2
     exit 1
   }
 fi
-/usr/bin/codesign -d --entitlements :- "$APP_PATH" 2>&1 \
+"$CODESIGN_TOOL" -d --entitlements :- "$APP_PATH" 2>&1 \
   | grep -q "com.apple.developer.web-browser.public-key-credential" || {
     echo "error: signed app missing web-browser entitlement" >&2
     exit 1
@@ -112,11 +127,19 @@ fi
 # Helpers must NOT carry the main app's application-identifier.
 for helper in "$APP_PATH/Contents/Resources/bin"/*; do
   [[ -f "$helper" && -x "$helper" ]] || continue
-  if /usr/bin/codesign -d --entitlements :- "$helper" 2>&1 \
+  if "$CODESIGN_TOOL" -d --entitlements :- "$helper" 2>&1 \
        | grep -q "application-identifier"; then
     echo "error: helper $(basename "$helper") unexpectedly carries application-identifier" >&2
     exit 1
   fi
+done
+
+for hook_helper in \
+  "$APP_PATH/Contents/Resources/bin/cmux-codex-hook-client" \
+  "$APP_PATH/Contents/Resources/bin/cmux-agent-hook-supervisor"
+do
+  CMUX_CODESIGN_TOOL="$CODESIGN_TOOL" \
+    "$SCRIPT_DIR/verify-hook-helper-signature.sh" "$hook_helper"
 done
 
 echo "==> signing OK: $APP_PATH"

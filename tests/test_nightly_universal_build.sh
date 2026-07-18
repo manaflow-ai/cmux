@@ -213,12 +213,21 @@ if ! awk '
   in_verify && /lipo -archs "\$APP_BINARY"/ { saw_app=1 }
   in_verify && /lipo -archs "\$CLI_BINARY"/ { saw_cli=1 }
   in_verify && /lipo -archs "\$HELPER_BINARY"/ { saw_helper=1 }
+  in_verify && /test -f "\$CODEX_HOOK_CLIENT" && test -x "\$CODEX_HOOK_CLIENT"/ { saw_codex_hook_file=1 }
+  in_verify && /test -f "\$HOOK_SUPERVISOR" && test -x "\$HOOK_SUPERVISOR"/ { saw_hook_supervisor_file=1 }
+  in_verify && /lipo -archs "\$CODEX_HOOK_CLIENT"/ { saw_codex_hook=1 }
+  in_verify && /lipo -archs "\$HOOK_SUPERVISOR"/ { saw_hook_supervisor=1 }
   in_verify && /\[\[ "\$APP_ARCHS" == \*arm64\* && "\$APP_ARCHS" == \*x86_64\* \]\]/ { saw_app_assert=1 }
   in_verify && /\[\[ "\$CLI_ARCHS" == \*arm64\* && "\$CLI_ARCHS" == \*x86_64\* \]\]/ { saw_cli_assert=1 }
   in_verify && /\[\[ "\$HELPER_ARCHS" == \*arm64\* && "\$HELPER_ARCHS" == \*x86_64\* \]\]/ { saw_helper_assert=1 }
-  END { exit !(saw_app && saw_cli && saw_helper && saw_app_assert && saw_cli_assert && saw_helper_assert) }
+  in_verify && /\[\[ "\$CODEX_HOOK_ARCHS" == \*arm64\* && "\$CODEX_HOOK_ARCHS" == \*x86_64\* \]\]/ { saw_codex_hook_assert=1 }
+  in_verify && /\[\[ "\$HOOK_SUPERVISOR_ARCHS" == \*arm64\* && "\$HOOK_SUPERVISOR_ARCHS" == \*x86_64\* \]\]/ { saw_hook_supervisor_assert=1 }
+  END {
+    exit !(saw_app && saw_cli && saw_helper && saw_codex_hook_file && saw_hook_supervisor_file && saw_codex_hook && saw_hook_supervisor &&
+           saw_app_assert && saw_cli_assert && saw_helper_assert && saw_codex_hook_assert && saw_hook_supervisor_assert)
+  }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly workflow must verify universal app, CLI, and helper slices with lipo"
+  echo "FAIL: nightly workflow must verify executable universal app, CLI, Ghostty, and hook-helper slices with lipo"
   exit 1
 fi
 

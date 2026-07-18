@@ -29,6 +29,30 @@ require_job_contains() {
   fi
 }
 
+require_hook_artifact_gate() {
+  local file="$1" job="$2" label="$3"
+  local section
+  section="$(job_section "$file" "$job")"
+
+  if [[ "$section" != *'cmux-codex-hook-client'* ]] ||
+     [[ "$section" != *'cmux-agent-hook-supervisor'* ]]; then
+    echo "FAIL: $label must locate both bundled hook helpers" >&2
+    exit 1
+  fi
+
+  for variable in CODEX_HOOK_CLIENT HOOK_SUPERVISOR; do
+    if [[ "$section" != *"test -f \"\$$variable\" && test -x \"\$$variable\""* ]]; then
+      echo "FAIL: $label must require $variable to be an executable file" >&2
+      exit 1
+    fi
+    if [[ "$section" != *"lipo -archs \"\$$variable\""* ]] &&
+       [[ "$section" != *"lipo \"\$$variable\" -verify_arch arm64 x86_64"* ]]; then
+      echo "FAIL: $label must verify universal slices for $variable" >&2
+      exit 1
+    fi
+  done
+}
+
 require_job_contains \
   "$RELEASE_FILE" \
   "build-ghostty-cli-helper" \
@@ -46,6 +70,9 @@ require_job_contains \
   "release-build" \
   'runs-on: ${{ vars.MACOS_RUNNER_26_RELEASE || '\''blacksmith-6vcpu-macos-26'\'' }}' \
   "CI release-build must compile the app on macOS 26 using the release-specific runner variable"
+
+require_hook_artifact_gate "$CI_FILE" "release-build" "CI release-build"
+require_hook_artifact_gate "$RELEASE_FILE" "build-sign-notarize" "release workflow"
 
 for workflow in "$CI_FILE" "$RELEASE_FILE"; do
   if ! grep -Fq "CMUX_SKIP_ZIG_BUILD=1 xcodebuild" "$workflow"; then
